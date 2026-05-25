@@ -1,0 +1,27 @@
+[Unit]
+Description=usa-wa — Washington State law, regulation, and policy tracking service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=exedev
+WorkingDirectory=/home/exedev/usa-wa
+
+# Create runtime dir (runs as root before User= takes effect with + prefix)
+ExecStartPre=+/bin/bash -c 'mkdir -p /run/usa-wa && chown exedev:exedev /run/usa-wa'
+
+# Write current git SHA to a runtime env file before starting
+ExecStartPre=/bin/bash -c 'echo BUILD_ID=$(git rev-parse --short HEAD) > /run/usa-wa/build-id'
+
+# Load BUILD_ID, then system secrets, then optional repo-local overrides.
+# Order matters: later EnvironmentFiles override earlier ones.
+EnvironmentFile=-/run/usa-wa/build-id
+EnvironmentFile=/etc/usa-wa/.env
+EnvironmentFile=-/home/exedev/usa-wa/.env
+
+ExecStart=/usr/local/bin/uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

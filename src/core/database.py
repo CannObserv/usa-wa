@@ -1,0 +1,41 @@
+"""Async database engine and session factory."""
+
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from src.core.config import get_database_url
+from src.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+_engine: AsyncEngine | None = None
+_session_factory: async_sessionmaker[AsyncSession] | None = None
+
+
+def get_engine() -> AsyncEngine:
+    """Return the shared async engine, creating it on first call."""
+    global _engine
+    if _engine is None:
+        url = get_database_url()
+        _engine = create_async_engine(url, echo=False)
+        logger.info("database engine created", extra={"host": url.split("@")[-1]})
+    return _engine
+
+
+def reset_engine() -> None:
+    """Reset the shared engine and session factory. For testing only."""
+    global _engine, _session_factory
+    _engine = None
+    _session_factory = None
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Return the shared session factory, creating it on first call."""
+    global _session_factory
+    if _session_factory is None:
+        _session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
+    return _session_factory

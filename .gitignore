@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Environment / secrets
+.env
+env
+
+# Coverage
+htmlcov/
+.coverage
+coverage.xml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git worktrees
+.worktrees/
+
+# Runtime (BUILD_ID stamp target — DEPLOY_TARGET=systemd writes /run/usa-wa/build-id)
+/run/

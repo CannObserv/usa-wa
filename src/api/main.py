@@ -1,0 +1,49 @@
+"""FastAPI application entry point."""
+
+from contextlib import asynccontextmanager
+
+from fastapi import APIRouter, FastAPI
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+
+from src.core.config import get_settings
+from src.core.database import get_session_factory
+from src.core.logging import configure_logging, get_logger
+
+logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """One-time setup on startup, teardown on shutdown."""
+    configure_logging()
+    logger.info("application starting")
+    yield
+    logger.info("application stopping")
+
+
+app = FastAPI(title="usa-wa", version="0.1.0", lifespan=lifespan)
+
+health_router = APIRouter(tags=["health"])
+
+
+@health_router.get("/health")
+async def health() -> dict:
+    """Liveness probe — confirms the app process is running. No external calls."""
+    return {"status": "ok", "build": get_settings().build_id}
+
+
+@health_router.get("/ready")
+async def ready() -> JSONResponse:
+    """Readiness probe — checks DB connectivity. Returns 503 on failure."""
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        try:
+            await session.execute(text("SELECT 1"))
+            return JSONResponse(status_code=200, content={"status": "ready", "db": True})
+        except SQLAlchemyError:
+            return JSONResponse(status_code=503, content={"status": "not_ready", "db": False})
+
+
+app.include_router(health_router)
