@@ -35,9 +35,20 @@ The vendor → symlink → discovery layout means the project carries no skill s
 
 The Python/FastAPI variants (`reviewing-code-python-fastapi`, `shipping-work-python-fastapi`) are the canonical workflows for this repo; their stack-neutral counterparts are kept for cross-cohort reference.
 
+## Vendor preferences on name collisions
+
+Two skill names exist in both vendors. For each, we pick the CannObserv (gregoryfoster) version explicitly:
+
+| Skill | Resolves to |
+|---|---|
+| `using-git-worktrees` | `skills-vendor/gregoryfoster-skills/skills/using-git-worktrees` |
+| `writing-plans` | `skills-vendor/gregoryfoster-skills/skills/writing-plans` |
+
+The upstream `init-project-fastapi` skill's Phase 10 loop iterates obra-superpowers first, which would leave the obra version winning by default. We override that with explicit `ln -sfn` calls (see commit history). Note: the naive `ln -s` in the upstream loop also strands dangling symlinks inside the obra submodule on collisions — a separate upstream issue (`docs/upstream-issue-4-phase10-lns.md`, until filed).
+
 ## Local overrides
 
-Local overrides live in `skills/<name>/` directly (not symlinks). Each override must declare `overrides: <vendor>/<upstream-skill-name>` and `override-reason:` in its frontmatter `metadata` block.
+Full local copies (not symlinks) live in `skills/<name>/`. Each must declare `overrides: <vendor>/<upstream-skill-name>` and `override-reason:` in its frontmatter `metadata` block.
 
 | Override | Reason |
 |---|---|
