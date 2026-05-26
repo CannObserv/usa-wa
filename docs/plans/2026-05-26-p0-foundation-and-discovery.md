@@ -6,7 +6,7 @@ status: draft
 
 # P0 — foundation + discovery tracks
 
-Tracks the spec at [docs/specs/2026-05-25-usa-wa-mvp-design.md](../specs/2026-05-25-usa-wa-mvp-design.md). Scope is the P0 row of the phasing table.
+Tracks the spec at [docs/specs/2026-05-25-usa-wa-mvp-design.md](../specs/2026-05-25-usa-wa-mvp-design.md). GitHub tracking issue: [#2](https://github.com/CannObserv/usa-wa/issues/2). Scope is the P0 row of the phasing table.
 
 ## Problem
 
