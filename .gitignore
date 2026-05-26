@@ -29,3 +29,6 @@ coverage.xml
 
 # Runtime (BUILD_ID stamp target — DEPLOY_TARGET=systemd writes /run/usa-wa/build-id)
 /run/
+
+# Brainstorming companion session artifacts
+.superpowers/
