@@ -46,6 +46,7 @@ async def seeded(db_session):
 
     fetch = FetchEvent(
         source_id=source.id,
+        resource_id="HB-1234-2025-26",
         url="https://wslwebservices.leg.wa.gov/LegislationService.asmx",
         fetched_at=datetime.now(UTC),
         http_status=200,

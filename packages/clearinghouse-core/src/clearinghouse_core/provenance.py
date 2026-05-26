@@ -104,17 +104,24 @@ class FetchEvent(Base, CreatedAtMixin):
 
     Append-only. Metadata persists forever; the body bytes in :class:`RawPayload`
     age out per the source's ``cache_ttl_days``.
+
+    ``resource_id`` is the source's stable identifier for a particular thing being
+    fetched (e.g., ``"HB-1234-2025-26"``). The :class:`AdapterRunner` uses
+    ``(source_id, resource_id)`` to find recent cached fetches.
     """
 
     __tablename__ = "fetch_events"
-    __table_args__ = {"schema": SCHEMA}
+    __table_args__ = ({"schema": SCHEMA},)
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
     source_id: Mapped[_ULID] = mapped_column(
         ULID(),
         ForeignKey(f"{SCHEMA}.sources.id", ondelete="RESTRICT"),
         nullable=False,
+        index=True,
     )
+    resource_id: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
+    resource_version_key: Mapped[str | None] = mapped_column(String(256), nullable=True)
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
