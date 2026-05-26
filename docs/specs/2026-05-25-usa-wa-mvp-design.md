@@ -1,7 +1,7 @@
 # usa-wa MVP architecture & phasing
 
-- **Date:** 2026-05-25 (revised 2026-05-26)
-- **Status:** approved — proceeds to implementation planning
+- **Date:** 2026-05-25 (revised 2026-05-26 again post-P0)
+- **Status:** approved — P0 complete; P0.5 (hybrid-IA work, [GH #3](https://github.com/CannObserv/usa-wa/issues/3)) blocks P1a
 - **Scope:** Phases P0 through P1c (foundation + keystone vertical slice). P2+ sketched, not specified.
 
 ## Problem
@@ -14,7 +14,7 @@ Constraint context:
 
 - Pre-production workshop on a single exe.dev VM; live service is the systemd unit on port 8000.
 - Cohort majority defaults already chosen during bootstrap (Pydantic Settings, monolithic models layout, systemd deploy). See `AGENTS.md`.
-- Primary-source bytes are stored only as a **time-bounded cache**. Archiver (`CannObserv/archiver`) is the long-term system of record. Watcher (`CannObserv/watcher`) may eventually own scheduled-refresh orchestration.
+- Primary-source bytes are stored only as a **time-bounded cache**. Long-term archival is **out of MVP scope** — the Archiver / Watcher / Replicator sibling trio is not MVP-ready (see `docs/research/2026-05-26-archiver-integration-contract.md` and `docs/research/2026-05-26-watcher-integration-contract.md`). usa-wa runs its own APScheduler indefinitely and stores raw payloads with a per-source TTL.
 - Citations and confidence are first-class.
 - Sibling services (`observo`, `archiver`, `watcher`, `power-map`) are upstream contributors; their integration sequence depends on each one's maturity. usa-wa is the read layer of the cohort.
 
@@ -32,7 +32,7 @@ Constraint context:
 | Auth | Single shared bearer token in `/etc/usa-wa/.env` for MVP; per-client tokens in P4. |
 | DB identifiers | **ULIDs** for every PK and FK across the canonical and source-namespaced schemas. |
 | Jurisdiction encoding | 3-letter country + 2-letter state/province (`usa-wa`) everywhere — package names, schemas, slugs, `jurisdiction_id` values. |
-| Raw payload retention | Configurable TTL per source (default 30 days). Archiver is the long-term store. |
+| Raw payload retention | Configurable TTL per source (default 30 days). No long-term archival; Archiver/Watcher deferred (see research notes). |
 
 The agent question shape that grounds the model:
 
@@ -42,28 +42,34 @@ The agent question shape that grounds the model:
 
 | Phase | Scope | Shippable MCP capability |
 |---|---|---|
-| **P0** | Workspace + Postgres + adapter contract; **discovery tracks:** Archiver schema/API, Watcher schema/API, multi-state legislative IA research | (foundation) |
+| **P0** | Workspace + Postgres + adapter contract; three discovery tracks (Archiver, Watcher, multi-state legislative IA). **Status: complete (commits 93bbdfc → 3f244a8, refs #2).** | (foundation) |
+| **P0.5** | **Hybrid legislative IA + bidirectional adapter-transformation specs** (OCD ↔ LegiScan ↔ uscongress ↔ our IA). Revises the `clearinghouse-domain-legislative` entity skeleton with findings from P0 step 10c. Blocks P1a. | (design) |
 | **P1a** | Spine + WA Legislature bills + first MCP tool | "describe HB-1234" — status, sponsors, actions, dates |
 | **P1b** | RCW corpus + Bill↔RCW link | "what does HB-1234 actually do?" — affected RCW sections |
 | **P1c** | PDC adapter (stored, un-linked to legislators) | "lobbying on HB-1234" + degraded money-around-sponsors |
-| **P2** | power-map adapter (identity authority); evaluate Watcher delegation | upgrades earlier tools with cross-source identity |
+| **P2** | power-map adapter (identity authority) | upgrades earlier tools with cross-source identity |
 | **P3** | WA Legislature depth + backfill protocol | broader coverage, 2025-26 biennium loaded |
 | **P4** | Admin UI + REST stabilization + per-client tokens | operational maturity |
-| **P5+** | archiver/observo/GIS/SDK as siblings mature | (out of MVP) |
+| **P5+** | archiver/watcher/replicator/observo/GIS/SDK as siblings mature | (out of MVP) |
 
-Rationale: vertical-slice first. The canonical model gets pressure-tested against WA Legislature + RCW + PDC together rather than designed in a vacuum. power-map promoted from late-phase to P2 because identity unblocks every downstream MCP capability.
+Rationale: vertical-slice first. The canonical model gets pressure-tested against WA Legislature + RCW + PDC together rather than designed in a vacuum. power-map promoted from late-phase to P2 because identity unblocks every downstream MCP capability. P0.5 inserted between P0 and P1a after the multi-state IA delta (P0 step 10c) surfaced structural gaps too large to defer — see [P0.5 section](#p05--hybrid-legislative-ia--adapter-transformations).
 
-**P0 discovery tracks** run in parallel with the foundation work and feed findings into P1a's model design:
+**P0 discovery tracks (completed)** produced three research notes that drive subsequent decisions:
 
-- **Archiver schema/API discovery** — confirm what URLs/payloads it stores, retrieval interface, registration interface (do we POST URLs to it? does it poll? does it accept content?). Output: integration contract.
-- **Watcher schema/API discovery** — confirm scheduling capability, push semantics, what data it provides on change. Output: decision on whether usa-wa runs its own scheduler (APScheduler) or delegates to Watcher.
-- **Multi-state legislative IA research** — survey existing data models to validate `clearinghouse-domain-legislative` shape against real edge cases. Confirmed reference sources:
-  - **OpenStates** — `openstates.org` / `github.com/openstates/openstates-core`. Multi-state legislative data pipeline; canonical for bill/legislator/committee/event modeling across 50 states.
-  - **LegiScan** — `legiscan.com/legiscan` / API docs. Commercial multi-state legislative tracking; useful for normalized status and action-type vocabularies.
-  - **GovTrack-derived schemas** — `github.com/unitedstates/congress` and friends. Federal-focused but the model maps cleanly onto state legislatures.
-  - **NCSL standards** — `ncsl.org` legislative data and process resources. Higher-level taxonomy and committee/process vocabulary.
+- **Archiver** ([note](../research/2026-05-26-archiver-integration-contract.md)) — Archiver is a URL-registry service, not a body store; Replicator handles bucket uploads but is not yet live. **Recommendation: loose, URL-ref-only at MVP — deferred indefinitely.** usa-wa no longer carries an `archiver_url` placeholder.
+- **Watcher** ([note](../research/2026-05-26-watcher-integration-contract.md)) — interval-only scheduler, Procrastinate-driven, no Python SDK for subscribers, no on-demand refresh API; tightly coupled to Archiver. **Recommendation: keep in-process APScheduler indefinitely.**
+- **Multi-state IA** ([note](../research/2026-05-26-multi-state-legislative-ia-delta.md)) — surfaces three structural gaps (LegislativeSession as a first-class entity vs `biennium` text; missing Vote cluster; polymorphic sponsorship) plus a `title`/`short_description` rename. These gaps **drive P0.5**.
 
-  Output: a written delta between our P1a draft entities (bills, legislators, actions, sponsorships) and each reference; any entity/field gaps revised into Layer 2 before P1a normalization code lands.
+## P0.5 — hybrid legislative IA + adapter transformations
+
+Tracked separately ([GH #3](https://github.com/CannObserv/usa-wa/issues/3)). Inserted post-P0 because the multi-state IA delta found gaps too consequential to absorb mid-P1a. Deliverables:
+
+1. **Revised `clearinghouse-domain-legislative` schema spec** that synthesizes our shape with OpenStates/OCD, LegiScan, and uscongress findings — preserving jurisdiction-agnostic reusability while gaining first-class `LegislativeSession`, a Vote cluster, polymorphic sponsorship, and any other structural fixes from the delta. Output as a dedicated spec at `docs/specs/2026-05-26-hybrid-legislative-ia.md`.
+2. **Three formal transformation specs**, one each at `docs/specs/2026-05-26-transformation-ocd.md`, `…-legiscan.md`, `…-uscongress.md`. Each documents a bidirectional mapping between our IA and the foreign schema, identifying lossy directions explicitly. These specs serve dual purposes: (a) completeness check on our own IA, (b) foundation for future *indirect-provider* adapters (e.g., fall back to OpenStates when WSL is rate-limited or down, corroborate WSL data against LegiScan, etc.).
+3. **Schema implementation** — apply the revised IA to the `clearinghouse-domain-legislative` package (SQLAlchemy models + first alembic migration for the `canonical.*` schema).
+4. **Power-map integration model** (depends on the in-flight `docs/research/2026-05-26-power-map-integration-contract.md` note) — capture how usa-wa will use power-map's external-ID tracking facilities both as a consumer (read identity) and as a contributor (push observations).
+
+P0.5 blocks P1a. P1a's WSL normalization code must be written against the revised IA, not the P0-skeleton entities.
 
 ## Architecture
 
@@ -155,24 +161,16 @@ Idempotency:
 
 - Canonical tables carry a unique constraint on `(jurisdiction_id, source, source_id)` separate from the ULID PK. Re-running an adapter against unchanged source data produces no diff.
 
-### Raw payload retention & Archiver/Watcher integration
+### Raw payload retention
 
-usa-wa does **not** keep raw payloads forever. The cache is a forensic-recovery convenience for recent fetches; Archiver is the long-term system of record.
-
-| Concern | usa-wa | Archiver | Watcher |
-|---|---|---|---|
-| Recent raw bytes (within TTL) | local `raw_payloads` table | (also archived async) | — |
-| Older raw bytes | URL ref only; redirect to Archiver | system of record | — |
-| Schedule polling | APScheduler (MVP); may delegate | — | future delegate target |
-| Change notification | on-demand fetch when stale | — | future push source |
+usa-wa does **not** keep raw payloads forever. The cache is a forensic-recovery convenience for recent fetches. Long-term archival is out of MVP scope — the Archiver/Watcher/Replicator sibling trio is not MVP-ready (see P0 discovery notes).
 
 Concrete rules for MVP:
 
 - `Source.cache_ttl_days` configurable per adapter; default 30 days.
 - A background sweep GCs `raw_payloads` rows past TTL. Their parent `fetch_events` rows (URL, timestamp, content hash) persist — small metadata, useful forever.
-- For older content, the response includes the original URL and (when known) the Archiver URL. Clients/agents can fetch from Archiver directly.
-- **P0 discovery output** decides whether usa-wa actively pushes URLs to Archiver after fetch (tight integration) or whether Archiver runs its own polling and we just reference it (loose integration). This decision is deferred to P0 once Archiver's API is documented.
-- Scheduled refresh stays in-process via APScheduler for P1. Watcher delegation evaluated in P2.
+- For older content, the response includes the original URL only; clients re-fetch from the original source if they need bytes.
+- Scheduled refresh stays in-process via APScheduler indefinitely.
 
 **Keyword + vector search** is acknowledged as an alternative replication route for extracted text but is out of MVP scope. When it lands, candidate approaches: Postgres FTS for keyword, pgvector for embeddings, both in the same DB — avoids operational complexity of an external search system.
 
@@ -186,7 +184,7 @@ Schemas: `usa_wa_legislature.*`, `usa_wa_pdc.*`, `usa_wa_rcw.*`, `canonical.*`. 
 |---|---|
 | `clearinghouse_core.jurisdictions` | One row per deployable jurisdiction. PK is the ULID; natural key is the encoded id (`usa-wa`). Carries name + level (state/federal/municipal). |
 | `clearinghouse_core.sources` | One row per configured data source. Holds `kind`, `base_url`, `reliability ∈ [0, 1]`, `cache_ttl_days`, JSON config, jurisdiction_id. |
-| `clearinghouse_core.fetch_events` | One row per fetch operation. URL, timestamp, HTTP status, content hash, etag/last-modified, status enum, optional `archiver_url`. |
+| `clearinghouse_core.fetch_events` | One row per fetch operation. URL, timestamp, HTTP status, content hash, etag/last-modified, status enum. |
 | `clearinghouse_core.raw_payloads` | Time-bounded cached bytes for a fetch event. Compressed `bytea`. GC'd after `cache_ttl_days`. |
 | `clearinghouse_core.citations` | Polymorphic `(entity_type, entity_id) → fetch_event_id` link. Optional `field_path`. Confidence ∈ [0, 1] (single-source for MVP). |
 
@@ -257,7 +255,7 @@ All MCP tools implicitly scope to `jurisdiction_id='usa-wa'` in the WA deploymen
 
 **Auth:** single shared bearer token (`USA_WA_API_TOKEN` in `/etc/usa-wa/.env`) for MVP. `/health` and `/ready` exempted for systemd probes. Middleware lives on the FastAPI app — one place to evolve to per-client tokens in P4.
 
-**Citations:** every REST and MCP response includes a top-level `citations: []` array. Each citation: `{source, url, fetched_at, confidence, fact?, archiver_url?}`. One bibliography per response, not inline per-field — fewer tokens, easier for the agent to surface.
+**Citations:** every REST and MCP response includes a top-level `citations: []` array. Each citation: `{source, url, fetched_at, confidence, fact?}`. One bibliography per response, not inline per-field — fewer tokens, easier for the agent to surface.
 
 ## Deferred (out of MVP)
 
@@ -268,8 +266,7 @@ All MCP tools implicitly scope to `jurisdiction_id='usa-wa'` in the WA deploymen
 | SCD-2 / point-in-time queries | Not motivated by MCP question shape; add if a use case emerges |
 | Full bill version text | P3 |
 | Statute text-diff display in `bill_changes` | P3 enrichment |
-| Watcher delegation of scheduled refresh | P2 evaluation, P3+ implementation |
-| Tight Archiver integration (active push) | P0 discovery decides; possibly P3+ |
+| Archiver / Watcher / Replicator integration | Deferred indefinitely — sibling trio not MVP-ready (see P0 research notes). Revisit if cohort priorities change. |
 | Keyword + vector search | Not in MVP; pgvector + Postgres FTS likely path |
 | Rate limiting, per-client quotas, OAuth | P4 (Operate) |
 | MCP resources (vs. tools-only) | P4 or later if useful |
@@ -288,9 +285,9 @@ All MCP tools implicitly scope to `jurisdiction_id='usa-wa'` in the WA deploymen
 
 Carried into the implementation-planning phase. Resolution gates are noted.
 
-1. **Archiver integration model** — tight (usa-wa pushes URLs / receives bytes) vs loose (usa-wa references Archiver passively). **Gate:** P0 Archiver schema/API discovery.
-2. **Watcher delegation** — does usa-wa run APScheduler or push scheduling to Watcher? **Gate:** P0 Watcher schema/API discovery; defer decision to P2.
-3. **Multi-state legislative IA edge cases** — does `clearinghouse-domain-legislative` shape survive contact with other states' data models? **Gate:** P0 research against the four reference sources listed in Phasing > P0; revise Layer 2 schema before P1a if needed.
+1. ~~**Archiver integration model**~~ — **resolved 2026-05-26**: deferred (loose, URL-ref-only never adopted). See research note.
+2. ~~**Watcher delegation**~~ — **resolved 2026-05-26**: usa-wa runs APScheduler indefinitely. See research note.
+3. **Power-map integration model** — read flow (consume identity) + write flow (push observations) + maturity gating. **Gate:** in-flight `docs/research/2026-05-26-power-map-integration-contract.md`; incorporate findings into P0.5.
 4. **WA Legislature SOAP transport library** — `zeep` is conventional; worth confirming WSDL doesn't have quirks that argue for raw `httpx` + manual XML.
 5. **RCW source** — ingestible via the WA Legislature SOAP service, or scraped from `app.leg.wa.gov/RCW/`? Affects whether the RCW adapter shares transport with the Legislature adapter.
 6. **ULID storage representation** — `BINARY(16)` (storage-efficient, harder to read in psql) vs `text(26)` (debug-friendly, larger index). Decide in P0 and apply project-wide.
@@ -303,4 +300,4 @@ Carried into the implementation-planning phase. Resolution gates are noted.
 
 ## Next step
 
-Implementation plan via the writing-plans skill, starting with **P0 (workspace + Postgres + adapter contract + discovery tracks)**. Subsequent plans land in `docs/plans/` parallel to this spec, one per phase.
+P0 complete (commits `93bbdfc → 3f244a8`, refs #2). **Next: P0.5** — hybrid legislative IA + adapter-transformation specs. Tracked under its own GH issue and committed before P1a planning begins.

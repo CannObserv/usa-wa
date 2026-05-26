@@ -80,7 +80,6 @@ def upgrade() -> None:
         sa.Column("etag", sa.String(length=256), nullable=True),
         sa.Column("last_modified", sa.String(length=64), nullable=True),
         sa.Column("status", sa.String(length=16), nullable=False),
-        sa.Column("archiver_url", sa.String(length=2048), nullable=True),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
         ),

@@ -129,7 +129,6 @@ class FetchEvent(Base, CreatedAtMixin):
     etag: Mapped[str | None] = mapped_column(String(256), nullable=True)
     last_modified: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[FetchStatus] = mapped_column(String(16), nullable=False)
-    archiver_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 
 
 class RawPayload(Base, CreatedAtMixin):
