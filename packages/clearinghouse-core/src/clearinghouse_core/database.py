@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from src.core.config import get_database_url
-from src.core.logging import get_logger
+from clearinghouse_core.config import get_database_url
+from clearinghouse_core.logging import get_logger
 
 logger = get_logger(__name__)
 

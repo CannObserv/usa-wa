@@ -1,4 +1,9 @@
-"""SQLAlchemy declarative base, shared mixins, and table definitions."""
+"""SQLAlchemy declarative base and shared mixins.
+
+Provenance models (Jurisdiction, Source, FetchEvent, RawPayload, Citation)
+and the ULID column type land here in step 4 of the P0 plan. Domain-layer
+entities live in `clearinghouse-domain-legislative` (and future siblings).
+"""
 
 from datetime import UTC, datetime
 
@@ -7,7 +12,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
-    """Declarative base for all models."""
+    """Shared declarative base. Every clearinghouse package's models subclass this."""
 
 
 class TimestampMixin:
@@ -24,8 +29,3 @@ class TimestampMixin:
         server_default=func.now(),
         onupdate=lambda: datetime.now(UTC),
     )
-
-
-# Add table classes below as the schema grows.
-# Promote to a `models/` package (MODELS_LAYOUT=package) when crossing ~5 tables
-# or natural domain boundaries.

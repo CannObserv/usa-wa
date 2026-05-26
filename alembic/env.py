@@ -15,7 +15,7 @@ from logging.config import fileConfig
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
-from src.core.models import Base
+from clearinghouse_core.models import Base
 
 config = context.config
 

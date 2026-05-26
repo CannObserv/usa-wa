@@ -21,7 +21,7 @@ Live service runs as systemd on port `8000` — never start uvicorn manually on 
 Use port `8001` (= API_PORT + 1) for the dev server so the live service stays up:
 
 ```bash
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 Reachable at `https://usa-wa.exe.xyz:8001/` via the exe.dev proxy.
@@ -32,8 +32,8 @@ Reachable at `https://usa-wa.exe.xyz:8001/` via the exe.dev proxy.
 # Full suite (requires TEST_DATABASE_URL)
 uv run pytest
 
-# Single file (skip the coverage gate, which measures all of src/)
-uv run pytest --no-cov tests/test_health.py
+# Single file (skip the coverage gate, which measures all of packages/)
+uv run pytest --no-cov packages/usa-wa-api/tests/test_health.py
 
 # Integration tests only (excluded by default)
 uv run pytest -m integration

@@ -7,9 +7,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from src.core.config import get_settings
-from src.core.database import get_session_factory
-from src.core.logging import configure_logging, get_logger
+from clearinghouse_core.config import get_settings
+from clearinghouse_core.database import get_session_factory
+from clearinghouse_core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
 

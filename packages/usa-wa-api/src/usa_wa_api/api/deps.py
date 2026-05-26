@@ -4,7 +4,7 @@ from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.database import get_session_factory
+from clearinghouse_core.database import get_session_factory
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession]:

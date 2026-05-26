@@ -24,7 +24,7 @@ export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 
 ```bash
 # Port 8001 — port 8000 belongs to systemd, never start uvicorn there manually
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 Reachable at `https://usa-wa.exe.xyz:8001/` via the exe.dev proxy.
@@ -35,8 +35,8 @@ Reachable at `https://usa-wa.exe.xyz:8001/` via the exe.dev proxy.
 # Full suite — requires TEST_DATABASE_URL set to a non-prod database
 uv run pytest
 
-# Single file (skip the coverage gate, which measures all of src/)
-uv run pytest --no-cov tests/path/to/test.py
+# Single file (skip the coverage gate, which measures all of packages/)
+uv run pytest --no-cov packages/usa-wa-api/tests/test_health.py
 
 # Integration-marked tests only (excluded by default)
 uv run pytest -m integration

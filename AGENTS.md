@@ -18,7 +18,7 @@ Python ≥3.12, uv, pytest, ruff.
 
 SocratiCode is the preferred semantic-search tool for this repo (once indexed; the index lives in `.socraticodecontextartifacts.json` once `codebase_index` has run). Its MCP tools are **deferred** — schemas load only after a `ToolSearch` prefetch.
 
-**Negative rule.** For broad semantic questions ("where is X", "how does Y work", "what depends on Z"), use SocratiCode MCP tools first. Reach for `grep`/`ripgrep` only on exact strings (error messages, log lines, known symbols). Reserve the Explore subagent for path-pattern walks (e.g. "all `*.py` under `src/api/routes/`"), not semantic search.
+**Negative rule.** For broad semantic questions ("where is X", "how does Y work", "what depends on Z"), use SocratiCode MCP tools first. Reach for `grep`/`ripgrep` only on exact strings (error messages, log lines, known symbols). Reserve the Explore subagent for path-pattern walks (e.g. "all `*.py` under `packages/usa-wa-api/src/usa_wa_api/api/`"), not semantic search.
 
 | Goal | Tool |
 |------|------|
@@ -36,19 +36,31 @@ Prefetch query — run via `ToolSearch` at session start:
 
 ## Project Layout
 
+`uv` workspace. Four-layer clearinghouse split — framework + domain shared across deployments; adapters + API per jurisdiction. See [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](docs/specs/2026-05-25-usa-wa-mvp-design.md).
+
 ```
-src/api/        — FastAPI app (ASGI, routes, schemas); /api/v1/ versioned; /health, /ready root-level
-src/api/main.py — App factory, lifespan, router registration
-src/api/deps.py — FastAPI dependencies (DB session, auth)
-src/core/       — Shared domain logic, logging, config
-src/core/logging.py  — configure_logging() + get_logger()
-src/core/config.py   — Settings / env access (see Environment Variables)
-src/core/database.py — Async engine + session factory
-src/core/models.py   — SQLAlchemy declarative base + tables (or src/core/models/ package)
-alembic/             — Database migrations
-tests/          — Mirrors src/ structure; integration tests in `@pytest.mark.integration`
-docs/           — Reference docs (COMMANDS, SKILLS); docs/plans/ holds implementation plans
-deploy/         — Systemd unit + deployment config
+packages/
+  clearinghouse-core/                 — Layer 1: framework primitives (jurisdiction-agnostic)
+    src/clearinghouse_core/
+      models.py       — Declarative Base, TimestampMixin (+ provenance models after step 4)
+      database.py     — Async engine + session factory
+      config.py       — Settings / env access (pydantic-settings)
+      logging.py      — configure_logging() + get_logger()
+  clearinghouse-domain-legislative/   — Layer 2: legislative-government model (state/federal)
+    src/clearinghouse_domain_legislative/
+                      — Bill, Legislator, BillAction, StatuteSection, etc. (skeletoned step 7)
+  usa-wa-adapter-legislature/         — Layer 3: WA Legislature SOAP source mapping
+  usa-wa-api/                         — Layer 4: WA deployment (FastAPI + MCP + REST)
+    src/usa_wa_api/api/
+      main.py         — App factory, lifespan, router registration
+      deps.py         — FastAPI dependencies (DB session, auth)
+    tests/            — API tests; conftest defines savepointed db_session + AsyncClient
+alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base
+docs/specs/           — Architecture specs (source of truth for design decisions)
+docs/plans/           — Per-phase implementation plans
+docs/research/        — Discovery outputs (Archiver/Watcher contracts, multi-state IA delta)
+docs/                 — Reference docs (COMMANDS, SKILLS)
+deploy/               — Systemd unit + deployment config
 ```
 
 ## Infrastructure
@@ -78,7 +90,7 @@ deploy/         — Systemd unit + deployment config
 
 ```bash
 export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 **After finishing work.** Always restart the systemd service to pick up changes merged to main:
@@ -118,8 +130,8 @@ export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 # Run tests
 uv run pytest
 
-# Run a subset of tests (skip the coverage gate, which measures all of src/)
-uv run pytest --no-cov tests/path/to/test.py
+# Run a subset of tests (skip the coverage gate, which measures all of packages/)
+uv run pytest --no-cov packages/usa-wa-api/tests/test_health.py
 
 # Run integration tests (requires PostgreSQL)
 uv run pytest -m integration
@@ -132,7 +144,7 @@ uv run alembic upgrade head
 uv run alembic revision --autogenerate -m "description"
 
 # FastAPI dev server
-uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 Full reference: `docs/COMMANDS.md`
@@ -152,7 +164,7 @@ Types: feat, fix, refactor, docs, test, chore
 
 **Logging:**
 ```python
-from src.core.logging import get_logger
+from clearinghouse_core.logging import get_logger
 logger = get_logger(__name__)
 ```
 Entry points only: `configure_logging()` is called once inside the FastAPI `lifespan`. Never in library modules.
@@ -164,6 +176,6 @@ Entry points only: `configure_logging()` is called once inside the FastAPI `life
 **General:**
 - No inline module imports; all at file top
 - Docstrings for public modules, classes, functions
-- Test structure mirrors source (`src/foo.py` → `tests/test_foo.py`)
+- Test structure mirrors source within each package (`packages/<name>/src/<pkg>/foo.py` → `packages/<name>/tests/test_foo.py`)
 - Explicit imports only
 - Small, focused functions

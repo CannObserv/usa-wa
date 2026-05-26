@@ -15,8 +15,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from src.api.deps import get_db_session
-from src.core.models import Base
+from clearinghouse_core.models import Base
+from usa_wa_api.api.deps import get_db_session
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 if not TEST_DATABASE_URL:
@@ -88,7 +88,7 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
 @pytest.fixture
 async def client(test_engine, db_session) -> AsyncGenerator[AsyncClient]:
     """AsyncClient wired to the FastAPI app with the savepointed db_session."""
-    from src.api.main import app
+    from usa_wa_api.api.main import app
 
     async def override_session() -> AsyncGenerator[AsyncSession]:
         yield db_session
