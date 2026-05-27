@@ -1,7 +1,7 @@
 ---
 title: P0.5 — hybrid legislative IA + OCD/LegiScan/uscongress transformations
 date: 2026-05-26
-status: draft
+status: in-progress (open questions resolved 2026-05-27)
 ---
 
 # P0.5 — hybrid legislative IA + adapter transformations
@@ -26,7 +26,17 @@ Two-pass spec authoring. **Pass 1**: draft a hybrid IA v0 spec that applies the 
 
 ## Steps
 
-1. **Hybrid IA v0 draft.** Write `docs/specs/2026-05-26-hybrid-legislative-ia.md` covering the revised entity skeleton. Incorporates the four high-impact delta findings (LegislativeSession as first-class with classification/start/end/active; Vote cluster — VoteEvent + VoteCount + PersonVote, OCD shape; polymorphic BillSponsorship with nullable legislator_id / nullable committee_id / 4-value role / sponsor_order / withdrawn_at; Bill.title ↔ Bill.short_description swap). Notes the power-map column-shape decision (existing nullable `powermap_*_id` columns stay as-is; no graduation to JSONB `external_ids`). Verify: file exists; all four findings reflected; cross-reference to delta note included.
+1. **Hybrid IA v0 draft.** Write `docs/specs/2026-05-27-hybrid-legislative-ia.md` covering the revised entity skeleton. Incorporates the four high-impact delta findings *and* the open-question resolutions:
+   - **LegislativeSession** as first-class entity with classification (regular/special), start/end, active flag, and a natural-key slug following the OpenStates convention extended for our jurisdiction encoding: `<jurisdiction_id>-<year>[-<session_suffix>]` (e.g., `usa-wa-2025`, `usa-wa-2025-special-1`). (OQ2)
+   - **Identity layer adopts power-map terminology** (OQ4 + [[project-identity-producer-archival]]): `Person` (was `Legislator`), `Organization` (covers chambers, parties, committees, lobbying orgs, candidate committees), `Role` (Senator/Representative/Chair/Vice-chair/Member/Speaker/etc., as named slots within an Organization), `Assignment` (Person × Role × Period). No standalone `Legislator`, `Committee`, or `Filer` entities — those become Organizations or Person+Assignment compositions. Each entity carries source/source_id for upsert and is *staged* for eventual push to power-map as the long-term archival store; current MVP keeps a local copy for query latency.
+   - **Vote cluster — flexible enough for committee + floor + amendments + motions** (OQ3). Schema: `VoteEvent` (polymorphic subject via `subject_type` ∈ {bill, amendment, motion} + `subject_id` ULID + nullable concrete-FK columns for query efficiency; `context_type` ∈ {floor, committee}; `context_organization_id` FK to Organization; chamber; event_at). `VoteCount` (vote_event_id, count_type ∈ {yea, nay, excused, absent, other}, value). `PersonVote` (vote_event_id, person_id, vote ∈ {yea, nay, abstain, excused, absent}). PersonVote materialized in P1a — no deferral.
+   - **Amendment** as a new first-class entity (consequence of OQ3) — Amendment(bill_id, source/source_id, label, sponsor_person_id, status, offered_at, adopted_at?, withdrawn_at?). VoteEvent can reference an Amendment as its subject.
+   - **Polymorphic BillSponsorship retained for Layer 2 reusability** (OQ1 + multi-jurisdiction principle): supports both `person_id`-sponsored (WA's only mode) and `organization_id`-sponsored (federal Congress, some states). WA adapter never emits committee-sponsorship rows. 4-value role vocab + `sponsor_order` + nullable `withdrawn_at`.
+   - **`Bill.title` ↔ `Bill.short_description` swap** to match industry convention.
+   - **Power-map column-shape**: `Person.powermap_person_id`, `Organization.powermap_org_id` stay as standalone nullable ULID columns. No graduation to JSONB `external_ids` (power-map already gives us the canonical id directly).
+   - **Producer/archival framing** documented in a dedicated spec section: usa-wa is both a query layer and an identity-data producer for power-map. Local cache for query latency, archival truth upstream, primary-source resilience as a side effect. See [[project-identity-producer-archival]].
+
+   Verify: file exists; every bullet above is reflected in the spec; cross-references to delta note + power-map research note included; OpenStates session-slug convention explicit.
 
 2. **Three transformation specs in parallel** — dispatch as three background agents (one prompt each, mirrors the P0 discovery dispatch pattern). Outputs:
    - `docs/specs/2026-05-26-transformation-ocd.md` — bidirectional mapping between hybrid IA v0 and Open Civic Data / OpenStates schema. Entity correspondence table, field-level mapping with transforms, vocabulary alignment (action types, status, sponsor roles, vote outcomes), explicitly-flagged lossy directions.
@@ -37,11 +47,29 @@ Two-pass spec authoring. **Pass 1**: draft a hybrid IA v0 spec that applies the 
 
 3. **Hybrid IA v1 — finalize.** Edit `docs/specs/2026-05-26-hybrid-legislative-ia.md` to incorporate revisions surfaced by the transformations. Bump status to `final`. Cross-link to the three transformation specs. Document the deferred-but-acknowledged concerns from the delta (per-legislator vote rows in P3, NCSL inaccessibility). Verify: file's status is `final`; every transformation-revision is either reflected or explicitly deferred with rationale.
 
-4. **Implement revised schema in `clearinghouse-domain-legislative`.** Apply v1 to the SQLAlchemy models: split `Legislator` into `Legislator` + `LegislatorMembership` (decision pending on open question 4 — may stay flat for MVP); replace `Bill.biennium` with `legislative_session_id` FK + a new `LegislativeSession` model; add `VoteEvent` + `VoteCount` + `PersonVote` (scope per open question 3); restructure `BillSponsorship` per v1; swap `Bill.title` / `Bill.short_description`. Update the smoke tests to match. Verify: `uv run pytest` passes; `uv run ruff check .` passes; the entity smoke tests still cover one instantiation per cluster.
+4. **Implement revised schema in `clearinghouse-domain-legislative`.** Apply v1 to the SQLAlchemy models. Substantial restructure:
+   - **Delete** `Legislator`, `Committee`, `Filer` as standalone tables. Their concepts become `Person`, `Organization`, and `Assignment` instances.
+   - **Add identity cluster**: `Person`, `Organization` (with `org_type` discriminator: chamber / party / committee / candidate_committee / lobbying_firm / pac / other), `Role` (with `name` slug and `organization_id` FK), `Assignment` (Person × Role × Period with `valid_from` / `valid_to`).
+   - **Add** `LegislativeSession`; replace `Bill.biennium` text column with `legislative_session_id` FK.
+   - **Add** `Amendment` (linked to Bill).
+   - **Add Vote cluster**: `VoteEvent` (polymorphic subject), `VoteCount`, `PersonVote`.
+   - **Restructure** `BillSponsorship`: rename `legislator_id` → `person_id` (nullable), add `organization_id` (nullable), expand `role` vocab, add `sponsor_order`, add `withdrawn_at`.
+   - **Rename / swap** in `Bill`: `title` ↔ `short_description`.
+   - **Reshape** PDC models: `LobbyingActivity.filer_id` becomes either `person_id` (individual lobbyists) or `organization_id` (lobby firms) — likely both nullable with at-least-one constraint. `Contribution.recipient_filer_id` becomes `recipient_organization_id` (candidate committees are Organizations). `Contribution.contributor_filer_id` becomes nullable `contributor_person_id` + nullable `contributor_organization_id`.
+
+   Update the smoke tests for each cluster. Verify: `uv run pytest` passes; `uv run ruff check .` passes; the entity smoke tests cover one instantiation per cluster (Bill, Person, Organization, Assignment, VoteEvent, Statute, Amendment).
 
 5. **First alembic migration for `canonical.*`.** Write `alembic/versions/2026_05_NN_canonical_init.py` creating the `canonical` schema and every revised legislative-domain table. Short revision id (≤32 chars: `20260526_canonical_init` or similar). No data seed in this migration. Apply against the dev DB; verify the test DB still works via `Base.metadata.create_all`. Verify: `uv run alembic upgrade head` succeeds; `psql -c '\dn'` shows both `clearinghouse_core` and `canonical` schemas; `\dt canonical.*` lists all revised tables; tests still green.
 
-6. **Power-map integration sub-spec.** Write `docs/specs/2026-05-26-power-map-integration.md` consuming the power-map research note and CannObserv/power-map#156. Documents: (a) the read-flow contract for P2 (Filer ↔ Org via search + identifier-filter + detail), (b) the deferred write-flow design (observation/upsert), (c) the upstream-dependency matrix mapping power-map#156's 11 asks to usa-wa phase gates, (d) the column-shape decision (nullable `powermap_*_id` FKs, no JSONB). Verify: file exists; section-by-section coverage of read/write/dependencies/columns; cross-references to #156 and the research note.
+6. **Power-map integration sub-spec.** Write `docs/specs/2026-05-27-power-map-integration.md` consuming the power-map research note and CannObserv/power-map#156. Documents:
+   - **Producer/archival framing**: usa-wa as identity-data producer for power-map; the long-term direction is push-to-archive (Organizations, People, Roles, Assignments). Local Postgres cache survives State-resource outages because the canonical-identity truth lives upstream.
+   - **Read flow (P2)**: pull Org identity from power-map's existing endpoints (`orgs/search` + `orgs/{id}`); blocked on identifier-filter ask (power-map#156 §2) to be efficient. Person identity blocked on People endpoints (power-map#156 §1).
+   - **Write flow (P3+ deferred)**: observation/upsert design (power-map#156 §9) — what attribute set usa-wa would push for a Person (name + WSL member_id + chamber/district from current Assignment), for an Organization (name + WSL committee_id or PDC filer_id + org_type), for a Role/Assignment.
+   - **Upstream-dependency matrix**: each of power-map#156's 11 asks → which usa-wa phase gates on it.
+   - **Column-shape commitment**: nullable `powermap_person_id` / `powermap_organization_id` FKs on Person and Organization; no JSONB `external_ids` bag.
+   - **Staging strategy**: between MVP and the day power-map's write API ships, usa-wa keeps its own identity records in `canonical.*`. When the write API lands, a one-shot backfill job pushes the staged records up, then steady-state push-on-update.
+
+   Verify: file exists; each section above present; cross-references to #156 and the power-map research note resolve.
 
 7. **Update MVP spec.** Edit `docs/specs/2026-05-25-usa-wa-mvp-design.md` to (a) replace the P0-skeleton entity descriptions in the "Canonical data spine" section with pointers to the hybrid IA spec (don't duplicate; one source of truth), (b) update the open-questions list to reflect resolutions from this plan, (c) close the P0.5 status loop in the frontmatter. Verify: no entity-by-entity descriptions remain duplicated between the MVP spec and the hybrid IA spec; status line reads `P0.5 complete; P1a planning unblocked`.
 
@@ -49,15 +77,15 @@ Steps 1 and 6 may proceed in parallel. Step 2's three agents run in parallel wit
 
 ## Open questions / risks
 
-The five blocking unknowns from the multi-state IA delta need user input before step 1 finalizes:
+**Resolved 2026-05-27 (user input):**
 
-1. **Committee-sponsor reality in WSL SOAP.** Do WA bills sometimes list a committee (rather than a legislator) as the sponsor? If yes, polymorphic sponsorship is required for P1a; if no, the polymorphism can stay scoped to other jurisdictions and our adapter stays simple. *Likely answer: yes — but worth confirming with a sample fetch before we commit.*
-2. **Biennium identifier convention.** When we switch from `Bill.biennium = "2025-26"` text to `Bill.legislative_session_id` ULID, what's the session's natural-key vocabulary? OpenStates uses opaque slugs (`"wa-2025"`, `"wa-2025-special-1"`). Worth adopting that convention or rolling our own? *Recommend: adopt OpenStates' convention for cross-source mapping ease.*
-3. **Vote scope in P1a vs P3.** Minimum-viable for P1a: chamber-level vote summary on Bill (`passed_house_67_31`). Full per-legislator detail (`PersonVote` rows × 150 legislators × ~3 final-passage votes per bill × ~5000 bills/biennium = ~2.25M rows/biennium). Materialize VoteEvent in P1a, defer PersonVote to P3? *Recommend: VoteEvent + VoteCount in P1a, PersonVote in P3.*
-4. **Legislator vs LegislatorMembership split.** OCD models a Person separately from their Membership in a chamber/session — one Person spans multiple bienniums. Adopt now (cleaner long-term, more refactor cost in P1a), or stay flat with `Legislator(biennium)` rows and split later (less work now, refactor cost later)? *No strong recommendation — depends on whether power-map's `people` model is doing this already.*
-5. **NCSL access.** P0's IA delta agent reported 403 from every NCSL URL including archive.org. Do you have a known route or a contact who does? If not, we proceed with OCD's `BILL_ACTION_CLASSIFICATIONS` as the standard proxy and skip a transformation spec for NCSL. *Assume: skip NCSL unless you have access.*
+1. ~~**Committee-sponsor reality in WSL SOAP.**~~ **Resolved: committees do NOT sponsor bills in WA.** WA adapter never emits committee-sponsorship rows. Layer 2 retains polymorphic sponsorship for cross-jurisdiction reusability (federal Congress uses it).
+2. ~~**Biennium identifier convention.**~~ **Resolved: adopt OpenStates convention** — `LegislativeSession.slug` follows `<jurisdiction_id>-<year>[-<session_suffix>]` (e.g., `usa-wa-2025`, `usa-wa-2025-special-1`). Transformation specs map OpenStates' `wa-2025` ↔ our `usa-wa-2025`.
+3. ~~**Vote scope in P1a vs P3.**~~ **Resolved: PersonVote materialized in P1a.** Votes are fundamental measures. VoteEvent must be flexible enough to model committee votes on bills *and* amendments, floor votes on motions *and* amendments. Schema reflects this with polymorphic subject (bill / amendment / motion) and polymorphic context (floor / committee).
+4. ~~**Legislator vs LegislatorMembership split.**~~ **Resolved: adopt power-map terminology** — Person / Organization / Role / Assignment. No standalone Legislator / Committee / Filer entities. Long-term: usa-wa is a producer of identity data for power-map ([[project-identity-producer-archival]]); local cache for query latency, archival truth upstream.
+5. ~~**NCSL access.**~~ **Resolved: skip.** Two transformation specs (OCD, LegiScan, uscongress remain; NCSL was a research input not a transformation target).
 
-Other risks:
+Remaining risks:
 
 - **Power-map upstream timing.** [CannObserv/power-map#156](https://github.com/CannObserv/power-map/issues/156) is the upstream feature request. Step 6's recommendations are sensitive to which asks the power-map team picks up. If the People endpoints (#1) and identifier-filter (#2) land in weeks, P2 stays close to schedule; if months, P2 read-flow stalls. The sub-spec should document the dependency matrix explicitly so phase shifts are easy to see.
 - **Alembic version_num length cap.** Default 32-char limit. Use a short revision id like `20260526_canonical_init` for step 5's migration (continuing the convention set in `20260526_chcore_init`).
