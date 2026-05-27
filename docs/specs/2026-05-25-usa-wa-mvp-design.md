@@ -1,7 +1,7 @@
 # usa-wa MVP architecture & phasing
 
 - **Date:** 2026-05-25 (revised 2026-05-26 again post-P0)
-- **Status:** approved — P0 complete; P0.5 (hybrid-IA work, [GH #3](https://github.com/CannObserv/usa-wa/issues/3)) blocks P1a
+- **Status:** approved — P0 + P0.5 complete; P1a planning unblocked
 - **Scope:** Phases P0 through P1c (foundation + keystone vertical slice). P2+ sketched, not specified.
 
 ## Problem
@@ -190,39 +190,15 @@ Schemas: `usa_wa_legislature.*`, `usa_wa_pdc.*`, `usa_wa_rcw.*`, `canonical.*`. 
 
 Polymorphic Citation is a deliberate tradeoff — single citation rendering code, slight loss of DB-level FK integrity on `entity_id`. Canonical entities also carry denormalized `primary_source_id`, `last_fetched_at`, `last_fetch_event_id` for cheap MCP responses without joining citations every time.
 
-**Legislative-domain entities** (in `clearinghouse-domain-legislative`, schema `canonical.*`). Each shown with the natural-key UNIQUE constraint that drives upserts; all carry `jurisdiction_id`.
+**Legislative-domain entities** (in `clearinghouse-domain-legislative`, schema `canonical.*`).
 
-Bill cluster (P1a + P3):
+The full entity model was redesigned during P0.5 and lives in its own spec — [`docs/specs/2026-05-27-hybrid-legislative-ia.md`](2026-05-27-hybrid-legislative-ia.md). That spec is the source of truth for the 21 canonical legislative-domain tables (identity cluster: Person / Organization / Role / Assignment + N:1 external-ID children; session: LegislativeSession; bill cluster: Bill / BillSponsorship / BillAction / BillActionClassification / BillVersion / Amendment / BillSubject / BillRelationship / BillEvent; vote cluster: VoteEvent / VoteCount / PersonVote; statute cluster unchanged from P0).
 
-| Table | Notes |
-|---|---|
-| `canonical.bills` | UNIQUE `(jurisdiction_id, source, source_id)`. Fields: biennium, chamber, number, title, short_description, current_status, current_step, introduced_at, current_text. |
-| `canonical.bill_sponsorships` | bill_id ↔ legislator_id ↔ role (`prime`/`co`). UNIQUE `(bill_id, legislator_id, role)`. |
-| `canonical.bill_actions` | Append-only lifecycle log. bill_id, action_at, chamber, action_type (vocab), description. UNIQUE `(bill_id, source_action_id)`. |
-| `canonical.legislators` | Skeletal in P1a (name, chamber, district, party, biennium, jurisdiction_id). Carries nullable `powermap_person_id` populated in P2. Was "Member" pre-rename; "Legislator" is the domain-layer term (handles state + federal). |
-| `canonical.committees`, `canonical.hearings` | Skeletal in P1a, fleshed in P3. |
-| `canonical.bill_versions` | Version metadata only in MVP (substitute/engrossed flags, action_at). Full version text deferred to P3. |
+The P0-skeleton `Legislator` / `Committee` / `Filer` standalone tables are **deleted** in v1; their concepts now live in the Person + Organization + Assignment composition. See the hybrid IA spec's "Changelog (v0 → v1)" section for the full revision list. Three transformation specs exercise the IA against OpenStates/OCD, LegiScan, and unitedstates/congress: [`transformation-ocd.md`](2026-05-27-transformation-ocd.md), [`transformation-legiscan.md`](2026-05-27-transformation-legiscan.md), [`transformation-uscongress.md`](2026-05-27-transformation-uscongress.md). The power-map integration model (read flow, deferred write flow, upstream dependency matrix) is at [`power-map-integration.md`](2026-05-27-power-map-integration.md).
 
-Statute corpus cluster (P1b — RCW is the WA instance):
+Tables are materialized in alembic by `alembic/versions/2026_05_27_canonical_init.py` (revision `20260527_canonical_init`).
 
-| Table | Notes |
-|---|---|
-| `canonical.statute_codes` | Top-level identifier of a statutory body (e.g., `(jurisdiction='usa-wa', code='RCW')`). UNIQUE `(jurisdiction_id, code)`. |
-| `canonical.statute_titles` | UNIQUE `(statute_code_id, number)`. |
-| `canonical.statute_chapters` | UNIQUE `(statute_title_id, number)`. |
-| `canonical.statute_sections` | UNIQUE `(statute_chapter_id, number)`. `text` column holds current text. |
-| `canonical.bill_statute_changes` | Links bill ↔ statute_section ↔ change_type (`creates`/`amends`/`repeals`/`recodifies`). Text diff is a P3 enrichment. |
-
-PDC-shaped cluster (P1c — generic enough to cover lobbying/finance disclosure in other states with renames):
-
-| Table | Notes |
-|---|---|
-| `canonical.filers` | UNIQUE `(jurisdiction_id, source, source_id)`. Carries nullable `powermap_org_id`, `powermap_person_id` populated in P2. |
-| `canonical.lobbying_activities` | Period start/end, compensation, expenses. UNIQUE `(jurisdiction_id, source, source_id)`. |
-| `canonical.lobbying_positions` | Links lobbying_activity ↔ bill ↔ position (`support`/`oppose`/`neutral`). Resolution of bill_id from PDC's chamber+number+biennium reference happens during normalization; failures may set `bill_id` null and land in a `resolution_failures` queue for later backfill. |
-| `canonical.contributions` | recipient_filer_id, contributor_filer_id, amount, contributed_at. UNIQUE `(jurisdiction_id, source, source_id)`. |
-
-**History pattern:** current state + event log. Canonical entities are upserted (SCD Type 1). The append-only `canonical.bill_actions` table is the legislative lifecycle event log. Forensic recovery of recent historical field values comes from the local `raw_payloads` cache; older recovery hits Archiver. **No SCD-2 / no `valid_from`/`valid_to`.**
+**History pattern:** current state + event log. Canonical entities are upserted (SCD Type 1). The append-only `canonical.bill_actions` table is the legislative lifecycle event log. Forensic recovery of recent historical field values comes from the local `raw_payloads` cache. **No SCD-2 / no `valid_from`/`valid_to` on non-identity entities.** (Identity entities — `Assignment` — *do* carry `valid_from`/`valid_to` because a Person's Role-membership is inherently time-bounded; see hybrid IA spec.)
 
 ### MCP + REST coexistence
 
@@ -300,4 +276,4 @@ Carried into the implementation-planning phase. Resolution gates are noted.
 
 ## Next step
 
-P0 complete (commits `93bbdfc → 3f244a8`, refs #2). **Next: P0.5** — hybrid legislative IA + adapter-transformation specs. Tracked under its own GH issue and committed before P1a planning begins.
+P0 complete (commits `93bbdfc → 3f244a8`, refs #2). P0.5 complete (refs #3, see [hybrid IA spec](2026-05-27-hybrid-legislative-ia.md) + three transformation specs + power-map sub-spec). **Next: P1a** — first WA Legislature SOAP adapter slice + first MCP tool (`describe_bill`).
