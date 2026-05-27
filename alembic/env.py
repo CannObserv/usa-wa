@@ -14,6 +14,9 @@ from logging.config import fileConfig
 
 from sqlalchemy.ext.asyncio import create_async_engine
 
+# Side-effect imports so every workspace member's tables register on Base.metadata
+# before autogen runs. Add new domain packages here as they're created.
+import clearinghouse_domain_legislative  # noqa: E402, F401
 from alembic import context
 from clearinghouse_core.models import Base
 
@@ -40,6 +43,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_schemas=True,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -47,7 +51,11 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection) -> None:
     """Run migrations using a sync connection."""
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_schemas=True,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
