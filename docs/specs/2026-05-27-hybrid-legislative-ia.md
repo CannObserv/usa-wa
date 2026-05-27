@@ -6,6 +6,17 @@
 - **Tracks:** [GH #3](https://github.com/CannObserv/usa-wa/issues/3); see plan at [`docs/plans/2026-05-26-p0-5-hybrid-legislative-ia.md`](../plans/2026-05-26-p0-5-hybrid-legislative-ia.md).
 - **Supersedes:** the v0 draft of this file (commit `aed896c`); see Changelog § below.
 
+## Changelog (v1.2 → v1.3, 2026-05-29 — OCD review #2 follow-up decisions)
+
+User decisions on the five "Items still open" items from the OCD transformation spec:
+
+| Revision | Source | Section |
+|---|---|---|
+| **`VoteEvent.originating_bill_action_id`** FK added — links a vote to the specific `BillAction` it produced or resulted from. Matches OCD's `VoteEvent.bill_action`. Item #16 from OCD review #2 — explicit traceability requirement. | OCD review #2 follow-up 2026-05-29 | Vote cluster |
+| `BillAction` decomposition rule documented: multi-target referral actions ("Referred to Health and Ways and Means") are decomposed into **multiple independent `BillAction` rows**, one per target, rather than carrying a related-entity 1:N child table. Resolves item #9 without a schema change. | OCD review #2 follow-up 2026-05-29 | Bill cluster (adapter behavior) |
+
+Items remaining deferred after v1.3: `BillIdentifier` (item #6) is still awaiting concrete WA examples; `BillSponsorship.role` (item #12) stays at the 4-value enum (closed with rationale); `BillVersion.text` canonicalization rules stay as the open design discussion in §"Open issues".
+
 ## Changelog (v1.1 → v1.2, 2026-05-28 — continued OCD review)
 
 A second pass of the OCD spec review surfaced eight more concrete revisions:
@@ -314,6 +325,8 @@ Append-only lifecycle log.
 
 **Natural-key UNIQUE:** `(bill_id, source, source_action_id)`.
 
+**Multi-target referral decomposition (v1.3, 2026-05-29).** When a source describes a single action that targets multiple bodies — e.g., WSL "Referred to Health and Ways and Means", or OCD's `BillActionRelatedEntity` rows attached to one action — adapters emit **one `BillAction` row per target**, each with its own `acting_organization_id`. This decomposition is the chosen alternative to a 1:N `bill_action_related_entities` child table; it keeps the action log flat and makes "all actions that referred to Ways and Means" a direct query on `acting_organization_id` rather than a join. `display_order` ties the decomposed actions back together in source-intended sequence.
+
 ### `canonical.bill_action_classifications`
 
 **New in v1.** 1:N child table for the OCD-style multi-classification of a single BillAction (OCD permits an action to be simultaneously e.g. `reading-3` and `passage`).
@@ -464,6 +477,7 @@ Scheduled events on a bill — public hearings, work sessions, executive session
 | `subject_id` | ULID NOT NULL | Polymorphic; no DB-level FK. |
 | `bill_id` | ULID nullable FK | Denormalized for query speed. |
 | `amendment_id` | ULID nullable FK | Set when subject_type=amendment. |
+| `originating_bill_action_id` | ULID nullable FK | **v1.3 (2026-05-29).** FK to `canonical.bill_actions.id`. The `BillAction` row this vote produced or resulted from — the OCD `VoteEvent.bill_action` analog. Populated when the source surfaces the linkage; null otherwise. |
 | `motion_description` | text nullable | When subject_type=motion. |
 | `context_type` | text(16) NOT NULL | `floor` / `committee`. |
 | `context_organization_id` | ULID NOT NULL FK | |

@@ -431,7 +431,7 @@ This was originally the load-bearing output of step 2. After two review passes (
 
 8. ✅ **LANDED in v1.** `BillAction.display_order` (int nullable) and `BillAction.is_major` (bool default false) both added.
 
-9. ⏸️ **DEFERRED (unchanged).** `BillActionRelatedEntity` structured extraction is a P1b enrichment. `BillAction.acting_organization_id` covers the most common case (the body that took the action) but doesn't capture multi-target referrals like "Referred to Health and Ways and Means."
+9. ✅ **RESOLVED IN v1.3 by adapter convention (no schema change).** Multi-target referrals are decomposed into **multiple `BillAction` rows**, one per target organization, each with its own `acting_organization_id`. "Referred to Health and Ways and Means" becomes two action rows. `display_order` preserves source-intended sequencing of the decomposed pair. No 1:N child table is needed; the action log stays flat.
 
 10. ✅ **LANDED in v1.2.** `canonical.bill_version_links` (1:N) added, with `kind ∈ {text|html|pdf|xml|image_pdf|processed_text|redline|other}` covering OCR for image-PDFs and the planned git-friendly processed-text representations. `BillVersion.text` is the canonical plain-text view; links table holds the rest.
 
@@ -445,7 +445,7 @@ This was originally the load-bearing output of step 2. After two review passes (
 
 15. ✅ **LANDED in v1.** `Bill.enacted_as` (text nullable) added.
 
-16. ⏸️ **DEFERRED (unchanged).** `VoteEvent.originating_bill_action_id` traceability is derivable from `(bill_id, event_at)` for MVP question shape. Revisit in P1b if traceability becomes a stated requirement.
+16. ✅ **LANDED in v1.3 (2026-05-29).** `canonical.vote_events.originating_bill_action_id` (ULID nullable FK to `canonical.bill_actions.id`, ON DELETE SET NULL) added. Adapter populates whenever the source surfaces the action ↔ vote linkage (OCD `VoteEvent.bill_action`, uscongress vote→action context). Migration `20260529_vote_action_link`.
 
 17. ✅ **LANDED (and improved) in v1.2.** `LegislativeSession.classification` vocab was tightened to `regular` / `special` / `other` — `extraordinary` (no semantic difference from `special`) and `sine_die` (an adjournment state, not a session type) were dropped. Sine-die-adjournment captured via the new `adjourned_sine_die_at` timestamp column. OCD mapping rules now collapse `{regular}→{regular}` and `{special}→{special}`, with everything else falling through to `other`.
 
@@ -483,17 +483,17 @@ These eight items came in during the second OCD review pass and landed directly 
 
 ## Items still open
 
-After the v1.2 pass, four items from the original list remain explicitly **deferred**, plus one new open question. These are listed here as a single decision queue:
+After the v1.3 follow-up pass (2026-05-29) on the four-plus-one v1.2 queue, three items resolved (#9 by adapter convention, #16 by schema change, BillVersion.text by explicit deferral confirmation), one closed (#12), and one (#6) is **awaiting concrete WA examples** before a decision can be made.
 
-- **#6 `BillIdentifier` for alternate IDs.** Status: deferred. Trigger to revisit: a concrete multi-source corroboration use case where the same WA bill needs to land in `canonical.bills` from two different `source` adapters.
+- **#6 `BillIdentifier` for alternate IDs.** Status: open — awaiting concrete WA examples that distinguish *alternate identifier* from existing models (popular title → `BillTitle`; engrossment/substitution prefix like "ESSB 1494" → `BillVersion.version_type`; companion → `BillRelationship`; cross-source ID → already handled by `(jurisdiction_id, source, source_id)` uniqueness). If no example survives those filters, this stays deferred.
 
-- **#9 `BillActionRelatedEntity` (1:N structured extraction from action descriptions).** Status: deferred. Trigger to revisit: a stated P1b requirement to query "all actions that referred a bill to the Ways and Means Committee" (currently requires LIKE-matching on `description` text).
+- **#9 `BillActionRelatedEntity`.** ✅ Resolved 2026-05-29 by adapter convention — multi-target referrals decompose into multiple `BillAction` rows, one per target, with `acting_organization_id` and `display_order`. No schema change. See item #9 above and the hybrid IA spec's `canonical.bill_actions` section.
 
-- **#12 widen `BillSponsorship.role`.** Status: closed with rationale (kept 4-value enum). No trigger to revisit unless OCD-source corroboration starts producing valuable role strings outside the 4-value collapse.
+- **#12 widen `BillSponsorship.role`.** Status: closed with rationale (kept 4-value enum). Reaffirmed 2026-05-29.
 
-- **#16 `VoteEvent.originating_bill_action_id`.** Status: deferred. Trigger to revisit: P1b need for "the vote that produced this action" traceability.
+- **#16 `VoteEvent.originating_bill_action_id`.** ✅ Landed in v1.3 (2026-05-29). See item #16 above.
 
-- **New: BillVersion.text canonicalization rules.** Status: open design discussion. Documented in the hybrid IA spec's "Open issues" section. P1b will produce a concrete proposal for what `BillVersion.text` should hold (OCR'd plain text? styled HTML? a deliberately-canonicalized intermediate?). Until then, the column is non-null when a sensible canonical form exists and null otherwise; alternative source forms always land in `bill_version_links`.
+- **BillVersion.text canonicalization rules.** Status: explicit deferral confirmed 2026-05-29. Documented in the hybrid IA spec's "Open issues" section; P1b enrichment will produce a concrete proposal. Until then `BillVersion.text` is non-null when a sensible canonical form exists; alternative source forms land in `bill_version_links`.
 
 ---
 

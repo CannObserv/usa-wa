@@ -62,6 +62,12 @@ class VoteEvent(Base, TimestampMixin):
         nullable=True,
         index=True,
     )
+    originating_bill_action_id: Mapped[_ULID | None] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.bill_actions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     motion_description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     context_type: Mapped[str] = mapped_column(String(16), nullable=False)
