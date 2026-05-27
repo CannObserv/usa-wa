@@ -6,6 +6,22 @@
 - **Tracks:** [GH #3](https://github.com/CannObserv/usa-wa/issues/3); see plan at [`docs/plans/2026-05-26-p0-5-hybrid-legislative-ia.md`](../plans/2026-05-26-p0-5-hybrid-legislative-ia.md).
 - **Supersedes:** the v0 draft of this file (commit `aed896c`); see Changelog § below.
 
+## Changelog (v1.1 → v1.2, 2026-05-28 — continued OCD review)
+
+A second pass of the OCD spec review surfaced eight more concrete revisions:
+
+| Revision | Source | Section |
+|---|---|---|
+| `LegislativeSession.classification` vocab tightened to `regular` / `special` / `other` (dropped `extraordinary` — no semantic difference from `special` — and `sine_die`, which is an adjournment state, not a session type). New column `adjourned_sine_die_at: timestamptz nullable` captures WA's sine-die-adjournment timestamp. | OCD review #2 2026-05-28 | LegislativeSession |
+| **`Bill.short_description` moved to `BillVersion.short_description`.** OCD `BillAbstract` is per-version, not per-bill — collapsing to a single column on Bill loses resolution. | OCD review #2 2026-05-28 | Bill + BillVersion |
+| **`Bill.current_text` removed; replaced by `Bill.current_version_id` FK to BillVersion.** The "current text" is now `bill.current_version.text`. Single source of truth for bill text lives on BillVersion. | OCD review #2 2026-05-28 | Bill + BillVersion |
+| **`BillVersion.text`** added — canonical plain-text representation of the bill at this version. Storage/canonicalization rules (MIME handling, OCR for image-PDFs, styled-vs-plain) are an open design question; see Open issues. | OCD review #2 2026-05-28 | BillVersion |
+| **`BillVersion.amendment_id`** FK added — when an adopted striking/substitute amendment produced this version, FK points back. Null for introduced and engrossed-by-action versions. | OCD review #2 2026-05-28 | BillVersion |
+| **`Amendment.amendment_kind`** added — `traditional` / `striking` / `substitute`. WA practice treats strikers and substitutes as full bill replacements; when adopted, they produce new BillVersion rows. | OCD review #2 2026-05-28 | Amendment |
+| New table `canonical.bill_version_links` (1:N) — alternative representations of a BillVersion: HTML / PDF / image-PDF / processed-text / redline. | OCD review #2 2026-05-28 | new Bill cluster entity |
+| New table `canonical.bill_statutory_citations` — statutory references extracted from a BillVersion's text, FK to `canonical.statute_sections` when resolved. | OCD review #2 2026-05-28 | new cross-cluster entity |
+| New table `clearinghouse_core.notes` — polymorphic editorial / staff-summary / clarification / provenance notes attached to any canonical entity. Replaces a hypothetical `BillVersion.note` column; reusable across the domain. | OCD review #2 2026-05-28 | new framework primitive |
+
 ## Changelog (v1 → v1.1, 2026-05-28)
 
 OCD transformation review surfaced three additional revisions:
@@ -94,6 +110,22 @@ Every canonical entity in this spec carries the following columns. Per-entity bl
 **Natural-key UNIQUE constraint:** `UNIQUE (jurisdiction_id, source, source_id)` on every entity unless a per-entity block specifies otherwise.
 
 All FKs use the `ULID` SQLAlchemy column type. Schema is `canonical.*` for every table in this spec.
+
+## Notes (polymorphic, new in v1.2)
+
+`clearinghouse_core.notes` is a polymorphic editorial / staff-summary / clarification / provenance note attached to any canonical entity. Pattern mirrors `Citation`:
+
+| Column | Type | Notes |
+|---|---|---|
+| `entity_type` | text(64) NOT NULL | `bill` / `bill_version` / `amendment` / `person` / `organization` / etc. |
+| `entity_id` | ULID NOT NULL | Polymorphic; no DB FK. |
+| `note_kind` | text(32) NOT NULL | `staff_summary` / `editorial` / `clarification` / `provenance` / `other` (free text but documented vocab). |
+| `text` | text NOT NULL | |
+| `author_person_id` | ULID nullable | Polymorphic; references `canonical.persons.id` when set. |
+| `author_organization_id` | ULID nullable | Polymorphic; references `canonical.organizations.id` when set. |
+| `effective_at` | timestamptz nullable | When the note was written / effective. |
+
+The original motivating case (from the OCD review): WA amendments come with **official, non-partisan staff-prepared effects descriptions**. These attach to the `Amendment` entity as `Note(entity_type='amendment', entity_id=<amendment_id>, note_kind='staff_summary', author_organization_id=<senate_or_house_committee_services_org_id>)`. Same pattern generalizes to bill editorial notes, person biographical clarifications, organization provenance notes, etc. Rather than adding a per-entity `note` column to every domain table, one polymorphic table handles all of them.
 
 ## Rich attributes deferred to Power Map
 
@@ -211,7 +243,8 @@ Same shape as `person_identifiers`, FK to `canonical.organizations`. Common sche
 |---|---|---|
 | `slug` | text(64) NOT NULL | OpenStates-style: `<jurisdiction_id>-<year>[-<session_suffix>]`. Examples: `usa-wa-2025`, `usa-wa-2025-special-1`, `usa-fed-119`. |
 | `name` | text NOT NULL | "2025 Regular Session", "2025 First Special Session". |
-| `classification` | text(32) NOT NULL | One of: `regular` / `special` / `sine_die` / `extraordinary` / `other`. |
+| `classification` | text(32) NOT NULL | One of: `regular` / `special` / `other`. **v1.2 (2026-05-28)** dropped `sine_die` (an adjournment state, not a session type — see `adjourned_sine_die_at` below) and `extraordinary` (no meaningful distinction from `special`). |
+| `adjourned_sine_die_at` | timestamptz nullable | **v1.2.** When the session adjourned sine die (without plans to return). In WA practice `sine die` is the act of ending a session; populated when known. |
 | `start_date` | date nullable | |
 | `end_date` | date nullable | |
 | `is_active` | bool NOT NULL default false | |
@@ -231,19 +264,19 @@ Same shape as `person_identifiers`, FK to `canonical.organizations`. Common sche
 | `number` | int NOT NULL | |
 | `bill_type` | text(32) nullable | HB / SB / HJR / SJR / HCR / SCR / HJM / SJM / HR / S / etc. |
 | `title` | text NOT NULL | **Denormalized current canonical title** — synced from `bill_titles` where `is_current=true AND title_type='canonical'`. Most queries read this column without joining. |
-| `short_description` | text nullable | **Latest bill summary / abstract** from the source (e.g., OCD's `BillAbstract`, LegiScan's `Bill.description`). Single value, updated in place. |
+| `current_version_id` | ULID nullable FK | **v1.2.** FK to `canonical.bill_versions.id` (with `use_alter=True` for circular-FK safety). The bill's current version; `bill.current_version.text` is the canonical text. Replaces the v1 `current_text` column. |
 | `current_status` | text(128) nullable | Source-vocabulary text. |
 | `current_status_class` | text(32) nullable | **v1.** Normalized to OCD's `bill_action_classification` plus LegiScan's status vocab — values like `introduced` / `in_committee` / `passed_first_chamber` / `passed_second_chamber` / `vetoed` / `signed` / `enacted` / `failed` / `withdrawn`. |
 | `current_status_at` | timestamptz nullable | **v1 (replaces `current_step`).** When `current_status` was last updated. |
 | `introduced_at` | timestamptz nullable | |
 | `enacted_as` | text(64) nullable | **v1.** Public Law / chapter law cross-reference once enacted (federal: "Public Law 119-12"; WA: "Chapter 47, Laws of 2025"). |
-| `current_text` | text nullable | Current bill text; version history is `BillVersion`. |
 
 **Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`.
 
 Notes:
 - v0's `current_step` column is dropped. The previous use-cases (status enum + when-was-status-set) are replaced by `current_status_class` + `current_status_at`.
 - `Bill.title` is denormalized; the full title history (including amendment-driven changes, alternative titles like short / popular / official / display, chamber-specific titles, and historical replaced titles) lives in `canonical.bill_titles` (added v1.1, post-transformation-review). See below.
+- v1.2 removed `Bill.short_description` and `Bill.current_text`. Per-version summary lives on `BillVersion.short_description`; canonical text lives on `BillVersion.text` and is accessed via `Bill.current_version_id`.
 
 ### `canonical.bill_sponsorships`
 
@@ -294,20 +327,28 @@ Append-only lifecycle log.
 
 ### `canonical.bill_versions`
 
+**v1.2 (2026-05-28)** grew per-version `text`, `short_description`, and amendment-provenance columns. A BillVersion is now a full record of a single state of the bill, not just metadata.
+
 | Column | Type | Notes |
 |---|---|---|
 | `bill_id` | ULID NOT NULL FK | |
-| `version_type` | text(64) NOT NULL | Source vocab covering: `introduced` / `substitute` / `engrossed` / `first_engrossed` / `enrolled` / `act` / `conference_substitute` / etc. LegiScan's 14-value `TextType` is the inspiration; we accept the broader source vocab but P1a normalization will canonicalize. |
+| `version_type` | text(64) NOT NULL | Source vocab: `introduced` / `substitute` / `engrossed` / `first_engrossed` / `enrolled` / `act` / `conference_substitute` / etc. |
+| `short_description` | text nullable | **v1.2.** Per-version summary (e.g., OCD `BillAbstract` for this version). |
+| `text` | text nullable | **v1.2.** Canonical plain-text representation of the bill at this version. Alternative representations live in `bill_version_links`. Canonicalization rules (MIME handling, OCR, styled-vs-plain) are an open design question — see Open issues. |
+| `amendment_id` | ULID nullable FK | **v1.2.** FK to `canonical.amendments.id` when this version was produced by adopting a striking/substitute amendment. Null for introduced and engrossed-by-action versions. |
 | `version_at` | timestamptz nullable | |
-| `is_current` | bool NOT NULL default false | |
+| `is_current` | bool NOT NULL default false | At most one current per bill — `Bill.current_version_id` is the denormalized fast path. |
 
 ### `canonical.amendments`
+
+**v1.2 (2026-05-28)** added `amendment_kind` to distinguish WA's three kinds of amendments.
 
 | Column | Type | Notes |
 |---|---|---|
 | `bill_id` | ULID NOT NULL FK | |
 | `label` | text(64) NOT NULL | "Amendment 1", "Striking Amendment 21", etc. |
-| `amendment_text` | text nullable | |
+| `amendment_kind` | text(16) NOT NULL | **v1.2.** `traditional` (edits) / `striking` (preamble "strike everything after the enacting clause" — effectively a new full version) / `substitute` (overt full replacement, may include new title). |
+| `amendment_text` | text nullable | Edit text (traditional) or full replacement text (striking / substitute). |
 | `sponsor_person_id` | ULID nullable FK | |
 | `sponsor_organization_id` | ULID nullable FK | For committee-offered amendments (federal Rules Committee, etc.). |
 | `status` | text(32) NOT NULL | `offered` / `adopted` / `rejected` / `withdrawn` / `pending` / `tabled`. |
@@ -317,6 +358,8 @@ Append-only lifecycle log.
 | `withdrawn_at` | timestamptz nullable | |
 
 **Natural-key UNIQUE:** standard.
+
+**WA practice note:** Striking amendments and proposed substitutes are pragmatically full bill replacements that may or may not be adopted. When adopted, the adapter creates a new `BillVersion` row whose `amendment_id` points back to this Amendment. Traditional amendments produce no BillVersion row — they're consumed into the next engrossed version via the source's normal engrossment process. Votes on amendments (including strikers/substitutes) always target the `Amendment` row, not the BillVersion that would result.
 
 ### `canonical.bill_titles` (new in v1.1)
 
@@ -340,6 +383,34 @@ Bill titles are **multi-valued and lifecycle-dynamic** in every system surveyed:
 **Denormalization:** `Bill.title` always reflects the row where `title_type='canonical' AND is_current=true`. Adapters update both atomically; readers can skip the join.
 
 **Future "killer feature" parking spot:** with `amendment_id` populated for title changes and `Amendment.amendment_text` available, a scope-compatibility scorer could assess whether a proposed amendment's content falls within the bill's current/proposed title — supporting procedural-challenge tooling. Out of MVP scope; explicitly noted because the schema is shaped to enable it.
+
+### `canonical.bill_version_links` (new in v1.2)
+
+A single bill version often exists in multiple forms — original PDF, scraped HTML, OCR'd text from an image PDF, processed git-friendly text, redline against the prior version, etc. This table holds all of them; `BillVersion.text` is the canonical plain-text view that the query layer reads by default.
+
+| Column | Type | Notes |
+|---|---|---|
+| `bill_version_id` | ULID NOT NULL FK | |
+| `url` | text NOT NULL | The link target. |
+| `mime_type` | text(128) nullable | The link's content type (text/html, application/pdf, etc.). |
+| `kind` | text(32) NOT NULL | `text` / `html` / `pdf` / `xml` / `image_pdf` / `processed_text` / `redline` / `other`. |
+| `title` | text nullable | Optional human label. |
+
+**Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`.
+
+### `canonical.bill_statutory_citations` (new in v1.2)
+
+Statutory citations extracted from a bill version's text. OCD's `Bill.citations` carries the same concept. Useful for queries like "which bills reference RCW 46.16.005?" without scanning bill text at query time. Extraction happens during normalization (P1b enrichment).
+
+| Column | Type | Notes |
+|---|---|---|
+| `bill_version_id` | ULID NOT NULL FK | Citations belong to a specific version, not the bill as a whole. |
+| `statute_section_id` | ULID nullable FK | Resolved citation target. Null when the citation couldn't be resolved (e.g., references a future section, or a non-RCW source). |
+| `raw_text` | text(256) NOT NULL | The citation as it appeared in the bill text — e.g., `"RCW 46.16.005"`. |
+| `text_offset_start` | int nullable | Optional position-in-text for highlighting / context extraction. |
+| `text_offset_end` | int nullable | |
+
+**Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`.
 
 ### `canonical.bill_subjects` (new in v1)
 
@@ -506,6 +577,19 @@ This is **v1 final**. Vocabularies have been pressure-tested against three forei
 - `BillVersion.version_type` — source vocab; P1a normalization will canonicalize.
 
 ## Open issues (forwarded to P1a or implementation)
+
+**Canonical bill-text storage** is the most consequential design discussion remaining. `BillVersion.text` lands as a `text` column in v1.2, but the *canonicalization* rules are open:
+
+- **MIME**: WSL emits PDFs (sometimes image-only PDFs that need OCR). Storing the original byte stream and a plain-text derivation are two different things; the schema doesn't yet say which one `BillVersion.text` is. `BillVersionLink` will hold every form; `BillVersion.text` should be a deliberate, queryable canonical form (probably OCR'd-and-cleaned plain text).
+- **Pagination / formatting noise**: legislative bill texts often include page numbers, line numbers, marginal annotations, and chamber-style formatting. For citation extraction and text search, these are noise; for legal precision, sometimes they matter. Stripping them is a normalization choice.
+- **Styling**: HTML versions carry markup. Storing styled text in `BillVersion.text` makes diff/search awkward; storing only plain text loses markup-conveyed information (italics for newly added phrases, strikethroughs for deletions).
+- **Git-friendly processed representations**: a future text-management pipeline (the "RCW as git" idea sketched in the MVP spec) would benefit from a deliberately-formatted version-control-friendly representation. `BillVersionLink.kind='processed_text'` is reserved for this.
+
+P1b enrichment will produce a concrete proposal for `BillVersion.text` canonicalization. Until then, the column is non-null when a sensible canonical form exists and null otherwise. Adapters always populate `bill_version_links` with whatever source forms they encountered.
+
+---
+
+
 
 Items the transformations did **not** resolve and which P1a or later phases must address:
 

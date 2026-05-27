@@ -71,8 +71,11 @@ async def test_engine():
             await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
         await conn.run_sync(Base.metadata.create_all)
     yield engine
+    # Tear down by dropping each declared schema CASCADE. We deliberately skip
+    # ``Base.metadata.drop_all`` here because it fails when there are circular
+    # FKs (bills <-> bill_versions, v1.2) that need ``use_alter`` handling — the
+    # CASCADE drop handles those naturally.
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
         for schema in schemas:
             await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
     await engine.dispose()

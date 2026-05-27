@@ -3,7 +3,9 @@
 Every fact in the clearinghouse traces to a :class:`FetchEvent` (which produced
 the bytes that yielded the fact), a :class:`Source` (the configured data feed),
 a :class:`Jurisdiction` (the political body the data describes), and zero-or-more
-:class:`Citation` rows (field-level provenance for facts that need it).
+:class:`Citation` rows (field-level provenance for facts that need it). The
+polymorphic :class:`Note` table attaches editorial / staff-summary / clarification
+notes to any canonical entity, with optional author attribution.
 
 All tables live in the ``clearinghouse_core`` Postgres schema.
 """
@@ -21,6 +23,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -180,3 +183,48 @@ class Citation(Base, CreatedAtMixin):
     field_path: Mapped[str | None] = mapped_column(String(128), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     asserted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class Note(Base, TimestampMixin):
+    """Polymorphic editorial / staff / provenance note attached to any canonical entity.
+
+    Added v1.2 (2026-05-28) after the OCD transformation review surfaced multiple
+    note-attachment use cases (amendment staff-summary, bill-version editorial
+    notes, person biographical clarifications). Rather than a per-entity ``note``
+    column, one table covers them all polymorphically — same pattern as
+    :class:`Citation`.
+
+    ``entity_type`` is a string discriminator (e.g., ``"bill"``, ``"bill_version"``,
+    ``"amendment"``, ``"person"``, ``"organization"``); ``entity_id`` is the ULID of
+    the referenced row. No DB-level FK on ``entity_id`` — by design, so a single
+    notes table spans domains.
+
+    Authorship attribution is optional. Common author shapes:
+
+    - ``author_organization_id`` set to a chamber's Committee Services Office for
+      non-partisan staff summaries of amendments.
+    - ``author_person_id`` set to the analyst who wrote the note.
+    - Both null when the note is editorial (sourced from the adapter itself).
+    """
+
+    __tablename__ = "notes"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    entity_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False, index=True)
+    note_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    """Vocabulary (free-text but documented): ``staff_summary`` (non-partisan
+    staff-prepared effects description, e.g. for an Amendment), ``editorial``
+    (adapter-derived), ``clarification`` (human curator clarification),
+    ``provenance`` (an explanation of where a fact came from), ``other``."""
+
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    author_person_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True)
+    """Polymorphic, no DB FK. References ``canonical.persons.id`` when set."""
+
+    author_organization_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True)
+    """Polymorphic, no DB FK. References ``canonical.organizations.id`` when set."""
+
+    effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

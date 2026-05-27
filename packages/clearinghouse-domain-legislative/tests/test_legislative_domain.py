@@ -156,7 +156,6 @@ async def test_bill_with_session_round_trip(db_session):
         number=1234,
         bill_type="HB",
         title="An act relating to widgets",
-        short_description="Comprehensive widget regulation reform",
         current_status="In Senate Rules Committee",
         current_status_class="passed_first_chamber",
         current_status_at=datetime(2025, 3, 1, tzinfo=UTC),

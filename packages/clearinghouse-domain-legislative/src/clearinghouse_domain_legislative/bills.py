@@ -58,7 +58,21 @@ class Bill(Base, TimestampMixin):
     # bill_type vocab: HB | SB | HJR | SJR | HCR | SCR | HJM | SJM | HR | S | etc.
 
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    short_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # short_description and current_text moved to BillVersion in v1.2 (2026-05-28):
+    # per-version summary and text are resolution-preserving (an OCD BillAbstract
+    # tracks with a specific version of the bill, not the bill as a whole).
+
+    current_version_id: Mapped[_ULID | None] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.bill_versions.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+    )
+    """FK to the bill's current/latest BillVersion. Convenience denormalization.
+
+    Adapter maintains: on adoption of a new substitute or engrossed version, this
+    FK gets updated. Tests + queries that just need "the current text" go through
+    this FK rather than scanning ``bill_versions`` for is_current=true.
+    """
 
     current_status: Mapped[str | None] = mapped_column(String(128), nullable=True)
     current_status_class: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -71,7 +85,6 @@ class Bill(Base, TimestampMixin):
     )
     introduced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     enacted_as: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    current_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class BillSponsorship(Base, TimestampMixin):
@@ -194,7 +207,13 @@ class BillActionClassification(Base, TimestampMixin):
 
 
 class BillVersion(Base, TimestampMixin):
-    """Version metadata only in MVP. Full text deferred to P3."""
+    """A version of the bill — introduced / substitute / engrossed / enrolled / etc.
+
+    v1.2 (2026-05-28) added ``text``, ``short_description``, and ``amendment_id``:
+    full text + per-version summary + provenance to the amendment that produced
+    this version (when applicable). See ``bill_version_links`` for alternative
+    representations of the same version (HTML, PDF, etc.).
+    """
 
     __tablename__ = "bill_versions"
     __table_args__ = (
@@ -218,6 +237,30 @@ class BillVersion(Base, TimestampMixin):
     version_type: Mapped[str] = mapped_column(String(64), nullable=False)
     # version_type vocab: introduced | substitute | engrossed | first_engrossed
     #                   | enrolled | act | conference_substitute | etc.
+
+    short_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """Per-version summary / abstract (e.g., OCD ``BillAbstract`` for this version)."""
+
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """Canonical plain-text representation of the bill at this version.
+
+    See ``BillVersionLink`` for alternative representations (HTML, PDF, image-PDF
+    with OCR, processed git-friendly text, etc.). Storage/canonicalization rules
+    are an open design question — see open questions in the hybrid-IA spec.
+    """
+
+    amendment_id: Mapped[_ULID | None] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.amendments.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    """When this version was created by adopting an amendment, points to it.
+
+    Null for the introduced version and for engrossed-by-action versions (where
+    no amendment produced the version directly). Populated for substitute and
+    striking-amendment versions.
+    """
 
     version_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -301,7 +344,20 @@ class Amendment(Base, TimestampMixin):
         index=True,
     )
     label: Mapped[str] = mapped_column(String(64), nullable=False)
+    amendment_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="traditional")
+    """v1.2 (2026-05-28). One of: ``traditional`` (edits) / ``striking`` ("strike
+    everything after the enacting clause" — effectively a new full version) /
+    ``substitute`` (overt full replacement of the bill, may include new title).
+
+    When adopted, striking and substitute amendments produce a new ``BillVersion``
+    with ``BillVersion.amendment_id`` pointing back here. Traditional amendments
+    produce no BillVersion row — they're consumed into the next engrossed version
+    via the source's normal engrossment process.
+    """
+
     amendment_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """Edit text (traditional) or full replacement text (striking / substitute)."""
+
     sponsor_person_id: Mapped[_ULID | None] = mapped_column(
         ULID(), ForeignKey(f"{SCHEMA}.persons.id", ondelete="SET NULL"), nullable=True
     )
@@ -427,3 +483,86 @@ class BillEvent(Base, TimestampMixin):
     # status vocab: scheduled | completed | cancelled | continued | rescheduled
 
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class BillVersionLink(Base, TimestampMixin):
+    """1:N alternative representations of a single BillVersion. New in v1.2 (2026-05-28).
+
+    A single bill version may exist in multiple forms — original PDF, scraped HTML,
+    OCR'd text from an image PDF, processed git-friendly representation, etc. This
+    table holds them all; ``BillVersion.text`` is the canonical plain-text view that
+    the query layer reads by default.
+    """
+
+    __tablename__ = "bill_version_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "jurisdiction_id",
+            "source",
+            "source_id",
+            name="uq_bill_version_links_natural_key",
+        ),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    bill_version_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.bill_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    mime_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
+    # kind vocab: text | html | pdf | xml | image_pdf | processed_text
+    #           | redline | other
+
+    title: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+
+class BillStatutoryCitation(Base, TimestampMixin):
+    """A statutory citation extracted from a bill version's text. New in v1.2.
+
+    OCD's ``Bill.citations`` carries the same concept. Useful for queries like
+    "which bills reference RCW 46.16.005?" without scanning bill text at query
+    time. Extraction happens during normalization (P1b enrichment).
+    """
+
+    __tablename__ = "bill_statutory_citations"
+    __table_args__ = (
+        UniqueConstraint(
+            "jurisdiction_id",
+            "source",
+            "source_id",
+            name="uq_bill_statutory_citations_natural_key",
+        ),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    bill_version_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.bill_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    statute_section_id: Mapped[_ULID | None] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.statute_sections.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    raw_text: Mapped[str] = mapped_column(String(256), nullable=False)
+    """The citation as it appeared in the bill text — e.g., ``"RCW 46.16.005"``."""
+
+    text_offset_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    text_offset_end: Mapped[int | None] = mapped_column(Integer, nullable=True)

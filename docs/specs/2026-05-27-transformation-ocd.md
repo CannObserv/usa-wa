@@ -408,49 +408,95 @@ A `usa_openstates` adapter — i.e., an adapter that populates our `canonical.*`
 
 **Recommended posture.** Build the adapter as a *fallback* not a *primary* — wire it into the runner with lower confidence (in the citation sense). Use it when WSL SOAP returns errors for ≥N minutes, or in scheduled corroboration runs that diff WSL-derived rows against OpenStates-derived rows to flag inconsistencies. The §8 v1 revisions that matter most for this adapter are #4 (action-class array), #14 (RelatedBill), #5/#6 (multi-title/identifier), and #2 (unresolved-name fallback) — without those, the adapter is significantly degraded.
 
-## Open revisions for hybrid IA v1
+## Open revisions for hybrid IA v1 (status as of 2026-05-28, post-review)
 
-Synthesis of every revision candidate surfaced by this transformation. **This is the load-bearing output of step 2.** Each item has a brief rationale, the IA v0 entity affected, and a recommended disposition (`apply` / `defer` / `defer-with-rationale`).
+This was originally the load-bearing output of step 2. After two review passes (v1 synthesis on 2026-05-27, OCD-review-driven v1.1 + v1.2 on 2026-05-28), most items have landed. The annotations below show the v1 disposition (apply / defer) AND what actually happened.
 
-1. **Promote `current_district` from `Person` to `Role`** (or attach `Role` to a sub-Organization with district encoded). OCD's `Post.division` FK is cleaner: the *seat* has a geography, not the person. A senator who changes districts keeps the same `Person`, gets a new `Role` (or `Post`). Currently our shape forces re-emitting `Person.current_district` on every district change, which loses historical district context. **Disposition: apply in v1 — change `Role` to carry `district` (text, nullable) and drop `Person.current_district` (or keep as denorm for query speed but mark derived).** Most consequential identity-cluster fix.
+**Items still open and awaiting decision are listed in §"Items still open" at the end of this section.**
 
-2. **Add unresolved-name fallback columns.** `BillSponsorship.unresolved_name` (text, nullable, only set when both `person_id` and `organization_id` are NULL), `PersonVote.unresolved_voter_name` (text, nullable, only set when `person_id` is NULL), `Assignment.unresolved_person_name` (text, nullable). Mirrors OCD's `RelatedEntityBase` and `PersonVote.voter_name` pattern. Without this, the inbound OpenStates adapter must either skip unresolved rows (data loss) or fail (brittle). **Disposition: apply in v1.** Relax existing NOT-NULL constraints; add CHECK constraints `(person_id IS NOT NULL) OR (unresolved_*_name IS NOT NULL)`.
 
-3. **Promote `powermap_person_id` / `powermap_organization_id` to a generalized external-identifier child table.** New entity `canonical.person_external_ids(person_id, scheme, identifier)` and `canonical.organization_external_ids(org_id, scheme, identifier)`. The `scheme='powermap'` row replaces today's column; new rows can hold `bioguide_id`, `ftm_eid`, `votesmart_id`, `wsl_member_id`, etc. Mirrors OCD `PersonIdentifier`. **Disposition: apply in v1 — but keep the `powermap_*_id` columns as *denormalized* convenience fields for the hot-path FK use case** (they're how power-map writes back; keeping them avoids a join on every read).
+1. ✅ **LANDED in v1.** Promote `current_district` from `Person` to `Role`. `Role.district` (text nullable) added; `Person.current_district` removed entirely. Seat-not-Person semantics preserved.
 
-4. **Make `BillAction.action_type` a multi-value column.** Two options: (a) promote to `text[]` ArrayField in Postgres, (b) extract to a child table `bill_action_classifications(bill_action_id, classification)`. Either way, the v0 single-string assumption breaks under WA's real action vocabulary — "Third reading, final passage" is multi-class. **Disposition: apply in v1 (recommend option (b) — child table — for cleaner per-class indexing and JOIN ergonomics).** Add a denormalized `primary_classification: text NOT NULL` on `BillAction` for fast `current_status` derivation.
+2. ✅ **LANDED in v1.** Unresolved-name fallback columns added on `BillSponsorship.sponsor_name_raw`, `PersonVote.voter_name_raw`, `Assignment.holder_name_raw`, with CHECK constraints enforcing "person_id OR raw_name".
 
-5. **Promote `Bill.title` + `short_description` to a `BillTitle` 1:N child.** OCD models multiple titles (official, short, popular, alternate). WSL emits ≥2 titles for some bills. The collapse loses popular-title ("Climate Commitment Act") on bills that have one. **Disposition: defer to v1.5 / P1b — single title covers 95% of WA bills; promote only when WSL emits the alternate-title field reliably.** Mark in v1 as known constraint.
+3. ✅ **LANDED in v1.** `canonical.person_identifiers` and `canonical.organization_identifiers` 1:N child tables added. `powermap_*_id` columns kept as denormalized fast-path on Person + Organization.
 
-6. **Add `BillIdentifier` for alternate IDs.** `(bill_id, scheme, identifier)`. Needed if an indirect-provider adapter populates the same Bill (currently blocked by our `(jurisdiction_id, source, source_id)` UNIQUE which forces a different source). **Disposition: defer — `(jurisdiction_id, source, source_id)` uniqueness handles MVP; revisit when multi-source corroboration becomes real.**
+4. ✅ **LANDED in v1.** Child table `canonical.bill_action_classifications(bill_action_id, classification)` for OCD-style multi-class; `BillAction.primary_classification` (denormalized, nullable) added for fast display.
 
-7. **Add `Bill.subjects` (text[]).** Subject tagging is universal across OCD/LegiScan/uscongress and present in WSL SOAP. Currently zero support. **Disposition: apply in v1.** Cheap (one column). 1:N table can wait.
+5. ✅ **LANDED in v1.1 + v1.2.** `canonical.bill_titles` 1:N table added in v1.1 with `title_type` / `chamber` / `as_of_action` / `language_code` / `amendment_id` for WA's amendment-driven title-change tracking. `Bill.title` retained as denormalized current canonical title. In v1.2: `Bill.short_description` was *moved* to `BillVersion.short_description` (per-version, not per-bill) — OCD's `BillAbstract` is per-version semantically.
 
-8. **Add `BillAction.display_order` (PositiveIntegerField).** Independent of timestamp for the tie-breaker case (two actions same minute). OCD's `BillAction.order` is non-null. **Disposition: apply in v1.** Cheap.
+6. ⏸️ **DEFERRED (unchanged).** `BillIdentifier` for alternate IDs. Revisit when multi-source bill corroboration becomes a concrete use case.
 
-9. **Add `BillActionRelatedEntity` 1:N table.** `(bill_action_id, entity_type, entity_id, name_raw)`. Lets an action cite its target committee(s) / referenced bills / referenced persons. Without this, "Referred to Health and Ways and Means" loses the *which committees* information. **Disposition: defer — the action description already carries the names as free text; structured extraction is a P1b enrichment, not v1.**
+7. ✅ **LANDED in v1 (as 1:N).** `canonical.bill_subjects` child table added (chosen over `text[]` for query ergonomics).
 
-10. **Add `BillVersionLink` 1:N table.** `(bill_version_id, media_type, url)`. Today `BillVersion` doesn't carry text at all (we have only metadata + a hypothetical `current_text` on `Bill`). When we promote text to `BillVersion` in P3, multiple-format links per version is the right shape. **Disposition: defer to P3** (BillVersion text storage is already P3-deferred).
+8. ✅ **LANDED in v1.** `BillAction.display_order` (int nullable) and `BillAction.is_major` (bool default false) both added.
 
-11. **Add `VoteEvent.motion_classification` (text[]).** OCD's 7-value enum classifies the *motion* (passage / amendment / committee-passage / reading-1 / reading-3 / veto / veto-override). Today we infer from subject+context, which is brittle (e.g., a reading-3 vote on an amendment is ambiguous). **Disposition: apply in v1.** Add as scalar `motion_classification: text(32) nullable` for now; promote to array if WA forces multi-class.
+9. ⏸️ **DEFERRED (unchanged).** `BillActionRelatedEntity` structured extraction is a P1b enrichment. `BillAction.acting_organization_id` covers the most common case (the body that took the action) but doesn't capture multi-target referrals like "Referred to Health and Ways and Means."
 
-12. **Drop or widen `BillSponsorship.role` vocab.** OCD's `classification` is free-text — adapters emit `"floor sponsor"`, `"requestor"`, `"author"`, etc. Our 4-value enum can't round-trip those. Two options: (a) keep enum, accept the loss, (b) make `role` a free-text column with a recommended-values convention. **Disposition: defer with rationale — keep the 4-value enum.** The freedom OCD offers is a known data-quality liability; collapsing to 4 normalized values is *correct* for our use case. Document the lossy normalization rule (§5.2) and move on.
+10. ✅ **LANDED in v1.2.** `canonical.bill_version_links` (1:N) added, with `kind ∈ {text|html|pdf|xml|image_pdf|processed_text|redline|other}` covering OCR for image-PDFs and the planned git-friendly processed-text representations. `BillVersion.text` is the canonical plain-text view; links table holds the rest.
 
-13. **Align PersonVote and VoteCount option vocabularies.** Today `PersonVote.vote` has `abstain` but `VoteCount.count_type` doesn't; `VoteCount.count_type` has `other` but `PersonVote.vote` doesn't. **Disposition: apply in v1 — add `abstain` to `VoteCount.count_type`, add `other` to `PersonVote.vote`.** Make them identical 7-value enums: `{yea, nay, abstain, excused, absent, present_not_voting, other}`. Cheap.
+11. ✅ **LANDED in v1 (as `VoteEvent.category`).** Procedural-vs-substantive distinction column added with `passage` / `cloture` / `recommit` / `tabling` / `motion_to_proceed` / `nomination` / `treaty` / `conviction` / `procedural` / `other` vocab (uscongress-driven naming).
 
-14. **Add `canonical.bill_relationships`.** `(bill_id, related_bill_id, relation_type)` with vocab from OCD's `BILL_RELATION_TYPES` (`companion`, `prior-session`, `replaced-by`, `replaces`, `related`). Universal across all three reference schemas in the delta note. Companion bills are real in WA (House/Senate paired bills). **Disposition: apply in v1.** New entity; mechanical to add.
+12. ⏸️ **CLOSED WITH RATIONALE (kept).** `BillSponsorship.role` stays as 4-value enum (primary / co / joint / generic). Lossy collapse from free-text OCD values is documented in §5.2; the normalization is correct for our use case.
 
-15. **Add `Bill.enacted_as` (text, nullable).** WA's "Chapter X, Laws of YYYY" terminal identifier. OCD has no clean column; uscongress has `enacted_as`. **Disposition: apply in v1.** Cheap.
+13. ✅ **LANDED in v1 (with `paired` added).** Both `VoteCount.count_type` and `PersonVote.vote` use the same 7-value vocab: `yea` / `nay` / `abstain` / `excused` / `absent` / `present_not_voting` / `paired` / `other`. `paired` was added for OCD `VOTE_OPTION='paired'` round-trip.
 
-16. **Add `VoteEvent.originating_bill_action_id` (nullable FK to BillAction).** Lets a vote cite the action that produced it (OCD has `VoteEvent.bill_action` for this). Useful for "the vote on third reading" traceability. **Disposition: defer with rationale — derivable from `(bill_id, event_at)` proximity for the MVP question shape; promote in P1b if traceability becomes a stated requirement.**
+14. ✅ **LANDED in v1.** `canonical.bill_relationships(from_bill_id, to_bill_id, relationship_type, notes)` added with OCD-aligned vocab.
 
-17. **Clarify `LegislativeSession.classification` mapping rules.** Document the `regular`→`primary` and `{special,extraordinary,sine_die,other}`→`special` collapse explicitly in the IA spec so consumers know what an OCD adapter would lose. **Disposition: apply in v1 — narrative only, no schema change.**
+15. ✅ **LANDED in v1.** `Bill.enacted_as` (text nullable) added.
 
-18. **Remove or downgrade `Bill.current_step`.** OCD has no analog; the field has no clear semantics distinct from `current_status`. Per the delta note's recommendation (already documented but not yet applied). **Disposition: apply in v1 — drop the column.** Reduces ambiguity.
+16. ⏸️ **DEFERRED (unchanged).** `VoteEvent.originating_bill_action_id` traceability is derivable from `(bill_id, event_at)` for MVP question shape. Revisit in P1b if traceability becomes a stated requirement.
 
-19. **Add a `Bill.current_status_at` (timestamptz, nullable).** When the current status was last updated. OCD has no analog, but uscongress and LegiScan both have it; useful for "is this stale?" answers. **Disposition: apply in v1.** Cheap.
+17. ✅ **LANDED (and improved) in v1.2.** `LegislativeSession.classification` vocab was tightened to `regular` / `special` / `other` — `extraordinary` (no semantic difference from `special`) and `sine_die` (an adjournment state, not a session type) were dropped. Sine-die-adjournment captured via the new `adjourned_sine_die_at` timestamp column. OCD mapping rules now collapse `{regular}→{regular}` and `{special}→{special}`, with everything else falling through to `other`.
 
-20. **Acknowledge OCD's `Event` (hearing) gap.** We have no Hearing entity in v0; OCD's `Event` cluster is rich (location, agenda items, related entities, media, documents). **Disposition: defer to post-MVP — Hearing was already a planned P3 entity per the MVP spec; no v1 revision needed.** Document the gap in §6 lossy list.
+18. ✅ **LANDED in v1.** `Bill.current_step` dropped. Replaced by `Bill.current_status_class` (normalized vocab) + `Bill.current_status_at` (timestamp).
+
+19. ✅ **LANDED in v1.** `Bill.current_status_at` (timestamptz nullable) added.
+
+20. ✅ **LANDED in v1 (partial; richer event detail deferred).** `canonical.bill_events` added with `event_type` ∈ `public_hearing` / `executive_session` / `work_session` / `committee_meeting` / `floor_calendar` / `other`. Agenda items, related entities, media, and documents on events are deferred to P3 enrichment — current shape covers "when and where is the hearing on HB-1234" without the richer detail.
+
+---
+
+## Items added by 2026-05-28 OCD-review-#2 pass
+
+These eight items came in during the second OCD review pass and landed directly in v1.2 of the IA spec. They are not "open" anymore — recorded here for the audit trail.
+
+21. ✅ **LANDED in v1.2.** `LegislativeSession` vocab tightened: drop `extraordinary` + `sine_die` from the classification enum; add `adjourned_sine_die_at: timestamptz nullable`. Sine die is an adjournment state, not a session type.
+
+22. ✅ **LANDED in v1.2.** `Bill.short_description` moved to `BillVersion.short_description`. OCD's `BillAbstract` is per-version, not per-bill; collapsing to a single column on Bill loses resolution.
+
+23. ✅ **LANDED in v1.2.** `Bill.current_text` removed; replaced by `Bill.current_version_id` FK (with `use_alter=True` for the bills↔bill_versions circular FK). Canonical text now lives on `BillVersion.text`.
+
+24. ✅ **LANDED in v1.2.** `BillVersion.text` added (canonical plain-text representation per version). Canonicalization rules — MIME, OCR for image PDFs, styled-vs-plain, pagination/formatting stripping, git-friendly processed text — are an open design discussion documented in the IA spec's Open Issues section. `BillVersionLink` (#25) carries every source form.
+
+25. ✅ **LANDED in v1.2.** `canonical.bill_version_links` (1:N) added with `kind ∈ {text | html | pdf | xml | image_pdf | processed_text | redline | other}`. Promoted from the deferred P3 status in #10.
+
+26. ✅ **LANDED in v1.2.** `Amendment.amendment_kind: text(16) NOT NULL` ∈ `traditional` / `striking` / `substitute`. When a striking or substitute amendment is adopted, the adapter creates a new `BillVersion` row whose `amendment_id` FK points back; traditional amendments don't produce their own BillVersion (consumed into the next engrossed version). Votes always target the Amendment row, not the BillVersion that would result.
+
+27. ✅ **LANDED in v1.2.** `BillVersion.amendment_id` FK added — populated when a version was created by adopting a striker / substitute.
+
+28. ✅ **LANDED in v1.2.** `canonical.bill_statutory_citations` (extracted statutory references from a BillVersion's text, with optional FK to `canonical.statute_sections`). Mirrors OCD's `Bill.citations` concept. Extraction is a P1b enrichment.
+
+29. ✅ **LANDED in v1.2.** `clearinghouse_core.notes` (polymorphic editorial / staff / clarification / provenance notes attached to any canonical entity). Reusable framework primitive — same pattern as `Citation`. Replaces a per-entity `BillVersion.note` column. Most-relevant near-term use case: WA's non-partisan staff-prepared effects descriptions on Amendments, attached as `Note(entity_type='amendment', note_kind='staff_summary', author_organization_id=<senate_committee_services>)`.
+
+---
+
+## Items still open
+
+After the v1.2 pass, four items from the original list remain explicitly **deferred**, plus one new open question. These are listed here as a single decision queue:
+
+- **#6 `BillIdentifier` for alternate IDs.** Status: deferred. Trigger to revisit: a concrete multi-source corroboration use case where the same WA bill needs to land in `canonical.bills` from two different `source` adapters.
+
+- **#9 `BillActionRelatedEntity` (1:N structured extraction from action descriptions).** Status: deferred. Trigger to revisit: a stated P1b requirement to query "all actions that referred a bill to the Ways and Means Committee" (currently requires LIKE-matching on `description` text).
+
+- **#12 widen `BillSponsorship.role`.** Status: closed with rationale (kept 4-value enum). No trigger to revisit unless OCD-source corroboration starts producing valuable role strings outside the 4-value collapse.
+
+- **#16 `VoteEvent.originating_bill_action_id`.** Status: deferred. Trigger to revisit: P1b need for "the vote that produced this action" traceability.
+
+- **New: BillVersion.text canonicalization rules.** Status: open design discussion. Documented in the hybrid IA spec's "Open issues" section. P1b will produce a concrete proposal for what `BillVersion.text` should hold (OCR'd plain text? styled HTML? a deliberately-canonicalized intermediate?). Until then, the column is non-null when a sensible canonical form exists and null otherwise; alternative source forms always land in `bill_version_links`.
+
+---
+
 
 ## Post-review addendum (v1.1 landing)
 

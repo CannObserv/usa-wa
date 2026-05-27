@@ -6,9 +6,9 @@ OpenStates convention extended for our jurisdiction encoding:
 `usa-wa-2025-special-1`, `usa-fed-119`).
 """
 
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from ulid import ULID as _ULID
 
@@ -45,9 +45,21 @@ class LegislativeSession(Base, TimestampMixin):
     slug: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     classification: Mapped[str] = mapped_column(String(32), nullable=False)
-    # classification vocab: regular | special | sine_die | extraordinary | other
+    # classification vocab (v1.2, 2026-05-28): regular | special | other
+    # Dropped `extraordinary` (no semantic difference from `special`/`other`)
+    # and `sine_die` (which is an adjournment state, not a session type — see
+    # adjourned_sine_die_at below).
 
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    adjourned_sine_die_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    """When the session adjourned sine die — literally without plans to return.
+
+    In WA practice ``sine die`` is the act of ending a session; populated when known,
+    null while the session is active or if adjournment status is unknown.
+    """
+
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     biennium_label: Mapped[str | None] = mapped_column(String(16), nullable=True)
