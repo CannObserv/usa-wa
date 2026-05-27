@@ -1,9 +1,44 @@
-# Hybrid legislative information architecture (v0)
+# Hybrid legislative information architecture
 
 - **Date:** 2026-05-27
-- **Status:** v0 draft (transformations in step 2 will surface revisions → v1)
+- **Status:** final (v1 — synthesizes findings from three transformation specs)
 - **Scope:** All canonical legislative-domain entities. Supersedes the P0-skeleton entity descriptions in [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](2026-05-25-usa-wa-mvp-design.md) §Canonical data spine.
 - **Tracks:** [GH #3](https://github.com/CannObserv/usa-wa/issues/3); see plan at [`docs/plans/2026-05-26-p0-5-hybrid-legislative-ia.md`](../plans/2026-05-26-p0-5-hybrid-legislative-ia.md).
+- **Supersedes:** the v0 draft of this file (commit `aed896c`); see Changelog § below.
+
+## Changelog (v0 → v1)
+
+v0 was pressure-tested against three foreign schemas by parallel transformation agents. Their outputs:
+
+- [`docs/specs/2026-05-27-transformation-ocd.md`](2026-05-27-transformation-ocd.md) — Open Civic Data / OpenStates
+- [`docs/specs/2026-05-27-transformation-legiscan.md`](2026-05-27-transformation-legiscan.md) — LegiScan API
+- [`docs/specs/2026-05-27-transformation-uscongress.md`](2026-05-27-transformation-uscongress.md) — federal `unitedstates/congress` + `congress-legislators`
+
+Concrete revisions landed in v1:
+
+| Revision | Source(s) | Section |
+|---|---|---|
+| `canonical.person_identifiers` + `canonical.organization_identifiers` 1:N child tables for external IDs (bioguide, LIS, FollowTheMoney, Votesmart, OpenSecrets, Ballotpedia, etc.). Existing `powermap_*_id` columns retained as denormalized fast-path. | OCD #3, LegiScan #1, uscongress #1 | External identifiers |
+| `canonical.bill_relationships` table for companion / replaces / replaced-by / related-to / prior-session-carryover. | OCD #4, LegiScan honorable | Bill cluster |
+| `canonical.bill_subjects` child table (subjects-per-bill from source vocab). | OCD honorable, LegiScan honorable | Bill cluster |
+| `canonical.bill_events` (replaces the P0-skeleton `Hearing`) for hearings, work sessions, executive sessions. | LegiScan honorable | Bill cluster |
+| `canonical.bill_action_classifications` 1:N child table; `BillAction.primary_classification` denormalized for display. | OCD #1 | Bill cluster |
+| `BillAction.display_order` + `BillAction.is_major`. | OCD honorable, LegiScan #3 | Bill cluster |
+| `Bill.originating_chamber` + `Bill.current_chamber` (replaces single `chamber`). | LegiScan #2 | Bill cluster |
+| `Bill.current_status_class` (normalized) + `Bill.current_status_at` (timestamp); `Bill.current_step` removed. | LegiScan #4, uscongress #4 | Bill cluster |
+| `Bill.enacted_as` (Public Law / chapter-law cross-reference). | uscongress #3 | Bill cluster |
+| `VoteEvent.category` (procedural/substantive/passage/cloture/recommit/nomination/treaty/conviction/other). | uscongress #2 | Vote cluster |
+| `BillSponsorship.sponsor_name_raw`, `PersonVote.voter_name_raw`, `Assignment.holder_name_raw` — fallback columns for indirect-provider adapters where ID resolution hasn't happened yet. | OCD #2 | Identity cluster + Bill cluster + Vote cluster |
+| `Role.district` (text nullable). Moves district context off `Person.current_district`. | OCD #5 | Identity cluster |
+
+**Documented as unavoidable lossy** (see Unavoidable lossy directions §):
+
+- Amendments → OCD: OCD has no `Amendment` entity; emit as `BillAction.classification ∈ amendment-*`.
+- Bill classification array → our scalar: OCD bills can be multi-classified (resolution + concurrent + appropriation); we stay scalar.
+- LegiScan VoteEvent narrowness: no committee, amendment, or motion votes.
+- LegiScan Amendment lifecycle collapse: no sponsor IDs, single `adopted` flag.
+- congress floor-only votes: federal upstream doesn't collect committee votes.
+- congress committee membership historical gap: upstream YAML is current-state-only.
 
 ## Problem
 
@@ -24,8 +59,9 @@ Consequences:
 
 - **The canonical identity model uses power-map's vocabulary** so cross-service joins work without translation: Person, Organization, Role, Assignment.
 - **Each Person and Organization carries a nullable `powermap_*_id` column** that's populated when power-map confirms a mapping. Until then, usa-wa's own ULID is the local truth.
-- **A future archival-push job** stages the local-canonical → power-map writes when the upstream write API matures (P3+). The records' shape is designed today to make that push mechanical (no schema impedance mismatch).
-- **State-resource resilience.** When WSL SOAP rate-limits, breaks compatibility, or rotates IDs, the local cache and the archival truth in power-map keep MCP/REST queries serving. This is a free side effect of the architecture; it's not what motivated the adoption, but it's worth preserving.
+- **The new `*_identifiers` child tables (v1)** hold the full N-scheme external-ID graph that OCD, LegiScan, uscongress all maintain (bioguide, LIS, FollowTheMoney, Votesmart, OpenSecrets, Ballotpedia, KnowWho, etc.). `powermap_*_id` stays as the primary cross-cohort denormalization; the child table absorbs the rest.
+- **A future archival-push job** stages local-canonical → power-map writes when the upstream write API matures (P3+). The records' shape is designed today to make that push mechanical (no schema impedance mismatch).
+- **State-resource resilience.** When WSL SOAP rate-limits, breaks compatibility, or rotates IDs, the local cache and the archival truth in power-map keep MCP/REST queries serving.
 
 ## Universal entity shape
 
@@ -35,25 +71,23 @@ Every canonical entity in this spec carries the following columns. Per-entity bl
 |---|---|---|
 | `id` | ULID PK | Always. Auto-generated via `clearinghouse_core.db.ulid.ULID`. |
 | `jurisdiction_id` | text(32) NOT NULL, indexed | Slug per `feedback_jurisdiction_naming` — `usa-wa`, `usa-or`, `usa-fed`. |
-| `source` | text(64) NOT NULL | Matches the producing adapter's `source_slug` (`usa_wa_legislature`, `usa_wa_pdc`, `usa_wa_rcw`). |
+| `source` | text(64) NOT NULL | Matches the producing adapter's `source_slug`. |
 | `source_id` | text(128) NOT NULL | Source-stable identifier within the adapter. |
-| `primary_source_id` | ULID nullable | Denormalized FK to `clearinghouse_core.sources.id` for cheap citation rendering. |
+| `primary_source_id` | ULID nullable | Denormalized FK to `clearinghouse_core.sources.id`. |
 | `last_fetched_at` | timestamptz nullable | Last successful normalization fetch. |
 | `last_fetch_event_id` | ULID nullable | FK to `clearinghouse_core.fetch_events.id`. |
 | `created_at` | timestamptz NOT NULL, server_default=now() | Via `TimestampMixin`. |
 | `updated_at` | timestamptz NOT NULL, server_default=now(), onupdate=now() | Via `TimestampMixin`. |
 
-**Natural-key UNIQUE constraint:** `UNIQUE (jurisdiction_id, source, source_id)` on every entity unless a per-entity block specifies otherwise (some derived entities — Role, Assignment — use a synthesized natural key).
+**Natural-key UNIQUE constraint:** `UNIQUE (jurisdiction_id, source, source_id)` on every entity unless a per-entity block specifies otherwise.
 
 All FKs use the `ULID` SQLAlchemy column type. Schema is `canonical.*` for every table in this spec.
 
 ## Identity cluster (power-map terminology)
 
-The four-entity identity model replaces the P0-skeleton's `Legislator`, `Committee`, and `Filer` standalone tables. Every legislator is a `Person`; every chamber, party, committee, candidate committee, lobbying firm, and PAC is an `Organization`. The relationships between them are `Assignment`s of `Role`s.
-
 ### `canonical.persons`
 
-A human. Replaces `Legislator`. Local cache of identity data that will eventually be archived in power-map.
+A human. Replaces `Legislator`.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -63,94 +97,94 @@ A human. Replaces `Legislator`. Local cache of identity data that will eventuall
 | `name_middle` | text nullable | |
 | `name_suffix` | text nullable | "Jr.", "III", etc. |
 | `name_used` | text nullable | Preferred display when different from legal name. |
-| `gender` | text(32) nullable | Source's free-text value; we don't enforce a vocabulary. |
-| `birth_year` | int nullable | Privacy-friendly granularity; full DOB not stored. |
-| `powermap_person_id` | ULID nullable | Set after a power-map match; null pre-P2 or pre-match. |
+| `gender` | text(32) nullable | Source's free-text value. |
+| `birth_year` | int nullable | |
+| `powermap_person_id` | ULID nullable | Set after a power-map match. |
 
-Power-map has a sophisticated name i18n stack (BCP-47 + ISO 15924 + deadname downgrade + structured-parts sidecar). usa-wa's local cache stays simple; consumers needing i18n querying go to power-map directly via `powermap_person_id`.
+Note: `current_district` removed (v0 → v1). District context lives on `Role` now; see `canonical.roles`.
 
 ### `canonical.organizations`
-
-Any non-person legal/political entity. Discriminated by `org_type`.
 
 | Column | Type | Notes |
 |---|---|---|
 | `name` | text NOT NULL | Canonical full name. |
-| `short_name` | text nullable | "Senate" for "Washington State Senate". |
+| `short_name` | text nullable | |
 | `org_type` | text(32) NOT NULL | One of: `chamber` / `party` / `committee` / `subcommittee` / `caucus` / `candidate_committee` / `lobbying_firm` / `pac` / `government_agency` / `other`. |
 | `parent_organization_id` | ULID nullable FK self | A committee's parent is its chamber; a subcommittee's parent is its committee. |
-| `powermap_organization_id` | ULID nullable | Set after a power-map match. |
-
-WA-specific examples:
-- `(name="Washington State Senate", org_type="chamber")` — top-level, no parent
-- `(name="Washington Democratic Party", org_type="party")` — top-level
-- `(name="Senate Committee on Health & Long-Term Care", org_type="committee", parent_organization_id=senate.id)`
-- `(name="Friends of Jane Doe", org_type="candidate_committee")`
-- `(name="Acme Government Affairs LLC", org_type="lobbying_firm")`
+| `powermap_organization_id` | ULID nullable | |
 
 ### `canonical.roles`
 
-A named slot **within** an Organization. Roles are templates; the time-bounded "who holds the role" is an Assignment.
+A named slot **within** an Organization.
 
 | Column | Type | Notes |
 |---|---|---|
-| `organization_id` | ULID NOT NULL FK | The org this role exists within. |
-| `name` | text(64) NOT NULL | "Senator", "Representative", "Chair", "Vice Chair", "Ranking Member", "Member", "Speaker", "Majority Leader", "Minority Leader", "President Pro Tempore", "Member" (of a party), etc. |
+| `organization_id` | ULID NOT NULL FK | |
+| `name` | text(64) NOT NULL | "Senator", "Representative", "Delegate", "Resident Commissioner", "Chair", "Vice Chair", "Ranking Member", "Member", "Speaker", "President Pro Tempore", etc. |
 | `role_type` | text(32) NOT NULL | One of: `elected_member` / `leadership` / `committee_member` / `committee_leadership` / `staff` / `party_member` / `other`. |
+| `district` | text(32) nullable | **New in v1.** District/seat identifier (e.g., "21" for WA LD 21; "WA-3" for federal House). Null for at-large or non-district roles. |
 
-**Natural-key UNIQUE:** `(jurisdiction_id, organization_id, name)`. Roles are jurisdiction-internal vocabulary, not source-emitted entities — `source` and `source_id` may carry adapter-synthesized values (e.g., `source="usa_wa_legislature", source_id="role:senate:senator"`) for upsert idempotency.
+**Natural-key UNIQUE:** `(jurisdiction_id, organization_id, name, district)`. Roles for the same chamber-position with different districts are distinct (e.g., Senator-LD21 vs Senator-LD22).
 
-Examples:
-- `(org=Senate, name="Senator", role_type="elected_member")`
-- `(org=Senate, name="President Pro Tempore", role_type="leadership")`
-- `(org=Senate Health Committee, name="Chair", role_type="committee_leadership")`
-- `(org=Senate Health Committee, name="Member", role_type="committee_member")`
-- `(org=WA Democratic Party, name="Member", role_type="party_member")`
+Examples — note the federal-stress-test-driven distinction between Representative / Delegate / Resident Commissioner as separate role names:
+
+- `(org=WA Senate, name="Senator", district="21", role_type="elected_member")`
+- `(org=US House, name="Representative", district="WA-3", role_type="elected_member")`
+- `(org=US House, name="Delegate", district="DC-AL", role_type="elected_member")` — non-voting
+- `(org=US House, name="Resident Commissioner", district="PR-AL", role_type="elected_member")` — 4-year term
+- `(org=Senate Health Committee, name="Chair", district=null, role_type="committee_leadership")`
 
 ### `canonical.assignments`
 
-A Person × Role × Period — "Sen. Jane Doe was Chair of Senate Health from 2025-01-13 to 2026-04-15".
+Person × Role × Period.
 
 | Column | Type | Notes |
 |---|---|---|
 | `person_id` | ULID NOT NULL FK | |
 | `role_id` | ULID NOT NULL FK | |
+| `holder_name_raw` | text(256) nullable | **New in v1.** Source-provided name string captured when ID resolution to a known Person hasn't completed. The adapter sets this and leaves `person_id` null pending the next resolution sweep. |
 | `valid_from` | date NOT NULL | |
 | `valid_to` | date nullable | Null = currently active. |
-| `is_active` | bool NOT NULL default false | Denormalized from valid_to for query speed. Maintained by the adapter on each refresh. |
+| `is_active` | bool NOT NULL default false | Denormalized for query speed. |
 
-**Natural-key UNIQUE:** `(jurisdiction_id, person_id, role_id, valid_from)`. A Person can re-take a Role with a new `valid_from` if there's a gap. `source_id` may be adapter-synthesized like `assignment:26142:role:senate-health:chair:2025-01-13` when the source doesn't expose a stable assignment id.
+**Note:** v1 allows `person_id` to be temporarily null when `holder_name_raw` is populated and resolution is in flight. A periodic resolver job converts `holder_name_raw` → `person_id` and clears the raw column.
 
-This is the bridge between legislators-as-people and their chamber / party / committee context. WSL SOAP-derived examples for one biennium of Sen. Jane Doe (LD 21, Democrat, Chair of Senate Health):
+**Natural-key UNIQUE:** `(jurisdiction_id, person_id, role_id, valid_from)` when `person_id` is non-null; the partial unique index handles null cleanly.
 
-| Person | Role | Org | valid_from | valid_to |
-|---|---|---|---|---|
-| Jane Doe | Senator | WA Senate | 2023-01-09 | 2027-01-12 |
-| Jane Doe | Member | WA Democratic Party | 2023-01-09 | null |
-| Jane Doe | Chair | Senate Health Committee | 2025-01-13 | null |
-| Jane Doe | Member | Senate Ways and Means Committee | 2025-01-13 | null |
+## External identifiers (new in v1)
 
-District is captured via Assignment-to-Role within a district-specific "Senate LD 21" sub-Organization? Or as a Role attribute? **Open question for v1** — see Open issues. For v0, district lives as a denormalized column on Person until transformations show whether OCD/LegiScan represent it differently.
+The OCD / LegiScan / uscongress investigations confirmed every Person and Organization in their schemas carries 5–15 external identifiers (bioguide, LIS, FollowTheMoney, Votesmart, OpenSecrets, Ballotpedia, KnowWho, ICPSR, Wikipedia, etc.). v0's single `powermap_*_id` column collapses that graph. v1 promotes the N-cardinality to dedicated child tables.
 
-| Column added to `canonical.persons` for v0 | Type | Notes |
+### `canonical.person_identifiers`
+
+| Column | Type | Notes |
 |---|---|---|
-| `current_district` | text(32) nullable | LD number for state legislators, district for federal. Denormalized for query convenience pending v1 decision. |
+| `person_id` | ULID NOT NULL FK | |
+| `scheme` | text(64) NOT NULL | Identifier scheme slug: `bioguide` / `lis` / `ftm_eid` / `votesmart` / `opensecrets` / `ballotpedia` / `knowwho_pid` / `icpsr` / `wikipedia` / `wsl_member_id` / `pdc_filer_id` / etc. |
+| `value` | text(128) NOT NULL | The identifier value in the scheme's natural format. |
+| `verified_at` | timestamptz nullable | When the mapping was last confirmed. |
+
+**Natural-key UNIQUE:** `(person_id, scheme)` — one value per scheme per person. **Plus:** `(jurisdiction_id, scheme, value)` — one Person owns a given identifier within a jurisdiction.
+
+`Person.powermap_person_id` remains as a denormalized fast-path for the most-common cross-cohort query (`person_identifiers` would have a row with `scheme="powermap"`).
+
+### `canonical.organization_identifiers`
+
+Same shape as `person_identifiers`, FK to `canonical.organizations`. Common schemes: `wsl_committee_id`, `pdc_filer_id`, `fec_committee_id`, `irs_ein`, `opensecrets_org`, `ftm_org_eid`, `powermap`.
 
 ## `canonical.legislative_sessions`
-
-A bounded period during which a legislature meets and acts on bills. Replaces `Bill.biennium`.
 
 | Column | Type | Notes |
 |---|---|---|
 | `slug` | text(64) NOT NULL | OpenStates-style: `<jurisdiction_id>-<year>[-<session_suffix>]`. Examples: `usa-wa-2025`, `usa-wa-2025-special-1`, `usa-fed-119`. |
-| `name` | text NOT NULL | Human-readable: "2025 Regular Session", "2025 First Special Session". |
+| `name` | text NOT NULL | "2025 Regular Session", "2025 First Special Session". |
 | `classification` | text(32) NOT NULL | One of: `regular` / `special` / `sine_die` / `extraordinary` / `other`. |
 | `start_date` | date nullable | |
 | `end_date` | date nullable | |
-| `is_active` | bool NOT NULL default false | Denormalized from dates; adapter maintains. |
-| `biennium_label` | text(16) nullable | WA-flavored — preserved for round-tripping ("2025-26"). For other jurisdictions this may be null. |
+| `is_active` | bool NOT NULL default false | |
+| `biennium_label` | text(16) nullable | WA-flavored — preserved for round-tripping ("2025-26"). |
 
-**Natural-key UNIQUE:** `(jurisdiction_id, slug)`. The slug doubles as a stable cross-source mapping target (transformation specs map OpenStates' `wa-2025` ↔ our `usa-wa-2025`).
+**Natural-key UNIQUE:** `(jurisdiction_id, slug)`.
 
 ## Bill cluster
 
@@ -158,145 +192,195 @@ A bounded period during which a legislature meets and acts on bills. Replaces `B
 
 | Column | Type | Notes |
 |---|---|---|
-| `legislative_session_id` | ULID NOT NULL FK | Replaces `biennium` text. |
-| `chamber` | text(16) NOT NULL | `house` / `senate` / `unicameral`. |
-| `number` | int NOT NULL | The numeric portion. |
-| `bill_type` | text(32) nullable | HB / SB / HJR / SJR / HCR / SCR / HJM / SJM / etc. |
-| `title` | text NOT NULL | The short form — convention-aligned with OCD / LegiScan / uscongress. |
-| `short_description` | text nullable | The long form (full descriptive title from the source). |
-| `current_status` | text(128) nullable | Source-vocabulary text; vocab alignment to be addressed per transformation. |
-| `current_step` | text(128) nullable | E.g., `senate_rules`, `house_floor`, `governor_desk`. |
+| `legislative_session_id` | ULID NOT NULL FK | |
+| `originating_chamber` | text(16) NOT NULL | **v1 (was `chamber`).** Body where the bill was first introduced — `house` / `senate` / `unicameral`. |
+| `current_chamber` | text(16) nullable | **v1.** Body the bill is currently in. Null when in conference or fully passed both. |
+| `number` | int NOT NULL | |
+| `bill_type` | text(32) nullable | HB / SB / HJR / SJR / HCR / SCR / HJM / SJM / HR / S / etc. |
+| `title` | text NOT NULL | Short form — convention-aligned with OCD / LegiScan / uscongress. |
+| `short_description` | text nullable | Long form (full descriptive title from the source). |
+| `current_status` | text(128) nullable | Source-vocabulary text. |
+| `current_status_class` | text(32) nullable | **v1.** Normalized to OCD's `bill_action_classification` plus LegiScan's status vocab — values like `introduced` / `in_committee` / `passed_first_chamber` / `passed_second_chamber` / `vetoed` / `signed` / `enacted` / `failed` / `withdrawn`. |
+| `current_status_at` | timestamptz nullable | **v1 (replaces `current_step`).** When `current_status` was last updated. |
 | `introduced_at` | timestamptz nullable | |
-| `current_text` | text nullable | Current bill text; full version history is `BillVersion`. |
+| `enacted_as` | text(64) nullable | **v1.** Public Law / chapter law cross-reference once enacted (federal: "Public Law 119-12"; WA: "Chapter 47, Laws of 2025"). |
+| `current_text` | text nullable | Current bill text; version history is `BillVersion`. |
 
-**Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`. WSL's source_id is conventionally `<bill_type>-<number>-<biennium>` (e.g., `HB-1234-2025-26`); v1 may revise once OCD/LegiScan transformations clarify normalization.
+**Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`.
+
+Note: v0's `current_step` column is dropped. The previous use-cases (status enum + when-was-status-set) are replaced by `current_status_class` + `current_status_at`.
 
 ### `canonical.bill_sponsorships`
 
-Polymorphic: a sponsor is either a Person (legislator) **or** an Organization (committee, when a jurisdiction allows committee-sponsored bills). WA does not allow committee sponsorship (OQ1 resolved 2026-05-27) so the WA adapter never emits `organization_id`-bearing rows, but Layer 2 supports it for federal / multi-state reusability.
+Polymorphic: a sponsor is either a Person (legislator) or an Organization (committee).
 
 | Column | Type | Notes |
 |---|---|---|
 | `bill_id` | ULID NOT NULL FK | |
 | `person_id` | ULID nullable FK | Exactly one of person_id / organization_id is non-null. |
 | `organization_id` | ULID nullable FK | |
-| `role` | text(32) NOT NULL | One of: `primary` / `co` / `joint` / `generic` (4-value vocab; OCD-aligned). |
-| `sponsor_order` | int nullable | 1-indexed; preserves source's ordering. |
-| `withdrawn_at` | timestamptz nullable | For co-sponsor withdrawals. |
+| `sponsor_name_raw` | text(256) nullable | **v1.** Source-provided sponsor name when ID resolution hasn't completed. Adapter populates and a later resolver promotes to `person_id` or `organization_id`. |
+| `role` | text(32) NOT NULL | `primary` / `co` / `joint` / `generic` (4-value, OCD-aligned). |
+| `sponsor_order` | int nullable | |
+| `withdrawn_at` | timestamptz nullable | |
 
-**CHECK constraint:** `(person_id IS NOT NULL AND organization_id IS NULL) OR (person_id IS NULL AND organization_id IS NOT NULL)`.
+**CHECK constraint:** at most one of `person_id` / `organization_id` is non-null, with `sponsor_name_raw` non-null when both are null (pending resolution).
 
-**Natural-key UNIQUE:** `(bill_id, person_id, role)` for person-sponsored; `(bill_id, organization_id, role)` for committee-sponsored — implemented as two partial indexes.
+**Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`.
 
 ### `canonical.bill_actions`
 
-Append-only lifecycle log. Mostly unchanged from P0.
+Append-only lifecycle log.
 
 | Column | Type | Notes |
 |---|---|---|
 | `bill_id` | ULID NOT NULL FK | |
 | `action_at` | timestamptz NOT NULL | |
-| `chamber` | text(16) nullable | `house` / `senate` / null for executive / governor actions. |
-| `acting_organization_id` | ULID nullable FK | The body that took the action — chamber, committee, or null. |
-| `action_type` | text(64) NOT NULL | Source-vocab text; v1 transformations will normalize via OCD's `BILL_ACTION_CLASSIFICATIONS`. |
-| `description` | text NOT NULL | Free-text description as the source provided. |
+| `chamber` | text(16) nullable | `house` / `senate` / null for executive actions. |
+| `acting_organization_id` | ULID nullable FK | The body that took the action — chamber, committee, etc. |
+| `action_type` | text(64) NOT NULL | Source-vocab text. |
+| `primary_classification` | text(64) nullable | **v1.** Single most-canonical OCD class for display: `introduction` / `reading-1` / `passage` / `amendment-passage` / `committee-passage` / `executive-signature` / `veto-override-passage` / etc. The full multi-class array lives in `bill_action_classifications`. |
+| `description` | text NOT NULL | Free-text description. |
+| `display_order` | int nullable | **v1.** Tie-breaker for same-day actions; preserves source's intended sequence. |
+| `is_major` | bool NOT NULL default false | **v1.** Source's "milestone" flag (LegiScan `importance`). |
 
-**Natural-key UNIQUE:** `(bill_id, source, source_action_id)`. Where the source provides a stable action id, we use it; otherwise the adapter synthesizes one from `(action_at, action_type, brief_hash)`.
+**Natural-key UNIQUE:** `(bill_id, source, source_action_id)`.
+
+### `canonical.bill_action_classifications`
+
+**New in v1.** 1:N child table for the OCD-style multi-classification of a single BillAction (OCD permits an action to be simultaneously e.g. `reading-3` and `passage`).
+
+| Column | Type | Notes |
+|---|---|---|
+| `bill_action_id` | ULID NOT NULL FK | |
+| `classification` | text(64) NOT NULL | One of OCD's `BILL_ACTION_CLASSIFICATIONS` values. |
+
+**Natural-key UNIQUE:** `(bill_action_id, classification)`.
 
 ### `canonical.bill_versions`
-
-Version metadata only in MVP. Full version text deferred to P3 (large blobs).
 
 | Column | Type | Notes |
 |---|---|---|
 | `bill_id` | ULID NOT NULL FK | |
-| `version_type` | text(64) NOT NULL | `original` / `substitute` / `engrossed` / `first_engrossed` / `enrolled` / etc. |
-| `version_at` | timestamptz nullable | When the version was introduced/adopted. |
-| `is_current` | bool NOT NULL default false | At most one current per bill — adapter maintains. |
+| `version_type` | text(64) NOT NULL | Source vocab covering: `introduced` / `substitute` / `engrossed` / `first_engrossed` / `enrolled` / `act` / `conference_substitute` / etc. LegiScan's 14-value `TextType` is the inspiration; we accept the broader source vocab but P1a normalization will canonicalize. |
+| `version_at` | timestamptz nullable | |
+| `is_current` | bool NOT NULL default false | |
 
 ### `canonical.amendments`
-
-Proposed changes to a bill (new in v0 per OQ3). Amendments are voted on, so the Vote cluster references them.
 
 | Column | Type | Notes |
 |---|---|---|
 | `bill_id` | ULID NOT NULL FK | |
 | `label` | text(64) NOT NULL | "Amendment 1", "Striking Amendment 21", etc. |
-| `amendment_text` | text nullable | Full text of the amendment. |
+| `amendment_text` | text nullable | |
 | `sponsor_person_id` | ULID nullable FK | |
-| `sponsor_organization_id` | ULID nullable FK | For committee-offered amendments. |
-| `status` | text(32) NOT NULL | One of: `offered` / `adopted` / `rejected` / `withdrawn` / `pending` / `tabled`. |
+| `sponsor_organization_id` | ULID nullable FK | For committee-offered amendments (federal Rules Committee, etc.). |
+| `status` | text(32) NOT NULL | `offered` / `adopted` / `rejected` / `withdrawn` / `pending` / `tabled`. |
 | `offered_at` | timestamptz nullable | |
 | `adopted_at` | timestamptz nullable | |
 | `rejected_at` | timestamptz nullable | |
 | `withdrawn_at` | timestamptz nullable | |
 
-**Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`.
+**Natural-key UNIQUE:** standard.
+
+### `canonical.bill_subjects` (new in v1)
+
+Subjects / policy areas / topics a bill addresses. OCD and LegiScan both expose this; queries like "what bills are on cannabis policy this session?" use it directly.
+
+| Column | Type | Notes |
+|---|---|---|
+| `bill_id` | ULID NOT NULL FK | |
+| `subject` | text(128) NOT NULL | Source-vocab subject string. |
+| `is_primary` | bool NOT NULL default false | |
+
+**Natural-key UNIQUE:** `(bill_id, subject)`.
+
+### `canonical.bill_relationships` (new in v1)
+
+OpenStates / LegiScan / WSL all surface bill-to-bill relationships. Common in WA where House and Senate companion bills move in parallel.
+
+| Column | Type | Notes |
+|---|---|---|
+| `from_bill_id` | ULID NOT NULL FK | |
+| `to_bill_id` | ULID NOT NULL FK | |
+| `relationship_type` | text(32) NOT NULL | `companion` (symmetric) / `replaces` / `replaced_by` / `related_to` / `prior_session_carryover` / `derived_from` / `other`. |
+| `notes` | text nullable | |
+
+**Natural-key UNIQUE:** `(from_bill_id, to_bill_id, relationship_type)`. Symmetric relationships are stored once (from < to lexicographically) with the query layer materializing the reverse view if needed.
+
+### `canonical.bill_events` (new in v1, replaces P0's skeletal Hearing)
+
+Scheduled events on a bill — public hearings, work sessions, executive sessions, calendar slots.
+
+| Column | Type | Notes |
+|---|---|---|
+| `bill_id` | ULID nullable FK | Nullable: some events (e.g., committee meeting) cover multiple bills via `bill_event_bills` (TBD if needed in P1a). |
+| `organization_id` | ULID nullable FK | The committee or chamber holding the event. |
+| `event_type` | text(32) NOT NULL | `public_hearing` / `executive_session` / `work_session` / `committee_meeting` / `floor_calendar` / `other`. |
+| `scheduled_at` | timestamptz NOT NULL | |
+| `ended_at` | timestamptz nullable | |
+| `location` | text nullable | Free text room/venue. |
+| `status` | text(32) NOT NULL | `scheduled` / `completed` / `cancelled` / `continued` / `rescheduled`. |
+| `description` | text nullable | |
+
+**Natural-key UNIQUE:** standard.
 
 ## Vote cluster
-
-Flexible enough for committee votes on bills, committee votes on amendments, floor votes on motions, and floor votes on amendments. Three entities:
 
 ### `canonical.vote_events`
 
 | Column | Type | Notes |
 |---|---|---|
-| `subject_type` | text(16) NOT NULL | One of: `bill` / `amendment` / `motion`. |
-| `subject_id` | ULID NOT NULL | Polymorphic; no DB-level FK (mirrors the Citation pattern). |
-| `bill_id` | ULID nullable FK | Denormalized for query speed: set when subject is a bill, *or* when the subject is an amendment whose parent bill we know. |
+| `subject_type` | text(16) NOT NULL | `bill` / `amendment` / `motion`. |
+| `subject_id` | ULID NOT NULL | Polymorphic; no DB-level FK. |
+| `bill_id` | ULID nullable FK | Denormalized for query speed. |
 | `amendment_id` | ULID nullable FK | Set when subject_type=amendment. |
-| `motion_description` | text nullable | Free text when subject_type=motion; no `Motion` entity for MVP. |
+| `motion_description` | text nullable | When subject_type=motion. |
 | `context_type` | text(16) NOT NULL | `floor` / `committee`. |
-| `context_organization_id` | ULID NOT NULL FK | The body that voted — chamber for floor votes, committee for committee votes. |
-| `chamber` | text(16) nullable | Denormalized from context_organization → org_type=chamber: `house` / `senate` / `unicameral`; null for joint sessions. |
+| `context_organization_id` | ULID NOT NULL FK | |
+| `chamber` | text(16) nullable | Denormalized; null for joint sessions. |
+| `category` | text(32) nullable | **v1.** Procedural-vs-substantive distinction: `passage` / `cloture` / `recommit` / `tabling` / `motion_to_proceed` / `nomination` / `treaty` / `conviction` / `procedural` / `other`. Federal `vote.category` directly populates this; WA has fewer values but the column generalizes cleanly. |
 | `event_at` | timestamptz NOT NULL | |
-| `outcome` | text(32) NOT NULL | One of: `passed` / `failed` / `tabled` / `withdrawn` / `inconclusive` / `other`. |
+| `outcome` | text(32) NOT NULL | `passed` / `failed` / `tabled` / `withdrawn` / `inconclusive` / `other`. |
 
-**Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`. WSL SOAP provides roll-call IDs; for committee votes that don't have stable IDs, the adapter synthesizes via `(subject_id, context_organization_id, event_at)` hash.
+**Natural-key UNIQUE:** standard.
 
 ### `canonical.vote_counts`
 
-Aggregate counts per VoteEvent. One row per outcome category.
-
 | Column | Type | Notes |
 |---|---|---|
 | `vote_event_id` | ULID NOT NULL FK | |
-| `count_type` | text(16) NOT NULL | One of: `yea` / `nay` / `excused` / `absent` / `present_not_voting` / `other`. |
+| `count_type` | text(16) NOT NULL | `yea` / `nay` / `excused` / `absent` / `present_not_voting` / `paired` / `other`. |
 | `value` | int NOT NULL | |
 
-**Natural-key UNIQUE:** `(vote_event_id, count_type)`. No `source_id` on this table — it's a derived aggregate.
+**Natural-key UNIQUE:** `(vote_event_id, count_type)`. `paired` added v1 for OCD round-trip; rare in WA but valid Senate behavior elsewhere.
 
 ### `canonical.person_votes`
 
-Per-legislator detail. Materialized in P1a (OQ3 resolved 2026-05-27 — votes are a fundamental measure).
-
 | Column | Type | Notes |
 |---|---|---|
 | `vote_event_id` | ULID NOT NULL FK | |
-| `person_id` | ULID NOT NULL FK | |
-| `vote` | text(16) NOT NULL | One of: `yea` / `nay` / `abstain` / `excused` / `absent` / `present_not_voting`. |
+| `person_id` | ULID nullable FK | **v1: now nullable.** When resolution to a known Person hasn't completed yet, `voter_name_raw` is populated instead. |
+| `voter_name_raw` | text(256) nullable | **v1.** Source-provided voter name pending ID resolution. |
+| `vote` | text(16) NOT NULL | Aligned with `vote_counts.count_type`: `yea` / `nay` / `abstain` / `excused` / `absent` / `present_not_voting` / `paired`. |
 
-**Natural-key UNIQUE:** `(vote_event_id, person_id)`. No standalone `source_id` — the natural key is sufficient.
+**CHECK constraint:** `person_id IS NOT NULL OR voter_name_raw IS NOT NULL`.
 
-**Scale note:** ~150 legislators × ~3 final-passage votes per bill × ~5000 bills/biennium = ~2.25M rows/biennium, plus committee votes. Materially larger than other tables but well within Postgres limits and the per-bill query is indexed.
+**Natural-key UNIQUE:** `(vote_event_id, person_id)` partial index where `person_id IS NOT NULL`.
 
 ## Statute cluster (unchanged from P0)
 
-The five statute-cluster tables from P0 remain as-designed: `StatuteCode`, `StatuteTitle`, `StatuteChapter`, `StatuteSection`, `BillStatuteChange`. See [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](2026-05-25-usa-wa-mvp-design.md) §Statute corpus cluster. The natural keys are unchanged; only the references to Bill remain valid because `Bill` itself is preserved (with revised columns).
+The five statute-cluster tables from P0 remain as-designed: `StatuteCode`, `StatuteTitle`, `StatuteChapter`, `StatuteSection`, `BillStatuteChange`. See [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](2026-05-25-usa-wa-mvp-design.md) §Statute corpus cluster.
 
-## PDC cluster (reshaped)
-
-PDC's notion of "Filer" disappears — what PDC tracks as filers map onto either `Person` (individual lobbyists, individual contributors) or `Organization` (lobbying firms, PACs, candidate committees) depending on filer type.
+## PDC cluster
 
 ### `canonical.lobbying_activities`
-
-One disclosure period of one lobbyist's activity. The reporting subject is either a Person (individual lobbyist) or an Organization (lobby firm).
 
 | Column | Type | Notes |
 |---|---|---|
 | `person_id` | ULID nullable FK | Individual lobbyist. |
 | `organization_id` | ULID nullable FK | Lobby firm. |
-| `employer_organization_id` | ULID nullable FK | The org that hired the lobbyist. |
+| `employer_organization_id` | ULID nullable FK | |
 | `period_start` | date NOT NULL | |
 | `period_end` | date NOT NULL | |
 | `compensation` | numeric(14,2) nullable | |
@@ -304,72 +388,90 @@ One disclosure period of one lobbyist's activity. The reporting subject is eithe
 
 **CHECK constraint:** `person_id IS NOT NULL OR organization_id IS NOT NULL`.
 
-**Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`.
-
 ### `canonical.lobbying_positions`
-
-A position taken on a bill within a lobbying activity. Unchanged from P0 except for the Filer rename — now `lobbying_activity_id` is the only FK back to the activity (no separate filer column needed).
 
 | Column | Type | Notes |
 |---|---|---|
 | `lobbying_activity_id` | ULID NOT NULL FK | |
-| `bill_id` | ULID nullable FK | Null if the bill-reference resolver couldn't find a match. |
-| `bill_reference_raw` | text(128) nullable | Raw text from PDC for debugging unresolved matches. |
+| `bill_id` | ULID nullable FK | Null when bill-reference resolver couldn't find a match. |
+| `bill_reference_raw` | text(128) nullable | |
 | `position` | text(16) NOT NULL | `support` / `oppose` / `neutral`. |
 
-**Natural-key UNIQUE:** `(lobbying_activity_id, bill_id)`. Null bill_id is allowed but only one null per activity.
+**Natural-key UNIQUE:** `(lobbying_activity_id, bill_id)`.
 
 ### `canonical.contributions`
 
 | Column | Type | Notes |
 |---|---|---|
-| `recipient_organization_id` | ULID NOT NULL FK | Candidate committees and PACs are Organizations. |
-| `contributor_person_id` | ULID nullable FK | Individual contributor. |
-| `contributor_organization_id` | ULID nullable FK | Org contributor (PAC, party, etc.). |
-| `contributor_name_raw` | text(512) nullable | Raw name from PDC when the contributor isn't resolved to a Person/Org. |
+| `recipient_organization_id` | ULID NOT NULL FK | |
+| `contributor_person_id` | ULID nullable FK | |
+| `contributor_organization_id` | ULID nullable FK | |
+| `contributor_name_raw` | text(512) nullable | |
 | `amount` | numeric(14,2) NOT NULL | |
 | `contributed_at` | timestamptz NOT NULL | |
 
-**CHECK constraint:** at most one of `contributor_person_id` / `contributor_organization_id` is non-null. Both null is allowed (anonymous contributions; the raw name lives in `contributor_name_raw`).
+**CHECK constraint:** at most one of `contributor_person_id` / `contributor_organization_id` is non-null.
 
-**Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`.
+## Unavoidable lossy directions
+
+These are losses we **accept** in the transformation specs. Fixing them would require upstream schema changes or would impose costs out of proportion with the value.
+
+| Direction | What's lost | Why we accept it |
+|---|---|---|
+| **Our `Amendment` → OCD** | Sponsor, full text, status="pending" (anything except "did this bill get amended?"). | OCD has no Amendment entity; amendments live only as `BillAction.classification ∈ amendment-*`. Round-tripping requires OCD upstream changes. We emit best-effort `BillAction` rows when exporting to OCD. |
+| **OCD `Bill.classification` (array) → our `Bill.bill_type` (scalar)** | Multi-classified bills (e.g., resolution + concurrent + appropriation) collapse. | OCD's permissive multi-class shape diverges from WA reality where bills carry exactly one type. We keep scalar; if a multi-class jurisdiction is added later, revisit. |
+| **LegiScan `VoteEvent` → our polymorphic vote subject/context** | LegiScan only collects floor votes on bills. Committee votes, amendment votes, motion votes are unreachable from LegiScan-sourced data. | Use WSL SOAP as primary for vote data; LegiScan only as corroboration on floor-vote-on-bill. |
+| **LegiScan `Amendment` → our Amendment** | Sponsor IDs, lifecycle granularity (offered/pending/withdrawn). LegiScan has only `adopted: 0|1` + a single `date`. | LegiScan amendments are corroboration-only; WSL is authoritative for amendment data. |
+| **uscongress floor-only votes** | Federal upstream doesn't collect committee votes at all. | Structural data gap in the federal upstream, not a schema gap. Federal sibling deployment (`usa-fed-api`) would need its own primary source for committee votes — likely scraping committee websites. |
+| **uscongress current-only committee membership** | Pre-current committee chair / ranking-member history. | `congress-legislators/committee-membership-current.yaml` is current-state-only. Federal historical committee membership would need a different primary source or a periodic snapshot job. |
+| **OCD `Person.identifiers` array (rich) → our `person_identifiers`** | None — v1's child table fully round-trips OCD's. (This direction is **not** lossy after v1.) | Resolved by v1 §External identifiers. |
+| **OCD `VOTE_OPTION='paired'`** | Resolved by v1's addition of `paired` to vote_counts.count_type and person_votes.vote. | Resolved. |
 
 ## Provenance integration
 
-Every entity in this spec writes Citation rows through the standard `clearinghouse_core.runner.AdapterRunner` mechanism. Polymorphic Citation references the entity by `(entity_type, entity_id)`:
+Every entity in this spec writes Citation rows through `clearinghouse_core.runner.AdapterRunner`. Polymorphic Citation references the entity by `(entity_type, entity_id)`:
 
-- `entity_type` is the table name in snake_case: `person`, `organization`, `role`, `assignment`, `bill`, `bill_sponsorship`, `bill_action`, `amendment`, `vote_event`, `vote_count`, `person_vote`, `lobbying_activity`, `lobbying_position`, `contribution`, `statute_section`, `bill_statute_change`, `legislative_session`.
-- `entity_id` is the ULID PK.
-- Default confidence = source's intrinsic reliability; field-level citations attach to the specific column via `field_path`.
+`entity_type` values (snake_case table names): `person`, `organization`, `role`, `assignment`, `person_identifier`, `organization_identifier`, `bill`, `bill_sponsorship`, `bill_action`, `bill_action_classification`, `bill_version`, `amendment`, `bill_subject`, `bill_relationship`, `bill_event`, `vote_event`, `vote_count`, `person_vote`, `lobbying_activity`, `lobbying_position`, `contribution`, `statute_code`, `statute_title`, `statute_chapter`, `statute_section`, `bill_statute_change`, `legislative_session`.
 
-The denormalized `primary_source_id`, `last_fetched_at`, `last_fetch_event_id` columns on every entity (per the Universal entity shape) let MCP/REST responses render single-row citations without joining the Citation table — explicit field-level provenance only when meaningfully needed.
+Denormalized `primary_source_id`, `last_fetched_at`, `last_fetch_event_id` columns on every entity (per Universal entity shape) carry single-row citations cheaply; explicit field-level provenance via the `citations` table only when meaningfully needed.
 
 ## Vocabulary status
 
-This is a **v0 draft**. Several vocabularies are listed with WA-realistic values but transformations in step 2 may revise them:
+This is **v1 final**. Vocabularies have been pressure-tested against three foreign schemas:
 
-- `Bill.current_status` and `Bill.current_step` — source-vocab text; OCD-normalized values land in v1.
-- `BillAction.action_type` — source-vocab text; v1 introduces a normalized classification via OCD's `BILL_ACTION_CLASSIFICATIONS`.
-- `VoteEvent.outcome`, `PersonVote.vote`, `VoteCount.count_type` — listed values are OCD-aligned; v1 may add edge cases.
-- `Organization.org_type`, `Role.role_type` — drafted to cover WA + obvious federal cases; v1 confirms against the three transformation specs.
+- `Bill.current_status` — source-vocab text (kept) + `Bill.current_status_class` (normalized).
+- `BillAction.action_type` — source-vocab text + `BillAction.primary_classification` + 1:N `bill_action_classifications` (OCD-aligned).
+- `VoteEvent.outcome` and `VoteEvent.category` — OCD/uscongress aligned.
+- `PersonVote.vote` and `VoteCount.count_type` — aligned and symmetric; both include `paired`.
+- `Organization.org_type`, `Role.role_type`, `Role.name` — cover state + federal + municipal-friendly cases.
+- `Bill.bill_type` — scalar (accepted lossy direction; see Unavoidable lossy directions).
+- `BillVersion.version_type` — source vocab; P1a normalization will canonicalize.
 
-## Open issues for v1
+## Open issues (forwarded to P1a or implementation)
 
-Transformation specs in step 2 should evaluate and feed back on:
+Items the transformations did **not** resolve and which P1a or later phases must address:
 
-1. **District as a Role attribute vs. a sub-Organization vs. a denormalized column on Person.** v0 denormalizes (`Person.current_district`). OCD models it as a `MembershipRole.role` value (e.g., `"Representative for District 21"`). Decide which produces cleaner queries.
-2. **`Caucus` vs. `Party` modeling.** v0 has both `caucus` and `party` as `org_type` values. Some jurisdictions blur the distinction (informal caucuses vs. official party labels). Transformations may collapse or split.
-3. **Joint sessions.** A vote in a joint session has no single `chamber`. v0 allows null chamber on VoteEvent; v1 confirms whether OCD/LegiScan model joint sessions as a separate Organization.
-4. **Per-jurisdiction action-type vocab normalization.** Whether to store both source-vocab and normalized OCD class on `BillAction`, or just normalized.
-5. **Vote outcome edge cases.** Recommittal motions, motions to table — does `outcome: tabled` capture them adequately, or do we need finer-grained verbs?
-6. **Anonymous contribution rules.** PDC permits some anonymous contributions; transformations should clarify whether `contributor_name_raw` is the right escape hatch or whether a dedicated `is_anonymous` flag is cleaner.
+1. **Per-jurisdiction OCD-class mapping table for BillAction.** Mechanically populating `primary_classification` and `bill_action_classifications` from WSL's action vocabulary requires a hand-curated mapping table (which WSL action strings map to which OCD classes). P1a builds this.
+2. **Resolution of `*_name_raw` columns.** A periodic resolver job converts raw-name fallback values to FKs. Whether this is per-adapter or a generic component is a P1a implementation choice.
+3. **`bill_event_bills` many-to-many.** v1 includes `bill_events.bill_id` as nullable for events covering multiple bills, but doesn't materialize the many-to-many table. Defer to P1a once we know whether WSL reports multi-bill hearings or just one bill per event row.
+4. **Federal subscriber sibling.** A future `usa-fed-api` deployment using this IA would surface federal-specific edge cases (Senate continuing-body LegislativeSession semantics, Representative/Delegate/Resident-Commissioner Role distinctions in queries). Not blocking WA; flagged for awareness.
+5. **Vote outcome edge cases.** Recommittal motions, motions to table — `outcome=tabled` may need finer-grained verbs. P1a's first vote-normalization pass will produce real edge cases; revisit then.
+6. **Anonymous contribution rules.** `contributor_name_raw` is the v1 fallback for unresolved contributors; whether a dedicated `is_anonymous` flag is also needed is a P1c concern.
 
 ## Cross-references
 
-- Multi-state IA delta (input): [`docs/research/2026-05-26-multi-state-legislative-ia-delta.md`](../research/2026-05-26-multi-state-legislative-ia-delta.md)
-- Power-map research note (input for identity adoption): [`docs/research/2026-05-26-power-map-integration-contract.md`](../research/2026-05-26-power-map-integration-contract.md)
-- MVP architecture spec (parent): [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](2026-05-25-usa-wa-mvp-design.md)
-- P0.5 plan: [`docs/plans/2026-05-26-p0-5-hybrid-legislative-ia.md`](../plans/2026-05-26-p0-5-hybrid-legislative-ia.md)
-- Upstream feature request to power-map: [CannObserv/power-map#156](https://github.com/CannObserv/power-map/issues/156)
-- OpenStates schema reference: <https://docs.openstates.org/data/>
-- Tracking issue: [CannObserv/usa-wa#3](https://github.com/CannObserv/usa-wa/issues/3)
+- Transformation specs (peers):
+  - [`docs/specs/2026-05-27-transformation-ocd.md`](2026-05-27-transformation-ocd.md)
+  - [`docs/specs/2026-05-27-transformation-legiscan.md`](2026-05-27-transformation-legiscan.md)
+  - [`docs/specs/2026-05-27-transformation-uscongress.md`](2026-05-27-transformation-uscongress.md)
+- Inputs:
+  - [`docs/research/2026-05-26-multi-state-legislative-ia-delta.md`](../research/2026-05-26-multi-state-legislative-ia-delta.md)
+  - [`docs/research/2026-05-26-power-map-integration-contract.md`](../research/2026-05-26-power-map-integration-contract.md)
+- Parent:
+  - [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](2026-05-25-usa-wa-mvp-design.md)
+- Plan:
+  - [`docs/plans/2026-05-26-p0-5-hybrid-legislative-ia.md`](../plans/2026-05-26-p0-5-hybrid-legislative-ia.md)
+- Upstream feature request:
+  - [CannObserv/power-map#156](https://github.com/CannObserv/power-map/issues/156)
+- Tracking issue:
+  - [CannObserv/usa-wa#3](https://github.com/CannObserv/usa-wa/issues/3)
