@@ -1,8 +1,18 @@
-# Transformation spec — hybrid IA v0 ↔ LegiScan
+# Transformation spec — LegiScan → hybrid legislative IA
 
-- **Date:** 2026-05-27
-- **Status:** draft (revisions surfaced here feed hybrid IA v1)
-- **Scope:** Bidirectional field-level mapping between every entity in [`docs/specs/2026-05-27-hybrid-legislative-ia.md`](2026-05-27-hybrid-legislative-ia.md) and the JSON wire shapes returned by LegiScan API v1.91 endpoints.
+- **Date:** 2026-05-27 (review update 2026-05-28)
+- **Status:** final (revisions feed hybrid IA v1; v1.1 landed)
+- **Direction:** **LegiScan → ours, only.** usa-wa consumes LegiScan via indirect-provider adapters; we never publish to LegiScan. The `our → legiscan` columns preserved below remain useful as a schema-completeness diagnostic but are not adapter behavior.
+- **Scope:** Field-level mapping between every entity in [`docs/specs/2026-05-27-hybrid-legislative-ia.md`](2026-05-27-hybrid-legislative-ia.md) and the JSON wire shapes returned by LegiScan API v1.91 endpoints.
+
+## 2026-05-28 review update
+
+- **Unidirectional** (see Direction above). The `→` and `↔` arrows in the per-entity tables that imply emit-to-LegiScan are documentation-only; treat as schema completeness checks, not transformation behavior.
+- **Bill titles are 1:N in the hybrid IA (v1.1).** LegiScan exposes `Bill.title` (the canonical title) plus `Bill.description` (a longer summary). Mapping:
+  - LegiScan `Bill.title` → `canonical.bill_titles` row with `title_type='canonical'`, `is_current=true`, AND denormalized to `canonical.bills.title`.
+  - LegiScan `Bill.description` → `canonical.bills.short_description` (single value; **not** a title — it's the summary).
+  LegiScan does not surface multi-classified or chamber-specific titles, so its inbound rows are simpler than OCD's or uscongress's.
+- **Person rich attributes defer to Power Map.** LegiScan's `Person` exposes external-ID schemes (`ftm_eid`, `votesmart_id`, `opensecrets_id`, `knowwho_pid`, `ballotpedia`, `bioguide_id`) plus role context. The ID schemes already go to our `canonical.person_identifiers` (v1). Any biographical or contact data LegiScan eventually adds defers to Power Map (`locations`, `contact_methods`, `links`, `note`, planned `lifecycle_events`). usa-wa's local Person carries identity essentials only.
 - **References:**
   - Hybrid IA v0: [`docs/specs/2026-05-27-hybrid-legislative-ia.md`](2026-05-27-hybrid-legislative-ia.md)
   - Multi-state IA delta (LegiScan section): [`docs/research/2026-05-26-multi-state-legislative-ia-delta.md`](../research/2026-05-26-multi-state-legislative-ia-delta.md)

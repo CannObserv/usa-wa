@@ -21,6 +21,21 @@ So: usa-wa runs the adapter that translates WSL data into Person / Organization 
 
 Captured in project memory [[project-identity-producer-archival]].
 
+## Power Map as the rich-attribute store
+
+Power Map is not only the identity system of record — it is also the cohort-wide store for **rich attributes** of Persons and Organizations. Per the OCD transformation review (2026-05-28), usa-wa **does not** carry these locally; the sidecar pushes them upstream via the appropriate Power Map primitive. This dramatically simplifies usa-wa's local schema and makes the cross-cohort identity surface coherent.
+
+| Attribute kind | Power Map primitive | Source examples (inbound to usa-wa) |
+|---|---|---|
+| Addresses, offices | `locations` (polymorphic on Person and Organization) | OCD `PersonOffice.address`; PDC filer addresses |
+| Email, phone | `contact_methods` (polymorphic, `kind=email\|phone`) | OCD `Person.email`; WSL contact info |
+| Web links, headshots, social, source citations | `links` (polymorphic, `kind` set per semantic) | OCD `PersonLink` / `PersonSource` / `Organization.links` / `Organization.sources` / `Person.image` |
+| Biographical text | the entity's `note` field | OCD `Person.biography` |
+| Birth / death / founded / dissolved + place | `lifecycle_events` (planned — [#165](https://github.com/CannObserv/power-map/issues/165)) | OCD `Person.birth_date` / `Person.death_date`; future Organization founded/dissolved |
+| External identifiers (bioguide, LIS, FTM, etc.) | Power Map `identifiers × entity_identifier_types` | OCD `PersonIdentifier`; uscongress 15-scheme YAML; LegiScan 6-scheme JSON |
+
+usa-wa's local `canonical.persons` and `canonical.organizations` carry **identity essentials** — names, the `*_type` discriminators, `parent_organization_id`, `powermap_*_id` — and the `canonical.person_identifiers` / `canonical.organization_identifiers` 1:N tables for the local copy of the external-ID graph. Everything else is upstream. The sidecar's push targets therefore include all of: Power Map `locations`, `contact_methods`, `links`, `lifecycle_events` (once #165 ships), and the entity's `note` field — not just the four core entities (Person / Organization / Role / Assignment).
+
 ## Architectural mechanism: sidecar sync
 
 Sync between usa-wa's local canonical tables and power-map is **out-of-band**, via dedicated sidecar processes — not in-line with MCP/REST request handling. The pattern is generalizable across the cohort:

@@ -6,6 +6,18 @@
 - **Tracks:** [GH #3](https://github.com/CannObserv/usa-wa/issues/3); see plan at [`docs/plans/2026-05-26-p0-5-hybrid-legislative-ia.md`](../plans/2026-05-26-p0-5-hybrid-legislative-ia.md).
 - **Supersedes:** the v0 draft of this file (commit `aed896c`); see Changelog § below.
 
+## Changelog (v1 → v1.1, 2026-05-28)
+
+OCD transformation review surfaced three additional revisions:
+
+| Revision | Source | Section |
+|---|---|---|
+| `canonical.bill_titles` 1:N child table — bills carry multiple titles (canonical / short / popular / official / display / alternative / long), each with chamber, as-of-action, language, and an optional `amendment_id` for WA's amendment-driven title-change tracking. `Bill.title` is now a denormalized "current canonical title" sync'd from this table. | OCD review feedback 2026-05-28 | Bill cluster |
+| `canonical.persons.birth_year` **removed**. Birth date + birth place + death date + other lifecycle events defer to Power Map's polymorphic `lifecycle_events` schema (planned [power-map#165](https://github.com/CannObserv/power-map/issues/165)). usa-wa caches identity essentials only. | OCD review feedback 2026-05-28 | Identity cluster |
+| New "Rich attributes deferred to Power Map" section documents the broader principle: image / email / biography / office / links / sources / phone for Person and Organization live in Power Map's polymorphic primitives (locations, contact_methods, links, note). usa-wa's local schema doesn't duplicate. | OCD review feedback 2026-05-28 | new top-level section |
+
+**Transformation specs are unidirectional, not bidirectional.** OCD / LegiScan / uscongress transformation specs map their data into our shape; we never push data back to those systems. The transformation specs' direction columns are corrected accordingly in the same review pass.
+
 ## Changelog (v0 → v1)
 
 v0 was pressure-tested against three foreign schemas by parallel transformation agents. Their outputs:
@@ -83,11 +95,31 @@ Every canonical entity in this spec carries the following columns. Per-entity bl
 
 All FKs use the `ULID` SQLAlchemy column type. Schema is `canonical.*` for every table in this spec.
 
+## Rich attributes deferred to Power Map
+
+OCD / LegiScan / uscongress all carry per-Person and per-Organization rich attributes that Power Map already models as polymorphic primitives. **usa-wa does not duplicate these locally.** Adapters that ingest them push to Power Map via the sidecar; readers join through `powermap_*_id`.
+
+| Attribute | Source examples | Power Map primitive | Local storage in usa-wa? |
+|---|---|---|---|
+| Address / office | OCD `PersonOffice` | `locations` (polymorphic — already attached to Persons and Organizations) | **No.** Push to Power Map. |
+| Email | OCD `Person.email` | `contact_methods` (kind=`email`) | **No.** Push to Power Map. |
+| Phone | (various) | `contact_methods` (kind=`phone`) | **No.** Push to Power Map. |
+| Web links | OCD `PersonLink`, `PersonSource`, `Organization.links`, `Organization.sources` | `links` (polymorphic) | **No.** Push to Power Map. |
+| Image / headshot | OCD `Person.image` | `links` (kind=`image`) | **No.** Push to Power Map. |
+| Biography | OCD `Person.biography` | Power Map `note` field on the entity | **No.** Push to Power Map. |
+| Birth date + place | OCD `Person.birth_date` | `lifecycle_events` (planned — [power-map#165](https://github.com/CannObserv/power-map/issues/165)) | **No.** Push to Power Map once #165 ships. |
+| Death date + place | OCD `Person.death_date` | `lifecycle_events` (planned — #165) | **No.** |
+| Founded / dissolved date (Organization) | (various) | `lifecycle_events` (planned — #165) | **No.** |
+
+**Rule of thumb:** if Power Map has (or will have) a primitive for it, usa-wa's local schema doesn't. The local cache stores identity essentials (Person name, Organization name, the `*_id` discriminators) and the FK to Power Map; everything else flows upstream.
+
+**Until power-map endpoints (#158, #164) ship**, the sidecar stages these pushes locally — the data still gets captured during ingestion, just not written to Power Map yet. Storage shape for the staging queue lands when the sidecar is implemented (P2+).
+
 ## Identity cluster (power-map terminology)
 
 ### `canonical.persons`
 
-A human. Replaces `Legislator`.
+A human. Replaces `Legislator`. Local cache of identity essentials only — rich attributes (image, email, biography, office, links, sources, lifecycle events) live in Power Map (see "Rich attributes deferred to Power Map" below).
 
 | Column | Type | Notes |
 |---|---|---|
@@ -98,10 +130,11 @@ A human. Replaces `Legislator`.
 | `name_suffix` | text nullable | "Jr.", "III", etc. |
 | `name_used` | text nullable | Preferred display when different from legal name. |
 | `gender` | text(32) nullable | Source's free-text value. |
-| `birth_year` | int nullable | |
 | `powermap_person_id` | ULID nullable | Set after a power-map match. |
 
-Note: `current_district` removed (v0 → v1). District context lives on `Role` now; see `canonical.roles`.
+Notes:
+- `birth_year` removed (v1.1, post-transformation-review 2026-05-28). Birth date + birth place + death date defer to Power Map's polymorphic `lifecycle_events` schema ([CannObserv/power-map#165](https://github.com/CannObserv/power-map/issues/165)). usa-wa caches identity essentials only; lifecycle events belong upstream.
+- `current_district` removed (v0 → v1). District context lives on `Role` now; see `canonical.roles`.
 
 ### `canonical.organizations`
 
@@ -197,8 +230,8 @@ Same shape as `person_identifiers`, FK to `canonical.organizations`. Common sche
 | `current_chamber` | text(16) nullable | **v1.** Body the bill is currently in. Null when in conference or fully passed both. |
 | `number` | int NOT NULL | |
 | `bill_type` | text(32) nullable | HB / SB / HJR / SJR / HCR / SCR / HJM / SJM / HR / S / etc. |
-| `title` | text NOT NULL | Short form — convention-aligned with OCD / LegiScan / uscongress. |
-| `short_description` | text nullable | Long form (full descriptive title from the source). |
+| `title` | text NOT NULL | **Denormalized current canonical title** — synced from `bill_titles` where `is_current=true AND title_type='canonical'`. Most queries read this column without joining. |
+| `short_description` | text nullable | **Latest bill summary / abstract** from the source (e.g., OCD's `BillAbstract`, LegiScan's `Bill.description`). Single value, updated in place. |
 | `current_status` | text(128) nullable | Source-vocabulary text. |
 | `current_status_class` | text(32) nullable | **v1.** Normalized to OCD's `bill_action_classification` plus LegiScan's status vocab — values like `introduced` / `in_committee` / `passed_first_chamber` / `passed_second_chamber` / `vetoed` / `signed` / `enacted` / `failed` / `withdrawn`. |
 | `current_status_at` | timestamptz nullable | **v1 (replaces `current_step`).** When `current_status` was last updated. |
@@ -208,7 +241,9 @@ Same shape as `person_identifiers`, FK to `canonical.organizations`. Common sche
 
 **Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`.
 
-Note: v0's `current_step` column is dropped. The previous use-cases (status enum + when-was-status-set) are replaced by `current_status_class` + `current_status_at`.
+Notes:
+- v0's `current_step` column is dropped. The previous use-cases (status enum + when-was-status-set) are replaced by `current_status_class` + `current_status_at`.
+- `Bill.title` is denormalized; the full title history (including amendment-driven changes, alternative titles like short / popular / official / display, chamber-specific titles, and historical replaced titles) lives in `canonical.bill_titles` (added v1.1, post-transformation-review). See below.
 
 ### `canonical.bill_sponsorships`
 
@@ -282,6 +317,29 @@ Append-only lifecycle log.
 | `withdrawn_at` | timestamptz nullable | |
 
 **Natural-key UNIQUE:** standard.
+
+### `canonical.bill_titles` (new in v1.1)
+
+Bill titles are **multi-valued and lifecycle-dynamic** in every system surveyed: OCD models `BillTitle` + `BillOtherTitle` (with `classification`); LegiScan exposes `title` + `description` separately; uscongress maintains a `titles` array (with `type`, `chamber`, `as`). In WA, **title changes can be traced to specific amendments** — and the procedural significance is load-bearing: an amendment that proposes content outside the bill's current title can be procedurally challenged for exceeding scope. So our model needs not just multiple titles per bill, but title-to-amendment provenance.
+
+| Column | Type | Notes |
+|---|---|---|
+| `bill_id` | ULID NOT NULL FK | |
+| `title_text` | text NOT NULL | The title string. |
+| `title_type` | text(32) NOT NULL | One of: `canonical` / `short` / `popular` / `official` / `display` / `alternative` / `long` / `summary_title`. Drawn from OCD's `BillTitle.classification` vocab; LegiScan and uscongress map onto this. |
+| `chamber` | text(16) nullable | When the title is chamber-specific (federal: House vs. Senate short title); null otherwise. |
+| `as_of_action` | text(64) nullable | When in the lifecycle the title applies — `introduced`, `engrossed`, `enrolled`, `committee_substitute`, etc. uscongress `titles[].as` directly populates this. |
+| `language_code` | text(8) nullable | BCP-47 language code for multilingual titles. Null = unspecified (most WA usage). |
+| `amendment_id` | ULID nullable FK | **WA-specific.** When an amendment introduced or changed this title, points to the amendment. Null when the title was set at bill introduction. |
+| `effective_at` | timestamptz nullable | When this title became active. |
+| `replaced_at` | timestamptz nullable | When this title was superseded by a newer one (null = still current). |
+| `is_current` | bool NOT NULL default false | Denormalized — at most one row per `(bill_id, title_type, chamber, language_code)` is current. Adapter maintains. |
+
+**Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`.
+
+**Denormalization:** `Bill.title` always reflects the row where `title_type='canonical' AND is_current=true`. Adapters update both atomically; readers can skip the join.
+
+**Future "killer feature" parking spot:** with `amendment_id` populated for title changes and `Amendment.amendment_text` available, a scope-compatibility scorer could assess whether a proposed amendment's content falls within the bill's current/proposed title — supporting procedural-challenge tooling. Out of MVP scope; explicitly noted because the schema is shaped to enable it.
 
 ### `canonical.bill_subjects` (new in v1)
 

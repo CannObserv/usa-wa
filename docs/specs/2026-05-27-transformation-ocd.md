@@ -1,13 +1,28 @@
-# Transformation — hybrid legislative IA v0 ↔ Open Civic Data (OpenStates)
+# Transformation — Open Civic Data (OpenStates) → hybrid legislative IA
 
-- **Date:** 2026-05-27
-- **Status:** draft (feeds hybrid IA v1 revisions; see step 3 of P0.5 plan)
+- **Date:** 2026-05-27 (review update 2026-05-28)
+- **Status:** final (feeds hybrid IA v1; v1.1 revisions per OCD review are landed)
+- **Direction:** **OCD → ours, only.** usa-wa consumes OpenStates / OCD data via indirect-provider adapters; we never emit data back to OCD. The `our → ocd` analysis preserved below remains useful as a completeness check on our schema (where it's lossy, we may be missing a concept) but is **not** an adapter direction.
 - **Scope:** Every canonical entity defined in [`docs/specs/2026-05-27-hybrid-legislative-ia.md`](2026-05-27-hybrid-legislative-ia.md). Counterpart schema is the OpenStates / Open Civic Data (OCD) Django models as defined in [`openstates/openstates-core`](https://github.com/openstates/openstates-core) `openstates/data/models/*.py` and the controlled vocabularies in `openstates/data/common.py`.
-- **Tracks:** [CannObserv/usa-wa#3](https://github.com/CannObserv/usa-wa/issues/3). Plan: [`docs/plans/2026-05-26-p0-5-hybrid-legislative-ia.md`](../plans/2026-05-26-p0-5-hybrid-legislative-ia.md) step 2.
+- **Tracks:** [CannObserv/usa-wa#3](https://github.com/CannObserv/usa-wa/issues/3).
+
+## 2026-05-28 review update
+
+Three things changed after this spec was first written:
+
+1. **Direction is unidirectional, not bidirectional.** Adapters consume from OCD; we never publish to OCD. The original draft over-emphasized `our → ocd` mappings; treat those as schema-completeness diagnostics, not adapter behavior.
+
+2. **Bill titles are 1:N.** OCD's `BillTitle` + `BillOtherTitle` ecosystem maps to our **`canonical.bill_titles`** child table (added in IA v1.1). `Bill.title` becomes the denormalized current canonical title; `Bill.short_description` consumes OCD `BillAbstract` (which is **not** a title — it's the summary/abstract). See §5.x below for the revised bill-title mapping.
+
+3. **Person rich attributes defer to Power Map.** OCD's `Person.image` / `email` / `biography` / `PersonOffice` / `PersonLink` / `PersonSource` (and `Organization.sources` / `Organization.links`) map to Power Map's polymorphic primitives (`locations`, `contact_methods`, `links`, the `note` field). usa-wa **does not** carry these locally; the sidecar pushes them to Power Map. `Person.birth_year` is **removed** from our schema entirely; birth + death lifecycle data defers to Power Map's planned `lifecycle_events` ([power-map#165](https://github.com/CannObserv/power-map/issues/165)). See §5.x below for the per-attribute mapping.
+
+The per-entity tables below are preserved as-written for the analytical content (especially the `our → ocd` lossy column, which is a useful gap analysis), with the direction-column understanding adjusted per the above.
 
 ## Why this exists
 
-Dual purpose. **(a) Completeness check** — exercising hybrid IA v0 against OCD proves the v0 shape can absorb a real, pressure-tested multi-state schema without losing semantically meaningful fields. Where it can't, we get a numbered IA-v1 revision request (§8) rather than a surprise during P1a coding. **(b) Indirect-provider adapter blueprint** — if WSL SOAP is rate-limited, down, or rotates IDs, an `usa_openstates` adapter could populate `canonical.*` from OpenStates' JSON dumps using exactly the inbound `ocd → our` direction of this spec. The lossy directions in §6 are the same gaps that adapter would need primary-source corroboration for.
+**Completeness check.** Exercising the hybrid IA against OCD pressure-tests our shape against a real, multi-state schema. Where the mapping is awkward, we get an IA-revision candidate rather than a surprise during P1a coding.
+
+**Indirect-provider adapter blueprint.** If WSL SOAP is rate-limited, down, or rotates IDs, an `usa_openstates` adapter could populate `canonical.*` from OpenStates' JSON dumps using exactly the `OCD → ours` direction documented here. The lossy directions (§6) are the same gaps that adapter would need primary-source corroboration for.
 
 ## Schema-level orientation
 
@@ -436,6 +451,39 @@ Synthesis of every revision candidate surfaced by this transformation. **This is
 19. **Add a `Bill.current_status_at` (timestamptz, nullable).** When the current status was last updated. OCD has no analog, but uscongress and LegiScan both have it; useful for "is this stale?" answers. **Disposition: apply in v1.** Cheap.
 
 20. **Acknowledge OCD's `Event` (hearing) gap.** We have no Hearing entity in v0; OCD's `Event` cluster is rich (location, agenda items, related entities, media, documents). **Disposition: defer to post-MVP — Hearing was already a planned P3 entity per the MVP spec; no v1 revision needed.** Document the gap in §6 lossy list.
+
+## Post-review addendum (v1.1 landing)
+
+These mappings reflect the OCD-review revisions to the hybrid IA (v1 → v1.1, 2026-05-28). They supersede the corresponding cells in the per-entity tables above where there's conflict.
+
+### Bill titles (1:N revisited)
+
+Pre-review the spec treated `Bill.title` and `Bill.short_description` as scalar columns. Post-review they decompose:
+
+| OCD source | → usa-wa target | Notes |
+|---|---|---|
+| `Bill.title` (the canonical title at current state) | (a) `canonical.bills.title` denormalized + (b) `canonical.bill_titles` row with `title_type='canonical'`, `is_current=true` | Update both atomically. |
+| `BillTitle` (1:N alternative titles with `note` classification — popular / short / official / etc.) | `canonical.bill_titles` row per OCD row | Map OCD's `note` to our `title_type` vocabulary (`popular` / `short` / `official` / `display` / `alternative` / `long`). When OCD uses an unfamiliar `note`, store as `alternative`. |
+| `BillAbstract.abstract` (1:N summaries/abstracts — explicitly **not** titles) | `canonical.bills.short_description` (take the most recent / canonical one) | OCD allows multiple abstracts per bill; we collapse to a single value. The discarded abstracts are not currently captured — accept as lossy for MVP. |
+| (no OCD field) — WA's amendment-driven title-change tracking | `canonical.bill_titles.amendment_id` + `effective_at` + `replaced_at` | WA-specific. The OCD inbound adapter leaves these null. Only the WSL primary adapter populates them. |
+
+### Person rich attributes (defer to Power Map)
+
+| OCD field | → Power Map primitive | Notes |
+|---|---|---|
+| `Person.image` | Power Map `links` row, `kind='image'` | Sidecar push; no local column. |
+| `Person.email` | Power Map `contact_methods` row, `kind='email'` | Sidecar push; no local column. |
+| `Person.biography` | Power Map `note` field on the Person entity | Sidecar push; no local column. |
+| `Person.birth_date` | Power Map `lifecycle_events` row, `event_type='birth'` (planned, [power-map#165](https://github.com/CannObserv/power-map/issues/165)) | Capture year/month/day where available, plus `birth_place` if OCD provides via `extras` JSONB. **Defer to PM #165 ship**; until then, sidecar stages locally. usa-wa schema no longer carries `birth_year`. |
+| `Person.death_date` | Power Map `lifecycle_events` row, `event_type='death'` (planned #165) | Same as birth. |
+| `PersonOffice` (address, phone, classification) | Power Map `locations` (address) + `contact_methods` (phone) — both polymorphic on entity | Two rows per office; classification rides on the location's metadata. |
+| `PersonLink` (homepage, social, etc.) | Power Map `links` row, `kind` set per link semantic | One row per link. |
+| `PersonSource` (provenance URL) | Power Map `links` row, `kind='source'` | One row per source citation. |
+| `Organization.sources` (provenance URLs) | Power Map `links` row, `kind='source'`, polymorphic on Organization | Same as PersonSource but Organization-attached. |
+| `Organization.links` | Power Map `links` row | Same as PersonLink but Organization-attached. |
+| `PersonIdentifier(scheme, identifier)` | `canonical.person_identifiers` (1:N child, already added in v1) | usa-wa **does** carry these locally; the v1 child table is purpose-built for the cross-system identifier graph. |
+
+usa-wa adapters that consume OCD data write Person/Organization to `canonical.*` for the identity essentials (name, identifier graph, role/assignment); the sidecar consumes the rich attributes and pushes them to Power Map. The local schema doesn't gain columns for image / email / biography / office / links / sources / lifecycle-events — those live upstream.
 
 ## References
 

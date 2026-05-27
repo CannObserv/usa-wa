@@ -17,6 +17,7 @@ from clearinghouse_domain_legislative.bills import (
     Bill,
     BillAction,
     BillSponsorship,
+    BillTitle,
 )
 from clearinghouse_domain_legislative.identity import (
     Assignment,
@@ -485,3 +486,91 @@ async def test_bill_action_polymorphic_classifications(db_session):
         .all()
     )
     assert {c.classification for c in classes} == {"reading-3", "passage"}
+
+
+async def test_bill_titles_1_to_n_with_amendment_provenance(db_session):
+    """Bills carry multiple titles via BillTitle; amendment_id tracks WA's
+    amendment-driven title changes."""
+    session = LegislativeSession(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="2025",
+        slug="usa-wa-2025",
+        name="2025 Regular Session",
+        classification="regular",
+    )
+    db_session.add(session)
+    await db_session.flush()
+    bill = Bill(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="HB-4242-2025-26",
+        legislative_session_id=session.id,
+        originating_chamber="house",
+        number=4242,
+        title="An act relating to widget regulation",  # denormalized
+    )
+    db_session.add(bill)
+    await db_session.flush()
+
+    amendment = Amendment(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="amd:HB-4242:21",
+        bill_id=bill.id,
+        label="Striking Amendment 21",
+        status="adopted",
+    )
+    db_session.add(amendment)
+    await db_session.flush()
+
+    canonical_at_intro = BillTitle(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="title:HB-4242:canonical:intro",
+        bill_id=bill.id,
+        title_text="An act relating to widget manufacturing",
+        title_type="canonical",
+        as_of_action="introduced",
+        is_current=False,
+        replaced_at=datetime(2025, 3, 15, tzinfo=UTC),
+    )
+    canonical_current = BillTitle(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="title:HB-4242:canonical:current",
+        bill_id=bill.id,
+        title_text="An act relating to widget regulation",
+        title_type="canonical",
+        as_of_action="committee_substitute",
+        amendment_id=amendment.id,
+        effective_at=datetime(2025, 3, 15, tzinfo=UTC),
+        is_current=True,
+    )
+    short_title = BillTitle(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="title:HB-4242:short",
+        bill_id=bill.id,
+        title_text="Widget Reform Act",
+        title_type="short",
+        is_current=True,
+    )
+    db_session.add_all([canonical_at_intro, canonical_current, short_title])
+    await db_session.flush()
+
+    titles = (
+        (await db_session.execute(select(BillTitle).where(BillTitle.bill_id == bill.id)))
+        .scalars()
+        .all()
+    )
+    assert len(titles) == 3
+    # The current canonical title matches Bill.title (denormalization invariant)
+    current_canonical = next(t for t in titles if t.title_type == "canonical" and t.is_current)
+    assert current_canonical.title_text == bill.title
+    # The current canonical title was set by an amendment
+    assert current_canonical.amendment_id == amendment.id
+    # The pre-amendment title is preserved with replaced_at
+    pre_amend = next(t for t in titles if t.title_type == "canonical" and not t.is_current)
+    assert pre_amend.replaced_at is not None
+    assert pre_amend.amendment_id is None  # Was the introduced title, not amendment-driven

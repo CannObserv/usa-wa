@@ -1,8 +1,18 @@
-# Transformation: usa-wa hybrid IA v0 ↔ unitedstates/congress (federal)
+# Transformation: unitedstates/congress (federal) → usa-wa hybrid legislative IA
 
-- **Date:** 2026-05-27
-- **Status:** draft (transformation #3 of 3 against hybrid IA v0)
-- **Scope:** bidirectional mapping between [`canonical.*` entities in hybrid IA v0](2026-05-27-hybrid-legislative-ia.md) and the JSON/YAML wire shapes produced by [`unitedstates/congress`](https://github.com/unitedstates/congress) (bills, amendments, votes, committee meetings) plus the sibling [`unitedstates/congress-legislators`](https://github.com/unitedstates/congress-legislators) (members, committees, committee membership). Federal House + Senate, Congress 93rd → present.
+- **Date:** 2026-05-27 (review update 2026-05-28)
+- **Status:** final (transformation #3 of 3; feeds hybrid IA v1; v1.1 landed)
+- **Direction:** **uscongress → ours, only.** A future `usa-fed-api` sibling deployment would consume `unitedstates/congress` + `congress-legislators` as primary sources; we never publish back. The `our → uscongress` columns preserved below remain useful as schema-completeness diagnostics but are not adapter behavior.
+- **Scope:** Field-level mapping between [`canonical.*` entities](2026-05-27-hybrid-legislative-ia.md) and the JSON/YAML wire shapes produced by [`unitedstates/congress`](https://github.com/unitedstates/congress) (bills, amendments, votes, committee meetings) plus [`unitedstates/congress-legislators`](https://github.com/unitedstates/congress-legislators) (members, committees, committee membership). Federal House + Senate, Congress 93rd → present.
+
+## 2026-05-28 review update
+
+- **Unidirectional** (see Direction above). All `→` / `↔` arrows in per-entity tables that imply emit-to-federal are documentation-only.
+- **Bill titles are 1:N in the hybrid IA (v1.1).** Federal bills carry an explicit `titles` array with `title`, `type` (`official_title`, `short_title`, `popular_title`, `display_title`, etc.), `chamber` (which chamber introduced the title), and `as` (when in the lifecycle — `introduced` / `passed_house` / `passed_senate` / etc.). Mapping:
+  - Each entry → one `canonical.bill_titles` row with `title_text` + `title_type` (map `official_title` → `official`, `short_title` → `short`, etc.) + `chamber` + `as_of_action`.
+  - The current canonical title (latest `official_title` in the array, or `display_title` if explicitly flagged current) → also denormalized to `canonical.bills.title`, with `is_current=true` on its `bill_titles` row.
+  - Federal bills have no concept of "amendment-changed title" the way WA does, so `bill_titles.amendment_id` stays null.
+- **Person rich attributes defer to Power Map.** `congress-legislators` `legislators-current.yaml` exposes ~15 ID schemes per legislator (bioguide, lis, fec, govtrack, opensecrets, votesmart, cspan, wikipedia, ballotpedia, maplight, icpsr, thomas, house_history, etc.). All flow to `canonical.person_identifiers` (1:N, v1). Birth date (per-legislator YAML) defers to Power Map's planned `lifecycle_events` ([power-map#165](https://github.com/CannObserv/power-map/issues/165)). Photo URLs, official websites, contact addresses, etc. defer to Power Map's `locations` / `contact_methods` / `links` primitives — usa-wa carries identity essentials only.
 - **Inputs:** hybrid IA v0 (this repo, `docs/specs/2026-05-27-hybrid-legislative-ia.md`); P0 IA delta (`docs/research/2026-05-26-multi-state-legislative-ia-delta.md`).
 - **Outputs:** per-entity correspondence tables; vocabulary mappings; lossy-direction inventory; numbered revision proposals for hybrid IA v1; sketch of a `usa-fed-adapter-legislature` package.
 - **Non-goals:** USC statute-corpus modeling (deferred to a `usa-fed-adapter-statute` spec); GovInfo bill-text mimetype handling (P3); presidential nominations.

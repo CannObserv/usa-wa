@@ -223,6 +223,61 @@ class BillVersion(Base, TimestampMixin):
     is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
+class BillTitle(Base, TimestampMixin):
+    """1:N title rows per Bill. New in v1.1 (2026-05-28).
+
+    Bills carry multiple titles: canonical / short / popular / official / display /
+    alternative / long, sometimes chamber-specific, sometimes lifecycle-stage-specific
+    ("introduced", "engrossed"), occasionally multilingual. In WA, an amendment can
+    change a bill's title — and the procedural significance is load-bearing (an
+    amendment whose content falls outside the bill's current title is procedurally
+    challengeable for exceeding scope), so we track ``amendment_id`` here.
+
+    ``Bill.title`` is denormalized — it mirrors the row where
+    ``title_type='canonical' AND is_current=true``.
+    """
+
+    __tablename__ = "bill_titles"
+    __table_args__ = (
+        UniqueConstraint(
+            "jurisdiction_id", "source", "source_id", name="uq_bill_titles_natural_key"
+        ),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    bill_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.bills.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title_text: Mapped[str] = mapped_column(Text, nullable=False)
+    title_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    # title_type vocab: canonical | short | popular | official | display
+    #                 | alternative | long | summary_title
+
+    chamber: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    as_of_action: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # as_of_action vocab (free-text): introduced | engrossed | enrolled
+    #                               | committee_substitute | etc.
+
+    language_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    amendment_id: Mapped[_ULID | None] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.amendments.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    replaced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
 class Amendment(Base, TimestampMixin):
     """Proposed change to a bill. Voted on, so the Vote cluster references it."""
 

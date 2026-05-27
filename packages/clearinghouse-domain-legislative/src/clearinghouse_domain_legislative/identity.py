@@ -15,7 +15,6 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     ForeignKey,
-    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -54,7 +53,9 @@ class Person(Base, TimestampMixin):
     name_suffix: Mapped[str | None] = mapped_column(String(32), nullable=True)
     name_used: Mapped[str | None] = mapped_column(String(256), nullable=True)
     gender: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    birth_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # birth_year removed v1.1 (2026-05-28): birth/death/lifecycle events defer to
+    # Power Map's planned lifecycle_events schema (CannObserv/power-map#165).
 
     # Cross-cohort denormalization; the full N-scheme graph lives in PersonIdentifier.
     powermap_person_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True)
