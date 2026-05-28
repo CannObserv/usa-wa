@@ -79,7 +79,7 @@ Direction key: **→** = usa-wa to LegiScan (synthesize the API payload from can
 | `source_id` | `session_id` | `getSessionList` | ↔ | stringify | LegiScan's stable integer key. |
 | `slug` | derive from `year_start` + `special` + counter | — | → / ← | `"usa-wa-{year_start}"` for regular; `"usa-wa-{year_start}-special-{n}"` when `special > 0` | LegiScan does not provide our OpenStates-style slug; adapter mints it. |
 | `name` | `session_name` (preferred) or `session_title` | `getSessionList` | ↔ | passthrough | |
-| `classification` | derived: `special` flag | `getSessionList` | ← | `special == 0` → `regular`; `special >= 1` → `special` | Our `sine_die` / `extraordinary` / `other` have no LegiScan equivalent — LegiScan only distinguishes regular vs. special. **Lossy →**. |
+| `classification` | derived: `special` flag | `getSessionList` | ← | `special == 0` → `regular`; `special >= 1` → `special`; everything else → `other` | **v1.2 update (2026-05-28):** classification vocab tightened to 3 values (`regular` / `special` / `other`). LegiScan's binary `special` flag covers `regular` and `special` cleanly; `other` is reserved for adapter-discriminated edge cases. `sine_die` was removed (it's an adjournment state, not a session type — see `adjourned_sine_die_at`); `extraordinary` was removed (no semantic distinction from `special`). |
 | `start_date` | `year_start` (year only) | `getSessionList` | ← | `date(year_start, 1, 1)` as a coarse approximation | **Lossy ←** — LegiScan gives year not exact convene date. Use WSL SOAP for precise dates; LegiScan for cross-source mapping. |
 | `end_date` | `year_end` (year only) | `getSessionList` | ← | `date(year_end, 12, 31)` coarse approximation | Same caveat. |
 | `is_active` | `sine_die` (inverse) + `prior` | `Session` | ← | `is_active = (sine_die == 0 AND prior == 0)` | LegiScan's `prior == 1` means archived; `sine_die == 1` means session has adjourned permanently. |
@@ -477,6 +477,8 @@ v0 has only `is_active`. LegiScan exposes three richer session flags: `prefile`,
 
 **Action for v1:** consider adding `LegislativeSession.prefile_at: date nullable` (start of pre-filing window) and `LegislativeSession.sine_die_at: date nullable` (date of permanent adjournment). `is_active` stays but is derived. `prior` collapses cleanly into `is_active=false`.
 
+**Status update (v1.2, 2026-05-28):** ✅ `adjourned_sine_die_at: timestamptz nullable` landed (note: timestamptz, not date — sine die in WA is a specific moment, not just a calendar day). ⏸️ `prefile_at` not yet landed; revisit if the WA pre-filing window becomes load-bearing for queries.
+
 ### 4. BillVersion vocab expansion
 
 v0 lists "original / substitute / engrossed / first_engrossed / enrolled / etc." as examples. LegiScan ships a 14-value `TextType` enum. OCD ships a 7-value `BILL_VERSION_CLASSIFICATIONS`. Both supersets are richer than our v0.
@@ -512,6 +514,8 @@ v0 has no hearing entity (deferred from P0 skeleton). LegiScan exposes `Bill.cal
 LegiScan's `Supplement` covers fiscal notes, analyses, vote images, local mandate notes, corrections impact, etc. v0 has no home for these. They are not BillVersions (not text of the bill) and not Amendments (not proposed changes).
 
 **Action for v1:** consider `canonical.bill_supplements (bill_id, supplement_type, label, url, mime, source_id)` — but only if WSL SOAP also exposes these (verify in step 3 transformation specs). If WSL exposes them, they're worth modeling; if only LegiScan exposes them and the data is sparse for WA, defer.
+
+**Status update (v1.3, 2026-05-30):** ✅ LANDED with a richer WA-driven shape. `canonical.bill_supplements` is per-`bill_version` (not per-bill), with four kinds — `bill_analysis` (pre-hearing committee-staff summary), `bill_report` (post-hearing committee-staff summary), `fiscal_note` (agency-prepared fiscal impact with `status ∈ {partial, final}` and `revision_sequence`), `bill_summary` (chamber-staff or agency brief summary). Plus `author_organization_id` (committee / agency / chamber), `text` + `structured_data` (P1b enrichment), and `archival_url` + `archived_at` for the Archiver sidecar push (mirrors the identity → Power Map pattern). Lifecycle integration: each supplement publication generates a paired `BillAction` row with `primary_classification='supplement_published'` and `BillAction.supplement_id` FK pointing to the authoritative supplement. LegiScan's 8-value `SupplementType` maps onto our 4-kind vocab as follows: `FiscalNote` / `FiscalNoteAnalysis` / `CorrectionsImpact` / `LocalMandate` → `fiscal_note`; `Analysis` → `bill_analysis` (when pre-hearing) or `bill_report` (post-hearing, distinguished by `published_at` vs. hearing dates in the action log); `VoteImage` / `VetoLetter` / `Miscellaneous` → `other`. LegiScan's collapsed `Analysis` doesn't distinguish pre/post-hearing; WSL primary source carries the distinction more reliably.
 
 ### 10. Person external-ID indexing notes (corollary to §0)
 

@@ -5,6 +5,7 @@ All tables live in the ``canonical`` Postgres schema.
 """
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -16,6 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from ulid import ULID as _ULID
 
@@ -171,6 +173,17 @@ class BillAction(Base, TimestampMixin):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     display_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_major: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    supplement_id: Mapped[_ULID | None] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.bill_supplements.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # v1.3 (2026-05-30): when this action published a supplement document
+    # (Bill Analysis / Bill Report / Fiscal Note / Bill Summary), the FK points
+    # to the authoritative bill_supplements row. Pair with
+    # primary_classification='supplement_published'.
 
 
 class BillActionClassification(Base, TimestampMixin):
@@ -566,3 +579,110 @@ class BillStatutoryCitation(Base, TimestampMixin):
 
     text_offset_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     text_offset_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class BillSupplement(Base, TimestampMixin):
+    """Per-bill-version supplementary document. New in v1.3.
+
+    WA legislative practice attaches four kinds of supplementary documents to
+    bill versions, each authored by non-partisan staff or regulatory agencies:
+
+    - ``bill_analysis`` — pre-hearing summary + history composed by committee
+      staff before a particular version is heard or acted on. Includes hearing
+      details and may mention positions of individuals / orgs (cross-linked to
+      the PDC lobbying cluster via :class:`clearinghouse_core.provenance.Citation`).
+    - ``bill_report`` — post-hearing version of the same shape, temporally
+      distinguished from ``bill_analysis``. Composed after the version has been
+      heard / acted on.
+    - ``fiscal_note`` — fiscal-impact report by regulatory agencies (single
+      agency) or as an aggregate report across agencies. ``status ∈
+      {partial, final}`` for fiscal notes; multiple revisions per status are
+      distinguished by ``revision_sequence`` and ``published_at``.
+    - ``bill_summary`` — brief description by non-partisan chamber staff
+      (or by an agency / org), usually published at chamber hand-off.
+
+    All four are per-:class:`BillVersion` (always reference a specific version,
+    never just the overall bill). Almost always PDFs in WA; the ``url`` column
+    points to the source PDF, ``text`` holds extracted plain text (P1b
+    enrichment), ``structured_data`` holds extracted Q&A responses and
+    tabular fiscal-impact data (also P1b).
+
+    Sidecar archival to the Archiver sibling service mirrors the identity
+    producer/archival pattern: adapters write rows + download PDFs locally; the
+    sidecar pushes PDFs to Archiver and populates ``archival_url`` +
+    ``archived_at``. Lifecycle integration: each supplement publication
+    generates a paired :class:`BillAction` row with
+    ``primary_classification='supplement_published'`` whose
+    ``BillAction.supplement_id`` FK points back here.
+    """
+
+    __tablename__ = "bill_supplements"
+    __table_args__ = (
+        UniqueConstraint(
+            "jurisdiction_id",
+            "source",
+            "source_id",
+            name="uq_bill_supplements_natural_key",
+        ),
+        UniqueConstraint(
+            "bill_version_id",
+            "supplement_kind",
+            "status",
+            "revision_sequence",
+            name="uq_bill_supplements_content_key",
+        ),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    bill_version_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.bill_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    bill_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.bills.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    """Denormalized FK for cheap "all supplements for bill X" queries without a join."""
+
+    supplement_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    # vocab: bill_analysis | bill_report | fiscal_note | bill_summary | other
+
+    status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    """For ``fiscal_note`` only: ``partial`` (some agencies have responded) /
+    ``final`` (all agencies have responded). Null for other kinds."""
+
+    revision_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    """Counter for multiple PDFs under the same (bill_version, kind, status)."""
+
+    title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    author_organization_id: Mapped[_ULID | None] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.organizations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    """The committee, agency, or chamber that authored the supplement."""
+
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    mime_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    """Extracted plain text — P1b enrichment populates."""
+
+    structured_data: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    """Extracted Q&A responses and tabular fiscal-impact data — P1b enrichment populates."""
+
+    archival_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    """Archiver sibling URL once sidecar push completes."""
+
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

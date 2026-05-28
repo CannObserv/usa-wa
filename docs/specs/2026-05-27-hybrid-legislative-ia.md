@@ -15,6 +15,7 @@ User decisions on the five "Items still open" items from the OCD transformation 
 | **`VoteEvent.originating_bill_action_id`** FK added — links a vote to the specific `BillAction` it produced or resulted from. Matches OCD's `VoteEvent.bill_action`. Item #16 from OCD review #2 — explicit traceability requirement. | OCD review #2 follow-up 2026-05-29 | Vote cluster |
 | `BillAction` decomposition rule documented: multi-target referral actions ("Referred to Health and Ways and Means") are decomposed into **multiple independent `BillAction` rows**, one per target, rather than carrying a related-entity 1:N child table. Resolves item #9 without a schema change. | OCD review #2 follow-up 2026-05-29 | Bill cluster (adapter behavior) |
 | **`clearinghouse_core.document_identifiers`** polymorphic table added — captures the rich, parseable identifiers that WA bill texts and amendments carry below the Bill level (Code Reviser bill-text IDs like `H-0043.1`, Code Reviser amendment IDs like `S-5276.3/26`, committee amendment forms like `1066 AMH CPB CLOD 295`, lifecycle-tagged IDs like `EHB 1941.PL`). Polymorphic on `entity_type ∈ {bill_version, amendment}` so striker / substitute amendments that produce new BillVersions don't double-store identifiers. JSONB `parsed_components` column reserved for P1b decomposition. Resolves OCD item #6 without a `BillIdentifier`-on-Bill column. | OCD review #2 follow-up 2026-05-30 | new framework primitive |
+| **`canonical.bill_supplements`** added — per-bill-version supplementary documents authored by non-partisan committee staff or regulatory agencies. Four kinds: `bill_analysis` (pre-hearing committee summary), `bill_report` (post-hearing committee summary), `fiscal_note` (agency fiscal impact with `partial`/`final` status + `revision_sequence`), `bill_summary` (chamber or agency brief). Plus `author_organization_id`, P1b enrichment columns (`text`, `structured_data` JSONB), and Archiver sidecar columns (`archival_url`, `archived_at`). Lifecycle integration via `BillAction.supplement_id` FK + `primary_classification='supplement_published'`. Resolves LegiScan transformation §9. | LegiScan review #1 follow-up 2026-05-30 | Bill cluster |
 
 Items closed after v1.3: `BillSponsorship.role` (item #12) stays at the 4-value enum (closed with rationale); `BillVersion.text` canonicalization rules stay as the open design discussion in §"Open issues".
 
@@ -352,6 +353,7 @@ Append-only lifecycle log.
 | `description` | text NOT NULL | Free-text description. |
 | `display_order` | int nullable | **v1.** Tie-breaker for same-day actions; preserves source's intended sequence. |
 | `is_major` | bool NOT NULL default false | **v1.** Source's "milestone" flag (LegiScan `importance`). |
+| `supplement_id` | ULID nullable FK | **v1.3 (2026-05-30).** FK to `canonical.bill_supplements.id` (ON DELETE SET NULL). Populated when this action records a supplement publication (Bill Analysis / Bill Report / Fiscal Note / Bill Summary). Pair with `primary_classification='supplement_published'`. Provides the action log → artifact traceability. |
 
 **Natural-key UNIQUE:** `(bill_id, source, source_action_id)`.
 
@@ -454,6 +456,42 @@ Statutory citations extracted from a bill version's text. OCD's `Bill.citations`
 | `text_offset_end` | int nullable | |
 
 **Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`.
+
+### `canonical.bill_supplements` (new in v1.3)
+
+Per-`bill_version` supplementary documents authored by non-partisan committee staff or regulatory agencies. WA practice attaches four distinct kinds; the `supplement_kind` enum discriminates them.
+
+| Column | Type | Notes |
+|---|---|---|
+| `bill_version_id` | ULID NOT NULL FK | Always references a specific version, never just the bill. |
+| `bill_id` | ULID NOT NULL FK | Denormalized for cheap "all supplements for bill X" queries. |
+| `supplement_kind` | text(32) NOT NULL | `bill_analysis` / `bill_report` / `fiscal_note` / `bill_summary` / `other`. |
+| `status` | text(16) nullable | For `fiscal_note` only: `partial` (some agencies responded) / `final` (all agencies responded). Null for other kinds. |
+| `revision_sequence` | int NOT NULL default 1 | Multiple PDFs under the same `(bill_version, kind, status)` are distinguished by this counter. |
+| `title` | text(512) nullable | E.g., "Senate Bill Report ESHB 1141 (As Reported by Senate Committee on Labor and Commerce)". |
+| `author_organization_id` | ULID nullable FK | The committee, agency, or chamber that authored the supplement. |
+| `published_at` | timestamptz NOT NULL | |
+| `url` | text(2048) nullable | Source PDF (or HTML) URL. |
+| `mime_type` | text(128) nullable | |
+| `text` | text nullable | Extracted plain text — P1b enrichment populates. |
+| `structured_data` | jsonb nullable | Extracted Q&A responses, fiscal-impact tabular data — P1b enrichment. |
+| `archival_url` | text(2048) nullable | Archiver sibling URL once sidecar push completes. |
+| `archived_at` | timestamptz nullable | When the sidecar push to Archiver completed. |
+
+**Natural-key UNIQUE:** standard `(jurisdiction_id, source, source_id)`. Plus content-key UNIQUE `(bill_version_id, supplement_kind, status, revision_sequence)` so re-fetches don't duplicate.
+
+**Kind taxonomy (WA-anchored, cross-source compatible).**
+
+- **`bill_analysis`** — pre-hearing summary + history composed by non-partisan committee staff *before* a particular bill version is heard or acted on in that committee. Includes hearing details and may mention positions of individuals / orgs (cross-linked to PDC lobbying data via Citation rows).
+- **`bill_report`** — post-hearing version of the same shape, composed *after* the version has been heard or acted on. Structurally near-identical to `bill_analysis`; temporally distinguished.
+- **`fiscal_note`** — fiscal-impact report by regulatory agencies. May be single-agency or aggregate across agencies. `status` distinguishes `partial` (some agencies have responded) from `final` (all have responded). Multiple revisions per status are distinguished by `revision_sequence` and `published_at`. Always includes tabular data (years × dollar amounts × FTE) and written Q&A responses to a standard array of questions — captured in `structured_data` JSONB post P1b extraction.
+- **`bill_summary`** — brief bill description by non-partisan chamber staff (or by an agency / org), usually published at chamber hand-off.
+
+**Lifecycle / event-stream integration.** Each supplement publication generates a paired `BillAction` row whose `primary_classification='supplement_published'` and whose `BillAction.supplement_id` FK points back to the authoritative `bill_supplements` row. The action log query stays cheap (no join required for "what happened on this bill?"), and `BillAction.supplement_id` provides traceability to the artifact.
+
+**Multi-source ingestion.** WSL primary, agency websites (fiscal notes), and LegiScan `Supplement` endpoint all surface these documents. Same `bill_version_id` may carry rows from multiple `source` values; reconciliation is per-`supplement_kind` per `revision_sequence` per source-of-truth policy (WSL wins for committee-authored kinds; agency wins for its own fiscal notes).
+
+**Sidecar archival to Archiver.** Pattern mirrors the identity → Power Map pattern: (1) adapter writes the metadata row + downloads PDF locally; (2) sidecar pushes PDF to Archiver sibling and populates `archival_url` + `archived_at`; (3) once archival completes, local PDF copy can age out per cache policy while metadata + extracted text persist for query. The Archiver becomes the long-term system of record for the PDF binary; usa-wa stays the query layer.
 
 ### `canonical.bill_subjects` (new in v1)
 
@@ -604,7 +642,7 @@ These are losses we **accept** in the transformation specs. Fixing them would re
 
 Every entity in this spec writes Citation rows through `clearinghouse_core.runner.AdapterRunner`. Polymorphic Citation references the entity by `(entity_type, entity_id)`:
 
-`entity_type` values (snake_case table names): `person`, `organization`, `role`, `assignment`, `person_identifier`, `organization_identifier`, `bill`, `bill_sponsorship`, `bill_action`, `bill_action_classification`, `bill_version`, `amendment`, `bill_subject`, `bill_relationship`, `bill_event`, `vote_event`, `vote_count`, `person_vote`, `lobbying_activity`, `lobbying_position`, `contribution`, `statute_code`, `statute_title`, `statute_chapter`, `statute_section`, `bill_statute_change`, `legislative_session`.
+`entity_type` values (snake_case table names): `person`, `organization`, `role`, `assignment`, `person_identifier`, `organization_identifier`, `bill`, `bill_sponsorship`, `bill_action`, `bill_action_classification`, `bill_version`, `amendment`, `bill_subject`, `bill_relationship`, `bill_event`, `bill_supplement`, `vote_event`, `vote_count`, `person_vote`, `lobbying_activity`, `lobbying_position`, `contribution`, `statute_code`, `statute_title`, `statute_chapter`, `statute_section`, `bill_statute_change`, `legislative_session`.
 
 Denormalized `primary_source_id`, `last_fetched_at`, `last_fetch_event_id` columns on every entity (per Universal entity shape) carry single-row citations cheaply; explicit field-level provenance via the `citations` table only when meaningfully needed.
 

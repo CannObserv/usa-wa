@@ -17,7 +17,9 @@ from clearinghouse_domain_legislative.bills import (
     Bill,
     BillAction,
     BillSponsorship,
+    BillSupplement,
     BillTitle,
+    BillVersion,
 )
 from clearinghouse_domain_legislative.identity import (
     Assignment,
@@ -573,3 +575,143 @@ async def test_bill_titles_1_to_n_with_amendment_provenance(db_session):
     pre_amend = next(t for t in titles if t.title_type == "canonical" and not t.is_current)
     assert pre_amend.replaced_at is not None
     assert pre_amend.amendment_id is None  # Was the introduced title, not amendment-driven
+
+
+async def test_bill_supplements_with_lifecycle_action(db_session):
+    """BillSupplement attaches per-version documents (Analysis / Report / Fiscal Note / Summary)
+    and pairs with a BillAction whose supplement_id FK points back."""
+    session = LegislativeSession(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="2025",
+        slug="usa-wa-2025",
+        name="2025 Regular Session",
+        classification="regular",
+    )
+    house_cpb = Organization(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="house_cpb",
+        name="WA House Consumer Protection and Business Committee",
+        org_type="committee",
+    )
+    db_session.add_all([session, house_cpb])
+    await db_session.flush()
+
+    bill = Bill(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="HB-1066-2025-26",
+        legislative_session_id=session.id,
+        originating_chamber="house",
+        number=1066,
+        title="An act relating to consumer disclosures",
+    )
+    db_session.add(bill)
+    await db_session.flush()
+
+    version = BillVersion(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="bv:HB-1066:introduced",
+        bill_id=bill.id,
+        version_type="introduced",
+    )
+    db_session.add(version)
+    await db_session.flush()
+
+    # Bill Analysis: pre-hearing summary by House CPB committee staff
+    analysis = BillSupplement(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="supp:HB-1066:analysis:1",
+        bill_id=bill.id,
+        bill_version_id=version.id,
+        supplement_kind="bill_analysis",
+        title="House Bill Analysis HB 1066 (As Introduced)",
+        author_organization_id=house_cpb.id,
+        published_at=datetime(2025, 2, 10, tzinfo=UTC),
+        url="https://lawfilesext.leg.wa.gov/biennium/2025-26/Htm/Bill%20Reports/House/1066%20HBA%20CPB%2025.htm",
+        mime_type="text/html",
+    )
+    # Fiscal Note: partial status, revision 1 then revision 2
+    fiscal_partial_v1 = BillSupplement(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="supp:HB-1066:fiscal:partial:1",
+        bill_id=bill.id,
+        bill_version_id=version.id,
+        supplement_kind="fiscal_note",
+        status="partial",
+        revision_sequence=1,
+        title="Fiscal Note HB 1066 (Partial, Feb 12)",
+        published_at=datetime(2025, 2, 12, tzinfo=UTC),
+        structured_data={
+            "agencies_responded": ["DOL", "DOH"],
+            "agencies_pending": ["AGO", "DSHS"],
+            "estimated_impact_fy2026": "120000",
+        },
+    )
+    fiscal_partial_v2 = BillSupplement(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="supp:HB-1066:fiscal:partial:2",
+        bill_id=bill.id,
+        bill_version_id=version.id,
+        supplement_kind="fiscal_note",
+        status="partial",
+        revision_sequence=2,
+        title="Fiscal Note HB 1066 (Partial, Feb 18)",
+        published_at=datetime(2025, 2, 18, tzinfo=UTC),
+    )
+    db_session.add_all([analysis, fiscal_partial_v1, fiscal_partial_v2])
+    await db_session.flush()
+
+    # Lifecycle integration: BillAction row for the Bill Analysis publication
+    # with supplement_id FK pointing to the authoritative document.
+    action = BillAction(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="act:HB-1066:bill_analysis:1",
+        bill_id=bill.id,
+        action_at=datetime(2025, 2, 10, tzinfo=UTC),
+        chamber="house",
+        acting_organization_id=house_cpb.id,
+        action_type="Bill Analysis filed",
+        primary_classification="supplement_published",
+        description="House Bill Analysis filed by Consumer Protection and Business Committee",
+        supplement_id=analysis.id,
+    )
+    db_session.add(action)
+    await db_session.flush()
+
+    # Cheap "all supplements for bill X" query (uses the bill_id denorm, no join).
+    all_supplements = (
+        (await db_session.execute(select(BillSupplement).where(BillSupplement.bill_id == bill.id)))
+        .scalars()
+        .all()
+    )
+    assert len(all_supplements) == 3
+    by_kind = {s.supplement_kind for s in all_supplements}
+    assert by_kind == {"bill_analysis", "fiscal_note"}
+
+    # Two partial-status fiscal-note rows distinguished by revision_sequence.
+    fiscal_notes = sorted(
+        [s for s in all_supplements if s.supplement_kind == "fiscal_note"],
+        key=lambda s: s.revision_sequence,
+    )
+    assert [s.revision_sequence for s in fiscal_notes] == [1, 2]
+    assert fiscal_notes[0].structured_data == {
+        "agencies_responded": ["DOL", "DOH"],
+        "agencies_pending": ["AGO", "DSHS"],
+        "estimated_impact_fy2026": "120000",
+    }
+
+    # The lifecycle action points to the authoritative supplement.
+    fetched_action = (
+        await db_session.execute(
+            select(BillAction).where(BillAction.source_id == "act:HB-1066:bill_analysis:1")
+        )
+    ).scalar_one()
+    assert fetched_action.supplement_id == analysis.id
+    assert fetched_action.primary_classification == "supplement_published"
