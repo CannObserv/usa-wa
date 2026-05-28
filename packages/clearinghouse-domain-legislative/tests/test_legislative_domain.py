@@ -145,7 +145,23 @@ async def test_bill_with_session_round_trip(db_session):
         biennium_label="2025-26",
         is_active=True,
     )
-    db_session.add(session)
+    house = Organization(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="house",
+        name="Washington State House of Representatives",
+        short_name="house",
+        org_type="chamber",
+    )
+    senate = Organization(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="senate",
+        name="Washington State Senate",
+        short_name="senate",
+        org_type="chamber",
+    )
+    db_session.add_all([session, house, senate])
     await db_session.flush()
 
     bill = Bill(
@@ -153,8 +169,8 @@ async def test_bill_with_session_round_trip(db_session):
         source="usa_wa_legislature",
         source_id="HB-1234-2025-26",
         legislative_session_id=session.id,
-        originating_chamber="house",
-        current_chamber="senate",
+        originating_chamber_id=house.id,
+        current_chamber_id=senate.id,
         number=1234,
         bill_type="HB",
         title="An act relating to widgets",
@@ -169,8 +185,8 @@ async def test_bill_with_session_round_trip(db_session):
     fetched = (
         await db_session.execute(select(Bill).where(Bill.source_id == "HB-1234-2025-26"))
     ).scalar_one()
-    assert fetched.originating_chamber == "house"
-    assert fetched.current_chamber == "senate"
+    assert fetched.originating_chamber_id == house.id
+    assert fetched.current_chamber_id == senate.id
     assert fetched.current_status_class == "passed_first_chamber"
     assert fetched.legislative_session_id == session.id
 
@@ -191,7 +207,15 @@ async def test_polymorphic_sponsorship_person(db_session):
         name="2025 Regular Session",
         classification="regular",
     )
-    db_session.add_all([person, session])
+    house = Organization(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="house",
+        name="Washington State House of Representatives",
+        short_name="house",
+        org_type="chamber",
+    )
+    db_session.add_all([person, session, house])
     await db_session.flush()
 
     bill = Bill(
@@ -199,7 +223,7 @@ async def test_polymorphic_sponsorship_person(db_session):
         source="usa_wa_legislature",
         source_id="HB-9999-2025-26",
         legislative_session_id=session.id,
-        originating_chamber="house",
+        originating_chamber_id=house.id,
         number=9999,
         title="Test bill",
     )
@@ -243,13 +267,20 @@ async def test_amendment_and_vote_event_round_trip(db_session):
         name="WA Senate",
         org_type="chamber",
     )
+    house = Organization(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="house",
+        name="WA House",
+        org_type="chamber",
+    )
     person = Person(
         jurisdiction_id="usa-wa",
         source="usa_wa_legislature",
         source_id="26145",
         name_full="Vote Caster",
     )
-    db_session.add_all([session, senate, person])
+    db_session.add_all([session, senate, house, person])
     await db_session.flush()
 
     bill = Bill(
@@ -257,7 +288,7 @@ async def test_amendment_and_vote_event_round_trip(db_session):
         source="usa_wa_legislature",
         source_id="HB-7777-2025-26",
         legislative_session_id=session.id,
-        originating_chamber="house",
+        originating_chamber_id=house.id,
         number=7777,
         title="Bill under amendment",
     )
@@ -425,14 +456,21 @@ async def test_bill_action_polymorphic_classifications(db_session):
         name="2025 Regular Session",
         classification="regular",
     )
-    db_session.add(session)
+    house = Organization(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="house",
+        name="WA House",
+        org_type="chamber",
+    )
+    db_session.add_all([session, house])
     await db_session.flush()
     bill = Bill(
         jurisdiction_id="usa-wa",
         source="usa_wa_legislature",
         source_id="HB-3333-2025-26",
         legislative_session_id=session.id,
-        originating_chamber="house",
+        originating_chamber_id=house.id,
         number=3333,
         title="Multi-class action bill",
     )
@@ -500,14 +538,21 @@ async def test_bill_titles_1_to_n_with_amendment_provenance(db_session):
         name="2025 Regular Session",
         classification="regular",
     )
-    db_session.add(session)
+    house = Organization(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="house",
+        name="WA House",
+        org_type="chamber",
+    )
+    db_session.add_all([session, house])
     await db_session.flush()
     bill = Bill(
         jurisdiction_id="usa-wa",
         source="usa_wa_legislature",
         source_id="HB-4242-2025-26",
         legislative_session_id=session.id,
-        originating_chamber="house",
+        originating_chamber_id=house.id,
         number=4242,
         title="An act relating to widget regulation",  # denormalized
     )
@@ -588,6 +633,13 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
         name="2025 Regular Session",
         classification="regular",
     )
+    house = Organization(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="house",
+        name="WA House of Representatives",
+        org_type="chamber",
+    )
     house_cpb = Organization(
         jurisdiction_id="usa-wa",
         source="usa_wa_legislature",
@@ -595,7 +647,7 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
         name="WA House Consumer Protection and Business Committee",
         org_type="committee",
     )
-    db_session.add_all([session, house_cpb])
+    db_session.add_all([session, house, house_cpb])
     await db_session.flush()
 
     bill = Bill(
@@ -603,7 +655,7 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
         source="usa_wa_legislature",
         source_id="HB-1066-2025-26",
         legislative_session_id=session.id,
-        originating_chamber="house",
+        originating_chamber_id=house.id,
         number=1066,
         title="An act relating to consumer disclosures",
     )

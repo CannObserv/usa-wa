@@ -217,7 +217,7 @@ LegiScan has no first-class `Organization`, `Role`, or `Assignment`. Identity is
 | `name_suffix` | `suffix` | `getPerson` | ↔ | | |
 | `name_used` | `nickname` | `getPerson` | ↔ | when non-empty | Treat LegiScan's `nickname` as our preferred-display name. |
 | `gender` | — | — | ← | always null from LegiScan | **Lossy ←**. |
-| `birth_year` | — | — | ← | always null | **Lossy ←**. |
+| `birth_year` | (removed in v1.1) | — | — | n/a | **v1.1 (2026-05-28):** `Person.birth_year` was removed from our schema. Birth date / birth place / death date defer to Power Map's planned polymorphic `lifecycle_events` schema ([CannObserv/power-map#165](https://github.com/CannObserv/power-map/issues/165)); the sidecar pushes any source-provided birth data there. LegiScan still doesn't expose birth dates, so this direction stays vacuous regardless. |
 | `current_district` (denorm on Person) | `district` | `getPerson` | ↔ | passthrough | LegiScan keeps current district inline on Person. |
 | `powermap_person_id` | — | — | n/a | local-canonical FK, set post-match | |
 | — | `person_hash` | `getPerson` / `Sponsor` | ← | drop or use for change detection | |
@@ -335,6 +335,8 @@ LegiScan's per-legislator `VoteValue` enum (`RollCall.votes[].vote_id`):
 | 4 | Absent | `absent` |
 
 Our `abstain` and `excused` have no LegiScan code — LegiScan folds them into `Not Voting` and `Absent` respectively. **Lossy ←.**
+
+**WA committee-report nay variants (v1.3, 2026-05-31):** our vocab adds `nay_without_rec` (committee report "without recommendation" — lighter rejection) and `nay_do_not_pass` (committee report "do not pass" / DNP — stronger rejection). Plain `nay` remains the floor-vote default. **LegiScan does not surface this distinction** — committee-report votes either aren't exposed at all (LegiScan only emits floor roll calls per Lossy directions #2) or collapse the recommendation flavor into `Nay`. **Lossy ←** for the rare cases where LegiScan does carry committee-vote data; WSL SOAP is authoritative for the committee-report recommendation distinction.
 
 Vote outcome (RollCall-level): LegiScan has a single `passed: 0|1` flag. Our `VoteEvent.outcome` 6-value vocab (`passed` / `failed` / `tabled` / `withdrawn` / `inconclusive` / `other`) collapses to LegiScan's 2-value flag. **Lossy ←.**
 
@@ -459,17 +461,23 @@ Cons: every Person query needs a join or aggregation; more boilerplate.
 
 **Action for v1:** add `canonical.person_identifiers` per Design B. Drop the temptation to add a `legiscan_people_id` column directly to `canonical.persons`.
 
+**Status update (v1, 2026-05-27):** ✅ LANDED per Design B. `canonical.person_identifiers` + `canonical.organization_identifiers` are both 1:N child tables on Person and Organization respectively, with `(jurisdiction_id, source, source_id)` + `(person_id, scheme)` + `(jurisdiction_id, scheme, value)` uniqueness. The `powermap_*_id` columns stay on the parent tables as denormalized fast-path for the most common cross-cohort query. LegiScan scheme slugs (`ftm_eid`, `votesmart_id`, `opensecrets_id`, `knowwho_pid`, `ballotpedia`, `bioguide_id`, `legiscan_people_id`) drop directly into the child table at adapter ingestion.
+
 ### 1. Bill originating vs. current chamber
 
 v0 has a single `Bill.chamber` column. LegiScan exposes both `body` (originating) and `current_body` (current). OpenStates models this via `BillAction` entries on different Organization FKs. WSL SOAP also distinguishes the two.
 
 **Action for v1:** rename `Bill.chamber` → `Bill.originating_chamber`; add `Bill.current_chamber: text(16) nullable`. Backfill from WSL SOAP. The LegiScan adapter populates both naturally.
 
+**Status update (v1.3, 2026-05-31):** ✅ LANDED with a refinement — chamber refs are FKs, not text. `Bill.originating_chamber_id` (ULID NOT NULL FK to `canonical.organizations`) and `Bill.current_chamber_id` (ULID nullable FK). Chambers are first-class Organizations (org_type='chamber'); chamber refs are FKs throughout the schema. LegiScan adapter resolves `body_id` / `current_body_id` to the chamber Org via `(jurisdiction_id, source='usa_wa_legislature', source_id='house'|'senate')` lookup. `BillAction.chamber` and `VoteEvent.chamber` stay as text denorms because their parent rows already carry FK refs (`acting_organization_id`, `context_organization_id`).
+
 ### 2. BillAction `is_major` flag and explicit ordering
 
 LegiScan's `history[].importance: 0|1` is a precomputed major-milestone filter. unitedstates/congress has a similar concept. OCD's `order: PositiveIntegerField` solves the same-day-multiple-actions ordering problem.
 
 **Action for v1:** add `BillAction.is_major: bool default false` and `BillAction.order: int nullable`. The LegiScan adapter sets `is_major` from `importance`; WSL SOAP keeps `is_major=false` until we adopt a heuristic.
+
+**Status update (v1, 2026-05-27):** ✅ LANDED for `is_major`. ⚠️ `display_order` (the `BillAction.order` proposal renamed) landed in v1 but its necessity for WSL-sourced data is under review (2026-05-31): WSL SOAP carries timestamps (not just dates), so chronological ordering by `action_at` is generally sufficient. The column stays as nullable: LegiScan / OCD with date-precision sources populate it when needed; WSL leaves it null. Revisit dropping the column entirely if no WA source ever populates it after P1a's first slice.
 
 ### 3. LegislativeSession prefile / sine_die / archived flags
 
@@ -485,11 +493,15 @@ v0 lists "original / substitute / engrossed / first_engrossed / enrolled / etc."
 
 **Action for v1:** adopt LegiScan's 14-value vocab as the normalized values for `BillVersion.version_type`. Keep the column free-text but document the allowed values. (Alternative: adopt OCD's 7-value vocab as a subset and treat LegiScan's extra 7 values as adapter-mapped to the closest OCD value. Decision: pick one in v1 planning.)
 
+**Status update (2026-05-31):** ⏸️ DEFERRED to a dedicated WA-anchored design task. Per user direction, the right way to settle this is to compare against the WSL `BillVersion`-equivalent vocab (the engrossment / substitution / enrolled / passed-by-legislature / session-law states WSL actually surfaces) and build out from there, then cross-reference LegiScan's 14-value `TextType` and OCD's 7-value vocab as overlay mappings. P1a produces the WSL vocab survey; that survey becomes the authoritative input for this decision rather than picking one of LegiScan / OCD as the lead.
+
 ### 5. Bill status normalized side column
 
 v0 says `current_status` is "source-vocabulary text; vocab alignment to be addressed per transformation." LegiScan's 13-value `BillStatus` is a credible cross-source normalized vocab. OCD computes status from action classifications rather than carrying a status column.
 
 **Action for v1:** keep `current_status: text` (source-vocab) and add `current_status_class: text(32) nullable` constrained to the 13-value LegiScan vocab. Also add `current_status_at: timestamptz nullable` (from `status_date`).
+
+**Status update (v1, 2026-05-27):** ✅ LANDED. `Bill.current_status_class` (text(32) nullable) and `Bill.current_status_at` (timestamptz nullable) both added. `Bill.current_step` was dropped per the plan. Adapter-side vocab normalization (LegiScan int → string) lands when the LegiScan adapter is built.
 
 ### 6. BillSubject (subject tagging)
 
@@ -497,17 +509,25 @@ v0 has no subject-tagging entity. OCD has `Bill.subject[]: ArrayField`, LegiScan
 
 **Action for v1:** add `canonical.bill_subjects (bill_id, subject_label, source)`, 1:N from Bill. Cheap. Source = adapter slug; subject_label = LegiScan's `subject_name` text. Optionally add a `subject_normalized` column if a cross-source taxonomy ever materializes.
 
+**Status update (v1, 2026-05-27):** ✅ LANDED as `canonical.bill_subjects (bill_id, subject, is_primary)`. `subject_normalized` deferred — cross-source taxonomy can be a P1b enrichment.
+
 ### 7. BillRelationship (SAST / companion / replaces)
 
 v0 punts on inter-bill relationships. OCD has `RelatedBill` with 5 relation types, LegiScan has `sasts[]` with 9, unitedstates has `related_bills[]`. The P0 multi-state IA delta recommended this as Tier 1 (#3). v0 deferred it — transformation specs reinforce the case.
 
 **Action for v1:** add `canonical.bill_relationships (bill_id, related_bill_id, relation_type)` with `relation_type` constrained to: `same_as`, `similar_to`, `replaced_by`, `replaces`, `cross_filed`, `enabling_for`, `enabled_by`, `related`, `carry_over`, `companion`, `prior_session` (union of LegiScan + OCD).
 
+**Status update (v1, 2026-05-27):** ✅ LANDED as `canonical.bill_relationships (from_bill_id, to_bill_id, relationship_type, notes)` with the 7-value vocab `companion | replaces | replaced_by | related_to | prior_session_carryover | derived_from | other`. The LegiScan 9-value `SASTType` enum maps onto these (`SameAs`/`SimilarTo` → `related_to`; `Replaces` → `replaces`; `ReplacedBy` → `replaced_by`; `CarryOver` → `prior_session_carryover`; `CrossFiled` → `companion`; `EnablingFor`/`EnabledBy`/`Related` → `related_to` or `other` per context).
+
 ### 8. Hearing / calendar / event modeling
 
 v0 has no hearing entity (deferred from P0 skeleton). LegiScan exposes `Bill.calendar[]: {type_id, type, date, time, location, description}[]` with 3 event types. OCD has a full Event graph.
 
 **Action for v1:** add a minimal `canonical.bill_events (bill_id, event_type, event_at, location, description, acting_organization_id)` with `event_type` constrained to `hearing` / `executive_session` / `markup_session` / `public_hearing` / `work_session`. Defer the OCD-style Event-with-AgendaItem-and-RelatedEntity graph to post-MVP.
+
+**Status update (v1, 2026-05-27; design note 2026-05-31):** ✅ LANDED as `canonical.bill_events` with `event_type ∈ {public_hearing, executive_session, work_session, committee_meeting, floor_calendar, other}` plus organization, scheduling, location, and status columns.
+
+⚠️ **Design note for the future events architecture.** WA practice tracks two primary Event Types at the Organization level, not five at the bill level: **"Committee Meeting"** (inclusive of public hearings, executive sessions, and work sessions held in the same Org-hosted convening) and chamber **"Floor Session"** (inclusive of readings). The current `bill_events.event_type` enum is bill-centric — one row per (event, bill, sub-activity-kind). The WA-native shape is Org-centric — one Event row per Org-hosted convening, with N bills heard / acted on within that Event via a `bill_event_items` (or analogous) child shape. The user has flagged this as the right long-term direction but stetted on restructuring during P0.5 (LegiScan review #2). When the events sub-spec is written (deferred), the `bill_events.event_type` enum gets re-grounded against this distinction. Until then, the v1 enum stays as the bill-eye-view of the same data; multi-bill Org events are not yet materialized.
 
 ### 9. Supplement / fiscal note attachments
 
@@ -517,9 +537,13 @@ LegiScan's `Supplement` covers fiscal notes, analyses, vote images, local mandat
 
 **Status update (v1.3, 2026-05-30):** ✅ LANDED with a richer WA-driven shape. `canonical.bill_supplements` is per-`bill_version` (not per-bill), with four kinds — `bill_analysis` (pre-hearing committee-staff summary), `bill_report` (post-hearing committee-staff summary), `fiscal_note` (agency-prepared fiscal impact with `status ∈ {partial, final}` and `revision_sequence`), `bill_summary` (chamber-staff or agency brief summary). Plus `author_organization_id` (committee / agency / chamber), `text` + `structured_data` (P1b enrichment), and `archival_url` + `archived_at` for the Archiver sidecar push (mirrors the identity → Power Map pattern). Lifecycle integration: each supplement publication generates a paired `BillAction` row with `primary_classification='supplement_published'` and `BillAction.supplement_id` FK pointing to the authoritative supplement. LegiScan's 8-value `SupplementType` maps onto our 4-kind vocab as follows: `FiscalNote` / `FiscalNoteAnalysis` / `CorrectionsImpact` / `LocalMandate` → `fiscal_note`; `Analysis` → `bill_analysis` (when pre-hearing) or `bill_report` (post-hearing, distinguished by `published_at` vs. hearing dates in the action log); `VoteImage` / `VetoLetter` / `Miscellaneous` → `other`. LegiScan's collapsed `Analysis` doesn't distinguish pre/post-hearing; WSL primary source carries the distinction more reliably.
 
+⚠️ **Design note for Org-attached documents (2026-05-31).** `bill_supplements` covers bill-scoped documents only. WA also produces **Org-attached** documents that aren't per-bill: **Committee Reports** (formal statements of actions taken by a committee + recommendation — adjacent to but distinct from per-bill `bill_report` supplements; a single Committee Report may discuss multiple bills) and **Daily Journals** (chamber-level records of floor activity, including readings of committee reports, referrals, motions, and actions). Both reference bills but are authored at the Org level, not the bill-version level. This is a parallel modeling question to the events architecture above — a future `canonical.organization_documents` polymorphic table (or a dedicated sub-spec) would house these, with bill cross-references via Citation rows. Out of scope for v1.3; flagged for the same sub-spec that addresses the events architecture.
+
 ### 10. Person external-ID indexing notes (corollary to §0)
 
 If Design B is adopted (recommended), index `(jurisdiction_id, scheme, value)` for cross-source-ID lookup. Heaviest read pattern will be "find Person where legiscan.people_id = 12345" during the LegiScan adapter's resolution step. Without a partial index per scheme, this becomes a sequential scan on a wide-and-narrow table.
+
+**Status update (v1, 2026-05-27):** ✅ LANDED. The `(jurisdiction_id, scheme, value)` UNIQUE constraint on `person_identifiers` also serves as a btree index satisfying this lookup pattern. Same on `organization_identifiers`.
 
 ---
 

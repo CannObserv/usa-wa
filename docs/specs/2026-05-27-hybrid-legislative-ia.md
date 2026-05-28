@@ -16,6 +16,8 @@ User decisions on the five "Items still open" items from the OCD transformation 
 | `BillAction` decomposition rule documented: multi-target referral actions ("Referred to Health and Ways and Means") are decomposed into **multiple independent `BillAction` rows**, one per target, rather than carrying a related-entity 1:N child table. Resolves item #9 without a schema change. | OCD review #2 follow-up 2026-05-29 | Bill cluster (adapter behavior) |
 | **`clearinghouse_core.document_identifiers`** polymorphic table added — captures the rich, parseable identifiers that WA bill texts and amendments carry below the Bill level (Code Reviser bill-text IDs like `H-0043.1`, Code Reviser amendment IDs like `S-5276.3/26`, committee amendment forms like `1066 AMH CPB CLOD 295`, lifecycle-tagged IDs like `EHB 1941.PL`). Polymorphic on `entity_type ∈ {bill_version, amendment}` so striker / substitute amendments that produce new BillVersions don't double-store identifiers. JSONB `parsed_components` column reserved for P1b decomposition. Resolves OCD item #6 without a `BillIdentifier`-on-Bill column. | OCD review #2 follow-up 2026-05-30 | new framework primitive |
 | **`canonical.bill_supplements`** added — per-bill-version supplementary documents authored by non-partisan committee staff or regulatory agencies. Four kinds: `bill_analysis` (pre-hearing committee summary), `bill_report` (post-hearing committee summary), `fiscal_note` (agency fiscal impact with `partial`/`final` status + `revision_sequence`), `bill_summary` (chamber or agency brief). Plus `author_organization_id`, P1b enrichment columns (`text`, `structured_data` JSONB), and Archiver sidecar columns (`archival_url`, `archived_at`). Lifecycle integration via `BillAction.supplement_id` FK + `primary_classification='supplement_published'`. Resolves LegiScan transformation §9. | LegiScan review #1 follow-up 2026-05-30 | Bill cluster |
+| **`Bill.originating_chamber` and `Bill.current_chamber` text columns → FK columns** to `canonical.organizations`. Chambers are first-class Organizations (org_type='chamber'); chamber refs are FKs throughout. The legacy slug form (`"house"` / `"senate"` / `"unicameral"`) is recoverable via `organizations.short_name`. `BillAction.chamber` and `VoteEvent.chamber` stay as text denorms (their parent entities already carry FK refs via `acting_organization_id` / `context_organization_id`). | LegiScan review #2 OR 1 follow-up 2026-05-31 | Bill cluster |
+| **WA committee-report nay variants** added to `VoteCount.count_type` and `PersonVote.vote` vocab: `nay_without_rec` (without recommendation, lighter rejection) and `nay_do_not_pass` (DNP, stronger rejection). Plain `nay` remains the floor-vote default. Application-layer enforcement only (text columns; no DB CHECK so other jurisdictions stay flexible). | LegiScan review #2 vote-vocab follow-up 2026-05-31 | Vote cluster |
 
 Items closed after v1.3: `BillSponsorship.role` (item #12) stays at the 4-value enum (closed with rationale); `BillVersion.text` canonicalization rules stay as the open design discussion in §"Open issues".
 
@@ -301,8 +303,8 @@ Same shape as `person_identifiers`, FK to `canonical.organizations`. Common sche
 | Column | Type | Notes |
 |---|---|---|
 | `legislative_session_id` | ULID NOT NULL FK | |
-| `originating_chamber` | text(16) NOT NULL | **v1 (was `chamber`).** Body where the bill was first introduced — `house` / `senate` / `unicameral`. |
-| `current_chamber` | text(16) nullable | **v1.** Body the bill is currently in. Null when in conference or fully passed both. |
+| `originating_chamber_id` | ULID NOT NULL FK | **v1.3 (2026-05-31).** FK to `canonical.organizations.id` for the chamber Org (org_type='chamber') where the bill was first introduced. Replaces the `originating_chamber: text(16)` enum column — chambers are first-class Organizations; chamber refs are FKs throughout. The legacy slug form (`"house"` / `"senate"` / `"unicameral"`) is recoverable via `organizations.short_name`. |
+| `current_chamber_id` | ULID nullable FK | **v1.3 (2026-05-31).** FK to the chamber Org currently considering the bill. Null when in conference or fully passed both. Replaces the `current_chamber: text(16)` column. |
 | `number` | int NOT NULL | |
 | `bill_type` | text(32) nullable | HB / SB / HJR / SJR / HCR / SCR / HJM / SJM / HR / S / etc. |
 | `title` | text NOT NULL | **Denormalized current canonical title** — synced from `bill_titles` where `is_current=true AND title_type='canonical'`. Most queries read this column without joining. |
@@ -561,7 +563,7 @@ Scheduled events on a bill — public hearings, work sessions, executive session
 | Column | Type | Notes |
 |---|---|---|
 | `vote_event_id` | ULID NOT NULL FK | |
-| `count_type` | text(16) NOT NULL | `yea` / `nay` / `excused` / `absent` / `present_not_voting` / `paired` / `other`. |
+| `count_type` | text(16) NOT NULL | `yea` / `nay` / `nay_without_rec` / `nay_do_not_pass` / `excused` / `absent` / `present_not_voting` / `paired` / `other`. WA committee-report votes distinguish two nay variants (v1.3, 2026-05-31): `nay_without_rec` (without recommendation — lighter rejection) and `nay_do_not_pass` (DNP — stronger rejection). Plain `nay` remains the floor-vote default. |
 | `value` | int NOT NULL | |
 
 **Natural-key UNIQUE:** `(vote_event_id, count_type)`. `paired` added v1 for OCD round-trip; rare in WA but valid Senate behavior elsewhere.
@@ -573,7 +575,7 @@ Scheduled events on a bill — public hearings, work sessions, executive session
 | `vote_event_id` | ULID NOT NULL FK | |
 | `person_id` | ULID nullable FK | **v1: now nullable.** When resolution to a known Person hasn't completed yet, `voter_name_raw` is populated instead. |
 | `voter_name_raw` | text(256) nullable | **v1.** Source-provided voter name pending ID resolution. |
-| `vote` | text(16) NOT NULL | Aligned with `vote_counts.count_type`: `yea` / `nay` / `abstain` / `excused` / `absent` / `present_not_voting` / `paired`. |
+| `vote` | text(16) NOT NULL | Aligned with `vote_counts.count_type`: `yea` / `nay` / `nay_without_rec` / `nay_do_not_pass` / `abstain` / `excused` / `absent` / `present_not_voting` / `paired`. WA committee-report nay variants per `vote_counts.count_type` notes. |
 
 **CHECK constraint:** `person_id IS NOT NULL OR voter_name_raw IS NOT NULL`.
 

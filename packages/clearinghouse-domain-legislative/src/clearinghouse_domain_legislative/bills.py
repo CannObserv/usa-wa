@@ -51,10 +51,29 @@ class Bill(Base, TimestampMixin):
         nullable=False,
         index=True,
     )
-    originating_chamber: Mapped[str] = mapped_column(String(16), nullable=False)
-    # originating_chamber vocab: house | senate | unicameral
+    originating_chamber_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.organizations.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    """Chamber Org (WA House / WA Senate / etc.) where the bill was first introduced.
 
-    current_chamber: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    v1.3 (2026-05-30): replaced the ``originating_chamber: text(16)`` enum column.
+    Chambers are first-class Organizations (org_type='chamber'), so chamber refs
+    are FKs throughout. Use ``organizations.short_name`` for the slug equivalent
+    (``"house"`` / ``"senate"`` / ``"unicameral"``) when a query needs the legacy
+    enum shape.
+    """
+
+    current_chamber_id: Mapped[_ULID | None] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.organizations.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    """Chamber Org currently considering the bill. Null when in conference or
+    fully passed both chambers."""
     number: Mapped[int] = mapped_column(Integer, nullable=False)
     bill_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # bill_type vocab: HB | SB | HJR | SJR | HCR | SCR | HJM | SJM | HR | S | etc.

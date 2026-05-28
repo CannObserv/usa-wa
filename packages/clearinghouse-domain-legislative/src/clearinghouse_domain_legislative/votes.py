@@ -114,7 +114,14 @@ class VoteCount(Base, TimestampMixin):
         index=True,
     )
     count_type: Mapped[str] = mapped_column(String(16), nullable=False)
-    # count_type vocab: yea | nay | excused | absent | present_not_voting | paired | other
+    # count_type vocab: yea | nay | nay_without_rec | nay_do_not_pass
+    #                 | excused | absent | present_not_voting | paired | other
+    # WA-specific (v1.3, 2026-05-30): committee-report votes distinguish two
+    # nay flavors — ``nay_without_rec`` (without recommendation, lighter
+    # rejection) and ``nay_do_not_pass`` (DNP, stronger rejection). Plain ``nay``
+    # remains the floor-vote default; the WA-specific values apply when the
+    # parent VoteEvent.context_type='committee' and the vote concerns the
+    # committee's collective recommendation on a bill.
 
     value: Mapped[int] = mapped_column(Integer, nullable=False)
 
@@ -153,4 +160,6 @@ class PersonVote(Base, TimestampMixin):
     )
     voter_name_raw: Mapped[str | None] = mapped_column(String(256), nullable=True)
     vote: Mapped[str] = mapped_column(String(16), nullable=False)
-    # vote vocab: yea | nay | abstain | excused | absent | present_not_voting | paired
+    # vote vocab: yea | nay | nay_without_rec | nay_do_not_pass
+    #           | abstain | excused | absent | present_not_voting | paired
+    # See VoteCount.count_type for the WA-specific nay variants' semantics.
