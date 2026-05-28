@@ -26,6 +26,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ulid import ULID as _ULID
 
@@ -228,3 +229,75 @@ class Note(Base, TimestampMixin):
     """Polymorphic, no DB FK. References ``canonical.organizations.id`` when set."""
 
     effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DocumentIdentifier(Base, TimestampMixin):
+    """Polymorphic identifier mapping for bill texts, amendments, and similar.
+
+    Added v1.3 (2026-05-29) after OCD review #2 follow-up surfaced that WA bill
+    texts and amendments carry rich, parseable identifiers issued by the Code
+    Reviser and committee staff — e.g., ``H-0043.1`` (Code Reviser bill text ID),
+    ``S-5276.3/26`` (Code Reviser striking amendment), ``1066 AMH CPB CLOD 295``
+    (committee amendment with bill / chamber / committee / drafter / sequence).
+    These don't fit on the overall ``Bill`` entity (which stays stably "HB 1941"
+    or "SB 5069") — they identify *texts* and *amendments* below the Bill level.
+
+    Polymorphic same-pattern as :class:`Citation` and :class:`Note`. ``entity_type``
+    is the table name discriminator (``"bill_version"`` or ``"amendment"`` for
+    legislative use; the table is reusable across domains). ``entity_id`` is the
+    referenced row's ULID; no DB FK so the table spans domains.
+
+    Scheme slugs are jurisdiction-prefixed (``usa_wa_code_reviser``,
+    ``usa_wa_committee_amendment``, ``usa_wa_lifecycle_tag``) so future
+    jurisdictions add their own without collision.
+
+    ``parsed_components`` is a JSONB column populated by P1b enrichment when
+    parsers exist (e.g., decomposing ``1066 AMH CPB CLOD 295`` into
+    ``{bill_number, chamber, committee_abbr, drafter_initials, sequence}``).
+    Raw ``value`` is the authoritative form; ``parsed_components`` is derivative.
+    """
+
+    __tablename__ = "document_identifiers"
+    __table_args__ = (
+        UniqueConstraint(
+            "jurisdiction_id",
+            "source",
+            "source_id",
+            name="uq_document_identifiers_natural_key",
+        ),
+        UniqueConstraint(
+            "entity_type",
+            "entity_id",
+            "scheme",
+            name="uq_document_identifiers_entity_scheme",
+        ),
+        UniqueConstraint(
+            "jurisdiction_id",
+            "scheme",
+            "value",
+            name="uq_document_identifiers_jurisdiction_scheme_value",
+        ),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    """Table-name discriminator: ``bill_version`` | ``amendment`` (extensible)."""
+
+    entity_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False, index=True)
+    """Polymorphic, no DB FK. References the row in the table named by ``entity_type``."""
+
+    scheme: Mapped[str] = mapped_column(String(64), nullable=False)
+    """Jurisdiction-prefixed identifier scheme slug, e.g., ``usa_wa_code_reviser``."""
+
+    value: Mapped[str] = mapped_column(String(256), nullable=False)
+    """The identifier as published by the issuing authority."""
+
+    parsed_components: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    """Derived structured decomposition of ``value`` populated by P1b enrichment."""
+
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

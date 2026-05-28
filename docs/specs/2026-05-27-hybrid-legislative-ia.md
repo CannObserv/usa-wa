@@ -6,7 +6,7 @@
 - **Tracks:** [GH #3](https://github.com/CannObserv/usa-wa/issues/3); see plan at [`docs/plans/2026-05-26-p0-5-hybrid-legislative-ia.md`](../plans/2026-05-26-p0-5-hybrid-legislative-ia.md).
 - **Supersedes:** the v0 draft of this file (commit `aed896c`); see Changelog § below.
 
-## Changelog (v1.2 → v1.3, 2026-05-29 — OCD review #2 follow-up decisions)
+## Changelog (v1.2 → v1.3, 2026-05-29/30 — OCD review #2 follow-up decisions)
 
 User decisions on the five "Items still open" items from the OCD transformation spec:
 
@@ -14,8 +14,9 @@ User decisions on the five "Items still open" items from the OCD transformation 
 |---|---|---|
 | **`VoteEvent.originating_bill_action_id`** FK added — links a vote to the specific `BillAction` it produced or resulted from. Matches OCD's `VoteEvent.bill_action`. Item #16 from OCD review #2 — explicit traceability requirement. | OCD review #2 follow-up 2026-05-29 | Vote cluster |
 | `BillAction` decomposition rule documented: multi-target referral actions ("Referred to Health and Ways and Means") are decomposed into **multiple independent `BillAction` rows**, one per target, rather than carrying a related-entity 1:N child table. Resolves item #9 without a schema change. | OCD review #2 follow-up 2026-05-29 | Bill cluster (adapter behavior) |
+| **`clearinghouse_core.document_identifiers`** polymorphic table added — captures the rich, parseable identifiers that WA bill texts and amendments carry below the Bill level (Code Reviser bill-text IDs like `H-0043.1`, Code Reviser amendment IDs like `S-5276.3/26`, committee amendment forms like `1066 AMH CPB CLOD 295`, lifecycle-tagged IDs like `EHB 1941.PL`). Polymorphic on `entity_type ∈ {bill_version, amendment}` so striker / substitute amendments that produce new BillVersions don't double-store identifiers. JSONB `parsed_components` column reserved for P1b decomposition. Resolves OCD item #6 without a `BillIdentifier`-on-Bill column. | OCD review #2 follow-up 2026-05-30 | new framework primitive |
 
-Items remaining deferred after v1.3: `BillIdentifier` (item #6) is still awaiting concrete WA examples; `BillSponsorship.role` (item #12) stays at the 4-value enum (closed with rationale); `BillVersion.text` canonicalization rules stay as the open design discussion in §"Open issues".
+Items closed after v1.3: `BillSponsorship.role` (item #12) stays at the 4-value enum (closed with rationale); `BillVersion.text` canonicalization rules stay as the open design discussion in §"Open issues".
 
 ## Changelog (v1.1 → v1.2, 2026-05-28 — continued OCD review)
 
@@ -137,6 +138,35 @@ All FKs use the `ULID` SQLAlchemy column type. Schema is `canonical.*` for every
 | `effective_at` | timestamptz nullable | When the note was written / effective. |
 
 The original motivating case (from the OCD review): WA amendments come with **official, non-partisan staff-prepared effects descriptions**. These attach to the `Amendment` entity as `Note(entity_type='amendment', entity_id=<amendment_id>, note_kind='staff_summary', author_organization_id=<senate_or_house_committee_services_org_id>)`. Same pattern generalizes to bill editorial notes, person biographical clarifications, organization provenance notes, etc. Rather than adding a per-entity `note` column to every domain table, one polymorphic table handles all of them.
+
+## Document identifiers (polymorphic, new in v1.3)
+
+`clearinghouse_core.document_identifiers` captures the rich, parseable identifiers WA bill texts and amendments carry below the Bill level. The overall `Bill` keeps a stable identifier (e.g., `HB 1941`); the *texts* and *amendments* below it carry their own scheme-tagged identifiers from issuing authorities (Code Reviser, chamber committee staff). Same polymorphic pattern as `Citation` and `Note`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `jurisdiction_id` | text(32) NOT NULL | Standard. |
+| `source`, `source_id` | text NOT NULL | Standard provenance pair. |
+| `entity_type` | text(32) NOT NULL | `bill_version` / `amendment` (extensible). |
+| `entity_id` | ULID NOT NULL | Polymorphic; no DB FK. |
+| `scheme` | text(64) NOT NULL | Jurisdiction-prefixed slug — see WA examples below. |
+| `value` | text(256) NOT NULL | The identifier as published by the issuing authority. |
+| `parsed_components` | jsonb nullable | Populated lazily by P1b enrichment; structured decomposition of `value`. |
+| `verified_at` | timestamptz nullable | When the mapping was last confirmed. |
+
+**Uniqueness:** `(jurisdiction_id, source, source_id)` standard natural key, **plus** `(entity_type, entity_id, scheme)` so a given bill version or amendment carries at most one value per scheme, **plus** `(jurisdiction_id, scheme, value)` so the same identifier doesn't accidentally attach to two different entities within a jurisdiction.
+
+**Striker/substitute polymorphism is the load-bearing case.** When an `Amendment(amendment_kind='substitute')` is adopted and produces a new `BillVersion`, *each entity carries its own identifiers* under its own `entity_type`. The Amendment row holds the proposal's identifier (`S-5276.3/26`); the resulting BillVersion holds whatever bill-text identifier the source assigns post-adoption. No duplication; traversal between the two stays on `BillVersion.amendment_id`.
+
+**WA schemes (the v1.3 starting set):**
+
+| Scheme | Applies to | Example | Future decomposition |
+|---|---|---|---|
+| `usa_wa_code_reviser` | bill_version, amendment | `H-0043.1`, `S-5276.3/26` | `{chamber, sequence, draft, year}` |
+| `usa_wa_committee_amendment` | amendment | `1066 AMH CPB CLOD 295`, `1141-S.E AMS LC S2598.1` | `{bill_number, version_prefix, chamber, committee_abbr, drafter_initials, sequence, code_reviser_id}` |
+| `usa_wa_lifecycle_tag` | bill_version | `EHB 1941.PL`, `SB 5069.SL` | `{version_prefix, bill_type, bill_number, status_suffix}` |
+
+Other jurisdictions add scheme slugs in their own namespace (`usa_or_lc_*`, `usa_ca_legcounsel_*`, etc.).
 
 ## Rich attributes deferred to Power Map
 

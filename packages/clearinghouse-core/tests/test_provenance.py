@@ -14,6 +14,7 @@ from ulid import ULID
 
 from clearinghouse_core.provenance import (
     Citation,
+    DocumentIdentifier,
     FetchEvent,
     FetchStatus,
     Jurisdiction,
@@ -147,3 +148,84 @@ async def test_citations_index_supports_lookup_by_entity(db_session, seeded):
     bill_citations = result.scalars().all()
     assert len(bill_citations) == 2
     assert {c.field_path for c in bill_citations} == {None, "sponsors"}
+
+
+async def test_document_identifier_polymorphic_round_trip(db_session, seeded):
+    """DocumentIdentifier attaches identifiers to bill_versions and amendments polymorphically.
+
+    Exercises the motivating WA case: one Amendment carrying both a Code Reviser
+    identifier and a committee-amendment identifier under different schemes, and
+    a BillVersion carrying its own Code Reviser bill-text identifier.
+    """
+    fake_bill_version_id = ULID()
+    fake_amendment_id = ULID()
+
+    db_session.add_all(
+        [
+            DocumentIdentifier(
+                jurisdiction_id="usa-wa",
+                source="usa_wa_legislature",
+                source_id="bv-H-0043.1",
+                entity_type="bill_version",
+                entity_id=fake_bill_version_id,
+                scheme="usa_wa_code_reviser",
+                value="H-0043.1",
+            ),
+            DocumentIdentifier(
+                jurisdiction_id="usa-wa",
+                source="usa_wa_legislature",
+                source_id="amd-S-5276.3-26",
+                entity_type="amendment",
+                entity_id=fake_amendment_id,
+                scheme="usa_wa_code_reviser",
+                value="S-5276.3/26",
+            ),
+            DocumentIdentifier(
+                jurisdiction_id="usa-wa",
+                source="usa_wa_legislature",
+                source_id="amd-1066-AMH-CPB-CLOD-295",
+                entity_type="amendment",
+                entity_id=fake_amendment_id,
+                scheme="usa_wa_committee_amendment",
+                value="1066 AMH CPB CLOD 295",
+                parsed_components={
+                    "bill_number": "1066",
+                    "chamber": "H",
+                    "committee_abbr": "CPB",
+                    "drafter_initials": "CLOD",
+                    "sequence": "295",
+                },
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    amendment_ids = await db_session.execute(
+        select(DocumentIdentifier).where(
+            DocumentIdentifier.entity_type == "amendment",
+            DocumentIdentifier.entity_id == fake_amendment_id,
+        )
+    )
+    rows = amendment_ids.scalars().all()
+    assert len(rows) == 2
+    by_scheme = {r.scheme: r for r in rows}
+    assert by_scheme["usa_wa_code_reviser"].value == "S-5276.3/26"
+    assert by_scheme["usa_wa_code_reviser"].parsed_components is None
+    assert by_scheme["usa_wa_committee_amendment"].value == "1066 AMH CPB CLOD 295"
+    assert by_scheme["usa_wa_committee_amendment"].parsed_components == {
+        "bill_number": "1066",
+        "chamber": "H",
+        "committee_abbr": "CPB",
+        "drafter_initials": "CLOD",
+        "sequence": "295",
+    }
+
+    bill_version_rows = await db_session.execute(
+        select(DocumentIdentifier).where(
+            DocumentIdentifier.entity_type == "bill_version",
+            DocumentIdentifier.entity_id == fake_bill_version_id,
+        )
+    )
+    bv_row = bill_version_rows.scalar_one()
+    assert bv_row.scheme == "usa_wa_code_reviser"
+    assert bv_row.value == "H-0043.1"

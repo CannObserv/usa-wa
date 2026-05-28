@@ -425,7 +425,7 @@ This was originally the load-bearing output of step 2. After two review passes (
 
 5. ✅ **LANDED in v1.1 + v1.2.** `canonical.bill_titles` 1:N table added in v1.1 with `title_type` / `chamber` / `as_of_action` / `language_code` / `amendment_id` for WA's amendment-driven title-change tracking. `Bill.title` retained as denormalized current canonical title. In v1.2: `Bill.short_description` was *moved* to `BillVersion.short_description` (per-version, not per-bill) — OCD's `BillAbstract` is per-version semantically.
 
-6. ⏸️ **DEFERRED (unchanged).** `BillIdentifier` for alternate IDs. Revisit when multi-source bill corroboration becomes a concrete use case.
+6. ✅ **RESOLVED IN v1.3 by `clearinghouse_core.document_identifiers` (polymorphic).** User feedback (2026-05-30) reframed the question: WA carries rich, parseable identifiers on bill **texts** and **amendments**, not on the overall Bill. (`H-0043.1`, `S-5276.3/26`, `1066 AMH CPB CLOD 295`, `EHB 1941.PL`.) A polymorphic `document_identifiers` table holds them under `entity_type ∈ {bill_version, amendment}` with `(scheme, value)` columns and a nullable `parsed_components` JSONB for future decomposition. Initial WA schemes: `usa_wa_code_reviser`, `usa_wa_committee_amendment`, `usa_wa_lifecycle_tag`. OCD's `BillIdentifier`-on-Bill remains unmapped (no WA case for an alternate identifier *on the overall bill*); when an OpenStates adapter encounters `BillIdentifier` rows, they map to `document_identifiers(entity_type='bill_version', ...)` if they identify a text, or stay lossy if they identify the bill as a whole.
 
 7. ✅ **LANDED in v1 (as 1:N).** `canonical.bill_subjects` child table added (chosen over `text[]` for query ergonomics).
 
@@ -483,17 +483,19 @@ These eight items came in during the second OCD review pass and landed directly 
 
 ## Items still open
 
-After the v1.3 follow-up pass (2026-05-29) on the four-plus-one v1.2 queue, three items resolved (#9 by adapter convention, #16 by schema change, BillVersion.text by explicit deferral confirmation), one closed (#12), and one (#6) is **awaiting concrete WA examples** before a decision can be made.
+After the v1.3 follow-up pass (2026-05-29 → 2026-05-30) on the four-plus-one v1.2 queue, **all five items are resolved or closed**:
 
-- **#6 `BillIdentifier` for alternate IDs.** Status: open — awaiting concrete WA examples that distinguish *alternate identifier* from existing models (popular title → `BillTitle`; engrossment/substitution prefix like "ESSB 1494" → `BillVersion.version_type`; companion → `BillRelationship`; cross-source ID → already handled by `(jurisdiction_id, source, source_id)` uniqueness). If no example survives those filters, this stays deferred.
+- **#6 `BillIdentifier` for alternate IDs.** ✅ Resolved 2026-05-30 — user feedback reframed: WA's rich identifiers live on bill *texts* and *amendments*, not on the overall Bill. Added `clearinghouse_core.document_identifiers` polymorphic table covering BillVersion and Amendment. See item #6 above.
 
-- **#9 `BillActionRelatedEntity`.** ✅ Resolved 2026-05-29 by adapter convention — multi-target referrals decompose into multiple `BillAction` rows, one per target, with `acting_organization_id` and `display_order`. No schema change. See item #9 above and the hybrid IA spec's `canonical.bill_actions` section.
+- **#9 `BillActionRelatedEntity`.** ✅ Resolved 2026-05-29 by adapter convention — multi-target referrals decompose into multiple `BillAction` rows, one per target, with `acting_organization_id` and `display_order`. No schema change. See item #9 above.
 
-- **#12 widen `BillSponsorship.role`.** Status: closed with rationale (kept 4-value enum). Reaffirmed 2026-05-29.
+- **#12 widen `BillSponsorship.role`.** Closed with rationale (kept 4-value enum). Reaffirmed 2026-05-29.
 
 - **#16 `VoteEvent.originating_bill_action_id`.** ✅ Landed in v1.3 (2026-05-29). See item #16 above.
 
-- **BillVersion.text canonicalization rules.** Status: explicit deferral confirmed 2026-05-29. Documented in the hybrid IA spec's "Open issues" section; P1b enrichment will produce a concrete proposal. Until then `BillVersion.text` is non-null when a sensible canonical form exists; alternative source forms land in `bill_version_links`.
+- **BillVersion.text canonicalization rules.** Explicit deferral confirmed 2026-05-29. Documented in the hybrid IA spec's "Open issues" section; P1b enrichment will produce a concrete proposal. Until then `BillVersion.text` is non-null when a sensible canonical form exists; alternative source forms land in `bill_version_links`.
+
+OCD review #2 follow-up is closed. The next open question on the IA is the P1b canonicalization-rules design for `BillVersion.text`, which lives in the hybrid IA's §"Open issues" rather than this transformation spec.
 
 ---
 
