@@ -45,7 +45,13 @@ class VoteEvent(Base, TimestampMixin):
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
     subject_type: Mapped[str] = mapped_column(String(16), nullable=False)
-    # subject_type vocab: bill | amendment | motion
+    # subject_type vocab: bill | amendment | motion | nomination
+    # v1.3 (2026-05-31): added ``nomination`` for WA Senate confirmation of
+    # gubernatorial appointments (and the federal-Senate analog of presidential
+    # nominations / treaty ratifications). When subject_type='nomination',
+    # subject_id points to the nominee Person until a dedicated Nomination /
+    # Appointment entity is added in P1b. Adapter sets motion_description to
+    # the appointment text (role being filled, appointing executive).
 
     subject_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False)
     # Polymorphic — no DB FK on subject_id (mirrors the Citation pattern).

@@ -371,6 +371,8 @@ The most contentious vocabulary alignment.
 2. Impeachment verb. `Guilty`/`Not Guilty` carries political meaning beyond pass/fail. Collapsing to `yea`/`nay` is journalistically defensible but semantically lossy. **Recommend adding `guilty` / `not_guilty` to the vocab** — see **Revision §13**.
 3. `Not Voting` (absent without leave) vs. `Excused` (absent with leave) vs. our `absent` (lump). uscongress doesn't separate them on `PersonVote.vote`; it normalizes "Present, Giving Live Pair" → "Present" upstream of us. **Loss is upstream of our schema** — we can't recover what wasn't there.
 
+**Note (2026-06-01):** our vocab does carry the distinction — `PersonVote.vote` and `VoteCount.count_type` both have separate `excused` and `absent` values. In WA, legislators can motion to excuse colleagues unavailable to vote, and the Excused vote type is procedurally distinct from a plain Absent. Our schema preserves this; only uscongress-sourced rows lose the distinction (because uscongress doesn't expose it). WSL primary source is authoritative for the Excused/Absent split.
+
 **Outcome** at `VoteEvent.outcome`:
 
 | Federal `vote.result` | usa-wa `outcome` |
@@ -453,26 +455,54 @@ Numbered, with severity. **The federal stress test surfaces 5 high-impact revisi
 ### High-impact (recommend for v1)
 
 1. **Drop `Bill.current_step`.** Federal has no separate step field; the column is WA-vocabulary that doesn't generalize. Already flagged in P0 delta §"Renames §3". **Cost: trivial.** Replace with v1 column `Bill.current_status_at: timestamptz nullable` (federal `status_at`).
+
+**Status update (v1, 2026-05-27):** ✅ LANDED. `Bill.current_step` was dropped; replaced by `Bill.current_status_class` (normalized vocab) + `Bill.current_status_at` (timestamp). User confirmed (2026-06-01) the conceptual framing: `current_step` would have been denormalized state derivable from the bill_actions / bill_events stream. Removing it eliminates a synchronization burden — readers can query the action log directly or use the denormalized `current_status_class` + `current_status_at` fast path.
 2. **Add `vote_event.category: text(32) nullable`.** Federal `vote.category` is structured data (`passage` / `cloture` / `recommit` / `nomination` / etc.) that we currently throw away. Adding this column is cheap (one nullable text column) and unlocks query patterns like "all cloture votes on HB-X" and "all conviction votes in 117th Congress" that are currently impossible. **High value, low cost.**
+
+**Status update (v1, 2026-05-27):** ✅ LANDED. `VoteEvent.category: text(32) nullable` added with vocab `passage / cloture / recommit / tabling / motion_to_proceed / nomination / treaty / conviction / procedural / other`.
 3. **Add `canonical.person_identifiers` (1:N).** P0 delta §"Tier 2 LegislatorIdentifier" already flagged this; the federal case makes it Tier-1. Columns: `(person_id, scheme, value)`. Schemes for federal: `bioguide`, `lis`, `thomas`, `govtrack`, `opensecrets`, `votesmart`, `fec`, `cspan`, `wikipedia`, `ballotpedia`, `icpsr`, `wikidata`. Without this, **Senate votes don't resolve** (they're LIS-keyed, not bioguide-keyed) and cross-reference value collapses.
+
+**Status update (v1, 2026-05-27):** ✅ LANDED — confirmed early candidate per user (2026-06-01). `canonical.person_identifiers` + `canonical.organization_identifiers` 1:N child tables both landed in v1 with the uniqueness constraints to support the Senate-LIS-vs-bioguide cross-resolution pattern.
 4. **Distinguish Delegate / Resident Commissioner / Representative as separate Roles, not flags.** Federal has 5 voting-rights-distinct elected-member types. Modeling them as 5 Roles on the House Organization is cleaner than a flag on Person/Assignment. Adapter pre-seeds the Roles.
+
+**Status update (2026-06-01):** ✅ Agreed — schema already supports it (Role is a polymorphic concept; the federal usa-fed-api adapter pre-seeds distinct Roles for Representative / Delegate / Resident Commissioner with appropriate `district` values). No usa-wa schema change required; the v1 hybrid IA already covers this in its `Role` examples (see hybrid IA spec's `canonical.roles` section).
 5. **Add `Bill.enacted_as: text(64) nullable`.** Federal `enacted_as.law_type + "-" + enacted_as.congress + "-" + enacted_as.number` produces "Public Law 119-12" or "Private Law 119-3". Cheap text column. P0 delta §"Field addition §4" already flagged. **Adds enormous query value** for "what bills became law" without requiring the eventual USC-section integration to be complete.
+
+**Status update (v1, 2026-05-27):** ✅ LANDED. `Bill.enacted_as: text(64) nullable` added.
 
 ### Medium-impact (recommend for v1 but not blocking)
 
 6. **Add `canonical.bill_titles` (1:N).** Federal `popular_title` ("Affordable Care Act") and `short_title` distinct from `official_title` are common. Columns: `(bill_id, title, type ∈ {official, short, popular, alternate}, as)`. P0 delta §"Tier 2 BillTitle". Without this, our `bill.title` overwrites itself across the bill's life cycle.
+
+**Status update (v1.1, 2026-05-28):** ✅ LANDED — confirmed early candidate per user (2026-06-01). `canonical.bill_titles` 1:N table with `title_type` / `chamber` / `as_of_action` / `language_code` / `amendment_id` / `effective_at` / `replaced_at` / `is_current` columns. The federal-specific shape (`as` lifecycle anchor) was a direct input to v1.1; the WA-specific shape (`amendment_id` for amendment-driven title changes) was the WA-side addition.
 7. **Add `canonical.bill_subjects` (1:N or `text[]` array column).** Federal `subjects` + `subjects_top_term` carries structured policy-area tags. P0 delta §"Tier 2 BillSubject". Cheap; high query value for sibling-deployments tracking policy areas.
+
+**Status update (v1, 2026-05-27):** ✅ LANDED — confirmed early candidate per user (2026-06-01). `canonical.bill_subjects (bill_id, subject, is_primary)` 1:N table. `is_primary` covers federal `subjects_top_term` semantically.
 8. **Add `BillSponsorship.sponsored_at: date nullable`.** Federal `cosponsors[].sponsored_at` is a real date that's lost without this column. Recovers original-cosponsor inference (compare to `Bill.introduced_at`). Trivial.
+
+**Status update (v1.3, 2026-06-01):** ✅ LANDED as `timestamptz nullable` (more precise than the original `date` proposal — federal data is date-precision but WSL SOAP carries timestamps). Migration `20260601_bill_class_sponsored_at`. Round-trip test exercises the original-cosponsor inference pattern.
 
 ### Low-impact / open call
 
 9. **Amendment-amends-amendment self-FK.** Add `Amendment.amends_amendment_id: ULID nullable FK self`. Rare but federal-real. Decide on cost-vs-value during v1 implementation.
+
+**Status update (2026-06-01):** ✅ Resolved by the existing model for the WA case (no schema change). User noted: Proposed Substitute and Striking Amendments in WA are associated with bill texts — when adopted, an `Amendment` produces a new `BillVersion` (via `BillVersion.amendment_id` FK, v1.2). Subsequent amendments target that new BillVersion, naturally modeling "amendment to amendment" through the BillVersion intermediate. Each Amendment.bill_id continues to point to the underlying Bill; the chain of amendments-producing-versions captures the lineage. ⚠️ **Federal edge case deferred:** when amendments amend each other *while both are pending* (perfecting amendments to substitute amendments, before either is adopted — no new BillVersion has been created yet), the BillVersion-intermediate model doesn't capture the direct relationship. usa-fed-api can add `Amendment.amends_amendment_id` if this becomes load-bearing for federal queries.
 10. **`VoteEvent.subject_type` enum expansion.** Add `nomination` and `treaty` values, even if WA never uses them. Federal nominations and treaty ratifications are votes-with-subjects that we have nowhere to put. **Defer until `usa-fed-api` is being built.**
+
+**Status update (v1.3, 2026-06-01):** ✅ LANDED for `nomination` (NOT deferred — user noted WA Senate confirms gubernatorial appointments, structurally identical to federal Senate nominations). `subject_type='nomination'` added to the vocab; when used, `subject_id` points to the nominee Person until a dedicated Nomination / Appointment entity lands in P1b. Adapter writes appointment text (role being filled, appointing executive) to `motion_description`. ⏸️ `treaty` stays deferred to usa-fed-api — WA has no treaty-equivalent.
 11. **`VoteEvent.outcome` vocab expansion.** Federal vote categories surface `cloture_failed`, `recommit_passed`, etc. — outcomes that don't cleanly map to `passed`/`failed`. Two options: (a) accept the lossy collapse, lean on `category` to disambiguate; (b) expand `outcome` to include `cloture_passed` / `cloture_failed` / `tabled` / `recommitted` / `motion_succeeded` / `motion_failed`. **Lean toward (a)** — keep `outcome` binary, let `category` carry the procedural verb.
+
+**Status update (2026-06-01):** ✅ User agreed with recommendation (a). `outcome` stays at the 6-value vocab (`passed` / `failed` / `tabled` / `withdrawn` / `inconclusive` / `other`); the new `category` column (OQ2) carries the procedural verb. No schema change.
 12. **(Same as 2 — already counted as high-impact.)**
 13. **Vote-choice vocab: add `guilty` and `not_guilty`.** Senate impeachment votes are rare but uniquely meaningful. Adding 2 values to `PersonVote.vote` and `VoteCount.count_type` enums is cheap. Optionally add `aye` and `no` distinct from `yea` and `nay` to preserve House Aye/No procedural distinction; **lean against** — collapse is acceptable.
+
+**Status update (2026-06-01):** ⏸️ DEFERRED until federal data ingestion. User noted none of these need to be added until usa-fed-api pulls in federal data. WA doesn't have impeachment votes (no analog) and doesn't use Aye/No distinct from Yea/Nay. Revisit when the federal adapter is built.
 14. **Add `Bill.classification: text(32) nullable`** following OCD's 24-value semantic enum (`bill`, `resolution`, `joint resolution`, `concurrent resolution`, `simple resolution`, ...) **separate from** the prefix-encoded `bill_type` we already have. P0 delta §"Field addition §1" flagged. Federal `bill_type` of `hr` is *also* semantically `bill`; `hjres` is *also* `joint resolution`. **Adapter computes** the classification from `bill_type`.
+
+**Status update (v1.3, 2026-06-01):** ✅ LANDED. `Bill.classification: text(32) nullable` added. Migration `20260601_bill_class_sponsored_at`. Round-trip test exercises `HJM` → `memorial` mapping.
 15. **Adapter pattern: identity-before-work-product ingestion ordering.** Not a schema revision but worth documenting in the v1 spec.
+
+**Status update (2026-06-01):** ✅ Agreed. Documented in the federal `usa-fed-adapter-legislature` blueprint (see "Indirect-provider adapter notes" above): identity (congress-legislators YAML) ingests *before* work-product (uscongress JSON) so Person FK resolution succeeds when bills/votes reference bioguide IDs. Same pattern applies to WA (WSL members ingest before WSL bills); the principle is universal.
 
 ## Cross-references
 

@@ -78,6 +78,15 @@ class Bill(Base, TimestampMixin):
     bill_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # bill_type vocab: HB | SB | HJR | SJR | HCR | SCR | HJM | SJM | HR | S | etc.
 
+    classification: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # v1.3 (2026-05-31): OCD-aligned semantic classification, orthogonal to
+    # bill_type's prefix-encoded form. Adapter derives from bill_type or source
+    # signal. Common values (from OCD's 24-value BILL_CLASSIFICATIONS):
+    # bill | resolution | joint resolution | concurrent resolution
+    # | simple resolution | constitutional amendment | memorial | proclamation
+    # | initiative | study request | other. Allows querying "all resolutions
+    # this session" or "all initiatives" without parsing bill_type strings.
+
     title: Mapped[str] = mapped_column(Text, nullable=False)
     # short_description and current_text moved to BillVersion in v1.2 (2026-05-28):
     # per-version summary and text are resolution-preserving (an OCD BillAbstract
@@ -151,6 +160,11 @@ class BillSponsorship(Base, TimestampMixin):
     # role vocab: primary | co | joint | generic
 
     sponsor_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sponsored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # v1.3 (2026-05-31): when this person/org signed on as sponsor. Federal
+    # cosponsors[].sponsored_at is the direct populator. WA uses this for
+    # tracking when cosponsors join after introduction. Recovers
+    # original-cosponsor inference by comparing to Bill.introduced_at.
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

@@ -767,3 +767,101 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
     ).scalar_one()
     assert fetched_action.supplement_id == analysis.id
     assert fetched_action.primary_classification == "supplement_published"
+
+
+async def test_bill_classification_and_sponsored_at_round_trip(db_session):
+    """Bill.classification (OCD semantic) + BillSponsorship.sponsored_at (uscongress OQ8/OQ14)."""
+    session = LegislativeSession(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="2025",
+        slug="usa-wa-2025",
+        name="2025 Regular Session",
+        classification="regular",
+    )
+    house = Organization(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="house",
+        name="WA House",
+        org_type="chamber",
+    )
+    sponsor = Person(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="26199",
+        name_full="Original Cosponsor",
+    )
+    cosponsor = Person(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="26200",
+        name_full="Late Cosponsor",
+    )
+    db_session.add_all([session, house, sponsor, cosponsor])
+    await db_session.flush()
+
+    bill = Bill(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="HJM-8001-2025-26",
+        legislative_session_id=session.id,
+        originating_chamber_id=house.id,
+        number=8001,
+        bill_type="HJM",
+        classification="memorial",
+        title="A joint memorial requesting federal action on regional rail",
+        introduced_at=datetime(2025, 1, 15, tzinfo=UTC),
+    )
+    db_session.add(bill)
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            BillSponsorship(
+                jurisdiction_id="usa-wa",
+                source="usa_wa_legislature",
+                source_id=f"sp:HJM-8001:primary:{sponsor.source_id}",
+                bill_id=bill.id,
+                person_id=sponsor.id,
+                role="primary",
+                sponsor_order=1,
+                sponsored_at=datetime(2025, 1, 15, tzinfo=UTC),
+            ),
+            BillSponsorship(
+                jurisdiction_id="usa-wa",
+                source="usa_wa_legislature",
+                source_id=f"sp:HJM-8001:co:{cosponsor.source_id}",
+                bill_id=bill.id,
+                person_id=cosponsor.id,
+                role="co",
+                sponsor_order=2,
+                sponsored_at=datetime(2025, 2, 3, tzinfo=UTC),
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    fetched_bill = (
+        await db_session.execute(select(Bill).where(Bill.source_id == "HJM-8001-2025-26"))
+    ).scalar_one()
+    assert fetched_bill.classification == "memorial"
+    assert fetched_bill.bill_type == "HJM"
+
+    sponsorships = (
+        (
+            await db_session.execute(
+                select(BillSponsorship)
+                .where(BillSponsorship.bill_id == fetched_bill.id)
+                .order_by(BillSponsorship.sponsor_order)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(sponsorships) == 2
+    primary, co = sponsorships
+    # Original cosponsor: sponsored_at == bill.introduced_at
+    assert primary.sponsored_at == bill.introduced_at
+    # Late cosponsor: sponsored_at > introduced_at (recovers "joined after intro")
+    assert co.sponsored_at > bill.introduced_at

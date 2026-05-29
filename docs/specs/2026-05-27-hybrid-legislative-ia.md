@@ -18,6 +18,9 @@ User decisions on the five "Items still open" items from the OCD transformation 
 | **`canonical.bill_supplements`** added — per-bill-version supplementary documents authored by non-partisan committee staff or regulatory agencies. Four kinds: `bill_analysis` (pre-hearing committee summary), `bill_report` (post-hearing committee summary), `fiscal_note` (agency fiscal impact with `partial`/`final` status + `revision_sequence`), `bill_summary` (chamber or agency brief). Plus `author_organization_id`, P1b enrichment columns (`text`, `structured_data` JSONB), and Archiver sidecar columns (`archival_url`, `archived_at`). Lifecycle integration via `BillAction.supplement_id` FK + `primary_classification='supplement_published'`. Resolves LegiScan transformation §9. | LegiScan review #1 follow-up 2026-05-30 | Bill cluster |
 | **`Bill.originating_chamber` and `Bill.current_chamber` text columns → FK columns** to `canonical.organizations`. Chambers are first-class Organizations (org_type='chamber'); chamber refs are FKs throughout. The legacy slug form (`"house"` / `"senate"` / `"unicameral"`) is recoverable via `organizations.short_name`. `BillAction.chamber` and `VoteEvent.chamber` stay as text denorms (their parent entities already carry FK refs via `acting_organization_id` / `context_organization_id`). | LegiScan review #2 OR 1 follow-up 2026-05-31 | Bill cluster |
 | **WA committee-report nay variants** added to `VoteCount.count_type` and `PersonVote.vote` vocab: `nay_without_rec` (without recommendation, lighter rejection) and `nay_do_not_pass` (DNP, stronger rejection). Plain `nay` remains the floor-vote default. Application-layer enforcement only (text columns; no DB CHECK so other jurisdictions stay flexible). | LegiScan review #2 vote-vocab follow-up 2026-05-31 | Vote cluster |
+| **`Bill.classification: text(32) nullable`** added — OCD-aligned semantic classification orthogonal to `bill_type`'s prefix-encoded form (`bill` / `resolution` / `joint resolution` / `concurrent resolution` / `simple resolution` / `memorial` / `proclamation` / `initiative` / etc.). Adapter derives from `bill_type` or source signal. Enables "all resolutions this session" / "all initiatives" queries without parsing `bill_type` strings. | uscongress review #1 OQ14 follow-up 2026-06-01 | Bill cluster |
+| **`BillSponsorship.sponsored_at: timestamptz nullable`** added — when the sponsor signed on. Federal `cosponsors[].sponsored_at` populates this; recovers original-cosponsor inference by comparing to `Bill.introduced_at`. WA uses this for cosponsors who join after introduction. | uscongress review #1 OQ8 follow-up 2026-06-01 | Bill cluster |
+| **`nomination`** added to `VoteEvent.subject_type` vocab. WA Senate confirmation of gubernatorial appointments (and the federal-Senate analog of presidential nominations / treaty ratifications). When `subject_type='nomination'`, `subject_id` points to the nominee Person until a dedicated Nomination / Appointment entity lands in P1b. Adapter writes appointment text to `motion_description`. | uscongress review #1 OQ10 follow-up 2026-06-01 | Vote cluster |
 
 Items closed after v1.3: `BillSponsorship.role` (item #12) stays at the 4-value enum (closed with rationale); `BillVersion.text` canonicalization rules stay as the open design discussion in §"Open issues".
 
@@ -306,7 +309,8 @@ Same shape as `person_identifiers`, FK to `canonical.organizations`. Common sche
 | `originating_chamber_id` | ULID NOT NULL FK | **v1.3 (2026-05-31).** FK to `canonical.organizations.id` for the chamber Org (org_type='chamber') where the bill was first introduced. Replaces the `originating_chamber: text(16)` enum column — chambers are first-class Organizations; chamber refs are FKs throughout. The legacy slug form (`"house"` / `"senate"` / `"unicameral"`) is recoverable via `organizations.short_name`. |
 | `current_chamber_id` | ULID nullable FK | **v1.3 (2026-05-31).** FK to the chamber Org currently considering the bill. Null when in conference or fully passed both. Replaces the `current_chamber: text(16)` column. |
 | `number` | int NOT NULL | |
-| `bill_type` | text(32) nullable | HB / SB / HJR / SJR / HCR / SCR / HJM / SJM / HR / S / etc. |
+| `bill_type` | text(32) nullable | HB / SB / HJR / SJR / HCR / SCR / HJM / SJM / HR / S / etc. Prefix-encoded form. |
+| `classification` | text(32) nullable | **v1.3 (2026-06-01).** OCD-aligned semantic classification — `bill` / `resolution` / `joint resolution` / `concurrent resolution` / `simple resolution` / `memorial` / `proclamation` / `initiative` / `study request` / `other`. Orthogonal to `bill_type`. Adapter derives from `bill_type` or source signal. |
 | `title` | text NOT NULL | **Denormalized current canonical title** — synced from `bill_titles` where `is_current=true AND title_type='canonical'`. Most queries read this column without joining. |
 | `current_version_id` | ULID nullable FK | **v1.2.** FK to `canonical.bill_versions.id` (with `use_alter=True` for circular-FK safety). The bill's current version; `bill.current_version.text` is the canonical text. Replaces the v1 `current_text` column. |
 | `current_status` | text(128) nullable | Source-vocabulary text. |
@@ -334,6 +338,7 @@ Polymorphic: a sponsor is either a Person (legislator) or an Organization (commi
 | `sponsor_name_raw` | text(256) nullable | **v1.** Source-provided sponsor name when ID resolution hasn't completed. Adapter populates and a later resolver promotes to `person_id` or `organization_id`. |
 | `role` | text(32) NOT NULL | `primary` / `co` / `joint` / `generic` (4-value, OCD-aligned). |
 | `sponsor_order` | int nullable | |
+| `sponsored_at` | timestamptz nullable | **v1.3 (2026-06-01).** When the sponsor signed on. Recovers "original cosponsor" inference (compare to `Bill.introduced_at`). Federal `cosponsors[].sponsored_at` direct mapping; WA uses for late-joining cosponsors. |
 | `withdrawn_at` | timestamptz nullable | |
 
 **CHECK constraint:** at most one of `person_id` / `organization_id` is non-null, with `sponsor_name_raw` non-null when both are null (pending resolution).
@@ -543,8 +548,8 @@ Scheduled events on a bill — public hearings, work sessions, executive session
 
 | Column | Type | Notes |
 |---|---|---|
-| `subject_type` | text(16) NOT NULL | `bill` / `amendment` / `motion`. |
-| `subject_id` | ULID NOT NULL | Polymorphic; no DB-level FK. |
+| `subject_type` | text(16) NOT NULL | `bill` / `amendment` / `motion` / `nomination`. **v1.3 (2026-06-01)** added `nomination` for WA Senate confirmation of gubernatorial appointments (and the federal Senate analog of presidential nominations / treaty ratifications). |
+| `subject_id` | ULID NOT NULL | Polymorphic; no DB-level FK. When `subject_type='nomination'`, points to the nominee Person until a dedicated Nomination / Appointment entity lands in P1b. |
 | `bill_id` | ULID nullable FK | Denormalized for query speed. |
 | `amendment_id` | ULID nullable FK | Set when subject_type=amendment. |
 | `originating_bill_action_id` | ULID nullable FK | **v1.3 (2026-05-29).** FK to `canonical.bill_actions.id`. The `BillAction` row this vote produced or resulted from — the OCD `VoteEvent.bill_action` analog. Populated when the source surfaces the linkage; null otherwise. |
