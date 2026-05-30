@@ -21,6 +21,13 @@ User decisions on the five "Items still open" items from the OCD transformation 
 | **`Bill.classification: text(32) nullable`** added — OCD-aligned semantic classification orthogonal to `bill_type`'s prefix-encoded form (`bill` / `resolution` / `joint resolution` / `concurrent resolution` / `simple resolution` / `memorial` / `proclamation` / `initiative` / etc.). Adapter derives from `bill_type` or source signal. Enables "all resolutions this session" / "all initiatives" queries without parsing `bill_type` strings. | uscongress review #1 OQ14 follow-up 2026-06-01 | Bill cluster |
 | **`BillSponsorship.sponsored_at: timestamptz nullable`** added — when the sponsor signed on. Federal `cosponsors[].sponsored_at` populates this; recovers original-cosponsor inference by comparing to `Bill.introduced_at`. WA uses this for cosponsors who join after introduction. | uscongress review #1 OQ8 follow-up 2026-06-01 | Bill cluster |
 | **`nomination`** added to `VoteEvent.subject_type` vocab. WA Senate confirmation of gubernatorial appointments (and the federal-Senate analog of presidential nominations / treaty ratifications). When `subject_type='nomination'`, `subject_id` points to the nominee Person until a dedicated Nomination / Appointment entity lands in P1b. Adapter writes appointment text to `motion_description`. | uscongress review #1 OQ10 follow-up 2026-06-01 | Vote cluster |
+| **Document identifier UNIQUE relaxation.** `(jurisdiction_id, scheme, value)` UNIQUE → `(jurisdiction_id, entity_type, scheme, value)`. Required for the WA case where a substitute/striking amendment AND the resulting BillVersion legitimately share the same Code Reviser ID (e.g., `H-0734.1/25`) — same underlying document, two manifestations. The new constraint still prevents accidental collision within an entity_type. | Hybrid IA review #1 item 1 2026-06-02 | Framework primitive |
+| **`LegislativeSession.adjourned_sine_die_at`** dropped — functionally redundant with `end_date` for the WA use case. `end_date` now carries sine die semantics for adjourned sessions; documented in the column comment. | Hybrid IA review #1 item 3 2026-06-02 | Session cluster |
+| **`canonical.bill_types` lookup table.** `Bill.bill_type` + `Bill.classification` text columns → single `Bill.bill_type_id` FK. The lookup carries code (`HB`/`SB`/`HJM`/etc.), `display_name`, and the OCD-aligned `classification` (`bill`/`resolution`/`memorial`/etc.). Stops drift — `bill_type` and `classification` were independently editable per-row; now they ride together on the lookup. | Hybrid IA review #1 item 5 2026-06-02 | Bill cluster |
+| **`BillAction.chamber`** dropped — derivable from `acting_organization_id` (the chamber Org for chamber-level actions; ancestor of `acting_organization_id` when a committee acts). For executive actions, `acting_organization_id` points at the executive Org (e.g., "WA Office of the Governor"). | Hybrid IA review #1 item 6 2026-06-02 | Bill cluster |
+| **Amendment → BillVersion relinkage.** `Amendment.bill_id` → `Amendment.bill_version_id` (every amendment is against a specific version). Substitute / striking amendments point at the newly proposed BillVersion (which exists as a row from the moment the substitute is offered). `Amendment.amendment_text` dropped (substitute / striking amendments use their target BillVersion's text). `BillVersion.amendment_id` back-link dropped — relinking is forward-only now. | Hybrid IA review #1 item 8 2026-06-02 | Bill cluster |
+| **`bill_titles.chamber` text → Org FK.** `chamber_id` joins `canonical.organizations`. Same chamber-as-Org-FK principle applied across the schema. | Hybrid IA review #1 item 9 2026-06-02 | Bill cluster |
+| **`canonical.bill_relationship_types` lookup table** with `symmetric` boolean column. `bill_relationships.relationship_type` text → `relationship_type_id` FK. The lookup encodes the `symmetric` property (companion is symmetric; replaces / replaced_by are directed) once per type rather than relying on per-relationship documentation. | Hybrid IA review #1 item 10 2026-06-02 | Bill cluster |
 
 Items closed after v1.3: `BillSponsorship.role` (item #12) stays at the 4-value enum (closed with rationale); `BillVersion.text` canonicalization rules stay as the open design discussion in §"Open issues".
 
@@ -160,7 +167,7 @@ The original motivating case (from the OCD review): WA amendments come with **of
 | `parsed_components` | jsonb nullable | Populated lazily by P1b enrichment; structured decomposition of `value`. |
 | `verified_at` | timestamptz nullable | When the mapping was last confirmed. |
 
-**Uniqueness:** `(jurisdiction_id, source, source_id)` standard natural key, **plus** `(entity_type, entity_id, scheme)` so a given bill version or amendment carries at most one value per scheme, **plus** `(jurisdiction_id, scheme, value)` so the same identifier doesn't accidentally attach to two different entities within a jurisdiction.
+**Uniqueness:** `(jurisdiction_id, source, source_id)` standard natural key, **plus** `(entity_type, entity_id, scheme)` so a given bill version or amendment carries at most one value per scheme, **plus** `(jurisdiction_id, entity_type, scheme, value)` so the same identifier doesn't accidentally attach to two different entities **of the same kind** within a jurisdiction. **v1.3 (2026-06-02):** the constraint includes `entity_type` so the same identifier (e.g., WA Code Reviser `H-0734.1/25`) can legitimately attach to BOTH an Amendment row AND a BillVersion row when a substitute/striking amendment becomes a new bill text — same document, two manifestations.
 
 **Striker/substitute polymorphism is the load-bearing case.** When an `Amendment(amendment_kind='substitute')` is adopted and produces a new `BillVersion`, *each entity carries its own identifiers* under its own `entity_type`. The Amendment row holds the proposal's identifier (`S-5276.3/26`); the resulting BillVersion holds whatever bill-text identifier the source assigns post-adoption. No duplication; traversal between the two stays on `BillVersion.amendment_id`.
 
@@ -290,10 +297,9 @@ Same shape as `person_identifiers`, FK to `canonical.organizations`. Common sche
 |---|---|---|
 | `slug` | text(64) NOT NULL | OpenStates-style: `<jurisdiction_id>-<year>[-<session_suffix>]`. Examples: `usa-wa-2025`, `usa-wa-2025-special-1`, `usa-fed-119`. |
 | `name` | text NOT NULL | "2025 Regular Session", "2025 First Special Session". |
-| `classification` | text(32) NOT NULL | One of: `regular` / `special` / `other`. **v1.2 (2026-05-28)** dropped `sine_die` (an adjournment state, not a session type — see `adjourned_sine_die_at` below) and `extraordinary` (no meaningful distinction from `special`). |
-| `adjourned_sine_die_at` | timestamptz nullable | **v1.2.** When the session adjourned sine die (without plans to return). In WA practice `sine die` is the act of ending a session; populated when known. |
+| `classification` | text(32) NOT NULL | One of: `regular` / `special` / `other`. **v1.2 (2026-05-28)** dropped `sine_die` (an adjournment state, not a session type) and `extraordinary` (no meaningful distinction from `special`). |
 | `start_date` | date nullable | |
-| `end_date` | date nullable | |
+| `end_date` | date nullable | The date the session ended — sine die for adjourned sessions, scheduled end otherwise. **v1.3 (2026-06-02)** dropped the separate `adjourned_sine_die_at: timestamptz` column as functionally redundant. If precise sine-die timestamps become load-bearing for a query later, add back. |
 | `is_active` | bool NOT NULL default false | |
 | `biennium_label` | text(16) nullable | WA-flavored — preserved for round-tripping ("2025-26"). |
 
@@ -309,8 +315,7 @@ Same shape as `person_identifiers`, FK to `canonical.organizations`. Common sche
 | `originating_chamber_id` | ULID NOT NULL FK | **v1.3 (2026-05-31).** FK to `canonical.organizations.id` for the chamber Org (org_type='chamber') where the bill was first introduced. Replaces the `originating_chamber: text(16)` enum column — chambers are first-class Organizations; chamber refs are FKs throughout. The legacy slug form (`"house"` / `"senate"` / `"unicameral"`) is recoverable via `organizations.short_name`. |
 | `current_chamber_id` | ULID nullable FK | **v1.3 (2026-05-31).** FK to the chamber Org currently considering the bill. Null when in conference or fully passed both. Replaces the `current_chamber: text(16)` column. |
 | `number` | int NOT NULL | |
-| `bill_type` | text(32) nullable | HB / SB / HJR / SJR / HCR / SCR / HJM / SJM / HR / S / etc. Prefix-encoded form. |
-| `classification` | text(32) nullable | **v1.3 (2026-06-01).** OCD-aligned semantic classification — `bill` / `resolution` / `joint resolution` / `concurrent resolution` / `simple resolution` / `memorial` / `proclamation` / `initiative` / `study request` / `other`. Orthogonal to `bill_type`. Adapter derives from `bill_type` or source signal. |
+| `bill_type_id` | ULID nullable FK | **v1.3 (2026-06-02).** FK to `canonical.bill_types`. Replaces the inline `bill_type: text(32)` + `classification: text(32)` columns; both fields now live on the lookup row, so they stay in lockstep without per-row drift. |
 | `title` | text NOT NULL | **Denormalized current canonical title** — synced from `bill_titles` where `is_current=true AND title_type='canonical'`. Most queries read this column without joining. |
 | `current_version_id` | ULID nullable FK | **v1.2.** FK to `canonical.bill_versions.id` (with `use_alter=True` for circular-FK safety). The bill's current version; `bill.current_version.text` is the canonical text. Replaces the v1 `current_text` column. |
 | `current_status` | text(128) nullable | Source-vocabulary text. |
@@ -325,6 +330,19 @@ Notes:
 - v0's `current_step` column is dropped. The previous use-cases (status enum + when-was-status-set) are replaced by `current_status_class` + `current_status_at`.
 - `Bill.title` is denormalized; the full title history (including amendment-driven changes, alternative titles like short / popular / official / display, chamber-specific titles, and historical replaced titles) lives in `canonical.bill_titles` (added v1.1, post-transformation-review). See below.
 - v1.2 removed `Bill.short_description` and `Bill.current_text`. Per-version summary lives on `BillVersion.short_description`; canonical text lives on `BillVersion.text` and is accessed via `Bill.current_version_id`.
+
+### `canonical.bill_types` (new in v1.3, 2026-06-02)
+
+Lookup table for bill-type codes. Replaces the inline `Bill.bill_type: text(32)` + `Bill.classification: text(32)` columns. The two fields rode together conceptually (HB → bill, HJM → memorial) but were independently editable per row before — drift risk. Co-locating them on the lookup row eliminates the risk.
+
+| Column | Type | Notes |
+|---|---|---|
+| `jurisdiction_id` | text(32) NOT NULL | |
+| `code` | text(32) NOT NULL | Source prefix code: WA: `HB` / `SB` / `HJM` / `HCR` / etc.; federal: `hr` / `hjres` / `sconres` / etc. |
+| `display_name` | text(128) NOT NULL | "House Bill", "Joint Memorial", "Senate Joint Resolution". |
+| `classification` | text(32) nullable | OCD-aligned semantic class: `bill` / `resolution` / `joint resolution` / `concurrent resolution` / `simple resolution` / `constitutional amendment` / `memorial` / `proclamation` / `initiative` / `study request` / `other`. |
+
+**Natural-key UNIQUE:** `(jurisdiction_id, code)`. Adapter seeds the lookup at init or upserts on first encounter.
 
 ### `canonical.bill_sponsorships`
 
@@ -353,8 +371,7 @@ Append-only lifecycle log.
 |---|---|---|
 | `bill_id` | ULID NOT NULL FK | |
 | `action_at` | timestamptz NOT NULL | |
-| `chamber` | text(16) nullable | `house` / `senate` / null for executive actions. |
-| `acting_organization_id` | ULID nullable FK | The body that took the action — chamber, committee, etc. |
+| `acting_organization_id` | ULID nullable FK | The body that took the action — chamber, committee, or executive Org (e.g., "WA Office of the Governor"). **v1.3 (2026-06-02)** dropped the separate `chamber: text(16)` column — chamber is derivable from `acting_organization_id` (the chamber itself for chamber-level actions; an ancestor for committee actions). |
 | `action_type` | text(64) NOT NULL | Source-vocab text. |
 | `primary_classification` | text(64) nullable | **v1.** Single most-canonical OCD class for display: `introduction` / `reading-1` / `passage` / `amendment-passage` / `committee-passage` / `executive-signature` / `veto-override-passage` / etc. The full multi-class array lives in `bill_action_classifications`. |
 | `description` | text NOT NULL | Free-text description. |
@@ -387,7 +404,6 @@ Append-only lifecycle log.
 | `version_type` | text(64) NOT NULL | Source vocab: `introduced` / `substitute` / `engrossed` / `first_engrossed` / `enrolled` / `act` / `conference_substitute` / etc. |
 | `short_description` | text nullable | **v1.2.** Per-version summary (e.g., OCD `BillAbstract` for this version). |
 | `text` | text nullable | **v1.2.** Canonical plain-text representation of the bill at this version. Alternative representations live in `bill_version_links`. Canonicalization rules (MIME handling, OCR, styled-vs-plain) are an open design question — see Open issues. |
-| `amendment_id` | ULID nullable FK | **v1.2.** FK to `canonical.amendments.id` when this version was produced by adopting a striking/substitute amendment. Null for introduced and engrossed-by-action versions. |
 | `version_at` | timestamptz nullable | |
 | `is_current` | bool NOT NULL default false | At most one current per bill — `Bill.current_version_id` is the denormalized fast path. |
 
@@ -397,10 +413,9 @@ Append-only lifecycle log.
 
 | Column | Type | Notes |
 |---|---|---|
-| `bill_id` | ULID NOT NULL FK | |
+| `bill_version_id` | ULID NOT NULL FK | **v1.3 (2026-06-02).** FK to `canonical.bill_versions.id` — every amendment is against a specific version. For traditional amendments: points to the current version being amended. For substitute / striking: points to the **newly proposed** BillVersion (which exists as a row from the moment the substitute is offered). Replaces the prior `bill_id` direct FK. |
 | `label` | text(64) NOT NULL | "Amendment 1", "Striking Amendment 21", etc. |
 | `amendment_kind` | text(16) NOT NULL | **v1.2.** `traditional` (edits) / `striking` (preamble "strike everything after the enacting clause" — effectively a new full version) / `substitute` (overt full replacement, may include new title). |
-| `amendment_text` | text nullable | Edit text (traditional) or full replacement text (striking / substitute). |
 | `sponsor_person_id` | ULID nullable FK | |
 | `sponsor_organization_id` | ULID nullable FK | For committee-offered amendments (federal Rules Committee, etc.). |
 | `status` | text(32) NOT NULL | `offered` / `adopted` / `rejected` / `withdrawn` / `pending` / `tabled`. |
@@ -411,7 +426,7 @@ Append-only lifecycle log.
 
 **Natural-key UNIQUE:** standard.
 
-**WA practice note:** Striking amendments and proposed substitutes are pragmatically full bill replacements that may or may not be adopted. When adopted, the adapter creates a new `BillVersion` row whose `amendment_id` points back to this Amendment. Traditional amendments produce no BillVersion row — they're consumed into the next engrossed version via the source's normal engrossment process. Votes on amendments (including strikers/substitutes) always target the `Amendment` row, not the BillVersion that would result.
+**WA practice note (v1.3, 2026-06-02 update):** Striking amendments and proposed substitutes are pragmatically full bill replacements. The schema models this as: a substitute / striking amendment **points to a newly proposed BillVersion** via `Amendment.bill_version_id`. That BillVersion row exists from the moment the substitute is offered, with the proposed text on `BillVersion.text`; adoption merely flips `is_current` and updates `Bill.current_version_id`. **Document identifiers** on the proposal flow naturally: the WA Code Reviser issues one identifier (`H-0734.1/25`) that legitimately attaches to both the Amendment row AND the BillVersion row (the document_identifiers UNIQUE was relaxed in this revision to allow this — see Changelog). Traditional amendments produce no separate BillVersion — they edit the current version's text in place via the engrossment process. Votes on amendments (including strikers/substitutes) always target the `Amendment` row, not the BillVersion.
 
 ### `canonical.bill_titles` (new in v1.1)
 
@@ -422,7 +437,7 @@ Bill titles are **multi-valued and lifecycle-dynamic** in every system surveyed:
 | `bill_id` | ULID NOT NULL FK | |
 | `title_text` | text NOT NULL | The title string. |
 | `title_type` | text(32) NOT NULL | One of: `canonical` / `short` / `popular` / `official` / `display` / `alternative` / `long` / `summary_title`. Drawn from OCD's `BillTitle.classification` vocab; LegiScan and uscongress map onto this. |
-| `chamber` | text(16) nullable | When the title is chamber-specific (federal: House vs. Senate short title); null otherwise. |
+| `chamber_id` | ULID nullable FK | **v1.3 (2026-06-02).** FK to `canonical.organizations.id` for the chamber Org when the title is chamber-specific (federal: House vs. Senate short title); null otherwise. Replaces the `chamber: text(16)` enum column. |
 | `as_of_action` | text(64) nullable | When in the lifecycle the title applies — `introduced`, `engrossed`, `enrolled`, `committee_substitute`, etc. uscongress `titles[].as` directly populates this. |
 | `language_code` | text(8) nullable | BCP-47 language code for multilingual titles. Null = unspecified (most WA usage). |
 | `amendment_id` | ULID nullable FK | **WA-specific.** When an amendment introduced or changed this title, points to the amendment. Null when the title was set at bill introduction. |
@@ -512,6 +527,20 @@ Subjects / policy areas / topics a bill addresses. OCD and LegiScan both expose 
 
 **Natural-key UNIQUE:** `(bill_id, subject)`.
 
+### `canonical.bill_relationship_types` (new in v1.3, 2026-06-02)
+
+Lookup table for bill-to-bill relationship kinds. Replaces the inline `BillRelationship.relationship_type: text(32)` enum. Encodes the `symmetric` property once per type rather than relying on per-relationship documentation.
+
+| Column | Type | Notes |
+|---|---|---|
+| `jurisdiction_id` | text(32) NOT NULL | |
+| `code` | text(32) NOT NULL | `companion` / `replaces` / `replaced_by` / `related_to` / `prior_session_carryover` / `derived_from` / `other`. |
+| `display_name` | text(64) NOT NULL | |
+| `symmetric` | bool NOT NULL default false | True for relations like `companion` where A↔B has the same semantic; false for directed relations like `replaces` where A→B and B→A differ. Query layer uses this to materialize the reverse view of symmetric rows without storing both directions. |
+| `description` | text nullable | |
+
+**Natural-key UNIQUE:** `(jurisdiction_id, code)`.
+
 ### `canonical.bill_relationships` (new in v1)
 
 OpenStates / LegiScan / WSL all surface bill-to-bill relationships. Common in WA where House and Senate companion bills move in parallel.
@@ -520,10 +549,10 @@ OpenStates / LegiScan / WSL all surface bill-to-bill relationships. Common in WA
 |---|---|---|
 | `from_bill_id` | ULID NOT NULL FK | |
 | `to_bill_id` | ULID NOT NULL FK | |
-| `relationship_type` | text(32) NOT NULL | `companion` (symmetric) / `replaces` / `replaced_by` / `related_to` / `prior_session_carryover` / `derived_from` / `other`. |
+| `relationship_type_id` | ULID NOT NULL FK | **v1.3 (2026-06-02).** FK to `canonical.bill_relationship_types.id`. Replaces the inline `relationship_type: text(32)` enum. The lookup carries the `symmetric` flag. |
 | `notes` | text nullable | |
 
-**Natural-key UNIQUE:** `(from_bill_id, to_bill_id, relationship_type)`. Symmetric relationships are stored once (from < to lexicographically) with the query layer materializing the reverse view if needed.
+**Natural-key UNIQUE:** `(from_bill_id, to_bill_id, relationship_type_id)`. Symmetric relationships are stored once (from < to lexicographically) with the query layer materializing the reverse view if needed.
 
 ### `canonical.bill_events` (new in v1, replaces P0's skeletal Hearing)
 
@@ -649,7 +678,7 @@ These are losses we **accept** in the transformation specs. Fixing them would re
 
 Every entity in this spec writes Citation rows through `clearinghouse_core.runner.AdapterRunner`. Polymorphic Citation references the entity by `(entity_type, entity_id)`:
 
-`entity_type` values (snake_case table names): `person`, `organization`, `role`, `assignment`, `person_identifier`, `organization_identifier`, `bill`, `bill_sponsorship`, `bill_action`, `bill_action_classification`, `bill_version`, `amendment`, `bill_subject`, `bill_relationship`, `bill_event`, `bill_supplement`, `vote_event`, `vote_count`, `person_vote`, `lobbying_activity`, `lobbying_position`, `contribution`, `statute_code`, `statute_title`, `statute_chapter`, `statute_section`, `bill_statute_change`, `legislative_session`.
+`entity_type` values (snake_case table names): `person`, `organization`, `role`, `assignment`, `person_identifier`, `organization_identifier`, `bill`, `bill_type`, `bill_sponsorship`, `bill_action`, `bill_action_classification`, `bill_version`, `amendment`, `bill_title`, `bill_subject`, `bill_relationship`, `bill_relationship_type`, `bill_event`, `bill_supplement`, `vote_event`, `vote_count`, `person_vote`, `lobbying_activity`, `lobbying_position`, `contribution`, `statute_code`, `statute_title`, `statute_chapter`, `statute_section`, `bill_statute_change`, `legislative_session`.
 
 Denormalized `primary_source_id`, `last_fetched_at`, `last_fetch_event_id` columns on every entity (per Universal entity shape) carry single-row citations cheaply; explicit field-level provenance via the `citations` table only when meaningfully needed.
 

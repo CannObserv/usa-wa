@@ -273,10 +273,17 @@ class DocumentIdentifier(Base, TimestampMixin):
         ),
         UniqueConstraint(
             "jurisdiction_id",
+            "entity_type",
             "scheme",
             "value",
-            name="uq_document_identifiers_jurisdiction_scheme_value",
+            name="uq_document_identifiers_jurisdiction_entity_scheme_value",
         ),
+        # v1.3 (2026-05-30): the uniqueness constraint includes entity_type
+        # because a single identifier (e.g., WA Code Reviser "H-0734.1/25")
+        # legitimately attaches to BOTH the Amendment row AND the resulting
+        # BillVersion row when a substitute/striking amendment becomes a new
+        # bill text. The previous (jurisdiction_id, scheme, value) UNIQUE
+        # blocked that pattern.
         {"schema": SCHEMA},
     )
 

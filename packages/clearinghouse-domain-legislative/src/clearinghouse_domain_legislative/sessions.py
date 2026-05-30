@@ -6,9 +6,9 @@ OpenStates convention extended for our jurisdiction encoding:
 `usa-wa-2025-special-1`, `usa-fed-119`).
 """
 
-from datetime import date, datetime
+from datetime import date
 
-from sqlalchemy import Boolean, Date, DateTime, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from ulid import ULID as _ULID
 
@@ -45,20 +45,18 @@ class LegislativeSession(Base, TimestampMixin):
     slug: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     classification: Mapped[str] = mapped_column(String(32), nullable=False)
-    # classification vocab (v1.2, 2026-05-28): regular | special | other
-    # Dropped `extraordinary` (no semantic difference from `special`/`other`)
-    # and `sine_die` (which is an adjournment state, not a session type — see
-    # adjourned_sine_die_at below).
+    # classification vocab: regular | special | other
+    # (Dropped extraordinary + sine_die in v1.2; dropped per-session timestamps
+    # in v1.3 — end_date now carries sine die semantics for adjourned sessions.)
 
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    adjourned_sine_die_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    """When the session adjourned sine die — literally without plans to return.
+    """The date the session ended.
 
-    In WA practice ``sine die`` is the act of ending a session; populated when known,
-    null while the session is active or if adjournment status is unknown.
+    For adjourned sessions, this is the sine die date; for scheduled / active
+    sessions, the planned end date. ``adjourned_sine_die_at: timestamptz`` was
+    dropped in v1.3 (2026-05-30) — functionally redundant with ``end_date`` for
+    the WA use case; precise timestamps can be added back if a query needs them.
     """
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

@@ -19,6 +19,7 @@ from clearinghouse_domain_legislative.bills import (
     BillSponsorship,
     BillSupplement,
     BillTitle,
+    BillType,
     BillVersion,
 )
 from clearinghouse_domain_legislative.identity import (
@@ -161,7 +162,13 @@ async def test_bill_with_session_round_trip(db_session):
         short_name="senate",
         org_type="chamber",
     )
-    db_session.add_all([session, house, senate])
+    house_bill_type = BillType(
+        jurisdiction_id="usa-wa",
+        code="HB",
+        display_name="House Bill",
+        classification="bill",
+    )
+    db_session.add_all([session, house, senate, house_bill_type])
     await db_session.flush()
 
     bill = Bill(
@@ -172,7 +179,7 @@ async def test_bill_with_session_round_trip(db_session):
         originating_chamber_id=house.id,
         current_chamber_id=senate.id,
         number=1234,
-        bill_type="HB",
+        bill_type_id=house_bill_type.id,
         title="An act relating to widgets",
         current_status="In Senate Rules Committee",
         current_status_class="passed_first_chamber",
@@ -295,11 +302,21 @@ async def test_amendment_and_vote_event_round_trip(db_session):
     db_session.add(bill)
     await db_session.flush()
 
+    introduced_version = BillVersion(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="bv:HB-7777:introduced",
+        bill_id=bill.id,
+        version_type="introduced",
+    )
+    db_session.add(introduced_version)
+    await db_session.flush()
+
     amendment = Amendment(
         jurisdiction_id="usa-wa",
         source="usa_wa_legislature",
         source_id="amd:HB-7777-2025-26:1",
-        bill_id=bill.id,
+        bill_version_id=introduced_version.id,
         label="Amendment 1",
         status="adopted",
         offered_at=datetime(2025, 2, 1, tzinfo=UTC),
@@ -483,7 +500,7 @@ async def test_bill_action_polymorphic_classifications(db_session):
         source_id="act:HB-3333:reading3-and-passage",
         bill_id=bill.id,
         action_at=datetime(2025, 3, 10, tzinfo=UTC),
-        chamber="house",
+        acting_organization_id=house.id,
         action_type="Third reading, final passage",
         primary_classification="passage",
         description="Passed the House on third reading.",
@@ -559,11 +576,21 @@ async def test_bill_titles_1_to_n_with_amendment_provenance(db_session):
     db_session.add(bill)
     await db_session.flush()
 
+    introduced_version = BillVersion(
+        jurisdiction_id="usa-wa",
+        source="usa_wa_legislature",
+        source_id="bv:HB-4242:introduced",
+        bill_id=bill.id,
+        version_type="introduced",
+    )
+    db_session.add(introduced_version)
+    await db_session.flush()
+
     amendment = Amendment(
         jurisdiction_id="usa-wa",
         source="usa_wa_legislature",
         source_id="amd:HB-4242:21",
-        bill_id=bill.id,
+        bill_version_id=introduced_version.id,
         label="Striking Amendment 21",
         status="adopted",
     )
@@ -727,7 +754,6 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
         source_id="act:HB-1066:bill_analysis:1",
         bill_id=bill.id,
         action_at=datetime(2025, 2, 10, tzinfo=UTC),
-        chamber="house",
         acting_organization_id=house_cpb.id,
         action_type="Bill Analysis filed",
         primary_classification="supplement_published",
@@ -770,7 +796,11 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
 
 
 async def test_bill_classification_and_sponsored_at_round_trip(db_session):
-    """Bill.classification (OCD semantic) + BillSponsorship.sponsored_at (uscongress OQ8/OQ14)."""
+    """Bill.bill_type_id (FK) + BillSponsorship.sponsored_at (uscongress OQ8/OQ14).
+
+    v1.3 (2026-05-30): Bill.classification text column was removed; semantic
+    classification now lives on the bill_types lookup row.
+    """
     session = LegislativeSession(
         jurisdiction_id="usa-wa",
         source="usa_wa_legislature",
@@ -786,6 +816,12 @@ async def test_bill_classification_and_sponsored_at_round_trip(db_session):
         name="WA House",
         org_type="chamber",
     )
+    hjm_type = BillType(
+        jurisdiction_id="usa-wa",
+        code="HJM",
+        display_name="House Joint Memorial",
+        classification="memorial",
+    )
     sponsor = Person(
         jurisdiction_id="usa-wa",
         source="usa_wa_legislature",
@@ -798,7 +834,7 @@ async def test_bill_classification_and_sponsored_at_round_trip(db_session):
         source_id="26200",
         name_full="Late Cosponsor",
     )
-    db_session.add_all([session, house, sponsor, cosponsor])
+    db_session.add_all([session, house, hjm_type, sponsor, cosponsor])
     await db_session.flush()
 
     bill = Bill(
@@ -808,8 +844,7 @@ async def test_bill_classification_and_sponsored_at_round_trip(db_session):
         legislative_session_id=session.id,
         originating_chamber_id=house.id,
         number=8001,
-        bill_type="HJM",
-        classification="memorial",
+        bill_type_id=hjm_type.id,
         title="A joint memorial requesting federal action on regional rail",
         introduced_at=datetime(2025, 1, 15, tzinfo=UTC),
     )
@@ -845,8 +880,12 @@ async def test_bill_classification_and_sponsored_at_round_trip(db_session):
     fetched_bill = (
         await db_session.execute(select(Bill).where(Bill.source_id == "HJM-8001-2025-26"))
     ).scalar_one()
-    assert fetched_bill.classification == "memorial"
-    assert fetched_bill.bill_type == "HJM"
+    assert fetched_bill.bill_type_id == hjm_type.id
+    fetched_type = (
+        await db_session.execute(select(BillType).where(BillType.id == fetched_bill.bill_type_id))
+    ).scalar_one()
+    assert fetched_type.code == "HJM"
+    assert fetched_type.classification == "memorial"
 
     sponsorships = (
         (

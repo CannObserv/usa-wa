@@ -75,17 +75,18 @@ class Bill(Base, TimestampMixin):
     """Chamber Org currently considering the bill. Null when in conference or
     fully passed both chambers."""
     number: Mapped[int] = mapped_column(Integer, nullable=False)
-    bill_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    # bill_type vocab: HB | SB | HJR | SJR | HCR | SCR | HJM | SJM | HR | S | etc.
-
-    classification: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    # v1.3 (2026-05-31): OCD-aligned semantic classification, orthogonal to
-    # bill_type's prefix-encoded form. Adapter derives from bill_type or source
-    # signal. Common values (from OCD's 24-value BILL_CLASSIFICATIONS):
-    # bill | resolution | joint resolution | concurrent resolution
-    # | simple resolution | constitutional amendment | memorial | proclamation
-    # | initiative | study request | other. Allows querying "all resolutions
-    # this session" or "all initiatives" without parsing bill_type strings.
+    bill_type_id: Mapped[_ULID | None] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.bill_types.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    """v1.3 (2026-05-30): FK to canonical.bill_types lookup. Replaces the inline
+    ``Bill.bill_type: text(32)`` and ``Bill.classification: text(32)`` columns.
+    The lookup row carries the code (HB / SB / HJM etc.), the display name, AND
+    the OCD-aligned semantic classification (bill / resolution / memorial etc.),
+    so the two fields stay in lockstep without per-row drift.
+    """
 
     title: Mapped[str] = mapped_column(Text, nullable=False)
     # short_description and current_text moved to BillVersion in v1.2 (2026-05-28):
@@ -115,6 +116,42 @@ class Bill(Base, TimestampMixin):
     )
     introduced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     enacted_as: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class BillType(Base, TimestampMixin):
+    """Lookup table for bill-type codes. New in v1.3 (2026-05-30).
+
+    Replaces the inline ``Bill.bill_type: text(32)`` + ``Bill.classification:
+    text(32)`` columns. One row per (jurisdiction, code) pair holds:
+
+    - ``code`` — the source's prefix code (WA: ``HB`` / ``SB`` / ``HJM`` etc.;
+      federal: ``hr`` / ``hjres`` / ``sconres`` etc.).
+    - ``display_name`` — human label (``"House Bill"``, ``"Joint Memorial"``).
+    - ``classification`` — OCD-aligned semantic class (``bill`` / ``resolution``
+      / ``joint resolution`` / ``memorial`` / etc.). Was previously
+      ``Bill.classification`` (added then removed in v1.3 — the value belongs
+      with the bill_type, not the per-bill row).
+
+    Bills FK in here via ``Bill.bill_type_id``. Adapter seeds the lookup at
+    init or upserts on first encounter.
+    """
+
+    __tablename__ = "bill_types"
+    __table_args__ = (
+        UniqueConstraint("jurisdiction_id", "code", name="uq_bill_types_jurisdiction_code"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    classification: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # classification vocab (OCD-aligned): bill | resolution | joint resolution
+    #                                   | concurrent resolution | simple resolution
+    #                                   | constitutional amendment | memorial
+    #                                   | proclamation | initiative | study request
+    #                                   | other.
 
 
 class BillSponsorship(Base, TimestampMixin):
@@ -191,7 +228,11 @@ class BillAction(Base, TimestampMixin):
         index=True,
     )
     action_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    chamber: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # chamber column dropped in v1.3 (2026-05-30): derivable from
+    # acting_organization_id (the chamber Org for chamber-level actions, or
+    # ancestor of acting_organization_id when a committee acts). Executive
+    # actions point acting_organization_id at the executive Org (e.g., "WA
+    # Office of the Governor").
     acting_organization_id: Mapped[_ULID | None] = mapped_column(
         ULID(),
         ForeignKey(f"{SCHEMA}.organizations.id", ondelete="SET NULL"),
@@ -255,10 +296,15 @@ class BillActionClassification(Base, TimestampMixin):
 class BillVersion(Base, TimestampMixin):
     """A version of the bill — introduced / substitute / engrossed / enrolled / etc.
 
-    v1.2 (2026-05-28) added ``text``, ``short_description``, and ``amendment_id``:
-    full text + per-version summary + provenance to the amendment that produced
-    this version (when applicable). See ``bill_version_links`` for alternative
-    representations of the same version (HTML, PDF, etc.).
+    v1.3 (2026-05-30): the ``amendment_id`` back-link to amendments was dropped.
+    Amendments now link forward to the BillVersion they target via
+    ``Amendment.bill_version_id`` — substitute / striking amendments point at
+    the newly proposed BillVersion (which exists as a row from the moment the
+    substitute is offered), so the back-link became redundant.
+
+    v1.2 (2026-05-28) added ``text`` + ``short_description`` (per-version
+    summary). See ``bill_version_links`` for alternative representations
+    (HTML, PDF, etc.).
     """
 
     __tablename__ = "bill_versions"
@@ -293,19 +339,6 @@ class BillVersion(Base, TimestampMixin):
     See ``BillVersionLink`` for alternative representations (HTML, PDF, image-PDF
     with OCR, processed git-friendly text, etc.). Storage/canonicalization rules
     are an open design question — see open questions in the hybrid-IA spec.
-    """
-
-    amendment_id: Mapped[_ULID | None] = mapped_column(
-        ULID(),
-        ForeignKey(f"{SCHEMA}.amendments.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-    """When this version was created by adopting an amendment, points to it.
-
-    Null for the introduced version and for engrossed-by-action versions (where
-    no amendment produced the version directly). Populated for substitute and
-    striking-amendment versions.
     """
 
     version_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -350,7 +383,16 @@ class BillTitle(Base, TimestampMixin):
     # title_type vocab: canonical | short | popular | official | display
     #                 | alternative | long | summary_title
 
-    chamber: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    chamber_id: Mapped[_ULID | None] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.organizations.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    """When the title is chamber-specific (federal: House vs Senate short
+    titles), FK to the chamber Org. v1.3 (2026-05-30): replaced ``chamber: text(16)``.
+    """
+
     as_of_action: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # as_of_action vocab (free-text): introduced | engrossed | enrolled
     #                               | committee_substitute | etc.
@@ -383,26 +425,41 @@ class Amendment(Base, TimestampMixin):
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
-    bill_id: Mapped[_ULID] = mapped_column(
+    bill_version_id: Mapped[_ULID] = mapped_column(
         ULID(),
-        ForeignKey(f"{SCHEMA}.bills.id", ondelete="CASCADE"),
+        ForeignKey(f"{SCHEMA}.bill_versions.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
+    """v1.3 (2026-05-30): the Amendment's primary linkage is to the bill *version*
+    being amended, not the overall bill — every amendment is against a specific
+    version.
+
+    For traditional amendments: points to the current bill version being amended
+    (e.g., the introduced version).
+
+    For substitute / striking amendments: points to the newly proposed BillVersion
+    (which exists as a row from the moment the substitute is offered, before
+    adoption). The amendment text IS the BillVersion's text — no duplication.
+
+    The previous ``Amendment.bill_id`` direct FK and ``Amendment.amendment_text``
+    column were both dropped in v1.3. ``BillVersion.amendment_id`` back-link was
+    also dropped — relinking is forward-only now, BillVersion → Bill (via bill_id)
+    and Amendment → BillVersion (via bill_version_id).
+    """
+
     label: Mapped[str] = mapped_column(String(64), nullable=False)
     amendment_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="traditional")
     """v1.2 (2026-05-28). One of: ``traditional`` (edits) / ``striking`` ("strike
     everything after the enacting clause" — effectively a new full version) /
     ``substitute`` (overt full replacement of the bill, may include new title).
 
-    When adopted, striking and substitute amendments produce a new ``BillVersion``
-    with ``BillVersion.amendment_id`` pointing back here. Traditional amendments
-    produce no BillVersion row — they're consumed into the next engrossed version
-    via the source's normal engrossment process.
+    Striking and substitute amendments are inherently *also* bill texts — they
+    propose a wholesale replacement. The schema models this directly via
+    ``bill_version_id`` pointing to the proposed BillVersion; the amendment's
+    text IS that BillVersion's text. Traditional amendments edit the current
+    version's text in-place; they don't produce a separate BillVersion.
     """
-
-    amendment_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    """Edit text (traditional) or full replacement text (striking / substitute)."""
 
     sponsor_person_id: Mapped[_ULID | None] = mapped_column(
         ULID(), ForeignKey(f"{SCHEMA}.persons.id", ondelete="SET NULL"), nullable=True
@@ -446,6 +503,42 @@ class BillSubject(Base, TimestampMixin):
     is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
+class BillRelationshipType(Base, TimestampMixin):
+    """Lookup table for bill-to-bill relationship kinds. New in v1.3 (2026-05-30).
+
+    Replaces the inline ``BillRelationship.relationship_type: text(32)`` enum.
+    The lookup pattern encodes the ``symmetric`` property (whether the relation
+    is symmetric, like ``companion``, vs. asymmetric, like ``replaces`` /
+    ``replaced_by``) once per type rather than relying on per-relationship
+    documentation.
+    """
+
+    __tablename__ = "bill_relationship_types"
+    __table_args__ = (
+        UniqueConstraint(
+            "jurisdiction_id",
+            "code",
+            name="uq_bill_relationship_types_jurisdiction_code",
+        ),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Common codes: companion | replaces | replaced_by | related_to
+    #             | prior_session_carryover | derived_from | other
+
+    display_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    symmetric: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    """True for relations like ``companion`` where A↔B has the same semantic;
+    false for directed relations like ``replaces`` where A→B and B→A differ.
+    Query layer can use this to materialize the reverse view of symmetric rows
+    without storing both directions."""
+
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class BillRelationship(Base, TimestampMixin):
     """Bill-to-bill relationship — companion, replaces, etc. New in v1."""
 
@@ -460,7 +553,7 @@ class BillRelationship(Base, TimestampMixin):
         UniqueConstraint(
             "from_bill_id",
             "to_bill_id",
-            "relationship_type",
+            "relationship_type_id",
             name="uq_bill_relationships_pair_type",
         ),
         {"schema": SCHEMA},
@@ -483,9 +576,14 @@ class BillRelationship(Base, TimestampMixin):
         nullable=False,
         index=True,
     )
-    relationship_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    # relationship_type vocab: companion | replaces | replaced_by | related_to
-    #                        | prior_session_carryover | derived_from | other
+    relationship_type_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.bill_relationship_types.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    # v1.3 (2026-05-30): FK to bill_relationship_types lookup (replaces the
+    # inline text enum). The lookup carries the symmetric flag.
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
