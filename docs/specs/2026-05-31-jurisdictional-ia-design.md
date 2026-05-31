@@ -43,13 +43,32 @@ PM adds four new tables in its existing identity schema.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | ULID PK | |
-| `slug` | text, UNIQUE | Pattern: `<iso-3166-1-alpha3>-<iso-3166-2>[-<type>-<value>]*`. Examples: `usa`, `usa-wa`, `usa-wa-ld-21`, `usa-wa-county-king`, `usa-wa-county-king-city-seattle`. |
+| `slug` | text, UNIQUE | Pattern: `<iso-3166-1-alpha3>-<iso-3166-2>[-<key>-<value>]*`. See "Slug convention" below for formatting rules. Examples: `usa`, `usa-wa`, `usa-wa-ld-21`, `usa-wa-county-king`, `usa-wa-city-seattle`. |
 | `name` | text NOT NULL | Display name. |
 | `type` | text(32) NOT NULL | Open vocabulary (free-text + documented values, no DB CHECK so adapters stay flexible). Common values: `country` / `state` / `county` / `city` / `legislative_district_upper` / `legislative_district_lower` / `congressional_district` / `judicial_district` / `school_district` / `water_district` / `tribal_nation` / `federal_enclave` / `census_block` / `census_tract` / `other`. |
 | `valid_start` | timestamptz nullable | When the jurisdiction is legally active in the real world. |
 | `valid_end` | timestamptz nullable | Null = currently active. |
 | `transaction_start` | timestamptz NOT NULL | When the record was added to PM (audit + "undo" semantics). |
 | `transaction_end` | timestamptz nullable | Null = current row; non-null = superseded by a later transaction. |
+
+#### Slug convention
+
+The slug pattern is `<iso-3166-1-alpha3>-<iso-3166-2>[-<key>-<value>]*`.
+
+- **Base (positional, no key):** the first two segments are the ISO 3166-1 alpha-3 country code followed by the ISO 3166-2 subdivision code (e.g., `usa-wa`). The base alone is a valid slug for the subdivision itself. Country-only slugs (e.g., `usa`) are also valid (no subdivision segment).
+- **Suffix pairs (key-value):** every segment after the base is a `<key>-<value>` pair separated from prior segments and from each other by a single ASCII dash (`-`).
+- **Character set:** lowercase ASCII `[a-z0-9_]` only. Use a single underscore (`_`) within a key or a value where a space, hyphen, or other non-ASCII / non-alphanumeric character would naturally occur. The dash (`-`) is reserved as the segment separator and never appears within a key or value.
+- **Examples:**
+  - `usa` — country only.
+  - `usa-wa` — state.
+  - `usa-wa-county-king` — King County.
+  - `usa-wa-county-grays_harbor` — Grays Harbor County (space → underscore).
+  - `usa-wa-county-pend_oreille` — Pend Oreille County.
+  - `usa-wa-city-seattle` — City of Seattle.
+  - `usa-wa-ld-21` — 21st Legislative District (state Senate / House share the LD number).
+  - `usa-wa-cd-7` — 7th Congressional District.
+- **No nesting in slugs.** Slugs are flat — they describe *what the jurisdiction is*, not *what contains it*. Seattle is `usa-wa-city-seattle`, not `usa-wa-county-king-city-seattle`. The containment graph in `pm.jurisdiction_relationships` carries the "Seattle is in King County" knowledge, and queries that need it traverse the graph rather than parse the slug.
+- **Multi-pair slugs.** Allowed when a jurisdiction is naturally identified by more than one key-value pair, e.g., a precinct that takes both a county and a precinct number could be `usa-wa-county-king-precinct-1234`. Use sparingly — when in doubt, prefer a flat slug + a graph relationship.
 
 ### `pm.jurisdiction_relationships` (the graph)
 
@@ -181,14 +200,28 @@ Mirrors the identity producer/archival pattern.
 
 ### Adapter bootstrap pre-seed
 
-To avoid chicken-and-egg on first deploy and to let usa-wa ship before PM's read endpoints land, the `usa-wa-adapter-legislature` package ships an `initial_jurisdictions.json` covering the WA-relevant set:
+To avoid chicken-and-egg on first deploy and to let usa-wa ship before PM's read endpoints land, the `usa-wa-adapter-legislature` package ships an `initial_jurisdictions.json` covering the WA-relevant set.
 
-- `usa` (country)
-- `usa-wa` (state)
-- 49 state legislative districts (`usa-wa-ld-1` through `usa-wa-ld-49`)
-- 10 congressional districts (`usa-wa-cd-1` through `usa-wa-cd-10`)
-- Top counties (`usa-wa-county-king`, `usa-wa-county-pierce`, `usa-wa-county-snohomish`, etc.)
-- Seattle (`usa-wa-county-king-city-seattle`) — adapter signals reference it for committee hearings
+**Pre-seed scope (proposed; subject to user review before the JSON file is created — see Open Question 7):**
+
+- `usa` — country.
+- `usa-wa` — state.
+- **49 state legislative districts** — `usa-wa-ld-1` through `usa-wa-ld-49`.
+- **10 congressional districts** — `usa-wa-cd-1` through `usa-wa-cd-10`.
+- **All 39 WA counties** (alphabetical, with the underscore-substitution rule applied to multi-word names):
+
+  `usa-wa-county-adams`, `usa-wa-county-asotin`, `usa-wa-county-benton`, `usa-wa-county-chelan`, `usa-wa-county-clallam`, `usa-wa-county-clark`, `usa-wa-county-columbia`, `usa-wa-county-cowlitz`, `usa-wa-county-douglas`, `usa-wa-county-ferry`, `usa-wa-county-franklin`, `usa-wa-county-garfield`, `usa-wa-county-grant`, `usa-wa-county-grays_harbor`, `usa-wa-county-island`, `usa-wa-county-jefferson`, `usa-wa-county-king`, `usa-wa-county-kitsap`, `usa-wa-county-kittitas`, `usa-wa-county-klickitat`, `usa-wa-county-lewis`, `usa-wa-county-lincoln`, `usa-wa-county-mason`, `usa-wa-county-okanogan`, `usa-wa-county-pacific`, `usa-wa-county-pend_oreille`, `usa-wa-county-pierce`, `usa-wa-county-san_juan`, `usa-wa-county-skagit`, `usa-wa-county-skamania`, `usa-wa-county-snohomish`, `usa-wa-county-spokane`, `usa-wa-county-stevens`, `usa-wa-county-thurston`, `usa-wa-county-wahkiakum`, `usa-wa-county-walla_walla`, `usa-wa-county-whatcom`, `usa-wa-county-whitman`, `usa-wa-county-yakima`.
+
+- **Cities:** `usa-wa-city-seattle` only at MVP — WSL adapter signals reference Seattle for some committee-hearing locations. Additional cities (Tacoma, Spokane, Olympia, etc.) added as they appear in adapter data.
+
+**Relationships pre-seeded** (the graph is more important than the entity list):
+
+- `usa-wa IS_FULLY_CONTAINED_BY usa`
+- Each LD and CD: `IS_FULLY_CONTAINED_BY usa-wa`
+- Each county: `IS_FULLY_CONTAINED_BY usa-wa`
+- `usa-wa-city-seattle IS_FULLY_CONTAINED_BY usa-wa` (not `IS_FULLY_CONTAINED_BY usa-wa-county-king` — Seattle is contained in King County in practice, but the schema doesn't assume single-county containment; LD/CD overlap with counties is real and we want the same flexibility for cities).
+
+**File creation is gated on user review.** Before the JSON file is created and bundled into the adapter package, the user will see the proposed entity list + relationships and confirm naming conventions align. The spec's pre-seed scope is the proposal; the file is the implementation artifact.
 
 Sidecar push to PM is idempotent on slug; first run pushes the bootstrap set. Once PM has the entries (disposition `auto-attached` for re-runs), sync is steady-state.
 
@@ -339,6 +372,7 @@ Captured as design notes — not blocking the spec, but worth resolving during `
 4. **Cycles + Scenarios deferral details.** Bitemporal + the lineage relationship types support "what was active on date X" queries. Explicit Cycle/Scenario containers come when draft-map comparison becomes a query target. Not in MVP; not in P1 either.
 5. **Naming gap with PM's existing `wa` identifier prefix.** PM's existing identifier slugs use `wa`; the new Jurisdiction slugs use `usa-wa`. Two parallel conventions in PM. Flag to PM maintainer — may want to align both eventually, or accept that identifier slugs vs jurisdiction slugs are different concepts.
 6. **Existing `2026-05-27-power-map-integration.md` cleanup.** Sub-spec still references the discarded `queued-for-review` disposition. Worth a separate cleanup pass.
+7. **`initial_jurisdictions.json` review gate.** Per user direction, the proposed pre-seed entity list (39 counties + 49 LDs + 10 CDs + Seattle + state + country = 100 entries) and the relationship graph are reviewed before the JSON file is created. Naming conventions checked against the slug rules in Section 1. Resolution happens during writing-plans Step 1 (pre-seed file creation).
 
 ## Cross-references
 
