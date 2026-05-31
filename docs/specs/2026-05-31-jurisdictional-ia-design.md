@@ -3,7 +3,7 @@
 - **Date:** 2026-05-31
 - **Status:** final (brainstorm-approved design; ready for `writing-plans` handoff)
 - **Scope:** PM data-model extension for Jurisdictions (new entity type alongside identity), the usa-wa consumer integration shape, and the schema-wide `jurisdiction_id: text(32)` → `ULID FK` refactor that follows from it.
-- **Tracks:** [CannObserv/usa-wa#3](https://github.com/CannObserv/usa-wa/issues/3); upstream coordination via a forthcoming CannObserv/power-map issue (TBD #).
+- **Tracks:** [CannObserv/usa-wa#3](https://github.com/CannObserv/usa-wa/issues/3); upstream coordination via [CannObserv/power-map#168](https://github.com/CannObserv/power-map/issues/168) (filed 2026-05-31).
 - **Inputs:**
   - External exploration: [`docs/research/2026-05-30-jurisdictional-information-architecture.md`](../research/2026-05-30-jurisdictional-information-architecture.md)
   - Existing PM integration: [`docs/specs/2026-05-27-power-map-integration.md`](2026-05-27-power-map-integration.md)
@@ -380,7 +380,8 @@ Captured as design notes — not blocking the spec, but worth resolving during `
 - **Existing PM integration sub-spec:** [`docs/specs/2026-05-27-power-map-integration.md`](2026-05-27-power-map-integration.md)
 - **Hybrid IA:** [`docs/specs/2026-05-27-hybrid-legislative-ia.md`](2026-05-27-hybrid-legislative-ia.md)
 - **PM upstream epic:** [CannObserv/power-map#156](https://github.com/CannObserv/power-map/issues/156)
-- **PM upstream sub-issues:**
+- **PM upstream issues:**
+  - [#168](https://github.com/CannObserv/power-map/issues/168) — Jurisdiction entity type (this design's upstream coordination)
   - [#162](https://github.com/CannObserv/power-map/issues/162) — observation conflict-resolution semantics
   - [#164](https://github.com/CannObserv/power-map/issues/164) — `POST /api/v1/observations` endpoint
 - **Memories:**
