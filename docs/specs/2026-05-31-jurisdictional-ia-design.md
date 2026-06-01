@@ -1,7 +1,7 @@
 # Jurisdictional IA — Power Map extension + usa-wa consumer integration
 
 - **Date:** 2026-05-31
-- **Status:** final (brainstorm-approved design; ready for `writing-plans` handoff)
+- **Status:** in implementation — refreshed 2026-06-01 against PM's Phase 1 + Phase 2 of #168 (5 read routes + `POST /api/v1/jurisdictions/observations` write endpoint shipped). See Changelog below for the design-vs-shipped delta.
 - **Scope:** PM data-model extension for Jurisdictions (new entity type alongside identity), the usa-wa consumer integration shape, and the schema-wide `jurisdiction_id: text(32)` → `ULID FK` refactor that follows from it.
 - **Tracks:** [CannObserv/usa-wa#3](https://github.com/CannObserv/usa-wa/issues/3); upstream coordination via [CannObserv/power-map#168](https://github.com/CannObserv/power-map/issues/168) (filed 2026-05-31).
 - **Inputs:**
@@ -9,6 +9,23 @@
   - Existing PM integration: [`docs/specs/2026-05-27-power-map-integration.md`](2026-05-27-power-map-integration.md)
   - Hybrid IA: [`docs/specs/2026-05-27-hybrid-legislative-ia.md`](2026-05-27-hybrid-legislative-ia.md)
   - PM upstream sub-issues: [#162](https://github.com/CannObserv/power-map/issues/162) (observation conflict-resolution), [#164](https://github.com/CannObserv/power-map/issues/164) (`POST /observations`)
+
+## Changelog (2026-06-01 — PM #168 Phase 1 + Phase 2 shipped)
+
+Power Map shipped the Jurisdiction extension on 2026-06-01 across two phases. PM-side design review surfaced several refinements; below is the design-vs-shipped delta. The spec body below has been updated inline to reflect what actually exists in PM.
+
+| Item | Spec proposal | PM shipped |
+|---|---|---|
+| `type` column shape | Free-text `text(32)` | **FK to `jurisdiction_types` lookup** (16 rows seeded) |
+| Relationship-type vocabulary | 12 codes | **11 codes** — `exercises_concurrent_jurisdiction` dropped (LEA-specific; reserve slot) |
+| Symmetric column name | `symmetric` | `is_symmetric` |
+| `pm.jurisdiction_identifiers` table | Separate polymorphic table | **Reused existing `identifiers` table** — `entity_type` CHECK extended on 7 tables; `jur_ocd` / `jur_fips` / `jur_iso3166_2` seeded into `entity_identifier_types` |
+| Bitemporal column naming | `valid_start` / `valid_end` / `transaction_start` / `transaction_end` | `valid_from` / `valid_until` / `recorded_at` / `superseded_at` (PM has no bitemporal precedent; their proposal accepted since usa-wa had no code written) |
+| Write endpoint URL | `POST /api/v1/observations` with `entity_type: "jurisdiction"` | **`POST /api/v1/jurisdictions/observations`** — per-entity endpoint (establishes pattern for follow-on #169 to decompose `/observations` into per-entity routes) |
+| Read endpoint filter param | `archived` | `include_archived` (consistency with orgs/people endpoints) |
+| Pre-seed bootstrap path | Through observation flow | **PM-owned admin import** — usa-wa's `initial_jurisdictions.json` becomes PM's admin-imported seed file; subsequent usa-wa observations route against anchored IDs (`AUTO_ATTACHED` from day one) |
+
+**Net effect on usa-wa work:** sidecar (both read and write flows) is no longer blocked. Local schema work in this spec/plan is unchanged in shape; the cache mirror simply adopts PM's column names and adds a `jurisdiction_types` lookup table. The original `clearinghouse_core.jurisdiction_identifiers` table is **dropped from this scope** — local identifier caching is deferred to the sidecar follow-up plan; for usa-wa MVP, identifiers are resolved via PM API when needed.
 
 ## Problem
 
@@ -31,12 +48,13 @@ External exploration (see research note) converged on a Component/Tags graph mod
 | Role FK shape | Full schema-wide refactor — every `jurisdiction_id: text(32)` → `ULID FK` to local cache; `Role.district` dropped |
 | Consumer pattern | Producer/archival sidecar, mirroring identity (usa-wa is both producer and consumer; local cache as fast-path read) |
 | Slug convention | `<iso-3166-1-alpha3>-<iso-3166-2>` base (`usa-wa`) + `<type>-<value>` suffixes (`usa-wa-county-king`, `usa-wa-ld-21`); multi-layer-able; external taxonomies (OCD, FIPS, etc.) as 1:N `JurisdictionIdentifier` records |
-| Write API shape | Observation pattern (`POST /api/v1/observations` per PM [#164](https://github.com/CannObserv/power-map/issues/164), gated on [#162](https://github.com/CannObserv/power-map/issues/162)) — NOT direct `POST /jurisdictions` |
-| Disposition vocabulary | `auto-attached` / `new` / `rejected` (PM has discarded `queued-for-review`) |
+| Write API shape | Observation pattern at `POST /api/v1/jurisdictions/observations` (per-entity URL — PM established the pattern for follow-on #169 decomposing the shared `/observations` into per-entity routes) |
+| Disposition vocabulary | `NEW` / `AUTO_ATTACHED` / `REJECTED` (uppercase per PM impl; PM had discarded `queued-for-review` in design review) |
+| Bitemporal column naming | `valid_from` / `valid_until` / `recorded_at` / `superseded_at` (PM's proposal accepted) |
 
 ## Section 1 — Power Map data model extension
 
-PM adds four new tables in its existing identity schema.
+PM ships three new tables + reuses two existing ones (`identifiers`, `entity_identifier_types`) by extending their `entity_type` CHECK to include `'jurisdiction'`.
 
 ### `pm.jurisdictions` (the entity)
 
@@ -45,11 +63,11 @@ PM adds four new tables in its existing identity schema.
 | `id` | ULID PK | |
 | `slug` | text, UNIQUE | Pattern: `<iso-3166-1-alpha3>-<iso-3166-2>[-<key>-<value>]*`. See "Slug convention" below for formatting rules. Examples: `usa`, `usa-wa`, `usa-wa-ld-21`, `usa-wa-county-king`, `usa-wa-city-seattle`. |
 | `name` | text NOT NULL | Display name. |
-| `type` | text(32) NOT NULL | Open vocabulary (free-text + documented values, no DB CHECK so adapters stay flexible). Common values: `country` / `state` / `county` / `city` / `legislative_district` / `legislative_district_upper` / `legislative_district_lower` / `congressional_district` / `judicial_district` / `school_district` / `water_district` / `tribal_nation` / `federal_enclave` / `census_block` / `census_tract` / `other`. `legislative_district` is for jurisdictions where Senate and House boundaries are shared (e.g., WA — one LD per Senate district, identical boundary for the corresponding House district); `legislative_district_upper` / `legislative_district_lower` distinguish chambers when they have separate boundaries. |
-| `valid_start` | timestamptz nullable | When the jurisdiction is legally active in the real world. |
-| `valid_end` | timestamptz nullable | Null = currently active. |
-| `transaction_start` | timestamptz NOT NULL | When the record was added to PM (audit + "undo" semantics). |
-| `transaction_end` | timestamptz nullable | Null = current row; non-null = superseded by a later transaction. |
+| `type_id` | ULID FK → `pm.jurisdiction_types` | **Changed from `type: text` to FK in PM's implementation** (consistent with usa-wa's `bill_types` resolution; eliminates free-text drift). |
+| `valid_from` | timestamptz nullable | When the jurisdiction is legally active in the real world. **Was `valid_start` in original proposal.** |
+| `valid_until` | timestamptz nullable | Null = currently active. **Was `valid_end`.** Exclusive upper bound (reads naturally in range predicates). |
+| `recorded_at` | timestamptz NOT NULL | When the record was added to PM (audit + "undo" semantics). **Was `transaction_start`.** |
+| `superseded_at` | timestamptz nullable | Null = current row; non-null = superseded by a later transaction. **Was `transaction_end`.** |
 
 #### Slug convention
 
@@ -70,6 +88,19 @@ The slug pattern is `<iso-3166-1-alpha3>-<iso-3166-2>[-<key>-<value>]*`.
 - **No nesting in slugs.** Slugs are flat — they describe *what the jurisdiction is*, not *what contains it*. Seattle is `usa-wa-city-seattle`, not `usa-wa-county-king-city-seattle`. The containment graph in `pm.jurisdiction_relationships` carries the "Seattle is in King County" knowledge, and queries that need it traverse the graph rather than parse the slug.
 - **Multi-pair slugs.** Allowed when a jurisdiction is naturally identified by more than one key-value pair, e.g., a precinct that takes both a county and a precinct number could be `usa-wa-county-king-precinct-1234`. Use sparingly — when in doubt, prefer a flat slug + a graph relationship.
 
+### `pm.jurisdiction_types` (the type lookup — added in PM impl)
+
+PM resolved the open question "should `type` be a FK lookup?" in favor of the lookup pattern (matching usa-wa's `bill_types` resolution and PM's existing `entity_identifier_types` shape). Seeded with the 16 documented values.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | ULID PK | |
+| `slug` | text UNIQUE NOT NULL | One of the documented type values. |
+| `display_name` | text NOT NULL | Human-readable label. |
+| `created_at` | timestamptz NOT NULL | |
+
+**Initial vocabulary** (16 rows seeded by PM): `country` / `state` / `county` / `city` / `legislative_district` / `legislative_district_upper` / `legislative_district_lower` / `congressional_district` / `judicial_district` / `school_district` / `water_district` / `tribal_nation` / `federal_enclave` / `census_block` / `census_tract` / `other`. `legislative_district` is for jurisdictions where Senate and House boundaries are shared (e.g., WA); `legislative_district_upper` / `legislative_district_lower` distinguish chambers when they have separate boundaries. Adapters add rows without schema change.
+
 ### `pm.jurisdiction_relationships` (the graph)
 
 The Component/Tags model lives here.
@@ -81,14 +112,14 @@ The Component/Tags model lives here.
 | `object_jurisdiction_id` | ULID FK | |
 | `relationship_type_id` | ULID FK | → `pm.jurisdiction_relationship_types` |
 | `metadata` | jsonb | Weight percentage, basis, legal reference (URL/statute), etc. |
-| `valid_start` / `valid_end` | timestamptz | Real-world validity. |
-| `transaction_start` / `transaction_end` | timestamptz | PM-record validity. |
+| `valid_from` / `valid_until` | timestamptz | Real-world validity. |
+| `recorded_at` / `superseded_at` | timestamptz | PM-record validity. |
 
-**Natural-key UNIQUE:** `(subject_jurisdiction_id, object_jurisdiction_id, relationship_type_id, valid_start)`.
+**Natural-key UNIQUE:** `(subject_jurisdiction_id, object_jurisdiction_id, relationship_type_id, valid_from)`.
 
 ### `pm.jurisdiction_relationship_types` (the lookup)
 
-Codes from the external exploration, plus the `symmetric` flag pattern from `canonical.bill_relationship_types` (hybrid IA v1.3).
+Codes from the external exploration, with `is_symmetric` flag.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -96,18 +127,17 @@ Codes from the external exploration, plus the `symmetric` flag pattern from `can
 | `code` | text(64) UNIQUE | See vocab below. |
 | `display_name` | text(128) NOT NULL | |
 | `category` | text(16) NOT NULL | `spatial` / `governance` / `functional` / `temporal` — for query filtering. |
-| `symmetric` | bool NOT NULL default false | True for `partially_overlaps`, `is_coterminous_with`; false for directed relations like `is_fully_contained_by`. |
+| `is_symmetric` | bool NOT NULL default false | True for `partially_overlaps`, `is_coterminous_with`; false for directed relations like `is_fully_contained_by`. |
 | `description` | text nullable | |
 
-**Initial vocabulary:**
+**Initial vocabulary (11 codes — PM dropped `exercises_concurrent_jurisdiction` from MVP per PM design review; reserved for future LEA-tracking cohort needs):**
 
-| Code | Category | Symmetric |
+| Code | Category | is_symmetric |
 |---|---|---|
 | `is_fully_contained_by` | spatial | no |
 | `partially_overlaps` | spatial | yes |
 | `is_coterminous_with` | spatial | yes |
 | `has_regulatory_authority_over` | governance | no |
-| `exercises_concurrent_jurisdiction` | governance | yes |
 | `has_extraterritorial_jurisdiction_over` | governance | no |
 | `member_of` | functional | no |
 | `reports_to` | functional | no |
@@ -116,19 +146,17 @@ Codes from the external exploration, plus the `symmetric` flag pattern from `can
 | `succeeded_by` | temporal | no |
 | `evolved_from` | temporal | no |
 
-### `pm.jurisdiction_identifiers` (the polymorphic-IDs side table)
+### Identifiers — reuse existing `identifiers` table (no new table)
 
-Same shape as `pm.person_identifiers`. 1:N child of jurisdiction.
+**PM's design-review decision (resolved 2026-06-01):** rather than create a separate `pm.jurisdiction_identifiers` table, PM extended the existing polymorphic `identifiers` table to support jurisdictions. The `entity_type` CHECK constraint was extended on 7 existing tables (`identifiers`, `entity_addresses`, `links`, `contact_methods`, `import_provenance`, `field_confidence`, `deleted_entities`) to include `'jurisdiction'`.
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | ULID PK | |
-| `jurisdiction_id` | ULID FK | |
-| `scheme` | text(64) NOT NULL | Slug per source: `ocd` / `iso_3166_2` / `census_fips` / `geoid` / `wsl_district_id` / `census_geoid_2020` / etc. |
-| `value` | text(256) NOT NULL | The identifier value in the scheme's natural format. |
-| `verified_at` | timestamptz nullable | |
+Three identifier types seeded into `entity_identifier_types`:
 
-**Natural-key UNIQUE:** `(jurisdiction_id, scheme)` — one value per scheme per jurisdiction. Plus `(scheme, value)` for cross-jurisdiction lookups.
+- `jur_ocd` — OpenCivicData division identifier (e.g., `ocd-division/country:us/state:wa/sldu:21`)
+- `jur_fips` — Census FIPS code
+- `jur_iso3166_2` — ISO 3166-2 subdivision code
+
+Adapters add additional schemes (e.g., `jur_wsl_district_id`) without schema change — same pattern as `person_identifiers` / `organization_identifiers`.
 
 ### Deferred (not in MVP)
 
@@ -145,16 +173,18 @@ Mirrors PM's `pm.jurisdictions` shape so the cache is a drop-in subset.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | ULID PK | Local ID; FK target across the canonical schema. |
-| `pm_jurisdiction_id` | ULID nullable | Populated when the sidecar syncs from PM (auto-attached or new disposition). Null when locally minted pre-sync (pending sidecar push). |
+| `pm_jurisdiction_id` | ULID nullable | Populated when the sidecar syncs from PM (`AUTO_ATTACHED` or `NEW` disposition). Null when locally minted pre-sync (pending sidecar push). |
 | `slug` | text(128) NOT NULL UNIQUE | Matches PM's slug. |
 | `name` | text NOT NULL | |
-| `type` | text(32) NOT NULL | Vocabulary per PM Section 1. Replaces the existing `JurisdictionLevel` StrEnum (4 values → ~16 values, free-text). |
-| `valid_start` / `valid_end` | timestamptz nullable | Mirrored from PM. |
-| `transaction_start` | timestamptz NOT NULL | Mirrored from PM's clock (preserves PM's view of when the row was active). |
-| `transaction_end` | timestamptz nullable | |
-| `created_at` / `updated_at` | timestamptz | Local-DB timestamps via `TimestampMixin`. Different from `transaction_start/end` — these are usa-wa's local-cache write times. |
+| `type_id` | ULID NOT NULL FK | → `clearinghouse_core.jurisdiction_types`. Mirrors PM's FK pattern. Replaces the existing `JurisdictionLevel` StrEnum (4 values → ~16 values via lookup). |
+| `valid_from` / `valid_until` | timestamptz nullable | Mirrored from PM. **Names match PM's convention** (was `valid_start`/`valid_end` in original spec). |
+| `recorded_at` | timestamptz NOT NULL | Mirrored from PM's clock (preserves PM's view of when the row was active). **Was `transaction_start`.** |
+| `superseded_at` | timestamptz nullable | **Was `transaction_end`.** |
+| `created_at` / `updated_at` | timestamptz | Local-DB timestamps via `TimestampMixin`. Different from `recorded_at`/`superseded_at` — these are usa-wa's local-cache write times. |
 
-Plus mirror tables `clearinghouse_core.jurisdiction_relationships`, `clearinghouse_core.jurisdiction_relationship_types`, `clearinghouse_core.jurisdiction_identifiers` — same shape as their PM counterparts, with `pm_*_id` nullable columns pointing back to the PM-side rows.
+Plus mirror tables `clearinghouse_core.jurisdiction_relationships` and `clearinghouse_core.jurisdiction_relationship_types` (with `is_symmetric` column, 11-code initial vocab) — same shape as their PM counterparts, with `pm_*_id` nullable columns pointing back to the PM-side rows.
+
+**`clearinghouse_core.jurisdiction_identifiers` is dropped from MVP.** PM's design-review decision was to reuse the existing `identifiers` table on the PM side. For usa-wa MVP, local identifier caching is deferred — identifiers are resolved via PM API when needed (the sidecar follow-up plan can add local identifier caching if performance demands). The Role.jurisdiction_id refactor doesn't require identifier resolution at write time; it needs only slug → ULID lookup.
 
 ### Schema-wide refactor
 
@@ -225,48 +255,54 @@ To avoid chicken-and-egg on first deploy and to let usa-wa ship before PM's read
 
 **File creation completed 2026-06-01.** The file is at `packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/data/initial_jurisdictions.json`. See Open Question 7 for the full tally.
 
+**PM-side ingestion path:** PM's design review decided the bootstrap goes through a **PM-owned admin import** rather than the observation flow. We hand off `initial_jurisdictions.json` to PM as the canonical seed file; PM admin-imports once; subsequent usa-wa observations route against anchored IDs (`AUTO_ATTACHED` from day one). This avoids the awkwardness of bootstrapping through observations (everything would be `NEW`, PM doesn't hold canonical ownership).
+
 Sidecar push to PM is idempotent on slug; first run pushes the bootstrap set. Once PM has the entries (disposition `auto-attached` for re-runs), sync is steady-state.
 
 ## Section 3 — PM API contract
 
 REST endpoints aligned with PM's existing pattern (`/api/v1/` prefix, API-key auth via `Authorization: Bearer <key>`, JSON throughout, HTTPS).
 
-### Read endpoints (direct — no observation wrapper needed)
+### Read endpoints (shipped 2026-06-01 in PM #168 Phase 1)
 
 ```
 GET  /api/v1/jurisdictions
-       ?type=<vocab>
-       &slug_prefix=<str>
-       &parent_slug=<str>          # direct children of this jurisdiction
+       ?type=<slug>
+       &include_archived=<bool>     # PM convention (consistency with orgs/people endpoints)
        &valid_at=<iso8601>          # bitemporal filter
-       &include=relationships,identifiers
        &cursor=<opaque>             # cursor-based pagination
        &limit=100
 
 GET  /api/v1/jurisdictions/{id_or_slug}
-       ?include=relationships,identifiers,lineage
+       # detail by ULID or slug; ETag caching
+       ?include=relationships
        &valid_at=<iso8601>
 
+GET  /api/v1/jurisdictions/resolve
+       ?slug=<str>                  # OR
+       ?scheme=<slug>&value=<str>   # identifier-based lookup
+       # fast path — single jurisdiction by slug or external identifier
+
 GET  /api/v1/jurisdictions/{id}/relationships
-       ?relationship_type=<code>
-       &direction=subject|object|both
+       ?direction=subject|object|both
+       &category=<spatial|governance|functional|temporal>
+       &rel_type=<code>
        &valid_at=<iso8601>
 
 GET  /api/v1/jurisdictions/{id}/lineage
-       # supersedes / succeeded_by / evolved_from graph
-
-GET  /api/v1/jurisdictions/resolve?slug=<str>
-       # fast path — slug → Jurisdiction
+       # recursive traversal (depth cap 50)
+       # `supersedes` / `succeeded_by` / `evolved_from` edges
 ```
 
-### Write endpoint (observation-pattern aligned per PM #164)
+All routes are read-only behind `X-API-Key`. PM's test coverage is 38 tests green (30 integration + 8 auth).
 
-All writes go through the same `POST /api/v1/observations` PM is building for identity. Adds `entity_type: "jurisdiction"` and the jurisdiction payload shape:
+### Write endpoint (shipped 2026-06-01 in PM #168 Phase 2)
+
+PM established a **per-entity observation endpoint pattern** rather than overloading the shared `/observations` route — `POST /api/v1/jurisdictions/observations` is the jurisdiction-specific entry point. Follow-on PM issue #169 will decompose the existing shared `/observations` into per-entity routes for people / organizations, establishing this as the cohort-wide convention.
 
 ```
-POST /api/v1/observations
+POST /api/v1/jurisdictions/observations
 {
-  "entity_type": "jurisdiction",
   "source": "usa_wa",
   "source_record_id": "<usa-wa local cache row id>",
   "confidence": 1.0,
@@ -274,10 +310,10 @@ POST /api/v1/observations
     "slug": "usa-wa-ld-21",
     "name": "Washington State Legislative District 21",
     "type": "legislative_district",
-    "valid_start": "2022-01-01T00:00:00Z",
+    "valid_from": "2022-01-01T00:00:00Z",
     "identifiers": [
-      {"scheme": "ocd", "value": "ocd-division/country:us/state:wa/sldu:21"},
-      {"scheme": "wsl_district_id", "value": "21"}
+      {"scheme": "jur_ocd", "value": "ocd-division/country:us/state:wa/sldu:21"},
+      {"scheme": "jur_wsl_district_id", "value": "21"}
     ],
     "relationships": [
       {"object_slug": "usa-wa", "relationship_type": "is_fully_contained_by"}
@@ -285,6 +321,14 @@ POST /api/v1/observations
   }
 }
 ```
+
+**Disposition semantics (per PM #168 Phase 2):**
+
+- **`NEW`** — observation creates a jurisdiction row with slug + name + type (all three required for new identifiers; PM `_create_entity` handles the jurisdiction branch).
+- **`AUTO_ATTACHED`** — re-observing a known identifier attaches links / contacts / addresses / additional identifiers without requiring core fields.
+- **`REJECTED`** — unknown identifier type, missing required fields on `NEW`, invalid type slug, slug uniqueness collision.
+
+PM's `ChangeItem.entity_type` `Literal` widened to include `'jurisdiction'`; `resolve_entity` extended with `create_data` kwarg + `UniqueViolationError` guard; `write_names` no-ops for jurisdictions. PM test coverage: 17 integration tests (15 behaviour + 2 auth), all green.
 
 ### Response shape
 
@@ -294,30 +338,22 @@ POST /api/v1/observations
   "slug": "usa-wa-ld-21",
   "name": "Washington State Legislative District 21",
   "type": "legislative_district",
-  "valid_start": "2022-01-01T00:00:00Z",
-  "valid_end": null,
-  "transaction_start": "2022-09-15T12:00:00Z",
-  "transaction_end": null,
+  "valid_from": "2022-01-01T00:00:00Z",
+  "valid_until": null,
+  "recorded_at": "2022-09-15T12:00:00Z",
+  "superseded_at": null,
   "relationships": [...],
   "identifiers": [...]
 }
 ```
 
-### Disposition handling
-
-Per PM #162, three dispositions:
-
-- **`auto-attached`** — exact match on slug or strong identifier; PM returns the existing `pm_jurisdiction_id`.
-- **`new`** — no match; PM creates the row and returns the new id.
-- **`rejected`** — payload validation failure, ambiguous resolution PM can't safely auto-decide, or trust-model failure.
-
-Sidecar handling:
+### Sidecar disposition handling
 
 | Disposition | Sidecar action |
 |---|---|
-| `auto-attached` | Write returned `pm_jurisdiction_id` to local cache row; clear work queue entry. |
-| `new` | Same — `pm_jurisdiction_id` populated for the first time. |
-| `rejected` | Structured error log; operator notified; row stays unresolved until manual PM admin action. |
+| `AUTO_ATTACHED` | Write returned `pm_jurisdiction_id` to local cache row; clear work queue entry. |
+| `NEW` | Same — `pm_jurisdiction_id` populated for the first time. |
+| `REJECTED` | Structured error log; operator notified; row stays unresolved until manual PM admin action. |
 
 ### Error handling
 
@@ -340,13 +376,13 @@ Sidecar handling:
 
 The schema-wide `jurisdiction_id: text(32)` → `ULID FK` refactor is a clean drop-and-rebuild because usa-wa has no production data yet (P0.5 hasn't started ingestion). Single migration:
 
-1. **Pre-seed cache.** Create `clearinghouse_core.jurisdictions` (extended shape) + relationships + identifiers + relationship_types lookup. Seed `clearinghouse_core.jurisdiction_relationship_types` with the full vocab (12 codes). Seed `clearinghouse_core.jurisdictions` from a bundled `initial_jurisdictions.json` (WA-relevant set).
+1. **Pre-seed cache.** Create `clearinghouse_core.jurisdictions` (extended shape — `type_id` FK), `clearinghouse_core.jurisdiction_types` lookup (16 rows seeded to mirror PM), `clearinghouse_core.jurisdiction_relationships` (with `valid_from`/`valid_until`/`recorded_at`/`superseded_at`), `clearinghouse_core.jurisdiction_relationship_types` lookup (11 codes — `exercises_concurrent_jurisdiction` dropped per PM Phase 1; `is_symmetric` column). Seed `clearinghouse_core.jurisdictions` from a bundled `initial_jurisdictions.json` (WA-relevant set).
 2. **Add new FK columns.** Every canonical table gains `jurisdiction_id_new: ULID nullable FK`. Same migration.
 3. **Backfill.** Single SQL update per table: `UPDATE ... SET jurisdiction_id_new = (SELECT id FROM clearinghouse_core.jurisdictions WHERE slug = 'usa-wa')`. Since `usa-wa` is the only slug today, this is trivial.
 4. **Drop old + swap.** Drop `jurisdiction_id_old` (text), rename `jurisdiction_id_new` → `jurisdiction_id`, mark NOT NULL. Reseat natural-key UNIQUE constraints.
 5. **Drop `Role.district`** column.
 
-Single migration file, single transaction. Pre-seed runs idempotently via `INSERT ... ON CONFLICT DO NOTHING`.
+Single migration file, single transaction. Pre-seed runs idempotently via `INSERT ... ON CONFLICT DO NOTHING`. `clearinghouse_core.jurisdiction_identifiers` is **not** part of this migration (deferred to sidecar follow-up).
 
 ### PM coordination
 
@@ -366,15 +402,20 @@ The usa-wa-side tracking lives under [usa-wa#3](https://github.com/CannObserv/us
 
 ## Open questions for implementation phase
 
-Captured as design notes — not blocking the spec, but worth resolving during `writing-plans`:
+Most original open questions were resolved by PM #168 Phase 1 + Phase 2 (2026-06-01); status updates inline below:
 
-1. **`clearinghouse_core.Jurisdiction.level` → `type` vocab widening.** Existing `JurisdictionLevel` StrEnum has 4 values. New `type` vocab is ~16 values (open). Migration drops the enum, replaces with `text(32)`. Vocabulary documented in column docstring; no DB CHECK so adapters stay flexible.
-2. **Bitemporal `transaction_*` clock source.** Recommendation: PM's clock for the cache `transaction_start` / `transaction_end` (preserves PM's view of when a row was active); usa-wa's `created_at` / `updated_at` from `TimestampMixin` carries the local-DB write times. Two clocks, distinct semantics — both useful.
-3. **`Role.jurisdiction_id` semantics for spanning roles.** At-large / leadership / unicameral roles get the broadest containing jurisdiction; district-specific roles get the district. Document in the Role docstring.
-4. **Cycles + Scenarios deferral details.** Bitemporal + the lineage relationship types support "what was active on date X" queries. Explicit Cycle/Scenario containers come when draft-map comparison becomes a query target. Not in MVP; not in P1 either.
-5. **Naming gap with PM's existing `wa` identifier prefix.** PM's existing identifier slugs use `wa`; the new Jurisdiction slugs use `usa-wa`. Two parallel conventions in PM. Flag to PM maintainer — may want to align both eventually, or accept that identifier slugs vs jurisdiction slugs are different concepts.
-6. **Existing `2026-05-27-power-map-integration.md` cleanup.** Sub-spec still references the discarded `queued-for-review` disposition. Worth a separate cleanup pass.
-7. ✅ **`initial_jurisdictions.json` review gate.** Resolved 2026-06-01 — file at `packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/data/initial_jurisdictions.json`. Final tally: **101 jurisdictions** (1 country + 1 state + 49 LDs + 10 CDs + 39 counties + 1 city — the "100 entries" estimate in prior versions of this section was off by one) and **101 relationships** (each sub-state entity `is_fully_contained_by usa-wa` + `usa-wa is_fully_contained_by usa` + Seattle additionally `is_fully_contained_by usa-wa-county-king` as a worked example of the city-in-county graph relation). LDs use generic `legislative_district` type (Senate / House share boundaries in WA; chamber distinction lives at the Role level).
+1. ✅ **`clearinghouse_core.Jurisdiction.level` → `type` vocab widening.** Resolved — PM shipped `jurisdiction_types` as a FK lookup with 16 rows. Local cache mirrors: `clearinghouse_core.jurisdiction_types` seeded from PM. Migration drops the old `JurisdictionLevel` StrEnum, replaces with FK to the lookup.
+2. ✅ **Bitemporal column naming.** Resolved — PM adopted `valid_from` / `valid_until` / `recorded_at` / `superseded_at`. Local cache mirrors these names. usa-wa's `created_at` / `updated_at` from `TimestampMixin` carries local-DB write times (separate axis).
+3. **`Role.jurisdiction_id` semantics for spanning roles.** At-large / leadership / unicameral roles get the broadest containing jurisdiction; district-specific roles get the district. Document in the Role docstring. *(Open — local schema convention.)*
+4. **Cycles + Scenarios deferral details.** Bitemporal + lineage relationships support "what was active on date X" queries. Explicit Cycle/Scenario containers deferred until draft-map comparison becomes a query target. *(Open — deferred from MVP.)*
+5. ✅ **Naming gap with PM's existing `wa` identifier prefix.** Resolved — PM accepted the `usa-` prefix for jurisdiction slugs as intentionally distinct from the `wa_legislature_member_id`-style identifier slugs. Two parallel conventions confirmed as the right shape (different namespaces).
+6. **Existing `2026-05-27-power-map-integration.md` cleanup.** Sub-spec still references the discarded `queued-for-review` disposition. *(Open — landing as a plan step.)*
+7. ✅ **`initial_jurisdictions.json` review gate.** Resolved 2026-06-01 — file at `packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/data/initial_jurisdictions.json`. Final tally: **101 jurisdictions** + **101 relationships** (Seattle additionally `is_fully_contained_by usa-wa-county-king` as a worked example). LDs use generic `legislative_district` type. PM ingests this as a one-time admin import, not via the observation flow.
+8. ✅ **`pm.jurisdiction_identifiers` separate table or extend `identifiers`?** Resolved — PM extended the existing polymorphic `identifiers` table (entity_type CHECK on 7 tables; `jur_ocd` / `jur_fips` / `jur_iso3166_2` seeded). usa-wa drops the planned `clearinghouse_core.jurisdiction_identifiers` table from this scope; local identifier caching deferred to sidecar follow-up.
+9. ✅ **`exercises_concurrent_jurisdiction` complexity.** Resolved — PM dropped from MVP (LEA-specific, no current cohort need). Slot reserved for future addition.
+10. ✅ **Read endpoint sequencing.** Resolved — PM Phase 1 shipped read endpoints independently of #162/#164; Phase 2 then shipped the write endpoint. Sidecar (both flows) is no longer blocked.
+11. ✅ **Pre-seed coordination path.** Resolved — PM accepts `initial_jurisdictions.json` as a one-time admin import; usa-wa observation flow operates against anchored IDs from day one.
+12. ✅ **Write endpoint shape — shared `/observations` vs per-entity.** Resolved — PM chose per-entity (`POST /api/v1/jurisdictions/observations`), establishing the pattern for the follow-on #169 decomposing the shared `/observations` into per-entity routes.
 
 ## Cross-references
 
