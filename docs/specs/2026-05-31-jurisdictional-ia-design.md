@@ -45,7 +45,7 @@ PM adds four new tables in its existing identity schema.
 | `id` | ULID PK | |
 | `slug` | text, UNIQUE | Pattern: `<iso-3166-1-alpha3>-<iso-3166-2>[-<key>-<value>]*`. See "Slug convention" below for formatting rules. Examples: `usa`, `usa-wa`, `usa-wa-ld-21`, `usa-wa-county-king`, `usa-wa-city-seattle`. |
 | `name` | text NOT NULL | Display name. |
-| `type` | text(32) NOT NULL | Open vocabulary (free-text + documented values, no DB CHECK so adapters stay flexible). Common values: `country` / `state` / `county` / `city` / `legislative_district_upper` / `legislative_district_lower` / `congressional_district` / `judicial_district` / `school_district` / `water_district` / `tribal_nation` / `federal_enclave` / `census_block` / `census_tract` / `other`. |
+| `type` | text(32) NOT NULL | Open vocabulary (free-text + documented values, no DB CHECK so adapters stay flexible). Common values: `country` / `state` / `county` / `city` / `legislative_district` / `legislative_district_upper` / `legislative_district_lower` / `congressional_district` / `judicial_district` / `school_district` / `water_district` / `tribal_nation` / `federal_enclave` / `census_block` / `census_tract` / `other`. `legislative_district` is for jurisdictions where Senate and House boundaries are shared (e.g., WA — one LD per Senate district, identical boundary for the corresponding House district); `legislative_district_upper` / `legislative_district_lower` distinguish chambers when they have separate boundaries. |
 | `valid_start` | timestamptz nullable | When the jurisdiction is legally active in the real world. |
 | `valid_end` | timestamptz nullable | Null = currently active. |
 | `transaction_start` | timestamptz NOT NULL | When the record was added to PM (audit + "undo" semantics). |
@@ -214,14 +214,16 @@ To avoid chicken-and-egg on first deploy and to let usa-wa ship before PM's read
 
 - **Cities:** `usa-wa-city-seattle` only at MVP — WSL adapter signals reference Seattle for some committee-hearing locations. Additional cities (Tacoma, Spokane, Olympia, etc.) added as they appear in adapter data.
 
+**LD type choice (`legislative_district` vs `legislative_district_upper` / `_lower`).** WA's 49 LDs have a shared boundary between Senate (1 Senator) and House (2 Representatives) — one geographic boundary, two chambers' worth of seats. The pre-seed uses the generic `legislative_district` type to model this. Jurisdictions where Senate and House boundaries are independent (most non-WA states) use `legislative_district_upper` / `legislative_district_lower` to distinguish chambers.
+
 **Relationships pre-seeded** (the graph is more important than the entity list):
 
 - `usa-wa IS_FULLY_CONTAINED_BY usa`
 - Each LD and CD: `IS_FULLY_CONTAINED_BY usa-wa`
 - Each county: `IS_FULLY_CONTAINED_BY usa-wa`
-- `usa-wa-city-seattle IS_FULLY_CONTAINED_BY usa-wa` (not `IS_FULLY_CONTAINED_BY usa-wa-county-king` — Seattle is contained in King County in practice, but the schema doesn't assume single-county containment; LD/CD overlap with counties is real and we want the same flexibility for cities).
+- `usa-wa-city-seattle IS_FULLY_CONTAINED_BY usa-wa` — the state-level containment. Seattle is also seeded with `IS_FULLY_CONTAINED_BY usa-wa-county-king` as a worked example of the city-in-county graph relation; future cities follow the same pattern (state-level containment always; county-level containment when the city sits in one). For cities that span multiple counties (e.g., the Aurora-IL case), the same shape emits multiple `IS_FULLY_CONTAINED_BY` relations.
 
-**File creation is gated on user review.** Before the JSON file is created and bundled into the adapter package, the user will see the proposed entity list + relationships and confirm naming conventions align. The spec's pre-seed scope is the proposal; the file is the implementation artifact.
+**File creation completed 2026-06-01.** The file is at `packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/data/initial_jurisdictions.json`. See Open Question 7 for the full tally.
 
 Sidecar push to PM is idempotent on slug; first run pushes the bootstrap set. Once PM has the entries (disposition `auto-attached` for re-runs), sync is steady-state.
 
@@ -271,7 +273,7 @@ POST /api/v1/observations
   "payload": {
     "slug": "usa-wa-ld-21",
     "name": "Washington State Legislative District 21",
-    "type": "legislative_district_upper",
+    "type": "legislative_district",
     "valid_start": "2022-01-01T00:00:00Z",
     "identifiers": [
       {"scheme": "ocd", "value": "ocd-division/country:us/state:wa/sldu:21"},
@@ -291,7 +293,7 @@ POST /api/v1/observations
   "id": "01J...",
   "slug": "usa-wa-ld-21",
   "name": "Washington State Legislative District 21",
-  "type": "legislative_district_upper",
+  "type": "legislative_district",
   "valid_start": "2022-01-01T00:00:00Z",
   "valid_end": null,
   "transaction_start": "2022-09-15T12:00:00Z",
@@ -372,7 +374,7 @@ Captured as design notes — not blocking the spec, but worth resolving during `
 4. **Cycles + Scenarios deferral details.** Bitemporal + the lineage relationship types support "what was active on date X" queries. Explicit Cycle/Scenario containers come when draft-map comparison becomes a query target. Not in MVP; not in P1 either.
 5. **Naming gap with PM's existing `wa` identifier prefix.** PM's existing identifier slugs use `wa`; the new Jurisdiction slugs use `usa-wa`. Two parallel conventions in PM. Flag to PM maintainer — may want to align both eventually, or accept that identifier slugs vs jurisdiction slugs are different concepts.
 6. **Existing `2026-05-27-power-map-integration.md` cleanup.** Sub-spec still references the discarded `queued-for-review` disposition. Worth a separate cleanup pass.
-7. **`initial_jurisdictions.json` review gate.** Per user direction, the proposed pre-seed entity list (39 counties + 49 LDs + 10 CDs + Seattle + state + country = 100 entries) and the relationship graph are reviewed before the JSON file is created. Naming conventions checked against the slug rules in Section 1. Resolution happens during writing-plans Step 1 (pre-seed file creation).
+7. ✅ **`initial_jurisdictions.json` review gate.** Resolved 2026-06-01 — file at `packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/data/initial_jurisdictions.json`. Final tally: **101 jurisdictions** (1 country + 1 state + 49 LDs + 10 CDs + 39 counties + 1 city — the "100 entries" estimate in prior versions of this section was off by one) and **101 relationships** (each sub-state entity `is_fully_contained_by usa-wa` + `usa-wa is_fully_contained_by usa` + Seattle additionally `is_fully_contained_by usa-wa-county-king` as a worked example of the city-in-county graph relation). LDs use generic `legislative_district` type (Senate / House share boundaries in WA; chamber distinction lives at the Role level).
 
 ## Cross-references
 
