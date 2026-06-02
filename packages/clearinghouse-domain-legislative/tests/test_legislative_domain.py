@@ -46,10 +46,10 @@ def test_package_imports_six_clusters():
         assert hasattr(clearinghouse_domain_legislative, name)
 
 
-async def test_identity_round_trip(db_session):
+async def test_identity_round_trip(db_session, usa_wa):
     """Person + Organization + Role + Assignment chain persists with all natural keys intact."""
     person = Person(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="26142",
         name_full="Jane Doe",
@@ -60,7 +60,7 @@ async def test_identity_round_trip(db_session):
     await db_session.flush()
 
     senate = Organization(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="senate",
         name="Washington State Senate",
@@ -71,19 +71,18 @@ async def test_identity_round_trip(db_session):
     await db_session.flush()
 
     senator_role = Role(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="role:senate:senator:21",
         organization_id=senate.id,
         name="Senator",
         role_type="elected_member",
-        district="21",
     )
     db_session.add(senator_role)
     await db_session.flush()
 
     assignment = Assignment(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="assignment:26142:senator:21:2023-01-09",
         person_id=person.id,
@@ -102,10 +101,10 @@ async def test_identity_round_trip(db_session):
     assert fetched.is_active is True
 
 
-async def test_person_identifier_round_trip(db_session):
+async def test_person_identifier_round_trip(db_session, usa_wa):
     """An external-ID mapping persists with the (jurisdiction, scheme, value) unique constraint."""
     person = Person(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="26143",
         name_full="John Smith",
@@ -114,7 +113,7 @@ async def test_person_identifier_round_trip(db_session):
     await db_session.flush()
 
     ident = PersonIdentifier(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="ident:26143:wsl_member_id",
         person_id=person.id,
@@ -133,10 +132,10 @@ async def test_person_identifier_round_trip(db_session):
     assert fetched.person_id == person.id
 
 
-async def test_bill_with_session_round_trip(db_session):
+async def test_bill_with_session_round_trip(db_session, usa_wa):
     """A Bill with all the v1 columns (chambers, status_class, enacted_as) persists."""
     session = LegislativeSession(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="2025",
         slug="usa-wa-2025",
@@ -147,7 +146,7 @@ async def test_bill_with_session_round_trip(db_session):
         is_active=True,
     )
     house = Organization(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="house",
         name="Washington State House of Representatives",
@@ -155,7 +154,7 @@ async def test_bill_with_session_round_trip(db_session):
         org_type="chamber",
     )
     senate = Organization(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="senate",
         name="Washington State Senate",
@@ -163,7 +162,7 @@ async def test_bill_with_session_round_trip(db_session):
         org_type="chamber",
     )
     house_bill_type = BillType(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         code="HB",
         display_name="House Bill",
         classification="bill",
@@ -172,7 +171,7 @@ async def test_bill_with_session_round_trip(db_session):
     await db_session.flush()
 
     bill = Bill(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="HB-1234-2025-26",
         legislative_session_id=session.id,
@@ -198,16 +197,16 @@ async def test_bill_with_session_round_trip(db_session):
     assert fetched.legislative_session_id == session.id
 
 
-async def test_polymorphic_sponsorship_person(db_session):
+async def test_polymorphic_sponsorship_person(db_session, usa_wa):
     """A person-sponsored Bill works without organization_id."""
     person = Person(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="26144",
         name_full="Sponsor Senator",
     )
     session = LegislativeSession(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="2025",
         slug="usa-wa-2025",
@@ -215,7 +214,7 @@ async def test_polymorphic_sponsorship_person(db_session):
         classification="regular",
     )
     house = Organization(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="house",
         name="Washington State House of Representatives",
@@ -226,7 +225,7 @@ async def test_polymorphic_sponsorship_person(db_session):
     await db_session.flush()
 
     bill = Bill(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="HB-9999-2025-26",
         legislative_session_id=session.id,
@@ -238,7 +237,7 @@ async def test_polymorphic_sponsorship_person(db_session):
     await db_session.flush()
 
     sponsorship = BillSponsorship(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="sp:HB-9999-2025-26:primary:26144",
         bill_id=bill.id,
@@ -257,10 +256,10 @@ async def test_polymorphic_sponsorship_person(db_session):
     assert fetched.role == "primary"
 
 
-async def test_amendment_and_vote_event_round_trip(db_session):
+async def test_amendment_and_vote_event_round_trip(db_session, usa_wa):
     """Amendment + VoteEvent + VoteCount + PersonVote chain — polymorphic vote subject."""
     session = LegislativeSession(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="2025",
         slug="usa-wa-2025",
@@ -268,21 +267,21 @@ async def test_amendment_and_vote_event_round_trip(db_session):
         classification="regular",
     )
     senate = Organization(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="senate",
         name="WA Senate",
         org_type="chamber",
     )
     house = Organization(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="house",
         name="WA House",
         org_type="chamber",
     )
     person = Person(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="26145",
         name_full="Vote Caster",
@@ -291,7 +290,7 @@ async def test_amendment_and_vote_event_round_trip(db_session):
     await db_session.flush()
 
     bill = Bill(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="HB-7777-2025-26",
         legislative_session_id=session.id,
@@ -303,7 +302,7 @@ async def test_amendment_and_vote_event_round_trip(db_session):
     await db_session.flush()
 
     introduced_version = BillVersion(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="bv:HB-7777:introduced",
         bill_id=bill.id,
@@ -313,7 +312,7 @@ async def test_amendment_and_vote_event_round_trip(db_session):
     await db_session.flush()
 
     amendment = Amendment(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="amd:HB-7777-2025-26:1",
         bill_version_id=introduced_version.id,
@@ -326,7 +325,7 @@ async def test_amendment_and_vote_event_round_trip(db_session):
     await db_session.flush()
 
     vote = VoteEvent(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="rc:senate:amd:HB-7777-2025-26:1",
         subject_type="amendment",
@@ -344,7 +343,7 @@ async def test_amendment_and_vote_event_round_trip(db_session):
     await db_session.flush()
 
     count = VoteCount(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="vc:rc:senate:amd:1:yea",
         vote_event_id=vote.id,
@@ -352,7 +351,7 @@ async def test_amendment_and_vote_event_round_trip(db_session):
         value=29,
     )
     pv = PersonVote(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="pv:rc:senate:amd:1:26145",
         vote_event_id=vote.id,
@@ -369,18 +368,18 @@ async def test_amendment_and_vote_event_round_trip(db_session):
     assert fetched_pv.vote == "yea"
 
 
-async def test_statute_chain_round_trip(db_session):
+async def test_statute_chain_round_trip(db_session, usa_wa):
     """The statute cluster is unchanged from P0 — its natural keys are (jurisdiction, code) etc.,
     not the universal (jurisdiction, source, source_id). No source/source_id columns yet."""
     code = StatuteCode(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         code="RCW",
         name="Revised Code of Washington",
     )
     db_session.add(code)
     await db_session.flush()
     title = StatuteTitle(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         statute_code_id=code.id,
         number="46",
         heading="Motor Vehicles",
@@ -388,7 +387,7 @@ async def test_statute_chain_round_trip(db_session):
     db_session.add(title)
     await db_session.flush()
     chapter = StatuteChapter(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         statute_title_id=title.id,
         number="46.16",
         heading="Vehicle Registration",
@@ -396,7 +395,7 @@ async def test_statute_chain_round_trip(db_session):
     db_session.add(chapter)
     await db_session.flush()
     section = StatuteSection(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         statute_chapter_id=chapter.id,
         number="46.16.005",
         heading="Definitions",
@@ -410,17 +409,17 @@ async def test_statute_chain_round_trip(db_session):
     assert fetched.heading == "Definitions"
 
 
-async def test_lobbying_and_contribution_round_trip(db_session):
+async def test_lobbying_and_contribution_round_trip(db_session, usa_wa):
     """PDC entities reshape around Person+Organization; CHECK constraints hold."""
     lobbyist = Organization(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_pdc",
         source_id="L-12345",
         name="Acme Government Affairs LLC",
         org_type="lobbying_firm",
     )
     committee = Organization(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_pdc",
         source_id="C-001",
         name="Friends of Jane Doe",
@@ -430,7 +429,7 @@ async def test_lobbying_and_contribution_round_trip(db_session):
     await db_session.flush()
 
     activity = LobbyingActivity(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_pdc",
         source_id="LA-2025-Q1-12345",
         organization_id=lobbyist.id,
@@ -444,7 +443,7 @@ async def test_lobbying_and_contribution_round_trip(db_session):
     assert activity.compensation == Decimal("50000.00")
 
     contribution = Contribution(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_pdc",
         source_id="CON-001",
         recipient_organization_id=committee.id,
@@ -461,12 +460,12 @@ async def test_lobbying_and_contribution_round_trip(db_session):
     assert fetched.amount == Decimal("100.00")
 
 
-async def test_bill_action_polymorphic_classifications(db_session):
+async def test_bill_action_polymorphic_classifications(db_session, usa_wa):
     """BillAction grows multi-class via BillActionClassification 1:N child table."""
     from clearinghouse_domain_legislative.bills import BillActionClassification
 
     session = LegislativeSession(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="2025",
         slug="usa-wa-2025",
@@ -474,7 +473,7 @@ async def test_bill_action_polymorphic_classifications(db_session):
         classification="regular",
     )
     house = Organization(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="house",
         name="WA House",
@@ -483,7 +482,7 @@ async def test_bill_action_polymorphic_classifications(db_session):
     db_session.add_all([session, house])
     await db_session.flush()
     bill = Bill(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="HB-3333-2025-26",
         legislative_session_id=session.id,
@@ -495,7 +494,7 @@ async def test_bill_action_polymorphic_classifications(db_session):
     await db_session.flush()
 
     action = BillAction(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="act:HB-3333:reading3-and-passage",
         bill_id=bill.id,
@@ -513,14 +512,14 @@ async def test_bill_action_polymorphic_classifications(db_session):
     db_session.add_all(
         [
             BillActionClassification(
-                jurisdiction_id="usa-wa",
+                jurisdiction_id=usa_wa.id,
                 source="usa_wa_legislature",
                 source_id=f"bac:{action.source_id}:reading-3",
                 bill_action_id=action.id,
                 classification="reading-3",
             ),
             BillActionClassification(
-                jurisdiction_id="usa-wa",
+                jurisdiction_id=usa_wa.id,
                 source="usa_wa_legislature",
                 source_id=f"bac:{action.source_id}:passage",
                 bill_action_id=action.id,
@@ -544,11 +543,11 @@ async def test_bill_action_polymorphic_classifications(db_session):
     assert {c.classification for c in classes} == {"reading-3", "passage"}
 
 
-async def test_bill_titles_1_to_n_with_amendment_provenance(db_session):
+async def test_bill_titles_1_to_n_with_amendment_provenance(db_session, usa_wa):
     """Bills carry multiple titles via BillTitle; amendment_id tracks WA's
     amendment-driven title changes."""
     session = LegislativeSession(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="2025",
         slug="usa-wa-2025",
@@ -556,7 +555,7 @@ async def test_bill_titles_1_to_n_with_amendment_provenance(db_session):
         classification="regular",
     )
     house = Organization(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="house",
         name="WA House",
@@ -565,7 +564,7 @@ async def test_bill_titles_1_to_n_with_amendment_provenance(db_session):
     db_session.add_all([session, house])
     await db_session.flush()
     bill = Bill(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="HB-4242-2025-26",
         legislative_session_id=session.id,
@@ -577,7 +576,7 @@ async def test_bill_titles_1_to_n_with_amendment_provenance(db_session):
     await db_session.flush()
 
     introduced_version = BillVersion(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="bv:HB-4242:introduced",
         bill_id=bill.id,
@@ -587,7 +586,7 @@ async def test_bill_titles_1_to_n_with_amendment_provenance(db_session):
     await db_session.flush()
 
     amendment = Amendment(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="amd:HB-4242:21",
         bill_version_id=introduced_version.id,
@@ -598,7 +597,7 @@ async def test_bill_titles_1_to_n_with_amendment_provenance(db_session):
     await db_session.flush()
 
     canonical_at_intro = BillTitle(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="title:HB-4242:canonical:intro",
         bill_id=bill.id,
@@ -609,7 +608,7 @@ async def test_bill_titles_1_to_n_with_amendment_provenance(db_session):
         replaced_at=datetime(2025, 3, 15, tzinfo=UTC),
     )
     canonical_current = BillTitle(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="title:HB-4242:canonical:current",
         bill_id=bill.id,
@@ -621,7 +620,7 @@ async def test_bill_titles_1_to_n_with_amendment_provenance(db_session):
         is_current=True,
     )
     short_title = BillTitle(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="title:HB-4242:short",
         bill_id=bill.id,
@@ -649,11 +648,11 @@ async def test_bill_titles_1_to_n_with_amendment_provenance(db_session):
     assert pre_amend.amendment_id is None  # Was the introduced title, not amendment-driven
 
 
-async def test_bill_supplements_with_lifecycle_action(db_session):
+async def test_bill_supplements_with_lifecycle_action(db_session, usa_wa):
     """BillSupplement attaches per-version documents (Analysis / Report / Fiscal Note / Summary)
     and pairs with a BillAction whose supplement_id FK points back."""
     session = LegislativeSession(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="2025",
         slug="usa-wa-2025",
@@ -661,14 +660,14 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
         classification="regular",
     )
     house = Organization(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="house",
         name="WA House of Representatives",
         org_type="chamber",
     )
     house_cpb = Organization(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="house_cpb",
         name="WA House Consumer Protection and Business Committee",
@@ -678,7 +677,7 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
     await db_session.flush()
 
     bill = Bill(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="HB-1066-2025-26",
         legislative_session_id=session.id,
@@ -690,7 +689,7 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
     await db_session.flush()
 
     version = BillVersion(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="bv:HB-1066:introduced",
         bill_id=bill.id,
@@ -701,7 +700,7 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
 
     # Bill Analysis: pre-hearing summary by House CPB committee staff
     analysis = BillSupplement(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="supp:HB-1066:analysis:1",
         bill_id=bill.id,
@@ -715,7 +714,7 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
     )
     # Fiscal Note: partial status, revision 1 then revision 2
     fiscal_partial_v1 = BillSupplement(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="supp:HB-1066:fiscal:partial:1",
         bill_id=bill.id,
@@ -732,7 +731,7 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
         },
     )
     fiscal_partial_v2 = BillSupplement(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="supp:HB-1066:fiscal:partial:2",
         bill_id=bill.id,
@@ -749,7 +748,7 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
     # Lifecycle integration: BillAction row for the Bill Analysis publication
     # with supplement_id FK pointing to the authoritative document.
     action = BillAction(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="act:HB-1066:bill_analysis:1",
         bill_id=bill.id,
@@ -795,14 +794,14 @@ async def test_bill_supplements_with_lifecycle_action(db_session):
     assert fetched_action.primary_classification == "supplement_published"
 
 
-async def test_bill_classification_and_sponsored_at_round_trip(db_session):
+async def test_bill_classification_and_sponsored_at_round_trip(db_session, usa_wa):
     """Bill.bill_type_id (FK) + BillSponsorship.sponsored_at (uscongress OQ8/OQ14).
 
     v1.3 (2026-05-30): Bill.classification text column was removed; semantic
     classification now lives on the bill_types lookup row.
     """
     session = LegislativeSession(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="2025",
         slug="usa-wa-2025",
@@ -810,26 +809,26 @@ async def test_bill_classification_and_sponsored_at_round_trip(db_session):
         classification="regular",
     )
     house = Organization(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="house",
         name="WA House",
         org_type="chamber",
     )
     hjm_type = BillType(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         code="HJM",
         display_name="House Joint Memorial",
         classification="memorial",
     )
     sponsor = Person(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="26199",
         name_full="Original Cosponsor",
     )
     cosponsor = Person(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="26200",
         name_full="Late Cosponsor",
@@ -838,7 +837,7 @@ async def test_bill_classification_and_sponsored_at_round_trip(db_session):
     await db_session.flush()
 
     bill = Bill(
-        jurisdiction_id="usa-wa",
+        jurisdiction_id=usa_wa.id,
         source="usa_wa_legislature",
         source_id="HJM-8001-2025-26",
         legislative_session_id=session.id,
@@ -854,7 +853,7 @@ async def test_bill_classification_and_sponsored_at_round_trip(db_session):
     db_session.add_all(
         [
             BillSponsorship(
-                jurisdiction_id="usa-wa",
+                jurisdiction_id=usa_wa.id,
                 source="usa_wa_legislature",
                 source_id=f"sp:HJM-8001:primary:{sponsor.source_id}",
                 bill_id=bill.id,
@@ -864,7 +863,7 @@ async def test_bill_classification_and_sponsored_at_round_trip(db_session):
                 sponsored_at=datetime(2025, 1, 15, tzinfo=UTC),
             ),
             BillSponsorship(
-                jurisdiction_id="usa-wa",
+                jurisdiction_id=usa_wa.id,
                 source="usa_wa_legislature",
                 source_id=f"sp:HJM-8001:co:{cosponsor.source_id}",
                 bill_id=bill.id,

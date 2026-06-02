@@ -49,7 +49,12 @@ class LobbyingActivity(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -91,7 +96,12 @@ class LobbyingPosition(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -128,7 +138,12 @@ class Contribution(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 

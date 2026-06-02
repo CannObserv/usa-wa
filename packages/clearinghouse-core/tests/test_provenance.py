@@ -169,7 +169,7 @@ async def test_document_identifier_polymorphic_round_trip(db_session, seeded):
     db_session.add_all(
         [
             DocumentIdentifier(
-                jurisdiction_id="usa-wa",
+                jurisdiction_id=seeded["jurisdiction"].id,
                 source="usa_wa_legislature",
                 source_id="bv-H-0043.1",
                 entity_type="bill_version",
@@ -178,7 +178,7 @@ async def test_document_identifier_polymorphic_round_trip(db_session, seeded):
                 value="H-0043.1",
             ),
             DocumentIdentifier(
-                jurisdiction_id="usa-wa",
+                jurisdiction_id=seeded["jurisdiction"].id,
                 source="usa_wa_legislature",
                 source_id="amd-S-5276.3-26",
                 entity_type="amendment",
@@ -187,7 +187,7 @@ async def test_document_identifier_polymorphic_round_trip(db_session, seeded):
                 value="S-5276.3/26",
             ),
             DocumentIdentifier(
-                jurisdiction_id="usa-wa",
+                jurisdiction_id=seeded["jurisdiction"].id,
                 source="usa_wa_legislature",
                 source_id="amd-1066-AMH-CPB-CLOD-295",
                 entity_type="amendment",

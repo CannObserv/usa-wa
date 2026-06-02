@@ -17,14 +17,16 @@ each one before ``create_all`` runs. Teardown drops each schema CASCADE.
 
 import os
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 # Import Base *and* trigger model registration in every workspace package
 # that defines tables. As new packages are added, list them here so their
 # tables appear in Base.metadata before tests collect schemas.
+from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.models import Base  # noqa: F401
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
@@ -63,11 +65,21 @@ def anyio_backend() -> str:
 
 @pytest.fixture(scope="session")
 async def test_engine():
-    """Session-scoped engine. Creates schemas + tables once; drops on teardown."""
+    """Session-scoped engine. Creates schemas + tables once; drops on teardown.
+
+    Explicitly DROP + recreate each declared schema at startup so the test
+    session is independent of any prior state (e.g., a manual
+    ``alembic upgrade head`` against ``TEST_DATABASE_URL`` outside the test
+    lifecycle, which leaves seeded rows that collide with per-test fixtures).
+    Also drops ``public.alembic_version`` so an alembic-managed shape doesn't
+    fight with ``Base.metadata.create_all``.
+    """
     engine = create_async_engine(TEST_DATABASE_URL)
     schemas = _declared_schemas()
     async with engine.begin() as conn:
+        await conn.execute(text("DROP TABLE IF EXISTS public.alembic_version"))
         for schema in schemas:
+            await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
             await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
         await conn.run_sync(Base.metadata.create_all)
     yield engine
@@ -99,3 +111,41 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
 
         await session.close()
         await txn.rollback()
+
+
+@pytest.fixture
+async def usa_wa(db_session) -> Jurisdiction:
+    """Seed (or fetch) the ``usa-wa`` Jurisdiction cache row for canonical tests.
+
+    Canonical tables FK their ``jurisdiction_id`` to
+    ``clearinghouse_core.jurisdictions.id``. Tests that build canonical rows
+    use ``jurisdiction_id=usa_wa.id`` instead of the prior ``"usa-wa"`` text
+    literal. Per-test savepoint rollback keeps inserts isolated.
+
+    Idempotent: looks up by slug first because the test DB may carry rows
+    from a prior ``alembic upgrade head`` run outside the test_engine
+    lifecycle — ``Base.metadata.create_all`` no-ops on existing tables, so
+    seeded rows survive into the next test session unless the teardown
+    CASCADE-drop ran.
+    """
+    existing = (
+        await db_session.execute(select(Jurisdiction).where(Jurisdiction.slug == "usa-wa"))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    state_type = (
+        await db_session.execute(select(JurisdictionType).where(JurisdictionType.slug == "state"))
+    ).scalar_one_or_none()
+    if state_type is None:
+        state_type = JurisdictionType(slug="state", display_name="State")
+        db_session.add(state_type)
+        await db_session.flush()
+    row = Jurisdiction(
+        slug="usa-wa",
+        name="Washington State",
+        type_id=state_type.id,
+        recorded_at=datetime.now(UTC),
+    )
+    db_session.add(row)
+    await db_session.flush()
+    return row

@@ -45,7 +45,11 @@ Step-specific verifiable-when notes below add the per-step criteria on top of th
 
 5. **Update all test fixtures that seed `jurisdiction_id: str` or `Role.district`.** Touches every test that creates a canonical entity with `jurisdiction_id="usa-wa"`. Pattern: seed a local cache row (or fetch from the test fixture chain) and use its ULID. Same change everywhere — mechanical refactor. Adapter-shape tests stay unchanged (no FKs in adapter scaffolding). **Verifiable when:** common gates pass at maintained coverage.
 
-6. **Update `docs/specs/2026-05-27-hybrid-legislative-ia.md`** with the v1.4 changelog row documenting the schema-wide jurisdiction_id refactor + Role.district drop + cache table additions. Cross-link to this plan and the design spec. **Verifiable when:** the hybrid IA spec reflects the new schema state.
+6. **Update the v1.4 docs sweep:**
+   - `docs/specs/2026-05-27-hybrid-legislative-ia.md` — add the v1.4 changelog row documenting the schema-wide jurisdiction_id refactor + Role.district drop + cache table additions; remove the v1 `Role.district` table entry (line 244) and the four district-bearing Role example tuples (lines 250–254); update the cross-cluster impact note (line 85) and the `Person.current_district` removed note (line 223).
+   - `docs/specs/2026-05-27-transformation-legiscan.md` — remove the `Role.district` row from the LegiScan field mapping (line 221) and update the v0 Person baseline note (line 395).
+   - Cross-link both updates to this plan and the design spec.
+   **Verifiable when:** `grep -RIn '\bRole\.district\b\|district:\s*text\|district="' docs/specs/` returns no hits except in the v1.4 changelog rows that document the removal.
 
 7. **Cleanup pass on `docs/specs/2026-05-27-power-map-integration.md`.** Replace `queued-for-review` references with the current 3-disposition vocab (`auto-attached` / `new` / `rejected`). Captured as Open Question 6 in the design spec. **Verifiable when:** `grep "queued-for-review" docs/` returns no hits.
 

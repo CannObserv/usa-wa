@@ -41,7 +41,12 @@ class Bill(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -143,7 +148,12 @@ class BillType(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     code: Mapped[str] = mapped_column(String(32), nullable=False)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
     classification: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -175,7 +185,12 @@ class BillSponsorship(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -217,7 +232,12 @@ class BillAction(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -280,7 +300,12 @@ class BillActionClassification(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -316,7 +341,12 @@ class BillVersion(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -368,7 +398,12 @@ class BillTitle(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -421,7 +456,12 @@ class Amendment(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -489,7 +529,12 @@ class BillSubject(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -524,7 +569,12 @@ class BillRelationshipType(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     code: Mapped[str] = mapped_column(String(32), nullable=False)
     # Common codes: companion | replaces | replaced_by | related_to
     #             | prior_session_carryover | derived_from | other
@@ -560,7 +610,12 @@ class BillRelationship(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -600,7 +655,12 @@ class BillEvent(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -650,7 +710,12 @@ class BillVersionLink(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -689,7 +754,12 @@ class BillStatutoryCitation(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -766,7 +836,12 @@ class BillSupplement(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 

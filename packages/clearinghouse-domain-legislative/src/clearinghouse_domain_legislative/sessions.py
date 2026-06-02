@@ -1,14 +1,15 @@
 """LegislativeSession — bounded period during which a legislature meets.
 
-Replaces the P0 skeleton's `Bill.biennium` text column. Slug follows the
-OpenStates convention extended for our jurisdiction encoding:
-`<jurisdiction_id>-<year>[-<session_suffix>]` (e.g., `usa-wa-2025`,
-`usa-wa-2025-special-1`, `usa-fed-119`).
+Replaces the P0 skeleton's `Bill.biennium` text column. The ``slug`` value
+follows the OpenStates convention extended for our jurisdiction encoding:
+``<jurisdiction.slug>-<year>[-<session_suffix>]`` (e.g., ``usa-wa-2025``,
+``usa-wa-2025-special-1``, ``usa-fed-119``). The slug encodes the
+*Jurisdiction.slug* text — not the FK ULID stored in ``jurisdiction_id``.
 """
 
 from datetime import date
 
-from sqlalchemy import Boolean, Date, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from ulid import ULID as _ULID
 
@@ -38,7 +39,12 @@ class LegislativeSession(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 

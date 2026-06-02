@@ -30,7 +30,12 @@ class StatuteCode(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     code: Mapped[str] = mapped_column(String(32), nullable=False)  # RCW, ORS, USC, ...
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -46,7 +51,12 @@ class StatuteTitle(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     statute_code_id: Mapped[_ULID] = mapped_column(
         ULID(),
         ForeignKey(f"{SCHEMA}.statute_codes.id", ondelete="CASCADE"),
@@ -67,7 +77,12 @@ class StatuteChapter(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     statute_title_id: Mapped[_ULID] = mapped_column(
         ULID(),
         ForeignKey(f"{SCHEMA}.statute_titles.id", ondelete="CASCADE"),
@@ -88,7 +103,12 @@ class StatuteSection(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     statute_chapter_id: Mapped[_ULID] = mapped_column(
         ULID(),
         ForeignKey(f"{SCHEMA}.statute_chapters.id", ondelete="CASCADE"),
@@ -115,7 +135,12 @@ class BillStatuteChange(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     bill_id: Mapped[_ULID] = mapped_column(
         ULID(),
         ForeignKey(f"{SCHEMA}.bills.id", ondelete="CASCADE"),

@@ -42,7 +42,12 @@ class Person(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -73,7 +78,12 @@ class Organization(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -99,20 +109,21 @@ class Role(Base, TimestampMixin):
     __tablename__ = "roles"
     __table_args__ = (
         UniqueConstraint("jurisdiction_id", "source", "source_id", name="uq_roles_natural_key"),
-        # Semantic uniqueness — a chamber-position with a specific district is one Role.
-        # Postgres null-distinct semantics handle district=null cleanly.
-        UniqueConstraint(
-            "jurisdiction_id",
-            "organization_id",
-            "name",
-            "district",
-            name="uq_roles_org_name_district",
-        ),
+        # Semantic uniqueness — a chamber-position within a jurisdiction is one
+        # Role. Pre-v1.4 also keyed on `district` (text label); v1.4 collapses
+        # district context into `jurisdiction_id` (e.g., LD-21 cache row) so
+        # (jurisdiction_id, organization_id, name) is the new natural key.
+        UniqueConstraint("jurisdiction_id", "organization_id", "name", name="uq_roles_org_name"),
         {"schema": SCHEMA},
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -126,8 +137,6 @@ class Role(Base, TimestampMixin):
     role_type: Mapped[str] = mapped_column(String(32), nullable=False)
     # role_type vocab: elected_member | leadership | committee_member
     #                | committee_leadership | staff | party_member | other
-
-    district: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class Assignment(Base, TimestampMixin):
@@ -146,7 +155,12 @@ class Assignment(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -187,7 +201,12 @@ class PersonIdentifier(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -230,7 +249,12 @@ class OrganizationIdentifier(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
