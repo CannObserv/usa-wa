@@ -218,7 +218,7 @@ LegiScan has no first-class `Organization`, `Role`, or `Assignment`. Identity is
 | `name_used` | `nickname` | `getPerson` | ↔ | when non-empty | Treat LegiScan's `nickname` as our preferred-display name. |
 | `gender` | — | — | ← | always null from LegiScan | **Lossy ←**. |
 | `birth_year` | (removed in v1.1) | — | — | n/a | **v1.1 (2026-05-28):** `Person.birth_year` was removed from our schema. Birth date / birth place / death date defer to Power Map's planned polymorphic `lifecycle_events` schema ([CannObserv/power-map#165](https://github.com/CannObserv/power-map/issues/165)); the sidecar pushes any source-provided birth data there. LegiScan still doesn't expose birth dates, so this direction stays vacuous regardless. |
-| `current_district` (denorm on Person) | `district` | `getPerson` | ↔ | passthrough | LegiScan keeps current district inline on Person. |
+| (v1.4: dropped — see below) | `district` | `getPerson` | ← | derived to `Role.jurisdiction_id` | **v1.4 (2026-06-02):** `Person.current_district` was removed in v1 (district lived on `Role.district` text); the v1.4 Jurisdictional IA refactor dropped `Role.district` too. The LegiScan `district` value now resolves to a jurisdiction slug (`usa-wa-ld-21`) which the adapter looks up in `clearinghouse_core.jurisdictions` and binds as `Role.jurisdiction_id`. See [`docs/specs/2026-05-31-jurisdictional-ia-design.md`](2026-05-31-jurisdictional-ia-design.md). |
 | `powermap_person_id` | — | — | n/a | local-canonical FK, set post-match | |
 | — | `person_hash` | `getPerson` / `Sponsor` | ← | drop or use for change detection | |
 | — | `party_id` (int) + `party` (text) | `getPerson` | ← | **no v0 home directly on Person** — derived to an Assignment to a Party Org with role `Member` | LegiScan inlines current party affiliation on Person; we model it as an Assignment. The adapter has to synthesize: Org="Washington Democratic Party", Role="Member", Assignment(Person, Role, valid_from=session.year_start). |
@@ -392,7 +392,7 @@ If usa-wa wanted to ingest WA data from LegiScan as a corroboration or SOAP-fall
 
 - Full `Bill` ingestion including sponsorships, history, version metadata, amendment metadata, final-passage roll calls (with per-legislator detail), subject tags (dropped, until v1), SAST relations (dropped, until v1), calendar (dropped, until v1).
 - `LegislativeSession` ingestion (degraded date precision).
-- `Person` baseline (name + district), with external IDs dropped pre-v1.
+- `Person` baseline (name; district resolved to a `Role.jurisdiction_id` FK per v1.4 — was a text `district` field in pre-v1.4), with external IDs dropped pre-v1.
 - `Assignment` for chamber + party (degraded date precision).
 
 **What gets sacrificed vs. WSL SOAP as primary:**

@@ -415,7 +415,7 @@ This was originally the load-bearing output of step 2. After two review passes (
 **Items still open and awaiting decision are listed in §"Items still open" at the end of this section.**
 
 
-1. ✅ **LANDED in v1.** Promote `current_district` from `Person` to `Role`. `Role.district` (text nullable) added; `Person.current_district` removed entirely. Seat-not-Person semantics preserved.
+1. ✅ **LANDED in v1.** Promote `current_district` from `Person` to `Role`. `Role.district` (text nullable) added; `Person.current_district` removed entirely. Seat-not-Person semantics preserved. *(v1.4 update: `Role.district` itself was dropped in the Jurisdictional IA refactor — district now rides on `Role.jurisdiction_id` as a FK to the district jurisdiction cache row. See the v1.4 changelog in `2026-05-27-hybrid-legislative-ia.md`.)*
 
 2. ✅ **LANDED in v1.** Unresolved-name fallback columns added on `BillSponsorship.sponsor_name_raw`, `PersonVote.voter_name_raw`, `Assignment.holder_name_raw`, with CHECK constraints enforcing "person_id OR raw_name".
 

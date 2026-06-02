@@ -77,7 +77,7 @@ After our initial feature-request landed, power-map's maintainer reframed [#156]
 
 | Issue | Status | Work | Notes |
 |---|---|---|---|
-| [#162](https://github.com/CannObserv/power-map/issues/162) | OPEN | **Design**: conflict-resolution semantics for the observation endpoint. Blocks #164. Decisions on dispositions (auto-attached / new / queued-for-review / rejected), match strategy (exact only vs. fuzzy fallback), confidence threshold, admin queue, trust model. |
+| [#162](https://github.com/CannObserv/power-map/issues/162) | SHIPPED 2026-06-01 (per PM #168 Phase 1+2) | **Design**: conflict-resolution semantics for the observation endpoint. Final disposition vocab is 3-value uppercase: `AUTO_ATTACHED` / `NEW` / `REJECTED`. The originally-considered `queued-for-review` disposition was discarded in PM design review (admin queue collapses into the operator-driven follow-up on `REJECTED`). Match strategy + confidence threshold + trust model implemented per [`docs/specs/2026-05-31-jurisdictional-ia-design.md`](2026-05-31-jurisdictional-ia-design.md) §3. |
 | [#163](https://github.com/CannObserv/power-map/issues/163) | OPEN | `GET /api/v1/changes` — entity change feed for sibling-service cache invalidation. |
 | [#164](https://github.com/CannObserv/power-map/issues/164) | OPEN | `POST /api/v1/observations` — sibling-service observation/upsert. Hard-blocked on #162. |
 
@@ -167,7 +167,7 @@ X-API-Key: ...
 Response 200:
 {
   "matched_entity_id": "01HZW...",
-  "disposition": "auto-attached",   # | new | queued-for-review | rejected
+  "disposition": "AUTO_ATTACHED",   # one of: AUTO_ATTACHED | NEW | REJECTED (PM #168 shipped uppercase; `queued-for-review` was discarded in PM design review)
   "confidence": 0.97,
   "notes": "Matched on person_wa_legislature_member_id"
 }
