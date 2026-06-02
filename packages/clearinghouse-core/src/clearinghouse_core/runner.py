@@ -19,12 +19,12 @@ from clearinghouse_core.adapter import (
     NormalizedBatch,
     ResourceRef,
 )
+from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.models import Base
 from clearinghouse_core.provenance import (
     Citation,
     FetchEvent,
     FetchStatus,
-    Jurisdiction,
     RawPayload,
     Source,
 )

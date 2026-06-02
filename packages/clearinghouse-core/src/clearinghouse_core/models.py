@@ -38,6 +38,8 @@ class TimestampMixin(CreatedAtMixin):
     )
 
 
-# Side-effect registration: importing this module also imports the provenance
-# tables so ``Base.metadata.create_all`` / autogen sees them.
+# Side-effect registration: importing this module also imports the jurisdiction
+# and provenance tables so ``Base.metadata.create_all`` / autogen sees them.
+# Jurisdictions is imported first because provenance.Source FKs into it.
+from clearinghouse_core import jurisdictions as _jurisdictions  # noqa: E402,F401
 from clearinghouse_core import provenance as _provenance  # noqa: E402,F401

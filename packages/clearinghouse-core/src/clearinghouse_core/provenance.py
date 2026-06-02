@@ -2,10 +2,11 @@
 
 Every fact in the clearinghouse traces to a :class:`FetchEvent` (which produced
 the bytes that yielded the fact), a :class:`Source` (the configured data feed),
-a :class:`Jurisdiction` (the political body the data describes), and zero-or-more
-:class:`Citation` rows (field-level provenance for facts that need it). The
-polymorphic :class:`Note` table attaches editorial / staff-summary / clarification
-notes to any canonical entity, with optional author attribution.
+a :class:`~clearinghouse_core.jurisdictions.Jurisdiction` (the political body
+the data describes — defined in :mod:`clearinghouse_core.jurisdictions`), and
+zero-or-more :class:`Citation` rows (field-level provenance for facts that need
+it). The polymorphic :class:`Note` table attaches editorial / staff-summary /
+clarification notes to any canonical entity, with optional author attribution.
 
 All tables live in the ``clearinghouse_core`` Postgres schema.
 """
@@ -31,6 +32,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ulid import ULID as _ULID
 
 from clearinghouse_core.db.ulid import ULID
+from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.models import Base, CreatedAtMixin, TimestampMixin
 
 SCHEMA = "clearinghouse_core"
@@ -41,36 +43,10 @@ def _new_ulid() -> _ULID:
     return _ULID()
 
 
-class JurisdictionLevel(StrEnum):
-    state = "state"
-    federal = "federal"
-    municipal = "municipal"
-    country = "country"
-
-
 class FetchStatus(StrEnum):
     ok = "ok"
     err = "err"
     skipped = "skipped"
-
-
-class Jurisdiction(Base, TimestampMixin):
-    """A political body whose data the clearinghouse ingests.
-
-    Natural key is ``slug`` (e.g., ``'usa-wa'``). Used as the ``jurisdiction_id``
-    text value on every canonical entity in domain packages.
-    """
-
-    __tablename__ = "jurisdictions"
-    __table_args__ = (
-        UniqueConstraint("slug", name="uq_jurisdictions_slug"),
-        {"schema": SCHEMA},
-    )
-
-    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    slug: Mapped[str] = mapped_column(String(64), nullable=False)
-    name: Mapped[str] = mapped_column(String(128), nullable=False)
-    level: Mapped[JurisdictionLevel] = mapped_column(String(16), nullable=False)
 
 
 class Source(Base, TimestampMixin):

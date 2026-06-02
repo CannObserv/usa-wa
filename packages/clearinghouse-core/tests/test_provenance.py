@@ -12,13 +12,12 @@ import pytest
 from sqlalchemy import select
 from ulid import ULID
 
+from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.provenance import (
     Citation,
     DocumentIdentifier,
     FetchEvent,
     FetchStatus,
-    Jurisdiction,
-    JurisdictionLevel,
     RawPayload,
     Source,
 )
@@ -27,8 +26,15 @@ from clearinghouse_core.provenance import (
 @pytest.fixture
 async def seeded(db_session):
     """A Jurisdiction + Source + FetchEvent + RawPayload chain ready for citation tests."""
+    state_type = JurisdictionType(slug="state", display_name="State")
+    db_session.add(state_type)
+    await db_session.flush()
+
     jurisdiction = Jurisdiction(
-        slug="usa-wa", name="Washington State", level=JurisdictionLevel.state
+        slug="usa-wa",
+        name="Washington State",
+        type_id=state_type.id,
+        recorded_at=datetime.now(UTC),
     )
     db_session.add(jurisdiction)
     await db_session.flush()

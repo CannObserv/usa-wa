@@ -1,12 +1,13 @@
 """Round-trip tests for the ``ULID`` SQLAlchemy column type."""
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
 from sqlalchemy import select
 from ulid import ULID
 
-from clearinghouse_core.provenance import Jurisdiction, JurisdictionLevel
+from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 
 
 @pytest.fixture
@@ -14,13 +15,23 @@ def usa_wa_id() -> ULID:
     return ULID()
 
 
-async def test_ulid_round_trip(db_session, usa_wa_id):
+@pytest.fixture
+async def state_type(db_session) -> JurisdictionType:
+    """A ``state`` JurisdictionType row used by all Jurisdiction-creating tests below."""
+    row = JurisdictionType(slug="state", display_name="State")
+    db_session.add(row)
+    await db_session.flush()
+    return row
+
+
+async def test_ulid_round_trip(db_session, usa_wa_id, state_type):
     """Writing a ULID PK and reading it back yields an equal ULID instance."""
     row = Jurisdiction(
         id=usa_wa_id,
         slug="usa-wa",
         name="Washington State",
-        level=JurisdictionLevel.state,
+        type_id=state_type.id,
+        recorded_at=datetime.now(UTC),
     )
     db_session.add(row)
     await db_session.flush()
@@ -33,7 +44,7 @@ async def test_ulid_round_trip(db_session, usa_wa_id):
     assert str(fetched.id) == str(usa_wa_id)
 
 
-async def test_ulid_accepts_uuid_at_bind(db_session):
+async def test_ulid_accepts_uuid_at_bind(db_session, state_type):
     """The TypeDecorator accepts a uuid.UUID at bind time and returns a ULID at read time."""
     raw_ulid = ULID()
     as_uuid = raw_ulid.to_uuid()
@@ -43,7 +54,8 @@ async def test_ulid_accepts_uuid_at_bind(db_session):
         id=as_uuid,
         slug="usa-or",
         name="Oregon",
-        level=JurisdictionLevel.state,
+        type_id=state_type.id,
+        recorded_at=datetime.now(UTC),
     )
     db_session.add(row)
     await db_session.flush()
@@ -55,16 +67,29 @@ async def test_ulid_accepts_uuid_at_bind(db_session):
     assert fetched.id == raw_ulid
 
 
-async def test_ulid_time_ordering_preserved(db_session):
+async def test_ulid_time_ordering_preserved(db_session, state_type):
     """ULIDs created later sort after earlier ones — the property we rely on for B-tree locality."""
     earlier = ULID()
     later = ULID()
     assert earlier < later
 
+    now = datetime.now(UTC)
     db_session.add_all(
         [
-            Jurisdiction(id=earlier, slug="earlier", name="Earlier", level=JurisdictionLevel.state),
-            Jurisdiction(id=later, slug="later", name="Later", level=JurisdictionLevel.state),
+            Jurisdiction(
+                id=earlier,
+                slug="earlier",
+                name="Earlier",
+                type_id=state_type.id,
+                recorded_at=now,
+            ),
+            Jurisdiction(
+                id=later,
+                slug="later",
+                name="Later",
+                type_id=state_type.id,
+                recorded_at=now,
+            ),
         ]
     )
     await db_session.flush()

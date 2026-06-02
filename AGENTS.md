@@ -42,7 +42,12 @@ Prefetch query — run via `ToolSearch` at session start:
 packages/
   clearinghouse-core/                 — Layer 1: framework primitives (jurisdiction-agnostic)
     src/clearinghouse_core/
-      models.py       — Declarative Base, TimestampMixin (+ provenance models after step 4)
+      models.py       — Declarative Base, TimestampMixin (side-effect-imports jurisdictions + provenance for Base.metadata)
+      jurisdictions.py — Jurisdiction cache mirror (4 tables: types/relationship_types lookups, jurisdictions, jurisdiction_relationships) — local copy of Power Map's Jurisdiction extension
+      provenance.py   — Source, FetchEvent, RawPayload, Citation, Note, DocumentIdentifier (every canonical fact traces back to these)
+      adapter.py      — BaseAdapter contract + FetchedPayload / NormalizedBatch / ResourceRef
+      runner.py       — AdapterRunner: cache-or-fetch decision, idempotent upsert, provenance writing
+      db/             — ULID SQLAlchemy column type (see db/ulid.md for rationale)
       database.py     — Async engine + session factory
       config.py       — Settings / env access (pydantic-settings)
       logging.py      — configure_logging() + get_logger()

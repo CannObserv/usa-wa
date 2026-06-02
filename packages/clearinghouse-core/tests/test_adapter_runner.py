@@ -28,13 +28,12 @@ from clearinghouse_core.adapter import (
     ResourceRef,
 )
 from clearinghouse_core.db.ulid import ULID as ULIDColumn
+from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.models import Base, TimestampMixin
 from clearinghouse_core.provenance import (
     SCHEMA,
     Citation,
     FetchEvent,
-    Jurisdiction,
-    JurisdictionLevel,
     RawPayload,
     Source,
 )
@@ -119,7 +118,16 @@ class FakeAdapter(BaseAdapter):
 
 @pytest.fixture
 async def setup(db_session):
-    jurisdiction = Jurisdiction(slug="usa-wa", name="WA", level=JurisdictionLevel.state)
+    state_type = JurisdictionType(slug="state", display_name="State")
+    db_session.add(state_type)
+    await db_session.flush()
+
+    jurisdiction = Jurisdiction(
+        slug="usa-wa",
+        name="WA",
+        type_id=state_type.id,
+        recorded_at=datetime.now(UTC),
+    )
     db_session.add(jurisdiction)
     await db_session.flush()
 
