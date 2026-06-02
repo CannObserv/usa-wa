@@ -75,8 +75,8 @@ After our initial feature-request landed, power-map's maintainer reframed [#156]
 
 ### P3 — write path (deferred)
 
-| Issue | Status | Work | Notes |
-|---|---|---|---|
+| Issue | Status | Work |
+|---|---|---|
 | [#162](https://github.com/CannObserv/power-map/issues/162) | SHIPPED 2026-06-01 (per PM #168 Phase 1+2) | **Design**: conflict-resolution semantics for the observation endpoint. Final disposition vocab is 3-value uppercase: `AUTO_ATTACHED` / `NEW` / `REJECTED`. The originally-considered `queued-for-review` disposition was discarded in PM design review (admin queue collapses into the operator-driven follow-up on `REJECTED`). Match strategy + confidence threshold + trust model implemented per [`docs/specs/2026-05-31-jurisdictional-ia-design.md`](2026-05-31-jurisdictional-ia-design.md) §3. |
 | [#163](https://github.com/CannObserv/power-map/issues/163) | OPEN | `GET /api/v1/changes` — entity change feed for sibling-service cache invalidation. |
 | [#164](https://github.com/CannObserv/power-map/issues/164) | OPEN | `POST /api/v1/observations` — sibling-service observation/upsert. Hard-blocked on #162. |

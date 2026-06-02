@@ -8,11 +8,11 @@
 
 ## Changelog (v1.3 → v1.4, 2026-06-02 — Jurisdictional IA refactor)
 
-The Jurisdictional IA design ([`2026-05-31-jurisdictional-ia-design.md`](2026-05-31-jurisdictional-ia-design.md)) replaces the prior text-shaped `jurisdiction_id` partition tag with an authoritative FK to a Power Map-mirrored cache. Driven by [`docs/plans/2026-05-31-jurisdictional-ia-implementation.md`](../plans/2026-05-31-jurisdictional-ia-implementation.md) and tracked at [usa-wa#3](https://github.com/CannObserv/issues/3).
+The Jurisdictional IA design ([`2026-05-31-jurisdictional-ia-design.md`](2026-05-31-jurisdictional-ia-design.md)) replaces the prior text-shaped `jurisdiction_id` partition tag with an authoritative FK to a Power Map-mirrored cache. Driven by [`docs/plans/2026-05-31-jurisdictional-ia-implementation.md`](../plans/2026-05-31-jurisdictional-ia-implementation.md) and tracked at [usa-wa#3](https://github.com/CannObserv/usa-wa/issues/3).
 
 | Revision | Source | Section |
 |---|---|---|
-| **Schema-wide `jurisdiction_id: text(32)` → `ULID NOT NULL FK`** across 34 canonical tables (every `Person` / `Organization` / `Role` / `Assignment` / `Bill*` / `Vote*` / `LegislativeSession` / `Statute*` / `Lobbying*` / `Contribution` / `DocumentIdentifier` row carries this column). FK target: `clearinghouse_core.jurisdictions.id`. The natural-key UNIQUE constraints (e.g., `(jurisdiction_id, source, source_id)`) survive the column-type change — uniqueness shifts from text to FK comparison. | Jurisdictional IA design §2 2026-06-02 | Schema-wide |
+| **Schema-wide `jurisdiction_id: text(32)` → `ULID NOT NULL FK`** across 34 canonical tables (every `Person*` / `Organization*` / `Role` / `Assignment` / `Bill*` / `Vote*` / `LegislativeSession` / `Statute*` / `Lobbying*` / `Contribution` / `DocumentIdentifier` row carries this column; the `*` wildcards include the per-entity identifier sibling tables like `person_identifiers` / `organization_identifiers`). FK target: `clearinghouse_core.jurisdictions.id`. The natural-key UNIQUE constraints (e.g., `(jurisdiction_id, source, source_id)`) survive the column-type change — uniqueness shifts from text to FK comparison. | Jurisdictional IA design §2 2026-06-02 | Schema-wide |
 | **`Role.district: text(32)` dropped.** The district reference now lives on `Role.jurisdiction_id` directly — the FK points at a specific district jurisdiction (`usa-wa-ld-21` for Senator-LD21; `usa-wa` for Speaker of the House). `uq_roles_org_name_district` collapses to `uq_roles_org_name = (jurisdiction_id, organization_id, name)` because the district context now rides on `jurisdiction_id`. | Jurisdictional IA design §2 2026-06-02 | Identity cluster |
 | **`clearinghouse_core.jurisdictions` extended in place.** New columns: `pm_jurisdiction_id` (anchor for sidecar sync), `type_id` FK → `jurisdiction_types`, bitemporal `valid_from` / `valid_until` / `recorded_at` / `superseded_at` (mirrors PM's clock). Dropped: the 4-value `JurisdictionLevel` StrEnum. Widened: `slug` to text(128); `name` to text. | Jurisdictional IA design §1 2026-06-02 | Framework primitive |
 | **Three new framework tables.** `clearinghouse_core.jurisdiction_types` (16-row lookup mirroring PM's 16 type values); `clearinghouse_core.jurisdiction_relationship_types` (11-row lookup with `is_symmetric` + `category` columns; `exercises_concurrent_jurisdiction` excluded per PM Phase 1); `clearinghouse_core.jurisdiction_relationships` (bitemporal junction over `(subject, object, relationship_type)`; partial unique index closes PG's NULL-distinct UNIQUE gap on `valid_from`). | Jurisdictional IA design §1+§2 2026-06-02 | Framework primitive |
@@ -94,7 +94,7 @@ Concrete revisions landed in v1:
 | `Bill.enacted_as` (Public Law / chapter-law cross-reference). | uscongress #3 | Bill cluster |
 | `VoteEvent.category` (procedural/substantive/passage/cloture/recommit/nomination/treaty/conviction/other). | uscongress #2 | Vote cluster |
 | `BillSponsorship.sponsor_name_raw`, `PersonVote.voter_name_raw`, `Assignment.holder_name_raw` — fallback columns for indirect-provider adapters where ID resolution hasn't happened yet. | OCD #2 | Identity cluster + Bill cluster + Vote cluster |
-| `Role.district` (text nullable). Moves district context off `Person.current_district`. *(Dropped in v1.4 — the v1.4 schema-wide jurisdiction_id FK refactor collapses district context onto `Role.jurisdiction_id` directly; see the v1.4 changelog at the top.)* | OCD #5 | Identity cluster |
+| `Role.district` (text nullable). Moves district context off `Person.current_district`. *(Dropped in v1.4 — the schema-wide jurisdiction_id FK refactor collapses district context onto `Role.jurisdiction_id` directly; see the v1.4 changelog at the top.)* | OCD #5 | Identity cluster |
 
 **Documented as unavoidable lossy** (see Unavoidable lossy directions §):
 
@@ -258,13 +258,18 @@ A named slot **within** an Organization.
 
 **Natural-key UNIQUE:** `(jurisdiction_id, organization_id, name)` (v1.4; was `(jurisdiction_id, organization_id, name, district)` pre-v1.4). Roles for the same chamber-position in different districts are distinct because their `jurisdiction_id` FK differs.
 
-Examples — note the federal-stress-test-driven distinction between Representative / Delegate / Resident Commissioner as separate role names:
+Examples — note the federal-stress-test-driven distinction between Representative / Delegate / Resident Commissioner as separate role names. The WA-deployment in-scope examples come first; the federal examples are illustrative for a hypothetical federal deployment and reference slugs (`usa-dc`, `usa-pr`) that are **not currently seeded** in `clearinghouse_core.jurisdictions` (the WA-only `initial_jurisdictions.json` covers WA + WA-relevant containers only).
+
+WA-deployment (currently seeded):
 
 - `(org=WA Senate, jurisdiction=<usa-wa-ld-21>, name="Senator", role_type="elected_member")`
 - `(org=US House, jurisdiction=<usa-wa-cd-3>, name="Representative", role_type="elected_member")`
+- `(org=Senate Health Committee, jurisdiction=<usa-wa>, name="Chair", role_type="committee_leadership")` — at-large / leadership / committee roles point at the broadest containing jurisdiction the role operates within
+
+Federal stress-test (illustrative; slugs **not** in the WA-only seed):
+
 - `(org=US House, jurisdiction=<usa-dc>, name="Delegate", role_type="elected_member")` — non-voting (jurisdiction = the territory served, modeled as a federal-administrative jurisdiction)
 - `(org=US House, jurisdiction=<usa-pr>, name="Resident Commissioner", role_type="elected_member")` — 4-year term
-- `(org=Senate Health Committee, jurisdiction=<usa-wa>, name="Chair", role_type="committee_leadership")` — at-large / leadership / committee roles point at the broadest containing jurisdiction the role operates within
 
 ### `canonical.assignments`
 
