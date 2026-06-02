@@ -22,18 +22,12 @@ The vendor → symlink → discovery layout means the project carries no skill s
 | `managing-skills` | Add/update/audit skills across vendors and overrides. |
 | `orchestrating-issue-backlog` | Triage and sequence open GitHub issues into actionable work. |
 | `reviewing-architecture` | Architectural review of a design doc or large change. |
-| `reviewing-code` | Generic per-PR code review. |
-| `reviewing-code-python-fastapi` | Python/FastAPI-stack code review (use this in this repo). |
-| `reviewing-code-php` | PHP-stack code review. |
-| `reviewing-code-python-click` | Python/Click-stack code review. |
-| `shipping-work` | Generic ship workflow (test, commit, push, open PR). |
-| `shipping-work-python-fastapi` | Python/FastAPI ship workflow with `pre-ship.sh` (use this in this repo). |
-| `shipping-work-php` | PHP ship workflow. |
-| `shipping-work-python-click` | Python/Click ship workflow. |
+| `reviewing-code-python-fastapi` | Python/FastAPI-stack code review (the review workflow for this repo). |
+| `shipping-work-python-fastapi` | Python/FastAPI ship workflow with `pre-ship.sh` (the ship workflow for this repo). |
 | `using-git-worktrees` | Worktree-based branch workflow for parallel work. |
 | `writing-plans` | Drafting an implementation plan in `docs/plans/` before coding. |
 
-The Python/FastAPI variants (`reviewing-code-python-fastapi`, `shipping-work-python-fastapi`) are the canonical workflows for this repo; their stack-neutral counterparts are kept for cross-cohort reference.
+Only the Python/FastAPI variants of the review and ship workflows are symlinked here. The vendor also ships stack-neutral, PHP, and Python/Click variants (`reviewing-code{,-php,-python-click}`, `shipping-work{,-php,-python-click}`); those are intentionally **not** symlinked into this FastAPI repo. They remain available under `skills-vendor/gregoryfoster-skills/skills/` if ever needed.
 
 ## Vendor preferences on name collisions
 
