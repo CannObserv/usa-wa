@@ -25,11 +25,24 @@ A second motivation shapes the design: **other CannObserv services (outside this
 | Packaging | Portable engine package + usa-wa binding package (clean seam) |
 | Entity types | 6 descriptors: jurisdictions, persons, organizations, roles, assignments, entity_events |
 | Write delivery | In-DB outbox table (`sync.powermap_outbox`) |
-| Read mechanism | PM `/changes` feed (incremental) + periodic full-reconcile backstop |
+| Read mechanism | PM `/changes` feed (incremental, person/org only today) + periodic full-reconcile backstop (primary read for jurisdictions — not on the feed) |
 | Conflict resolution | PM is system-of-record; contested fields resolved by last-updated-timestamp (LWW); ties → PM |
 | Anchor columns | Standardize to `pm_<entity>_id` across the schema |
-| Auth | `X-API-Key` header (verify against PM `/openapi.json` when generating client) |
-| MVP increment | Read-flow (all PM-served types) + live jurisdiction write; persons/orgs activatable; roles/assignments/entity_events write paths dormant pending PM |
+| Auth | `X-API-Key` header (validated against PM source 2026-06-02; the `Bearer` mention in IA design §3 is wrong) |
+| MVP increment | Read-flow (jurisdictions via reconcile, persons/orgs via feed) + live jurisdiction write; persons/orgs write activatable; roles/assignments/entity_events fully dormant (no PM public surface yet) |
+
+### Validated PM public API state (source inspection, 2026-06-02)
+
+| Entity | Public READ | Observation (WRITE) | On `/changes` feed |
+|---|---|---|---|
+| jurisdictions | ✅ `GET /api/v1/jurisdictions…` | ✅ `POST /jurisdictions/observations` | ❌ not emitted |
+| people | ✅ | ✅ `POST /people/observations` | ✅ updates |
+| orgs | ✅ | ✅ `POST /orgs/observations` | ✅ updates |
+| roles | ❌ | ❌ | ❌ |
+| assignments | ❌ | ❌ | ❌ |
+| entity_events | ❌ (router unwired) | ❌ | ❌ |
+
+The `/changes` feed emits only `person` + `organization` *updates* plus generic *deletes* (`deleted_entities`). Roles/assignments/entity_events have no public surface (the #170 entity-events work landed the model + admin only). These gaps are tracked as PM issues (§7) and flip the dormant paths live without further usa-wa design changes.
 
 ## Section 1 — Architecture & package boundaries
 
@@ -150,9 +163,11 @@ Full read reconcile for every entity type PM serves → drain outbox. Seeds/repa
 
 **Primary — changes-feed loop:**
 
-1. `GET /api/v1/changes?cursor=<last>` for incremental deltas across entity types.
+1. `GET /api/v1/changes?since=<cursor>` for incremental deltas.
 2. Dispatch each change to the matching descriptor's `upsert_from_pm()` + LWW reconcile (below).
 3. Persist the new cursor to `sync.powermap_sync_state`.
+
+> **Validated coverage (2026-06-02):** the feed emits only `person` + `organization` updates plus generic deletes. **Jurisdictions are not on the feed**, so jurisdiction reads run off the full-reconcile path below as their *primary* mechanism, not the feed. Roles/assignments/entity_events have no read surface at all yet (§7). When PM widens feed coverage, those types switch to feed-primary with no descriptor change.
 
 **Backstop — periodic full reconcile** (per-entity `reconcile_cadence`, hourly default):
 
@@ -207,18 +222,24 @@ PM unreachable → read loop logs + retries next cycle; write loop leaves entrie
 1. Migration (anchor standardization + `entity_events` + `sync` schema + outbox + sync_state).
 2. `clearinghouse-sync-powermap` engine + portable models + PM client.
 3. `usa-wa-sync-powermap` binding: 6 descriptors, daemon entrypoint, systemd unit.
-4. **Read-flow live for all PM-served types** (jurisdictions, persons, orgs; roles/assignments/entity_events read once PM confirms feed coverage).
+4. **Read-flow live for the three PM-served types:** jurisdictions (full-reconcile — not on the feed), persons + orgs (changes feed + reconcile).
 5. **Write-flow live for jurisdictions** against `POST /api/v1/jurisdictions/observations`.
 6. Persons/orgs write paths **activatable** (endpoints live via PM #169) — enable in this increment or the next per appetite.
 
-**Dormant pending PM (`write_enabled = false`):** roles, assignments, entity_events write paths.
+**Fully dormant (no PM public surface yet — neither read nor write):** roles, assignments, entity_events. Their descriptors register inert (`read_source=none`, `write_enabled=false`) and activate when §7 issues land.
 
-## Section 7 — PM coordination (issues to file)
+## Section 7 — PM coordination (issues filed)
 
-1. **`roles` + `assignments` observation endpoints** — missing; needed for those write paths.
-2. **`entity_events`:** (a) is `entity_event` emitted on `/api/v1/changes`? (b) dedicated `POST /api/v1/entity-events/observations` vs. embed-only inside person/org observations. The descriptor prefers a first-class endpoint; embed-in-person/org is the documented fallback the descriptor can target.
-3. **Changes-feed coverage:** confirm `roles`, `assignments`, `entity_events` all appear on `/api/v1/changes`.
-4. **Auth confirmation:** `X-API-Key` (per power-map-integration spec) vs the stray `Authorization: Bearer` mention in IA design §3 — resolve against PM's live `/openapi.json` when generating the client.
+Validated against PM source 2026-06-02; four issues filed on `CannObserv/power-map`:
+
+1. **Roles public API** ([power-map#176](https://github.com/CannObserv/power-map/issues/176)) — `GET /api/v1/roles…` + `POST /api/v1/roles/observations`. Entire public surface missing.
+2. **Assignments public API** ([power-map#177](https://github.com/CannObserv/power-map/issues/177)) — read + `POST /api/v1/assignments/observations`. Entire public surface missing.
+3. **Entity-events public API** ([power-map#178](https://github.com/CannObserv/power-map/issues/178)) — wire `events_router` + `GET` + `POST /api/v1/entity-events/observations`. Model exists (#170); no sibling-facing routes.
+4. **Changes-feed coverage** ([power-map#179](https://github.com/CannObserv/power-map/issues/179)) — emit `jurisdiction` (and later `role`/`assignment`/`entity_event`) create/update events; today only person/org updates + generic deletes. Lower priority — full-reconcile is the working fallback.
+
+**Auth resolved (no issue):** `X-API-Key` validated in PM `src/api/public/deps.py`; the `Authorization: Bearer` line in IA design §3 is wrong and should be corrected in a docs sweep.
+
+Each issue, when resolved, flips the corresponding dormant read/write path live with no usa-wa design change — only `write_enabled`/read-source flags on the descriptor.
 
 ## Section 8 — Out of scope
 
