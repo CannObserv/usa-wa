@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 members = [
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
+    "clearinghouse-sync-powermap",
     "usa-wa-adapter-legislature",
     "usa-wa-api",
 ]
@@ -16,6 +17,7 @@ dev = [
     { name = "anyio", specifier = ">=4.0,<5" },
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
     { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
+    { name = "clearinghouse-sync-powermap", editable = "packages/clearinghouse-sync-powermap" },
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "pre-commit", specifier = ">=4.0,<5" },
     { name = "pytest", specifier = ">=8.0,<9" },
@@ -162,6 +164,23 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0,<3" },
+]
+
+[[package]]
+name = "clearinghouse-sync-powermap"
+version = "0.1.0"
+source = { editable = "packages/clearinghouse-sync-powermap" }
+dependencies = [
+    { name = "clearinghouse-core" },
+    { name = "httpx" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
+    { name = "httpx", specifier = ">=0.27,<1" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0,<3" },
 ]
 

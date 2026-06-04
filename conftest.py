@@ -26,8 +26,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 # Import Base *and* trigger model registration in every workspace package
 # that defines tables. As new packages are added, list them here so their
 # tables appear in Base.metadata before tests collect schemas.
+import clearinghouse_sync_powermap  # noqa: F401  (registers sync-schema tables)
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.models import Base  # noqa: F401
+from clearinghouse_domain_legislative import identity as _identity  # noqa: F401
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 if not TEST_DATABASE_URL:

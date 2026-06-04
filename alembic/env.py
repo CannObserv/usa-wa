@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 # Side-effect imports so every workspace member's tables register on Base.metadata
 # before autogen runs. Add new domain packages here as they're created.
 import clearinghouse_domain_legislative  # noqa: E402, F401
+import clearinghouse_sync_powermap  # noqa: E402, F401
 from alembic import context
 from clearinghouse_core.models import Base
 

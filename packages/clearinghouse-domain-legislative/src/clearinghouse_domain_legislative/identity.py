@@ -63,7 +63,9 @@ class Person(Base, TimestampMixin):
     # Power Map's planned lifecycle_events schema (CannObserv/power-map#165).
 
     # Cross-cohort denormalization; the full N-scheme graph lives in PersonIdentifier.
-    powermap_person_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True)
+    # PM anchor (sidecar sync). Standardized to ``pm_<entity>_id`` (was
+    # ``powermap_person_id`` pre-sidecar) so the sync engine keys uniformly.
+    pm_person_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
 
 
 class Organization(Base, TimestampMixin):
@@ -100,7 +102,8 @@ class Organization(Base, TimestampMixin):
         nullable=True,
         index=True,
     )
-    powermap_organization_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True)
+    # PM anchor (sidecar sync). Was ``powermap_organization_id`` pre-sidecar.
+    pm_organization_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
 
 
 class Role(Base, TimestampMixin):
@@ -137,6 +140,10 @@ class Role(Base, TimestampMixin):
     role_type: Mapped[str] = mapped_column(String(32), nullable=False)
     # role_type vocab: elected_member | leadership | committee_member
     #                | committee_leadership | staff | party_member | other
+
+    # PM anchor (sidecar sync). Write path dormant until power-map#176 ships
+    # the roles observation endpoint.
+    pm_role_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
 
 
 class Assignment(Base, TimestampMixin):
@@ -180,6 +187,10 @@ class Assignment(Base, TimestampMixin):
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # PM anchor (sidecar sync). Write path dormant until power-map#177 ships
+    # the assignments observation endpoint.
+    pm_assignment_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
 
 
 class PersonIdentifier(Base, TimestampMixin):
@@ -270,3 +281,47 @@ class OrganizationIdentifier(Base, TimestampMixin):
 
     value: Mapped[str] = mapped_column(String(128), nullable=False)
     verified_at: Mapped["Text | None"] = mapped_column(Text, nullable=True)
+
+
+class EntityEvent(Base, TimestampMixin):
+    """Polymorphic lifecycle event for a Person or Organization.
+
+    Mirrors Power Map's entity-events surface (power-map#170): birth / death for
+    people, founding / dissolution for organizations. ``entity_id`` is
+    polymorphic (resolved by ``entity_kind``) so it carries no DB-level FK.
+
+    Sidecar sync is fully dormant until power-map#178 wires the public
+    entity-events router (read + observation); the local mirror + anchor exist
+    now so the schema is ready when that lands.
+    """
+
+    __tablename__ = "entity_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "jurisdiction_id", "source", "source_id", name="uq_entity_events_natural_key"
+        ),
+        CheckConstraint(
+            "entity_kind IN ('person', 'organization')",
+            name="ck_entity_events_kind",
+        ),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    jurisdiction_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    entity_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    entity_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    # event_type vocab: birth | death | founding | dissolution | other
+    date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # PM anchor (sidecar sync).
+    pm_entity_event_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)

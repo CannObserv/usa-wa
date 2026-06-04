@@ -6,6 +6,7 @@ dev = [
     # Workspace members (so a single `uv sync` installs everything in editable mode)
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
+    "clearinghouse-sync-powermap",
     "usa-wa-adapter-legislature",
     "usa-wa-api",
     # Tools
@@ -22,6 +23,7 @@ dev = [
 [tool.uv.sources]
 clearinghouse-core = { workspace = true }
 clearinghouse-domain-legislative = { workspace = true }
+clearinghouse-sync-powermap = { workspace = true }
 usa-wa-adapter-legislature = { workspace = true }
 usa-wa-api = { workspace = true }
 
@@ -57,6 +59,7 @@ select = ["E", "F", "I", "W", "UP"]
 known-first-party = [
     "clearinghouse_core",
     "clearinghouse_domain_legislative",
+    "clearinghouse_sync_powermap",
     "usa_wa_adapter_legislature",
     "usa_wa_api",
 ]
