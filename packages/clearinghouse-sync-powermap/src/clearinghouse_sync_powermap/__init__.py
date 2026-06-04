@@ -6,6 +6,29 @@ Importing this package registers the ``sync``-schema tables with the shared
 """
 
 from clearinghouse_sync_powermap import models as _models  # noqa: F401
+from clearinghouse_sync_powermap.client import (
+    ChangeItem,
+    ChangePage,
+    EntityPage,
+    ObservationResult,
+    PowerMapClient,
+)
+from clearinghouse_sync_powermap.descriptors import (
+    Authority,
+    EntityDescriptor,
+    ReadSource,
+)
 from clearinghouse_sync_powermap.models import OutboxEntry, SyncState
 
-__all__ = ["OutboxEntry", "SyncState"]
+__all__ = [
+    "Authority",
+    "ChangeItem",
+    "ChangePage",
+    "EntityDescriptor",
+    "EntityPage",
+    "ObservationResult",
+    "OutboxEntry",
+    "PowerMapClient",
+    "ReadSource",
+    "SyncState",
+]

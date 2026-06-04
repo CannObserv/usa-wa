@@ -1,0 +1,64 @@
+"""EntityDescriptor contract + observation value-type tests (engine step 2)."""
+
+from datetime import UTC, datetime
+
+from ulid import ULID
+
+from clearinghouse_sync_powermap.client import ObservationResult
+from clearinghouse_sync_powermap.models import (
+    DISPOSITION_AUTO_ATTACHED,
+    DISPOSITION_NEW,
+    DISPOSITION_REJECTED,
+)
+from clearinghouse_sync_powermap.testing import FakeEntity
+
+
+def test_anchor_get_set(fake_descriptor):
+    """``anchor_value`` / ``set_anchor`` read+write the configured column."""
+    row = FakeEntity(source="s", source_id="1", name="x")
+    assert fake_descriptor.anchor_value(row) is None
+    pm_id = ULID()
+    fake_descriptor.set_anchor(row, pm_id)
+    assert fake_descriptor.anchor_value(row) == pm_id
+
+
+def test_natural_key_values(fake_descriptor):
+    """``natural_key_values`` extracts the tuple in declared order."""
+
+    row = FakeEntity(source="wsl", source_id="42", name="x")
+    assert fake_descriptor.natural_key_values(row) == ("wsl", "42")
+
+
+def test_to_observation_shape(fake_descriptor):
+
+    row = FakeEntity(source="wsl", source_id="42", name="Widget")
+    assert fake_descriptor.to_observation(row) == {
+        "source": "wsl",
+        "source_id": "42",
+        "name": "Widget",
+    }
+
+
+def test_last_updated_handles_row_and_record(fake_descriptor):
+    """The comparator reads local ``updated_at`` and a PM record's field alike."""
+
+    row = FakeEntity(source="s", source_id="1", name="x")
+    row.updated_at = datetime(2026, 6, 1, tzinfo=UTC)
+    assert fake_descriptor.last_updated(row) == datetime(2026, 6, 1, tzinfo=UTC)
+
+    record = {"updated_at": "2026-06-02T00:00:00Z"}
+    assert fake_descriptor.last_updated(record) == datetime(2026, 6, 2, tzinfo=UTC)
+
+
+def test_observation_result_anchored():
+    pm_id = ULID()
+    assert ObservationResult(DISPOSITION_NEW, pm_id, {}).anchored
+    assert ObservationResult(DISPOSITION_AUTO_ATTACHED, pm_id, {}).anchored
+    # Anchoring disposition but no id → not anchored.
+    assert not ObservationResult(DISPOSITION_NEW, None, {}).anchored
+
+
+def test_observation_result_rejected():
+    result = ObservationResult(DISPOSITION_REJECTED, None, {"error": "dupe"})
+    assert result.rejected
+    assert not result.anchored
