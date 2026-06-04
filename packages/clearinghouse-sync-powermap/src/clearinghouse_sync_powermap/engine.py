@@ -145,8 +145,8 @@ class SyncEngine:
             if descriptor is None or not descriptor.write_enabled:
                 # Dormant or unknown type — leave PENDING, do not spin on it.
                 continue
-            touched.append(entry)
-            await self._deliver(session, descriptor, entry, now)
+            if await self._deliver(session, descriptor, entry, now):
+                touched.append(entry)
         await session.flush()
         return touched
 
@@ -156,13 +156,15 @@ class SyncEngine:
         descriptor: EntityDescriptor,
         entry: OutboxEntry,
         now: datetime,
-    ) -> None:
+    ) -> bool:
+        """Attempt one delivery. Returns False if the entry was dropped (so the
+        caller omits it from the touched set), True otherwise."""
         row = await session.get(descriptor.model, entry.local_id)
         if row is None:
             # Source row vanished before delivery — the entry is moot, so drop it
             # rather than mark it DELIVERED (it never was).
             await session.delete(entry)
-            return
+            return False
 
         payload = descriptor.to_observation(row)
         try:
@@ -180,7 +182,7 @@ class SyncEngine:
                     "error": repr(exc),
                 },
             )
-            return
+            return True
 
         entry.last_disposition = result.disposition
         if result.anchored:
@@ -210,6 +212,7 @@ class SyncEngine:
                     "disposition": result.disposition,
                 },
             )
+        return True
 
     # --- read path: LWW reconcile --------------------------------------------
 

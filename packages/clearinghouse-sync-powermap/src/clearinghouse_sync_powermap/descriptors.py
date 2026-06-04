@@ -19,7 +19,8 @@ from typing import Any, Literal
 from ulid import ULID
 
 
-def _as_ulid(value: Any) -> ULID:
+def as_ulid(value: Any) -> ULID:
+    """Coerce a PM id (str or ULID) to a ULID. Public — reused by siblings/tests."""
     return value if isinstance(value, ULID) else ULID.from_str(str(value))
 
 
@@ -85,7 +86,7 @@ class EntityDescriptor(ABC):
         row (so the cache doesn't look unsynced).
         """
         raw = record.get("id")
-        return _as_ulid(raw) if raw is not None else None
+        return as_ulid(raw) if raw is not None else None
 
     # --- behaviour (sibling implements) --------------------------------------
 

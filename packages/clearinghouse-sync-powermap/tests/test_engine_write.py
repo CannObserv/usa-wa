@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlalchemy import select
 from ulid import ULID
 
@@ -130,6 +131,32 @@ async def test_drain_respects_next_attempt_at(db_session, fake_descriptor):
 
     assert touched == []
     assert client.posted == []
+
+
+async def test_drain_drops_entry_when_source_missing(db_session, fake_descriptor):
+    """An entry whose source row is gone is deleted, not marked DELIVERED."""
+    db_session.add(OutboxEntry(entity_type="fake", local_id=ULID(), op=OP_CREATE))
+    await db_session.flush()
+    engine = SyncEngine([fake_descriptor], FakeClient())
+
+    touched = await engine.drain_outbox(db_session, now=NOW)
+
+    assert touched == []  # dropped entry is not returned
+    assert (await db_session.execute(select(OutboxEntry))).first() is None  # and removed
+
+
+async def test_drain_propagates_non_transient_error(db_session, fake_descriptor):
+    """A non-transport error escapes (not masked as a retryable blip)."""
+
+    def _raise_value_error(payload):
+        raise ValueError("bug in payload construction")
+
+    await _add_entity(db_session, source_id="1")
+    engine = SyncEngine([fake_descriptor], FakeClient(observation_result=_raise_value_error))
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+
+    with pytest.raises(ValueError, match="bug in payload"):
+        await engine.drain_outbox(db_session, now=NOW)
 
 
 async def test_drain_skips_dormant_type(db_session, fake_descriptor):

@@ -17,6 +17,7 @@ from clearinghouse_sync_powermap.descriptors import (
     Authority,
     EntityDescriptor,
     ReadSource,
+    as_ulid,
 )
 from clearinghouse_sync_powermap.models import OutboxEntry, SyncState
 
@@ -31,4 +32,5 @@ __all__ = [
     "PowerMapClient",
     "ReadSource",
     "SyncState",
+    "as_ulid",
 ]

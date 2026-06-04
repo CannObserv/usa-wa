@@ -20,7 +20,7 @@ from ulid import ULID as _ULID
 from clearinghouse_core.db.ulid import ULID
 from clearinghouse_core.models import Base, TimestampMixin
 from clearinghouse_sync_powermap.client import ChangePage, EntityPage, ObservationResult
-from clearinghouse_sync_powermap.descriptors import EntityDescriptor
+from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid
 from clearinghouse_sync_powermap.models import DISPOSITION_NEW
 
 TEST_SCHEMA = "sync_test"
@@ -29,10 +29,6 @@ TEST_SCHEMA = "sync_test"
 def parse_ts(value: str) -> datetime:
     """Parse a PM ISO-8601 timestamp (``...Z``) into an aware datetime."""
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-def as_ulid(value: Any) -> _ULID:
-    return value if isinstance(value, _ULID) else _ULID.from_str(str(value))
 
 
 class FakeEntity(Base, TimestampMixin):
