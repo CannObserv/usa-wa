@@ -18,9 +18,14 @@ from typing import Any, Literal
 
 from ulid import ULID
 
+
+def _as_ulid(value: Any) -> ULID:
+    return value if isinstance(value, ULID) else ULID.from_str(str(value))
+
+
 #: Which side is authoritative for *identity* (id minting / system-of-record).
-#: Field-level conflicts are still resolved by last-write-wins (see the engine);
-#: ``authority`` only biases ties and documents producer direction.
+#: Field-level conflicts are resolved by last-write-wins with ties going to PM
+#: (see the engine); ``authority`` is descriptive of producer direction only.
 Authority = Literal["pm", "local"]
 
 #: How this entity is read from PM.
@@ -42,7 +47,10 @@ class EntityDescriptor(ABC):
     anchor_column: str
     #: Columns forming the local natural key (for idempotent upsert).
     natural_key: Sequence[str]
-    #: Producer side.
+    #: Producer side. **Descriptive only** — the engine resolves field conflicts
+    #: by last-write-wins with ties going to PM, regardless of this value. It
+    #: documents which side mints identity and biases nothing in code today; wire
+    #: a consumer before relying on it.
     authority: Authority = "local"
     #: PM list endpoint for full reconcile (e.g. ``"/api/v1/jurisdictions"``).
     read_path: str | None = None
@@ -69,6 +77,16 @@ class EntityDescriptor(ABC):
         """The local natural-key tuple for a row (used for upsert matching)."""
         return tuple(getattr(row, col) for col in self.natural_key)
 
+    def pm_id_from_record(self, record: dict) -> ULID | None:
+        """Extract the PM anchor id from a PM record.
+
+        Default reads ``record["id"]``; override if PM names the id differently
+        for this entity. Used to capture the anchor even when LWW keeps the local
+        row (so the cache doesn't look unsynced).
+        """
+        raw = record.get("id")
+        return _as_ulid(raw) if raw is not None else None
+
     # --- behaviour (sibling implements) --------------------------------------
 
     @abstractmethod
@@ -85,11 +103,14 @@ class EntityDescriptor(ABC):
         """
 
     @abstractmethod
-    async def upsert_from_pm(self, session: Any, record: dict) -> Any:
+    async def upsert_from_pm(self, session: Any, record: dict, existing: Any | None = None) -> Any:
         """Idempotently upsert a PM record into the local cache (set anchor).
 
         Returns the upserted row. Safe to call whether or not a row already
-        exists — it must find-or-create on the natural key.
+        exists — it must find-or-create on the natural key. ``existing`` is an
+        optional already-resolved local row (from :meth:`local_match`) the caller
+        may pass to avoid a redundant lookup; implementations should use it when
+        provided and fall back to their own find when ``None``.
         """
 
     @abstractmethod

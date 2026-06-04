@@ -101,6 +101,23 @@ async def test_lww_local_newer_keeps_local_and_enqueues_update(db_session, fake_
     assert entry.status == STATUS_PENDING
 
 
+async def test_lww_local_newer_captures_pm_anchor(db_session, fake_descriptor):
+    """Keeping the newer local row still captures the PM anchor we just learned."""
+    await _add_entity(db_session, source_id="1", name="FreshLocal")  # unanchored
+    engine = SyncEngine([fake_descriptor], FakeClient())
+    pm_id = ULID()
+
+    await engine.apply_record(
+        db_session,
+        fake_descriptor,
+        _record("1", "StalePM", pm_id=pm_id, updated_at="2000-01-01T00:00:00Z"),
+    )
+
+    row = (await db_session.execute(select(FakeEntity))).scalar_one()
+    assert row.name == "FreshLocal"  # local field kept
+    assert row.pm_fake_id == pm_id  # but anchor captured
+
+
 async def test_lww_local_newer_no_enqueue_when_write_disabled(db_session):
     class ReadOnlyDescriptor(FakeDescriptor):
         write_enabled = False

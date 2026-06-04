@@ -10,9 +10,11 @@ Write path (this module, step 3):
     drain_outbox     → post observations, settle dispositions, back off on error
 """
 
+import asyncio
 from collections.abc import Sequence
 from datetime import datetime
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +42,16 @@ APPLY_INSERTED = "inserted"
 APPLY_UPDATED = "updated"
 APPLY_KEPT_LOCAL = "kept_local"
 
+#: Transport-level failures that are genuinely transient and warrant a backoff
+#: retry. Anything else (e.g. a bug in payload construction) propagates so it is
+#: not silently masked as a retryable network blip.
+TRANSIENT_EXCEPTIONS = (
+    httpx.HTTPError,
+    ConnectionError,
+    TimeoutError,
+    asyncio.TimeoutError,
+)
+
 
 class SyncEngine:
     """Per-cycle sync work over a fixed descriptor registry."""
@@ -51,7 +63,6 @@ class SyncEngine:
         *,
         batch_limit: int = 100,
     ) -> None:
-        self._descriptors = list(descriptors)
         self._by_type = {d.entity_type: d for d in descriptors}
         self._client = client
         self._batch_limit = batch_limit
@@ -106,6 +117,10 @@ class SyncEngine:
     # --- outbox worker --------------------------------------------------------
 
     async def _due_entries(self, session: AsyncSession, now: datetime) -> Sequence[OutboxEntry]:
+        # No row-level locking (``FOR UPDATE SKIP LOCKED``): correctness assumes a
+        # single sidecar instance (process model B, one systemd unit). Two
+        # concurrent daemons would double-send. If the deployment ever scales out,
+        # add ``.with_for_update(skip_locked=True)`` here.
         return (
             (
                 await session.execute(
@@ -144,16 +159,15 @@ class SyncEngine:
     ) -> None:
         row = await session.get(descriptor.model, entry.local_id)
         if row is None:
-            # Source row vanished before delivery — nothing to push.
-            entry.status = STATUS_DELIVERED
-            entry.last_disposition = None
-            entry.last_error = "source row missing at delivery"
+            # Source row vanished before delivery — the entry is moot, so drop it
+            # rather than mark it DELIVERED (it never was).
+            await session.delete(entry)
             return
 
         payload = descriptor.to_observation(row)
         try:
             result = await self._client.post_observation(descriptor.observe_path, payload)
-        except Exception as exc:  # noqa: BLE001 — transient; back off and retry
+        except TRANSIENT_EXCEPTIONS as exc:  # back off and retry; bugs propagate
             entry.attempts += 1
             entry.next_attempt_at = next_attempt_at(now, entry.attempts)
             entry.last_error = repr(exc)
@@ -217,11 +231,17 @@ class SyncEngine:
         lu_local = descriptor.last_updated(existing)
         lu_pm = descriptor.last_updated(record)
         if lu_local is not None and lu_pm is not None and lu_local > lu_pm:
+            # Keep local field values, but still capture the PM anchor we just
+            # learned — otherwise the row looks unsynced and the sweep re-queues it.
+            if descriptor.anchor_value(existing) is None:
+                pm_id = descriptor.pm_id_from_record(record)
+                if pm_id is not None:
+                    descriptor.set_anchor(existing, pm_id)
             if descriptor.write_enabled:
                 await self._enqueue(session, descriptor, existing, OP_UPDATE)
             return APPLY_KEPT_LOCAL
 
-        await descriptor.upsert_from_pm(session, record)
+        await descriptor.upsert_from_pm(session, record, existing=existing)
         return APPLY_UPDATED
 
     # --- read path: full reconcile (backstop / jurisdictions' primary) -------

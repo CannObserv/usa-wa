@@ -74,8 +74,8 @@ class FakeDescriptor(EntityDescriptor):
             )
         ).scalar_one_or_none()
 
-    async def upsert_from_pm(self, session: Any, record: dict) -> Any:
-        row = await self.local_match(session, record)
+    async def upsert_from_pm(self, session: Any, record: dict, existing: Any | None = None) -> Any:
+        row = existing if existing is not None else await self.local_match(session, record)
         if row is None:
             row = FakeEntity(source=record["source"], source_id=record["source_id"])
             session.add(row)

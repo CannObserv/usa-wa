@@ -54,6 +54,13 @@ packages/
   clearinghouse-domain-legislative/   — Layer 2: legislative-government model (state/federal)
     src/clearinghouse_domain_legislative/
                       — Bill, Legislator, BillAction, StatuteSection, etc. (skeletoned step 7)
+  clearinghouse-sync-powermap/        — Layer 1-adjacent: portable Power Map sync engine (sibling-reusable)
+    src/clearinghouse_sync_powermap/
+      descriptors.py  — EntityDescriptor contract (per-entity sync behaviour; zero usa-wa imports)
+      engine.py       — SyncEngine: changes-feed + reconcile reads, LWW, outbox worker, backoff
+      client.py       — PowerMapClient Protocol + value types (ObservationResult, ChangePage…)
+      models.py       — sync-schema OutboxEntry + SyncState (durable delivery ledger + feed cursor)
+      testing.py      — shipped test doubles (FakeEntity/Descriptor/Client) for this + sibling tests
   usa-wa-adapter-legislature/         — Layer 3: WA Legislature SOAP source mapping
   usa-wa-api/                         — Layer 4: WA deployment (FastAPI + MCP + REST)
     src/usa_wa_api/api/

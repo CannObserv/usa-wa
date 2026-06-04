@@ -19,7 +19,9 @@ from clearinghouse_sync_powermap.models import (
 )
 from clearinghouse_sync_powermap.testing import FakeClient, FakeDescriptor, FakeEntity
 
-NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
+# Far-future so it always exceeds the outbox rows' ``server_default now()`` insert
+# stamp (otherwise a drain `now` earlier than wall-clock-at-insert sees nothing due).
+NOW = datetime(2099, 1, 1, tzinfo=UTC)
 
 
 def _raise_conn_error(payload):
