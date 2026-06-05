@@ -1,9 +1,24 @@
 # Power Map Sync Sidecar — Design
 
-- **Status:** approved (brainstorm 2026-06-02), ready for implementation plan
+- **Status:** in implementation — engine (steps 1–4) shipped; refreshed 2026-06-05 against PM #176–179 as deployed.
 - **Issue:** [CannObserv/usa-wa#4](https://github.com/CannObserv/usa-wa/issues/4)
 - **Supersedes/extends:** the deferred sidecar note in [`docs/plans/2026-05-31-jurisdictional-ia-implementation.md`](../plans/2026-05-31-jurisdictional-ia-implementation.md); operationalizes project memories `project_sidecar_sync_pattern` + `project_identity_producer_archival` + `project_pm_observations_endpoints`.
 - **Cross-refs:** [`docs/specs/2026-05-31-jurisdictional-ia-design.md`](2026-05-31-jurisdictional-ia-design.md) §2/§3 (sidecar read/write sketch, observation payloads), [`docs/specs/2026-05-27-power-map-integration.md`](2026-05-27-power-map-integration.md) (read surface + auth).
+
+## Changelog (2026-06-05 — PM #176–179 shipped & deployed)
+
+The four PM coordination issues (§7) landed; three changed the model from what this spec originally assumed. The portable engine (steps 1–4) is unaffected — these are descriptor-config + doc deltas only.
+
+| Original assumption | Shipped reality | Source |
+|---|---|---|
+| **6 descriptors**, entity_events its own type with a dedicated `/entity-events` observation endpoint | **5 descriptors.** Entity events have **no standalone API** — they are embedded in person/org observations (`events: [ObservationEventItem]`), read via per-parent `GET /{people\|orgs}/{id}/events`, and change-detected by a parent-propagation trigger (event CUD bumps the parent's `updated_at`). Entity events are a **sub-resource of person & organization**, not a 6th entity. | PM #178 |
+| Jurisdictions **not** on the `/changes` feed → reconcile-primary | Jurisdictions **are** on the feed (create+update) → **feed-primary**, reconcile as backstop. | PM #179 |
+| Assignment feed discriminator `assignment` | Discriminator is **`role_assignment`** (route path is still `/assignments`). | PM #179 feed |
+| Roles/assignments/entity_events write paths **dormant pending PM** | Roles + assignments observation endpoints **live** (`/roles/observations`, `/assignments/observations`); all 5 write paths are **activatable**. Only jurisdiction-write-first remains an MVP *choice*. | PM #176, #177 |
+
+**Two follow-on consequences:**
+- **`canonical.entity_events` is under-modeled** for PM's `ObservationEventItem` (granular partial dates `event_year/month/day/hour/...`, `event_type_slug` XOR id, `event_place_text`, `visibility`). Refinement needed before event sync is built; deferred (events are out of the MVP increment). Tracked as a follow-up issue.
+- **Assignment observations key on `person_id` + `role_id` (PM ids)** → sync-ordering constraint: persons and roles must be anchored before assignments push.
 
 ## Problem
 
@@ -23,26 +38,26 @@ A second motivation shapes the design: **other CannObserv services (outside this
 | Service shape | Single multi-entity sidecar; one systemd unit |
 | Process model | Long-running async daemon (not cron one-shot) |
 | Packaging | Portable engine package + usa-wa binding package (clean seam) |
-| Entity types | 6 descriptors: jurisdictions, persons, organizations, roles, assignments, entity_events |
+| Entity types | **5 descriptors**: jurisdictions, persons, organizations, roles, assignments. Entity events are a sub-resource of person/org (embedded write + per-parent read), not a descriptor. |
 | Write delivery | In-DB outbox table (`sync.powermap_outbox`) |
-| Read mechanism | PM `/changes` feed (incremental, person/org only today) + periodic full-reconcile backstop (primary read for jurisdictions — not on the feed) |
+| Read mechanism | PM `/changes` feed (incremental — covers jurisdiction/person/organization/role/role_assignment) + periodic full-reconcile backstop |
 | Conflict resolution | PM is system-of-record; contested fields resolved by last-updated-timestamp (LWW); ties → PM |
 | Anchor columns | Standardize to `pm_<entity>_id` across the schema |
 | Auth | `X-API-Key` header (validated against PM source 2026-06-02; the `Bearer` mention in IA design §3 is wrong) |
-| MVP increment | Read-flow (jurisdictions via reconcile, persons/orgs via feed) + live jurisdiction write; persons/orgs write activatable; roles/assignments/entity_events fully dormant (no PM public surface yet) |
+| MVP increment | Read-flow (all 5 types via feed + reconcile backstop) + live jurisdiction write; persons/orgs/roles/assignments writes activatable (endpoints live). Entity-event sync deferred (table refinement pending). |
 
-### Validated PM public API state (source inspection, 2026-06-02)
+### Validated PM public API state (source inspection, 2026-06-05 — post #176–179)
 
-| Entity | Public READ | Observation (WRITE) | On `/changes` feed |
+| Entity | Public READ | Observation (WRITE) | Feed `entity_type` |
 |---|---|---|---|
-| jurisdictions | ✅ `GET /api/v1/jurisdictions…` | ✅ `POST /jurisdictions/observations` | ❌ not emitted |
-| people | ✅ | ✅ `POST /people/observations` | ✅ updates |
-| orgs | ✅ | ✅ `POST /orgs/observations` | ✅ updates |
-| roles | ❌ | ❌ | ❌ |
-| assignments | ❌ | ❌ | ❌ |
-| entity_events | ❌ (router unwired) | ❌ | ❌ |
+| jurisdictions | ✅ `GET /api/v1/jurisdictions…` | ✅ `POST /jurisdictions/observations` | ✅ `jurisdiction` |
+| people | ✅ + `GET /people/{id}/events` | ✅ `POST /people/observations` (embeds `events[]`) | ✅ `person` |
+| orgs | ✅ + `GET /orgs/{id}/events` | ✅ `POST /orgs/observations` (embeds `events[]`) | ✅ `organization` |
+| roles | ✅ `GET /api/v1/roles…` | ✅ `POST /roles/observations` | ✅ `role` |
+| assignments | ✅ `GET /api/v1/assignments…` | ✅ `POST /assignments/observations` | ✅ `role_assignment` |
+| entity events | per-parent sub-route only | embedded in person/org observations | — (parent bumps) |
 
-The `/changes` feed emits only `person` + `organization` *updates* plus generic *deletes* (`deleted_entities`). Roles/assignments/entity_events have no public surface (the #170 entity-events work landed the model + admin only). These gaps are tracked as PM issues (§7) and flip the dormant paths live without further usa-wa design changes.
+The `/changes` feed emits create+update for all five entities plus generic deletes (`deleted_entities`). All observation endpoints are live; every dormant path from the original spec is now activatable. Entity events ride with their parent person/org.
 
 ## Section 1 — Architecture & package boundaries
 
@@ -73,7 +88,8 @@ Contents:
 
 The binding + the runnable.
 
-- The **6 concrete `EntityDescriptor`s** wiring `clearinghouse_core.jurisdictions` + `canonical.{persons, organizations, roles, assignments, entity_events}`.
+- The **5 concrete `EntityDescriptor`s** wiring `clearinghouse_core.jurisdictions` + `canonical.{persons, organizations, roles, assignments}`. The assignment descriptor's `entity_type` is **`role_assignment`** (the feed discriminator), though its routes live under `/assignments`. Entity events are **not** a descriptor — the person and organization descriptors own them: `to_observation` embeds `events: [ObservationEventItem]`, and `upsert_from_pm` pulls `GET /{people|orgs}/{id}/events` to refresh the `canonical.entity_events` mirror.
+- **Descriptor `fetch_record` seam (added 2026-06-05):** because syncing person/org events needs a supplementary sub-resource fetch the descriptor can't do alone, the engine resolves a feed item to a full record via `descriptor.fetch_record(client, pm_id)` (default delegates to `client.get_entity`; person/org override to also fetch events). Keeps entity-specific composition in the descriptor.
 - **Scope config** (`slug_prefix=usa-wa`, the usa-wa jurisdiction set for identity scoping), env loading.
 - **`__main__` async daemon entrypoint** — `configure_logging()` once, builds descriptors, starts `SyncEngine`.
 - **systemd unit** `usa-wa-sync-powermap.service` — own lifecycle, restart policy, env loading (`/etc/usa-wa/.env` + repo `.env`), separate from `usa-wa.service`.
@@ -122,7 +138,9 @@ Renames touch `identity.py` and any reader; blast radius is small (identity sync
 
 ### Entity Events — `canonical.entity_events` (new table)
 
-Mirrors PM's #170 structure (exact columns pinned to PM's OpenAPI when the client is generated):
+> **⚠️ Under-modeled (2026-06-05).** This is the table as shipped in the step-1 migration. PM #178's `ObservationEventItem` is richer than assumed: granular partial dates (`event_year/month/day/hour/minute/second`, any of which may be null — e.g. "born 1970"), `event_type_slug` XOR `event_type_id`, `event_place_text`, `visibility` (`public`/`legal_only`/`hidden`), and an optional `linked_entity`. The single `date` column cannot represent partial dates. **Refine before wiring event sync** (step 6b); table is unused at MVP so the change is non-breaking. The shape below is retained for history.
+
+Original shape (pre-#178-reassessment):
 
 | Column | Type | Note |
 |---|---|---|
@@ -167,7 +185,7 @@ Full read reconcile for every entity type PM serves → drain outbox. Seeds/repa
 2. Dispatch each change to the matching descriptor's `upsert_from_pm()` + LWW reconcile (below).
 3. Persist the new cursor to `sync.powermap_sync_state`.
 
-> **Validated coverage (2026-06-02):** the feed emits only `person` + `organization` updates plus generic deletes. **Jurisdictions are not on the feed**, so jurisdiction reads run off the full-reconcile path below as their *primary* mechanism, not the feed. Roles/assignments/entity_events have no read surface at all yet (§7). When PM widens feed coverage, those types switch to feed-primary with no descriptor change.
+> **Validated coverage (2026-06-05, post #176–179):** the feed emits create+update for `jurisdiction`, `person`, `organization`, `role`, and `role_assignment` (plus generic deletes). All five entities are **feed-primary**; the full reconcile is the backstop. Entity-event changes surface as bumps to their parent person/organization (parent-propagation trigger), so they ride the person/org feed entries.
 
 **Backstop — periodic full reconcile** (per-entity `reconcile_cadence`, hourly default):
 
@@ -217,29 +235,30 @@ PM unreachable → read loop logs + retries next cycle; write loop leaves entrie
 
 ## Section 6 — MVP increment & sequencing
 
-**First increment (unblocked today):**
+**First increment:**
 
-1. Migration (anchor standardization + `entity_events` + `sync` schema + outbox + sync_state).
-2. `clearinghouse-sync-powermap` engine + portable models + PM client.
-3. `usa-wa-sync-powermap` binding: 6 descriptors, daemon entrypoint, systemd unit.
-4. **Read-flow live for the three PM-served types:** jurisdictions (full-reconcile — not on the feed), persons + orgs (changes feed + reconcile).
-5. **Write-flow live for jurisdictions** against `POST /api/v1/jurisdictions/observations`.
-6. Persons/orgs write paths **activatable** (endpoints live via PM #169) — enable in this increment or the next per appetite.
+1. Migration (anchor standardization + `entity_events` + `sync` schema + outbox + sync_state). ✅ shipped.
+2. `clearinghouse-sync-powermap` engine + portable models. ✅ shipped (steps 1–4).
+3. PM client (`PowerMapClient` over the generated SDK).
+4. `usa-wa-sync-powermap` binding: 5 descriptors, daemon entrypoint, systemd unit.
+5. **Read-flow live for all five types** (feed-primary + reconcile backstop).
+6. **Write-flow live for jurisdictions** against `POST /api/v1/jurisdictions/observations`.
+7. Persons/orgs/roles/assignments write paths **activatable** (all endpoints live) — enable in this increment or the next per appetite.
 
-**Fully dormant (no PM public surface yet — neither read nor write):** roles, assignments, entity_events. Their descriptors register inert (`read_source=none`, `write_enabled=false`) and activate when §7 issues land.
+**Deferred (not dormant — PM-ready, but usa-wa-side work remains):** entity-event sync, pending the `canonical.entity_events` table refinement (granular partial dates etc.). The person/org descriptors carry a no-op events hook until then.
 
-## Section 7 — PM coordination (issues filed)
+## Section 7 — PM coordination (issues shipped 2026-06-05)
 
-Validated against PM source 2026-06-02; four issues filed on `CannObserv/power-map`:
+All four issues filed 2026-06-02 are **CLOSED and deployed**. Outcomes (some diverged from the original ask — see Changelog):
 
-1. **Roles public API** ([power-map#176](https://github.com/CannObserv/power-map/issues/176)) — `GET /api/v1/roles…` + `POST /api/v1/roles/observations`. Entire public surface missing.
-2. **Assignments public API** ([power-map#177](https://github.com/CannObserv/power-map/issues/177)) — read + `POST /api/v1/assignments/observations`. Entire public surface missing.
-3. **Entity-events public API** ([power-map#178](https://github.com/CannObserv/power-map/issues/178)) — wire `events_router` + `GET` + `POST /api/v1/entity-events/observations`. Model exists (#170); no sibling-facing routes.
-4. **Changes-feed coverage** ([power-map#179](https://github.com/CannObserv/power-map/issues/179)) — emit `jurisdiction` (and later `role`/`assignment`/`entity_event`) create/update events; today only person/org updates + generic deletes. Lower priority — full-reconcile is the working fallback.
+1. **Roles public API** ([power-map#176](https://github.com/CannObserv/power-map/issues/176)) — ✅ `GET /api/v1/roles…` + `POST /api/v1/roles/observations`.
+2. **Assignments public API** ([power-map#177](https://github.com/CannObserv/power-map/issues/177)) — ✅ `GET /api/v1/assignments…` + `POST /api/v1/assignments/observations`. Feed discriminator is `role_assignment`.
+3. **Entity-events** ([power-map#178](https://github.com/CannObserv/power-map/issues/178)) — shipped as a **parent-propagation trigger** (event CUD bumps the parent's `updated_at`) + observation embedding + per-parent read route, **not** a standalone `/entity-events` API. Events are a person/org sub-resource.
+4. **Changes-feed coverage** ([power-map#179](https://github.com/CannObserv/power-map/issues/179)) — ✅ emits `jurisdiction` create+update; the feed now covers all five entities.
 
 **Auth resolved (no issue):** `X-API-Key` validated in PM `src/api/public/deps.py`; the `Authorization: Bearer` line in IA design §3 is wrong and should be corrected in a docs sweep.
 
-Each issue, when resolved, flips the corresponding dormant read/write path live with no usa-wa design change — only `write_enabled`/read-source flags on the descriptor.
+**Outstanding usa-wa follow-up:** refine `canonical.entity_events` to PM's `ObservationEventItem` shape before wiring event sync ([usa-wa#9](https://github.com/CannObserv/usa-wa/issues/9)).
 
 ## Section 8 — Out of scope
 
