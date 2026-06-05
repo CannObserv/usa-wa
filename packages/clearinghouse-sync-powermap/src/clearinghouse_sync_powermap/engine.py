@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.logging import get_logger
-from clearinghouse_sync_powermap.client import PowerMapClient
+from clearinghouse_sync_powermap.client import PowerMapClient, RetryableClientError
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.models import (
     OP_CREATE,
@@ -46,6 +46,7 @@ APPLY_KEPT_LOCAL = "kept_local"
 #: retry. Anything else (e.g. a bug in payload construction) propagates so it is
 #: not silently masked as a retryable network blip.
 TRANSIENT_EXCEPTIONS = (
+    RetryableClientError,
     httpx.HTTPError,
     ConnectionError,
     TimeoutError,

@@ -24,6 +24,16 @@ from clearinghouse_sync_powermap.models import (
 ANCHORING_DISPOSITIONS = frozenset({DISPOSITION_AUTO_ATTACHED, DISPOSITION_NEW})
 
 
+class RetryableClientError(Exception):
+    """A transient client/transport failure the engine should back off and retry.
+
+    Defined here (portable, PM-agnostic) so the engine's transient-exception set
+    stays free of any concrete-client imports. A concrete client raises this for
+    failures worth retrying (e.g. a PM 5xx / 429) instead of leaking SDK-specific
+    exception types into the generic engine.
+    """
+
+
 @dataclass(frozen=True)
 class ObservationResult:
     """Outcome of a single ``POST .../observations`` call."""

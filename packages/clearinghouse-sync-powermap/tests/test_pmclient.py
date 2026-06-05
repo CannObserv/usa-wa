@@ -12,7 +12,8 @@ import pytest
 import respx
 from ulid import ULID
 
-from clearinghouse_sync_powermap.models import DISPOSITION_NEW
+from clearinghouse_sync_powermap.client import RetryableClientError
+from clearinghouse_sync_powermap.models import DISPOSITION_NEW, DISPOSITION_REJECTED
 from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 
 BASE = "https://pm.test"
@@ -130,3 +131,83 @@ async def test_get_entity_404_returns_none(client):
     respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(return_value=httpx.Response(404))
 
     assert await client.get_entity("/api/v1/jurisdictions", pm_id) is None
+
+
+@respx.mock
+async def test_get_entity_success_returns_dict(client):
+    pm_id = ULID()
+    type_id = ULID()
+    respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "id": str(pm_id),
+                "slug": "usa-wa",
+                "name": "Washington",
+                "type": {"id": str(type_id), "slug": "state", "display_name": "State"},
+                "recorded_at": "2026-06-05T00:00:00Z",
+                "created_at": "2026-06-05T00:00:00Z",
+                "updated_at": "2026-06-05T00:00:00Z",
+            },
+        )
+    )
+
+    record = await client.get_entity("/api/v1/jurisdictions", pm_id)
+
+    assert record["slug"] == "usa-wa"
+    assert record["name"] == "Washington"
+
+
+@respx.mock
+async def test_get_entity_non_404_status_reraises(client):
+    pm_id = ULID()
+    respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(return_value=httpx.Response(403))
+
+    with pytest.raises(Exception):  # noqa: B017 — generated UnexpectedStatus, not retryable
+        await client.get_entity("/api/v1/jurisdictions", pm_id)
+
+
+@respx.mock
+async def test_post_observation_rejected(client):
+    respx.post(f"{BASE}/api/v1/jurisdictions/observations").mock(
+        return_value=httpx.Response(
+            200, json={"disposition": DISPOSITION_REJECTED, "entity_id": None, "entity_type": None}
+        )
+    )
+
+    result = await client.post_observation(
+        "/api/v1/jurisdictions/observations",
+        {
+            "identifier_type": "ocd_division_id",
+            "identifier_value": "ocd-division/country:us/state:wa",
+            "slug": "usa-wa",
+            "name": "Washington",
+        },
+    )
+
+    assert result.rejected
+    assert result.pm_id is None
+    assert not result.anchored
+
+
+@respx.mock
+async def test_5xx_is_retryable(client):
+    respx.get(f"{BASE}/api/v1/changes").mock(return_value=httpx.Response(503))
+
+    with pytest.raises(RetryableClientError):
+        await client.get_changes(since=None)
+
+
+@respx.mock
+async def test_422_raises_value_error(client):
+    respx.post(f"{BASE}/api/v1/jurisdictions/observations").mock(
+        return_value=httpx.Response(
+            422, json={"detail": [{"loc": ["body", "name"], "msg": "field required", "type": "x"}]}
+        )
+    )
+
+    with pytest.raises(ValueError, match="422"):
+        await client.post_observation(
+            "/api/v1/jurisdictions/observations",
+            {"identifier_type": "t", "identifier_value": "v", "slug": "s", "name": "n"},
+        )

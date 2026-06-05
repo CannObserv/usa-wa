@@ -61,6 +61,10 @@ packages/
       client.py       — PowerMapClient Protocol + value types (ObservationResult, ChangePage…)
       models.py       — sync-schema OutboxEntry + SyncState (durable delivery ledger + feed cursor)
       testing.py      — shipped test doubles (FakeEntity/Descriptor/Client) for this + sibling tests
+      pmclient.py     — GeneratedPowerMapClient: adapts the generated SDK to the PowerMapClient Protocol
+  powermap-client/                    — GENERATED OpenAPI client for Power Map (do not hand-edit)
+                      — openapi-python-client output; excluded from ruff/coverage/pre-commit.
+                        Regenerate when PM's API changes (see "Regenerating the PM client" below).
   usa-wa-adapter-legislature/         — Layer 3: WA Legislature SOAP source mapping
   usa-wa-api/                         — Layer 4: WA deployment (FastAPI + MCP + REST)
     src/usa_wa_api/api/
@@ -160,6 +164,22 @@ uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 Full reference: `docs/COMMANDS.md`
+
+### Regenerating the PM client
+
+`packages/powermap-client/` is generated from Power Map's live OpenAPI; never hand-edit it. To refresh after PM ships API changes:
+
+```bash
+cd /tmp && rm -rf pmgen && mkdir pmgen && cd pmgen
+curl -fsS https://power-map.exe.xyz/openapi.json -o pm-openapi.json
+printf 'package_name_override: powermap_client\nproject_name_override: powermap-client\n' > cfg.yml
+uvx openapi-python-client generate --path pm-openapi.json --config cfg.yml --meta uv
+# review the diff, then replace the vendored copy:
+rm -rf /home/exedev/usa-wa/packages/powermap-client
+cp -r powermap-client /home/exedev/usa-wa/packages/powermap-client
+```
+
+Then `uv sync` and re-run the `GeneratedPowerMapClient` wrapper tests — the wrapper's path/model dispatch (`pmclient.py`) is what breaks if PM renames an operation or model.
 
 ## Agent Skills
 

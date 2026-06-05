@@ -37,6 +37,7 @@ from powermap_client.api.public_api import (
 from powermap_client.errors import UnexpectedStatus
 from powermap_client.models import (
     AssignmentObservationRequest,
+    HTTPValidationError,
     JurisdictionObservationRequest,
     OrganizationObservationRequest,
     PeopleObservationRequest,
@@ -48,11 +49,19 @@ from clearinghouse_sync_powermap.client import (
     ChangePage,
     EntityPage,
     ObservationResult,
+    RetryableClientError,
 )
 from clearinghouse_sync_powermap.descriptors import as_ulid
 
 #: ``since`` is required by the feed; first run (no cursor) starts at the epoch.
 _EPOCH = "1970-01-01T00:00:00Z"
+
+#: Statuses worth a backoff retry rather than a hard failure.
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
+def _retryable(exc: UnexpectedStatus) -> bool:
+    return exc.status_code in _RETRYABLE_STATUS or exc.status_code >= 500
 
 
 def _parse_ts(value: str | None) -> datetime | None:
@@ -74,7 +83,11 @@ def _list_paged(fn, *, with_query: bool):
 class GeneratedPowerMapClient:
     """Engine-facing PM client backed by the generated SDK."""
 
-    # read_path → paged list/search caller
+    # read_path → paged list/search caller.
+    # NOTE: people/orgs have no public list-all endpoint — only search, which
+    # returns nothing for an empty query (verified against PM source). So
+    # reconcile over people/orgs is a no-op; those entities are FEED-ONLY. The
+    # step-6 descriptors must not depend on reconcile to enumerate them.
     _LIST = {
         "/api/v1/jurisdictions": _list_paged(list_jurisdictions, with_query=False),
         "/api/v1/roles": _list_paged(list_roles, with_query=False),
@@ -115,16 +128,31 @@ class GeneratedPowerMapClient:
             raise_on_unexpected_status=True,
         )
 
+    async def _send(self, awaitable):
+        """Await a generated op; map 5xx/429 to a retryable error and a 422
+        ``HTTPValidationError`` body to a clear ``ValueError``."""
+        try:
+            resp = await awaitable
+        except UnexpectedStatus as exc:
+            if _retryable(exc):
+                raise RetryableClientError(f"PM {exc.status_code}") from exc
+            raise
+        parsed = resp.parsed
+        if isinstance(parsed, HTTPValidationError):
+            raise ValueError(f"PM rejected the request (422): {parsed.to_dict()}")
+        return parsed
+
     async def get_changes(self, since: str | None, limit: int = 100) -> ChangePage:
         # The generated op types ``since`` as a datetime (calls ``.isoformat()``),
         # so parse the stored cursor string; first run starts at the epoch.
         since_dt = datetime.fromisoformat((since or _EPOCH).replace("Z", "+00:00"))
-        resp = await get_change_feed.asyncio_detailed(
-            client=self._client, since=since_dt, limit=limit
+        feed = await self._send(
+            get_change_feed.asyncio_detailed(client=self._client, since=since_dt, limit=limit)
         )
-        feed = resp.parsed
         items = [
             ChangeItem(
+                # PM entity ids are ULIDs by cohort convention; a non-ULID id would
+                # raise here and fail the page (acceptable — it signals a contract break).
                 entity_type=ci.entity_type.value,
                 entity_id=as_ulid(ci.entity_id),
                 changed_at=_parse_ts(ci.changed_at),
@@ -138,8 +166,7 @@ class GeneratedPowerMapClient:
         caller = self._LIST[read_path]
         offset = int((params or {}).get("cursor") or 0)
         limit = int((params or {}).get("limit") or 100)
-        resp = await caller(self._client, limit, offset)
-        body = resp.parsed
+        body = await self._send(caller(self._client, limit, offset))
         records = [item.to_dict() for item in body.data]
         next_cursor = str(offset + limit) if body.meta.has_more else None
         return EntityPage(records=records, cursor=next_cursor)
@@ -150,15 +177,19 @@ class GeneratedPowerMapClient:
         except UnexpectedStatus as exc:
             if exc.status_code == 404:
                 return None  # entity gone (e.g. deleted between feed and fetch)
+            if _retryable(exc):
+                raise RetryableClientError(f"PM {exc.status_code}") from exc
             raise
-        return resp.parsed.to_dict() if resp.parsed is not None else None
+        parsed = resp.parsed
+        if parsed is None or isinstance(parsed, HTTPValidationError):
+            return None
+        return parsed.to_dict()
 
     async def post_observation(self, observe_path: str, payload: dict) -> ObservationResult:
         submit_fn, model_cls = self._OBSERVE[observe_path]
-        resp = await submit_fn.asyncio_detailed(
-            client=self._client, body=model_cls.from_dict(payload)
+        body = await self._send(
+            submit_fn.asyncio_detailed(client=self._client, body=model_cls.from_dict(payload))
         )
-        body = resp.parsed
         entity_id = getattr(body, "entity_id", None)
         pm_id = as_ulid(entity_id) if isinstance(entity_id, str) else None
         return ObservationResult(disposition=body.disposition, pm_id=pm_id, raw=body.to_dict())
