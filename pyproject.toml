@@ -7,6 +7,7 @@ dev = [
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
     "clearinghouse-sync-powermap",
+    "powermap-client",
     "usa-wa-adapter-legislature",
     "usa-wa-api",
     # Tools
@@ -17,6 +18,7 @@ dev = [
     "pytest>=8.0,<9",
     "pytest-asyncio>=1.0,<2",
     "pytest-cov>=6.0,<7",
+    "respx>=0.21,<1",
     "ruff>=0.9,<1",
 ]
 
@@ -24,6 +26,7 @@ dev = [
 clearinghouse-core = { workspace = true }
 clearinghouse-domain-legislative = { workspace = true }
 clearinghouse-sync-powermap = { workspace = true }
+powermap-client = { workspace = true }
 usa-wa-adapter-legislature = { workspace = true }
 usa-wa-api = { workspace = true }
 
@@ -42,6 +45,7 @@ filterwarnings = [
 
 [tool.coverage.run]
 source = ["packages"]
+omit = ["packages/powermap-client/*"]  # generated OpenAPI client; not our code to test
 
 [tool.coverage.report]
 show_missing = true
@@ -50,7 +54,7 @@ fail_under = 80
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = ["skills-vendor/", "alembic/versions/", ".superpowers/"]
+extend-exclude = ["skills-vendor/", "alembic/versions/", ".superpowers/", "packages/powermap-client/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP"]

@@ -6,12 +6,14 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "clearinghouse-core",
+    "powermap-client",
     "sqlalchemy[asyncio]>=2.0,<3",
     "httpx>=0.27,<1",
 ]
 
 [tool.uv.sources]
 clearinghouse-core = { workspace = true }
+powermap-client = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

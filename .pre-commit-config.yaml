@@ -1,3 +1,7 @@
+# Generated code (the vendored OpenAPI client) is excluded from all hooks: it has
+# its own pyproject.toml, so ruff would use that config root rather than ours.
+exclude: ^packages/powermap-client/
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.14
