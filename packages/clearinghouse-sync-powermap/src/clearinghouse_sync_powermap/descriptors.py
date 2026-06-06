@@ -88,11 +88,26 @@ class EntityDescriptor(ABC):
         raw = record.get("id")
         return as_ulid(raw) if raw is not None else None
 
+    async def fetch_record(self, client: Any, pm_id: Any) -> dict | None:
+        """Fetch the full PM record for a feed item.
+
+        Default delegates to ``client.get_entity(read_path, pm_id)``. Person/org
+        override this to also pull their ``/{id}/events`` sub-resource so the
+        local entity-events mirror stays current (a feed bump on the parent may
+        be an event change).
+        """
+        return await client.get_entity(self.read_path, pm_id)
+
     # --- behaviour (sibling implements) --------------------------------------
 
     @abstractmethod
-    def to_observation(self, row: Any) -> dict:
-        """Build the PM observation payload for a local row."""
+    async def to_observation(self, session: Any, row: Any) -> dict:
+        """Build the PM observation payload for a local row.
+
+        Async + session-bound because the payload may need related rows the
+        engine hasn't loaded (e.g. a jurisdiction's type slug, an assignment's
+        person/role PM anchors).
+        """
 
     @abstractmethod
     async def local_match(self, session: Any, record: dict) -> Any | None:

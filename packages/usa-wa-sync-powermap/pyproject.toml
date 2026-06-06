@@ -1,0 +1,23 @@
+[project]
+name = "usa-wa-sync-powermap"
+version = "0.1.0"
+description = "usa-wa deployment binding for the Power Map sync engine: concrete EntityDescriptors wiring the local jurisdiction + canonical identity tables to PM, plus the sidecar daemon."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "clearinghouse-core",
+    "clearinghouse-domain-legislative",
+    "clearinghouse-sync-powermap",
+]
+
+[tool.uv.sources]
+clearinghouse-core = { workspace = true }
+clearinghouse-domain-legislative = { workspace = true }
+clearinghouse-sync-powermap = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/usa_wa_sync_powermap"]

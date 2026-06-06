@@ -10,6 +10,7 @@ members = [
     "powermap-client",
     "usa-wa-adapter-legislature",
     "usa-wa-api",
+    "usa-wa-sync-powermap",
 ]
 
 [manifest.dependency-groups]
@@ -29,6 +30,7 @@ dev = [
     { name = "ruff", specifier = ">=0.9,<1" },
     { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
     { name = "usa-wa-api", editable = "packages/usa-wa-api" },
+    { name = "usa-wa-sync-powermap", editable = "packages/usa-wa-sync-powermap" },
 ]
 
 [[package]]
@@ -1003,6 +1005,23 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0,<1" },
     { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
     { name = "uvicorn", specifier = ">=0.34.0,<1" },
+]
+
+[[package]]
+name = "usa-wa-sync-powermap"
+version = "0.1.0"
+source = { editable = "packages/usa-wa-sync-powermap" }
+dependencies = [
+    { name = "clearinghouse-core" },
+    { name = "clearinghouse-domain-legislative" },
+    { name = "clearinghouse-sync-powermap" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
+    { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
+    { name = "clearinghouse-sync-powermap", editable = "packages/clearinghouse-sync-powermap" },
 ]
 
 [[package]]

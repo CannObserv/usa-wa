@@ -57,7 +57,7 @@ class FakeDescriptor(EntityDescriptor):
     read_source = "reconcile"
     write_enabled = True
 
-    def to_observation(self, row: Any) -> dict:
+    async def to_observation(self, session: Any, row: Any) -> dict:
         return {"source": row.source, "source_id": row.source_id, "name": row.name}
 
     async def local_match(self, session: Any, record: dict) -> Any | None:

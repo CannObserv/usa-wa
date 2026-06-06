@@ -29,10 +29,9 @@ def test_natural_key_values(fake_descriptor):
     assert fake_descriptor.natural_key_values(row) == ("wsl", "42")
 
 
-def test_to_observation_shape(fake_descriptor):
-
+async def test_to_observation_shape(db_session, fake_descriptor):
     row = FakeEntity(source="wsl", source_id="42", name="Widget")
-    assert fake_descriptor.to_observation(row) == {
+    assert await fake_descriptor.to_observation(db_session, row) == {
         "source": "wsl",
         "source_id": "42",
         "name": "Widget",

@@ -167,7 +167,7 @@ class SyncEngine:
             await session.delete(entry)
             return False
 
-        payload = descriptor.to_observation(row)
+        payload = await descriptor.to_observation(session, row)
         try:
             result = await self._client.post_observation(descriptor.observe_path, payload)
         except TRANSIENT_EXCEPTIONS as exc:  # back off and retry; bugs propagate
@@ -291,7 +291,7 @@ class SyncEngine:
                 continue
             if item.change_kind == "deleted":
                 continue
-            record = await self._client.get_entity(descriptor.read_path, item.entity_id)
+            record = await descriptor.fetch_record(self._client, item.entity_id)
             if record is None:
                 continue
             await self.apply_record(session, descriptor, record)

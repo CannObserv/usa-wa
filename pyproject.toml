@@ -10,6 +10,7 @@ dev = [
     "powermap-client",
     "usa-wa-adapter-legislature",
     "usa-wa-api",
+    "usa-wa-sync-powermap",
     # Tools
     "alembic>=1.15.0,<2",
     "anyio>=4.0,<5",
@@ -29,6 +30,7 @@ clearinghouse-sync-powermap = { workspace = true }
 powermap-client = { workspace = true }
 usa-wa-adapter-legislature = { workspace = true }
 usa-wa-api = { workspace = true }
+usa-wa-sync-powermap = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["packages"]
@@ -66,4 +68,5 @@ known-first-party = [
     "clearinghouse_sync_powermap",
     "usa_wa_adapter_legislature",
     "usa_wa_api",
+    "usa_wa_sync_powermap",
 ]
