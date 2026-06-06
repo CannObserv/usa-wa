@@ -45,10 +45,12 @@ STATUS_DELIVERED = "DELIVERED"
 STATUS_REJECTED = "REJECTED"
 _STATUSES = (STATUS_PENDING, STATUS_DELIVERED, STATUS_REJECTED)
 
-#: PM observation dispositions (uppercase 3-value; ``queued-for-review`` discarded).
-DISPOSITION_AUTO_ATTACHED = "AUTO_ATTACHED"
-DISPOSITION_NEW = "NEW"
-DISPOSITION_REJECTED = "REJECTED"
+#: PM observation dispositions — values match PM's deployed ``Disposition`` StrEnum
+#: (``src/core/observation.py``): lowercase, hyphenated. Verified 2026-06-06.
+#: ``queued-for-review`` was discarded in PM design review.
+DISPOSITION_AUTO_ATTACHED = "auto-attached"
+DISPOSITION_NEW = "new"
+DISPOSITION_REJECTED = "rejected"
 
 
 def _new_ulid() -> _ULID:

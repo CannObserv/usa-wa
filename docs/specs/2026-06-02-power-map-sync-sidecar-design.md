@@ -113,7 +113,7 @@ Model lives in the portable package; side-effect-imported into `Base.metadata` (
 | `status` | enum `PENDING` / `DELIVERED` / `REJECTED` | |
 | `attempts` | int | backoff counter |
 | `next_attempt_at` | timestamptz | worker skips until due |
-| `last_disposition` | str nullable | `AUTO_ATTACHED` / `NEW` / `REJECTED` |
+| `last_disposition` | str nullable | PM disposition: `auto-attached` / `new` / `rejected` (lowercase-hyphenated; deployed PM `Disposition` enum) |
 | `last_error` | text nullable | structured error for operator |
 | `created_at` / `updated_at` | timestamptz | `TimestampMixin` |
 
@@ -206,7 +206,7 @@ Full read reconcile for every entity type PM serves → drain outbox. Seeds/repa
 1. Poll `sync.powermap_outbox` for `status = PENDING AND next_attempt_at <= now`, short interval (process-B responsiveness).
 2. Per entry: re-read source row → `descriptor.to_observation()` → `POST <observe_path>` (skipped if `write_enabled` is false — dormant types).
 3. Disposition handling:
-   - `AUTO_ATTACHED` / `NEW` → write returned `pm_<entity>_id` to source row; mark `DELIVERED`.
+   - `auto-attached` / `new` → write returned `pm_<entity>_id` to source row; mark `DELIVERED`.
    - `REJECTED` → `status = REJECTED`, `last_error` set, structured error log + operator notification; source row stays un-anchored for manual PM admin action.
    - HTTP / network error → `attempts++`, exponential `next_attempt_at` backoff, stays `PENDING`.
 
