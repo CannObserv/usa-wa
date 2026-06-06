@@ -56,12 +56,10 @@ from clearinghouse_sync_powermap.descriptors import as_ulid
 #: ``since`` is required by the feed; first run (no cursor) starts at the epoch.
 _EPOCH = "1970-01-01T00:00:00Z"
 
-#: Statuses worth a backoff retry rather than a hard failure.
-_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
-
 
 def _retryable(exc: UnexpectedStatus) -> bool:
-    return exc.status_code in _RETRYABLE_STATUS or exc.status_code >= 500
+    """Worth a backoff retry: rate-limit (429) or any server error (5xx)."""
+    return exc.status_code == 429 or exc.status_code >= 500
 
 
 def _parse_ts(value: str | None) -> datetime | None:

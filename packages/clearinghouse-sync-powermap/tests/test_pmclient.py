@@ -168,6 +168,15 @@ async def test_get_entity_non_404_status_reraises(client):
 
 
 @respx.mock
+async def test_get_entity_5xx_is_retryable(client):
+    pm_id = ULID()
+    respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(return_value=httpx.Response(503))
+
+    with pytest.raises(RetryableClientError):
+        await client.get_entity("/api/v1/jurisdictions", pm_id)
+
+
+@respx.mock
 async def test_post_observation_rejected(client):
     respx.post(f"{BASE}/api/v1/jurisdictions/observations").mock(
         return_value=httpx.Response(
