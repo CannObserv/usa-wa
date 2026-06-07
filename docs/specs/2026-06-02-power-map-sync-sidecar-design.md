@@ -258,7 +258,20 @@ All four issues filed 2026-06-02 are **CLOSED and deployed**. Outcomes (some div
 
 **Auth resolved (no issue):** `X-API-Key` validated in PM `src/api/public/deps.py`; the `Authorization: Bearer` line in IA design §3 is wrong and should be corrected in a docs sweep.
 
+**Write-path coordination (filed during step 6):**
+- **`jur_slug` identifier type** ([power-map#183](https://github.com/CannObserv/power-map/issues/183)) — ✅ shipped. Jurisdiction observations key on `jur_slug` (self-registered on NEW); the `_check_jur_slug_consistency` validator requires `identifier_value == jurisdiction_slug`, which our `to_observation` satisfies.
+- **Generic `legislative_district` type** ([power-map#184](https://github.com/CannObserv/power-map/issues/184)) — ⏳ OPEN. PM seeds only `_upper`/`_lower`; WA's 49 LDs are a single shared boundary needing the generic type. **Blocks the jurisdiction bootstrap import.**
+
 **Outstanding usa-wa follow-up:** refine `canonical.entity_events` to PM's `ObservationEventItem` shape before wiring event sync ([usa-wa#9](https://github.com/CannObserv/usa-wa/issues/9)).
+
+### Go-live prerequisites (reconnaissance 2026-06-07)
+
+The jurisdiction sync is code-complete (steps 1–8) but **not yet live**. Verified against the deployed PM with the configured key:
+- **Auth works**; the changes feed + jurisdiction reads are reachable.
+- **PM currently holds 0 jurisdictions** — the bootstrap admin-import has not run. All 101 local jurisdictions are un-anchored.
+- Per the IA-spec decision, the bootstrap goes through a **PM-owned admin import** of `initial_jurisdictions.json` (jurisdictions are PM-authoritative), **not** sidecar observations. The daemon is deliberately **held** until PM is bootstrapped, so it doesn't mint 101 jurisdictions via the wrong path.
+
+**Sequence to go live:** (1) PM merges [#184](https://github.com/CannObserv/power-map/issues/184) (generic `legislative_district`); (2) PM admin-imports `initial_jurisdictions.json` (101 rows; types country/state/legislative_district/congressional_district/county/city — all present on PM once #184 lands; PM self-registers `jur_slug`); (3) `systemctl enable --now usa-wa-sync-powermap` — observations then AUTO_ATTACH and populate local anchors. (Pre-existing-jurisdiction backfill — `scripts/backfill_jur_slug_identifiers.py --execute` — is moot here since PM starts empty.)
 
 ## Section 8 — Out of scope
 
