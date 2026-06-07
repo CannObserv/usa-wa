@@ -1,0 +1,99 @@
+"""The long-running sidecar — drives the engine one cycle at a time.
+
+Process model B (single daemon). Each cycle: pull the changes feed, run any
+due full-reconcile backstops, sweep un-anchored rows, and drain the outbox.
+
+Per-cycle isolation (CR #13): every cycle runs in its own session inside a
+try/except that rolls back and logs on failure, so a propagating non-transient
+error (the outbox worker no longer swallows bugs as transient) cannot kill the
+daemon or poison the next cycle.
+
+Commit boundary: per-cycle commit today. Per-entry commit with a configurable
+chunk size is the refinement tracked in CannObserv/usa-wa#8.
+"""
+
+import asyncio
+from collections.abc import Awaitable, Callable, Sequence
+from datetime import UTC, datetime
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from clearinghouse_core.logging import get_logger
+from clearinghouse_sync_powermap.descriptors import EntityDescriptor
+from clearinghouse_sync_powermap.engine import SyncEngine
+from clearinghouse_sync_powermap.models import SyncState
+
+logger = get_logger(__name__)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+class Sidecar:
+    """Drives :class:`SyncEngine` cycles over the usa-wa descriptor registry."""
+
+    def __init__(
+        self,
+        engine: SyncEngine,
+        descriptors: Sequence[EntityDescriptor],
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        feed_poll_seconds: float = 60.0,
+        clock: Callable[[], datetime] = _utcnow,
+    ) -> None:
+        self._engine = engine
+        self._descriptors = list(descriptors)
+        self._session_factory = session_factory
+        self._feed_poll_seconds = feed_poll_seconds
+        self._clock = clock
+
+    async def tick(self, session: AsyncSession, *, now: datetime) -> None:
+        """One sync cycle against a single session (no commit — caller owns it)."""
+        # Reads: incremental feed first, then due reconcile backstops.
+        await self._engine.process_feed(session)
+        for descriptor in self._descriptors:
+            if await self._reconcile_due(session, descriptor, now):
+                await self._engine.reconcile(session, descriptor, now=now)
+        # Writes: enqueue un-anchored rows, then deliver.
+        for descriptor in self._descriptors:
+            if descriptor.write_enabled:
+                await self._engine.sweep_unanchored(session, descriptor)
+        await self._engine.drain_outbox(session, now=now)
+
+    async def run_cycle(self) -> None:
+        """Run one isolated cycle: own session, commit on success, rollback on error."""
+        now = self._clock()
+        async with self._session_factory() as session:
+            try:
+                await self.tick(session, now=now)
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                logger.exception("sidecar_cycle_failed")
+
+    async def run_forever(
+        self, *, sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+    ) -> None:
+        """Loop cycles forever, sleeping between them."""
+        logger.info(
+            "sidecar_started",
+            extra={"entities": [d.entity_type for d in self._descriptors]},
+        )
+        while True:
+            await self.run_cycle()
+            await sleep(self._feed_poll_seconds)
+
+    async def _reconcile_due(
+        self, session: AsyncSession, descriptor: EntityDescriptor, now: datetime
+    ) -> bool:
+        if descriptor.read_source == "none":
+            return False
+        stream = f"reconcile:{descriptor.entity_type}"
+        state = (
+            await session.execute(select(SyncState).where(SyncState.stream == stream))
+        ).scalar_one_or_none()
+        if state is None or state.last_reconcile_at is None:
+            return True
+        return (now - state.last_reconcile_at) >= descriptor.reconcile_cadence

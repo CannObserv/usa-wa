@@ -71,6 +71,13 @@ packages/
       main.py         — App factory, lifespan, router registration
       deps.py         — FastAPI dependencies (DB session, auth)
     tests/            — API tests; conftest defines savepointed db_session + AsyncClient
+  usa-wa-sync-powermap/               — Layer 4: PM sync deployment binding + sidecar daemon
+    src/usa_wa_sync_powermap/
+      descriptors/    — concrete EntityDescriptors (jurisdiction.py; persons/orgs/roles/assignments pending)
+      registry.py     — build_descriptors() — the entity set the sidecar syncs
+      sidecar.py      — Sidecar: per-cycle tick (feed → reconcile → sweep → drain) + isolated run loop
+      config.py       — SidecarSettings (POWERMAP_BASE_URL, POWERMAP_API_KEY)
+      __main__.py     — daemon entrypoint (python -m usa_wa_sync_powermap)
 alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base
 docs/specs/           — Architecture specs (source of truth for design decisions)
 docs/plans/           — Per-phase implementation plans
@@ -86,6 +93,7 @@ deploy/               — Systemd unit + deployment config
 | Service | Framework | Port | Managed by |
 |---|---|---|---|
 | API (live) | FastAPI | 8000 | `systemctl` (`usa-wa.service`) |
+| PM sync sidecar | asyncio daemon | — | `systemctl` (`usa-wa-sync-powermap.service`) |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
 
 `8001` = `8000 + 1`. The exe.dev proxy transparently forwards ports 3000–9999; the dev server is reachable at `https://usa-wa.exe.xyz:8001/`.

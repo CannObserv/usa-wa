@@ -1,0 +1,21 @@
+[Unit]
+Description=usa-wa Power Map sync sidecar — bidirectional canonical-data sync to Power Map
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=exedev
+WorkingDirectory=/home/exedev/usa-wa
+
+# Load system secrets (DATABASE_URL, POWERMAP_API_KEY, POWERMAP_BASE_URL), then
+# optional repo-local overrides. Later EnvironmentFiles override earlier ones.
+EnvironmentFile=/etc/usa-wa/.env
+EnvironmentFile=-/home/exedev/usa-wa/.env
+
+ExecStart=/usr/local/bin/uv run python -m usa_wa_sync_powermap
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
