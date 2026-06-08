@@ -145,8 +145,12 @@ class EntityDescriptor(ABC):
         The engine calls this after :meth:`upsert_from_pm` so the row reads at
         parity with PM rather than a local ``now()``. Without it the next
         reconcile judges the row locally-newer and enqueues a spurious write-back
-        (the go-live 403 loop). Default writes ``updated_at`` (the column
-        :meth:`last_updated` reads back); override if the model's clock differs.
-        A genuine local edit still bumps ``updated_at`` and correctly wins LWW.
+        (the go-live 403 loop). A genuine local edit still bumps ``updated_at``
+        and correctly wins LWW.
+
+        Pairs with :meth:`last_updated`: this writes the same column that one
+        reads. Override **both or neither** — a descriptor whose local clock is
+        not ``updated_at`` must override both, or the engine will write one column
+        while LWW compares another and the write-back loop silently returns.
         """
         obj.updated_at = value
