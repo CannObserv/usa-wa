@@ -106,3 +106,73 @@ async def test_last_updated_row_and_record(db_session, descriptor, state_type):
     assert descriptor.last_updated({"updated_at": "2026-06-02T00:00:00Z"}) == datetime(
         2026, 6, 2, tzinfo=UTC
     )
+
+
+async def test_upsert_auto_creates_unknown_type(db_session, descriptor):
+    """An unknown type slug is minted locally from the embedded PM type object
+    (no poison-pill IntegrityError, no PM round-trip needed)."""
+    record = _pm_record(slug="usa-wa-sd-seattle", name="Seattle School District")
+    record["type"] = {
+        "id": str(ULID()),
+        "slug": "school_district",
+        "display_name": "School District",
+    }
+
+    row = await descriptor.upsert_from_pm(db_session, record)
+
+    assert row is not None
+    jt = (
+        await db_session.execute(
+            select(JurisdictionType).where(JurisdictionType.slug == "school_district")
+        )
+    ).scalar_one()
+    assert jt.display_name == "School District"
+    assert row.type_id == jt.id
+
+
+async def test_upsert_skips_record_without_type(db_session, descriptor):
+    """A record carrying no resolvable type is skipped (logged), not inserted as
+    an invalid NULL-type row that would wedge the cycle."""
+    record = _pm_record(slug="usa-wa-mystery")
+    record["type"] = {}
+
+    result = await descriptor.upsert_from_pm(db_session, record)
+
+    assert result is None
+    rows = (
+        (
+            await db_session.execute(
+                select(Jurisdiction).where(Jurisdiction.slug == "usa-wa-mystery")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows == []
+
+
+async def test_upsert_preserves_recorded_at_on_update_without_field(
+    db_session, descriptor, state_type
+):
+    """recorded_at mirrors PM's clock — an update record that omits it must not
+    re-stamp now() and churn the field."""
+    original = datetime(2020, 5, 5, tzinfo=UTC)
+    existing = Jurisdiction(slug="usa-wa", name="Old", type_id=state_type.id, recorded_at=original)
+    db_session.add(existing)
+    await db_session.flush()
+
+    record = _pm_record(name="Washington")
+    record.pop("recorded_at")
+    await descriptor.upsert_from_pm(db_session, record, existing=existing)
+
+    assert existing.recorded_at == original
+
+
+async def test_to_observation_nulls_unresolved_type_without_raising(db_session, descriptor):
+    """An orphaned type_id yields a null type slug (PM rejects → outbox), not a
+    crash that would poison the drain cycle."""
+    row = Jurisdiction(slug="usa-wa", name="WA", type_id=ULID(), recorded_at=datetime.now(UTC))
+
+    obs = await descriptor.to_observation(db_session, row)
+
+    assert obs["jurisdiction_type_slug"] is None
