@@ -133,7 +133,20 @@ class EntityDescriptor(ABC):
     def last_updated(self, obj: Any) -> datetime | None:
         """Return the UTC 'last updated' clock for a local row OR a PM record.
 
-        Local rows use ``updated_at``; PM records use their own field
-        (``recorded_at`` for jurisdictions, ``updated_at`` for identity). The
-        descriptor knows which, so the engine can compare the two for LWW.
+        Both sides use ``updated_at`` (the local ``TimestampMixin`` column and
+        the PM record's own field); the descriptor encapsulates the lookup so the
+        engine can compare the two for LWW. The local value is kept at parity with
+        PM by :meth:`set_last_updated` on import.
         """
+
+    def set_last_updated(self, obj: Any, value: datetime) -> None:
+        """Stamp a freshly-cached local row's LWW clock with the remote (PM) time.
+
+        The engine calls this after :meth:`upsert_from_pm` so the row reads at
+        parity with PM rather than a local ``now()``. Without it the next
+        reconcile judges the row locally-newer and enqueues a spurious write-back
+        (the go-live 403 loop). Default writes ``updated_at`` (the column
+        :meth:`last_updated` reads back); override if the model's clock differs.
+        A genuine local edit still bumps ``updated_at`` and correctly wins LWW.
+        """
+        obj.updated_at = value

@@ -70,6 +70,30 @@ async def test_reconcile_stamps_last_reconcile_at(db_session, fake_descriptor):
     assert state.last_reconcile_at == NOW
 
 
+async def test_apply_record_adopts_remote_clock(db_session, fake_descriptor):
+    """Engine hoist: after upsert, the row's LWW clock mirrors PM's updated_at
+    (not now()), so the next reconcile sees parity — no spurious write-back.
+    Generic over descriptors; covers insert and the PM-wins overwrite."""
+    engine = SyncEngine([fake_descriptor], FakeClient())
+
+    await engine.apply_record(
+        db_session, fake_descriptor, _record("1", "Alpha", updated_at="2040-03-02T01:00:00Z")
+    )
+    row = (
+        await db_session.execute(select(FakeEntity).where(FakeEntity.source_id == "1"))
+    ).scalar_one()
+    assert row.updated_at == datetime(2040, 3, 2, 1, 0, tzinfo=UTC)
+
+    # PM-wins overwrite carries a newer PM clock → adopted, not re-stamped now().
+    await engine.apply_record(
+        db_session, fake_descriptor, _record("1", "Beta", updated_at="2041-04-03T02:00:00Z")
+    )
+    await db_session.flush()  # persist the adoption, then reload to prove it stuck
+    await db_session.refresh(row)
+    assert row.name == "Beta"
+    assert row.updated_at == datetime(2041, 4, 3, 2, 0, tzinfo=UTC)
+
+
 async def test_lww_pm_newer_overwrites(db_session, fake_descriptor):
     await _add_entity(db_session, source_id="1", name="OldLocal")
     engine = SyncEngine([fake_descriptor], FakeClient())

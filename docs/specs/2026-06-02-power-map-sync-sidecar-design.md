@@ -20,6 +20,15 @@ The four PM coordination issues (§7) landed; three changed the model from what 
 - **`canonical.entity_events` is under-modeled** for PM's `ObservationEventItem` (granular partial dates `event_year/month/day/hour/...`, `event_type_slug` XOR id, `event_place_text`, `visibility`). Refinement needed before event sync is built; deferred (events are out of the MVP increment). Tracked as a follow-up issue.
 - **Assignment observations key on `person_id` + `role_id` (PM ids)** → sync-ordering constraint: persons and roles must be anchored before assignments push.
 
+## Go-live & incidents (2026-06-08)
+
+Jurisdiction sync went live (101/101 anchored via PM admin-import bootstrap, then read/reconcile). Two incidents shaped the LWW design as built:
+
+- **Write-back loop.** The import stamped the local `updated_at` with `now()`, so every reconcile judged the cached row newer than PM and enqueued a spurious jurisdiction write-back, which `403`'d on an unscoped key and wedged every cycle (117 failures). Fix: the engine now preserves PM's `updated_at` on import (see §2 *LWW timestamp source* → *Preserve the remote clock on import*; `SyncEngine._adopt_remote_clock`). A one-time repair cleared the spurious outbox entries and reset the affected rows.
+- **Permanent-rejection robustness.** A non-transient delivery failure (e.g. `403`) crash-loops the whole cycle instead of parking the entry as `REJECTED`. Tracked as [#11](https://github.com/CannObserv/usa-wa/issues/11) (latent now that write-back no longer churns).
+
+Also surfaced: the feed/reconcile reads are unfiltered (mirror all PM jurisdictions, not just WA) — bounded later via PM-side per-key subscription, [#10](https://github.com/CannObserv/usa-wa/issues/10) / [power-map#191](https://github.com/CannObserv/power-map/issues/191).
+
 ## Problem
 
 usa-wa now carries authoritative-shape FKs for jurisdictions and produces identity records (Person / Organization / Role / Assignment, plus lifecycle Entity Events). Two cohorts must flow to/from Power Map (PM):
@@ -161,7 +170,8 @@ Natural-key UNIQUE: `(jurisdiction_id, source, source_id)`, consistent with the 
 The reconciler compares `descriptor.last_updated(local_row)` vs `descriptor.last_updated(pm_record)`:
 
 - **Local side** = `updated_at` (`TimestampMixin`).
-- **PM side** = `recorded_at` for jurisdictions; PM's own `updated_at` for identity/events (the descriptor encapsulates which field).
+- **PM side** = the PM record's own `updated_at` (the descriptor encapsulates which field; jurisdictions and identity/events all use `updated_at`). The bitemporal `recorded_at`/`valid_*` columns are mirrored for provenance but are *not* the LWW comparator.
+- **Preserve the remote clock on import (required).** When a descriptor caches a PM record, the engine (`SyncEngine._adopt_remote_clock`, via `descriptor.set_last_updated`) stamps the local row's `updated_at` with PM's value — *not* a local `now()`. Without this, a freshly-cached row reads as locally-newer on the next reconcile and enqueues a spurious write-back. This invariant lives in the engine so every descriptor inherits it; only a genuine local edit bumps `updated_at` and wins LWW.
 - Both UTC. **Tie-break: equal timestamps → PM wins** (system-of-record fallback).
 - **Assumption:** both clocks are trusted UTC; no skew correction at MVP. Documented limitation.
 

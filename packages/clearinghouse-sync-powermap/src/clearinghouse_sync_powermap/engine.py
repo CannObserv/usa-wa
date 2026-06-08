@@ -229,7 +229,8 @@ class SyncEngine:
         """
         existing = await descriptor.local_match(session, record)
         if existing is None:
-            await descriptor.upsert_from_pm(session, record)
+            row = await descriptor.upsert_from_pm(session, record)
+            self._adopt_remote_clock(descriptor, row, record)
             return APPLY_INSERTED
 
         lu_local = descriptor.last_updated(existing)
@@ -245,8 +246,26 @@ class SyncEngine:
                 await self._enqueue(session, descriptor, existing, OP_UPDATE)
             return APPLY_KEPT_LOCAL
 
-        await descriptor.upsert_from_pm(session, record, existing=existing)
+        row = await descriptor.upsert_from_pm(session, record, existing=existing)
+        self._adopt_remote_clock(descriptor, row, record)
         return APPLY_UPDATED
+
+    def _adopt_remote_clock(
+        self, descriptor: EntityDescriptor, row: object | None, record: dict
+    ) -> None:
+        """Mirror the PM record's clock onto the just-upserted row so the next
+        reconcile sees LWW parity, not a local ``now()``.
+
+        This is the engine-wide guarantee that replaces per-descriptor
+        ``updated_at`` bookkeeping: a freshly-cached row must not read as
+        locally-newer, or it enqueues a spurious write-back (the go-live 403
+        loop). ``row`` is None when a descriptor skipped an unmappable record.
+        """
+        if row is None:
+            return
+        pm_ts = descriptor.last_updated(record)
+        if pm_ts is not None:
+            descriptor.set_last_updated(row, pm_ts)
 
     # --- read path: full reconcile (backstop / jurisdictions' primary) -------
 

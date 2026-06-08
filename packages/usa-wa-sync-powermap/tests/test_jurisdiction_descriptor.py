@@ -176,23 +176,3 @@ async def test_to_observation_nulls_unresolved_type_without_raising(db_session, 
     obs = await descriptor.to_observation(db_session, row)
 
     assert obs["jurisdiction_type_slug"] is None
-
-
-async def test_upsert_preserves_pm_updated_at(db_session, descriptor, state_type):
-    """Local updated_at mirrors PM's clock so a freshly-cached row never reads as
-    'newer' to LWW — this is what stops the go-live write-back loop.
-
-    Insert is the critical case (go-live stamped now() here). On a real PM change
-    the record carries a *newer* updated_at, and the local mirror reflects that
-    PM value (not now()) because the changed field puts updated_at in the UPDATE
-    SET clause, bypassing the column's Python-side onupdate."""
-    pm_ts = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
-    row = await descriptor.upsert_from_pm(db_session, _pm_record(updated_at="2026-06-01T12:00:00Z"))
-    assert row.updated_at == pm_ts
-
-    bumped = datetime(2026, 6, 5, 9, 0, tzinfo=UTC)
-    row2 = await descriptor.upsert_from_pm(
-        db_session, _pm_record(name="WA2", updated_at="2026-06-05T09:00:00Z"), existing=row
-    )
-    assert row2.name == "WA2"
-    assert row2.updated_at == bumped
