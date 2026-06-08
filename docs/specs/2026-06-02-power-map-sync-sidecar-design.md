@@ -264,9 +264,13 @@ All four issues filed 2026-06-02 are **CLOSED and deployed**. Outcomes (some div
 
 **Outstanding usa-wa follow-up:** refine `canonical.entity_events` to PM's `ObservationEventItem` shape before wiring event sync ([usa-wa#9](https://github.com/CannObserv/usa-wa/issues/9)).
 
-### Go-live prerequisites (reconnaissance 2026-06-07)
+### Go-live — DONE 2026-06-08
 
-The jurisdiction sync is code-complete (steps 1–8) but **not yet live**. Verified against the deployed PM with the configured key:
+The jurisdiction sync is **live**. Sequence completed: PM merged [#184](https://github.com/CannObserv/power-map/issues/184) (generic `legislative_district`) → PM seeded the WA jurisdiction graph + `jur_slug` identifiers ([#185](https://github.com/CannObserv/power-map/issues/185)) → a controlled first cycle anchored all **101/101** local jurisdictions via the read/reconcile path (PM newer → upsert set anchors; **zero writes to PM, no duplicates**) → `usa-wa-sync-powermap.service` enabled and running (per-cycle feed poll + hourly reconcile backstop; no cycle failures). Future locally-minted jurisdictions AUTO_ATTACH on `jur_slug`.
+
+### Go-live prerequisites (reconnaissance 2026-06-07 — historical)
+
+Verified against the deployed PM with the configured key:
 - **Auth works**; the changes feed + jurisdiction reads are reachable.
 - **PM currently holds 0 jurisdictions** — the bootstrap admin-import has not run. All 101 local jurisdictions are un-anchored.
 - Per the IA-spec decision, the bootstrap goes through a **PM-owned admin import** of `initial_jurisdictions.json` (jurisdictions are PM-authoritative), **not** sidecar observations. The daemon is deliberately **held** until PM is bootstrapped, so it doesn't mint 101 jurisdictions via the wrong path.
