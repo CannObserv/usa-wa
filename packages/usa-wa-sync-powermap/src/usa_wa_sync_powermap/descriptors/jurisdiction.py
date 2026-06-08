@@ -124,6 +124,14 @@ class JurisdictionDescriptor(EntityDescriptor):
         row.superseded_at = _parse_ts(record.get("superseded_at"))
         if record.get("id") is not None:
             row.pm_jurisdiction_id = as_ulid(record["id"])
+        # Mirror PM's clock onto the local row so LWW sees parity, not a
+        # freshly-stamped now(). Without this, every reconcile judged the cached
+        # row "newer" than PM and enqueued a spurious write-back (the go-live
+        # 403 loop). A genuine local edit still bumps updated_at via onupdate and
+        # correctly wins LWW.
+        pm_updated = _parse_ts(record.get("updated_at"))
+        if pm_updated is not None:
+            row.updated_at = pm_updated
         await session.flush()
         return row
 
