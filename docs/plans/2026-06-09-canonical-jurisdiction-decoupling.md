@@ -1,7 +1,7 @@
 ---
 title: Canonical jurisdiction decoupling — model + migration
 date: 2026-06-09
-status: draft
+status: done
 ---
 
 # Canonical jurisdiction decoupling — model + migration

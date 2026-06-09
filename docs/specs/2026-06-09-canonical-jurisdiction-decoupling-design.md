@@ -1,6 +1,6 @@
 # Canonical Jurisdiction Decoupling — Design
 
-- **Status:** proposed — review before planning.
+- **Status:** IMPLEMENTED 2026-06-09 (models + migration `8d3f5cb3248f`; 24 tables; applied to prod at head).
 - **Issue:** [CannObserv/usa-wa#4](https://github.com/CannObserv/usa-wa/issues/4) (prerequisite for step 6c identity descriptors; corrects the v1.4 jurisdiction model).
 - **Related:** [`docs/specs/2026-06-09-identity-sync-design.md`](2026-06-09-identity-sync-design.md) (surfaced this), [`docs/specs/2026-05-31-jurisdictional-ia-design.md`](2026-05-31-jurisdictional-ia-design.md) (the v1.4 refactor being corrected).
 
