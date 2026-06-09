@@ -4,7 +4,9 @@ Replaces the P0 skeleton's `Bill.biennium` text column. The ``slug`` value
 follows the OpenStates convention extended for our jurisdiction encoding:
 ``<jurisdiction.slug>-<year>[-<session_suffix>]`` (e.g., ``usa-wa-2025``,
 ``usa-wa-2025-special-1``, ``usa-fed-119``). The slug encodes the
-*Jurisdiction.slug* text — not the FK ULID stored in ``jurisdiction_id``.
+*Jurisdiction.slug* text for readability; the session itself belongs to the
+**legislature Organization** (``organization_id``), through which its
+jurisdiction is derived (decoupling 2026-06-09).
 """
 
 from datetime import date
@@ -28,20 +30,17 @@ class LegislativeSession(Base, TimestampMixin):
 
     __tablename__ = "legislative_sessions"
     __table_args__ = (
-        UniqueConstraint(
-            "jurisdiction_id",
-            "source",
-            "source_id",
-            name="uq_legislative_sessions_natural_key",
-        ),
-        UniqueConstraint("jurisdiction_id", "slug", name="uq_legislative_sessions_slug"),
+        UniqueConstraint("source", "source_id", name="uq_legislative_sessions_natural_key"),
+        UniqueConstraint("organization_id", "slug", name="uq_legislative_sessions_slug"),
         {"schema": SCHEMA},
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
+    # A session belongs to the legislature Organization; jurisdiction is derived
+    # via that org (decoupling 2026-06-09).
+    organization_id: Mapped[_ULID] = mapped_column(
         ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        ForeignKey(f"{SCHEMA}.organizations.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )

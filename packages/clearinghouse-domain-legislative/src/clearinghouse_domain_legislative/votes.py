@@ -33,19 +33,12 @@ class VoteEvent(Base, TimestampMixin):
 
     __tablename__ = "vote_events"
     __table_args__ = (
-        UniqueConstraint(
-            "jurisdiction_id", "source", "source_id", name="uq_vote_events_natural_key"
-        ),
+        UniqueConstraint("source", "source_id", name="uq_vote_events_natural_key"),
         {"schema": SCHEMA},
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
+    # Jurisdiction derived via context_organization_id → org (decoupling 2026-06-09).
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -106,20 +99,13 @@ class VoteCount(Base, TimestampMixin):
 
     __tablename__ = "vote_counts"
     __table_args__ = (
-        UniqueConstraint(
-            "jurisdiction_id", "source", "source_id", name="uq_vote_counts_natural_key"
-        ),
+        UniqueConstraint("source", "source_id", name="uq_vote_counts_natural_key"),
         UniqueConstraint("vote_event_id", "count_type", name="uq_vote_counts_event_type"),
         {"schema": SCHEMA},
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
+    # Jurisdiction derived via vote_event → context org (decoupling 2026-06-09).
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -147,9 +133,7 @@ class PersonVote(Base, TimestampMixin):
 
     __tablename__ = "person_votes"
     __table_args__ = (
-        UniqueConstraint(
-            "jurisdiction_id", "source", "source_id", name="uq_person_votes_natural_key"
-        ),
+        UniqueConstraint("source", "source_id", name="uq_person_votes_natural_key"),
         CheckConstraint(
             "person_id IS NOT NULL OR voter_name_raw IS NOT NULL",
             name="ck_person_votes_person_or_name",
@@ -158,12 +142,7 @@ class PersonVote(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
+    # Jurisdiction derived via vote_event → context org (decoupling 2026-06-09).
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 

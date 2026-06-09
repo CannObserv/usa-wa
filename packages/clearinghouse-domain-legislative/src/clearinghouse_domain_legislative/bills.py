@@ -36,17 +36,11 @@ class Bill(Base, TimestampMixin):
 
     __tablename__ = "bills"
     __table_args__ = (
-        UniqueConstraint("jurisdiction_id", "source", "source_id", name="uq_bills_natural_key"),
+        UniqueConstraint("source", "source_id", name="uq_bills_natural_key"),
         {"schema": SCHEMA},
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -170,7 +164,6 @@ class BillSponsorship(Base, TimestampMixin):
     __tablename__ = "bill_sponsorships"
     __table_args__ = (
         UniqueConstraint(
-            "jurisdiction_id",
             "source",
             "source_id",
             name="uq_bill_sponsorships_natural_key",
@@ -185,12 +178,6 @@ class BillSponsorship(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -225,19 +212,11 @@ class BillAction(Base, TimestampMixin):
 
     __tablename__ = "bill_actions"
     __table_args__ = (
-        UniqueConstraint(
-            "jurisdiction_id", "source", "source_id", name="uq_bill_actions_natural_key"
-        ),
+        UniqueConstraint("source", "source_id", name="uq_bill_actions_natural_key"),
         {"schema": SCHEMA},
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -286,7 +265,6 @@ class BillActionClassification(Base, TimestampMixin):
     __tablename__ = "bill_action_classifications"
     __table_args__ = (
         UniqueConstraint(
-            "jurisdiction_id",
             "source",
             "source_id",
             name="uq_bill_action_classifications_natural_key",
@@ -300,12 +278,6 @@ class BillActionClassification(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -334,19 +306,11 @@ class BillVersion(Base, TimestampMixin):
 
     __tablename__ = "bill_versions"
     __table_args__ = (
-        UniqueConstraint(
-            "jurisdiction_id", "source", "source_id", name="uq_bill_versions_natural_key"
-        ),
+        UniqueConstraint("source", "source_id", name="uq_bill_versions_natural_key"),
         {"schema": SCHEMA},
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -391,19 +355,11 @@ class BillTitle(Base, TimestampMixin):
 
     __tablename__ = "bill_titles"
     __table_args__ = (
-        UniqueConstraint(
-            "jurisdiction_id", "source", "source_id", name="uq_bill_titles_natural_key"
-        ),
+        UniqueConstraint("source", "source_id", name="uq_bill_titles_natural_key"),
         {"schema": SCHEMA},
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -449,19 +405,11 @@ class Amendment(Base, TimestampMixin):
 
     __tablename__ = "amendments"
     __table_args__ = (
-        UniqueConstraint(
-            "jurisdiction_id", "source", "source_id", name="uq_amendments_natural_key"
-        ),
+        UniqueConstraint("source", "source_id", name="uq_amendments_natural_key"),
         {"schema": SCHEMA},
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -521,20 +469,12 @@ class BillSubject(Base, TimestampMixin):
 
     __tablename__ = "bill_subjects"
     __table_args__ = (
-        UniqueConstraint(
-            "jurisdiction_id", "source", "source_id", name="uq_bill_subjects_natural_key"
-        ),
+        UniqueConstraint("source", "source_id", name="uq_bill_subjects_natural_key"),
         UniqueConstraint("bill_id", "subject", name="uq_bill_subjects_bill_subject"),
         {"schema": SCHEMA},
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -595,7 +535,6 @@ class BillRelationship(Base, TimestampMixin):
     __tablename__ = "bill_relationships"
     __table_args__ = (
         UniqueConstraint(
-            "jurisdiction_id",
             "source",
             "source_id",
             name="uq_bill_relationships_natural_key",
@@ -610,12 +549,6 @@ class BillRelationship(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -648,19 +581,11 @@ class BillEvent(Base, TimestampMixin):
 
     __tablename__ = "bill_events"
     __table_args__ = (
-        UniqueConstraint(
-            "jurisdiction_id", "source", "source_id", name="uq_bill_events_natural_key"
-        ),
+        UniqueConstraint("source", "source_id", name="uq_bill_events_natural_key"),
         {"schema": SCHEMA},
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -701,7 +626,6 @@ class BillVersionLink(Base, TimestampMixin):
     __tablename__ = "bill_version_links"
     __table_args__ = (
         UniqueConstraint(
-            "jurisdiction_id",
             "source",
             "source_id",
             name="uq_bill_version_links_natural_key",
@@ -710,12 +634,6 @@ class BillVersionLink(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -745,7 +663,6 @@ class BillStatutoryCitation(Base, TimestampMixin):
     __tablename__ = "bill_statutory_citations"
     __table_args__ = (
         UniqueConstraint(
-            "jurisdiction_id",
             "source",
             "source_id",
             name="uq_bill_statutory_citations_natural_key",
@@ -754,12 +671,6 @@ class BillStatutoryCitation(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
@@ -820,7 +731,6 @@ class BillSupplement(Base, TimestampMixin):
     __tablename__ = "bill_supplements"
     __table_args__ = (
         UniqueConstraint(
-            "jurisdiction_id",
             "source",
             "source_id",
             name="uq_bill_supplements_natural_key",
@@ -836,12 +746,6 @@ class BillSupplement(Base, TimestampMixin):
     )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
-    jurisdiction_id: Mapped[_ULID] = mapped_column(
-        ULID(),
-        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True,
-    )
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
