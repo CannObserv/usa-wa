@@ -29,11 +29,12 @@ def test_pm_anchor_columns_renamed_and_added():
     assert "pm_assignment_id" in inspect(Assignment).columns
 
 
-async def test_person_pm_anchor_round_trip(db_session, usa_wa):
-    """``pm_person_id`` accepts a ULID for sidecar-synced rows and defaults null."""
+async def test_person_pm_anchor_round_trip(db_session):
+    """``pm_person_id`` accepts a ULID for sidecar-synced rows and defaults null.
+
+    People carry no ``jurisdiction_id`` (decoupling, 2026-06-09)."""
     pm_id = ULID()
     person = Person(
-        jurisdiction_id=usa_wa.id,
         source="wsl",
         source_id="p-1",
         name_full="Jane Doe",
@@ -48,14 +49,13 @@ async def test_person_pm_anchor_round_trip(db_session, usa_wa):
     assert fetched.pm_person_id == pm_id
 
 
-async def test_entity_event_round_trip(db_session, usa_wa):
-    """An entity event mirrors PM's polymorphic lifecycle row."""
-    person = Person(jurisdiction_id=usa_wa.id, source="wsl", source_id="p-2", name_full="John Roe")
+async def test_entity_event_round_trip(db_session):
+    """An entity event mirrors PM's polymorphic lifecycle row (no jurisdiction)."""
+    person = Person(source="wsl", source_id="p-2", name_full="John Roe")
     db_session.add(person)
     await db_session.flush()
 
     event = EntityEvent(
-        jurisdiction_id=usa_wa.id,
         source="pm",
         source_id="evt-1",
         entity_kind="person",
