@@ -89,7 +89,7 @@ class Sidecar:
         self, session: AsyncSession, descriptor: EntityDescriptor, now: datetime
     ) -> bool:
         # Only full-mirror entities run the full-list reconcile backstop; cohort-only
-        # producers opt out (would page PM's entire set to discard it). See #13.
+        # producers opt out (would page PM's entire set to discard it). See usa-wa#13.
         if descriptor.read_source == "none" or not descriptor.reconcile_enabled:
             return False
         stream = f"reconcile:{descriptor.entity_type}"

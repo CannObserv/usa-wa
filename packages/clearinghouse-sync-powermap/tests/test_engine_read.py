@@ -161,7 +161,7 @@ async def test_lww_local_newer_no_enqueue_when_write_disabled(db_session):
 
 async def test_reconcile_noop_when_disabled(db_session):
     """A reconcile_enabled=False descriptor (cohort-only producer) skips the
-    full-list backstop entirely — even with records waiting (#13)."""
+    full-list backstop entirely — even with records waiting (usa-wa#13)."""
 
     class NoReconcile(FakeDescriptor):
         reconcile_enabled = False

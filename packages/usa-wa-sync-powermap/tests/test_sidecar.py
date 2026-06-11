@@ -171,7 +171,7 @@ async def test_run_cycle_isolates_and_rolls_back_on_error():
 
 async def test_reconcile_due_skips_cohort_only_producers(db_session):
     """Producers (reconcile_enabled=False) never run the full-list backstop; the
-    full-mirror jurisdiction does (#13)."""
+    full-mirror jurisdiction does (usa-wa#13)."""
     sidecar, _ = _sidecar(FakeClient())
     assert await sidecar._reconcile_due(db_session, JurisdictionDescriptor(), NOW) is True
     assert await sidecar._reconcile_due(db_session, OrganizationDescriptor(), NOW) is False

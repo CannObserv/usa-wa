@@ -42,7 +42,7 @@ class JurisdictionDescriptor(EntityDescriptor):
     observe_path = "/api/v1/jurisdictions/observations"
     read_source = "feed"
     # Full-mirror, PM-authoritative, bounded list → the full-list reconcile backstop
-    # is correct and wanted (catches anything the feed dropped). See #13.
+    # is correct and wanted (catches anything the feed dropped). See usa-wa#13.
     reconcile_enabled = True
     # jur_slug identifier type is live (PM #183), so observations AUTO_ATTACH to
     # the bootstrap-imported rows instead of minting duplicates.

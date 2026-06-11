@@ -56,7 +56,7 @@ class PersonDescriptor(EntityDescriptor):
     read_path = "/api/v1/people"
     observe_path = "/api/v1/people/observations"
     read_source = "feed"
-    reconcile_enabled = False  # cohort-only producer; feed is the only read (see #13)
+    reconcile_enabled = False  # cohort-only producer; feed is the only read (see usa-wa#13)
     write_enabled = True
     enrich_identifier_type = "pm_person_id"  # enrich-on-match (#198)
 

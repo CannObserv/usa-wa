@@ -62,6 +62,8 @@ PM read/write shapes (verified against the generated client, 2026-06-09):
 | role | `id, organization_id, title, created_at, updated_at, …` | yes | list ✓ | `role` | `organization_id` (PM id) + `title` |
 | assignment | `id, person_id, role_id, is_current, created_at, updated_at, start_date, end_date, …` | yes | list ✓ | `role_assignment` | `person_id` + `role_id` (PM ids) |
 
+> **Reconcile decision superseded ([usa-wa#13](https://github.com/CannObserv/usa-wa/issues/13), 2026-06-11):** the `Reconcile? list ✓` column above reflects PM *capability*, not usage. The full-list reconcile backstop is **disabled for all four producers** (`reconcile_enabled=False`): orgs/people have no usable list (`search?q=""` → 0), and roles/assignments *have* a global list but enumerating it only to discard everything we didn't produce (update-only) is the wrong scope. The **feed is the sole read** for producers; it already delivers PM-side updates to anchored rows (so curation/renames still propagate). A bounded *anchored-cohort* reconcile is the deferred follow-up in #13. Jurisdiction keeps the full-list backstop (full-mirror, bounded). This also retires the earlier note (below) that framed identifier search as person/org's "only reconcile backstop."
+
 ## Data-model correction (the load-bearing change)
 
 Identity entities **do not** belong to a jurisdiction the way the local schema currently assumes:
