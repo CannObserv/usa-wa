@@ -98,12 +98,15 @@ class FakeClient:
         entity_pages: list[EntityPage] | None = None,
         entities: dict[Any, dict] | None = None,
         observation_result: ObservationResult | Any = None,
+        search_pages: list[EntityPage] | None = None,
     ) -> None:
         self._changes_pages = list(changes_pages or [])
         self._entity_pages = list(entity_pages or [])
         self._entities = entities or {}
         self._observation_result = observation_result
+        self._search_pages = list(search_pages or [])
         self.posted: list[tuple[str, dict]] = []
+        self.searched: list[dict] = []
 
     async def get_changes(self, since: str | None, limit: int = 100) -> ChangePage:
         if self._changes_pages:
@@ -117,6 +120,29 @@ class FakeClient:
 
     async def get_entity(self, read_path: str, pm_id: Any) -> dict | None:
         return self._entities.get(pm_id) or self._entities.get(str(pm_id))
+
+    async def search_entities(
+        self,
+        search_path: str,
+        *,
+        q: str | None = None,
+        identifier_type: str | None = None,
+        identifier_value: str | None = None,
+        jurisdiction: str | None = None,
+        limit: int = 20,
+    ) -> EntityPage:
+        self.searched.append(
+            {
+                "path": search_path,
+                "q": q,
+                "identifier_type": identifier_type,
+                "identifier_value": identifier_value,
+                "jurisdiction": jurisdiction,
+            }
+        )
+        if self._search_pages:
+            return self._search_pages.pop(0)
+        return EntityPage(records=[], cursor=None)
 
     async def post_observation(self, observe_path: str, payload: dict) -> ObservationResult:
         self.posted.append((observe_path, payload))

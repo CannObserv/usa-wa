@@ -93,6 +93,22 @@ class PowerMapClient(Protocol):
         """Fetch one full entity record by PM id (feed gives ids, not records)."""
         ...
 
+    async def search_entities(
+        self,
+        search_path: str,
+        *,
+        q: str | None = None,
+        identifier_type: str | None = None,
+        identifier_value: str | None = None,
+        jurisdiction: str | None = None,
+        limit: int = 20,
+    ) -> EntityPage:
+        """Search an entity surface (people/orgs) by name (``q``), identifier, and/or
+        jurisdiction. Powers the PM-first match cascade: exact identifier lookup
+        first, normalized-name + jurisdiction fallback second. Returns the matching
+        summary records (id + name + …); the caller fetches full detail by id."""
+        ...
+
     async def post_observation(self, observe_path: str, payload: dict) -> ObservationResult:
         """Submit an observation; return the disposition + anchored id."""
         ...

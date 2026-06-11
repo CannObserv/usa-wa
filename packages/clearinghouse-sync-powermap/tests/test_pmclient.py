@@ -82,6 +82,38 @@ async def test_list_entities_advances_cursor_when_more(client):
 
 
 @respx.mock
+async def test_search_entities_passes_identifier_and_jurisdiction(client):
+    """The match cascade's search: identifier + jurisdiction params reach orgs/search,
+    and summary records come back as dicts."""
+    route = respx.get(f"{BASE}/api/v1/orgs/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "01ABC", "name": "WA House Approps Committee", "parent_id": "01XYZ"}
+                ],
+                "meta": {"limit": 20, "offset": 0, "count": 1, "has_more": False},
+            },
+        )
+    )
+
+    page = await client.search_entities(
+        "/api/v1/orgs/search",
+        q="approps",
+        identifier_type="org_wa_legislature_committee_id",
+        identifier_value="C-1",
+        jurisdiction="usa-wa",
+    )
+
+    assert route.called
+    url = str(route.calls.last.request.url)
+    assert "identifier_type=org_wa_legislature_committee_id" in url
+    assert "identifier_value=C-1" in url
+    assert "jurisdiction=usa-wa" in url
+    assert page.records[0]["name"] == "WA House Approps Committee"
+
+
+@respx.mock
 async def test_list_entities_terminates_cursor_when_done(client):
     respx.get(f"{BASE}/api/v1/jurisdictions").mock(
         return_value=httpx.Response(

@@ -115,6 +115,11 @@ class GeneratedPowerMapClient:
             AssignmentObservationRequest,
         ),
     }
+    # search_path → (search op, supports_jurisdiction). Powers the match cascade.
+    _SEARCH = {
+        "/api/v1/people/search": (search_people, False),
+        "/api/v1/orgs/search": (search_orgs, True),
+    }
 
     def __init__(self, base_url: str, api_key: str, *, timeout: float = 30.0) -> None:
         self._client = AuthenticatedClient(
@@ -182,6 +187,30 @@ class GeneratedPowerMapClient:
         if parsed is None or isinstance(parsed, HTTPValidationError):
             return None
         return parsed.to_dict()
+
+    async def search_entities(
+        self,
+        search_path: str,
+        *,
+        q: str | None = None,
+        identifier_type: str | None = None,
+        identifier_value: str | None = None,
+        jurisdiction: str | None = None,
+        limit: int = 20,
+    ) -> EntityPage:
+        op, supports_jur = self._SEARCH[search_path]
+        # The search ops require ``q``; empty string + an identifier/jurisdiction
+        # filter narrows by that filter (verified against the live API).
+        kwargs: dict[str, Any] = {"client": self._client, "q": q or "", "limit": limit, "offset": 0}
+        if identifier_type is not None:
+            kwargs["identifier_type"] = identifier_type
+        if identifier_value is not None:
+            kwargs["identifier_value"] = identifier_value
+        if supports_jur and jurisdiction is not None:
+            kwargs["jurisdiction"] = jurisdiction
+        body = await self._send(op.asyncio_detailed(**kwargs))
+        records = [item.to_dict() for item in body.data]
+        return EntityPage(records=records, cursor=None)
 
     async def post_observation(self, observe_path: str, payload: dict) -> ObservationResult:
         submit_fn, model_cls = self._OBSERVE[observe_path]
