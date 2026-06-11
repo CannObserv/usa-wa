@@ -4,6 +4,42 @@
 - **Extends:** [`docs/specs/2026-06-02-power-map-sync-sidecar-design.md`](2026-06-02-power-map-sync-sidecar-design.md) (sidecar engine + jurisdiction descriptor, live) and [`docs/specs/2026-05-27-power-map-integration.md`](2026-05-27-power-map-integration.md) (identifier-type scheme).
 - **Issue:** [CannObserv/usa-wa#4](https://github.com/CannObserv/usa-wa/issues/4)
 
+---
+
+## 2026-06-11 update — gates cleared; PM-first reconciliation design (supersedes D1–D5 below where they conflict)
+
+**Status of the earlier blockers:**
+- **Local schema correction — DONE** (migration `8d3f5cb3248f`; jurisdiction decoupled across identity/vote/bill/session clusters).
+- **PM gates cleared (verified against deployed PM, 2026-06-11):**
+  - #193 — `PersonDetail`/`OrgDetail` now carry `created_at`/`updated_at` (LWW clock; the `changed_at` interim is dropped).
+  - #159 — `people/search` + `orgs/search` take `identifier_type`/`identifier_value`; `orgs/search` also has a `jurisdiction` filter.
+  - #194 — org↔jurisdiction shipped as **M:N typed affiliations**: `OrgDetail.jurisdiction_affiliations[] = {jurisdiction_id, affiliation_type{slug,display_name}}`; observed via `jurisdiction_affiliations[] = {jurisdiction_id, affiliation_type_slug}`. The relevant type is **`governing`** ("is governed by"); its `jurisdiction_id` equals our local `pm_jurisdiction_id`.
+
+**Org jurisdiction mapping:** local `Organization.jurisdiction_id` ← the `governing` affiliation's `jurisdiction_id`, resolved to the local jurisdiction by `pm_jurisdiction_id`. (The single nullable FK from the schema correction holds.)
+
+**Discovery that reframes the org model:** PM has **already backfilled the full WA legislative org tree** — Legislature → Senate/House → every committee, with PM-curated canonical names and `parent_id` hierarchy — but every org has **empty `identifiers`**. So identifier-keyed observation cannot auto-attach to them; producing orgs by identifier would duplicate PM's tree.
+
+### PM-first match cascade (general principle; acute for orgs)
+
+PM is the system of record. Before treating an adapter-produced record as new, **exhaust all means of locating it in PM**; only when none match is it genuinely new and written to PM. The cascade (first confident match wins), as a descriptor hook `pm_match(client, record) -> pm_id | None` consulted **before** observe-create:
+
+1. **Identifier** — `…/search?identifier_type=<scheme>&identifier_value=<id>`. Exact; the happy path once PM holds the identifier.
+2. **Normalized name** — normalize both sides, then `…/search?q=<name>&jurisdiction=usa-wa`; compare normalized. Normalization handles PM's conventions: casefold, `&`→`and`, collapse whitespace/punctuation, prefer formal/canonical forms (e.g. "Washington State House Consumer Protection and Business Committee").
+3. **Hierarchy-scoped name** — when a parent anchor is known (a committee under a chamber), restrict candidates to PM's `parent_id` children of that parent to disambiguate naming variants.
+4. **No confident match → NEW** → observe to PM (create); anchor from the disposition.
+
+**Outcome handling:**
+- **Matched** → anchor `pm_*_id`; adopt PM's **canonical** name (read-side); usa-wa's produced data (persons/assignments) references the matched PM org id. No org write (PM already has it). Responsive to PM renames via the feed + `updated_at` LWW.
+- **New** → observe-create; PM gains usa-wa's identifier + name; anchor.
+
+**Name stewardship:** usa-wa never overwrites PM's canonical name. On create it contributes typed `ObservationName` evidence; PM curates `is_canonical`. The local cache mirrors PM's canonical name and follows PM changes.
+
+### Open / next
+- **Persons / roles / assignments:** check whether PM has them backfilled too (the orgs lesson) — that decides mirror-vs-create per entity. Same cascade applies. (Next analysis before building those descriptors.)
+- **Identifier enrichment of matched, identifier-less PM orgs** (pushing usa-wa's `org_wa_legislature_*` ids onto PM's existing orgs): out of MVP — usa-wa anchors locally; there's no attach-by-name/pm_id on observe today, so enriching PM needs a coordination change. File a PM issue if/when wanted.
+
+---
+
 ## Why this addendum
 
 Building the four identity descriptors against the deployed PM surface surfaced coordination gaps the sidecar spec (written jurisdiction-first) didn't cover — and, more importantly, revealed that **the identity entities are not jurisdiction-scoped the way jurisdictions are**. This pins the corrected model and the coordination so the descriptors can be built without guessing.
