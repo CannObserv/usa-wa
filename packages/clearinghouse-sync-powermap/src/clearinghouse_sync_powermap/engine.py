@@ -111,6 +111,19 @@ class SyncEngine:
         )
         enqueued = 0
         for row in rows:
+            # PM-first: try to find a pre-existing PM record before creating one,
+            # so we never duplicate PM's curated tree (identifier-less backfill).
+            pm_id = await descriptor.pm_match(self._client, session, row)
+            if pm_id is not None:
+                record = await descriptor.fetch_record(self._client, pm_id)
+                if record is not None:
+                    # Adopt PM's canonical fields + anchor; no create.
+                    await descriptor.upsert_from_pm(session, record, existing=row)
+                    self._adopt_remote_clock(descriptor, row, record)
+                else:
+                    # Matched but detail fetch failed — still capture the anchor.
+                    descriptor.set_anchor(row, pm_id)
+                continue
             if await self._enqueue(session, descriptor, row, OP_CREATE):
                 enqueued += 1
         return enqueued

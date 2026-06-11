@@ -50,6 +50,41 @@ async def test_sweep_enqueues_unanchored(db_session, fake_descriptor):
     assert all(e.status == STATUS_PENDING for e in entries)
 
 
+class _MatchingDescriptor(FakeDescriptor):
+    """A descriptor whose ``pm_match`` cascade finds a pre-existing PM record."""
+
+    def __init__(self, pm_id) -> None:
+        self._pm_id = pm_id
+
+    async def pm_match(self, client, session, row):  # noqa: ARG002
+        return self._pm_id
+
+
+async def test_sweep_matched_anchors_without_create(db_session):
+    """PM-first: a row that pm_match resolves to an existing PM entity is anchored
+    and adopts PM's canonical fields — never enqueued as a duplicate CREATE."""
+    pm_id = ULID()
+    row = await _add_entity(db_session, source_id="m1", name="Adapter Name")
+    record = {
+        "source": "wsl",
+        "source_id": "m1",
+        "name": "PM Canonical Name",
+        "id": str(pm_id),
+        "updated_at": "2030-01-01T00:00:00Z",
+    }
+    client = FakeClient(entities={pm_id: record, str(pm_id): record})
+    descriptor = _MatchingDescriptor(pm_id)
+    engine = SyncEngine([descriptor], client)
+
+    count = await engine.sweep_unanchored(db_session, descriptor)
+
+    assert count == 0  # matched → no CREATE
+    assert (await db_session.execute(select(OutboxEntry))).scalars().all() == []
+    await db_session.refresh(row)
+    assert row.pm_fake_id == pm_id  # anchored to the matched PM id
+    assert row.name == "PM Canonical Name"  # adopted PM's canonical name, no overwrite to PM
+
+
 async def test_sweep_is_idempotent(db_session, fake_descriptor):
     await _add_entity(db_session, source_id="1")
     engine = SyncEngine([fake_descriptor], FakeClient())

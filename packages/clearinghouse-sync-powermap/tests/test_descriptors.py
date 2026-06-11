@@ -2,15 +2,33 @@
 
 from datetime import UTC, datetime
 
+import pytest
 from ulid import ULID
 
 from clearinghouse_sync_powermap.client import ObservationResult
+from clearinghouse_sync_powermap.descriptors import normalize_name
 from clearinghouse_sync_powermap.models import (
     DISPOSITION_AUTO_ATTACHED,
     DISPOSITION_NEW,
     DISPOSITION_REJECTED,
 )
 from clearinghouse_sync_powermap.testing import FakeEntity
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        ("Consumer Protection & Business Committee", "Consumer Protection and Business Committee"),
+        ("Ways and Means", "ways  and   means"),
+        ("WA House of Representatives", "wa house of representatives!"),
+    ],
+)
+def test_normalize_name_folds_variants_equal(a, b):
+    assert normalize_name(a) == normalize_name(b)
+
+
+def test_normalize_name_distinguishes_real_differences():
+    assert normalize_name("Senate Ways and Means") != normalize_name("House Ways and Means")
 
 
 def test_anchor_get_set(fake_descriptor):

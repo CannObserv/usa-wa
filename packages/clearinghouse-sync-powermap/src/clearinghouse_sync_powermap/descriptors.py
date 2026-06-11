@@ -11,6 +11,7 @@ abstract methods. The engine treats descriptors opaquely — it never imports a
 concrete one.
 """
 
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import datetime, timedelta
@@ -18,10 +19,27 @@ from typing import Any, Literal
 
 from ulid import ULID
 
+_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+
 
 def as_ulid(value: Any) -> ULID:
     """Coerce a PM id (str or ULID) to a ULID. Public — reused by siblings/tests."""
     return value if isinstance(value, ULID) else ULID.from_str(str(value))
+
+
+def normalize_name(name: str) -> str:
+    """Fold a name for PM-vs-local fuzzy matching in the ``pm_match`` cascade.
+
+    PM curates formal canonical names with conventions that differ from raw
+    adapter strings — notably ``&`` written out as ``and`` and varied
+    punctuation/spacing. Normalization: casefold, ``&`` → ``and``, then collapse
+    every run of non-alphanumerics to a single space and strip. So
+    "Consumer Protection & Business Committee" and
+    "Consumer Protection and Business Committee" both fold to
+    ``consumer protection and business committee``.
+    """
+    folded = name.casefold().replace("&", " and ")
+    return _NON_ALNUM.sub(" ", folded).strip()
 
 
 #: Which side is authoritative for *identity* (id minting / system-of-record).
@@ -138,6 +156,22 @@ class EntityDescriptor(ABC):
         engine can compare the two for LWW. The local value is kept at parity with
         PM by :meth:`set_last_updated` on import.
         """
+
+    async def pm_match(self, client: Any, session: Any, row: Any) -> Any | None:
+        """Find this local row's pre-existing PM entity *before* creating a new one.
+
+        PM is the system of record, and it holds curated records that may carry
+        none of the identifiers usa-wa keys on (e.g. the backfilled WA org tree).
+        Observing such a row by identifier would mint a **duplicate**. So before
+        the un-anchored sweep enqueues a CREATE, the engine consults this cascade:
+        exact identifier → normalized name (+ jurisdiction) → parent-hierarchy
+        scope. Return the matched PM id to anchor against (no create), or ``None``
+        when the record is genuinely new (→ observe-create).
+
+        Default ``None`` keeps identifier-only entities (jurisdictions) on the
+        plain observe path. Override for orgs/persons (see :func:`normalize_name`).
+        """
+        return None
 
     def set_last_updated(self, obj: Any, value: datetime) -> None:
         """Stamp a freshly-cached local row's LWW clock with the remote (PM) time.
