@@ -8,6 +8,7 @@ from ulid import ULID
 from clearinghouse_sync_powermap.client import ChangeItem, ChangePage, EntityPage
 from clearinghouse_sync_powermap.engine import (
     APPLY_KEPT_LOCAL,
+    APPLY_SKIPPED,
     APPLY_UPDATED,
     CHANGES_STREAM,
     SyncEngine,
@@ -156,6 +157,23 @@ async def test_lww_local_newer_no_enqueue_when_write_disabled(db_session):
 
     assert outcome == APPLY_KEPT_LOCAL
     assert (await db_session.execute(select(OutboxEntry))).first() is None  # nothing to push
+
+
+async def test_apply_record_skips_when_update_only_descriptor_declines(db_session):
+    """An update-only descriptor whose upsert returns None (record never produced
+    locally) yields APPLY_SKIPPED — not a misreported APPLY_INSERTED."""
+
+    class UpdateOnlyDescriptor(FakeDescriptor):
+        async def upsert_from_pm(self, session, record, existing=None):  # noqa: ARG002
+            return None  # never mirror an unknown record
+
+    descriptor = UpdateOnlyDescriptor()
+    engine = SyncEngine([descriptor], FakeClient())
+
+    outcome = await engine.apply_record(db_session, descriptor, _record("ghost", "Ghost"))
+
+    assert outcome == APPLY_SKIPPED
+    assert (await db_session.execute(select(FakeEntity))).first() is None
 
 
 async def test_process_feed_applies_and_advances_cursor(db_session, fake_descriptor):

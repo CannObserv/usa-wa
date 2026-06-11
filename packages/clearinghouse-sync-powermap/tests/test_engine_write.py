@@ -137,7 +137,7 @@ class _EnrichDescriptor(FakeDescriptor):
         return {
             "identifier_type": "fake_real_id",
             "identifier_value": row.source_id,
-            "name": row.name,
+            "names": [{"name": row.name, "name_type": "legal"}],
         }
 
 
@@ -183,7 +183,7 @@ async def test_drain_delivers_enrich_payload_keyed_on_pm_id(db_session):
         {"identifier_type_slug": "fake_real_id", "identifier_value": "e1"}
     ]
     # Name evidence is the row's current name — PM's canonical, adopted at match.
-    assert payload["name"] == "PM Name"
+    assert payload["names"] == [{"name": "PM Name", "name_type": "legal"}]
 
 
 async def test_sweep_skips_enrich_when_pm_has_our_identifier(db_session):

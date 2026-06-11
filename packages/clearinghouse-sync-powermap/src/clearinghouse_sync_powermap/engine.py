@@ -42,6 +42,9 @@ CHANGES_STREAM = "changes_feed"
 APPLY_INSERTED = "inserted"
 APPLY_UPDATED = "updated"
 APPLY_KEPT_LOCAL = "kept_local"
+#: An update-only descriptor (org/person/role/assignment) declined to mirror a PM
+#: record it has never produced (``upsert_from_pm`` returned None) — not an insert.
+APPLY_SKIPPED = "skipped"
 
 #: Transport-level failures that are genuinely transient and warrant a backoff
 #: retry. Anything else (e.g. a bug in payload construction) propagates so it is
@@ -257,7 +260,8 @@ class SyncEngine:
     ) -> str:
         """Upsert one PM record into the local cache under last-write-wins.
 
-        - No local row → insert.
+        - No local row → insert (or, for update-only descriptors that decline to
+          mirror an unproduced record, skip).
         - Local row strictly newer than the PM record → keep local; enqueue an
           UPDATE to push it up (only when the entity is write-enabled).
         - Otherwise (PM newer, or tie) → PM wins; overwrite the local row.
@@ -265,6 +269,9 @@ class SyncEngine:
         existing = await descriptor.local_match(session, record)
         if existing is None:
             row = await descriptor.upsert_from_pm(session, record)
+            if row is None:
+                # Update-only descriptor declined to mirror an unproduced record.
+                return APPLY_SKIPPED
             self._adopt_remote_clock(descriptor, row, record)
             return APPLY_INSERTED
 

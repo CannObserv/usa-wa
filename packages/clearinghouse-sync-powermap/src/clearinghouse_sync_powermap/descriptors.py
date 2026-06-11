@@ -207,11 +207,16 @@ class EntityDescriptor(ABC):
     async def to_enrich_observation(self, session: Any, row: Any) -> dict:
         """Build the enrich observation for an already-matched, anchored row.
 
-        Reuses :meth:`to_observation` but re-keys the top-level identifier to
+        Derives from :meth:`to_observation` but re-keys the top-level identifier to
         :attr:`enrich_identifier_type` + the row's PM anchor (so PM attaches by id
         instead of resolving by our identifier, per power-map#198), and demotes the
-        row's real identifier to an ``additional_identifiers`` entry to append. All
-        other observation fields (names, affiliations, parent) ride along append-only.
+        row's real identifier to an ``additional_identifiers`` entry to append.
+
+        Deliberately **narrow**: only the identifier and typed-name evidence ride
+        along. Other observation fields (org parent, jurisdiction affiliations) are
+        *not* re-asserted — they belong to how PM curates the entity (which we
+        adopted on match), and enrich exists solely to convey the identifier we
+        hold. Append-only, idempotent.
         """
         base = await self.to_observation(session, row)
         real_type = base.pop("identifier_type", None)
@@ -224,7 +229,8 @@ class EntityDescriptor(ABC):
             payload["additional_identifiers"] = [
                 {"identifier_type_slug": real_type, "identifier_value": real_value}
             ]
-        payload.update(base)
+        if base.get("names"):
+            payload["names"] = base["names"]
         return payload
 
     async def dependencies_ready(self, session: Any, row: Any) -> bool:

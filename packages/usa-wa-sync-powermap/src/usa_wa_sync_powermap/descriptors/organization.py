@@ -102,13 +102,15 @@ class OrganizationDescriptor(EntityDescriptor):
 
     async def pm_match(self, client: Any, session: Any, row: Any) -> Any | None:
         # 1. Identifier — exact, server-side. The happy path once PM holds the id.
+        # No jurisdiction filter: an (identifier_type, value) pair is globally
+        # unique in PM, and scoping it would false-miss an org that holds our id
+        # but isn't yet affiliated to usa-wa → a spurious duplicate.
         id_type = identifier_type_for(row.source, row.org_type)
         if id_type is not None:
             page = await client.search_entities(
                 SEARCH_PATH,
                 identifier_type=id_type,
                 identifier_value=row.source_id,
-                jurisdiction=JURISDICTION_SLUG,
                 limit=1,
             )
             for rec in page.records:
@@ -156,8 +158,12 @@ class OrganizationDescriptor(EntityDescriptor):
             )
             records.extend(page.records)
             if not page.cursor:
-                break
+                return records
             offset = int(page.cursor)
+        # Cap hit with more pages outstanding — name matching may miss a candidate
+        # beyond the cap (→ a possible duplicate). Surface it rather than truncate
+        # silently.
+        logger.warning("org_cohort_truncated", extra={"cap": _MAX_CANDIDATES})
         return records
 
     async def _parent_pm_id(self, session: Any, row: Any) -> Any | None:
@@ -170,6 +176,13 @@ class OrganizationDescriptor(EntityDescriptor):
 
     async def to_observation(self, session: Any, row: Any) -> dict:
         id_type = identifier_type_for(row.source, row.org_type)
+        if id_type is None:
+            # Unknown source → no PM identifier_type; PM will reject. Surface it
+            # (the outbox would otherwise read as a silent failure).
+            logger.warning(
+                "org_identifier_type_unresolved",
+                extra={"source": row.source, "org_type": row.org_type},
+            )
         payload: dict[str, Any] = {
             "identifier_type": id_type,
             "identifier_value": row.source_id,

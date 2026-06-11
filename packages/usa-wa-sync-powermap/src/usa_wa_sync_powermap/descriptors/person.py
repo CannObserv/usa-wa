@@ -98,8 +98,13 @@ class PersonDescriptor(EntityDescriptor):
         return None  # genuinely new (or ambiguous) → observe-create
 
     async def to_observation(self, session: Any, row: Any) -> dict:
+        id_type = identifier_type_for(row.source)
+        if id_type is None:
+            # Unknown source → no PM identifier_type; PM will reject. Surface it
+            # (the outbox would otherwise read as a silent failure).
+            logger.warning("person_identifier_type_unresolved", extra={"source": row.source})
         return {
-            "identifier_type": identifier_type_for(row.source),
+            "identifier_type": id_type,
             "identifier_value": row.source_id,
             # Typed name evidence — PM curates is_canonical; we never assert it.
             "names": [{"name": row.name_full, "name_type": "legal"}],

@@ -80,6 +80,8 @@ async def test_pm_match_identifier_hit(db_session, descriptor):
     assert len(client.searched) == 1  # only the identifier search ran
     assert client.searched[0]["identifier_type"] == "org_wa_legislature_committee_id"
     assert client.searched[0]["identifier_value"] == "C-1"
+    # Identifier is globally unique → not scoped by jurisdiction (avoids false-miss).
+    assert client.searched[0]["jurisdiction"] is None
 
 
 async def test_pm_match_falls_back_to_normalized_name(db_session, descriptor):
@@ -319,4 +321,6 @@ async def test_to_enrich_observation_rekeys_to_pm_org_id(db_session, descriptor,
         {"identifier_type_slug": "org_wa_legislature_committee_id", "identifier_value": "C-1"}
     ]
     assert obs["names"] == [{"name": "Health Committee", "name_type": "legal"}]
-    assert obs["jurisdiction_affiliations"][0]["affiliation_type_slug"] == "governing"
+    # Enrich is narrow: parent + affiliations are NOT re-asserted (PM curates them).
+    assert "jurisdiction_affiliations" not in obs
+    assert "organization_parent_id" not in obs
