@@ -79,6 +79,12 @@ class EntityDescriptor(ABC):
     read_source: ReadSource = "none"
     #: Whether the outbox worker may push this entity. Dormant types stay False.
     write_enabled: bool = False
+    #: PM-native internal identifier type for enrich-on-match (power-map#198) — e.g.
+    #: ``"pm_org_id"``. When set, a row matched to an identifier-less PM record *by
+    #: name* enqueues an enrich observation that attaches our identifiers/names to
+    #: that PM entity. ``None`` disables enrichment (roles/assignments match
+    #: structurally; jurisdictions are PM-authoritative).
+    enrich_identifier_type: str | None = None
     #: Full-reconcile cadence (backstop; default hourly).
     reconcile_cadence: timedelta = timedelta(hours=1)
 
@@ -172,6 +178,54 @@ class EntityDescriptor(ABC):
         plain observe path. Override for orgs/persons (see :func:`normalize_name`).
         """
         return None
+
+    async def needs_enrich(self, record: dict, row: Any) -> bool:
+        """Whether the matched PM ``record`` lacks an identifier this row holds and
+        should receive (enrich-on-match, power-map#198).
+
+        Called by the engine after a successful ``pm_match`` + ``upsert_from_pm``,
+        only when :attr:`enrich_identifier_type` is set. ``True`` → the engine
+        enqueues an ``ENRICH`` outbox entry. Default ``False`` (no enrichment).
+        Producers that match identifier-less PM records by name (orgs, persons)
+        override this, typically via :meth:`record_has_identifier`.
+        """
+        return False
+
+    @staticmethod
+    def record_has_identifier(record: dict, id_type: str, value: str) -> bool:
+        """Whether a PM record's ``identifiers[]`` already holds ``(id_type, value)``.
+
+        Shared helper for :meth:`needs_enrich`: enrichment is skipped (idempotent)
+        when PM already carries our identifier — e.g. a row matched *by identifier*
+        rather than by name.
+        """
+        for ident in record.get("identifiers") or []:
+            if ident.get("type_slug") == id_type and ident.get("value") == value:
+                return True
+        return False
+
+    async def to_enrich_observation(self, session: Any, row: Any) -> dict:
+        """Build the enrich observation for an already-matched, anchored row.
+
+        Reuses :meth:`to_observation` but re-keys the top-level identifier to
+        :attr:`enrich_identifier_type` + the row's PM anchor (so PM attaches by id
+        instead of resolving by our identifier, per power-map#198), and demotes the
+        row's real identifier to an ``additional_identifiers`` entry to append. All
+        other observation fields (names, affiliations, parent) ride along append-only.
+        """
+        base = await self.to_observation(session, row)
+        real_type = base.pop("identifier_type", None)
+        real_value = base.pop("identifier_value", None)
+        payload: dict[str, Any] = {
+            "identifier_type": self.enrich_identifier_type,
+            "identifier_value": str(self.anchor_value(row)),
+        }
+        if real_type and real_value:
+            payload["additional_identifiers"] = [
+                {"identifier_type_slug": real_type, "identifier_value": real_value}
+            ]
+        payload.update(base)
+        return payload
 
     async def dependencies_ready(self, session: Any, row: Any) -> bool:
         """Whether this row's PM prerequisites are anchored, so an observation can be built.

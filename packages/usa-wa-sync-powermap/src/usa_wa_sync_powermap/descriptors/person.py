@@ -57,6 +57,14 @@ class PersonDescriptor(EntityDescriptor):
     observe_path = "/api/v1/people/observations"
     read_source = "feed"
     write_enabled = True
+    enrich_identifier_type = "pm_person_id"  # enrich-on-match (#198)
+
+    async def needs_enrich(self, record: dict, row: Any) -> bool:
+        """Enrich when PM's matched person lacks the identifier we hold for them."""
+        id_type = identifier_type_for(row.source)
+        return id_type is not None and not self.record_has_identifier(
+            record, id_type, row.source_id
+        )
 
     async def pm_match(self, client: Any, session: Any, row: Any) -> Any | None:
         # 1. Identifier — exact, server-side.

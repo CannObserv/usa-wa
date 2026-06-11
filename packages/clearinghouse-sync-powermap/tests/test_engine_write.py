@@ -118,6 +118,92 @@ async def test_drain_defers_until_dependencies_ready(db_session):
     assert len(client.posted) == 1
 
 
+class _EnrichDescriptor(FakeDescriptor):
+    """Matches an identifier-less PM record by name and enriches it (#198)."""
+
+    enrich_identifier_type = "pm_fake_id"
+
+    def __init__(self, pm_id, record) -> None:
+        self._pm_id = pm_id
+        self._record = record
+
+    async def pm_match(self, client, session, row):  # noqa: ARG002
+        return self._pm_id
+
+    async def needs_enrich(self, record, row):  # noqa: ARG002
+        return True
+
+    async def to_observation(self, session, row):  # noqa: ARG002
+        return {
+            "identifier_type": "fake_real_id",
+            "identifier_value": row.source_id,
+            "name": row.name,
+        }
+
+
+async def test_sweep_matched_enqueues_enrich(db_session):
+    """A name-matched, identifier-less PM record → row anchored + an ENRICH entry
+    queued to push our identifier onto that PM entity."""
+    pm_id = ULID()
+    row = await _add_entity(db_session, source_id="e1", name="Adapter")
+    record = {"source": "wsl", "source_id": "e1", "name": "PM Name", "id": str(pm_id)}
+    client = FakeClient(entities={pm_id: record, str(pm_id): record})
+    descriptor = _EnrichDescriptor(pm_id, record)
+    engine = SyncEngine([descriptor], client)
+
+    count = await engine.sweep_unanchored(db_session, descriptor)
+
+    assert count == 0  # matched → no CREATE
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert entry.op == "ENRICH"
+    assert row.pm_fake_id == pm_id
+
+
+async def test_drain_delivers_enrich_payload_keyed_on_pm_id(db_session):
+    """The ENRICH delivery re-keys to pm_*_id + the anchor and demotes our real
+    identifier into additional_identifiers (power-map#198 attach-by-id)."""
+    pm_id = ULID()
+    await _add_entity(db_session, source_id="e1", name="Adapter")
+    record = {"source": "wsl", "source_id": "e1", "name": "PM Name", "id": str(pm_id)}
+    client = FakeClient(
+        entities={pm_id: record, str(pm_id): record},
+        observation_result=ObservationResult(DISPOSITION_AUTO_ATTACHED, pm_id, {}),
+    )
+    descriptor = _EnrichDescriptor(pm_id, record)
+    engine = SyncEngine([descriptor], client)
+    await engine.sweep_unanchored(db_session, descriptor)
+
+    await engine.drain_outbox(db_session, now=NOW)
+
+    path, payload = client.posted[-1]
+    assert path == "/api/v1/fakes/observations"
+    assert payload["identifier_type"] == "pm_fake_id"
+    assert payload["identifier_value"] == str(pm_id)
+    assert payload["additional_identifiers"] == [
+        {"identifier_type_slug": "fake_real_id", "identifier_value": "e1"}
+    ]
+    # Name evidence is the row's current name — PM's canonical, adopted at match.
+    assert payload["name"] == "PM Name"
+
+
+async def test_sweep_skips_enrich_when_pm_has_our_identifier(db_session):
+    """Matched by identifier (PM already holds it) → needs_enrich False → no ENRICH."""
+
+    class _NoEnrich(_EnrichDescriptor):
+        async def needs_enrich(self, record, row):  # noqa: ARG002
+            return False
+
+    pm_id = ULID()
+    await _add_entity(db_session, source_id="e1", name="Adapter")
+    record = {"source": "wsl", "source_id": "e1", "name": "PM Name", "id": str(pm_id)}
+    client = FakeClient(entities={pm_id: record, str(pm_id): record})
+    engine = SyncEngine([_NoEnrich(pm_id, record)], client)
+
+    await engine.sweep_unanchored(db_session, _NoEnrich(pm_id, record))
+
+    assert (await db_session.execute(select(OutboxEntry))).scalars().all() == []
+
+
 async def test_sweep_is_idempotent(db_session, fake_descriptor):
     await _add_entity(db_session, source_id="1")
     engine = SyncEngine([fake_descriptor], FakeClient())

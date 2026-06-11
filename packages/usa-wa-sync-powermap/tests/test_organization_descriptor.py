@@ -287,3 +287,36 @@ async def test_last_updated_row_and_record(db_session, descriptor):
     assert descriptor.last_updated({"updated_at": "2026-06-02T00:00:00Z"}) == datetime(
         2026, 6, 2, tzinfo=UTC
     )
+
+
+# --- enrich-on-match (#198) ---------------------------------------------------
+
+
+async def test_needs_enrich_true_when_pm_lacks_our_identifier(db_session, descriptor):
+    row = await _add_org(db_session, source_id="C-1", name="X")
+    assert await descriptor.needs_enrich({"identifiers": []}, row) is True
+    has_it = {"identifiers": [{"type_slug": "org_wa_legislature_committee_id", "value": "C-1"}]}
+    assert await descriptor.needs_enrich(has_it, row) is False
+
+
+async def test_to_enrich_observation_rekeys_to_pm_org_id(db_session, descriptor, usa_wa):
+    usa_wa.pm_jurisdiction_id = ULID()
+    await db_session.flush()
+    org_pm = ULID()
+    row = await _add_org(
+        db_session,
+        source_id="C-1",
+        name="Health Committee",
+        anchor=org_pm,
+        jurisdiction_id=usa_wa.id,
+    )
+
+    obs = await descriptor.to_enrich_observation(db_session, row)
+
+    assert obs["identifier_type"] == "pm_org_id"
+    assert obs["identifier_value"] == str(org_pm)
+    assert obs["additional_identifiers"] == [
+        {"identifier_type_slug": "org_wa_legislature_committee_id", "identifier_value": "C-1"}
+    ]
+    assert obs["names"] == [{"name": "Health Committee", "name_type": "legal"}]
+    assert obs["jurisdiction_affiliations"][0]["affiliation_type_slug"] == "governing"

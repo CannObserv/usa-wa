@@ -23,6 +23,7 @@ from clearinghouse_sync_powermap.client import PowerMapClient, RetryableClientEr
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.models import (
     OP_CREATE,
+    OP_ENRICH,
     OP_UPDATE,
     STATUS_DELIVERED,
     STATUS_PENDING,
@@ -120,6 +121,13 @@ class SyncEngine:
                     # Adopt PM's canonical fields + anchor; no create.
                     await descriptor.upsert_from_pm(session, record, existing=row)
                     self._adopt_remote_clock(descriptor, row, record)
+                    # Enrich-on-match (#198): PM matched an identifier-less record by
+                    # name — push our identifiers/names onto it so it gains the data
+                    # we hold and future syncs match by identifier.
+                    if descriptor.enrich_identifier_type and await descriptor.needs_enrich(
+                        record, row
+                    ):
+                        await self._enqueue(session, descriptor, row, OP_ENRICH)
                 else:
                     # Matched but detail fetch failed — still capture the anchor.
                     descriptor.set_anchor(row, pm_id)
@@ -191,7 +199,10 @@ class SyncEngine:
             )
             return True
 
-        payload = await descriptor.to_observation(session, row)
+        if entry.op == OP_ENRICH:
+            payload = await descriptor.to_enrich_observation(session, row)
+        else:
+            payload = await descriptor.to_observation(session, row)
         try:
             result = await self._client.post_observation(descriptor.observe_path, payload)
         except TRANSIENT_EXCEPTIONS as exc:  # back off and retry; bugs propagate

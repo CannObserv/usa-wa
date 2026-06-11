@@ -89,6 +89,14 @@ class OrganizationDescriptor(EntityDescriptor):
     observe_path = "/api/v1/orgs/observations"
     read_source = "feed"
     write_enabled = True
+    enrich_identifier_type = "pm_org_id"  # enrich-on-match (#198)
+
+    async def needs_enrich(self, record: dict, row: Any) -> bool:
+        """Enrich when PM's matched org lacks the identifier we hold for it."""
+        id_type = identifier_type_for(row.source, row.org_type)
+        return id_type is not None and not self.record_has_identifier(
+            record, id_type, row.source_id
+        )
 
     # --- match cascade (PM-first) --------------------------------------------
 

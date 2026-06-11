@@ -45,7 +45,7 @@ Cohort enumeration runs per un-anchored row in a sweep; a per-cycle candidate ca
 
 ### Open / next
 - **Persons / roles / assignments:** check whether PM has them backfilled too (the orgs lesson) — that decides mirror-vs-create per entity. Same cascade applies. (Next analysis before building those descriptors.)
-- **Identifier enrichment of matched, identifier-less PM orgs** (pushing usa-wa's `org_wa_legislature_*` ids onto PM's existing orgs): out of MVP — usa-wa anchors locally; there's no attach-by-name/pm_id on observe today, so enriching PM needs a coordination change. File a PM issue if/when wanted.
+- ~~**Identifier enrichment of matched, identifier-less PM orgs**~~ **DONE (2026-06-11).** [power-map#198](https://github.com/CannObserv/power-map/issues/198) shipped (Option C: internal `pm_*_id` identifier types — `pm_org_id`, `pm_person_id`, `pm_role_id`, `pm_assignment_id`; verified deployed). The sidecar now enriches on name-match: when `pm_match` resolves an adapter row to an identifier-less PM org/person, the engine enqueues an `OP_ENRICH` outbox entry whose observation re-keys to `pm_<entity>_id` + the anchor and demotes our real identifier into `additional_identifiers` — appending our `org_wa_legislature_*` / `person_wa_legislature_*` ids (the committee/member IDs we possess) onto PM's existing record append-only. `needs_enrich` skips the write when PM already holds our id (matched-by-identifier), so it's idempotent. Roles/assignments don't enrich (they match on PM's structural keys, which the backfill already has).
 
 ---
 

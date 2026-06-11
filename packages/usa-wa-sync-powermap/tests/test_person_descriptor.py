@@ -142,3 +142,27 @@ async def test_last_updated_row_and_record(db_session, descriptor):
     assert descriptor.last_updated({"updated_at": "2026-06-02T00:00:00Z"}) == datetime(
         2026, 6, 2, tzinfo=UTC
     )
+
+
+# --- enrich-on-match (#198) ---------------------------------------------------
+
+
+async def test_needs_enrich(db_session, descriptor):
+    row = await _add_person(db_session, source_id="M-1", name="Jay")
+    assert await descriptor.needs_enrich({"identifiers": []}, row) is True
+    has_it = {"identifiers": [{"type_slug": "person_wa_legislature_member_id", "value": "M-1"}]}
+    assert await descriptor.needs_enrich(has_it, row) is False
+
+
+async def test_to_enrich_observation_rekeys_to_pm_person_id(db_session, descriptor):
+    pm = ULID()
+    row = await _add_person(db_session, source_id="M-1", name="Jay Inslee", anchor=pm)
+
+    obs = await descriptor.to_enrich_observation(db_session, row)
+
+    assert obs["identifier_type"] == "pm_person_id"
+    assert obs["identifier_value"] == str(pm)
+    assert obs["additional_identifiers"] == [
+        {"identifier_type_slug": "person_wa_legislature_member_id", "identifier_value": "M-1"}
+    ]
+    assert obs["names"] == [{"name": "Jay Inslee", "name_type": "legal"}]

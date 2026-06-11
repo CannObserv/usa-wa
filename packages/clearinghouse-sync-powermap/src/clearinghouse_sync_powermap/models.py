@@ -37,7 +37,10 @@ SCHEMA = "sync"
 #: Outbox operation kinds.
 OP_CREATE = "CREATE"
 OP_UPDATE = "UPDATE"
-_OPS = (OP_CREATE, OP_UPDATE)
+#: Enrich-on-match (power-map#198): attach our identifiers/names to an already-
+#: matched, identifier-less PM entity, keyed on its PM-native ``pm_*_id`` type.
+OP_ENRICH = "ENRICH"
+_OPS = (OP_CREATE, OP_UPDATE, OP_ENRICH)
 
 #: Outbox delivery states.
 STATUS_PENDING = "PENDING"
