@@ -21,7 +21,11 @@ from clearinghouse_sync_powermap.models import (
     OutboxEntry,
 )
 from clearinghouse_sync_powermap.testing import FakeClient
-from usa_wa_sync_powermap.descriptors import JurisdictionDescriptor
+from usa_wa_sync_powermap.descriptors import (
+    JurisdictionDescriptor,
+    OrganizationDescriptor,
+    RoleDescriptor,
+)
 from usa_wa_sync_powermap.sidecar import Sidecar
 
 NOW = datetime(2099, 1, 1, tzinfo=UTC)
@@ -163,3 +167,12 @@ async def test_run_cycle_isolates_and_rolls_back_on_error():
     await sidecar.run_cycle()  # must NOT raise
 
     assert session.rolled_back and not session.committed
+
+
+async def test_reconcile_due_skips_cohort_only_producers(db_session):
+    """Producers (reconcile_enabled=False) never run the full-list backstop; the
+    full-mirror jurisdiction does (#13)."""
+    sidecar, _ = _sidecar(FakeClient())
+    assert await sidecar._reconcile_due(db_session, JurisdictionDescriptor(), NOW) is True
+    assert await sidecar._reconcile_due(db_session, OrganizationDescriptor(), NOW) is False
+    assert await sidecar._reconcile_due(db_session, RoleDescriptor(), NOW) is False

@@ -47,11 +47,23 @@ def normalize_name(name: str) -> str:
 #: (see the engine); ``authority`` is descriptive of producer direction only.
 Authority = Literal["pm", "local"]
 
-#: How this entity is read from PM.
-#:   ``feed``      — primary path is the ``/changes`` feed (person/org today).
-#:   ``reconcile`` — primary path is the full-list reconcile (jurisdictions —
-#:                   not on the feed).
-#:   ``none``      — no PM read surface yet (roles/assignments/entity_events).
+#: How this entity is read from PM. **Mechanism only** — whether a full-list
+#: reconcile *backstop* also runs is a separate axis, :attr:`reconcile_enabled`.
+#:   ``feed``      — read off the ``/changes`` feed. All live entities use this
+#:                   (jurisdictions joined the feed in PM #179; roles/assignments
+#:                   gained feed reads). The ``reconcile`` value is currently
+#:                   unused by any production descriptor.
+#:   ``reconcile`` — full-list reconcile is the *primary* read (no feed surface).
+#:   ``none``      — no PM read surface (e.g. dormant entity-events).
+#:
+#: NOTE: ``feed`` describes the primary read; it does **not** by itself imply a
+#: reconcile backstop. The backstop is a full-list enumeration of ``read_path``,
+#: which is only meaningful for **full-mirror** entities with a bounded list
+#: (jurisdictions). Cohort-only producers (orgs/persons/roles/assignments) read
+#: their own anchored rows via the feed and set :attr:`reconcile_enabled` False —
+#: a full-list reconcile would page PM's *entire* set only to discard everything
+#: they didn't produce (update-only). A bounded anchored-cohort backstop for them
+#: is tracked in CannObserv/usa-wa#13.
 ReadSource = Literal["feed", "reconcile", "none"]
 
 
@@ -77,6 +89,12 @@ class EntityDescriptor(ABC):
     observe_path: str | None = None
     #: Read strategy (see :data:`ReadSource`).
     read_source: ReadSource = "none"
+    #: Whether the periodic **full-list reconcile backstop** runs for this entity.
+    #: True only for full-mirror entities with a bounded list (jurisdictions);
+    #: cohort-only producers set it False — a full-list reconcile would page PM's
+    #: entire set only to discard everything they didn't produce (update-only).
+    #: See the :data:`ReadSource` note and CannObserv/usa-wa#13.
+    reconcile_enabled: bool = True
     #: Whether the outbox worker may push this entity. Dormant types stay False.
     write_enabled: bool = False
     #: PM-native internal identifier type for enrich-on-match (power-map#198) — e.g.

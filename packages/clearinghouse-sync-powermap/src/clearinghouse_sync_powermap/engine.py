@@ -314,8 +314,18 @@ class SyncEngine:
     async def reconcile(
         self, session: AsyncSession, descriptor: EntityDescriptor, *, now: datetime | None = None
     ) -> int:
-        """Page through the entity's PM list endpoint, applying every record."""
-        if descriptor.read_source == "none" or descriptor.read_path is None:
+        """Page through the entity's PM list endpoint, applying every record.
+
+        Full-list reconcile is the periodic backstop, not the primary read. It is
+        skipped for descriptors that opt out (``reconcile_enabled=False``) — the
+        cohort-only producers, for which a full-list enumeration is the wrong scope
+        (see the ``ReadSource`` note + CannObserv/usa-wa#13).
+        """
+        if (
+            descriptor.read_source == "none"
+            or descriptor.read_path is None
+            or not descriptor.reconcile_enabled
+        ):
             return 0
         applied = 0
         cursor: str | None = None

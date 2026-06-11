@@ -159,6 +159,21 @@ async def test_lww_local_newer_no_enqueue_when_write_disabled(db_session):
     assert (await db_session.execute(select(OutboxEntry))).first() is None  # nothing to push
 
 
+async def test_reconcile_noop_when_disabled(db_session):
+    """A reconcile_enabled=False descriptor (cohort-only producer) skips the
+    full-list backstop entirely — even with records waiting (#13)."""
+
+    class NoReconcile(FakeDescriptor):
+        reconcile_enabled = False
+
+    descriptor = NoReconcile()
+    client = FakeClient(entity_pages=[EntityPage([_record("1", "X")], None)])
+    engine = SyncEngine([descriptor], client)
+
+    assert await engine.reconcile(db_session, descriptor, now=None) == 0
+    assert (await db_session.execute(select(FakeEntity))).first() is None
+
+
 async def test_apply_record_skips_when_update_only_descriptor_declines(db_session):
     """An update-only descriptor whose upsert returns None (record never produced
     locally) yields APPLY_SKIPPED — not a misreported APPLY_INSERTED."""

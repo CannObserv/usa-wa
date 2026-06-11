@@ -43,6 +43,7 @@ class AssignmentDescriptor(EntityDescriptor):
     read_path = "/api/v1/assignments"
     observe_path = "/api/v1/assignments/observations"
     read_source = "feed"
+    reconcile_enabled = False  # cohort-only producer; feed is the only read (see #13)
     write_enabled = True
 
     async def dependencies_ready(self, session: Any, row: Any) -> bool:
