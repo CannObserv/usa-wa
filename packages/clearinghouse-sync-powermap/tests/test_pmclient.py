@@ -114,6 +114,23 @@ async def test_search_entities_passes_identifier_and_jurisdiction(client):
 
 
 @respx.mock
+async def test_search_entities_ignores_lone_identifier_type(client):
+    """Identifier match needs the type+value pair — a lone type is not applied."""
+    route = respx.get(f"{BASE}/api/v1/orgs/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={"data": [], "meta": {"limit": 20, "offset": 0, "count": 0, "has_more": False}},
+        )
+    )
+
+    await client.search_entities(
+        "/api/v1/orgs/search", identifier_type="org_wa_legislature_chamber"
+    )
+
+    assert "identifier_type" not in str(route.calls.last.request.url)
+
+
+@respx.mock
 async def test_list_entities_terminates_cursor_when_done(client):
     respx.get(f"{BASE}/api/v1/jurisdictions").mock(
         return_value=httpx.Response(

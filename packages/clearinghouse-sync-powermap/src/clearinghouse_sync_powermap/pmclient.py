@@ -202,13 +202,17 @@ class GeneratedPowerMapClient:
         # The search ops require ``q``; empty string + an identifier/jurisdiction
         # filter narrows by that filter (verified against the live API).
         kwargs: dict[str, Any] = {"client": self._client, "q": q or "", "limit": limit, "offset": 0}
-        if identifier_type is not None:
+        # Identifier match is on the type+value PAIR; one without the other is a
+        # no-op filter, so only apply it when both are present.
+        if identifier_type is not None and identifier_value is not None:
             kwargs["identifier_type"] = identifier_type
-        if identifier_value is not None:
             kwargs["identifier_value"] = identifier_value
+        # The jurisdiction filter applies to orgs only (people carry no jurisdiction).
         if supports_jur and jurisdiction is not None:
             kwargs["jurisdiction"] = jurisdiction
         body = await self._send(op.asyncio_detailed(**kwargs))
+        if body is None:  # defensive: unexpected null body on 200 → empty page
+            return EntityPage(records=[], cursor=None)
         records = [item.to_dict() for item in body.data]
         return EntityPage(records=records, cursor=None)
 
