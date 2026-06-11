@@ -34,6 +34,15 @@ PM is the system of record. Before treating an adapter-produced record as new, *
 
 **Name stewardship:** usa-wa never overwrites PM's canonical name. On create it contributes typed `ObservationName` evidence; PM curates `is_canonical`. The local cache mirrors PM's canonical name and follows PM changes.
 
+### Implementation note — org descriptor shipped (2026-06-11)
+
+`OrganizationDescriptor` (`usa_wa_sync_powermap.descriptors.organization`) implements the cascade. Two realities of the **deployed** PM forced design choices, both validated against live PM (121-org WA cohort; "Washington State House Appropriations Committee" matched by name → real PM id; a fake committee → `None`):
+
+- **`q` does not filter by name** on `orgs/search` — only `identifier_*` and `jurisdiction` narrow server-side. So cascade step 2 **enumerates the `jurisdiction`-scoped cohort (paginated, 50/page) and compares `normalize_name` client-side**, rather than `q=<name>`. Filed [power-map#199](https://github.com/CannObserv/power-map/issues/199); when it lands, the enumeration collapses to a targeted query. `search_entities` gained `offset` + a page cursor for the enumeration.
+- **`read_source="feed"` is update-only.** A feed change to an already-anchored org is applied (rename-responsive); a feed change to an org usa-wa never produced is **skipped** (`upsert_from_pm` returns `None` when `existing` is absent) instead of inserting a mirror row — a mirror row plus a later adapter row would both anchor to the same PM id (a duplicate). `local_match` keys on the **anchor** (`pm_organization_id`), since PM's backfilled orgs carry no usa-wa identifier to derive the natural key from. Bounding the feed itself to the WA subset stays [usa-wa#10](https://github.com/CannObserv/usa-wa/issues/10).
+
+Cohort enumeration runs per un-anchored row in a sweep; a per-cycle candidate cache is a deferred optimization (cohort is small, sweeps infrequent).
+
 ### Open / next
 - **Persons / roles / assignments:** check whether PM has them backfilled too (the orgs lesson) — that decides mirror-vs-create per entity. Same cascade applies. (Next analysis before building those descriptors.)
 - **Identifier enrichment of matched, identifier-less PM orgs** (pushing usa-wa's `org_wa_legislature_*` ids onto PM's existing orgs): out of MVP — usa-wa anchors locally; there's no attach-by-name/pm_id on observe today, so enriching PM needs a coordination change. File a PM issue if/when wanted.

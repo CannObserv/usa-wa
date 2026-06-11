@@ -114,6 +114,39 @@ async def test_search_entities_passes_identifier_and_jurisdiction(client):
 
 
 @respx.mock
+async def test_search_entities_paginates_via_offset(client):
+    """PM caps a search page below a full cohort, so the cursor advances by
+    ``offset + limit`` while ``has_more``, then terminates."""
+    respx.get(f"{BASE}/api/v1/orgs/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [{"id": "01A", "name": "Org A"}],
+                "meta": {"limit": 50, "offset": 0, "count": 1, "has_more": True},
+            },
+        )
+    )
+
+    page = await client.search_entities("/api/v1/orgs/search", jurisdiction="usa-wa", limit=50)
+    assert page.cursor == "50"  # offset(0) + limit(50)
+
+    respx.get(f"{BASE}/api/v1/orgs/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [],
+                "meta": {"limit": 50, "offset": 50, "count": 0, "has_more": False},
+            },
+        )
+    )
+    page = await client.search_entities(
+        "/api/v1/orgs/search", jurisdiction="usa-wa", limit=50, offset=50
+    )
+    assert page.cursor is None
+    assert "offset=50" in str(respx.calls.last.request.url)
+
+
+@respx.mock
 async def test_search_entities_ignores_lone_identifier_type(client):
     """Identifier match needs the type+value pair — a lone type is not applied."""
     route = respx.get(f"{BASE}/api/v1/orgs/search").mock(

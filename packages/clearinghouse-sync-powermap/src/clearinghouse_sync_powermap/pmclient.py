@@ -197,11 +197,20 @@ class GeneratedPowerMapClient:
         identifier_value: str | None = None,
         jurisdiction: str | None = None,
         limit: int = 20,
+        offset: int = 0,
     ) -> EntityPage:
         op, supports_jur = self._SEARCH[search_path]
         # The search ops require ``q``; empty string + an identifier/jurisdiction
-        # filter narrows by that filter (verified against the live API).
-        kwargs: dict[str, Any] = {"client": self._client, "q": q or "", "limit": limit, "offset": 0}
+        # filter narrows by that filter (verified against the live API). NOTE: PM's
+        # ``q`` does NOT filter by name on the deployed API — only ``identifier_*``
+        # and ``jurisdiction`` narrow server-side, so the name-match cascade
+        # enumerates the jurisdiction cohort here and compares names client-side.
+        kwargs: dict[str, Any] = {
+            "client": self._client,
+            "q": q or "",
+            "limit": limit,
+            "offset": offset,
+        }
         # Identifier match is on the type+value PAIR; one without the other is a
         # no-op filter, so only apply it when both are present.
         if identifier_type is not None and identifier_value is not None:
@@ -214,7 +223,8 @@ class GeneratedPowerMapClient:
         if body is None:  # defensive: unexpected null body on 200 → empty page
             return EntityPage(records=[], cursor=None)
         records = [item.to_dict() for item in body.data]
-        return EntityPage(records=records, cursor=None)
+        next_cursor = str(offset + limit) if body.meta.has_more else None
+        return EntityPage(records=records, cursor=next_cursor)
 
     async def post_observation(self, observe_path: str, payload: dict) -> ObservationResult:
         submit_fn, model_cls = self._OBSERVE[observe_path]

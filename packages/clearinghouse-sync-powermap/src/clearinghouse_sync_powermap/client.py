@@ -102,11 +102,17 @@ class PowerMapClient(Protocol):
         identifier_value: str | None = None,
         jurisdiction: str | None = None,
         limit: int = 20,
+        offset: int = 0,
     ) -> EntityPage:
         """Search an entity surface (people/orgs) by name (``q``), identifier, and/or
         jurisdiction. Powers the PM-first match cascade: exact identifier lookup
         first, normalized-name + jurisdiction fallback second. Returns the matching
-        summary records (id + name + …); the caller fetches full detail by id."""
+        summary records (id + name + …); the caller fetches full detail by id.
+
+        ``offset`` + the returned ``EntityPage.cursor`` (next offset as a string,
+        or ``None`` when exhausted) page the result set — PM caps a page well
+        below a full jurisdiction cohort, so the name-match step must enumerate
+        across pages."""
         ...
 
     async def post_observation(self, observe_path: str, payload: dict) -> ObservationResult:
