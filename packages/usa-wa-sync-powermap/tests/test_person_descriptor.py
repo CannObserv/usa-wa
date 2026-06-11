@@ -1,0 +1,144 @@
+"""PersonDescriptor tests — PM-first cascade (identifier → server-side name)."""
+
+from datetime import UTC, datetime
+
+import pytest
+from sqlalchemy import select
+from ulid import ULID
+
+from clearinghouse_domain_legislative.identity import Person
+from clearinghouse_sync_powermap.client import EntityPage
+from clearinghouse_sync_powermap.testing import FakeClient
+from usa_wa_sync_powermap.descriptors import PersonDescriptor
+from usa_wa_sync_powermap.descriptors.person import identifier_type_for
+
+
+@pytest.fixture
+def descriptor() -> PersonDescriptor:
+    return PersonDescriptor()
+
+
+async def _add_person(
+    session, *, source="usa_wa_legislature", source_id="M-1", name="Jay Inslee", anchor=None
+):
+    row = Person(source=source, source_id=source_id, name_full=name, pm_person_id=anchor)
+    session.add(row)
+    await session.flush()
+    return row
+
+
+def test_identifier_type_for_maps_source():
+    assert identifier_type_for("usa_wa_legislature") == "person_wa_legislature_member_id"
+    assert identifier_type_for("usa_wa_pdc") == "person_wa_pdc"
+    assert identifier_type_for("other") is None
+
+
+async def test_pm_match_identifier_hit(db_session, descriptor):
+    pm_id = ULID()
+    row = await _add_person(db_session, source_id="M-7")
+    client = FakeClient(search_pages=[EntityPage(records=[{"id": str(pm_id)}], cursor=None)])
+
+    assert await descriptor.pm_match(client, db_session, row) == pm_id
+    assert len(client.searched) == 1
+    assert client.searched[0]["identifier_type"] == "person_wa_legislature_member_id"
+
+
+async def test_pm_match_name_fallback_confirms_normalized(db_session, descriptor):
+    """PM's q filters by name server-side; the match is confirmed by exact
+    normalized equality (so a loose q hit on a different person is rejected)."""
+    pm_id = ULID()
+    row = await _add_person(db_session, source_id="M-8", name="Jay Inslee")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),  # identifier miss
+            EntityPage(
+                records=[
+                    {"id": str(ULID()), "display_name": "Jay Inslee Jr."},  # not exact
+                    {"id": str(pm_id), "display_name": "Jay Inslee"},
+                ],
+                cursor=None,
+            ),
+        ]
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) == pm_id
+    assert client.searched[1]["q"] == "Jay Inslee"
+
+
+async def test_pm_match_ambiguous_returns_none(db_session, descriptor):
+    """Two exact-name homonyms, nothing to disambiguate → None (don't anchor the
+    wrong person); the engine will observe-create instead."""
+    row = await _add_person(db_session, source_id="M-9", name="John Smith")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),
+            EntityPage(
+                records=[
+                    {"id": str(ULID()), "display_name": "John Smith"},
+                    {"id": str(ULID()), "display_name": "John Smith"},
+                ],
+                cursor=None,
+            ),
+        ]
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) is None
+
+
+async def test_pm_match_no_match_returns_none(db_session, descriptor):
+    row = await _add_person(db_session, source_id="M-NEW", name="Brand New Legislator")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),
+            EntityPage(records=[{"id": str(ULID()), "display_name": "Someone Else"}], cursor=None),
+        ]
+    )
+    assert await descriptor.pm_match(client, db_session, row) is None
+
+
+async def test_to_observation_keys_on_identifier_and_name(db_session, descriptor):
+    row = await _add_person(db_session, source_id="M-3", name="Jane Doe")
+    obs = await descriptor.to_observation(db_session, row)
+    assert obs["identifier_type"] == "person_wa_legislature_member_id"
+    assert obs["identifier_value"] == "M-3"
+    assert obs["names"] == [{"name": "Jane Doe", "name_type": "legal"}]
+
+
+async def test_local_match_by_anchor(db_session, descriptor):
+    pm_id = ULID()
+    row = await _add_person(db_session, source_id="M-1", anchor=pm_id)
+    assert (await descriptor.local_match(db_session, {"id": str(pm_id)})).id == row.id
+    assert await descriptor.local_match(db_session, {"id": str(ULID())}) is None
+
+
+async def test_upsert_adopts_display_name_and_anchor(db_session, descriptor):
+    row = await _add_person(db_session, source_id="M-1", name="Adapter Name")
+    pm_id = ULID()
+    record = {
+        "id": str(pm_id),
+        "display_name": "Jay R. Inslee",
+        "updated_at": "2030-01-01T00:00:00Z",
+    }
+
+    result = await descriptor.upsert_from_pm(db_session, record, existing=row)
+
+    assert result is row
+    assert row.name_full == "Jay R. Inslee"
+    assert row.pm_person_id == pm_id
+
+
+async def test_upsert_update_only_skips_unknown(db_session, descriptor):
+    result = await descriptor.upsert_from_pm(
+        db_session, {"id": str(ULID()), "display_name": "Ghost"}
+    )
+    assert result is None
+    assert (await db_session.execute(select(Person))).scalars().all() == []
+
+
+async def test_last_updated_row_and_record(db_session, descriptor):
+    row = await _add_person(db_session, source_id="M-1")
+    row.updated_at = datetime(2026, 6, 1, tzinfo=UTC)
+    assert descriptor.last_updated(row) == datetime(2026, 6, 1, tzinfo=UTC)
+    assert descriptor.last_updated({"updated_at": "2026-06-02T00:00:00Z"}) == datetime(
+        2026, 6, 2, tzinfo=UTC
+    )

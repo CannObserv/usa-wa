@@ -115,7 +115,9 @@ class OrganizationDescriptor(EntityDescriptor):
         candidates = await self._cohort_candidates(client)
         named = [c for c in candidates if normalize_name(c.get("name") or "") == target]
         if len(named) == 1:
-            logger.info("org_pm_match_name", extra={"name": row.name, "pm_id": named[0].get("id")})
+            logger.info(
+                "org_pm_match_name", extra={"entity_name": row.name, "pm_id": named[0].get("id")}
+            )
             return as_ulid(named[0]["id"])
 
         # 3. Hierarchy — disambiguate same-name candidates by anchored parent.
@@ -126,12 +128,12 @@ class OrganizationDescriptor(EntityDescriptor):
                 if len(scoped) == 1:
                     logger.info(
                         "org_pm_match_hierarchy",
-                        extra={"name": row.name, "pm_id": scoped[0].get("id")},
+                        extra={"entity_name": row.name, "pm_id": scoped[0].get("id")},
                     )
                     return as_ulid(scoped[0]["id"])
             logger.warning(
                 "org_pm_match_ambiguous",
-                extra={"name": row.name, "candidates": [c.get("id") for c in named]},
+                extra={"entity_name": row.name, "candidates": [c.get("id") for c in named]},
             )
 
         return None  # genuinely new → observe-create
