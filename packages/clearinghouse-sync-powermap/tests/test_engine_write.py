@@ -85,6 +85,39 @@ async def test_sweep_matched_anchors_without_create(db_session):
     assert row.name == "PM Canonical Name"  # adopted PM's canonical name, no overwrite to PM
 
 
+async def test_drain_defers_until_dependencies_ready(db_session):
+    """A row whose PM prerequisites aren't anchored is deferred (kept PENDING,
+    no post), then delivered once dependencies_ready flips True."""
+
+    class _GatedDescriptor(FakeDescriptor):
+        ready = False
+
+        async def dependencies_ready(self, session, row):  # noqa: ARG002
+            return self.ready
+
+    row = await _add_entity(db_session, source_id="1")
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    descriptor = _GatedDescriptor()
+    engine = SyncEngine([descriptor], client)
+    await engine.sweep_unanchored(db_session, descriptor)
+
+    # Not ready → deferred: still PENDING, nothing posted, attempts not inflated.
+    touched = await engine.drain_outbox(db_session, now=NOW)
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert touched == [entry]
+    assert entry.status == STATUS_PENDING
+    assert entry.attempts == 0
+    assert entry.next_attempt_at == NOW + timedelta(seconds=60)
+    assert client.posted == []
+
+    # Ready → delivers on a later cycle (after the defer window).
+    descriptor.ready = True
+    later = NOW + timedelta(seconds=61)
+    await engine.drain_outbox(db_session, now=later)
+    assert row.pm_fake_id is not None
+    assert len(client.posted) == 1
+
+
 async def test_sweep_is_idempotent(db_session, fake_descriptor):
     await _add_entity(db_session, source_id="1")
     engine = SyncEngine([fake_descriptor], FakeClient())

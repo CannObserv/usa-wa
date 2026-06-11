@@ -173,6 +173,19 @@ class EntityDescriptor(ABC):
         """
         return None
 
+    async def dependencies_ready(self, session: Any, row: Any) -> bool:
+        """Whether this row's PM prerequisites are anchored, so an observation can be built.
+
+        Roles need their organization's PM id; assignments need their person's and
+        role's PM ids. The engine consults this *before* delivering an outbox entry
+        and **defers** (leaves the entry PENDING, bumps ``next_attempt_at``) when
+        False — the ordering self-resolves as the parents anchor in later cycles,
+        without a crash or a rejection.
+
+        Default ``True`` for self-sufficient entities (jurisdictions, orgs).
+        """
+        return True
+
     def set_last_updated(self, obj: Any, value: datetime) -> None:
         """Stamp a freshly-cached local row's LWW clock with the remote (PM) time.
 

@@ -180,6 +180,17 @@ class SyncEngine:
             await session.delete(entry)
             return False
 
+        if not await descriptor.dependencies_ready(session, row):
+            # A PM prerequisite (parent org / person / role) is not anchored yet.
+            # Defer without counting a failure: keep PENDING, re-check next cycle.
+            entry.next_attempt_at = next_attempt_at(now, entry.attempts)
+            entry.last_error = "dependencies not ready"
+            logger.info(
+                "powermap_observation_deferred",
+                extra={"entity_type": entry.entity_type, "local_id": str(entry.local_id)},
+            )
+            return True
+
         payload = await descriptor.to_observation(session, row)
         try:
             result = await self._client.post_observation(descriptor.observe_path, payload)
