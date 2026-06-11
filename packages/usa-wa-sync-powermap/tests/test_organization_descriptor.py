@@ -84,9 +84,31 @@ async def test_pm_match_identifier_hit(db_session, descriptor):
     assert client.searched[0]["jurisdiction"] is None
 
 
-async def test_pm_match_falls_back_to_normalized_name(db_session, descriptor):
-    """Identifier misses (PM org has no usa-wa id); the cohort name match wins,
-    folding PM's '&'→'and' convention."""
+async def test_pm_match_q_fast_path(db_session, descriptor):
+    """Identifier misses; PM #199's server-side q ILIKE narrows directly to the
+    match — confirmed by normalized equality, no full cohort scan needed."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-9", name="Appropriations Committee")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),  # identifier miss
+            EntityPage(  # q-narrowed result
+                records=[{"id": str(pm_id), "name": "Appropriations Committee"}], cursor=None
+            ),
+        ]
+    )
+
+    matched = await descriptor.pm_match(client, db_session, row)
+
+    assert matched == pm_id
+    assert len(client.searched) == 2  # identifier + q fast path; no enumeration
+    assert client.searched[1]["q"] == "Appropriations Committee"
+    assert client.searched[1]["jurisdiction"] == "usa-wa"
+
+
+async def test_pm_match_falls_back_to_cohort_scan_for_normalization_variant(db_session, descriptor):
+    """PM's raw ILIKE can't fold '&'→'and', so q misses the variant → the cascade
+    falls back to the full cohort scan, which normalized-matches it."""
     pm_id = ULID()
     row = await _add_org(
         db_session, source_id="C-9", name="Consumer Protection & Business Committee"
@@ -94,7 +116,8 @@ async def test_pm_match_falls_back_to_normalized_name(db_session, descriptor):
     client = FakeClient(
         search_pages=[
             EntityPage(records=[], cursor=None),  # identifier miss
-            EntityPage(  # cohort page
+            EntityPage(records=[], cursor=None),  # q fast path misses (& vs and)
+            EntityPage(  # fallback cohort scan
                 records=[
                     {"id": str(ULID()), "name": "Ways and Means", "parent_id": None},
                     {
@@ -111,10 +134,12 @@ async def test_pm_match_falls_back_to_normalized_name(db_session, descriptor):
     matched = await descriptor.pm_match(client, db_session, row)
 
     assert matched == pm_id
+    assert len(client.searched) == 3  # identifier + q (miss) + cohort scan
+    assert client.searched[2]["q"] is None  # the fallback enumeration carries no q
 
 
 async def test_pm_match_disambiguates_by_parent_hierarchy(db_session, descriptor):
-    """Two same-name committees → resolved by the anchored parent chamber's PM id."""
+    """Two same-name committees (q returns both) → resolved by the anchored parent."""
     parent_pm = ULID()
     winner = ULID()
     parent = await _add_org(
@@ -124,7 +149,7 @@ async def test_pm_match_disambiguates_by_parent_hierarchy(db_session, descriptor
     client = FakeClient(
         search_pages=[
             EntityPage(records=[], cursor=None),  # identifier miss
-            EntityPage(
+            EntityPage(  # q returns both same-name matches
                 records=[
                     {"id": str(ULID()), "name": "Rules Committee", "parent_id": str(ULID())},
                     {"id": str(winner), "name": "Rules Committee", "parent_id": str(parent_pm)},
@@ -140,11 +165,12 @@ async def test_pm_match_disambiguates_by_parent_hierarchy(db_session, descriptor
 
 
 async def test_pm_match_returns_none_when_genuinely_new(db_session, descriptor):
-    """No identifier, no name match → None → the engine observe-creates."""
+    """No identifier, q miss, empty cohort scan → None → the engine observe-creates."""
     row = await _add_org(db_session, source_id="C-NEW", name="Brand New Select Committee")
     client = FakeClient(
         search_pages=[
             EntityPage(records=[], cursor=None),  # identifier miss
+            EntityPage(records=[], cursor=None),  # q fast path miss
             EntityPage(records=[{"id": str(ULID()), "name": "Unrelated Org"}], cursor=None),
         ]
     )
@@ -152,13 +178,14 @@ async def test_pm_match_returns_none_when_genuinely_new(db_session, descriptor):
     assert await descriptor.pm_match(client, db_session, row) is None
 
 
-async def test_pm_match_enumerates_paginated_cohort(db_session, descriptor):
-    """The name step follows the cohort cursor across PM's capped pages."""
+async def test_pm_match_fallback_enumerates_paginated_cohort(db_session, descriptor):
+    """On q miss the fallback follows the cohort cursor across PM's capped pages."""
     pm_id = ULID()
     row = await _add_org(db_session, source_id="C-P", name="Transportation Committee")
     client = FakeClient(
         search_pages=[
             EntityPage(records=[], cursor=None),  # identifier miss
+            EntityPage(records=[{"id": str(ULID()), "name": "Noise"}], cursor=None),  # q miss
             EntityPage(records=[{"id": str(ULID()), "name": "Page One Org"}], cursor="50"),
             EntityPage(
                 records=[{"id": str(pm_id), "name": "Transportation Committee"}], cursor=None
@@ -167,8 +194,8 @@ async def test_pm_match_enumerates_paginated_cohort(db_session, descriptor):
     )
 
     assert await descriptor.pm_match(client, db_session, row) == pm_id
-    # 1 identifier search + 2 cohort pages
-    assert [s["offset"] for s in client.searched] == [0, 0, 50]
+    # identifier@0, q fast-path@0, then cohort pages @0 and @50
+    assert [s["offset"] for s in client.searched] == [0, 0, 0, 50]
 
 
 # --- to_observation -----------------------------------------------------------

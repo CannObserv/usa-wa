@@ -11,9 +11,10 @@ over every un-anchored adapter row before the engine enqueues a CREATE:
 
 1. **Identifier** — ``orgs/search?identifier_type=…&identifier_value=…`` (the only
    server-side exact filter PM honours).
-2. **Normalized name** — enumerate the ``jurisdiction``-scoped cohort (PM's ``q``
-   does NOT filter by name on the deployed API, so the comparison is client-side
-   over :func:`normalize_name`).
+2. **Normalized name** — narrow via PM's server-side ``q`` ILIKE + ``jurisdiction``
+   (power-map#199), then confirm by :func:`normalize_name` equality; fall back to a
+   full cohort scan for ``&``/punctuation variants PM's raw ILIKE can't fold (PM-side
+   normalization is still deferred).
 3. **Hierarchy** — when the local parent is anchored, disambiguate same-name
    candidates by PM ``parent_id``.
 
@@ -121,10 +122,9 @@ class OrganizationDescriptor(EntityDescriptor):
                 )
                 return as_ulid(rec["id"])
 
-        # 2. Normalized name — client-side over the cohort (PM ``q`` does not filter).
+        # 2. Normalized name — q-narrowed fast path (PM #199) + cohort-scan fallback.
         target = normalize_name(row.name)
-        candidates = await self._cohort_candidates(client)
-        named = [c for c in candidates if normalize_name(c.get("name") or "") == target]
+        named = await self._name_matches(client, row.name, target)
         if len(named) == 1:
             logger.info(
                 "org_pm_match_name", extra={"entity_name": row.name, "pm_id": named[0].get("id")}
@@ -148,6 +148,28 @@ class OrganizationDescriptor(EntityDescriptor):
             )
 
         return None  # genuinely new → observe-create
+
+    async def _name_matches(self, client: Any, raw_name: str, target: str) -> list[dict]:
+        """Cohort orgs whose normalized name equals ``target``.
+
+        Fast path: PM #199's server-side ``q`` ILIKE (+ ``jurisdiction``) narrows to a
+        small set, which we confirm by :func:`normalize_name` equality. Fallback: when
+        that yields nothing — a ``&``/punctuation variant PM's raw ILIKE can't fold, or
+        a genuinely-new org — enumerate the full cohort and normalized-match there,
+        preserving the original correctness until PM ships server-side normalization
+        (power-map#199).
+        """
+        page = await client.search_entities(
+            SEARCH_PATH, q=raw_name, jurisdiction=JURISDICTION_SLUG, limit=_PAGE
+        )
+        hits = [c for c in page.records if normalize_name(c.get("name") or "") == target]
+        if hits:
+            return hits
+        return [
+            c
+            for c in await self._cohort_candidates(client)
+            if normalize_name(c.get("name") or "") == target
+        ]
 
     async def _cohort_candidates(self, client: Any) -> list[dict]:
         """Enumerate the jurisdiction-scoped org cohort across PM's capped pages."""

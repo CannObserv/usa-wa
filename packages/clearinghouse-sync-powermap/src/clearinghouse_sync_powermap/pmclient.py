@@ -201,10 +201,11 @@ class GeneratedPowerMapClient:
     ) -> EntityPage:
         op, supports_jur = self._SEARCH[search_path]
         # The search ops require ``q``; empty string + an identifier/jurisdiction
-        # filter narrows by that filter (verified against the live API). NOTE: PM's
-        # ``q`` does NOT filter by name on the deployed API — only ``identifier_*``
-        # and ``jurisdiction`` narrow server-side, so the name-match cascade
-        # enumerates the jurisdiction cohort here and compares names client-side.
+        # filter narrows by that filter (verified against the live API). NOTE: ``q``
+        # filters by name server-side (ILIKE) since power-map#199 for orgs (people
+        # always did). It does NOT fold ``&``→``and`` / punctuation, so the org
+        # cascade confirms matches client-side and falls back to a full cohort scan
+        # for those variants.
         kwargs: dict[str, Any] = {
             "client": self._client,
             "q": q or "",
