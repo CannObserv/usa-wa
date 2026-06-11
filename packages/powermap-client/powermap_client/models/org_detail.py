@@ -11,6 +11,7 @@ from ..types import UNSET, Unset
 if TYPE_CHECKING:
     from ..models.org_acronym import OrgAcronym
     from ..models.org_identifier import OrgIdentifier
+    from ..models.org_jurisdiction_affiliation import OrgJurisdictionAffiliation
     from ..models.org_name import OrgName
 
 
@@ -19,10 +20,12 @@ T = TypeVar("T", bound="OrgDetail")
 
 @_attrs_define
 class OrgDetail:
-    """Full org record including name variants, acronyms, and identifiers.
+    """Full org record including name variants, acronyms, identifiers, and affiliations.
 
     Attributes:
         id (str):
+        created_at (str):
+        updated_at (str):
         name (None | str | Unset):
         acronym (None | str | Unset):
         slug (None | str | Unset):
@@ -31,9 +34,12 @@ class OrgDetail:
         names (list[OrgName] | Unset):
         acronyms (list[OrgAcronym] | Unset):
         identifiers (list[OrgIdentifier] | Unset):
+        jurisdiction_affiliations (list[OrgJurisdictionAffiliation] | Unset):
     """
 
     id: str
+    created_at: str
+    updated_at: str
     name: None | str | Unset = UNSET
     acronym: None | str | Unset = UNSET
     slug: None | str | Unset = UNSET
@@ -42,10 +48,15 @@ class OrgDetail:
     names: list[OrgName] | Unset = UNSET
     acronyms: list[OrgAcronym] | Unset = UNSET
     identifiers: list[OrgIdentifier] | Unset = UNSET
+    jurisdiction_affiliations: list[OrgJurisdictionAffiliation] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         id = self.id
+
+        created_at = self.created_at
+
+        updated_at = self.updated_at
 
         name: None | str | Unset
         if isinstance(self.name, Unset):
@@ -98,11 +109,20 @@ class OrgDetail:
                 identifiers_item = identifiers_item_data.to_dict()
                 identifiers.append(identifiers_item)
 
+        jurisdiction_affiliations: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.jurisdiction_affiliations, Unset):
+            jurisdiction_affiliations = []
+            for jurisdiction_affiliations_item_data in self.jurisdiction_affiliations:
+                jurisdiction_affiliations_item = jurisdiction_affiliations_item_data.to_dict()
+                jurisdiction_affiliations.append(jurisdiction_affiliations_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "id": id,
+                "created_at": created_at,
+                "updated_at": updated_at,
             }
         )
         if name is not UNSET:
@@ -121,6 +141,8 @@ class OrgDetail:
             field_dict["acronyms"] = acronyms
         if identifiers is not UNSET:
             field_dict["identifiers"] = identifiers
+        if jurisdiction_affiliations is not UNSET:
+            field_dict["jurisdiction_affiliations"] = jurisdiction_affiliations
 
         return field_dict
 
@@ -128,10 +150,15 @@ class OrgDetail:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.org_acronym import OrgAcronym
         from ..models.org_identifier import OrgIdentifier
+        from ..models.org_jurisdiction_affiliation import OrgJurisdictionAffiliation
         from ..models.org_name import OrgName
 
         d = dict(src_dict)
         id = d.pop("id")
+
+        created_at = d.pop("created_at")
+
+        updated_at = d.pop("updated_at")
 
         def _parse_name(data: object) -> None | str | Unset:
             if data is None:
@@ -205,8 +232,21 @@ class OrgDetail:
 
                 identifiers.append(identifiers_item)
 
+        _jurisdiction_affiliations = d.pop("jurisdiction_affiliations", UNSET)
+        jurisdiction_affiliations: list[OrgJurisdictionAffiliation] | Unset = UNSET
+        if _jurisdiction_affiliations is not UNSET:
+            jurisdiction_affiliations = []
+            for jurisdiction_affiliations_item_data in _jurisdiction_affiliations:
+                jurisdiction_affiliations_item = OrgJurisdictionAffiliation.from_dict(
+                    jurisdiction_affiliations_item_data
+                )
+
+                jurisdiction_affiliations.append(jurisdiction_affiliations_item)
+
         org_detail = cls(
             id=id,
+            created_at=created_at,
+            updated_at=updated_at,
             name=name,
             acronym=acronym,
             slug=slug,
@@ -215,6 +255,7 @@ class OrgDetail:
             names=names,
             acronyms=acronyms,
             identifiers=identifiers,
+            jurisdiction_affiliations=jurisdiction_affiliations,
         )
 
         org_detail.additional_properties = d

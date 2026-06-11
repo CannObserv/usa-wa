@@ -22,21 +22,31 @@ class PersonDetail:
 
     Attributes:
         id (str):
+        created_at (str):
+        updated_at (str):
         display_name (None | str | Unset):
         archived_at (None | str | Unset):
         names (list[PersonName] | Unset):
         identifiers (list[PersonIdentifier] | Unset):
+        voice_embeddings_count (int | Unset):  Default: 0.
     """
 
     id: str
+    created_at: str
+    updated_at: str
     display_name: None | str | Unset = UNSET
     archived_at: None | str | Unset = UNSET
     names: list[PersonName] | Unset = UNSET
     identifiers: list[PersonIdentifier] | Unset = UNSET
+    voice_embeddings_count: int | Unset = 0
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         id = self.id
+
+        created_at = self.created_at
+
+        updated_at = self.updated_at
 
         display_name: None | str | Unset
         if isinstance(self.display_name, Unset):
@@ -64,11 +74,15 @@ class PersonDetail:
                 identifiers_item = identifiers_item_data.to_dict()
                 identifiers.append(identifiers_item)
 
+        voice_embeddings_count = self.voice_embeddings_count
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "id": id,
+                "created_at": created_at,
+                "updated_at": updated_at,
             }
         )
         if display_name is not UNSET:
@@ -79,6 +93,8 @@ class PersonDetail:
             field_dict["names"] = names
         if identifiers is not UNSET:
             field_dict["identifiers"] = identifiers
+        if voice_embeddings_count is not UNSET:
+            field_dict["voice_embeddings_count"] = voice_embeddings_count
 
         return field_dict
 
@@ -89,6 +105,10 @@ class PersonDetail:
 
         d = dict(src_dict)
         id = d.pop("id")
+
+        created_at = d.pop("created_at")
+
+        updated_at = d.pop("updated_at")
 
         def _parse_display_name(data: object) -> None | str | Unset:
             if data is None:
@@ -126,12 +146,17 @@ class PersonDetail:
 
                 identifiers.append(identifiers_item)
 
+        voice_embeddings_count = d.pop("voice_embeddings_count", UNSET)
+
         person_detail = cls(
             id=id,
+            created_at=created_at,
+            updated_at=updated_at,
             display_name=display_name,
             archived_at=archived_at,
             names=names,
             identifiers=identifiers,
+            voice_embeddings_count=voice_embeddings_count,
         )
 
         person_detail.additional_properties = d

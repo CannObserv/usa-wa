@@ -165,6 +165,13 @@ from .contact_new_row_admin_orgs_entity_id_contacts_new_row_get_contact_type imp
 from .contact_new_row_admin_people_entity_id_contacts_new_row_get_contact_type import (
     ContactNewRowAdminPeopleEntityIdContactsNewRowGetContactType,
 )
+from .embedding_archive_response import EmbeddingArchiveResponse
+from .embedding_batch_archive_response import EmbeddingBatchArchiveResponse
+from .embedding_list_item import EmbeddingListItem
+from .embedding_list_response import EmbeddingListResponse
+from .embedding_source import EmbeddingSource
+from .embedding_write_request import EmbeddingWriteRequest
+from .embedding_write_response import EmbeddingWriteResponse
 from .entity_event import EntityEvent
 from .entity_event_linked_entity_type_type_0 import EntityEventLinkedEntityTypeType0
 from .entity_event_type import EntityEventType
@@ -172,8 +179,12 @@ from .entity_event_type_applies_to import EntityEventTypeAppliesTo
 from .entity_event_types_response import EntityEventTypesResponse
 from .entity_event_visibility import EntityEventVisibility
 from .entity_events_response import EntityEventsResponse
+from .event_place_address import EventPlaceAddress
 from .event_type_inline import EventTypeInline
 from .http_validation_error import HTTPValidationError
+from .identify_match import IdentifyMatch
+from .identify_request import IdentifyRequest
+from .identify_response import IdentifyResponse
 from .jurisdiction_identifier import JurisdictionIdentifier
 from .jurisdiction_lineage_response import JurisdictionLineageResponse
 from .jurisdiction_list_item import JurisdictionListItem
@@ -195,6 +206,7 @@ from .observation_contact_method_contact_type import ObservationContactMethodCon
 from .observation_event_item import ObservationEventItem
 from .observation_event_item_linked_entity_type_type_0 import ObservationEventItemLinkedEntityTypeType0
 from .observation_event_item_visibility import ObservationEventItemVisibility
+from .observation_jurisdiction_affiliation import ObservationJurisdictionAffiliation
 from .observation_link import ObservationLink
 from .observation_name import ObservationName
 from .observation_name_name_type import ObservationNameNameType
@@ -204,8 +216,10 @@ from .observation_response import ObservationResponse
 from .observation_response_entity_type_type_0 import ObservationResponseEntityTypeType0
 from .observation_role_assignment import ObservationRoleAssignment
 from .org_acronym import OrgAcronym
+from .org_affiliation_type import OrgAffiliationType
 from .org_detail import OrgDetail
 from .org_identifier import OrgIdentifier
+from .org_jurisdiction_affiliation import OrgJurisdictionAffiliation
 from .org_name import OrgName
 from .org_search_response import OrgSearchResponse
 from .org_search_result import OrgSearchResult
@@ -304,6 +318,13 @@ __all__ = (
     "ChangeMeta",
     "ContactNewRowAdminOrgsEntityIdContactsNewRowGetContactType",
     "ContactNewRowAdminPeopleEntityIdContactsNewRowGetContactType",
+    "EmbeddingArchiveResponse",
+    "EmbeddingBatchArchiveResponse",
+    "EmbeddingListItem",
+    "EmbeddingListResponse",
+    "EmbeddingSource",
+    "EmbeddingWriteRequest",
+    "EmbeddingWriteResponse",
     "EntityEvent",
     "EntityEventLinkedEntityTypeType0",
     "EntityEventsResponse",
@@ -311,8 +332,12 @@ __all__ = (
     "EntityEventTypeAppliesTo",
     "EntityEventTypesResponse",
     "EntityEventVisibility",
+    "EventPlaceAddress",
     "EventTypeInline",
     "HTTPValidationError",
+    "IdentifyMatch",
+    "IdentifyRequest",
+    "IdentifyResponse",
     "JurisdictionIdentifier",
     "JurisdictionLineageResponse",
     "JurisdictionListItem",
@@ -334,6 +359,7 @@ __all__ = (
     "ObservationEventItem",
     "ObservationEventItemLinkedEntityTypeType0",
     "ObservationEventItemVisibility",
+    "ObservationJurisdictionAffiliation",
     "ObservationLink",
     "ObservationName",
     "ObservationNameNameType",
@@ -343,9 +369,11 @@ __all__ = (
     "ObservationResponseEntityTypeType0",
     "ObservationRoleAssignment",
     "OrgAcronym",
+    "OrgAffiliationType",
     "OrganizationObservationRequest",
     "OrgDetail",
     "OrgIdentifier",
+    "OrgJurisdictionAffiliation",
     "OrgName",
     "OrgSearchResponse",
     "OrgSearchResult",

@@ -23,6 +23,7 @@ class BodyEventCreateAdminPeopleEntityIdEventsPost:
         event_minute (str | Unset):  Default: ''.
         event_second (str | Unset):  Default: ''.
         event_place_text (str | Unset):  Default: ''.
+        event_place_address_id (str | Unset):  Default: ''.
         linked_entity_type (str | Unset):  Default: ''.
         linked_entity_id (str | Unset):  Default: ''.
         notes (str | Unset):  Default: ''.
@@ -37,6 +38,7 @@ class BodyEventCreateAdminPeopleEntityIdEventsPost:
     event_minute: str | Unset = ""
     event_second: str | Unset = ""
     event_place_text: str | Unset = ""
+    event_place_address_id: str | Unset = ""
     linked_entity_type: str | Unset = ""
     linked_entity_id: str | Unset = ""
     notes: str | Unset = ""
@@ -59,6 +61,8 @@ class BodyEventCreateAdminPeopleEntityIdEventsPost:
         event_second = self.event_second
 
         event_place_text = self.event_place_text
+
+        event_place_address_id = self.event_place_address_id
 
         linked_entity_type = self.linked_entity_type
 
@@ -89,6 +93,8 @@ class BodyEventCreateAdminPeopleEntityIdEventsPost:
             field_dict["event_second"] = event_second
         if event_place_text is not UNSET:
             field_dict["event_place_text"] = event_place_text
+        if event_place_address_id is not UNSET:
+            field_dict["event_place_address_id"] = event_place_address_id
         if linked_entity_type is not UNSET:
             field_dict["linked_entity_type"] = linked_entity_type
         if linked_entity_id is not UNSET:
@@ -119,6 +125,8 @@ class BodyEventCreateAdminPeopleEntityIdEventsPost:
 
         event_place_text = d.pop("event_place_text", UNSET)
 
+        event_place_address_id = d.pop("event_place_address_id", UNSET)
+
         linked_entity_type = d.pop("linked_entity_type", UNSET)
 
         linked_entity_id = d.pop("linked_entity_id", UNSET)
@@ -136,6 +144,7 @@ class BodyEventCreateAdminPeopleEntityIdEventsPost:
             event_minute=event_minute,
             event_second=event_second,
             event_place_text=event_place_text,
+            event_place_address_id=event_place_address_id,
             linked_entity_type=linked_entity_type,
             linked_entity_id=linked_entity_id,
             notes=notes,

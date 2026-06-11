@@ -27,6 +27,7 @@ class ObservationEventItem:
         event_minute (int | None | Unset):
         event_second (int | None | Unset):
         event_place_text (None | str | Unset):
+        event_place_address_id (None | str | Unset):
         linked_entity_type (None | ObservationEventItemLinkedEntityTypeType0 | Unset):
         linked_entity_id (None | str | Unset):
         notes (None | str | Unset):
@@ -42,6 +43,7 @@ class ObservationEventItem:
     event_minute: int | None | Unset = UNSET
     event_second: int | None | Unset = UNSET
     event_place_text: None | str | Unset = UNSET
+    event_place_address_id: None | str | Unset = UNSET
     linked_entity_type: None | ObservationEventItemLinkedEntityTypeType0 | Unset = UNSET
     linked_entity_id: None | str | Unset = UNSET
     notes: None | str | Unset = UNSET
@@ -103,6 +105,12 @@ class ObservationEventItem:
         else:
             event_place_text = self.event_place_text
 
+        event_place_address_id: None | str | Unset
+        if isinstance(self.event_place_address_id, Unset):
+            event_place_address_id = UNSET
+        else:
+            event_place_address_id = self.event_place_address_id
+
         linked_entity_type: None | str | Unset
         if isinstance(self.linked_entity_type, Unset):
             linked_entity_type = UNSET
@@ -148,6 +156,8 @@ class ObservationEventItem:
             field_dict["event_second"] = event_second
         if event_place_text is not UNSET:
             field_dict["event_place_text"] = event_place_text
+        if event_place_address_id is not UNSET:
+            field_dict["event_place_address_id"] = event_place_address_id
         if linked_entity_type is not UNSET:
             field_dict["linked_entity_type"] = linked_entity_type
         if linked_entity_id is not UNSET:
@@ -244,6 +254,15 @@ class ObservationEventItem:
 
         event_place_text = _parse_event_place_text(d.pop("event_place_text", UNSET))
 
+        def _parse_event_place_address_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        event_place_address_id = _parse_event_place_address_id(d.pop("event_place_address_id", UNSET))
+
         def _parse_linked_entity_type(data: object) -> None | ObservationEventItemLinkedEntityTypeType0 | Unset:
             if data is None:
                 return data
@@ -296,6 +315,7 @@ class ObservationEventItem:
             event_minute=event_minute,
             event_second=event_second,
             event_place_text=event_place_text,
+            event_place_address_id=event_place_address_id,
             linked_entity_type=linked_entity_type,
             linked_entity_id=linked_entity_id,
             notes=notes,

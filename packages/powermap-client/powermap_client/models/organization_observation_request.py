@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from ..models.observation_address import ObservationAddress
     from ..models.observation_contact_method import ObservationContactMethod
     from ..models.observation_event_item import ObservationEventItem
+    from ..models.observation_jurisdiction_affiliation import ObservationJurisdictionAffiliation
     from ..models.observation_link import ObservationLink
     from ..models.observation_name import ObservationName
 
@@ -36,6 +37,7 @@ class OrganizationObservationRequest:
         contact_methods (list[ObservationContactMethod] | Unset):
         addresses (list[ObservationAddress] | Unset):
         additional_identifiers (list[ObservationAdditionalIdentifier] | Unset):
+        jurisdiction_affiliations (list[ObservationJurisdictionAffiliation] | Unset):
         events (list[ObservationEventItem] | Unset):
     """
 
@@ -50,6 +52,7 @@ class OrganizationObservationRequest:
     contact_methods: list[ObservationContactMethod] | Unset = UNSET
     addresses: list[ObservationAddress] | Unset = UNSET
     additional_identifiers: list[ObservationAdditionalIdentifier] | Unset = UNSET
+    jurisdiction_affiliations: list[ObservationJurisdictionAffiliation] | Unset = UNSET
     events: list[ObservationEventItem] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -115,6 +118,13 @@ class OrganizationObservationRequest:
                 additional_identifiers_item = additional_identifiers_item_data.to_dict()
                 additional_identifiers.append(additional_identifiers_item)
 
+        jurisdiction_affiliations: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.jurisdiction_affiliations, Unset):
+            jurisdiction_affiliations = []
+            for jurisdiction_affiliations_item_data in self.jurisdiction_affiliations:
+                jurisdiction_affiliations_item = jurisdiction_affiliations_item_data.to_dict()
+                jurisdiction_affiliations.append(jurisdiction_affiliations_item)
+
         events: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.events, Unset):
             events = []
@@ -148,6 +158,8 @@ class OrganizationObservationRequest:
             field_dict["addresses"] = addresses
         if additional_identifiers is not UNSET:
             field_dict["additional_identifiers"] = additional_identifiers
+        if jurisdiction_affiliations is not UNSET:
+            field_dict["jurisdiction_affiliations"] = jurisdiction_affiliations
         if events is not UNSET:
             field_dict["events"] = events
 
@@ -159,6 +171,7 @@ class OrganizationObservationRequest:
         from ..models.observation_address import ObservationAddress
         from ..models.observation_contact_method import ObservationContactMethod
         from ..models.observation_event_item import ObservationEventItem
+        from ..models.observation_jurisdiction_affiliation import ObservationJurisdictionAffiliation
         from ..models.observation_link import ObservationLink
         from ..models.observation_name import ObservationName
 
@@ -243,6 +256,17 @@ class OrganizationObservationRequest:
 
                 additional_identifiers.append(additional_identifiers_item)
 
+        _jurisdiction_affiliations = d.pop("jurisdiction_affiliations", UNSET)
+        jurisdiction_affiliations: list[ObservationJurisdictionAffiliation] | Unset = UNSET
+        if _jurisdiction_affiliations is not UNSET:
+            jurisdiction_affiliations = []
+            for jurisdiction_affiliations_item_data in _jurisdiction_affiliations:
+                jurisdiction_affiliations_item = ObservationJurisdictionAffiliation.from_dict(
+                    jurisdiction_affiliations_item_data
+                )
+
+                jurisdiction_affiliations.append(jurisdiction_affiliations_item)
+
         _events = d.pop("events", UNSET)
         events: list[ObservationEventItem] | Unset = UNSET
         if _events is not UNSET:
@@ -264,6 +288,7 @@ class OrganizationObservationRequest:
             contact_methods=contact_methods,
             addresses=addresses,
             additional_identifiers=additional_identifiers,
+            jurisdiction_affiliations=jurisdiction_affiliations,
             events=events,
         )
 

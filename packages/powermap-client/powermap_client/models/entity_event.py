@@ -11,6 +11,7 @@ from ..models.entity_event_visibility import EntityEventVisibility
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.event_place_address import EventPlaceAddress
     from ..models.event_type_inline import EventTypeInline
     from ..models.partial_date import PartialDate
 
@@ -29,6 +30,7 @@ class EntityEvent:
         visibility (EntityEventVisibility):
         created_at (None | str):
         event_place_text (None | str | Unset):
+        event_place_address (EventPlaceAddress | None | Unset):
         linked_entity_type (EntityEventLinkedEntityTypeType0 | None | Unset):
         linked_entity_id (None | str | Unset):
         notes (None | str | Unset):
@@ -41,6 +43,7 @@ class EntityEvent:
     visibility: EntityEventVisibility
     created_at: None | str
     event_place_text: None | str | Unset = UNSET
+    event_place_address: EventPlaceAddress | None | Unset = UNSET
     linked_entity_type: EntityEventLinkedEntityTypeType0 | None | Unset = UNSET
     linked_entity_id: None | str | Unset = UNSET
     notes: None | str | Unset = UNSET
@@ -48,6 +51,8 @@ class EntityEvent:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.event_place_address import EventPlaceAddress
+
         id = self.id
 
         event_type = self.event_type.to_dict()
@@ -64,6 +69,14 @@ class EntityEvent:
             event_place_text = UNSET
         else:
             event_place_text = self.event_place_text
+
+        event_place_address: dict[str, Any] | None | Unset
+        if isinstance(self.event_place_address, Unset):
+            event_place_address = UNSET
+        elif isinstance(self.event_place_address, EventPlaceAddress):
+            event_place_address = self.event_place_address.to_dict()
+        else:
+            event_place_address = self.event_place_address
 
         linked_entity_type: None | str | Unset
         if isinstance(self.linked_entity_type, Unset):
@@ -104,6 +117,8 @@ class EntityEvent:
         )
         if event_place_text is not UNSET:
             field_dict["event_place_text"] = event_place_text
+        if event_place_address is not UNSET:
+            field_dict["event_place_address"] = event_place_address
         if linked_entity_type is not UNSET:
             field_dict["linked_entity_type"] = linked_entity_type
         if linked_entity_id is not UNSET:
@@ -117,6 +132,7 @@ class EntityEvent:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.event_place_address import EventPlaceAddress
         from ..models.event_type_inline import EventTypeInline
         from ..models.partial_date import PartialDate
 
@@ -144,6 +160,23 @@ class EntityEvent:
             return cast(None | str | Unset, data)
 
         event_place_text = _parse_event_place_text(d.pop("event_place_text", UNSET))
+
+        def _parse_event_place_address(data: object) -> EventPlaceAddress | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                event_place_address_type_0 = EventPlaceAddress.from_dict(data)
+
+                return event_place_address_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(EventPlaceAddress | None | Unset, data)
+
+        event_place_address = _parse_event_place_address(d.pop("event_place_address", UNSET))
 
         def _parse_linked_entity_type(data: object) -> EntityEventLinkedEntityTypeType0 | None | Unset:
             if data is None:
@@ -196,6 +229,7 @@ class EntityEvent:
             visibility=visibility,
             created_at=created_at,
             event_place_text=event_place_text,
+            event_place_address=event_place_address,
             linked_entity_type=linked_entity_type,
             linked_entity_id=linked_entity_id,
             notes=notes,

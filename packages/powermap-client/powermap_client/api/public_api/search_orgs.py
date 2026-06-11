@@ -16,6 +16,7 @@ def _get_kwargs(
     limit: int | Unset = 10,
     offset: int | Unset = 0,
     include_archived: bool | Unset = False,
+    jurisdiction: None | str | Unset = UNSET,
     identifier_type: None | str | Unset = UNSET,
     identifier_value: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
@@ -29,6 +30,13 @@ def _get_kwargs(
     params["offset"] = offset
 
     params["include_archived"] = include_archived
+
+    json_jurisdiction: None | str | Unset
+    if isinstance(jurisdiction, Unset):
+        json_jurisdiction = UNSET
+    else:
+        json_jurisdiction = jurisdiction
+    params["jurisdiction"] = json_jurisdiction
 
     json_identifier_type: None | str | Unset
     if isinstance(identifier_type, Unset):
@@ -92,6 +100,7 @@ def sync_detailed(
     limit: int | Unset = 10,
     offset: int | Unset = 0,
     include_archived: bool | Unset = False,
+    jurisdiction: None | str | Unset = UNSET,
     identifier_type: None | str | Unset = UNSET,
     identifier_value: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | OrgSearchResponse]:
@@ -99,14 +108,17 @@ def sync_detailed(
 
      Search organizations by name, acronym, or name variant.
 
-    When identifier_type and identifier_value are both supplied they take precedence
-    over q and return at most one result with has_more always false.
+    Parameter precedence (first match wins, others ignored):
+    1. identifier_type + identifier_value — returns at most one result, has_more=false.
+    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q ignored.
+    3. q — full-text search across names and acronyms.
 
     Args:
         q (str | Unset):  Default: ''.
         limit (int | Unset):  Default: 10.
         offset (int | Unset):  Default: 0.
         include_archived (bool | Unset):  Default: False.
+        jurisdiction (None | str | Unset):
         identifier_type (None | str | Unset):
         identifier_value (None | str | Unset):
 
@@ -123,6 +135,7 @@ def sync_detailed(
         limit=limit,
         offset=offset,
         include_archived=include_archived,
+        jurisdiction=jurisdiction,
         identifier_type=identifier_type,
         identifier_value=identifier_value,
     )
@@ -141,6 +154,7 @@ def sync(
     limit: int | Unset = 10,
     offset: int | Unset = 0,
     include_archived: bool | Unset = False,
+    jurisdiction: None | str | Unset = UNSET,
     identifier_type: None | str | Unset = UNSET,
     identifier_value: None | str | Unset = UNSET,
 ) -> HTTPValidationError | OrgSearchResponse | None:
@@ -148,14 +162,17 @@ def sync(
 
      Search organizations by name, acronym, or name variant.
 
-    When identifier_type and identifier_value are both supplied they take precedence
-    over q and return at most one result with has_more always false.
+    Parameter precedence (first match wins, others ignored):
+    1. identifier_type + identifier_value — returns at most one result, has_more=false.
+    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q ignored.
+    3. q — full-text search across names and acronyms.
 
     Args:
         q (str | Unset):  Default: ''.
         limit (int | Unset):  Default: 10.
         offset (int | Unset):  Default: 0.
         include_archived (bool | Unset):  Default: False.
+        jurisdiction (None | str | Unset):
         identifier_type (None | str | Unset):
         identifier_value (None | str | Unset):
 
@@ -173,6 +190,7 @@ def sync(
         limit=limit,
         offset=offset,
         include_archived=include_archived,
+        jurisdiction=jurisdiction,
         identifier_type=identifier_type,
         identifier_value=identifier_value,
     ).parsed
@@ -185,6 +203,7 @@ async def asyncio_detailed(
     limit: int | Unset = 10,
     offset: int | Unset = 0,
     include_archived: bool | Unset = False,
+    jurisdiction: None | str | Unset = UNSET,
     identifier_type: None | str | Unset = UNSET,
     identifier_value: None | str | Unset = UNSET,
 ) -> Response[HTTPValidationError | OrgSearchResponse]:
@@ -192,14 +211,17 @@ async def asyncio_detailed(
 
      Search organizations by name, acronym, or name variant.
 
-    When identifier_type and identifier_value are both supplied they take precedence
-    over q and return at most one result with has_more always false.
+    Parameter precedence (first match wins, others ignored):
+    1. identifier_type + identifier_value — returns at most one result, has_more=false.
+    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q ignored.
+    3. q — full-text search across names and acronyms.
 
     Args:
         q (str | Unset):  Default: ''.
         limit (int | Unset):  Default: 10.
         offset (int | Unset):  Default: 0.
         include_archived (bool | Unset):  Default: False.
+        jurisdiction (None | str | Unset):
         identifier_type (None | str | Unset):
         identifier_value (None | str | Unset):
 
@@ -216,6 +238,7 @@ async def asyncio_detailed(
         limit=limit,
         offset=offset,
         include_archived=include_archived,
+        jurisdiction=jurisdiction,
         identifier_type=identifier_type,
         identifier_value=identifier_value,
     )
@@ -232,6 +255,7 @@ async def asyncio(
     limit: int | Unset = 10,
     offset: int | Unset = 0,
     include_archived: bool | Unset = False,
+    jurisdiction: None | str | Unset = UNSET,
     identifier_type: None | str | Unset = UNSET,
     identifier_value: None | str | Unset = UNSET,
 ) -> HTTPValidationError | OrgSearchResponse | None:
@@ -239,14 +263,17 @@ async def asyncio(
 
      Search organizations by name, acronym, or name variant.
 
-    When identifier_type and identifier_value are both supplied they take precedence
-    over q and return at most one result with has_more always false.
+    Parameter precedence (first match wins, others ignored):
+    1. identifier_type + identifier_value — returns at most one result, has_more=false.
+    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q ignored.
+    3. q — full-text search across names and acronyms.
 
     Args:
         q (str | Unset):  Default: ''.
         limit (int | Unset):  Default: 10.
         offset (int | Unset):  Default: 0.
         include_archived (bool | Unset):  Default: False.
+        jurisdiction (None | str | Unset):
         identifier_type (None | str | Unset):
         identifier_value (None | str | Unset):
 
@@ -265,6 +292,7 @@ async def asyncio(
             limit=limit,
             offset=offset,
             include_archived=include_archived,
+            jurisdiction=jurisdiction,
             identifier_type=identifier_type,
             identifier_value=identifier_value,
         )
