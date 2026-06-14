@@ -65,6 +65,22 @@ async def test_pm_match_name_fallback_confirms_normalized(db_session, descriptor
     assert client.searched[1]["q"] == "Jay Inslee"
 
 
+async def test_pm_match_confirms_accent_variant(db_session, descriptor):
+    """PM's FTS (pm_unaccent_simple, #201) returns an accent-folded match; our
+    normalize_name now unaccents too, so the confirm step accepts it instead of
+    rejecting it (the pre-#201 ASCII-only bug)."""
+    pm_id = ULID()
+    row = await _add_person(db_session, source_id="M-9", name="Jose Belen")  # adapter: ASCII
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),  # identifier miss
+            EntityPage(records=[{"id": str(pm_id), "display_name": "José Belén"}], cursor=None),
+        ]
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) == pm_id
+
+
 async def test_pm_match_ambiguous_returns_none(db_session, descriptor):
     """Two exact-name homonyms, nothing to disambiguate → None (don't anchor the
     wrong person); the engine will observe-create instead."""

@@ -21,10 +21,18 @@ from clearinghouse_sync_powermap.testing import FakeEntity
         ("Consumer Protection & Business Committee", "Consumer Protection and Business Committee"),
         ("Ways and Means", "ways  and   means"),
         ("WA House of Representatives", "wa house of representatives!"),
+        # Unaccent — mirrors PM's pm_unaccent_simple FTS config (#201).
+        ("José García", "Jose Garcia"),
+        ("Renée Núñez", "renee nunez"),
     ],
 )
 def test_normalize_name_folds_variants_equal(a, b):
     assert normalize_name(a) == normalize_name(b)
+
+
+def test_normalize_name_unaccent_preserves_letters():
+    """Accented letters fold to their base (not shredded into separators)."""
+    assert normalize_name("José") == "jose"
 
 
 def test_normalize_name_distinguishes_real_differences():

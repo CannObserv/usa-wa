@@ -11,10 +11,11 @@ over every un-anchored adapter row before the engine enqueues a CREATE:
 
 1. **Identifier** — ``orgs/search?identifier_type=…&identifier_value=…`` (the only
    server-side exact filter PM honours).
-2. **Normalized name** — narrow via PM's server-side ``q`` ILIKE + ``jurisdiction``
-   (power-map#199), then confirm by :func:`normalize_name` equality; fall back to a
-   full cohort scan for ``&``/punctuation variants PM's raw ILIKE can't fold (PM-side
-   normalization is still deferred).
+2. **Name** — PM's server-side FTS (``q`` + ``jurisdiction``; power-map#199/#201)
+   does word-token matching that folds punctuation, ``&``, and word order, then we
+   confirm by :func:`normalize_name` equality (the precision gate). FTS subsumes the
+   ``&``/punctuation cases that the earlier ILIKE cohort-scan fallback existed for,
+   so no enumeration fallback is needed.
 3. **Hierarchy** — when the local parent is anchored, disambiguate same-name
    candidates by PM ``parent_id``.
 
@@ -42,17 +43,16 @@ from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid, n
 
 logger = get_logger(__name__)
 
-#: PM jurisdiction slug for the WA cohort (scopes the name-match enumeration).
+#: PM jurisdiction slug that scopes the name-match search to the WA cohort.
 JURISDICTION_SLUG = "usa-wa"
 #: PM search surface for orgs.
 SEARCH_PATH = "/api/v1/orgs/search"
 #: The org↔jurisdiction affiliation that means "is governed by" (PM #194); its
 #: ``jurisdiction_id`` equals our local ``pm_jurisdiction_id``.
 GOVERNING = "governing"
-#: PM page size + a safety cap on cohort enumeration (defensive against a runaway
-#: feed; the real WA cohort is well under this).
-_PAGE = 50
-_MAX_CANDIDATES = 2000
+#: Upper bound on FTS candidates to confirm. An FTS name query returns a small
+#: ranked set; this is ample headroom (the WA cohort is ~120 orgs total).
+_SEARCH_LIMIT = 50
 
 
 def identifier_type_for(source: str, org_type: str | None) -> str | None:
@@ -122,9 +122,14 @@ class OrganizationDescriptor(EntityDescriptor):
                 )
                 return as_ulid(rec["id"])
 
-        # 2. Normalized name — q-narrowed fast path (PM #199) + cohort-scan fallback.
+        # 2. Name — PM FTS (word-token, folds &/punct/order; #199/#201) narrows;
+        # normalize_name equality confirms. FTS subsumes the old ILIKE cohort-scan
+        # fallback, so a single query suffices.
         target = normalize_name(row.name)
-        named = await self._name_matches(client, row.name, target)
+        page = await client.search_entities(
+            SEARCH_PATH, q=row.name, jurisdiction=JURISDICTION_SLUG, limit=_SEARCH_LIMIT
+        )
+        named = [c for c in page.records if normalize_name(c.get("name") or "") == target]
         if len(named) == 1:
             logger.info(
                 "org_pm_match_name", extra={"entity_name": row.name, "pm_id": named[0].get("id")}
@@ -148,46 +153,6 @@ class OrganizationDescriptor(EntityDescriptor):
             )
 
         return None  # genuinely new → observe-create
-
-    async def _name_matches(self, client: Any, raw_name: str, target: str) -> list[dict]:
-        """Cohort orgs whose normalized name equals ``target``.
-
-        Fast path: PM #199's server-side ``q`` ILIKE (+ ``jurisdiction``) narrows to a
-        small set, which we confirm by :func:`normalize_name` equality. Fallback: when
-        that yields nothing — a ``&``/punctuation variant PM's raw ILIKE can't fold, or
-        a genuinely-new org — enumerate the full cohort and normalized-match there,
-        preserving the original correctness until PM ships server-side normalization
-        (power-map#199).
-        """
-        page = await client.search_entities(
-            SEARCH_PATH, q=raw_name, jurisdiction=JURISDICTION_SLUG, limit=_PAGE
-        )
-        hits = [c for c in page.records if normalize_name(c.get("name") or "") == target]
-        if hits:
-            return hits
-        return [
-            c
-            for c in await self._cohort_candidates(client)
-            if normalize_name(c.get("name") or "") == target
-        ]
-
-    async def _cohort_candidates(self, client: Any) -> list[dict]:
-        """Enumerate the jurisdiction-scoped org cohort across PM's capped pages."""
-        records: list[dict] = []
-        offset = 0
-        while len(records) < _MAX_CANDIDATES:
-            page = await client.search_entities(
-                SEARCH_PATH, jurisdiction=JURISDICTION_SLUG, limit=_PAGE, offset=offset
-            )
-            records.extend(page.records)
-            if not page.cursor:
-                return records
-            offset = int(page.cursor)
-        # Cap hit with more pages outstanding — name matching may miss a candidate
-        # beyond the cap (→ a possible duplicate). Surface it rather than truncate
-        # silently.
-        logger.warning("org_cohort_truncated", extra={"cap": _MAX_CANDIDATES})
-        return records
 
     async def _parent_pm_id(self, session: Any, row: Any) -> Any | None:
         if row.parent_organization_id is None:

@@ -12,6 +12,7 @@ concrete one.
 """
 
 import re
+import unicodedata
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import datetime, timedelta
@@ -27,18 +28,28 @@ def as_ulid(value: Any) -> ULID:
     return value if isinstance(value, ULID) else ULID.from_str(str(value))
 
 
-def normalize_name(name: str) -> str:
-    """Fold a name for PM-vs-local fuzzy matching in the ``pm_match`` cascade.
+def _unaccent(text: str) -> str:
+    """Strip diacritics (``José`` → ``Jose``) via NFKD decomposition + combining-mark
+    removal — mirrors PM's ``unaccent`` FTS config (``pm_unaccent_simple``, #201)."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
 
-    PM curates formal canonical names with conventions that differ from raw
-    adapter strings — notably ``&`` written out as ``and`` and varied
-    punctuation/spacing. Normalization: casefold, ``&`` → ``and``, then collapse
-    every run of non-alphanumerics to a single space and strip. So
-    "Consumer Protection & Business Committee" and
-    "Consumer Protection and Business Committee" both fold to
-    ``consumer protection and business committee``.
+
+def normalize_name(name: str) -> str:
+    """Fold a name for PM-vs-local matching in the ``pm_match`` cascade.
+
+    PM curates formal canonical names whose conventions differ from raw adapter
+    strings — ``&`` written out as ``and``, accents (``José`` vs ``Jose``), and
+    varied punctuation/spacing. This is the **precision** confirm behind PM's FTS
+    candidate search (#201), so it must fold the same way PM's FTS configs do.
+    Normalization: casefold, unaccent (mirrors ``pm_unaccent_simple``), ``&`` →
+    ``and``, then collapse every run of non-alphanumerics to a single space and
+    strip. So "Consumer Protection & Business Committee" ≡
+    "Consumer Protection and Business Committee", and "José García" ≡ "Jose Garcia".
+
+    NOTE: unaccent runs *before* the ``[^a-z0-9]`` collapse — otherwise accented
+    letters (non-ASCII) would be shredded into separators ("José" → "jos ").
     """
-    folded = name.casefold().replace("&", " and ")
+    folded = _unaccent(name.casefold()).replace("&", " and ")
     return _NON_ALNUM.sub(" ", folded).strip()
 
 
