@@ -30,6 +30,9 @@ logger = get_logger(__name__)
 
 #: PM search surface for people.
 SEARCH_PATH = "/api/v1/people/search"
+#: FTS candidate limit — and the **recall ceiling**: the exact match must rank within
+#: it. Ample for a full name (FTS ANDs the name tokens → a small ranked set).
+_SEARCH_LIMIT = 20
 
 
 def identifier_type_for(source: str) -> str | None:
@@ -82,10 +85,9 @@ class PersonDescriptor(EntityDescriptor):
                 return as_ulid(rec["id"])
 
         # 2. Name — PM's q filters people server-side (FTS); confirm by exact normalized
-        # match. limit is the recall ceiling — the exact match must rank within it; 20 is
-        # ample for a full name (FTS ANDs the name tokens → a small ranked set).
+        # match (see _SEARCH_LIMIT for the recall-ceiling note).
         target = normalize_name(row.name_full)
-        page = await client.search_entities(SEARCH_PATH, q=row.name_full, limit=20)
+        page = await client.search_entities(SEARCH_PATH, q=row.name_full, limit=_SEARCH_LIMIT)
         named = [c for c in page.records if normalize_name(c.get("display_name") or "") == target]
         if len(named) == 1:
             logger.info(
