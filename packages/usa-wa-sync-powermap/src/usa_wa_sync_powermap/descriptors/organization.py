@@ -50,8 +50,10 @@ SEARCH_PATH = "/api/v1/orgs/search"
 #: The org↔jurisdiction affiliation that means "is governed by" (PM #194); its
 #: ``jurisdiction_id`` equals our local ``pm_jurisdiction_id``.
 GOVERNING = "governing"
-#: Upper bound on FTS candidates to confirm. An FTS name query returns a small
-#: ranked set; this is ample headroom (the WA cohort is ~120 orgs total).
+#: Upper bound on FTS candidates to confirm — and the **recall ceiling**: the exact
+#: match must rank within this window or it reads as "new" → a (mergeable) duplicate.
+#: Ample headroom today (jurisdiction-scoped FTS AND-of-tokens over a ~120-org
+#: cohort returns a handful); revisit if the cohort grows or PM exposes a rank score.
 _SEARCH_LIMIT = 50
 
 

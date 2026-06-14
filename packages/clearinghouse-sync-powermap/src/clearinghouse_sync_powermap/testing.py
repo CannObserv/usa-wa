@@ -130,7 +130,6 @@ class FakeClient:
         identifier_value: str | None = None,
         jurisdiction: str | None = None,
         limit: int = 20,
-        offset: int = 0,
     ) -> EntityPage:
         self.searched.append(
             {
@@ -139,7 +138,6 @@ class FakeClient:
                 "identifier_type": identifier_type,
                 "identifier_value": identifier_value,
                 "jurisdiction": jurisdiction,
-                "offset": offset,
             }
         )
         if self._search_pages:

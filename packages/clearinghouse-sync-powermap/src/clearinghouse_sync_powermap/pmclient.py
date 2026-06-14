@@ -197,21 +197,15 @@ class GeneratedPowerMapClient:
         identifier_value: str | None = None,
         jurisdiction: str | None = None,
         limit: int = 20,
-        offset: int = 0,
     ) -> EntityPage:
         op, supports_jur = self._SEARCH[search_path]
         # The search ops require ``q``; empty string + an identifier/jurisdiction
         # filter narrows by that filter (verified against the live API). NOTE: ``q``
-        # filters by name server-side (ILIKE) since power-map#199 for orgs (people
-        # always did). It does NOT fold ``&``→``and`` / punctuation, so the org
-        # cascade confirms matches client-side and falls back to a full cohort scan
-        # for those variants.
-        kwargs: dict[str, Any] = {
-            "client": self._client,
-            "q": q or "",
-            "limit": limit,
-            "offset": offset,
-        }
+        # filters by name server-side via FTS (``@@ plainto_tsquery``) since
+        # power-map#201 — word-token matching that folds ``&``/punctuation/word-order
+        # (and accents for people); #199 was the earlier ILIKE precursor. The match
+        # cascade issues a single such query and confirms client-side.
+        kwargs: dict[str, Any] = {"client": self._client, "q": q or "", "limit": limit}
         # Identifier match is on the type+value PAIR; one without the other is a
         # no-op filter, so only apply it when both are present.
         if identifier_type is not None and identifier_value is not None:
@@ -224,8 +218,7 @@ class GeneratedPowerMapClient:
         if body is None:  # defensive: unexpected null body on 200 → empty page
             return EntityPage(records=[], cursor=None)
         records = [item.to_dict() for item in body.data]
-        next_cursor = str(offset + limit) if body.meta.has_more else None
-        return EntityPage(records=records, cursor=next_cursor)
+        return EntityPage(records=records, cursor=None)
 
     async def post_observation(self, observe_path: str, payload: dict) -> ObservationResult:
         submit_fn, model_cls = self._OBSERVE[observe_path]

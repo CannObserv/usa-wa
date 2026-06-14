@@ -5,9 +5,9 @@ display names but **empty ``identifiers``**, so an identifier-keyed observation
 cannot auto-attach — it would mint a duplicate. The same PM-first cascade applies:
 
 1. **Identifier** — ``people/search?identifier_type=…&identifier_value=…`` (exact).
-2. **Name** — ``people/search?q=<name>``; PM's ``q`` *does* filter people by name
-   server-side (it does not for orgs), so no cohort enumeration is needed. The
-   server result is then confirmed by an exact :func:`normalize_name` comparison,
+2. **Name** — ``people/search?q=<name>`` filters server-side via FTS (since
+   power-map#201; ``pm_unaccent_simple`` also folds accents), so a single query
+   suffices. The result is confirmed by an exact :func:`normalize_name` comparison,
    and a match is taken only when exactly one candidate remains — an ambiguous
    name (homonyms, no jurisdiction/hierarchy to disambiguate as orgs have) falls
    through to create-new rather than risk anchoring the wrong person.
@@ -81,7 +81,9 @@ class PersonDescriptor(EntityDescriptor):
                 )
                 return as_ulid(rec["id"])
 
-        # 2. Name — PM's q filters people server-side; confirm by exact normalized match.
+        # 2. Name — PM's q filters people server-side (FTS); confirm by exact normalized
+        # match. limit is the recall ceiling — the exact match must rank within it; 20 is
+        # ample for a full name (FTS ANDs the name tokens → a small ranked set).
         target = normalize_name(row.name_full)
         page = await client.search_entities(SEARCH_PATH, q=row.name_full, limit=20)
         named = [c for c in page.records if normalize_name(c.get("display_name") or "") == target]
