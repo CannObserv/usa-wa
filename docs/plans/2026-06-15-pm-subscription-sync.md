@@ -1,7 +1,7 @@
 ---
 title: Adapt the PM sync sidecar to Power Map's discovery/subscription model
 date: 2026-06-15
-status: draft
+status: done
 ---
 
 # Adapt the PM sync sidecar to Power Map's discovery/subscription model
@@ -75,6 +75,27 @@ Alternatives were explored during brainstorming (see the design doc's "Approved 
    cutover in this plan / deploy notes — grant `subscriptions:write` on the PM key, reset the
    `changes_feed` cursor to NULL, run `python -m usa_wa_sync_powermap.bootstrap`, restart
    `usa-wa-sync-powermap`. (Verifiable: suite green; runbook present.)
+
+## Cutover runbook
+
+Code is merged behind the new contract; the read path stays dark until the key is
+scoped and the subscription set is bootstrapped. On deploy:
+
+1. **Grant the key `subscriptions:write`** on the PM side (the `POWERMAP_API_KEY`
+   already used for observations). Without it, bootstrap fails loudly and the
+   in-loop backstop logs `subscription_register_*` failures while the feed still
+   serves any already-registered subs.
+2. **Reset the feed cursor** (optional — belt-and-suspenders). The engine's
+   `_parse_after` already treats a leftover pre-#203 timestamp cursor as "from the
+   start" (seq 0) with a one-time `powermap_feed_cursor_reset` log, so this only
+   suppresses that warning:
+   `UPDATE sync.powermap_sync_state SET cursor = NULL WHERE stream = 'changes_feed';`
+3. **Bootstrap the subscription set + cache:**
+   `export $(cat /etc/usa-wa/.env .env | xargs) && uv run python -m usa_wa_sync_powermap.bootstrap`
+   (idempotent — safe to re-run; logs `bootstrap_complete` with the counts).
+4. **Restart the sidecar service:** `sudo systemctl restart usa-wa-sync-powermap`.
+   The in-loop backstop then re-runs discovery every
+   `subscription_backstop_cadence` (default 1h) to catch graph drift.
 
 ## Open questions / risks
 
