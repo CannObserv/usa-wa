@@ -12,6 +12,7 @@ Auth is PM's ``X-API-Key`` header, wired through the generated
 ``AuthenticatedClient`` (``prefix=""`` + ``auth_header_name``).
 """
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, NoReturn
 
@@ -51,7 +52,9 @@ from powermap_client.models import (
     SubscriptionBulkDeleteRequest,
     SubscriptionRegisterRequest,
 )
+from ulid import ULID
 
+from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.client import (
     ChangeItem,
     ChangePage,
@@ -64,6 +67,8 @@ from clearinghouse_sync_powermap.client import (
     SubscriptionResult,
 )
 from clearinghouse_sync_powermap.descriptors import as_ulid
+
+logger = get_logger(__name__)
 
 #: Permanent auth/permission statuses: the credential is wrong, not the payload.
 #: Mapped to :class:`DeliveryBlockedError` so the engine parks to UNAVAILABLE.
@@ -199,7 +204,7 @@ class GeneratedPowerMapClient:
         *,
         root_type: str,
         root_id: str,
-        follow,
+        follow: Sequence[str],
         limit: int = 100,
         offset: int = 0,
     ) -> list[DiscoveredEntity]:
@@ -228,13 +233,21 @@ class GeneratedPowerMapClient:
                 )
                 for di in body.data
             )
+            if getattr(body.meta, "truncated", False):
+                # PM hit a hard traversal cap: the subtree is larger than this response
+                # window and the set is silently incomplete. Surface it rather than
+                # under-subscribing without a trace.
+                logger.warning(
+                    "discovery_truncated",
+                    extra={"root_type": root_type, "root_id": root_id, "offset": offset},
+                )
             if not body.meta.has_more:
                 return results
             offset += limit
 
-    async def list_subscriptions(self, *, entity_type: str | None = None) -> list:
+    async def list_subscriptions(self, *, entity_type: str | None = None) -> list[ULID]:
         # Paginate the subscription list; collect just the entity ids (engine diffs ids).
-        ids: list = []
+        ids: list[ULID] = []
         offset = 0
         limit = 100
         type_param = (
@@ -250,7 +263,7 @@ class GeneratedPowerMapClient:
                 return ids
             offset += limit
 
-    async def add_subscriptions(self, entity_ids) -> SubscriptionResult:
+    async def add_subscriptions(self, entity_ids: Sequence[ULID]) -> SubscriptionResult:
         body = await self._send(
             register_subscriptions.asyncio_detailed(
                 client=self._client,
@@ -263,7 +276,7 @@ class GeneratedPowerMapClient:
             not_found=[as_ulid(x) for x in body.not_found],
         )
 
-    async def remove_subscriptions(self, entity_ids) -> int:
+    async def remove_subscriptions(self, entity_ids: Sequence[ULID]) -> int:
         # Bulk DELETE returns 204 (no count); report the requested count on success.
         # Unused today (pruning deferred), wired for surface completeness.
         ids = [str(i) for i in entity_ids]

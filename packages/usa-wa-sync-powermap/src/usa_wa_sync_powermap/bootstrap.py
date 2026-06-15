@@ -43,6 +43,7 @@ async def _amain() -> None:
                 "discovered": report.discovered,
                 "newly_subscribed": report.newly_subscribed,
                 "backfilled": report.backfilled,
+                "backfill_skipped": report.backfill_skipped,
                 "not_found": report.not_found,
                 "skipped_unknown_type": report.skipped_unknown_type,
             },

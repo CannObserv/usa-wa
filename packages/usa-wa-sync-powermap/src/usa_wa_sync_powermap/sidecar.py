@@ -61,14 +61,12 @@ class Sidecar:
         self._clock = clock
 
     async def tick(self, session: AsyncSession, *, now: datetime) -> None:
-        """One sync cycle against a single session (no commit — caller owns it)."""
-        # Membership first: re-discover the WA subtree and register/backfill any new
-        # entities BEFORE the feed pull, so their changes are delivered this cycle.
-        # Failure here is contained per-cycle by run_cycle (rollback + log); the feed
-        # via already-registered subscriptions still works next cycle.
-        if self._reconciler is not None and await self._subscription_backstop_due(session, now):
-            await self._reconciler.sync_subscriptions(session)
-            await self._mark_subscription_synced(session, now)
+        """One sync cycle against a single session (no commit — caller owns it).
+
+        The subscription re-discovery backstop is NOT run here — it runs in its own
+        session via :meth:`run_cycle` so a discovery/PM failure cannot roll back or
+        starve the feed/sweep/drain in this transaction.
+        """
         # Reads: incremental feed first, then due reconcile backstops (retired for
         # usa-wa — all descriptors opt out — but kept generic for siblings).
         await self._engine.process_feed(session)
@@ -82,8 +80,14 @@ class Sidecar:
         await self._engine.drain_outbox(session, now=now)
 
     async def run_cycle(self) -> None:
-        """Run one isolated cycle: own session, commit on success, rollback on error."""
+        """Run one isolated cycle: own session, commit on success, rollback on error.
+
+        The re-discovery backstop runs first in its OWN session (:meth:`_run_backstop`),
+        so a discovery/PM failure is contained there and the main tick (feed → sweep →
+        drain) still runs against already-registered subscriptions.
+        """
         now = self._clock()
+        await self._run_backstop(now)
         async with self._session_factory() as session:
             try:
                 await self.tick(session, now=now)
@@ -91,6 +95,37 @@ class Sidecar:
             except Exception:
                 await session.rollback()
                 logger.exception("sidecar_cycle_failed")
+
+    async def _run_backstop(self, now: datetime) -> None:
+        """Run the due re-discovery backstop in its own session + error boundary.
+
+        Isolated from :meth:`run_cycle`'s main tick so a discovery/registration failure
+        (or a poisoned session from a mid-backfill error) cannot roll back or starve the
+        feed/drain. Logs and swallows; the next cycle retries (still gated by cadence on
+        success — a failure leaves the stream unstamped, so it retries promptly).
+        """
+        if self._reconciler is None:
+            return
+        async with self._session_factory() as session:
+            try:
+                if await self.run_subscription_backstop(session, now=now):
+                    await session.commit()
+            except Exception:
+                await session.rollback()
+                logger.exception("subscription_backstop_failed")
+
+    async def run_subscription_backstop(self, session: AsyncSession, *, now: datetime) -> bool:
+        """Due-check → discover/register/backfill → stamp, on the given ``session``.
+
+        Returns True if the backstop was due and ran (so the caller commits). Separated
+        from :meth:`_run_backstop` as the testable seam; production calls it via
+        ``_run_backstop``, which adds the session isolation + error containment.
+        """
+        if self._reconciler is None or not await self._subscription_backstop_due(session, now):
+            return False
+        await self._reconciler.sync_subscriptions(session)
+        await self._mark_subscription_synced(session, now)
+        return True
 
     async def run_forever(
         self, *, sleep: Callable[[float], Awaitable[None]] = asyncio.sleep

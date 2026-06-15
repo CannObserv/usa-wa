@@ -212,9 +212,8 @@ async def test_full_list_reconcile_retired_for_all_descriptors(db_session):
 # --- subscription backstop ------------------------------------------------------
 
 
-async def test_backstop_runs_before_feed_and_registers_new(db_session, state_type):
-    """The in-loop backstop discovers + registers a new WA jurisdiction, and the feed
-    pull that follows in the same tick delivers its record into the cache."""
+async def test_backstop_registers_and_backfills_new(db_session, state_type):
+    """The backstop discovers + registers a new WA jurisdiction and backfills it."""
     pm_id = ULID()
     record = {
         "id": str(pm_id),
@@ -238,10 +237,10 @@ async def test_backstop_runs_before_feed_and_registers_new(db_session, state_typ
     )
     sidecar, _ = _sidecar_with_reconciler(client)
 
-    await sidecar.tick(db_session, now=NOW)
+    ran = await sidecar.run_subscription_backstop(db_session, now=NOW)
 
+    assert ran is True
     assert client.added == [[pm_id]]  # backstop registered the discovered id
-    # And the cache holds it (backfilled by the reconciler, then feed is a no-op).
     cached = (
         await db_session.execute(
             select(Jurisdiction).where(Jurisdiction.slug == "usa-wa-county-pierce")
@@ -256,27 +255,69 @@ async def test_backstop_runs_before_feed_and_registers_new(db_session, state_typ
 
 
 async def test_backstop_respects_cadence(db_session):
-    """A second tick within the cadence does not re-run discovery."""
+    """A second run within the cadence does not re-run discovery."""
     client = FakeClient(discovered=[], subscribed=[])
     sidecar, _ = _sidecar_with_reconciler(client, cadence=timedelta(hours=1))
 
-    await sidecar.tick(db_session, now=NOW)
-    await sidecar.tick(db_session, now=NOW + timedelta(minutes=30))
+    assert await sidecar.run_subscription_backstop(db_session, now=NOW) is True
+    within = await sidecar.run_subscription_backstop(db_session, now=NOW + timedelta(minutes=30))
+    assert within is False
+    assert len(client.discover_calls) == 1  # only the first run ran the backstop
 
-    assert len(client.discover_calls) == 1  # only the first tick ran the backstop
-
-    await sidecar.tick(db_session, now=NOW + timedelta(hours=2))
+    elapsed = await sidecar.run_subscription_backstop(db_session, now=NOW + timedelta(hours=2))
+    assert elapsed is True
     assert len(client.discover_calls) == 2  # cadence elapsed → ran again
 
 
-async def test_tick_without_reconciler_skips_backstop(db_session, state_type):
-    """A sidecar built without a reconciler (e.g. legacy wiring) never runs the
-    backstop and does not touch the subscriptions stream."""
+async def test_backstop_noop_without_reconciler(db_session):
+    """A sidecar built without a reconciler never runs the backstop or touches the
+    subscriptions stream."""
     sidecar, _ = _sidecar(FakeClient())
 
-    await sidecar.tick(db_session, now=NOW)
+    ran = await sidecar.run_subscription_backstop(db_session, now=NOW)
 
+    assert ran is False
     state = (
         await db_session.execute(select(SyncState).where(SyncState.stream == SUBSCRIPTIONS_STREAM))
     ).scalar_one_or_none()
     assert state is None
+
+
+async def test_tick_does_not_run_backstop(db_session, state_type):
+    """tick() owns only feed/sweep/drain — the backstop is isolated to run_cycle."""
+    client = FakeClient(
+        discovered=[DiscoveredEntity("jurisdiction", ULID(), "X", 1)], subscribed=[]
+    )
+    sidecar, _ = _sidecar_with_reconciler(client)
+
+    await sidecar.tick(db_session, now=NOW)
+
+    assert client.discover_calls == []  # tick never invoked discovery
+    state = (
+        await db_session.execute(select(SyncState).where(SyncState.stream == SUBSCRIPTIONS_STREAM))
+    ).scalar_one_or_none()
+    assert state is None
+
+
+async def test_run_cycle_isolates_backstop_failure_from_tick():
+    """A backstop failure is contained in its own session/boundary; run_cycle still
+    runs the main tick (feed/drain) so a discovery outage does not starve the feed."""
+    session = _FakeSession()
+    sidecar = Sidecar(
+        engine=None, descriptors=[], session_factory=lambda: session, reconciler=object()
+    )
+    tick_ran = {"value": False}
+
+    async def _boom_backstop(s, *, now):
+        raise RuntimeError("discover endpoint down")
+
+    async def _ok_tick(s, *, now):
+        tick_ran["value"] = True
+
+    sidecar.run_subscription_backstop = _boom_backstop
+    sidecar.tick = _ok_tick
+
+    await sidecar.run_cycle()  # must NOT raise
+
+    assert session.rolled_back  # backstop session rolled back on failure
+    assert tick_ran["value"] is True  # main tick still ran despite backstop failure

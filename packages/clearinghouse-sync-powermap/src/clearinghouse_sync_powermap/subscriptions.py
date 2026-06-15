@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.client import PowerMapClient
-from clearinghouse_sync_powermap.engine import SyncEngine
+from clearinghouse_sync_powermap.engine import APPLY_INSERTED, APPLY_UPDATED, SyncEngine
 
 logger = get_logger(__name__)
 
@@ -44,15 +44,18 @@ class SubscriptionSyncReport:
     """Observability counts for one :meth:`SubscriptionReconciler.sync_subscriptions`.
 
     ``discovered`` is the full candidate set; ``newly_subscribed`` the additive diff
-    just registered; ``backfilled`` the new rows whose current state was fetched and
-    applied; ``not_found`` the ids PM could not resolve; ``skipped_unknown_type`` the
-    discovered candidates with no local descriptor.
+    just registered; ``backfilled`` the new rows actually written to the cache
+    (``apply_record`` returned inserted/updated); ``backfill_skipped`` the new rows an
+    update-only producer descriptor declined to mirror (a record usa-wa never produced)
+    or that could not be fetched; ``not_found`` the ids PM could not resolve;
+    ``skipped_unknown_type`` the discovered candidates with no local descriptor.
     """
 
     discovered: int
     already_registered: int
     newly_subscribed: int
     backfilled: int
+    backfill_skipped: int
     not_found: int
     skipped_unknown_type: int
 
@@ -90,6 +93,7 @@ class SubscriptionReconciler:
                 )
 
         backfilled = 0
+        backfill_skipped = 0
         skipped_unknown = 0
         for d in new:
             if d.entity_id in not_found:
@@ -108,9 +112,16 @@ class SubscriptionReconciler:
             if record is None:
                 # Subscribed but the entity could not be fetched (e.g. 404 between
                 # discovery and backfill); the feed will deliver it if it reappears.
+                backfill_skipped += 1
                 continue
-            await self._engine.apply_record(session, descriptor, record)
-            backfilled += 1
+            outcome = await self._engine.apply_record(session, descriptor, record)
+            # Update-only producer descriptors decline to mirror a record usa-wa never
+            # produced (APPLY_SKIPPED) and LWW may keep the local row (APPLY_KEPT_LOCAL);
+            # only count a real cache write as a backfill so the log is not inflated.
+            if outcome in (APPLY_INSERTED, APPLY_UPDATED):
+                backfilled += 1
+            else:
+                backfill_skipped += 1
 
         await session.flush()
         report = SubscriptionSyncReport(
@@ -118,6 +129,7 @@ class SubscriptionReconciler:
             already_registered=len(discovered) - len(new),
             newly_subscribed=len(new) - len(not_found),
             backfilled=backfilled,
+            backfill_skipped=backfill_skipped,
             not_found=len(not_found),
             skipped_unknown_type=skipped_unknown,
         )
@@ -127,6 +139,7 @@ class SubscriptionReconciler:
                 "discovered": report.discovered,
                 "newly_subscribed": report.newly_subscribed,
                 "backfilled": report.backfilled,
+                "backfill_skipped": report.backfill_skipped,
                 "not_found": report.not_found,
                 "skipped_unknown_type": report.skipped_unknown_type,
             },

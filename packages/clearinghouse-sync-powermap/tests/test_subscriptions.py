@@ -11,7 +11,7 @@ from ulid import ULID
 from clearinghouse_sync_powermap.client import DiscoveredEntity, SubscriptionResult
 from clearinghouse_sync_powermap.engine import SyncEngine
 from clearinghouse_sync_powermap.subscriptions import DiscoverySpec, SubscriptionReconciler
-from clearinghouse_sync_powermap.testing import FakeClient, FakeEntity
+from clearinghouse_sync_powermap.testing import FakeClient, FakeDescriptor, FakeEntity
 
 SPEC = DiscoverySpec(root_type="jurisdiction", root_id="usa-wa", follow=["lineage", "roles"])
 
@@ -135,6 +135,30 @@ async def test_not_found_ids_are_not_backfilled(db_session, fake_descriptor):
 
     assert report.not_found == 1
     assert report.backfilled == 0
+    assert (await db_session.execute(select(FakeEntity))).first() is None
+
+
+async def test_backfill_skip_counted_separately_from_backfilled(db_session):
+    """An update-only descriptor that declines to mirror an unproduced record counts
+    as backfill_skipped, not backfilled — so the log is not inflated (CR round 2)."""
+
+    class UpdateOnlyDescriptor(FakeDescriptor):
+        async def upsert_from_pm(self, session, record, existing=None):  # noqa: ARG002
+            return None  # never mirror an unproduced record → APPLY_SKIPPED
+
+    pm_id = ULID()
+    client = FakeClient(
+        discovered=[_disc(pm_id)],
+        subscribed=[],
+        entities={pm_id: _record(pm_id, "1", "Foreign")},
+    )
+    reconciler = _reconciler(client, [UpdateOnlyDescriptor()])
+
+    report = await reconciler.sync_subscriptions(db_session)
+
+    assert client.added == [[pm_id]]  # still subscribed
+    assert report.backfilled == 0
+    assert report.backfill_skipped == 1
     assert (await db_session.execute(select(FakeEntity))).first() is None
 
 

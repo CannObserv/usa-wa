@@ -311,6 +311,34 @@ async def test_discover_paginates_and_maps(client):
 
 
 @respx.mock
+async def test_discover_warns_when_truncated(client, caplog):
+    """A truncated traversal (hard cap hit) is surfaced, not silently under-returned."""
+    respx.get(f"{BASE}/api/v1/subscriptions/discover").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [_disc_item(ULID(), "jurisdiction", 0)],
+                "meta": {
+                    "limit": 1,
+                    "offset": 0,
+                    "count": 1,
+                    "has_more": False,
+                    "truncated": True,
+                },
+            },
+        )
+    )
+
+    with caplog.at_level("WARNING"):
+        found = await client.discover(
+            root_type="jurisdiction", root_id="usa-wa", follow=["lineage"]
+        )
+
+    assert len(found) == 1
+    assert any(r.msg == "discovery_truncated" for r in caplog.records)
+
+
+@respx.mock
 async def test_list_subscriptions_paginates_to_ids(client):
     a, b = ULID(), ULID()
 
