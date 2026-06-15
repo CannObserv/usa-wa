@@ -22,19 +22,27 @@ from clearinghouse_sync_powermap.descriptors import (
     as_ulid,
 )
 from clearinghouse_sync_powermap.models import OutboxEntry, SyncState
+from clearinghouse_sync_powermap.subscriptions import (
+    DiscoverySpec,
+    SubscriptionReconciler,
+    SubscriptionSyncReport,
+)
 
 __all__ = [
     "Authority",
     "ChangeItem",
     "ChangePage",
     "DiscoveredEntity",
+    "DiscoverySpec",
     "EntityDescriptor",
     "EntityPage",
     "ObservationResult",
     "OutboxEntry",
     "PowerMapClient",
     "ReadSource",
+    "SubscriptionReconciler",
     "SubscriptionResult",
+    "SubscriptionSyncReport",
     "SyncState",
     "as_ulid",
 ]
