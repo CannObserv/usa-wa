@@ -86,10 +86,15 @@ class ChangeItem:
 
 @dataclass(frozen=True)
 class ChangePage:
-    """A page of the changes feed plus the cursor to resume from."""
+    """A page of the changes feed plus the integer cursor to resume from.
+
+    ``next_after`` is the outbox ``seq_id`` to pass as ``after`` on the next pull
+    (PM #203; the old timestamp ``next_since`` cursor was retired). ``None`` only
+    when PM omits it (defensive); normally PM always echoes a usable seq.
+    """
 
     items: Sequence[ChangeItem]
-    cursor: str | None
+    next_after: int | None
 
 
 @dataclass(frozen=True)
@@ -100,11 +105,76 @@ class EntityPage:
     cursor: str | None
 
 
+@dataclass(frozen=True)
+class DiscoveredEntity:
+    """One candidate from ``GET /api/v1/subscriptions/discover`` (PM #203).
+
+    The graph-traversal result the client turns into a subscription. ``entity_type``
+    matches PM's feed/discovery vocabulary (``jurisdiction``/``organization``/
+    ``role``/``role_assignment``/``person``); the reconciler routes it to a
+    descriptor by that string.
+    """
+
+    entity_type: str
+    entity_id: ULID
+    display_name: str | None
+    hops_from_root: int
+
+
+@dataclass(frozen=True)
+class SubscriptionResult:
+    """Outcome of ``POST /api/v1/subscriptions`` — a bulk, idempotent register.
+
+    ``not_found`` lists ids PM could not resolve to a known entity; the rest of the
+    batch is still applied (PM #203).
+    """
+
+    registered: int
+    already_subscribed: int
+    not_found: Sequence[ULID]
+
+
 class PowerMapClient(Protocol):
     """The PM surface the engine needs. Implemented for real in step 5."""
 
-    async def get_changes(self, since: str | None, limit: int = 100) -> ChangePage:
-        """Incremental change feed since the given cursor."""
+    async def get_changes(self, after: int | None, limit: int = 100) -> ChangePage:
+        """Incremental change feed for ids ``> after`` (None → from the start, seq 0).
+
+        Subscription-filtered (PM #203): returns only changes for entities this key
+        is subscribed to. An empty subscription set yields an empty feed.
+        """
+        ...
+
+    async def discover(
+        self,
+        *,
+        root_type: str,
+        root_id: str,
+        follow: Sequence[str],
+        limit: int = 100,
+        offset: int = 0,
+    ) -> Sequence[DiscoveredEntity]:
+        """Graph-traverse from a root entity, returning subscription candidates.
+
+        Implementations paginate internally (PM ``limit``/``offset``) and return the
+        full flattened result. ``follow`` is the set of edge types to traverse
+        (``lineage``, ``affiliated_orgs``, ``org_children``, ``roles``,
+        ``assignments``, ``people``). Read-only; any valid key.
+        """
+        ...
+
+    async def list_subscriptions(self, *, entity_type: str | None = None) -> Sequence[ULID]:
+        """Return the entity ids this key is currently subscribed to (paginated)."""
+        ...
+
+    async def add_subscriptions(self, entity_ids: Sequence[ULID]) -> SubscriptionResult:
+        """Bulk-register subscriptions (idempotent). Requires ``subscriptions:write``."""
+        ...
+
+    async def remove_subscriptions(self, entity_ids: Sequence[ULID]) -> int:
+        """Bulk-remove subscriptions; returns the count removed. Requires
+        ``subscriptions:write``. Defined for surface completeness — pruning is
+        deferred (additive-only sync), so the engine does not call this yet."""
         ...
 
     async def list_entities(self, read_path: str, params: dict | None = None) -> EntityPage:

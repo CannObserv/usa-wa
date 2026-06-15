@@ -500,7 +500,8 @@ class SyncEngine:
         rest of the outbox.
         """
         state = await self._get_or_create_state(session, CHANGES_STREAM)
-        page = await self._client.get_changes(state.cursor, limit=limit)
+        after = _parse_after(state.cursor)
+        page = await self._client.get_changes(after, limit=limit)
         applied = 0
         for item in page.items:
             descriptor = self.descriptor_for(item.entity_type)
@@ -513,8 +514,8 @@ class SyncEngine:
                 continue
             await self.apply_record(session, descriptor, record)
             applied += 1
-        if page.cursor is not None:
-            state.cursor = page.cursor
+        if page.next_after is not None:
+            state.cursor = str(page.next_after)
         await session.flush()
         return applied
 
@@ -570,3 +571,20 @@ async def outbox_backlog(session: AsyncSession, *, now: datetime) -> OutboxBackl
 
 def _reconcile_stream(descriptor: EntityDescriptor) -> str:
     return f"reconcile:{descriptor.entity_type}"
+
+
+def _parse_after(cursor: str | None) -> int | None:
+    """Parse the stored ``changes_feed`` cursor into the integer ``after`` seq.
+
+    The PM #203 cutover replaced the timestamp cursor with an outbox seq_id. A
+    stored value left over from the old timestamp scheme (or any non-integer) is
+    not a valid ``after`` — treat it as "from the start" (0) and log once rather
+    than crash the feed. ``None`` (fresh stream) is passed through to mean seq 0.
+    """
+    if cursor is None:
+        return None
+    try:
+        return int(cursor)
+    except ValueError:
+        logger.warning("powermap_feed_cursor_reset", extra={"stale_cursor": cursor})
+        return 0

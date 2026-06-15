@@ -196,7 +196,7 @@ async def test_process_feed_applies_and_advances_cursor(db_session, fake_descrip
     record = _record("1", "FromFeed", pm_id=pm_id)
     item = ChangeItem(entity_type="fake", entity_id=pm_id, changed_at=NOW, change_kind="updated")
     client = FakeClient(
-        changes_pages=[ChangePage(items=[item], cursor="cursor-2")],
+        changes_pages=[ChangePage(items=[item], next_after=42)],
         entities={pm_id: record},
     )
     engine = SyncEngine([fake_descriptor], client)
@@ -208,12 +208,54 @@ async def test_process_feed_applies_and_advances_cursor(db_session, fake_descrip
     state = (
         await db_session.execute(select(SyncState).where(SyncState.stream == CHANGES_STREAM))
     ).scalar_one()
-    assert state.cursor == "cursor-2"
+    # Integer seq cursor is stored as its string form.
+    assert state.cursor == "42"
+
+
+async def test_process_feed_reads_stored_integer_cursor_as_after(db_session, fake_descriptor):
+    """A previously-stored integer cursor is passed back as the ``after`` seq."""
+
+    class CapturingClient(FakeClient):
+        seen_after: int | None = None
+
+        async def get_changes(self, after, limit=100):
+            self.seen_after = after
+            return ChangePage(items=[], next_after=after)
+
+    db_session.add(SyncState(stream=CHANGES_STREAM, cursor="7"))
+    await db_session.flush()
+    client = CapturingClient()
+    engine = SyncEngine([fake_descriptor], client)
+
+    await engine.process_feed(db_session)
+
+    assert client.seen_after == 7
+
+
+async def test_process_feed_resets_stale_timestamp_cursor_to_zero(db_session, fake_descriptor):
+    """A leftover timestamp cursor from the pre-#203 scheme is not a valid ``after``;
+    the engine resets it to 0 ("from the start") rather than crashing the feed."""
+
+    class CapturingClient(FakeClient):
+        seen_after: int | None = -1
+
+        async def get_changes(self, after, limit=100):
+            self.seen_after = after
+            return ChangePage(items=[], next_after=None)
+
+    db_session.add(SyncState(stream=CHANGES_STREAM, cursor="2026-06-04T00:00:00Z"))
+    await db_session.flush()
+    client = CapturingClient()
+    engine = SyncEngine([fake_descriptor], client)
+
+    await engine.process_feed(db_session)
+
+    assert client.seen_after == 0
 
 
 async def test_process_feed_skips_deletes(db_session, fake_descriptor):
     item = ChangeItem(entity_type="fake", entity_id=ULID(), changed_at=NOW, change_kind="deleted")
-    client = FakeClient(changes_pages=[ChangePage(items=[item], cursor="c")])
+    client = FakeClient(changes_pages=[ChangePage(items=[item], next_after=9)])
     engine = SyncEngine([fake_descriptor], client)
 
     applied = await engine.process_feed(db_session)

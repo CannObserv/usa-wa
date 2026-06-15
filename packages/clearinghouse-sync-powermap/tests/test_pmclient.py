@@ -1,10 +1,10 @@
 """PowerMapClient wrapper tests — maps the generated SDK to the engine Protocol.
 
 respx mocks the HTTP layer (the generated client's httpx transport). We verify
-the wrapper's own logic: X-API-Key auth, feed→ChangePage mapping (cursor =
-next_since), list offset/cursor arithmetic, observation→ObservationResult, and
-404→None. Record-body mapping is a passthrough `to_dict()`, exercised end-to-end
-by the engine's dict-based tests.
+the wrapper's own logic: X-API-Key auth, feed→ChangePage mapping (integer
+``next_after`` cursor), discovery/subscription pagination, list offset/cursor
+arithmetic, observation→ObservationResult, and 404→None. Record-body mapping is a
+passthrough `to_dict()`, exercised end-to-end by the engine's dict-based tests.
 """
 
 import httpx
@@ -39,30 +39,30 @@ async def test_get_changes_maps_feed_and_sends_auth(client):
             json={
                 "data": [
                     {
+                        "seq_id": 6,
                         "entity_type": "jurisdiction",
                         "entity_id": str(pm_id),
                         "changed_at": "2026-06-05T00:00:00Z",
                         "change_kind": "updated",
-                        "archived_at": None,
                     }
                 ],
                 "meta": {
                     "limit": 100,
                     "count": 1,
                     "has_more": False,
-                    "next_since": "2026-06-05T00:00:01Z",
+                    "next_after": 6,
                 },
             },
         )
     )
 
-    page = await client.get_changes(since=None)
+    page = await client.get_changes(after=None)
 
     assert route.called
     assert route.calls.last.request.headers["X-API-Key"] == "secret-key"
-    # since=None defaults to the epoch
-    assert "since=1970" in str(route.calls.last.request.url)
-    assert page.cursor == "2026-06-05T00:00:01Z"
+    # after=None defaults to seq 0 ("from the start")
+    assert "after=0" in str(route.calls.last.request.url)
+    assert page.next_after == 6
     assert len(page.items) == 1
     item = page.items[0]
     assert item.entity_type == "jurisdiction"
@@ -260,7 +260,117 @@ async def test_5xx_is_retryable(client):
     respx.get(f"{BASE}/api/v1/changes").mock(return_value=httpx.Response(503))
 
     with pytest.raises(RetryableClientError):
-        await client.get_changes(since=None)
+        await client.get_changes(after=None)
+
+
+def _disc_item(pm_id, entity_type, hops, name="X"):
+    return {
+        "entity_type": entity_type,
+        "entity_id": str(pm_id),
+        "hops_from_root": hops,
+        "display_name": name,
+    }
+
+
+@respx.mock
+async def test_discover_paginates_and_maps(client):
+    """Discovery follows the ``has_more`` flag across pages and flattens the result,
+    sending root_type/root_id and the comma-joined follow set."""
+    a, b = ULID(), ULID()
+    pages = [
+        httpx.Response(
+            200,
+            json={
+                "data": [_disc_item(a, "jurisdiction", 0)],
+                "meta": {"limit": 1, "offset": 0, "count": 1, "has_more": True},
+            },
+        ),
+        httpx.Response(
+            200,
+            json={
+                "data": [_disc_item(b, "organization", 2)],
+                "meta": {"limit": 1, "offset": 1, "count": 1, "has_more": False},
+            },
+        ),
+    ]
+    route = respx.get(f"{BASE}/api/v1/subscriptions/discover").mock(side_effect=pages)
+
+    found = await client.discover(
+        root_type="jurisdiction", root_id="usa-wa", follow=["lineage", "roles"], limit=1
+    )
+
+    assert route.call_count == 2
+    first_url = str(route.calls[0].request.url)
+    assert "root_type=jurisdiction" in first_url
+    assert "root_id=usa-wa" in first_url
+    assert "follow=lineage%2Croles" in first_url  # comma-joined, URL-encoded
+    assert [(d.entity_type, d.entity_id, d.hops_from_root) for d in found] == [
+        ("jurisdiction", a, 0),
+        ("organization", b, 2),
+    ]
+
+
+@respx.mock
+async def test_list_subscriptions_paginates_to_ids(client):
+    a, b = ULID(), ULID()
+
+    def _sub(pm_id):
+        return {
+            "entity_id": str(pm_id),
+            "entity_type": "jurisdiction",
+            "created_at": "2026-06-05T00:00:00Z",
+        }
+
+    pages = [
+        httpx.Response(
+            200,
+            json={
+                "data": [_sub(a)],
+                "meta": {"limit": 1, "offset": 0, "count": 1, "has_more": True},
+            },
+        ),
+        httpx.Response(
+            200,
+            json={
+                "data": [_sub(b)],
+                "meta": {"limit": 1, "offset": 1, "count": 1, "has_more": False},
+            },
+        ),
+    ]
+    respx.get(f"{BASE}/api/v1/subscriptions").mock(side_effect=pages)
+
+    ids = await client.list_subscriptions()
+
+    assert ids == [a, b]
+
+
+@respx.mock
+async def test_add_subscriptions_maps_result(client):
+    nf = ULID()
+    route = respx.post(f"{BASE}/api/v1/subscriptions").mock(
+        return_value=httpx.Response(
+            200, json={"registered": 2, "already_subscribed": 1, "not_found": [str(nf)]}
+        )
+    )
+
+    result = await client.add_subscriptions([ULID(), ULID(), ULID()])
+
+    assert route.called
+    assert result.registered == 2
+    assert result.already_subscribed == 1
+    assert result.not_found == [nf]
+
+
+@respx.mock
+async def test_add_subscriptions_403_raises_blocked(client):
+    """Missing ``subscriptions:write`` scope → DeliveryBlockedError (operator grants
+    the scope), surfaced through the same mapping as the write path."""
+    respx.post(f"{BASE}/api/v1/subscriptions").mock(
+        return_value=httpx.Response(403, json={"detail": "Insufficient scope"})
+    )
+
+    with pytest.raises(DeliveryBlockedError):
+        await client.add_subscriptions([ULID()])
 
 
 @respx.mock

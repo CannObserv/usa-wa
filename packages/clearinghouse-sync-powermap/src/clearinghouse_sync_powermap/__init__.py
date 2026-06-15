@@ -9,9 +9,11 @@ from clearinghouse_sync_powermap import models as _models  # noqa: F401
 from clearinghouse_sync_powermap.client import (
     ChangeItem,
     ChangePage,
+    DiscoveredEntity,
     EntityPage,
     ObservationResult,
     PowerMapClient,
+    SubscriptionResult,
 )
 from clearinghouse_sync_powermap.descriptors import (
     Authority,
@@ -25,12 +27,14 @@ __all__ = [
     "Authority",
     "ChangeItem",
     "ChangePage",
+    "DiscoveredEntity",
     "EntityDescriptor",
     "EntityPage",
     "ObservationResult",
     "OutboxEntry",
     "PowerMapClient",
     "ReadSource",
+    "SubscriptionResult",
     "SyncState",
     "as_ulid",
 ]

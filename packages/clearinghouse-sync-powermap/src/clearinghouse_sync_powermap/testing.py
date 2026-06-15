@@ -19,7 +19,13 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.db.ulid import ULID
 from clearinghouse_core.models import Base, TimestampMixin
-from clearinghouse_sync_powermap.client import ChangePage, EntityPage, ObservationResult
+from clearinghouse_sync_powermap.client import (
+    ChangePage,
+    DiscoveredEntity,
+    EntityPage,
+    ObservationResult,
+    SubscriptionResult,
+)
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid
 from clearinghouse_sync_powermap.models import DISPOSITION_NEW
 
@@ -99,19 +105,55 @@ class FakeClient:
         entities: dict[Any, dict] | None = None,
         observation_result: ObservationResult | Any = None,
         search_pages: list[EntityPage] | None = None,
+        discovered: list[DiscoveredEntity] | None = None,
+        subscribed: list[Any] | None = None,
     ) -> None:
         self._changes_pages = list(changes_pages or [])
         self._entity_pages = list(entity_pages or [])
         self._entities = entities or {}
         self._observation_result = observation_result
         self._search_pages = list(search_pages or [])
+        self._discovered = list(discovered or [])
+        #: Mutable subscription set (ULIDs). Preset to model already-registered subs.
+        self.subscribed: list[Any] = list(subscribed or [])
         self.posted: list[tuple[str, dict]] = []
         self.searched: list[dict] = []
+        #: Recorded discovery calls (kwargs) and add/remove batches for assertions.
+        self.discover_calls: list[dict] = []
+        self.added: list[list[Any]] = []
+        self.removed: list[list[Any]] = []
 
-    async def get_changes(self, since: str | None, limit: int = 100) -> ChangePage:
+    async def get_changes(self, after: int | None, limit: int = 100) -> ChangePage:
         if self._changes_pages:
             return self._changes_pages.pop(0)
-        return ChangePage(items=[], cursor=since)
+        return ChangePage(items=[], next_after=after)
+
+    async def discover(
+        self, *, root_type: str, root_id: str, follow, limit: int = 100, offset: int = 0
+    ) -> list[DiscoveredEntity]:
+        self.discover_calls.append(
+            {"root_type": root_type, "root_id": root_id, "follow": list(follow)}
+        )
+        return list(self._discovered)
+
+    async def list_subscriptions(self, *, entity_type: str | None = None) -> list:
+        return list(self.subscribed)
+
+    async def add_subscriptions(self, entity_ids) -> SubscriptionResult:
+        ids = list(entity_ids)
+        self.added.append(ids)
+        new = [i for i in ids if i not in self.subscribed]
+        self.subscribed.extend(new)
+        return SubscriptionResult(
+            registered=len(new), already_subscribed=len(ids) - len(new), not_found=[]
+        )
+
+    async def remove_subscriptions(self, entity_ids) -> int:
+        ids = list(entity_ids)
+        self.removed.append(ids)
+        before = len(self.subscribed)
+        self.subscribed = [i for i in self.subscribed if i not in ids]
+        return before - len(self.subscribed)
 
     async def list_entities(self, read_path: str, params: dict | None = None) -> EntityPage:
         if self._entity_pages:

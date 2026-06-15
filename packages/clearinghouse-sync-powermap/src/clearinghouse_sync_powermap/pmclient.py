@@ -17,6 +17,8 @@ from typing import Any, NoReturn
 
 from powermap_client import AuthenticatedClient
 from powermap_client.api.public_api import (
+    delete_subscriptions_bulk,
+    discover_subscriptions,
     get_assignment,
     get_change_feed,
     get_jurisdiction,
@@ -26,6 +28,8 @@ from powermap_client.api.public_api import (
     list_assignments,
     list_jurisdictions,
     list_roles,
+    list_subscriptions,
+    register_subscriptions,
     search_orgs,
     search_people,
     submit_assignment_observation,
@@ -37,26 +41,29 @@ from powermap_client.api.public_api import (
 from powermap_client.errors import UnexpectedStatus
 from powermap_client.models import (
     AssignmentObservationRequest,
+    DiscoverSubscriptionsRootType,
     HTTPValidationError,
     JurisdictionObservationRequest,
+    ListSubscriptionsEntityTypeType0,
     OrganizationObservationRequest,
     PeopleObservationRequest,
     RoleObservationRequest,
+    SubscriptionBulkDeleteRequest,
+    SubscriptionRegisterRequest,
 )
 
 from clearinghouse_sync_powermap.client import (
     ChangeItem,
     ChangePage,
     DeliveryBlockedError,
+    DiscoveredEntity,
     EntityPage,
     ObservationResult,
     PayloadRejectedError,
     RetryableClientError,
+    SubscriptionResult,
 )
 from clearinghouse_sync_powermap.descriptors import as_ulid
-
-#: ``since`` is required by the feed; first run (no cursor) starts at the epoch.
-_EPOCH = "1970-01-01T00:00:00Z"
 
 #: Permanent auth/permission statuses: the credential is wrong, not the payload.
 #: Mapped to :class:`DeliveryBlockedError` so the engine parks to UNAVAILABLE.
@@ -168,12 +175,11 @@ class GeneratedPowerMapClient:
             raise PayloadRejectedError(f"PM rejected the request (422): {parsed.to_dict()}")
         return parsed
 
-    async def get_changes(self, since: str | None, limit: int = 100) -> ChangePage:
-        # The generated op types ``since`` as a datetime (calls ``.isoformat()``),
-        # so parse the stored cursor string; first run starts at the epoch.
-        since_dt = datetime.fromisoformat((since or _EPOCH).replace("Z", "+00:00"))
+    async def get_changes(self, after: int | None, limit: int = 100) -> ChangePage:
+        # PM #203: the cursor is an outbox seq_id (``after``, ``>`` exclusive), not a
+        # timestamp. None → 0 ("from the start"); the feed is subscription-filtered.
         feed = await self._send(
-            get_change_feed.asyncio_detailed(client=self._client, since=since_dt, limit=limit)
+            get_change_feed.asyncio_detailed(client=self._client, after=after or 0, limit=limit)
         )
         items = [
             ChangeItem(
@@ -186,7 +192,87 @@ class GeneratedPowerMapClient:
             )
             for ci in feed.data
         ]
-        return ChangePage(items=items, cursor=feed.meta.next_since)
+        return ChangePage(items=items, next_after=feed.meta.next_after)
+
+    async def discover(
+        self,
+        *,
+        root_type: str,
+        root_id: str,
+        follow,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[DiscoveredEntity]:
+        # Paginate the graph traversal internally (PM ``limit``/``offset``); ``follow``
+        # is sent as a single comma-separated string. Returns the flattened candidates.
+        results: list[DiscoveredEntity] = []
+        follow_param = ",".join(follow)
+        root = DiscoverSubscriptionsRootType(root_type)
+        while True:
+            body = await self._send(
+                discover_subscriptions.asyncio_detailed(
+                    client=self._client,
+                    root_type=root,
+                    root_id=root_id,
+                    follow=follow_param,
+                    limit=limit,
+                    offset=offset,
+                )
+            )
+            results.extend(
+                DiscoveredEntity(
+                    entity_type=di.entity_type.value,
+                    entity_id=as_ulid(di.entity_id),
+                    display_name=di.display_name if isinstance(di.display_name, str) else None,
+                    hops_from_root=di.hops_from_root,
+                )
+                for di in body.data
+            )
+            if not body.meta.has_more:
+                return results
+            offset += limit
+
+    async def list_subscriptions(self, *, entity_type: str | None = None) -> list:
+        # Paginate the subscription list; collect just the entity ids (engine diffs ids).
+        ids: list = []
+        offset = 0
+        limit = 100
+        type_param = (
+            ListSubscriptionsEntityTypeType0(entity_type) if entity_type is not None else None
+        )
+        while True:
+            kwargs: dict[str, Any] = {"client": self._client, "limit": limit, "offset": offset}
+            if type_param is not None:
+                kwargs["entity_type"] = type_param
+            body = await self._send(list_subscriptions.asyncio_detailed(**kwargs))
+            ids.extend(as_ulid(item.entity_id) for item in body.data)
+            if not body.meta.has_more:
+                return ids
+            offset += limit
+
+    async def add_subscriptions(self, entity_ids) -> SubscriptionResult:
+        body = await self._send(
+            register_subscriptions.asyncio_detailed(
+                client=self._client,
+                body=SubscriptionRegisterRequest(entity_ids=[str(i) for i in entity_ids]),
+            )
+        )
+        return SubscriptionResult(
+            registered=body.registered,
+            already_subscribed=body.already_subscribed,
+            not_found=[as_ulid(x) for x in body.not_found],
+        )
+
+    async def remove_subscriptions(self, entity_ids) -> int:
+        # Bulk DELETE returns 204 (no count); report the requested count on success.
+        # Unused today (pruning deferred), wired for surface completeness.
+        ids = [str(i) for i in entity_ids]
+        await self._send(
+            delete_subscriptions_bulk.asyncio_detailed(
+                client=self._client, body=SubscriptionBulkDeleteRequest(entity_ids=ids)
+            )
+        )
+        return len(ids)
 
     async def list_entities(self, read_path: str, params: dict | None = None) -> EntityPage:
         caller = self._LIST[read_path]
