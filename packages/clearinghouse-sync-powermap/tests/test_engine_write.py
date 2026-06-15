@@ -289,7 +289,7 @@ async def test_drain_blocked_error_dead_letters_unavailable(db_session, fake_des
     assert "PM 403" in entry.last_error
     # The dead-letter event carries reason="blocked" so an operator can tell an
     # auth block apart from a transport-cap exhaustion (same event name).
-    unavailable = [r for r in caplog.records if r.message == "powermap_observation_unavailable"]
+    unavailable = [r for r in caplog.records if r.msg == "powermap_observation_unavailable"]
     assert [r.reason for r in unavailable] == ["blocked"]
 
 
@@ -363,7 +363,7 @@ async def test_drain_caps_attempts_to_unavailable(db_session, fake_descriptor, c
     assert touched[0].attempts == 3
     assert "PM unreachable" in touched[0].last_error
     # Cap exhaustion is reason="cap_exhausted", distinct from an auth block.
-    unavailable = [r for r in caplog.records if r.message == "powermap_observation_unavailable"]
+    unavailable = [r for r in caplog.records if r.msg == "powermap_observation_unavailable"]
     assert [r.reason for r in unavailable] == ["cap_exhausted"]
 
 
