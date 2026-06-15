@@ -45,8 +45,14 @@ _OPS = (OP_CREATE, OP_UPDATE, OP_ENRICH)
 #: Outbox delivery states.
 STATUS_PENDING = "PENDING"
 STATUS_DELIVERED = "DELIVERED"
+#: PM explicitly rejected the observation (bad/duplicate payload) — terminal; a
+#: blind retry just repeats the rejection. Operator must fix the source data.
 STATUS_REJECTED = "REJECTED"
-_STATUSES = (STATUS_PENDING, STATUS_DELIVERED, STATUS_REJECTED)
+#: Transport-failure cap exhausted (PM unreachable for too long) — terminal but
+#: re-drivable: the same payload will likely succeed once PM recovers. Distinct
+#: from REJECTED so the backlog separates "data bug" from "PM was down".
+STATUS_UNAVAILABLE = "UNAVAILABLE"
+_STATUSES = (STATUS_PENDING, STATUS_DELIVERED, STATUS_REJECTED, STATUS_UNAVAILABLE)
 
 #: PM observation dispositions — values match PM's deployed ``Disposition`` StrEnum
 #: (``src/core/observation.py``): lowercase, hyphenated. Verified 2026-06-06.

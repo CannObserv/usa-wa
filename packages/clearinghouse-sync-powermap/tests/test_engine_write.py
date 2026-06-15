@@ -16,6 +16,7 @@ from clearinghouse_sync_powermap.models import (
     STATUS_DELIVERED,
     STATUS_PENDING,
     STATUS_REJECTED,
+    STATUS_UNAVAILABLE,
     OutboxEntry,
 )
 from clearinghouse_sync_powermap.testing import FakeClient, FakeDescriptor, FakeEntity
@@ -270,6 +271,74 @@ async def test_drain_transient_error_backs_off(db_session, fake_descriptor):
     assert entry.attempts == 1
     assert entry.next_attempt_at == NOW + timedelta(seconds=60)
     assert "PM unreachable" in entry.last_error
+
+
+async def test_drain_caps_attempts_to_unavailable(db_session, fake_descriptor):
+    """After max_attempts transport failures, the entry goes terminal (UNAVAILABLE),
+    not perpetually PENDING — so the operator backlog can see it."""
+    await _add_entity(db_session, source_id="1")
+    client = FakeClient(observation_result=_raise_conn_error)
+    engine = SyncEngine([fake_descriptor], client, max_attempts=3)
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    entry.attempts = 2  # one failure short of the cap
+    await db_session.flush()
+
+    touched = await engine.drain_outbox(db_session, now=NOW)
+
+    assert touched[0].status == STATUS_UNAVAILABLE
+    assert touched[0].attempts == 3
+    assert "PM unreachable" in touched[0].last_error
+
+
+async def test_drain_below_cap_stays_pending(db_session, fake_descriptor):
+    """A failure below the cap reschedules and stays PENDING."""
+    await _add_entity(db_session, source_id="1")
+    client = FakeClient(observation_result=_raise_conn_error)
+    engine = SyncEngine([fake_descriptor], client, max_attempts=3)
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+
+    touched = await engine.drain_outbox(db_session, now=NOW)
+
+    assert touched[0].status == STATUS_PENDING
+    assert touched[0].attempts == 1
+    assert touched[0].next_attempt_at == NOW + timedelta(seconds=60)
+
+
+async def test_drain_unexpected_disposition_counts_toward_cap(db_session, fake_descriptor):
+    """The unexpected-disposition path shares the cap — repeated weirdness is not
+    an infinite PENDING loop either."""
+    await _add_entity(db_session, source_id="1")
+    client = FakeClient(observation_result=ObservationResult("bizarre", None, {}))
+    engine = SyncEngine([fake_descriptor], client, max_attempts=2)
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    entry.attempts = 1  # one short of the cap
+    await db_session.flush()
+
+    touched = await engine.drain_outbox(db_session, now=NOW)
+
+    assert touched[0].status == STATUS_UNAVAILABLE
+    assert "bizarre" in touched[0].last_error
+
+
+async def test_drain_deferral_never_counts_toward_cap(db_session):
+    """deps-not-ready deferral leaves attempts untouched, so it can never trip the
+    transport-failure cap (it is not a delivery failure)."""
+
+    class _Gated(FakeDescriptor):
+        async def dependencies_ready(self, session, row):  # noqa: ARG002
+            return False
+
+    await _add_entity(db_session, source_id="1")
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    engine = SyncEngine([_Gated()], client, max_attempts=1)
+    await engine.sweep_unanchored(db_session, _Gated())
+
+    touched = await engine.drain_outbox(db_session, now=NOW)
+
+    assert touched[0].status == STATUS_PENDING  # not UNAVAILABLE despite max_attempts=1
+    assert touched[0].attempts == 0
 
 
 async def test_drain_respects_next_attempt_at(db_session, fake_descriptor):

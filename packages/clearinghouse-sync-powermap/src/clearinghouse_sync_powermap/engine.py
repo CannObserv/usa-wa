@@ -28,6 +28,7 @@ from clearinghouse_sync_powermap.models import (
     STATUS_DELIVERED,
     STATUS_PENDING,
     STATUS_REJECTED,
+    STATUS_UNAVAILABLE,
     OutboxEntry,
     SyncState,
 )
@@ -37,6 +38,14 @@ logger = get_logger(__name__)
 
 #: SyncState stream key for the shared PM changes feed.
 CHANGES_STREAM = "changes_feed"
+
+#: Default transport-failure retry cap before an entry is dead-lettered to
+#: ``UNAVAILABLE``. Because :func:`retry.backoff` ceilings at 1h after ~7
+#: attempts, the first ~7 attempts burn ~2h of short backoffs and each later
+#: attempt is hourly — so 60 attempts ≈ 2h + 53h ≈ 2.3 days of PM-outage
+#: tolerance before an entry goes terminal. ``next_attempt_at`` deferrals
+#: (dependencies-not-ready) do not increment ``attempts``, so they never count.
+DEFAULT_MAX_ATTEMPTS = 60
 
 #: Outcomes of applying one PM record under LWW (returned for observability/tests).
 APPLY_INSERTED = "inserted"
@@ -67,10 +76,12 @@ class SyncEngine:
         client: PowerMapClient,
         *,
         batch_limit: int = 100,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     ) -> None:
         self._by_type = {d.entity_type: d for d in descriptors}
         self._client = client
         self._batch_limit = batch_limit
+        self._max_attempts = max_attempts
 
     def descriptor_for(self, entity_type: str) -> EntityDescriptor | None:
         return self._by_type.get(entity_type)
@@ -209,18 +220,7 @@ class SyncEngine:
         try:
             result = await self._client.post_observation(descriptor.observe_path, payload)
         except TRANSIENT_EXCEPTIONS as exc:  # back off and retry; bugs propagate
-            entry.attempts += 1
-            entry.next_attempt_at = next_attempt_at(now, entry.attempts)
-            entry.last_error = repr(exc)
-            logger.warning(
-                "powermap_observation_retry",
-                extra={
-                    "entity_type": entry.entity_type,
-                    "local_id": str(entry.local_id),
-                    "attempts": entry.attempts,
-                    "error": repr(exc),
-                },
-            )
+            self._fail_attempt(entry, now, repr(exc))
             return True
 
         entry.last_disposition = result.disposition
@@ -240,18 +240,44 @@ class SyncEngine:
                 },
             )
         else:
-            # Unexpected disposition — treat as transient so an operator can see it.
-            entry.attempts += 1
-            entry.next_attempt_at = next_attempt_at(now, entry.attempts)
-            entry.last_error = f"unexpected disposition: {result.disposition!r}"
-            logger.warning(
-                "powermap_observation_unexpected",
+            # Unexpected disposition — count it as a failed attempt so an operator
+            # can see it and it cannot loop forever.
+            self._fail_attempt(entry, now, f"unexpected disposition: {result.disposition!r}")
+        return True
+
+    def _fail_attempt(self, entry: OutboxEntry, now: datetime, error: str) -> None:
+        """Record one failed delivery attempt: increment ``attempts``, capture the
+        error, and either reschedule (still PENDING) or dead-letter the entry to
+        ``UNAVAILABLE`` once the transport-failure cap is reached.
+
+        Shared by the transient-exception and unexpected-disposition paths so both
+        honour the same cap. Deferrals (dependencies-not-ready) do not route here —
+        they are not delivery failures and must not consume attempts.
+        """
+        entry.attempts += 1
+        entry.last_error = error
+        if entry.attempts >= self._max_attempts:
+            entry.status = STATUS_UNAVAILABLE
+            logger.error(
+                "powermap_observation_unavailable",
                 extra={
                     "entity_type": entry.entity_type,
-                    "disposition": result.disposition,
+                    "local_id": str(entry.local_id),
+                    "attempts": entry.attempts,
+                    "error": error,
                 },
             )
-        return True
+            return
+        entry.next_attempt_at = next_attempt_at(now, entry.attempts)
+        logger.warning(
+            "powermap_observation_retry",
+            extra={
+                "entity_type": entry.entity_type,
+                "local_id": str(entry.local_id),
+                "attempts": entry.attempts,
+                "error": error,
+            },
+        )
 
     # --- read path: LWW reconcile --------------------------------------------
 
