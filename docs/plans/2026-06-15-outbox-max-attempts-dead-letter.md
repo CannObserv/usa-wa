@@ -1,7 +1,7 @@
 ---
 title: Outbox max-attempts dead-letter + stuck-retry visibility (#5)
 date: 2026-06-15
-status: draft
+status: done
 ---
 
 # Outbox max-attempts dead-letter + stuck-retry visibility
