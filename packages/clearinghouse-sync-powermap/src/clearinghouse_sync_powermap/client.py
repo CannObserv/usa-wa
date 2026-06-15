@@ -34,6 +34,28 @@ class RetryableClientError(Exception):
     """
 
 
+class DeliveryBlockedError(Exception):
+    """A permanent transport/auth rejection that no retry will clear without
+    operator intervention (e.g. a PM ``403 Insufficient scope`` or ``401``).
+
+    Portable counterpart to :class:`RetryableClientError`: a concrete client
+    raises this for non-retryable auth/permission statuses so the engine can park
+    the entry to ``UNAVAILABLE`` (re-drivable once the credential is fixed) instead
+    of letting an SDK exception escape and roll back the whole sync cycle. Recovery
+    is operator-driven: fix the key/scope, then ``redrive_unavailable``.
+    """
+
+
+class PayloadRejectedError(Exception):
+    """PM permanently refused the request payload (e.g. a ``422`` schema-validation
+    failure, or another non-auth ``4xx``).
+
+    Distinct from :class:`DeliveryBlockedError`: the fix is to the data/payload, not
+    the credential, so the engine parks the entry to ``REJECTED`` — the re-sweepable
+    terminal state — rather than re-attempting a request that will never validate.
+    """
+
+
 @dataclass(frozen=True)
 class ObservationResult:
     """Outcome of a single ``POST .../observations`` call."""

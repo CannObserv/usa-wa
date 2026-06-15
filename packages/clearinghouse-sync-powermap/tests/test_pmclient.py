@@ -12,7 +12,11 @@ import pytest
 import respx
 from ulid import ULID
 
-from clearinghouse_sync_powermap.client import RetryableClientError
+from clearinghouse_sync_powermap.client import (
+    DeliveryBlockedError,
+    PayloadRejectedError,
+    RetryableClientError,
+)
 from clearinghouse_sync_powermap.models import DISPOSITION_NEW, DISPOSITION_REJECTED
 from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 
@@ -208,11 +212,14 @@ async def test_get_entity_success_returns_dict(client):
 
 
 @respx.mock
-async def test_get_entity_non_404_status_reraises(client):
+async def test_get_entity_403_raises_blocked(client):
+    """A non-retryable auth/scope status (403) maps to the portable
+    DeliveryBlockedError, not a raw SDK UnexpectedStatus — so the engine can park
+    it without importing the generated client's exceptions."""
     pm_id = ULID()
     respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(return_value=httpx.Response(403))
 
-    with pytest.raises(Exception):  # noqa: B017 — generated UnexpectedStatus, not retryable
+    with pytest.raises(DeliveryBlockedError):
         await client.get_entity("/api/v1/jurisdictions", pm_id)
 
 
@@ -257,14 +264,45 @@ async def test_5xx_is_retryable(client):
 
 
 @respx.mock
-async def test_422_raises_value_error(client):
+async def test_422_raises_payload_rejected(client):
+    """A 422 schema rejection maps to PayloadRejectedError — a permanent payload
+    refusal the engine parks to REJECTED rather than crash-looping the cycle."""
     respx.post(f"{BASE}/api/v1/jurisdictions/observations").mock(
         return_value=httpx.Response(
             422, json={"detail": [{"loc": ["body", "name"], "msg": "field required", "type": "x"}]}
         )
     )
 
-    with pytest.raises(ValueError, match="422"):
+    with pytest.raises(PayloadRejectedError, match="422"):
+        await client.post_observation(
+            "/api/v1/jurisdictions/observations",
+            {"identifier_type": "t", "identifier_value": "v", "slug": "s", "name": "n"},
+        )
+
+
+@respx.mock
+async def test_post_observation_403_raises_blocked(client):
+    """403 insufficient-scope on a write → DeliveryBlockedError (operator fixes the
+    key, then redrives), not a raw UnexpectedStatus that would escape the engine."""
+    respx.post(f"{BASE}/api/v1/jurisdictions/observations").mock(
+        return_value=httpx.Response(403, json={"detail": "Insufficient scope"})
+    )
+
+    with pytest.raises(DeliveryBlockedError):
+        await client.post_observation(
+            "/api/v1/jurisdictions/observations",
+            {"identifier_type": "t", "identifier_value": "v", "slug": "s", "name": "n"},
+        )
+
+
+@respx.mock
+async def test_post_observation_400_raises_payload_rejected(client):
+    """A non-auth permanent 4xx (e.g. 400) is treated as a payload refusal → REJECTED."""
+    respx.post(f"{BASE}/api/v1/jurisdictions/observations").mock(
+        return_value=httpx.Response(400, json={"detail": "bad request"})
+    )
+
+    with pytest.raises(PayloadRejectedError):
         await client.post_observation(
             "/api/v1/jurisdictions/observations",
             {"identifier_type": "t", "identifier_value": "v", "slug": "s", "name": "n"},

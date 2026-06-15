@@ -47,8 +47,10 @@ from powermap_client.models import (
 from clearinghouse_sync_powermap.client import (
     ChangeItem,
     ChangePage,
+    DeliveryBlockedError,
     EntityPage,
     ObservationResult,
+    PayloadRejectedError,
     RetryableClientError,
 )
 from clearinghouse_sync_powermap.descriptors import as_ulid
@@ -56,10 +58,26 @@ from clearinghouse_sync_powermap.descriptors import as_ulid
 #: ``since`` is required by the feed; first run (no cursor) starts at the epoch.
 _EPOCH = "1970-01-01T00:00:00Z"
 
+#: Permanent auth/permission statuses: the credential is wrong, not the payload.
+#: Mapped to :class:`DeliveryBlockedError` so the engine parks to UNAVAILABLE.
+_BLOCKED_STATUSES = frozenset({401, 403})
+
 
 def _retryable(exc: UnexpectedStatus) -> bool:
     """Worth a backoff retry: rate-limit (429) or any server error (5xx)."""
     return exc.status_code == 429 or exc.status_code >= 500
+
+
+def _raise_mapped(exc: UnexpectedStatus) -> None:
+    """Translate a non-retryable SDK ``UnexpectedStatus`` into the engine's portable
+    permanent-failure vocabulary. Caller has already ruled out retryable statuses.
+
+    - 401/403 → :class:`DeliveryBlockedError` (auth/scope; park to UNAVAILABLE).
+    - any other 4xx → :class:`PayloadRejectedError` (payload refused; park to REJECTED).
+    """
+    if exc.status_code in _BLOCKED_STATUSES:
+        raise DeliveryBlockedError(f"PM {exc.status_code}") from exc
+    raise PayloadRejectedError(f"PM {exc.status_code}") from exc
 
 
 def _parse_ts(value: str | None) -> datetime | None:
@@ -132,17 +150,19 @@ class GeneratedPowerMapClient:
         )
 
     async def _send(self, awaitable):
-        """Await a generated op; map 5xx/429 to a retryable error and a 422
-        ``HTTPValidationError`` body to a clear ``ValueError``."""
+        """Await a generated op; map 5xx/429 to a retryable error, permanent auth
+        statuses to :class:`DeliveryBlockedError`, and a non-retryable 4xx (incl. a
+        422 ``HTTPValidationError`` body) to :class:`PayloadRejectedError` — so no
+        raw SDK exception escapes to crash-loop the sync cycle."""
         try:
             resp = await awaitable
         except UnexpectedStatus as exc:
             if _retryable(exc):
                 raise RetryableClientError(f"PM {exc.status_code}") from exc
-            raise
+            _raise_mapped(exc)
         parsed = resp.parsed
         if isinstance(parsed, HTTPValidationError):
-            raise ValueError(f"PM rejected the request (422): {parsed.to_dict()}")
+            raise PayloadRejectedError(f"PM rejected the request (422): {parsed.to_dict()}")
         return parsed
 
     async def get_changes(self, since: str | None, limit: int = 100) -> ChangePage:
@@ -182,7 +202,7 @@ class GeneratedPowerMapClient:
                 return None  # entity gone (e.g. deleted between feed and fetch)
             if _retryable(exc):
                 raise RetryableClientError(f"PM {exc.status_code}") from exc
-            raise
+            _raise_mapped(exc)
         parsed = resp.parsed
         if parsed is None or isinstance(parsed, HTTPValidationError):
             return None

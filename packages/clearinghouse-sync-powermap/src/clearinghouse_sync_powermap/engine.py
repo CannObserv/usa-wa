@@ -7,8 +7,11 @@ owns the loops and the wall clock; this class owns the per-cycle work.
 
 Write path (this module, step 3):
     sweep_unanchored → enqueue CREATE
-    drain_outbox     → post observations, settle dispositions, back off on error,
-                       dead-letter to UNAVAILABLE once the retry cap is exhausted
+    drain_outbox     → post observations, settle dispositions, back off on transient
+                       error, dead-letter to UNAVAILABLE once the retry cap is
+                       exhausted (or immediately on a permanent auth/scope block),
+                       and park to REJECTED on a permanent payload refusal — a poison
+                       entry parks itself rather than rolling back the whole cycle.
 """
 
 import asyncio
@@ -21,7 +24,12 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.logging import get_logger
-from clearinghouse_sync_powermap.client import PowerMapClient, RetryableClientError
+from clearinghouse_sync_powermap.client import (
+    DeliveryBlockedError,
+    PayloadRejectedError,
+    PowerMapClient,
+    RetryableClientError,
+)
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.models import (
     OP_CREATE,
@@ -250,6 +258,16 @@ class SyncEngine:
         except TRANSIENT_EXCEPTIONS as exc:  # back off and retry; bugs propagate
             self._fail_attempt(entry, now, repr(exc))
             return True
+        except DeliveryBlockedError as exc:
+            # Permanent auth/scope rejection (e.g. 403): no retry clears it and the
+            # cycle must not roll back, so dead-letter the entry now and continue.
+            self._park_blocked(entry, repr(exc))
+            return True
+        except PayloadRejectedError as exc:
+            # PM refused the payload (e.g. 422): park to the re-sweepable REJECTED
+            # terminal state, like a `rejected` disposition, instead of crash-looping.
+            self._reject(entry, repr(exc))
+            return True
 
         entry.last_disposition = result.disposition
         if result.anchored:
@@ -257,21 +275,50 @@ class SyncEngine:
             entry.status = STATUS_DELIVERED
             entry.last_error = None
         elif result.rejected:
-            entry.status = STATUS_REJECTED
-            entry.last_error = str(result.raw)
-            logger.error(
-                "powermap_observation_rejected",
-                extra={
-                    "entity_type": entry.entity_type,
-                    "local_id": str(entry.local_id),
-                    "raw": result.raw,
-                },
-            )
+            self._reject(entry, str(result.raw), raw=result.raw)
         else:
             # Unexpected disposition — count it as a failed attempt so an operator
             # can see it and it cannot loop forever.
             self._fail_attempt(entry, now, f"unexpected disposition: {result.disposition!r}")
         return True
+
+    def _reject(self, entry: OutboxEntry, error: str, *, raw: dict | None = None) -> None:
+        """Park an entry to the ``REJECTED`` terminal state (PM refused the payload).
+
+        Shared by the ``rejected`` disposition path and the permanent payload-error
+        path. ``REJECTED`` is re-sweepable: once the data is fixed, the next sweep
+        re-enqueues the corrected row.
+        """
+        entry.status = STATUS_REJECTED
+        entry.last_error = error
+        logger.error(
+            "powermap_observation_rejected",
+            extra={
+                "entity_type": entry.entity_type,
+                "local_id": str(entry.local_id),
+                "raw": raw,
+            },
+        )
+
+    def _park_blocked(self, entry: OutboxEntry, error: str) -> None:
+        """Immediately dead-letter a permanently-blocked entry to ``UNAVAILABLE``.
+
+        Unlike :meth:`_fail_attempt`, this does not consume the retry budget — a
+        permanent auth/scope rejection (e.g. 403) will never succeed on retry, so
+        burning ``max_attempts`` cycles on it is pure waste. Recovery is
+        operator-driven: fix the credential/scope, then :meth:`redrive_unavailable`.
+        """
+        entry.status = STATUS_UNAVAILABLE
+        entry.last_error = error
+        logger.error(
+            "powermap_observation_unavailable",
+            extra={
+                "entity_type": entry.entity_type,
+                "local_id": str(entry.local_id),
+                "attempts": entry.attempts,
+                "error": error,
+            },
+        )
 
     def _fail_attempt(self, entry: OutboxEntry, now: datetime, error: str) -> None:
         """Record one failed delivery attempt: increment ``attempts``, capture the

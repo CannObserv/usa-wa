@@ -6,7 +6,11 @@ import pytest
 from sqlalchemy import select
 from ulid import ULID
 
-from clearinghouse_sync_powermap.client import ObservationResult
+from clearinghouse_sync_powermap.client import (
+    DeliveryBlockedError,
+    ObservationResult,
+    PayloadRejectedError,
+)
 from clearinghouse_sync_powermap.engine import SyncEngine, outbox_backlog
 from clearinghouse_sync_powermap.models import (
     DISPOSITION_AUTO_ATTACHED,
@@ -256,6 +260,69 @@ async def test_drain_rejected_marks_terminal(db_session, fake_descriptor):
     assert touched[0].status == STATUS_REJECTED
     assert "dupe" in touched[0].last_error
     assert row.pm_fake_id is None  # unresolved, awaits operator
+
+
+def _raise_blocked(payload):
+    raise DeliveryBlockedError("PM 403")
+
+
+def _raise_payload_rejected(payload):
+    raise PayloadRejectedError("PM 422: name required")
+
+
+async def test_drain_blocked_error_dead_letters_unavailable(db_session, fake_descriptor):
+    """A permanent transport/auth rejection (e.g. 403 insufficient scope) parks the
+    entry to UNAVAILABLE immediately — it does NOT propagate (which would roll back
+    the whole cycle) and does NOT burn the retry budget (a 403 never recovers on
+    retry; the operator fixes the key, then redrives)."""
+    await _add_entity(db_session, source_id="1")
+    client = FakeClient(observation_result=_raise_blocked)
+    engine = SyncEngine([fake_descriptor], client)
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+
+    touched = await engine.drain_outbox(db_session, now=NOW)
+
+    entry = touched[0]
+    assert entry.status == STATUS_UNAVAILABLE
+    assert entry.attempts == 0  # parked immediately, not retried to the cap
+    assert "PM 403" in entry.last_error
+
+
+async def test_drain_blocked_error_does_not_starve_siblings(db_session, fake_descriptor):
+    """One poison entry parks itself; the drain continues and delivers the rest."""
+    await _add_entity(db_session, source_id="1")  # will be blocked
+    good = await _add_entity(db_session, source_id="2")  # must still deliver
+
+    def _route(payload):
+        if payload["source_id"] == "1":
+            raise DeliveryBlockedError("PM 403")
+        return ObservationResult(DISPOSITION_NEW, ULID(), {})
+
+    engine = SyncEngine([fake_descriptor], FakeClient(observation_result=_route))
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+
+    await engine.drain_outbox(db_session, now=NOW)
+
+    by_local = {
+        e.local_id: e for e in (await db_session.execute(select(OutboxEntry))).scalars().all()
+    }
+    assert by_local[good.id].status == STATUS_DELIVERED
+    await db_session.refresh(good)
+    assert good.pm_fake_id is not None
+
+
+async def test_drain_payload_rejected_marks_terminal(db_session, fake_descriptor):
+    """A payload-validation rejection (e.g. PM 422) parks the entry to REJECTED — the
+    re-sweepable 'fix the data' terminal state — not UNAVAILABLE, and never propagates."""
+    row = await _add_entity(db_session, source_id="1")
+    engine = SyncEngine([fake_descriptor], FakeClient(observation_result=_raise_payload_rejected))
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+
+    touched = await engine.drain_outbox(db_session, now=NOW)
+
+    assert touched[0].status == STATUS_REJECTED
+    assert "422" in touched[0].last_error
+    assert row.pm_fake_id is None
 
 
 async def test_drain_transient_error_backs_off(db_session, fake_descriptor):
