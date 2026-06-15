@@ -7,8 +7,10 @@ entity names are baked in here.
 
 - :class:`OutboxEntry` — the local→PM delivery ledger. One open (``PENDING``)
   row per source row at a time (partial-unique index); the worker re-reads the
-  source row at send time, so no payload is stored. ``REJECTED`` rows persist as
-  the operator backlog.
+  source row at send time, so no payload is stored. Two terminal backlogs persist
+  for the operator: ``REJECTED`` (PM refused the payload — fix the data) and
+  ``UNAVAILABLE`` (transport-failure cap exhausted — re-drivable once PM
+  recovers, see ``SyncEngine.redrive_unavailable``).
 - :class:`SyncState` — per-stream cursor + last-reconcile stamp. One row per
   logical stream (e.g. ``changes_feed``, or per-entity reconcile keys).
 """

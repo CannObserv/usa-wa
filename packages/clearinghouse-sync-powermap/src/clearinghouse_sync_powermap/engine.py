@@ -7,7 +7,8 @@ owns the loops and the wall clock; this class owns the per-cycle work.
 
 Write path (this module, step 3):
     sweep_unanchored → enqueue CREATE
-    drain_outbox     → post observations, settle dispositions, back off on error
+    drain_outbox     → post observations, settle dispositions, back off on error,
+                       dead-letter to UNAVAILABLE once the retry cap is exhausted
 """
 
 import asyncio
@@ -302,36 +303,11 @@ class SyncEngine:
     async def backlog(self, session: AsyncSession, *, now: datetime) -> OutboxBacklog:
         """Summarise the outbox for an operator/alerting surface.
 
-        Counts entries by status and reports how overdue/old the open work is, so
-        a perpetually-retrying or dead-lettered row is visible rather than buried.
+        Thin instance wrapper over :func:`outbox_backlog` (the read needs no
+        descriptors or client, so the HTTP surface can call the free function
+        without constructing an engine).
         """
-        by_status = (
-            await session.execute(
-                select(
-                    OutboxEntry.status,
-                    func.count(),
-                    func.min(OutboxEntry.created_at),
-                ).group_by(OutboxEntry.status)
-            )
-        ).all()
-        counts = {status: (n, oldest) for status, n, oldest in by_status}
-        pending_n, oldest_pending = counts.get(STATUS_PENDING, (0, None))
-        pending_due = (
-            await session.execute(
-                select(func.count()).where(
-                    OutboxEntry.status == STATUS_PENDING,
-                    OutboxEntry.next_attempt_at <= now,
-                )
-            )
-        ).scalar_one()
-        age = (now - oldest_pending).total_seconds() if oldest_pending is not None else None
-        return OutboxBacklog(
-            pending=pending_n,
-            pending_due=pending_due,
-            rejected=counts.get(STATUS_REJECTED, (0, None))[0],
-            unavailable=counts.get(STATUS_UNAVAILABLE, (0, None))[0],
-            oldest_pending_age_seconds=age,
-        )
+        return await outbox_backlog(session, now=now)
 
     async def redrive_unavailable(self, session: AsyncSession, *, now: datetime) -> int:
         """Reset dead-lettered (``UNAVAILABLE``) entries back to ``PENDING``, due now.
@@ -489,6 +465,43 @@ class SyncEngine:
             session.add(state)
             await session.flush()
         return state
+
+
+async def outbox_backlog(session: AsyncSession, *, now: datetime) -> OutboxBacklog:
+    """Summarise the outbox by status for an operator/alerting surface.
+
+    Counts entries by status and reports how overdue/old the open work is, so a
+    perpetually-retrying or dead-lettered row is visible rather than buried. Free
+    function (no descriptors/client needed) so the HTTP health surface can read
+    the backlog without building a :class:`SyncEngine`.
+    """
+    by_status = (
+        await session.execute(
+            select(
+                OutboxEntry.status,
+                func.count(),
+                func.min(OutboxEntry.created_at),
+            ).group_by(OutboxEntry.status)
+        )
+    ).all()
+    counts = {status: (n, oldest) for status, n, oldest in by_status}
+    pending_n, oldest_pending = counts.get(STATUS_PENDING, (0, None))
+    pending_due = (
+        await session.execute(
+            select(func.count()).where(
+                OutboxEntry.status == STATUS_PENDING,
+                OutboxEntry.next_attempt_at <= now,
+            )
+        )
+    ).scalar_one()
+    age = (now - oldest_pending).total_seconds() if oldest_pending is not None else None
+    return OutboxBacklog(
+        pending=pending_n,
+        pending_due=pending_due,
+        rejected=counts.get(STATUS_REJECTED, (0, None))[0],
+        unavailable=counts.get(STATUS_UNAVAILABLE, (0, None))[0],
+        oldest_pending_age_seconds=age,
+    )
 
 
 def _reconcile_stream(descriptor: EntityDescriptor) -> str:

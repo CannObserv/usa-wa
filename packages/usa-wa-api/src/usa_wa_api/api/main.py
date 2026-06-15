@@ -1,15 +1,20 @@
 """FastAPI application entry point."""
 
 from contextlib import asynccontextmanager
+from dataclasses import asdict
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.config import get_settings
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_sync_powermap.engine import outbox_backlog
+from usa_wa_api.api.deps import get_db_session
 
 logger = get_logger(__name__)
 
@@ -44,6 +49,15 @@ async def ready() -> JSONResponse:
             return JSONResponse(status_code=200, content={"status": "ready", "db": True})
         except SQLAlchemyError:
             return JSONResponse(status_code=503, content={"status": "not_ready", "db": False})
+
+
+@health_router.get("/health/sync")
+async def health_sync(session: AsyncSession = Depends(get_db_session)) -> dict:
+    """PM-sync outbox backlog — terminal piles (rejected/unavailable) + overdue
+    PENDING work, so a stuck or dead-lettered entry is visible. Unauthenticated,
+    alongside ``/health``."""
+    backlog = await outbox_backlog(session, now=datetime.now(UTC))
+    return asdict(backlog)
 
 
 app.include_router(health_router)
