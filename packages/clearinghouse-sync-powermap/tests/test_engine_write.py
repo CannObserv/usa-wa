@@ -382,6 +382,88 @@ async def test_drain_propagates_non_transient_error(db_session, fake_descriptor)
         await engine.drain_outbox(db_session, now=NOW)
 
 
+async def test_backlog_counts_by_status(db_session, fake_descriptor):
+    """backlog() exposes the operator view: terminal piles + overdue PENDING +
+    oldest-pending age, so stuck entries are visible instead of buried."""
+    base = datetime(2099, 1, 1, tzinfo=UTC)
+    rows = [
+        # status, next_attempt_at, created_at
+        (STATUS_PENDING, base - timedelta(hours=1), base - timedelta(hours=3)),  # overdue
+        (STATUS_PENDING, base + timedelta(hours=1), base - timedelta(hours=2)),  # not yet due
+        (STATUS_REJECTED, base, base - timedelta(hours=5)),
+        (STATUS_UNAVAILABLE, base, base - timedelta(hours=5)),
+        (STATUS_UNAVAILABLE, base, base - timedelta(hours=5)),
+        (STATUS_DELIVERED, base, base - timedelta(hours=9)),  # settled, not backlog
+    ]
+    for i, (status, nxt, created) in enumerate(rows):
+        db_session.add(
+            OutboxEntry(
+                entity_type="fake",
+                local_id=ULID(),
+                op=OP_CREATE,
+                status=status,
+                next_attempt_at=nxt,
+                created_at=created,
+            )
+        )
+    await db_session.flush()
+    engine = SyncEngine([fake_descriptor], FakeClient())
+
+    backlog = await engine.backlog(db_session, now=base)
+
+    assert backlog.pending == 2
+    assert backlog.pending_due == 1
+    assert backlog.rejected == 1
+    assert backlog.unavailable == 2
+    # Oldest pending was created 3h before `now`.
+    assert backlog.oldest_pending_age_seconds == pytest.approx(3 * 3600)
+
+
+async def test_backlog_empty_when_no_pending(db_session, fake_descriptor):
+    engine = SyncEngine([fake_descriptor], FakeClient())
+
+    backlog = await engine.backlog(db_session, now=NOW)
+
+    assert backlog.pending == 0
+    assert backlog.pending_due == 0
+    assert backlog.oldest_pending_age_seconds is None
+
+
+async def test_redrive_resets_unavailable_to_pending(db_session, fake_descriptor):
+    """Re-drive returns dead-lettered entries to PENDING and due-now, so the next
+    drain re-attempts them once PM has recovered. REJECTED is left alone."""
+    base = datetime(2099, 1, 1, tzinfo=UTC)
+    unavailable = OutboxEntry(
+        entity_type="fake",
+        local_id=ULID(),
+        op=OP_CREATE,
+        status=STATUS_UNAVAILABLE,
+        attempts=60,
+        next_attempt_at=base + timedelta(hours=1),
+        last_error="PM unreachable",
+    )
+    rejected = OutboxEntry(
+        entity_type="fake",
+        local_id=ULID(),
+        op=OP_CREATE,
+        status=STATUS_REJECTED,
+        attempts=1,
+    )
+    db_session.add_all([unavailable, rejected])
+    await db_session.flush()
+    engine = SyncEngine([fake_descriptor], FakeClient())
+
+    count = await engine.redrive_unavailable(db_session, now=base)
+
+    assert count == 1
+    await db_session.refresh(unavailable)
+    await db_session.refresh(rejected)
+    assert unavailable.status == STATUS_PENDING
+    assert unavailable.attempts == 0
+    assert unavailable.next_attempt_at == base  # due immediately
+    assert rejected.status == STATUS_REJECTED  # untouched — a data bug, not an outage
+
+
 async def test_drain_skips_dormant_type(db_session, fake_descriptor):
     """A write-disabled descriptor's entries are left untouched, not spun on."""
 

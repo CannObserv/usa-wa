@@ -12,10 +12,11 @@ Write path (this module, step 3):
 
 import asyncio
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.logging import get_logger
@@ -65,6 +66,23 @@ TRANSIENT_EXCEPTIONS = (
     TimeoutError,
     asyncio.TimeoutError,
 )
+
+
+@dataclass(frozen=True)
+class OutboxBacklog:
+    """Operator view of the outbox: terminal piles + overdue/aging PENDING work.
+
+    ``pending`` counts all open entries; ``pending_due`` the subset already past
+    ``next_attempt_at`` (i.e. should have been delivered by now). ``rejected`` and
+    ``unavailable`` are the two terminal backlogs an operator must act on.
+    ``oldest_pending_age_seconds`` is None when nothing is pending.
+    """
+
+    pending: int
+    pending_due: int
+    rejected: int
+    unavailable: int
+    oldest_pending_age_seconds: float | None
 
 
 class SyncEngine:
@@ -278,6 +296,68 @@ class SyncEngine:
                 "error": error,
             },
         )
+
+    # --- operator surface -----------------------------------------------------
+
+    async def backlog(self, session: AsyncSession, *, now: datetime) -> OutboxBacklog:
+        """Summarise the outbox for an operator/alerting surface.
+
+        Counts entries by status and reports how overdue/old the open work is, so
+        a perpetually-retrying or dead-lettered row is visible rather than buried.
+        """
+        by_status = (
+            await session.execute(
+                select(
+                    OutboxEntry.status,
+                    func.count(),
+                    func.min(OutboxEntry.created_at),
+                ).group_by(OutboxEntry.status)
+            )
+        ).all()
+        counts = {status: (n, oldest) for status, n, oldest in by_status}
+        pending_n, oldest_pending = counts.get(STATUS_PENDING, (0, None))
+        pending_due = (
+            await session.execute(
+                select(func.count()).where(
+                    OutboxEntry.status == STATUS_PENDING,
+                    OutboxEntry.next_attempt_at <= now,
+                )
+            )
+        ).scalar_one()
+        age = (now - oldest_pending).total_seconds() if oldest_pending is not None else None
+        return OutboxBacklog(
+            pending=pending_n,
+            pending_due=pending_due,
+            rejected=counts.get(STATUS_REJECTED, (0, None))[0],
+            unavailable=counts.get(STATUS_UNAVAILABLE, (0, None))[0],
+            oldest_pending_age_seconds=age,
+        )
+
+    async def redrive_unavailable(self, session: AsyncSession, *, now: datetime) -> int:
+        """Reset dead-lettered (``UNAVAILABLE``) entries back to ``PENDING``, due now.
+
+        For operator use once PM has recovered: the same payloads are re-attempted
+        on the next drain. ``REJECTED`` entries are intentionally left untouched —
+        those are payload-level refusals, not transport outages, so a blind retry
+        would just repeat the rejection. No user-friendly trigger yet (#16).
+        """
+        entries = (
+            (
+                await session.execute(
+                    select(OutboxEntry).where(OutboxEntry.status == STATUS_UNAVAILABLE)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for entry in entries:
+            entry.status = STATUS_PENDING
+            entry.attempts = 0
+            entry.next_attempt_at = now
+        await session.flush()
+        if entries:
+            logger.info("powermap_outbox_redriven", extra={"count": len(entries)})
+        return len(entries)
 
     # --- read path: LWW reconcile --------------------------------------------
 
