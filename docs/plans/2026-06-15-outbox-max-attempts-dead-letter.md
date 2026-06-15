@@ -69,10 +69,11 @@ of this plan (tracked as a follow-up) to keep this change focused.
    now, error)` helper that increments `attempts`, sets `last_error`, and either
    reschedules (`PENDING`) or flips to `UNAVAILABLE` with an error-level
    `powermap_observation_unavailable` log. Route both the `TRANSIENT_EXCEPTIONS`
-   branch and the unexpected-disposition branch through it. Document the
-   attempts↔wall-clock relationship (delay ceilings at 1h after ~7 attempts, so
-   beyond that `attempts` ≈ hours of outage) and pick a default mapping to a
-   couple of days. Verify: new tests pass, existing write tests still pass.
+   branch and the unexpected-disposition branch through it. Default
+   `max_attempts = 60` (≈ 2.3 days: the first ~7 attempts burn ~2h of short
+   backoffs, then each is hourly at the 1h ceiling, so total ≈ 2h + 53h).
+   Document the attempts↔wall-clock relationship in the docstring. Verify: new
+   tests pass, existing write tests still pass.
 3. **Backlog query.** Test-first: a method returning counts by status (overdue
    `PENDING`, `REJECTED`, `UNAVAILABLE`) plus oldest-pending age. Implement
    `async def backlog(session)` on `SyncEngine`, backed by the existing
@@ -91,15 +92,12 @@ of this plan (tracked as a follow-up) to keep this change focused.
    `REJECTED` vs `UNAVAILABLE` split and the re-drive path. Verify: docstring
    matches behavior; `ruff check` clean.
 
-## Open questions / risks
+## Open questions / risks (resolved)
 
-- **Default `max_attempts` value.** Proposal: pick a value mapping to ~2–3 days
-  of PM outage tolerance (≈ `48`–`72`, since attempts ≈ hours after the backoff
-  ceiling). Confirm the target SLA.
-- **Re-drive surface.** Step 5 ships an engine method only. Does the operator
-  also need an HTTP/CLI trigger to invoke it, or is a one-off DB/REPL call
-  acceptable for now?
-- **Deps-not-ready forever-defer** is intentionally out of scope here — confirm
-  it should be split into its own follow-up issue rather than folded in.
-- **`/health/sync` exposure.** The endpoint reveals sync internals; confirm
-  whether it needs auth or can sit alongside the unauthenticated `/health`.
+- **Default `max_attempts` value.** Resolved: `60` (~2.3 days of PM outage
+  tolerance). See step 2.
+- **Re-drive surface.** Resolved: engine method only for now; DB/REPL invocation
+  is acceptable. User-friendly trigger (HTTP/CLI) deferred to #16.
+- **Deps-not-ready forever-defer.** Resolved: out of scope; split into #15.
+- **`/health/sync` exposure.** Resolved: sits alongside the unauthenticated
+  `/health` — no auth.
