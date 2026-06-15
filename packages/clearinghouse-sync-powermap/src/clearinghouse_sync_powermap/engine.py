@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.logging import get_logger
@@ -48,6 +48,14 @@ CHANGES_STREAM = "changes_feed"
 #: tolerance before an entry goes terminal. ``next_attempt_at`` deferrals
 #: (dependencies-not-ready) do not increment ``attempts``, so they never count.
 DEFAULT_MAX_ATTEMPTS = 60
+
+#: Statuses that block re-enqueue of the same source row. PENDING is the open
+#: delivery; UNAVAILABLE is a dead-letter that must not be silently re-minted by
+#: the sweep (else the cap never halts retries, UNAVAILABLE rows accumulate, and
+#: a redrive would collide with the fresh PENDING on ``uq_powermap_outbox_open``).
+#: REJECTED is intentionally excluded: it signals a data fix, after which the next
+#: sweep should re-enqueue and re-attempt the corrected row.
+_REENQUEUE_BLOCKING_STATUSES = (STATUS_PENDING, STATUS_UNAVAILABLE)
 
 #: Outcomes of applying one PM record under LWW (returned for observability/tests).
 APPLY_INSERTED = "inserted"
@@ -107,13 +115,13 @@ class SyncEngine:
 
     # --- enqueue helpers ------------------------------------------------------
 
-    async def _has_open_entry(self, session: AsyncSession, entity_type: str, local_id) -> bool:
+    async def _has_blocking_entry(self, session: AsyncSession, entity_type: str, local_id) -> bool:
         existing = (
             await session.execute(
                 select(OutboxEntry.id).where(
                     OutboxEntry.entity_type == entity_type,
                     OutboxEntry.local_id == local_id,
-                    OutboxEntry.status == STATUS_PENDING,
+                    OutboxEntry.status.in_(_REENQUEUE_BLOCKING_STATUSES),
                 )
             )
         ).first()
@@ -122,9 +130,10 @@ class SyncEngine:
     async def _enqueue(
         self, session: AsyncSession, descriptor: EntityDescriptor, row, op: str
     ) -> OutboxEntry | None:
-        """Insert an outbox entry unless one is already open for this row."""
+        """Insert an outbox entry unless an open or dead-lettered one already exists
+        for this row (see :data:`_REENQUEUE_BLOCKING_STATUSES`)."""
         local_id = row.id
-        if await self._has_open_entry(session, descriptor.entity_type, local_id):
+        if await self._has_blocking_entry(session, descriptor.entity_type, local_id):
             return None
         entry = OutboxEntry(entity_type=descriptor.entity_type, local_id=local_id, op=op)
         session.add(entry)
@@ -300,40 +309,29 @@ class SyncEngine:
 
     # --- operator surface -----------------------------------------------------
 
-    async def backlog(self, session: AsyncSession, *, now: datetime) -> OutboxBacklog:
-        """Summarise the outbox for an operator/alerting surface.
-
-        Thin instance wrapper over :func:`outbox_backlog` (the read needs no
-        descriptors or client, so the HTTP surface can call the free function
-        without constructing an engine).
-        """
-        return await outbox_backlog(session, now=now)
-
     async def redrive_unavailable(self, session: AsyncSession, *, now: datetime) -> int:
         """Reset dead-lettered (``UNAVAILABLE``) entries back to ``PENDING``, due now.
 
-        For operator use once PM has recovered: the same payloads are re-attempted
-        on the next drain. ``REJECTED`` entries are intentionally left untouched —
-        those are payload-level refusals, not transport outages, so a blind retry
-        would just repeat the rejection. No user-friendly trigger yet (#16).
+        For operator use once PM has recovered: attempts are zeroed, the stale
+        ``last_error`` is cleared, and the same payloads are re-attempted on the
+        next drain. ``REJECTED`` entries are intentionally left untouched — those
+        are payload-level refusals, not transport outages, so a blind retry would
+        just repeat the rejection. No user-friendly trigger yet (#16).
+
+        Safe against ``uq_powermap_outbox_open`` because the enqueue guard
+        (:data:`_REENQUEUE_BLOCKING_STATUSES`) keeps at most one PENDING/UNAVAILABLE
+        entry per source row, so flipping never creates a second open row.
         """
-        entries = (
-            (
-                await session.execute(
-                    select(OutboxEntry).where(OutboxEntry.status == STATUS_UNAVAILABLE)
-                )
-            )
-            .scalars()
-            .all()
+        result = await session.execute(
+            update(OutboxEntry)
+            .where(OutboxEntry.status == STATUS_UNAVAILABLE)
+            .values(status=STATUS_PENDING, attempts=0, next_attempt_at=now, last_error=None)
+            .execution_options(synchronize_session=False)
         )
-        for entry in entries:
-            entry.status = STATUS_PENDING
-            entry.attempts = 0
-            entry.next_attempt_at = now
-        await session.flush()
-        if entries:
-            logger.info("powermap_outbox_redriven", extra={"count": len(entries)})
-        return len(entries)
+        count = result.rowcount
+        if count:
+            logger.info("powermap_outbox_redriven", extra={"count": count})
+        return count
 
     # --- read path: LWW reconcile --------------------------------------------
 

@@ -7,7 +7,7 @@ from sqlalchemy import select
 from ulid import ULID
 
 from clearinghouse_sync_powermap.client import ObservationResult
-from clearinghouse_sync_powermap.engine import SyncEngine
+from clearinghouse_sync_powermap.engine import SyncEngine, outbox_backlog
 from clearinghouse_sync_powermap.models import (
     DISPOSITION_AUTO_ATTACHED,
     DISPOSITION_NEW,
@@ -322,6 +322,46 @@ async def test_drain_unexpected_disposition_counts_toward_cap(db_session, fake_d
     assert "bizarre" in touched[0].last_error
 
 
+async def test_sweep_does_not_reenqueue_dead_lettered_row(db_session, fake_descriptor):
+    """A row whose CREATE already dead-lettered to UNAVAILABLE is NOT re-enqueued by
+    the next sweep — otherwise the cap never halts retries and UNAVAILABLE rows pile
+    up alongside fresh PENDING siblings (which would also break redrive's unique
+    index). Re-running requires an explicit redrive."""
+    row = await _add_entity(db_session, source_id="1")
+    db_session.add(
+        OutboxEntry(entity_type="fake", local_id=row.id, op=OP_CREATE, status=STATUS_UNAVAILABLE)
+    )
+    await db_session.flush()
+    engine = SyncEngine([fake_descriptor], FakeClient())
+
+    count = await engine.sweep_unanchored(db_session, fake_descriptor)
+
+    assert count == 0
+    entries = (await db_session.execute(select(OutboxEntry))).scalars().all()
+    assert len(entries) == 1  # no PENDING sibling minted
+    assert entries[0].status == STATUS_UNAVAILABLE
+
+
+async def test_dead_letter_then_redrive_is_collision_free(db_session, fake_descriptor):
+    """End-to-end: a CREATE that exhausts the cap dead-letters, survives a sweep
+    without a duplicate, and redrive returns it to a single PENDING entry."""
+    await _add_entity(db_session, source_id="1")
+    client = FakeClient(observation_result=_raise_conn_error)
+    engine = SyncEngine([fake_descriptor], client, max_attempts=1)
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+    await engine.drain_outbox(db_session, now=NOW)  # one failure → UNAVAILABLE
+    await engine.sweep_unanchored(db_session, fake_descriptor)  # must not dup
+
+    count = await engine.redrive_unavailable(db_session, now=NOW)
+
+    assert count == 1
+    entries = (await db_session.execute(select(OutboxEntry))).scalars().all()
+    assert len(entries) == 1
+    assert entries[0].status == STATUS_PENDING
+    assert entries[0].attempts == 0
+    assert entries[0].last_error is None
+
+
 async def test_drain_deferral_never_counts_toward_cap(db_session):
     """deps-not-ready deferral leaves attempts untouched, so it can never trip the
     transport-failure cap (it is not a delivery failure)."""
@@ -407,9 +447,8 @@ async def test_backlog_counts_by_status(db_session, fake_descriptor):
             )
         )
     await db_session.flush()
-    engine = SyncEngine([fake_descriptor], FakeClient())
 
-    backlog = await engine.backlog(db_session, now=base)
+    backlog = await outbox_backlog(db_session, now=base)
 
     assert backlog.pending == 2
     assert backlog.pending_due == 1
@@ -419,10 +458,8 @@ async def test_backlog_counts_by_status(db_session, fake_descriptor):
     assert backlog.oldest_pending_age_seconds == pytest.approx(3 * 3600)
 
 
-async def test_backlog_empty_when_no_pending(db_session, fake_descriptor):
-    engine = SyncEngine([fake_descriptor], FakeClient())
-
-    backlog = await engine.backlog(db_session, now=NOW)
+async def test_backlog_empty_when_no_pending(db_session):
+    backlog = await outbox_backlog(db_session, now=NOW)
 
     assert backlog.pending == 0
     assert backlog.pending_due == 0
