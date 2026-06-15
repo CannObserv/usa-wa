@@ -6,6 +6,8 @@ are a person/org sub-resource.
 """
 
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
+from clearinghouse_sync_powermap.subscriptions import DiscoverySpec
+from usa_wa_sync_powermap.config import SidecarSettings
 from usa_wa_sync_powermap.descriptors import (
     AssignmentDescriptor,
     JurisdictionDescriptor,
@@ -32,3 +34,17 @@ def build_descriptors() -> list[EntityDescriptor]:
         PersonDescriptor(),
         AssignmentDescriptor(),
     ]
+
+
+def build_discovery_spec(settings: SidecarSettings) -> DiscoverySpec:
+    """The WA-subtree discovery spec the reconciler traverses (PM #203).
+
+    Rooted at the ``usa-wa`` jurisdiction, following lineage → governing orgs → org
+    tree → roles → assignments → people, so the subscription set is exactly the WA
+    identity cluster.
+    """
+    return DiscoverySpec(
+        root_type=settings.powermap_discovery_root_type,
+        root_id=settings.powermap_discovery_root_id,
+        follow=settings.powermap_discovery_follow,
+    )

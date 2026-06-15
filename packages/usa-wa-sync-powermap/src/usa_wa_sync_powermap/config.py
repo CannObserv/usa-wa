@@ -4,6 +4,7 @@ Env (`/etc/usa-wa/.env`, repo `.env`) is loaded by systemd or the developer
 before launch — never by this module. PM credentials live there.
 """
 
+from datetime import timedelta
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,6 +19,21 @@ class SidecarSettings(BaseSettings):
     powermap_api_key: str | None = None
     #: Seconds between sync cycles (feed poll + due reconcile + outbox drain).
     feed_poll_seconds: float = 60.0
+    #: Subscription discovery (PM #203): where the WA-subtree traversal starts and
+    #: which edges it follows. The default mirrors the design's usa-wa setup.
+    powermap_discovery_root_type: str = "jurisdiction"
+    powermap_discovery_root_id: str = "usa-wa"
+    powermap_discovery_follow: list[str] = [
+        "lineage",
+        "affiliated_orgs",
+        "org_children",
+        "roles",
+        "assignments",
+        "people",
+    ]
+    #: How often the in-loop re-discovery backstop re-runs (catches graph drift —
+    #: e.g. a newly-added WA committee). Bootstrap covers the initial population.
+    subscription_backstop_cadence: timedelta = timedelta(hours=1)
 
 
 @lru_cache

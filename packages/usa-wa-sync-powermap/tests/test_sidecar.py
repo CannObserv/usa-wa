@@ -6,29 +6,38 @@ from the disposition — all in one ``tick``. Uses the savepointed ``db_session`
 (real Postgres) + the in-memory FakeClient (no network).
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
 from ulid import ULID
 
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
-from clearinghouse_sync_powermap.client import EntityPage, ObservationResult
+from clearinghouse_sync_powermap.client import (
+    ChangeItem,
+    ChangePage,
+    DiscoveredEntity,
+    ObservationResult,
+)
 from clearinghouse_sync_powermap.engine import APPLY_KEPT_LOCAL, SyncEngine
 from clearinghouse_sync_powermap.models import (
     DISPOSITION_NEW,
     STATUS_DELIVERED,
     OutboxEntry,
+    SyncState,
 )
+from clearinghouse_sync_powermap.subscriptions import DiscoverySpec, SubscriptionReconciler
 from clearinghouse_sync_powermap.testing import FakeClient
 from usa_wa_sync_powermap.descriptors import (
     JurisdictionDescriptor,
     OrganizationDescriptor,
     RoleDescriptor,
 )
-from usa_wa_sync_powermap.sidecar import Sidecar
+from usa_wa_sync_powermap.sidecar import SUBSCRIPTIONS_STREAM, Sidecar
 
 NOW = datetime(2099, 1, 1, tzinfo=UTC)
+
+SPEC = DiscoverySpec(root_type="jurisdiction", root_id="usa-wa", follow=["lineage"])
 
 
 def _sidecar(client):
@@ -36,6 +45,20 @@ def _sidecar(client):
     engine = SyncEngine([descriptor], client)
     # session_factory unused by tick(); run_cycle is covered separately.
     return Sidecar(engine, [descriptor], session_factory=lambda: None), descriptor
+
+
+def _sidecar_with_reconciler(client, *, cadence=timedelta(hours=1)):
+    descriptor = JurisdictionDescriptor()
+    engine = SyncEngine([descriptor], client)
+    reconciler = SubscriptionReconciler(client, engine, SPEC)
+    sidecar = Sidecar(
+        engine,
+        [descriptor],
+        session_factory=lambda: None,
+        reconciler=reconciler,
+        subscription_backstop_cadence=cadence,
+    )
+    return sidecar, descriptor
 
 
 @pytest.fixture
@@ -68,8 +91,9 @@ async def test_tick_write_roundtrip_anchors_jurisdiction(db_session, state_type)
     assert payload["identifier_value"] == "usa-wa"
 
 
-async def test_tick_read_reconcile_upserts_from_pm(db_session, state_type):
-    """A PM jurisdiction record pulled by the reconcile backstop is cached + anchored."""
+async def test_tick_read_feed_upserts_from_pm(db_session, state_type):
+    """A PM jurisdiction change off the subscription-filtered feed is cached + anchored
+    (the full-list reconcile backstop is retired — usa-wa#10)."""
     pm_id = ULID()
     record = {
         "id": str(pm_id),
@@ -82,7 +106,13 @@ async def test_tick_read_reconcile_upserts_from_pm(db_session, state_type):
         "superseded_at": None,
         "updated_at": "2026-06-07T00:00:00Z",
     }
-    client = FakeClient(entity_pages=[EntityPage(records=[record], cursor=None)])
+    item = ChangeItem(
+        entity_type="jurisdiction", entity_id=pm_id, changed_at=NOW, change_kind="updated"
+    )
+    client = FakeClient(
+        changes_pages=[ChangePage(items=[item], next_after=5)],
+        entities={pm_id: record},
+    )
     sidecar, _ = _sidecar(client)
 
     await sidecar.tick(db_session, now=NOW)
@@ -169,10 +199,84 @@ async def test_run_cycle_isolates_and_rolls_back_on_error():
     assert session.rolled_back and not session.committed
 
 
-async def test_reconcile_due_skips_cohort_only_producers(db_session):
-    """Producers (reconcile_enabled=False) never run the full-list backstop; the
-    full-mirror jurisdiction does (usa-wa#13)."""
+async def test_full_list_reconcile_retired_for_all_descriptors(db_session):
+    """usa-wa#10: the unfiltered full-list reconcile backstop is retired for every
+    descriptor — jurisdictions now ride the subscription-filtered feed + discovery,
+    producers were already feed-only."""
     sidecar, _ = _sidecar(FakeClient())
-    assert await sidecar._reconcile_due(db_session, JurisdictionDescriptor(), NOW) is True
+    assert await sidecar._reconcile_due(db_session, JurisdictionDescriptor(), NOW) is False
     assert await sidecar._reconcile_due(db_session, OrganizationDescriptor(), NOW) is False
     assert await sidecar._reconcile_due(db_session, RoleDescriptor(), NOW) is False
+
+
+# --- subscription backstop ------------------------------------------------------
+
+
+async def test_backstop_runs_before_feed_and_registers_new(db_session, state_type):
+    """The in-loop backstop discovers + registers a new WA jurisdiction, and the feed
+    pull that follows in the same tick delivers its record into the cache."""
+    pm_id = ULID()
+    record = {
+        "id": str(pm_id),
+        "slug": "usa-wa-county-pierce",
+        "name": "Pierce County",
+        "type": {"id": str(ULID()), "slug": "state", "display_name": "State"},
+        "recorded_at": "2022-01-01T00:00:00Z",
+        "valid_from": "2022-01-01T00:00:00Z",
+        "valid_until": None,
+        "superseded_at": None,
+        "updated_at": "2026-06-07T00:00:00Z",
+    }
+    client = FakeClient(
+        discovered=[
+            DiscoveredEntity(
+                entity_type="jurisdiction", entity_id=pm_id, display_name="Pierce", hops_from_root=1
+            )
+        ],
+        subscribed=[],
+        entities={pm_id: record},
+    )
+    sidecar, _ = _sidecar_with_reconciler(client)
+
+    await sidecar.tick(db_session, now=NOW)
+
+    assert client.added == [[pm_id]]  # backstop registered the discovered id
+    # And the cache holds it (backfilled by the reconciler, then feed is a no-op).
+    cached = (
+        await db_session.execute(
+            select(Jurisdiction).where(Jurisdiction.slug == "usa-wa-county-pierce")
+        )
+    ).scalar_one()
+    assert cached.pm_jurisdiction_id == pm_id
+    # The backstop stamped its stream so it waits a cadence before re-running.
+    state = (
+        await db_session.execute(select(SyncState).where(SyncState.stream == SUBSCRIPTIONS_STREAM))
+    ).scalar_one()
+    assert state.last_reconcile_at == NOW
+
+
+async def test_backstop_respects_cadence(db_session):
+    """A second tick within the cadence does not re-run discovery."""
+    client = FakeClient(discovered=[], subscribed=[])
+    sidecar, _ = _sidecar_with_reconciler(client, cadence=timedelta(hours=1))
+
+    await sidecar.tick(db_session, now=NOW)
+    await sidecar.tick(db_session, now=NOW + timedelta(minutes=30))
+
+    assert len(client.discover_calls) == 1  # only the first tick ran the backstop
+
+    await sidecar.tick(db_session, now=NOW + timedelta(hours=2))
+    assert len(client.discover_calls) == 2  # cadence elapsed → ran again
+
+
+async def test_tick_without_reconciler_skips_backstop(db_session, state_type):
+    """A sidecar built without a reconciler (e.g. legacy wiring) never runs the
+    backstop and does not touch the subscriptions stream."""
+    sidecar, _ = _sidecar(FakeClient())
+
+    await sidecar.tick(db_session, now=NOW)
+
+    state = (
+        await db_session.execute(select(SyncState).where(SyncState.stream == SUBSCRIPTIONS_STREAM))
+    ).scalar_one_or_none()
+    assert state is None

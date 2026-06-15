@@ -5,9 +5,11 @@ the changes feed (jurisdictions are on it since PM #179); writes go out as
 observations keyed on the ``jur_slug`` identifier (PM #183) so they AUTO_ATTACH
 to the bootstrap-imported rows instead of minting duplicates.
 
-Scope note: the feed/reconcile reads are currently unfiltered, so this mirrors
-*every* PM jurisdiction, not just the WA subset. Bounding that to a subscription
-is tracked in CannObserv/usa-wa#10 (needs PM-side per-key feed filtering).
+Scope note (usa-wa#10): the feed is now subscription-filtered (PM #203), so it
+delivers only the WA-subtree jurisdictions this key is subscribed to — no longer
+the all-50-states firehose. The unfiltered full-list reconcile backstop is
+therefore retired (``reconcile_enabled = False``); membership is driven by the
+SubscriptionReconciler's discovery + backfill, and field updates by the feed.
 """
 
 from datetime import UTC, datetime
@@ -41,9 +43,12 @@ class JurisdictionDescriptor(EntityDescriptor):
     read_path = "/api/v1/jurisdictions"
     observe_path = "/api/v1/jurisdictions/observations"
     read_source = "feed"
-    # Full-mirror, PM-authoritative, bounded list → the full-list reconcile backstop
-    # is correct and wanted (catches anything the feed dropped). See usa-wa#13.
-    reconcile_enabled = True
+    # Retired (usa-wa#10): the subscription-filtered feed (PM #203) + the
+    # SubscriptionReconciler's discovery/backfill cover the WA subtree. A full-list
+    # reconcile would re-ingest the all-50-states firehose the reconcile is unfiltered
+    # against, defeating the bound. read_path stays — fetch_record uses it for feed +
+    # backfill get-by-id.
+    reconcile_enabled = False
     # jur_slug identifier type is live (PM #183), so observations AUTO_ATTACH to
     # the bootstrap-imported rows instead of minting duplicates.
     write_enabled = True

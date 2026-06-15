@@ -10,8 +10,9 @@ from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.engine import SyncEngine
 from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
+from clearinghouse_sync_powermap.subscriptions import SubscriptionReconciler
 from usa_wa_sync_powermap.config import get_sidecar_settings
-from usa_wa_sync_powermap.registry import build_descriptors
+from usa_wa_sync_powermap.registry import build_descriptors, build_discovery_spec
 from usa_wa_sync_powermap.sidecar import Sidecar
 
 logger = get_logger(__name__)
@@ -25,11 +26,14 @@ async def _amain() -> None:
     descriptors = build_descriptors()
     client = GeneratedPowerMapClient(settings.powermap_base_url, settings.powermap_api_key)
     engine = SyncEngine(descriptors, client)
+    reconciler = SubscriptionReconciler(client, engine, build_discovery_spec(settings))
     sidecar = Sidecar(
         engine,
         descriptors,
         get_session_factory(),
         feed_poll_seconds=settings.feed_poll_seconds,
+        reconciler=reconciler,
+        subscription_backstop_cadence=settings.subscription_backstop_cadence,
     )
     try:
         await sidecar.run_forever()
