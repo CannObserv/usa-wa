@@ -1,48 +1,33 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-T = TypeVar("T", bound="ChangeMeta")
+T = TypeVar("T", bound="SubscriptionBulkDeleteRequest")
 
 
 @_attrs_define
-class ChangeMeta:
-    """Pagination metadata for the change feed.
+class SubscriptionBulkDeleteRequest:
+    """Request body for DELETE /api/v1/subscriptions (bulk).
 
     Attributes:
-        limit (int):
-        count (int):
-        has_more (bool):
-        next_after (int):
+        entity_ids (list[str]):
     """
 
-    limit: int
-    count: int
-    has_more: bool
-    next_after: int
+    entity_ids: list[str]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        limit = self.limit
-
-        count = self.count
-
-        has_more = self.has_more
-
-        next_after = self.next_after
+        entity_ids = self.entity_ids
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "limit": limit,
-                "count": count,
-                "has_more": has_more,
-                "next_after": next_after,
+                "entity_ids": entity_ids,
             }
         )
 
@@ -51,23 +36,14 @@ class ChangeMeta:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        limit = d.pop("limit")
+        entity_ids = cast(list[str], d.pop("entity_ids"))
 
-        count = d.pop("count")
-
-        has_more = d.pop("has_more")
-
-        next_after = d.pop("next_after")
-
-        change_meta = cls(
-            limit=limit,
-            count=count,
-            has_more=has_more,
-            next_after=next_after,
+        subscription_bulk_delete_request = cls(
+            entity_ids=entity_ids,
         )
 
-        change_meta.additional_properties = d
-        return change_meta
+        subscription_bulk_delete_request.additional_properties = d
+        return subscription_bulk_delete_request
 
     @property
     def additional_keys(self) -> list[str]:

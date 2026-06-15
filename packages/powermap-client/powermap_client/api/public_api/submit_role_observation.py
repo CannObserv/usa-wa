@@ -67,10 +67,15 @@ def sync_detailed(
 ) -> Response[HTTPValidationError | ObservationResponse]:
     """Submit Role Observation
 
-     Submit a role observation; match by (organization_id, title) or create.
+     Submit a role observation; match by (organization_id, title) or by pm_role_id.
 
     Args:
         body (RoleObservationRequest): Payload for POST /api/v1/roles/observations.
+
+            Two resolution modes (mutually exclusive):
+              - Standard:  organization_id + title (match or create by org+title)
+              - PM-native: identifier_type="pm_role_id" + identifier_value=<role ULID>
+                           (attach to known role; never creates; organization_id/title not required)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -98,10 +103,15 @@ def sync(
 ) -> HTTPValidationError | ObservationResponse | None:
     """Submit Role Observation
 
-     Submit a role observation; match by (organization_id, title) or create.
+     Submit a role observation; match by (organization_id, title) or by pm_role_id.
 
     Args:
         body (RoleObservationRequest): Payload for POST /api/v1/roles/observations.
+
+            Two resolution modes (mutually exclusive):
+              - Standard:  organization_id + title (match or create by org+title)
+              - PM-native: identifier_type="pm_role_id" + identifier_value=<role ULID>
+                           (attach to known role; never creates; organization_id/title not required)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -124,10 +134,15 @@ async def asyncio_detailed(
 ) -> Response[HTTPValidationError | ObservationResponse]:
     """Submit Role Observation
 
-     Submit a role observation; match by (organization_id, title) or create.
+     Submit a role observation; match by (organization_id, title) or by pm_role_id.
 
     Args:
         body (RoleObservationRequest): Payload for POST /api/v1/roles/observations.
+
+            Two resolution modes (mutually exclusive):
+              - Standard:  organization_id + title (match or create by org+title)
+              - PM-native: identifier_type="pm_role_id" + identifier_value=<role ULID>
+                           (attach to known role; never creates; organization_id/title not required)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -153,10 +168,15 @@ async def asyncio(
 ) -> HTTPValidationError | ObservationResponse | None:
     """Submit Role Observation
 
-     Submit a role observation; match by (organization_id, title) or create.
+     Submit a role observation; match by (organization_id, title) or by pm_role_id.
 
     Args:
         body (RoleObservationRequest): Payload for POST /api/v1/roles/observations.
+
+            Two resolution modes (mutually exclusive):
+              - Standard:  organization_id + title (match or create by org+title)
+              - PM-native: identifier_type="pm_role_id" + identifier_value=<role ULID>
+                           (attach to known role; never creates; organization_id/title not required)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

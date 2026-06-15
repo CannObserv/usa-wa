@@ -6,43 +6,43 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-T = TypeVar("T", bound="ChangeMeta")
+T = TypeVar("T", bound="SubscriptionListMeta")
 
 
 @_attrs_define
-class ChangeMeta:
-    """Pagination metadata for the change feed.
+class SubscriptionListMeta:
+    """Pagination metadata for subscription list.
 
     Attributes:
         limit (int):
+        offset (int):
         count (int):
         has_more (bool):
-        next_after (int):
     """
 
     limit: int
+    offset: int
     count: int
     has_more: bool
-    next_after: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         limit = self.limit
 
+        offset = self.offset
+
         count = self.count
 
         has_more = self.has_more
-
-        next_after = self.next_after
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "limit": limit,
+                "offset": offset,
                 "count": count,
                 "has_more": has_more,
-                "next_after": next_after,
             }
         )
 
@@ -53,21 +53,21 @@ class ChangeMeta:
         d = dict(src_dict)
         limit = d.pop("limit")
 
+        offset = d.pop("offset")
+
         count = d.pop("count")
 
         has_more = d.pop("has_more")
 
-        next_after = d.pop("next_after")
-
-        change_meta = cls(
+        subscription_list_meta = cls(
             limit=limit,
+            offset=offset,
             count=count,
             has_more=has_more,
-            next_after=next_after,
         )
 
-        change_meta.additional_properties = d
-        return change_meta
+        subscription_list_meta.additional_properties = d
+        return subscription_list_meta
 
     @property
     def additional_keys(self) -> list[str]:

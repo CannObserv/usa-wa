@@ -22,19 +22,28 @@ T = TypeVar("T", bound="RoleObservationRequest")
 class RoleObservationRequest:
     """Payload for POST /api/v1/roles/observations.
 
-    Attributes:
-        organization_id (str):
-        title (str):
-        notes (None | str | Unset):
-        established_on (datetime.date | None | Unset):
-        abolished_on (datetime.date | None | Unset):
-        links (list[ObservationLink] | Unset):
-        contact_methods (list[ObservationContactMethod] | Unset):
-        addresses (list[ObservationAddress] | Unset):
+    Two resolution modes (mutually exclusive):
+      - Standard:  organization_id + title (match or create by org+title)
+      - PM-native: identifier_type="pm_role_id" + identifier_value=<role ULID>
+                   (attach to known role; never creates; organization_id/title not required)
+
+        Attributes:
+            identifier_type (None | str | Unset):
+            identifier_value (None | str | Unset):
+            organization_id (None | str | Unset):
+            title (None | str | Unset):
+            notes (None | str | Unset):
+            established_on (datetime.date | None | Unset):
+            abolished_on (datetime.date | None | Unset):
+            links (list[ObservationLink] | Unset):
+            contact_methods (list[ObservationContactMethod] | Unset):
+            addresses (list[ObservationAddress] | Unset):
     """
 
-    organization_id: str
-    title: str
+    identifier_type: None | str | Unset = UNSET
+    identifier_value: None | str | Unset = UNSET
+    organization_id: None | str | Unset = UNSET
+    title: None | str | Unset = UNSET
     notes: None | str | Unset = UNSET
     established_on: datetime.date | None | Unset = UNSET
     abolished_on: datetime.date | None | Unset = UNSET
@@ -44,9 +53,29 @@ class RoleObservationRequest:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        organization_id = self.organization_id
+        identifier_type: None | str | Unset
+        if isinstance(self.identifier_type, Unset):
+            identifier_type = UNSET
+        else:
+            identifier_type = self.identifier_type
 
-        title = self.title
+        identifier_value: None | str | Unset
+        if isinstance(self.identifier_value, Unset):
+            identifier_value = UNSET
+        else:
+            identifier_value = self.identifier_value
+
+        organization_id: None | str | Unset
+        if isinstance(self.organization_id, Unset):
+            organization_id = UNSET
+        else:
+            organization_id = self.organization_id
+
+        title: None | str | Unset
+        if isinstance(self.title, Unset):
+            title = UNSET
+        else:
+            title = self.title
 
         notes: None | str | Unset
         if isinstance(self.notes, Unset):
@@ -93,12 +122,15 @@ class RoleObservationRequest:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update(
-            {
-                "organization_id": organization_id,
-                "title": title,
-            }
-        )
+        field_dict.update({})
+        if identifier_type is not UNSET:
+            field_dict["identifier_type"] = identifier_type
+        if identifier_value is not UNSET:
+            field_dict["identifier_value"] = identifier_value
+        if organization_id is not UNSET:
+            field_dict["organization_id"] = organization_id
+        if title is not UNSET:
+            field_dict["title"] = title
         if notes is not UNSET:
             field_dict["notes"] = notes
         if established_on is not UNSET:
@@ -121,9 +153,42 @@ class RoleObservationRequest:
         from ..models.observation_link import ObservationLink
 
         d = dict(src_dict)
-        organization_id = d.pop("organization_id")
 
-        title = d.pop("title")
+        def _parse_identifier_type(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        identifier_type = _parse_identifier_type(d.pop("identifier_type", UNSET))
+
+        def _parse_identifier_value(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        identifier_value = _parse_identifier_value(d.pop("identifier_value", UNSET))
+
+        def _parse_organization_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        organization_id = _parse_organization_id(d.pop("organization_id", UNSET))
+
+        def _parse_title(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        title = _parse_title(d.pop("title", UNSET))
 
         def _parse_notes(data: object) -> None | str | Unset:
             if data is None:
@@ -196,6 +261,8 @@ class RoleObservationRequest:
                 addresses.append(addresses_item)
 
         role_observation_request = cls(
+            identifier_type=identifier_type,
+            identifier_value=identifier_value,
             organization_id=organization_id,
             title=title,
             notes=notes,

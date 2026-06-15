@@ -5,28 +5,39 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.change_feed_response import ChangeFeedResponse
 from ...models.http_validation_error import HTTPValidationError
+from ...models.list_subscriptions_entity_type_type_0 import ListSubscriptionsEntityTypeType0
+from ...models.subscription_list_response import SubscriptionListResponse
 from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     *,
-    after: int,
+    entity_type: ListSubscriptionsEntityTypeType0 | None | Unset = UNSET,
     limit: int | Unset = 50,
+    offset: int | Unset = 0,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
 
-    params["after"] = after
+    json_entity_type: None | str | Unset
+    if isinstance(entity_type, Unset):
+        json_entity_type = UNSET
+    elif isinstance(entity_type, ListSubscriptionsEntityTypeType0):
+        json_entity_type = entity_type.value
+    else:
+        json_entity_type = entity_type
+    params["entity_type"] = json_entity_type
 
     params["limit"] = limit
+
+    params["offset"] = offset
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "get",
-        "url": "/api/v1/changes",
+        "url": "/api/v1/subscriptions",
         "params": params,
     }
 
@@ -35,9 +46,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ChangeFeedResponse | HTTPValidationError | None:
+) -> HTTPValidationError | SubscriptionListResponse | None:
     if response.status_code == 200:
-        response_200 = ChangeFeedResponse.from_dict(response.json())
+        response_200 = SubscriptionListResponse.from_dict(response.json())
 
         return response_200
 
@@ -54,7 +65,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ChangeFeedResponse | HTTPValidationError]:
+) -> Response[HTTPValidationError | SubscriptionListResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -66,34 +77,31 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-    after: int,
+    entity_type: ListSubscriptionsEntityTypeType0 | None | Unset = UNSET,
     limit: int | Unset = 50,
-) -> Response[ChangeFeedResponse | HTTPValidationError]:
-    """Get Changes
+    offset: int | Unset = 0,
+) -> Response[HTTPValidationError | SubscriptionListResponse]:
+    """List Subscriptions
 
-     Return subscribed entity changes with id > after.
-
-    Only events for entities this API key has explicitly subscribed to are returned.
-    A key with no subscriptions receives an empty feed.
-
-    Pass ``meta.next_after`` from the previous response as ``after`` on each
-    subsequent poll. The cursor is exclusive (``>``), so no deduplication is needed.
+     List entity subscriptions for the calling API key.
 
     Args:
-        after (int): Outbox seq_id cursor (exclusive). Pass 0 for all events.
+        entity_type (ListSubscriptionsEntityTypeType0 | None | Unset):
         limit (int | Unset):  Default: 50.
+        offset (int | Unset):  Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ChangeFeedResponse | HTTPValidationError]
+        Response[HTTPValidationError | SubscriptionListResponse]
     """
 
     kwargs = _get_kwargs(
-        after=after,
+        entity_type=entity_type,
         limit=limit,
+        offset=offset,
     )
 
     response = client.get_httpx_client().request(
@@ -106,69 +114,63 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-    after: int,
+    entity_type: ListSubscriptionsEntityTypeType0 | None | Unset = UNSET,
     limit: int | Unset = 50,
-) -> ChangeFeedResponse | HTTPValidationError | None:
-    """Get Changes
+    offset: int | Unset = 0,
+) -> HTTPValidationError | SubscriptionListResponse | None:
+    """List Subscriptions
 
-     Return subscribed entity changes with id > after.
-
-    Only events for entities this API key has explicitly subscribed to are returned.
-    A key with no subscriptions receives an empty feed.
-
-    Pass ``meta.next_after`` from the previous response as ``after`` on each
-    subsequent poll. The cursor is exclusive (``>``), so no deduplication is needed.
+     List entity subscriptions for the calling API key.
 
     Args:
-        after (int): Outbox seq_id cursor (exclusive). Pass 0 for all events.
+        entity_type (ListSubscriptionsEntityTypeType0 | None | Unset):
         limit (int | Unset):  Default: 50.
+        offset (int | Unset):  Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ChangeFeedResponse | HTTPValidationError
+        HTTPValidationError | SubscriptionListResponse
     """
 
     return sync_detailed(
         client=client,
-        after=after,
+        entity_type=entity_type,
         limit=limit,
+        offset=offset,
     ).parsed
 
 
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-    after: int,
+    entity_type: ListSubscriptionsEntityTypeType0 | None | Unset = UNSET,
     limit: int | Unset = 50,
-) -> Response[ChangeFeedResponse | HTTPValidationError]:
-    """Get Changes
+    offset: int | Unset = 0,
+) -> Response[HTTPValidationError | SubscriptionListResponse]:
+    """List Subscriptions
 
-     Return subscribed entity changes with id > after.
-
-    Only events for entities this API key has explicitly subscribed to are returned.
-    A key with no subscriptions receives an empty feed.
-
-    Pass ``meta.next_after`` from the previous response as ``after`` on each
-    subsequent poll. The cursor is exclusive (``>``), so no deduplication is needed.
+     List entity subscriptions for the calling API key.
 
     Args:
-        after (int): Outbox seq_id cursor (exclusive). Pass 0 for all events.
+        entity_type (ListSubscriptionsEntityTypeType0 | None | Unset):
         limit (int | Unset):  Default: 50.
+        offset (int | Unset):  Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ChangeFeedResponse | HTTPValidationError]
+        Response[HTTPValidationError | SubscriptionListResponse]
     """
 
     kwargs = _get_kwargs(
-        after=after,
+        entity_type=entity_type,
         limit=limit,
+        offset=offset,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -179,35 +181,32 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-    after: int,
+    entity_type: ListSubscriptionsEntityTypeType0 | None | Unset = UNSET,
     limit: int | Unset = 50,
-) -> ChangeFeedResponse | HTTPValidationError | None:
-    """Get Changes
+    offset: int | Unset = 0,
+) -> HTTPValidationError | SubscriptionListResponse | None:
+    """List Subscriptions
 
-     Return subscribed entity changes with id > after.
-
-    Only events for entities this API key has explicitly subscribed to are returned.
-    A key with no subscriptions receives an empty feed.
-
-    Pass ``meta.next_after`` from the previous response as ``after`` on each
-    subsequent poll. The cursor is exclusive (``>``), so no deduplication is needed.
+     List entity subscriptions for the calling API key.
 
     Args:
-        after (int): Outbox seq_id cursor (exclusive). Pass 0 for all events.
+        entity_type (ListSubscriptionsEntityTypeType0 | None | Unset):
         limit (int | Unset):  Default: 50.
+        offset (int | Unset):  Default: 0.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ChangeFeedResponse | HTTPValidationError
+        HTTPValidationError | SubscriptionListResponse
     """
 
     return (
         await asyncio_detailed(
             client=client,
-            after=after,
+            entity_type=entity_type,
             limit=limit,
+            offset=offset,
         )
     ).parsed

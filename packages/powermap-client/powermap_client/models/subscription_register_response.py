@@ -1,48 +1,43 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-T = TypeVar("T", bound="ChangeMeta")
+T = TypeVar("T", bound="SubscriptionRegisterResponse")
 
 
 @_attrs_define
-class ChangeMeta:
-    """Pagination metadata for the change feed.
+class SubscriptionRegisterResponse:
+    """Response for POST /api/v1/subscriptions.
 
     Attributes:
-        limit (int):
-        count (int):
-        has_more (bool):
-        next_after (int):
+        registered (int):
+        already_subscribed (int):
+        not_found (list[str]):
     """
 
-    limit: int
-    count: int
-    has_more: bool
-    next_after: int
+    registered: int
+    already_subscribed: int
+    not_found: list[str]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        limit = self.limit
+        registered = self.registered
 
-        count = self.count
+        already_subscribed = self.already_subscribed
 
-        has_more = self.has_more
-
-        next_after = self.next_after
+        not_found = self.not_found
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "limit": limit,
-                "count": count,
-                "has_more": has_more,
-                "next_after": next_after,
+                "registered": registered,
+                "already_subscribed": already_subscribed,
+                "not_found": not_found,
             }
         )
 
@@ -51,23 +46,20 @@ class ChangeMeta:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        limit = d.pop("limit")
+        registered = d.pop("registered")
 
-        count = d.pop("count")
+        already_subscribed = d.pop("already_subscribed")
 
-        has_more = d.pop("has_more")
+        not_found = cast(list[str], d.pop("not_found"))
 
-        next_after = d.pop("next_after")
-
-        change_meta = cls(
-            limit=limit,
-            count=count,
-            has_more=has_more,
-            next_after=next_after,
+        subscription_register_response = cls(
+            registered=registered,
+            already_subscribed=already_subscribed,
+            not_found=not_found,
         )
 
-        change_meta.additional_properties = d
-        return change_meta
+        subscription_register_response.additional_properties = d
+        return subscription_register_response
 
     @property
     def additional_keys(self) -> list[str]:

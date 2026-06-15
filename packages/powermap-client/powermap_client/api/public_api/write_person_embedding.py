@@ -75,7 +75,9 @@ def sync_detailed(
      Write a voice embedding observation for a person.
 
     Idempotent on the (source_service, source_job_id, source_segment, person_id)
-    unique constraint — a duplicate write returns 200 with the existing row's id.
+    unique constraint — a duplicate write against an *active* row returns 200 with
+    the existing row's id.  409 if the conflicting row is archived (restore or
+    change the provenance key first).
     404 if the person does not exist or is archived.
     422 on dimension mismatch or unknown/write-disabled model.
 
@@ -114,7 +116,9 @@ def sync(
      Write a voice embedding observation for a person.
 
     Idempotent on the (source_service, source_job_id, source_segment, person_id)
-    unique constraint — a duplicate write returns 200 with the existing row's id.
+    unique constraint — a duplicate write against an *active* row returns 200 with
+    the existing row's id.  409 if the conflicting row is archived (restore or
+    change the provenance key first).
     404 if the person does not exist or is archived.
     422 on dimension mismatch or unknown/write-disabled model.
 
@@ -148,7 +152,9 @@ async def asyncio_detailed(
      Write a voice embedding observation for a person.
 
     Idempotent on the (source_service, source_job_id, source_segment, person_id)
-    unique constraint — a duplicate write returns 200 with the existing row's id.
+    unique constraint — a duplicate write against an *active* row returns 200 with
+    the existing row's id.  409 if the conflicting row is archived (restore or
+    change the provenance key first).
     404 if the person does not exist or is archived.
     422 on dimension mismatch or unknown/write-disabled model.
 
@@ -185,7 +191,9 @@ async def asyncio(
      Write a voice embedding observation for a person.
 
     Idempotent on the (source_service, source_job_id, source_segment, person_id)
-    unique constraint — a duplicate write returns 200 with the existing row's id.
+    unique constraint — a duplicate write against an *active* row returns 200 with
+    the existing row's id.  409 if the conflicting row is archived (restore or
+    change the provenance key first).
     404 if the person does not exist or is archived.
     422 on dimension mismatch or unknown/write-disabled model.
 

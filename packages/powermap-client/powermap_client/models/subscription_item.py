@@ -6,51 +6,40 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..models.change_item_change_kind import ChangeItemChangeKind
-from ..models.change_item_entity_type import ChangeItemEntityType
+from ..models.subscription_item_entity_type import SubscriptionItemEntityType
 
-T = TypeVar("T", bound="ChangeItem")
+T = TypeVar("T", bound="SubscriptionItem")
 
 
 @_attrs_define
-class ChangeItem:
-    """A single entry in the change feed — updated or deleted entity.
+class SubscriptionItem:
+    """A single subscription row returned by GET /api/v1/subscriptions.
 
     Attributes:
-        seq_id (int):
-        entity_type (ChangeItemEntityType):
         entity_id (str):
-        changed_at (str):
-        change_kind (ChangeItemChangeKind):
+        entity_type (SubscriptionItemEntityType):
+        created_at (str):
     """
 
-    seq_id: int
-    entity_type: ChangeItemEntityType
     entity_id: str
-    changed_at: str
-    change_kind: ChangeItemChangeKind
+    entity_type: SubscriptionItemEntityType
+    created_at: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        seq_id = self.seq_id
+        entity_id = self.entity_id
 
         entity_type = self.entity_type.value
 
-        entity_id = self.entity_id
-
-        changed_at = self.changed_at
-
-        change_kind = self.change_kind.value
+        created_at = self.created_at
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "seq_id": seq_id,
-                "entity_type": entity_type,
                 "entity_id": entity_id,
-                "changed_at": changed_at,
-                "change_kind": change_kind,
+                "entity_type": entity_type,
+                "created_at": created_at,
             }
         )
 
@@ -59,26 +48,20 @@ class ChangeItem:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        seq_id = d.pop("seq_id")
-
-        entity_type = ChangeItemEntityType(d.pop("entity_type"))
-
         entity_id = d.pop("entity_id")
 
-        changed_at = d.pop("changed_at")
+        entity_type = SubscriptionItemEntityType(d.pop("entity_type"))
 
-        change_kind = ChangeItemChangeKind(d.pop("change_kind"))
+        created_at = d.pop("created_at")
 
-        change_item = cls(
-            seq_id=seq_id,
-            entity_type=entity_type,
+        subscription_item = cls(
             entity_id=entity_id,
-            changed_at=changed_at,
-            change_kind=change_kind,
+            entity_type=entity_type,
+            created_at=created_at,
         )
 
-        change_item.additional_properties = d
-        return change_item
+        subscription_item.additional_properties = d
+        return subscription_item
 
     @property
     def additional_keys(self) -> list[str]:

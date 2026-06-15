@@ -67,10 +67,17 @@ def sync_detailed(
 ) -> Response[HTTPValidationError | ObservationResponse]:
     """Submit Assignment Observation
 
-     Submit an assignment observation; match by (person_id, role_id, start_date) or create.
+     Submit an assignment observation.
+
+    Resolves by (person_id, role_id, start_date) or by pm_assignment_id.
 
     Args:
         body (AssignmentObservationRequest): Payload for POST /api/v1/assignments/observations.
+
+            Two resolution modes (mutually exclusive):
+              - Standard:  person_id + role_id (match or create by person+role+start_date)
+              - PM-native: identifier_type="pm_assignment_id" + identifier_value=<assignment ULID>
+                           (attach to known assignment; never creates; person_id/role_id not required)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -98,10 +105,17 @@ def sync(
 ) -> HTTPValidationError | ObservationResponse | None:
     """Submit Assignment Observation
 
-     Submit an assignment observation; match by (person_id, role_id, start_date) or create.
+     Submit an assignment observation.
+
+    Resolves by (person_id, role_id, start_date) or by pm_assignment_id.
 
     Args:
         body (AssignmentObservationRequest): Payload for POST /api/v1/assignments/observations.
+
+            Two resolution modes (mutually exclusive):
+              - Standard:  person_id + role_id (match or create by person+role+start_date)
+              - PM-native: identifier_type="pm_assignment_id" + identifier_value=<assignment ULID>
+                           (attach to known assignment; never creates; person_id/role_id not required)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -124,10 +138,17 @@ async def asyncio_detailed(
 ) -> Response[HTTPValidationError | ObservationResponse]:
     """Submit Assignment Observation
 
-     Submit an assignment observation; match by (person_id, role_id, start_date) or create.
+     Submit an assignment observation.
+
+    Resolves by (person_id, role_id, start_date) or by pm_assignment_id.
 
     Args:
         body (AssignmentObservationRequest): Payload for POST /api/v1/assignments/observations.
+
+            Two resolution modes (mutually exclusive):
+              - Standard:  person_id + role_id (match or create by person+role+start_date)
+              - PM-native: identifier_type="pm_assignment_id" + identifier_value=<assignment ULID>
+                           (attach to known assignment; never creates; person_id/role_id not required)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -153,10 +174,17 @@ async def asyncio(
 ) -> HTTPValidationError | ObservationResponse | None:
     """Submit Assignment Observation
 
-     Submit an assignment observation; match by (person_id, role_id, start_date) or create.
+     Submit an assignment observation.
+
+    Resolves by (person_id, role_id, start_date) or by pm_assignment_id.
 
     Args:
         body (AssignmentObservationRequest): Payload for POST /api/v1/assignments/observations.
+
+            Two resolution modes (mutually exclusive):
+              - Standard:  person_id + role_id (match or create by person+role+start_date)
+              - PM-native: identifier_type="pm_assignment_id" + identifier_value=<assignment ULID>
+                           (attach to known assignment; never creates; person_id/role_id not required)
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

@@ -165,10 +165,17 @@ from .contact_new_row_admin_orgs_entity_id_contacts_new_row_get_contact_type imp
 from .contact_new_row_admin_people_entity_id_contacts_new_row_get_contact_type import (
     ContactNewRowAdminPeopleEntityIdContactsNewRowGetContactType,
 )
+from .discover_subscriptions_root_type import DiscoverSubscriptionsRootType
+from .discovery_item import DiscoveryItem
+from .discovery_item_entity_type import DiscoveryItemEntityType
+from .discovery_meta import DiscoveryMeta
+from .discovery_response import DiscoveryResponse
 from .embedding_archive_response import EmbeddingArchiveResponse
 from .embedding_batch_archive_response import EmbeddingBatchArchiveResponse
 from .embedding_list_item import EmbeddingListItem
 from .embedding_list_response import EmbeddingListResponse
+from .embedding_patch_request import EmbeddingPatchRequest
+from .embedding_patch_response import EmbeddingPatchResponse
 from .embedding_source import EmbeddingSource
 from .embedding_write_request import EmbeddingWriteRequest
 from .embedding_write_response import EmbeddingWriteResponse
@@ -198,6 +205,7 @@ from .jurisdiction_type import JurisdictionType
 from .link_type import LinkType
 from .link_types_response import LinkTypesResponse
 from .list_jurisdiction_relationships_direction import ListJurisdictionRelationshipsDirection
+from .list_subscriptions_entity_type_type_0 import ListSubscriptionsEntityTypeType0
 from .observation_additional_identifier import ObservationAdditionalIdentifier
 from .observation_address import ObservationAddress
 from .observation_address_address_type import ObservationAddressAddressType
@@ -239,6 +247,13 @@ from .role_list_item import RoleListItem
 from .role_list_response import RoleListResponse
 from .role_observation_request import RoleObservationRequest
 from .search_meta import SearchMeta
+from .subscription_bulk_delete_request import SubscriptionBulkDeleteRequest
+from .subscription_item import SubscriptionItem
+from .subscription_item_entity_type import SubscriptionItemEntityType
+from .subscription_list_meta import SubscriptionListMeta
+from .subscription_list_response import SubscriptionListResponse
+from .subscription_register_request import SubscriptionRegisterRequest
+from .subscription_register_response import SubscriptionRegisterResponse
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
 
@@ -318,10 +333,17 @@ __all__ = (
     "ChangeMeta",
     "ContactNewRowAdminOrgsEntityIdContactsNewRowGetContactType",
     "ContactNewRowAdminPeopleEntityIdContactsNewRowGetContactType",
+    "DiscoverSubscriptionsRootType",
+    "DiscoveryItem",
+    "DiscoveryItemEntityType",
+    "DiscoveryMeta",
+    "DiscoveryResponse",
     "EmbeddingArchiveResponse",
     "EmbeddingBatchArchiveResponse",
     "EmbeddingListItem",
     "EmbeddingListResponse",
+    "EmbeddingPatchRequest",
+    "EmbeddingPatchResponse",
     "EmbeddingSource",
     "EmbeddingWriteRequest",
     "EmbeddingWriteResponse",
@@ -351,6 +373,7 @@ __all__ = (
     "LinkType",
     "LinkTypesResponse",
     "ListJurisdictionRelationshipsDirection",
+    "ListSubscriptionsEntityTypeType0",
     "ObservationAdditionalIdentifier",
     "ObservationAddress",
     "ObservationAddressAddressType",
@@ -392,6 +415,13 @@ __all__ = (
     "RoleListResponse",
     "RoleObservationRequest",
     "SearchMeta",
+    "SubscriptionBulkDeleteRequest",
+    "SubscriptionItem",
+    "SubscriptionItemEntityType",
+    "SubscriptionListMeta",
+    "SubscriptionListResponse",
+    "SubscriptionRegisterRequest",
+    "SubscriptionRegisterResponse",
     "ValidationError",
     "ValidationErrorContext",
 )

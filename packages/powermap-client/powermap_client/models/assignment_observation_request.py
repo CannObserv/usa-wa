@@ -22,20 +22,29 @@ T = TypeVar("T", bound="AssignmentObservationRequest")
 class AssignmentObservationRequest:
     """Payload for POST /api/v1/assignments/observations.
 
-    Attributes:
-        person_id (str):
-        role_id (str):
-        start_date (datetime.date | None | Unset):
-        end_date (datetime.date | None | Unset):
-        is_current (bool | Unset):  Default: False.
-        notes (None | str | Unset):
-        links (list[ObservationLink] | Unset):
-        contact_methods (list[ObservationContactMethod] | Unset):
-        addresses (list[ObservationAddress] | Unset):
+    Two resolution modes (mutually exclusive):
+      - Standard:  person_id + role_id (match or create by person+role+start_date)
+      - PM-native: identifier_type="pm_assignment_id" + identifier_value=<assignment ULID>
+                   (attach to known assignment; never creates; person_id/role_id not required)
+
+        Attributes:
+            identifier_type (None | str | Unset):
+            identifier_value (None | str | Unset):
+            person_id (None | str | Unset):
+            role_id (None | str | Unset):
+            start_date (datetime.date | None | Unset):
+            end_date (datetime.date | None | Unset):
+            is_current (bool | Unset):  Default: False.
+            notes (None | str | Unset):
+            links (list[ObservationLink] | Unset):
+            contact_methods (list[ObservationContactMethod] | Unset):
+            addresses (list[ObservationAddress] | Unset):
     """
 
-    person_id: str
-    role_id: str
+    identifier_type: None | str | Unset = UNSET
+    identifier_value: None | str | Unset = UNSET
+    person_id: None | str | Unset = UNSET
+    role_id: None | str | Unset = UNSET
     start_date: datetime.date | None | Unset = UNSET
     end_date: datetime.date | None | Unset = UNSET
     is_current: bool | Unset = False
@@ -46,9 +55,29 @@ class AssignmentObservationRequest:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        person_id = self.person_id
+        identifier_type: None | str | Unset
+        if isinstance(self.identifier_type, Unset):
+            identifier_type = UNSET
+        else:
+            identifier_type = self.identifier_type
 
-        role_id = self.role_id
+        identifier_value: None | str | Unset
+        if isinstance(self.identifier_value, Unset):
+            identifier_value = UNSET
+        else:
+            identifier_value = self.identifier_value
+
+        person_id: None | str | Unset
+        if isinstance(self.person_id, Unset):
+            person_id = UNSET
+        else:
+            person_id = self.person_id
+
+        role_id: None | str | Unset
+        if isinstance(self.role_id, Unset):
+            role_id = UNSET
+        else:
+            role_id = self.role_id
 
         start_date: None | str | Unset
         if isinstance(self.start_date, Unset):
@@ -97,12 +126,15 @@ class AssignmentObservationRequest:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update(
-            {
-                "person_id": person_id,
-                "role_id": role_id,
-            }
-        )
+        field_dict.update({})
+        if identifier_type is not UNSET:
+            field_dict["identifier_type"] = identifier_type
+        if identifier_value is not UNSET:
+            field_dict["identifier_value"] = identifier_value
+        if person_id is not UNSET:
+            field_dict["person_id"] = person_id
+        if role_id is not UNSET:
+            field_dict["role_id"] = role_id
         if start_date is not UNSET:
             field_dict["start_date"] = start_date
         if end_date is not UNSET:
@@ -127,9 +159,42 @@ class AssignmentObservationRequest:
         from ..models.observation_link import ObservationLink
 
         d = dict(src_dict)
-        person_id = d.pop("person_id")
 
-        role_id = d.pop("role_id")
+        def _parse_identifier_type(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        identifier_type = _parse_identifier_type(d.pop("identifier_type", UNSET))
+
+        def _parse_identifier_value(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        identifier_value = _parse_identifier_value(d.pop("identifier_value", UNSET))
+
+        def _parse_person_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        person_id = _parse_person_id(d.pop("person_id", UNSET))
+
+        def _parse_role_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        role_id = _parse_role_id(d.pop("role_id", UNSET))
 
         def _parse_start_date(data: object) -> datetime.date | None | Unset:
             if data is None:
@@ -204,6 +269,8 @@ class AssignmentObservationRequest:
                 addresses.append(addresses_item)
 
         assignment_observation_request = cls(
+            identifier_type=identifier_type,
+            identifier_value=identifier_value,
             person_id=person_id,
             role_id=role_id,
             start_date=start_date,

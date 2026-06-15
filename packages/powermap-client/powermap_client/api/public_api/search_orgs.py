@@ -110,8 +110,9 @@ def sync_detailed(
 
     Parameter precedence (first match wins, others ignored):
     1. identifier_type + identifier_value — returns at most one result, has_more=false.
-    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q ignored.
-    3. q — full-text search across names and acronyms.
+    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q further
+       narrows by name when provided.
+    3. q alone — substring search across names and acronyms.
 
     Args:
         q (str | Unset):  Default: ''.
@@ -164,8 +165,9 @@ def sync(
 
     Parameter precedence (first match wins, others ignored):
     1. identifier_type + identifier_value — returns at most one result, has_more=false.
-    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q ignored.
-    3. q — full-text search across names and acronyms.
+    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q further
+       narrows by name when provided.
+    3. q alone — substring search across names and acronyms.
 
     Args:
         q (str | Unset):  Default: ''.
@@ -213,8 +215,9 @@ async def asyncio_detailed(
 
     Parameter precedence (first match wins, others ignored):
     1. identifier_type + identifier_value — returns at most one result, has_more=false.
-    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q ignored.
-    3. q — full-text search across names and acronyms.
+    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q further
+       narrows by name when provided.
+    3. q alone — substring search across names and acronyms.
 
     Args:
         q (str | Unset):  Default: ''.
@@ -265,8 +268,9 @@ async def asyncio(
 
     Parameter precedence (first match wins, others ignored):
     1. identifier_type + identifier_value — returns at most one result, has_more=false.
-    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q ignored.
-    3. q — full-text search across names and acronyms.
+    2. jurisdiction (slug or ULID) — filters to orgs with a governing affiliation; q further
+       narrows by name when provided.
+    3. q alone — substring search across names and acronyms.
 
     Args:
         q (str | Unset):  Default: ''.

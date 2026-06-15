@@ -6,45 +6,53 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-T = TypeVar("T", bound="ChangeMeta")
+from ..types import UNSET, Unset
+
+T = TypeVar("T", bound="DiscoveryMeta")
 
 
 @_attrs_define
-class ChangeMeta:
-    """Pagination metadata for the change feed.
+class DiscoveryMeta:
+    """Pagination meta for discovery response.
 
     Attributes:
         limit (int):
+        offset (int):
         count (int):
         has_more (bool):
-        next_after (int):
+        truncated (bool | Unset):  Default: False.
     """
 
     limit: int
+    offset: int
     count: int
     has_more: bool
-    next_after: int
+    truncated: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         limit = self.limit
 
+        offset = self.offset
+
         count = self.count
 
         has_more = self.has_more
 
-        next_after = self.next_after
+        truncated = self.truncated
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
                 "limit": limit,
+                "offset": offset,
                 "count": count,
                 "has_more": has_more,
-                "next_after": next_after,
             }
         )
+        if truncated is not UNSET:
+            field_dict["truncated"] = truncated
 
         return field_dict
 
@@ -53,21 +61,24 @@ class ChangeMeta:
         d = dict(src_dict)
         limit = d.pop("limit")
 
+        offset = d.pop("offset")
+
         count = d.pop("count")
 
         has_more = d.pop("has_more")
 
-        next_after = d.pop("next_after")
+        truncated = d.pop("truncated", UNSET)
 
-        change_meta = cls(
+        discovery_meta = cls(
             limit=limit,
+            offset=offset,
             count=count,
             has_more=has_more,
-            next_after=next_after,
+            truncated=truncated,
         )
 
-        change_meta.additional_properties = d
-        return change_meta
+        discovery_meta.additional_properties = d
+        return discovery_meta
 
     @property
     def additional_keys(self) -> list[str]:
