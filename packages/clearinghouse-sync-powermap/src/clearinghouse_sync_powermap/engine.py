@@ -266,7 +266,9 @@ class SyncEngine:
         except PayloadRejectedError as exc:
             # PM refused the payload (e.g. 422): park to the re-sweepable REJECTED
             # terminal state, like a `rejected` disposition, instead of crash-looping.
-            self._reject(entry, repr(exc))
+            # str(exc) (not repr) keeps last_error parallel to the disposition path's
+            # str(result.raw) — a plain message, no `ClassName(...)` wrapper.
+            self._reject(entry, str(exc))
             return True
 
         entry.last_disposition = result.disposition
@@ -317,6 +319,9 @@ class SyncEngine:
                 "local_id": str(entry.local_id),
                 "attempts": entry.attempts,
                 "error": error,
+                # Distinguishes a permanent auth/scope block from a transport-cap
+                # dead-letter (see _fail_attempt) — both share this event name.
+                "reason": "blocked",
             },
         )
 
@@ -340,6 +345,9 @@ class SyncEngine:
                     "local_id": str(entry.local_id),
                     "attempts": entry.attempts,
                     "error": error,
+                    # vs _park_blocked's "blocked": this is the transport/retry cap
+                    # running out, not a permanent auth refusal.
+                    "reason": "cap_exhausted",
                 },
             )
             return
@@ -359,11 +367,13 @@ class SyncEngine:
     async def redrive_unavailable(self, session: AsyncSession, *, now: datetime) -> int:
         """Reset dead-lettered (``UNAVAILABLE``) entries back to ``PENDING``, due now.
 
-        For operator use once PM has recovered: attempts are zeroed, the stale
-        ``last_error`` is cleared, and the same payloads are re-attempted on the
-        next drain. ``REJECTED`` entries are intentionally left untouched — those
-        are payload-level refusals, not transport outages, so a blind retry would
-        just repeat the rejection. No user-friendly trigger yet (#16).
+        For operator use once the cause is cleared — PM has recovered (transport
+        cap exhausted) or the API key has been re-scoped (a permanent auth/scope
+        block): attempts are zeroed, the stale ``last_error`` is cleared, and the
+        same payloads are re-attempted on the next drain. ``REJECTED`` entries are
+        intentionally left untouched — those are payload-level refusals, not
+        transport/auth failures, so a blind retry would just repeat the rejection.
+        No user-friendly trigger yet (#16).
 
         Safe against ``uq_powermap_outbox_open`` because the enqueue guard
         (:data:`_REENQUEUE_BLOCKING_STATUSES`) keeps at most one PENDING/UNAVAILABLE
@@ -479,6 +489,15 @@ class SyncEngine:
         The feed yields ``(entity_type, id, change_kind)`` only, so each change
         is resolved to a full record via :meth:`PowerMapClient.get_entity`
         before upsert. Deletes are skipped at MVP (archival is a later concern).
+
+        Read-path scope note: a permanent client error here (the typed
+        :class:`DeliveryBlockedError` / :class:`PayloadRejectedError`, e.g. a
+        mis-scoped read key) is intentionally *not* caught — there is no per-entry
+        "park" for reads, and a read PM can't make forward progress at all if its
+        credential is rejected, so the error propagates and the per-cycle isolation
+        rolls back + logs the cycle. Only the write path (:meth:`_deliver`) parks
+        permanent failures, because there a single poison entry must not starve the
+        rest of the outbox.
         """
         state = await self._get_or_create_state(session, CHANGES_STREAM)
         page = await self._client.get_changes(state.cursor, limit=limit)

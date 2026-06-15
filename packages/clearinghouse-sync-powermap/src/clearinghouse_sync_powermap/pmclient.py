@@ -13,7 +13,7 @@ Auth is PM's ``X-API-Key`` header, wired through the generated
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, NoReturn
 
 from powermap_client import AuthenticatedClient
 from powermap_client.api.public_api import (
@@ -68,9 +68,12 @@ def _retryable(exc: UnexpectedStatus) -> bool:
     return exc.status_code == 429 or exc.status_code >= 500
 
 
-def _raise_mapped(exc: UnexpectedStatus) -> None:
+def _raise_mapped(exc: UnexpectedStatus) -> NoReturn:
     """Translate a non-retryable SDK ``UnexpectedStatus`` into the engine's portable
     permanent-failure vocabulary. Caller has already ruled out retryable statuses.
+
+    Always raises (hence ``NoReturn``): callers fall through to use ``resp`` only on
+    the no-exception path, so a future non-raising edit here would be a type error.
 
     - 401/403 → :class:`DeliveryBlockedError` (auth/scope; park to UNAVAILABLE).
     - any other 4xx → :class:`PayloadRejectedError` (payload refused; park to REJECTED).

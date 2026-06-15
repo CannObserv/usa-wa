@@ -9,8 +9,9 @@ entity names are baked in here.
   row per source row at a time (partial-unique index); the worker re-reads the
   source row at send time, so no payload is stored. Two terminal backlogs persist
   for the operator: ``REJECTED`` (PM refused the payload — fix the data) and
-  ``UNAVAILABLE`` (transport-failure cap exhausted — re-drivable once PM
-  recovers, see ``SyncEngine.redrive_unavailable``).
+  ``UNAVAILABLE`` (transport-failure cap exhausted, or a permanent auth/scope
+  block such as a 403 — re-drivable once PM recovers or the credential is fixed,
+  see ``SyncEngine.redrive_unavailable``).
 - :class:`SyncState` — per-stream cursor + last-reconcile stamp. One row per
   logical stream (e.g. ``changes_feed``, or per-entity reconcile keys).
 """
@@ -50,9 +51,10 @@ STATUS_DELIVERED = "DELIVERED"
 #: PM explicitly rejected the observation (bad/duplicate payload) — terminal; a
 #: blind retry just repeats the rejection. Operator must fix the source data.
 STATUS_REJECTED = "REJECTED"
-#: Transport-failure cap exhausted (PM unreachable for too long) — terminal but
-#: re-drivable: the same payload will likely succeed once PM recovers. Distinct
-#: from REJECTED so the backlog separates "data bug" from "PM was down".
+#: Transport-failure cap exhausted (PM unreachable for too long), or a permanent
+#: auth/scope block (e.g. a 403 — the credential is mis-scoped) — terminal but
+#: re-drivable once PM recovers or the credential is fixed. Distinct from REJECTED
+#: so the backlog separates "data bug" from "PM was down / key was wrong".
 STATUS_UNAVAILABLE = "UNAVAILABLE"
 _STATUSES = (STATUS_PENDING, STATUS_DELIVERED, STATUS_REJECTED, STATUS_UNAVAILABLE)
 

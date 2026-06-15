@@ -270,7 +270,7 @@ def _raise_payload_rejected(payload):
     raise PayloadRejectedError("PM 422: name required")
 
 
-async def test_drain_blocked_error_dead_letters_unavailable(db_session, fake_descriptor):
+async def test_drain_blocked_error_dead_letters_unavailable(db_session, fake_descriptor, caplog):
     """A permanent transport/auth rejection (e.g. 403 insufficient scope) parks the
     entry to UNAVAILABLE immediately — it does NOT propagate (which would roll back
     the whole cycle) and does NOT burn the retry budget (a 403 never recovers on
@@ -280,12 +280,17 @@ async def test_drain_blocked_error_dead_letters_unavailable(db_session, fake_des
     engine = SyncEngine([fake_descriptor], client)
     await engine.sweep_unanchored(db_session, fake_descriptor)
 
-    touched = await engine.drain_outbox(db_session, now=NOW)
+    with caplog.at_level("ERROR"):
+        touched = await engine.drain_outbox(db_session, now=NOW)
 
     entry = touched[0]
     assert entry.status == STATUS_UNAVAILABLE
     assert entry.attempts == 0  # parked immediately, not retried to the cap
     assert "PM 403" in entry.last_error
+    # The dead-letter event carries reason="blocked" so an operator can tell an
+    # auth block apart from a transport-cap exhaustion (same event name).
+    unavailable = [r for r in caplog.records if r.message == "powermap_observation_unavailable"]
+    assert [r.reason for r in unavailable] == ["blocked"]
 
 
 async def test_drain_blocked_error_does_not_starve_siblings(db_session, fake_descriptor):
@@ -340,7 +345,7 @@ async def test_drain_transient_error_backs_off(db_session, fake_descriptor):
     assert "PM unreachable" in entry.last_error
 
 
-async def test_drain_caps_attempts_to_unavailable(db_session, fake_descriptor):
+async def test_drain_caps_attempts_to_unavailable(db_session, fake_descriptor, caplog):
     """After max_attempts transport failures, the entry goes terminal (UNAVAILABLE),
     not perpetually PENDING — so the operator backlog can see it."""
     await _add_entity(db_session, source_id="1")
@@ -351,11 +356,15 @@ async def test_drain_caps_attempts_to_unavailable(db_session, fake_descriptor):
     entry.attempts = 2  # one failure short of the cap
     await db_session.flush()
 
-    touched = await engine.drain_outbox(db_session, now=NOW)
+    with caplog.at_level("ERROR"):
+        touched = await engine.drain_outbox(db_session, now=NOW)
 
     assert touched[0].status == STATUS_UNAVAILABLE
     assert touched[0].attempts == 3
     assert "PM unreachable" in touched[0].last_error
+    # Cap exhaustion is reason="cap_exhausted", distinct from an auth block.
+    unavailable = [r for r in caplog.records if r.message == "powermap_observation_unavailable"]
+    assert [r.reason for r in unavailable] == ["cap_exhausted"]
 
 
 async def test_drain_below_cap_stays_pending(db_session, fake_descriptor):
