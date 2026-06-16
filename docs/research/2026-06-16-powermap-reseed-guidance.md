@@ -1,8 +1,7 @@
-# Upstream issue draft — Power Map re-seed guidance for the usa-wa subtree
+# Upstream issue — Power Map re-seed guidance for the usa-wa subtree
 
-**Status:** ready to file on `CannObserv/power-map` (the usa-wa PAT can push code but lacks
-Issues:write on that repo, so this is filed here for manual creation).
-**File as title:** `Re-seed guidance: usa-wa subtree must carry usa-wa identifiers + lineage for #203 discovery/AUTO_ATTACH`
+**Status:** filed as [CannObserv/power-map#206](https://github.com/CannObserv/power-map/issues/206).
+This doc is the retained source of record for that guidance.
 
 ---
 
