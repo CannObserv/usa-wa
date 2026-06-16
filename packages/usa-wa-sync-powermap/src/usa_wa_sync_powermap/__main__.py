@@ -34,6 +34,7 @@ async def _amain() -> None:
         feed_poll_seconds=settings.feed_poll_seconds,
         reconciler=reconciler,
         subscription_backstop_cadence=settings.subscription_backstop_cadence,
+        outbox_commit_chunk_size=settings.outbox_commit_chunk_size,
     )
     try:
         await sidecar.run_forever()

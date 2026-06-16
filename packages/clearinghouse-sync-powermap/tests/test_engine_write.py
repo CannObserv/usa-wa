@@ -577,6 +577,63 @@ async def test_redrive_resets_unavailable_to_pending(db_session, fake_descriptor
     assert rejected.status == STATUS_REJECTED  # untouched — a data bug, not an outage
 
 
+async def test_drain_commits_per_entry_by_default(db_session, fake_descriptor):
+    """#8: when a commit hook is supplied, drain commits after each delivery by
+    default (chunk_size=1), so a slow PM never holds one transaction open across
+    every round-trip. The commit hook is invoked once per delivered entry."""
+    for sid in ("1", "2", "3"):
+        await _add_entity(db_session, source_id=sid)
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    engine = SyncEngine([fake_descriptor], client)
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+    commits = 0
+
+    async def _commit() -> None:
+        nonlocal commits
+        commits += 1
+        await db_session.commit()
+
+    touched = await engine.drain_outbox(db_session, now=NOW, commit=_commit)
+
+    assert len(touched) == 3
+    assert commits == 3  # one commit per delivered entry
+
+
+async def test_drain_commits_per_chunk(db_session, fake_descriptor):
+    """A configurable chunk size batches commits: 5 entries at chunk_size=2 →
+    commit after 2, after 4, and a final commit for the remaining 1."""
+    for sid in ("1", "2", "3", "4", "5"):
+        await _add_entity(db_session, source_id=sid)
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    engine = SyncEngine([fake_descriptor], client)
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+    commits = 0
+
+    async def _commit() -> None:
+        nonlocal commits
+        commits += 1
+        await db_session.commit()
+
+    touched = await engine.drain_outbox(db_session, now=NOW, commit=_commit, chunk_size=2)
+
+    assert len(touched) == 5
+    # ceil(5/2) = 3 commit points (2, 2, then a final commit for the last 1).
+    assert commits == 3
+
+
+async def test_drain_without_commit_hook_is_single_transaction(db_session, fake_descriptor):
+    """No commit callback → legacy single-transaction behaviour (caller commits)."""
+    await _add_entity(db_session, source_id="1")
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    engine = SyncEngine([fake_descriptor], client)
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+
+    touched = await engine.drain_outbox(db_session, now=NOW)
+
+    assert len(touched) == 1
+    assert touched[0].status == STATUS_DELIVERED
+
+
 async def test_drain_skips_dormant_type(db_session, fake_descriptor):
     """A write-disabled descriptor's entries are left untouched, not spun on."""
 

@@ -15,7 +15,7 @@ Write path (this module, step 3):
 """
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -209,9 +209,29 @@ class SyncEngine:
             .all()
         )
 
-    async def drain_outbox(self, session: AsyncSession, *, now: datetime) -> list[OutboxEntry]:
-        """Process all due PENDING entries once. Returns the entries touched."""
+    async def drain_outbox(
+        self,
+        session: AsyncSession,
+        *,
+        now: datetime,
+        commit: Callable[[], Awaitable[None]] | None = None,
+        chunk_size: int = 1,
+    ) -> list[OutboxEntry]:
+        """Process all due PENDING entries once. Returns the entries touched.
+
+        Transaction boundary (#8): each :meth:`_deliver` makes a PM network round
+        trip. When a ``commit`` callback is supplied, the drain commits every
+        ``chunk_size`` delivered entries (and once more at the end for any
+        remainder), so a slow PM never holds one open DB transaction across every
+        round trip. ``chunk_size=1`` (the default with a hook) commits per entry —
+        maximum durability, minimum lock hold; raise it to amortise commit cost
+        when throughput matters. With no ``commit`` callback the legacy
+        single-transaction behaviour is preserved (the caller owns the commit).
+        """
+        if chunk_size < 1:
+            raise ValueError("chunk_size must be >= 1")
         touched: list[OutboxEntry] = []
+        since_commit = 0
         for entry in await self._due_entries(session, now):
             descriptor = self.descriptor_for(entry.entity_type)
             if descriptor is None or not descriptor.write_enabled:
@@ -219,7 +239,14 @@ class SyncEngine:
                 continue
             if await self._deliver(session, descriptor, entry, now):
                 touched.append(entry)
+                since_commit += 1
+                if commit is not None and since_commit >= chunk_size:
+                    await session.flush()
+                    await commit()
+                    since_commit = 0
         await session.flush()
+        if commit is not None and since_commit:
+            await commit()
         return touched
 
     async def _deliver(
