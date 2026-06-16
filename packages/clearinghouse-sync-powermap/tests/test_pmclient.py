@@ -390,6 +390,28 @@ async def test_add_subscriptions_maps_result(client):
 
 
 @respx.mock
+async def test_add_subscriptions_chunks_over_batch_limit(client):
+    """PM caps POST /subscriptions at 500 ids; add_subscriptions chunks larger sets
+    and aggregates the per-batch results."""
+    import json
+
+    ids = [ULID() for _ in range(1001)]
+    seen_sizes = []
+
+    def _handler(request):
+        n = len(json.loads(request.content)["entity_ids"])
+        seen_sizes.append(n)
+        return httpx.Response(200, json={"registered": n, "already_subscribed": 0, "not_found": []})
+
+    respx.post(f"{BASE}/api/v1/subscriptions").mock(side_effect=_handler)
+
+    result = await client.add_subscriptions(ids)
+
+    assert seen_sizes == [500, 500, 1]  # chunked at the 500-item cap
+    assert result.registered == 1001  # aggregated across batches
+
+
+@respx.mock
 async def test_add_subscriptions_403_raises_blocked(client):
     """Missing ``subscriptions:write`` scope → DeliveryBlockedError (operator grants
     the scope), surfaced through the same mapping as the write path."""

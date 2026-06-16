@@ -74,6 +74,10 @@ logger = get_logger(__name__)
 #: Mapped to :class:`DeliveryBlockedError` so the engine parks to UNAVAILABLE.
 _BLOCKED_STATUSES = frozenset({401, 403})
 
+#: PM caps ``POST /api/v1/subscriptions`` at 500 entity ids per request (422 above
+#: that). add_subscriptions chunks larger sets to stay under the cap.
+_SUBSCRIBE_BATCH = 500
+
 
 def _retryable(exc: UnexpectedStatus) -> bool:
     """Worth a backoff retry: rate-limit (429) or any server error (5xx)."""
@@ -264,16 +268,27 @@ class GeneratedPowerMapClient:
             offset += limit
 
     async def add_subscriptions(self, entity_ids: Sequence[ULID]) -> SubscriptionResult:
-        body = await self._send(
-            register_subscriptions.asyncio_detailed(
-                client=self._client,
-                body=SubscriptionRegisterRequest(entity_ids=[str(i) for i in entity_ids]),
+        # Chunk at PM's 500-id cap (discovery can return thousands); aggregate the
+        # per-batch counts so the caller sees one combined result.
+        ids = [str(i) for i in entity_ids]
+        registered = 0
+        already_subscribed = 0
+        not_found: list[ULID] = []
+        for start in range(0, len(ids), _SUBSCRIBE_BATCH):
+            chunk = ids[start : start + _SUBSCRIBE_BATCH]
+            body = await self._send(
+                register_subscriptions.asyncio_detailed(
+                    client=self._client,
+                    body=SubscriptionRegisterRequest(entity_ids=chunk),
+                )
             )
-        )
+            registered += body.registered
+            already_subscribed += body.already_subscribed
+            not_found.extend(as_ulid(x) for x in body.not_found)
         return SubscriptionResult(
-            registered=body.registered,
-            already_subscribed=body.already_subscribed,
-            not_found=[as_ulid(x) for x in body.not_found],
+            registered=registered,
+            already_subscribed=already_subscribed,
+            not_found=not_found,
         )
 
     async def remove_subscriptions(self, entity_ids: Sequence[ULID]) -> int:
