@@ -319,5 +319,35 @@ async def test_run_cycle_isolates_backstop_failure_from_tick():
 
     await sidecar.run_cycle()  # must NOT raise
 
-    assert session.rolled_back  # backstop session rolled back on failure
     assert tick_ran["value"] is True  # main tick still ran despite backstop failure
+
+
+async def test_run_backstop_commits_on_success():
+    """The success path commits the backstop's own session."""
+    session = _FakeSession()
+    sidecar = Sidecar(
+        engine=None, descriptors=[], session_factory=lambda: session, reconciler=object()
+    )
+
+    async def _ran(s, *, now):
+        return True
+
+    sidecar.run_subscription_backstop = _ran
+
+    await sidecar._run_backstop(NOW)
+
+    assert session.committed
+
+
+async def test_run_backstop_contains_session_acquire_failure():
+    """A failure to even acquire the session (e.g. pool exhausted) is contained in
+    _run_backstop and never propagates to crash run_forever (CR round 2 item 6)."""
+
+    def _boom_factory():
+        raise RuntimeError("pool exhausted")
+
+    sidecar = Sidecar(
+        engine=None, descriptors=[], session_factory=_boom_factory, reconciler=object()
+    )
+
+    await sidecar._run_backstop(NOW)  # must NOT raise

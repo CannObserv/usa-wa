@@ -103,16 +103,21 @@ class Sidecar:
         (or a poisoned session from a mid-backfill error) cannot roll back or starve the
         feed/drain. Logs and swallows; the next cycle retries (still gated by cadence on
         success — a failure leaves the stream unstamped, so it retries promptly).
+
+        The ``try`` wraps the whole session lifecycle, so even a failure to *acquire* the
+        session (pool exhausted) or to close/roll back it is contained here and cannot
+        propagate out of :meth:`run_cycle` to crash the daemon before the feed runs. The
+        context manager rolls back any uncommitted work on close, so no explicit rollback
+        is needed.
         """
         if self._reconciler is None:
             return
-        async with self._session_factory() as session:
-            try:
+        try:
+            async with self._session_factory() as session:
                 if await self.run_subscription_backstop(session, now=now):
                     await session.commit()
-            except Exception:
-                await session.rollback()
-                logger.exception("subscription_backstop_failed")
+        except Exception:
+            logger.exception("subscription_backstop_failed")
 
     async def run_subscription_backstop(self, session: AsyncSession, *, now: datetime) -> bool:
         """Due-check → discover/register/backfill → stamp, on the given ``session``.
