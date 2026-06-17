@@ -15,6 +15,7 @@ from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.engine import outbox_backlog
 from usa_wa_api.api.deps import get_db_session
+from usa_wa_api.api.redrive import router as redrive_router
 
 logger = get_logger(__name__)
 
@@ -61,3 +62,4 @@ async def health_sync(session: AsyncSession = Depends(get_db_session)) -> dict:
 
 
 app.include_router(health_router)
+app.include_router(redrive_router)
