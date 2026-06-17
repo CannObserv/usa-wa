@@ -40,6 +40,7 @@ from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid, normalize_name
+from usa_wa_sync_powermap.descriptors.events import sync_entity_events
 
 logger = get_logger(__name__)
 
@@ -229,6 +230,18 @@ class OrganizationDescriptor(EntityDescriptor):
             )
         ).scalar_one_or_none()
 
+    async def fetch_record(self, client: Any, pm_id: Any) -> dict | None:
+        """Fetch the PM org and attach its ``/events`` sub-resource (#19).
+
+        See :meth:`PersonDescriptor.fetch_record`; a parent feed bump may carry an
+        event change, so the events are embedded for the mirror refresh.
+        """
+        record = await client.get_entity(self.read_path, pm_id)
+        if record is None:
+            return None  # parent gone → skip the events fetch entirely
+        record["events"] = await client.list_entity_events(self.read_path, pm_id)
+        return record
+
     async def upsert_from_pm(self, session: Any, record: dict, existing: Any | None = None) -> Any:
         """Apply a PM org record onto the local cache — **update-only**.
 
@@ -252,6 +265,10 @@ class OrganizationDescriptor(EntityDescriptor):
         if record.get("id") is not None:
             row.pm_organization_id = as_ulid(record["id"])
         await session.flush()
+        if "events" in record:  # mirror the embedded events sub-resource (#19)
+            await sync_entity_events(
+                session, entity_kind="organization", entity_id=row.id, pm_events=record["events"]
+            )
         return row
 
     async def _governing_local_jurisdiction(self, session: Any, record: dict) -> Any | None:

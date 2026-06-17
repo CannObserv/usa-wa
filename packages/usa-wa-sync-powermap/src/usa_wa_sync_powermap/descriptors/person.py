@@ -25,6 +25,7 @@ from sqlalchemy import select
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Person
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid, normalize_name
+from usa_wa_sync_powermap.descriptors.events import sync_entity_events
 
 logger = get_logger(__name__)
 
@@ -134,6 +135,18 @@ class PersonDescriptor(EntityDescriptor):
             await session.execute(select(Person).where(Person.pm_person_id == as_ulid(pm_id)))
         ).scalar_one_or_none()
 
+    async def fetch_record(self, client: Any, pm_id: Any) -> dict | None:
+        """Fetch the PM person and attach its ``/events`` sub-resource (#19).
+
+        A parent feed bump may be an event change; embedding the events lets
+        :meth:`upsert_from_pm` refresh the local ``entity_events`` mirror.
+        """
+        record = await client.get_entity(self.read_path, pm_id)
+        if record is None:
+            return None  # parent gone → skip the events fetch entirely
+        record["events"] = await client.list_entity_events(self.read_path, pm_id)
+        return record
+
     async def upsert_from_pm(self, session: Any, record: dict, existing: Any | None = None) -> Any:
         """Apply a PM person onto the local cache — **update-only** (see org descriptor)."""
         row = existing if existing is not None else await self.local_match(session, record)
@@ -145,6 +158,10 @@ class PersonDescriptor(EntityDescriptor):
         if record.get("id") is not None:
             row.pm_person_id = as_ulid(record["id"])
         await session.flush()
+        if "events" in record:  # mirror the embedded events sub-resource (#19)
+            await sync_entity_events(
+                session, entity_kind="person", entity_id=row.id, pm_events=record["events"]
+            )
         return row
 
     def last_updated(self, obj: Any) -> datetime | None:

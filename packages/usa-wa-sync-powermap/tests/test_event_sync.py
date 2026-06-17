@@ -6,10 +6,15 @@ The person/org descriptors mirror PM's read ``EntityEvent`` sub-resource into
 natural key) and the upsert/prune behaviour against a parent's event set.
 """
 
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from ulid import ULID
 
-from clearinghouse_domain_legislative.identity import EntityEvent, Person
+from clearinghouse_domain_legislative.identity import EntityEvent, Organization, Person
+from clearinghouse_sync_powermap.engine import APPLY_KEPT_LOCAL, APPLY_UPDATED, SyncEngine
+from clearinghouse_sync_powermap.testing import FakeClient
+from usa_wa_sync_powermap.descriptors import OrganizationDescriptor, PersonDescriptor
 from usa_wa_sync_powermap.descriptors.events import (
     EVENT_SOURCE,
     map_pm_event,
@@ -147,3 +152,133 @@ async def test_sync_prunes_events_absent_from_pm(db_session):
     )
     rows = await _events_for(db_session, person.id)
     assert {r.source_id for r in rows} == {keep}
+
+
+# --- descriptor sub-resource wiring ----------------------------------------
+
+
+async def test_person_fetch_record_attaches_events():
+    pm_id = ULID()
+    eid = str(ULID())
+    client = FakeClient(
+        entities={pm_id: {"id": str(pm_id), "display_name": "Jane"}},
+        events={pm_id: [_pm_event(eid)]},
+    )
+    record = await PersonDescriptor().fetch_record(client, pm_id)
+    assert record["display_name"] == "Jane"
+    assert [e["id"] for e in record["events"]] == [eid]
+    assert client.events_fetched == [("/api/v1/people", pm_id)]
+
+
+async def test_org_fetch_record_attaches_events():
+    pm_id = ULID()
+    eid = str(ULID())
+    client = FakeClient(
+        entities={pm_id: {"id": str(pm_id), "name": "Acme"}},
+        events={pm_id: [_pm_event(eid, slug="founding")]},
+    )
+    record = await OrganizationDescriptor().fetch_record(client, pm_id)
+    assert [e["id"] for e in record["events"]] == [eid]
+    assert client.events_fetched == [("/api/v1/orgs", pm_id)]
+
+
+async def test_fetch_record_skips_events_when_parent_gone():
+    pm_id = ULID()
+    client = FakeClient(entities={})  # get_entity → None (404 / deleted)
+    assert await PersonDescriptor().fetch_record(client, pm_id) is None
+    assert client.events_fetched == []  # no events fetch for a vanished parent
+
+
+async def test_person_upsert_mirrors_embedded_events(db_session):
+    pm_id = ULID()
+    person = Person(
+        source="usa_wa_legislature",
+        source_id="L1",
+        name_full="Jane",
+        pm_person_id=pm_id,
+    )
+    db_session.add(person)
+    await db_session.flush()
+
+    eid = str(ULID())
+    record = {"id": str(pm_id), "display_name": "Jane Doe", "events": [_pm_event(eid)]}
+    await PersonDescriptor().upsert_from_pm(db_session, record)
+
+    rows = await _events_for(db_session, person.id)
+    assert [r.source_id for r in rows] == [eid]
+    assert rows[0].entity_kind == "person"
+
+
+async def test_org_upsert_mirrors_embedded_events(db_session):
+    pm_id = ULID()
+    org = Organization(
+        source="usa_wa_legislature",
+        source_id="C1",
+        name="Acme",
+        org_type="committee",
+        pm_organization_id=pm_id,
+    )
+    db_session.add(org)
+    await db_session.flush()
+
+    eid = str(ULID())
+    record = {"id": str(pm_id), "name": "Acme Corp", "events": [_pm_event(eid, slug="founding")]}
+    await OrganizationDescriptor().upsert_from_pm(db_session, record)
+
+    rows = await _events_for(db_session, org.id)
+    assert [r.source_id for r in rows] == [eid]
+    assert rows[0].entity_kind == "organization"
+
+
+# --- engine end-to-end (LWW gate governs event mirroring) -------------------
+
+
+async def test_engine_apply_record_mirrors_events_when_pm_newer(db_session):
+    """PM clock newer (a parent-propagation bump from an event change) → PM wins,
+    upsert runs, and the embedded events are mirrored."""
+    pm_id = ULID()
+    person = Person(
+        source="usa_wa_legislature", source_id="L9", name_full="Jane", pm_person_id=pm_id
+    )
+    person.updated_at = datetime(2026, 1, 1, tzinfo=UTC)
+    db_session.add(person)
+    await db_session.flush()
+
+    eid = str(ULID())
+    record = {
+        "id": str(pm_id),
+        "display_name": "Jane",
+        "updated_at": "2026-06-01T00:00:00Z",  # newer than local
+        "events": [_pm_event(eid)],
+    }
+    engine = SyncEngine([PersonDescriptor()], FakeClient())
+    outcome = await engine.apply_record(db_session, PersonDescriptor(), record)
+
+    assert outcome == APPLY_UPDATED
+    rows = await _events_for(db_session, person.id)
+    assert [r.source_id for r in rows] == [eid]
+
+
+async def test_engine_keeps_local_skips_event_mirror_when_local_newer(db_session):
+    """Local clock strictly newer → KEPT_LOCAL: upsert (and thus event mirroring)
+    is skipped. Safe because PM bumps the parent clock whenever an event changes,
+    so a stale parent clock means events did not change."""
+    pm_id = ULID()
+    person = Person(
+        source="usa_wa_legislature", source_id="L8", name_full="Jane", pm_person_id=pm_id
+    )
+    person.updated_at = datetime(2026, 6, 1, tzinfo=UTC)
+    db_session.add(person)
+    await db_session.flush()
+
+    record = {
+        "id": str(pm_id),
+        "display_name": "Jane",
+        "updated_at": "2026-01-01T00:00:00Z",  # older than local
+        "events": [_pm_event(str(ULID()))],
+    }
+    engine = SyncEngine([PersonDescriptor()], FakeClient())
+    outcome = await engine.apply_record(db_session, PersonDescriptor(), record)
+
+    assert outcome == APPLY_KEPT_LOCAL
+    assert await _events_for(db_session, person.id) == []
