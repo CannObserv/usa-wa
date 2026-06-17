@@ -17,7 +17,7 @@ from usa_wa_sync_powermap.descriptors import (
 )
 
 
-def build_descriptors() -> list[EntityDescriptor]:
+def build_descriptors(settings: SidecarSettings | None = None) -> list[EntityDescriptor]:
     """Construct the descriptor set the sidecar engine operates over.
 
     Order is informational (the engine indexes by ``entity_type``), but kept
@@ -26,12 +26,17 @@ def build_descriptors() -> list[EntityDescriptor]:
     at *delivery* time is enforced by each descriptor's ``dependencies_ready``
     gate, not by this list order — a role/assignment whose parents aren't yet
     anchored is deferred, not failed.
+
+    ``settings`` (#12): when provided and ``powermap_search_match_cap`` is set, the
+    org/person match-cascade name-search cap is overridden; ``None`` (or an unset
+    cap) keeps each descriptor's historical per-entity default — non-breaking.
     """
+    match_cap = settings.powermap_search_match_cap if settings is not None else None
     return [
         JurisdictionDescriptor(),
-        OrganizationDescriptor(),
+        OrganizationDescriptor(search_match_cap=match_cap),
         RoleDescriptor(),
-        PersonDescriptor(),
+        PersonDescriptor(search_match_cap=match_cap),
         AssignmentDescriptor(),
     ]
 
