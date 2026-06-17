@@ -63,6 +63,12 @@ class PersonDescriptor(EntityDescriptor):
     write_enabled = True
     enrich_identifier_type = "pm_person_id"  # enrich-on-match (#198)
 
+    def __init__(self, *, search_match_cap: int | None = None) -> None:
+        """``search_match_cap`` (#12): the name-match candidate window passed as the
+        search ``limit``. ``None`` keeps the historical default (:data:`_SEARCH_LIMIT`);
+        the registry plumbs an operator override from ``SidecarSettings``."""
+        self.search_match_cap = _SEARCH_LIMIT if search_match_cap is None else search_match_cap
+
     async def needs_enrich(self, record: dict, row: Any) -> bool:
         """Enrich when PM's matched person lacks the identifier we hold for them."""
         id_type = identifier_type_for(row.source)
@@ -87,7 +93,9 @@ class PersonDescriptor(EntityDescriptor):
         # 2. Name — PM's q filters people server-side (FTS); confirm by exact normalized
         # match (see _SEARCH_LIMIT for the recall-ceiling note).
         target = normalize_name(row.name_full)
-        page = await client.search_entities(SEARCH_PATH, q=row.name_full, limit=_SEARCH_LIMIT)
+        page = await client.search_entities(
+            SEARCH_PATH, q=row.name_full, limit=self.search_match_cap
+        )
         named = [c for c in page.records if normalize_name(c.get("display_name") or "") == target]
         if len(named) == 1:
             logger.info(

@@ -373,22 +373,50 @@ class GeneratedPowerMapClient:
         # filter narrows by that filter (verified against the live API). NOTE: ``q``
         # filters by name server-side via FTS (``@@ plainto_tsquery``) since
         # power-map#201 — word-token matching that folds ``&``/punctuation/word-order
-        # (and accents for people); #199 was the earlier ILIKE precursor. The match
-        # cascade issues a single such query and confirms client-side.
-        kwargs: dict[str, Any] = {"client": self._client, "q": q or "", "limit": limit}
-        # Identifier match is on the type+value PAIR; one without the other is a
-        # no-op filter, so only apply it when both are present.
-        if identifier_type is not None and identifier_value is not None:
-            kwargs["identifier_type"] = identifier_type
-            kwargs["identifier_value"] = identifier_value
-        # The jurisdiction filter applies to orgs only (people carry no jurisdiction).
-        if supports_jur and jurisdiction is not None:
-            kwargs["jurisdiction"] = jurisdiction
-        body = await self._send(op.asyncio_detailed(**kwargs))
-        if body is None:  # defensive: unexpected null body on 200 → empty page
-            return EntityPage(records=[], cursor=None)
-        records = [item.to_dict() for item in body.data]
-        return EntityPage(records=records, cursor=None)
+        # (and accents for people); #199 was the earlier ILIKE precursor.
+        #
+        # ``limit`` is treated as a MAX-RECORD cap on the candidate set the match
+        # cascade confirms client-side: the wrapper paginates by PM ``offset`` and
+        # accumulates up to ``limit`` records (carrying ``meta.has_more`` the way
+        # list_entities does), so a correct candidate beyond PM's first page is no
+        # longer silently dropped. The cap stays caller-controlled (#12) — the
+        # cascade narrows by jurisdiction + hierarchy, so a small cap is normal —
+        # and a still-truncated set (``has_more`` true at the cap) is logged rather
+        # than dropped without a trace.
+        records: list[dict] = []
+        offset = 0
+        for _page in range(_MAX_PAGINATION_PAGES):
+            page_limit = limit - len(records)
+            if page_limit <= 0:
+                break
+            kwargs: dict[str, Any] = {"client": self._client, "q": q or "", "limit": page_limit}
+            # Identifier match is on the type+value PAIR; one without the other is a
+            # no-op filter, so only apply it when both are present.
+            if identifier_type is not None and identifier_value is not None:
+                kwargs["identifier_type"] = identifier_type
+                kwargs["identifier_value"] = identifier_value
+            # The jurisdiction filter applies to orgs only (people carry no jurisdiction).
+            if supports_jur and jurisdiction is not None:
+                kwargs["jurisdiction"] = jurisdiction
+            if offset:
+                kwargs["offset"] = offset
+            body = await self._send(op.asyncio_detailed(**kwargs))
+            if body is None:  # defensive: unexpected null body on 200 → empty page
+                break
+            records.extend(item.to_dict() for item in body.data)
+            if not getattr(body.meta, "has_more", False):
+                break
+            if len(records) >= limit:
+                # Cap filled but PM has more: the confirmed candidate set is
+                # truncated. Surface it (a correct candidate past the cap reads as
+                # "new" → a mergeable duplicate) rather than dropping it silently.
+                logger.warning(
+                    "search_match_truncated",
+                    extra={"search_path": search_path, "q": q, "cap": limit},
+                )
+                break
+            offset += page_limit
+        return EntityPage(records=records[:limit], cursor=None)
 
     async def post_observation(self, observe_path: str, payload: dict) -> ObservationResult:
         submit_fn, model_cls = self._OBSERVE[observe_path]

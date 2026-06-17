@@ -135,6 +135,57 @@ async def test_search_entities_ignores_lone_identifier_type(client):
 
 
 @respx.mock
+async def test_search_entities_paginates_up_to_cap(client):
+    """Search paginates by PM offset, accumulating up to ``limit`` records across
+    pages (carrying ``has_more`` the way list_entities does), so a correct candidate
+    on a later page is no longer silently dropped at the first 20."""
+    pages = [
+        httpx.Response(
+            200,
+            json={
+                "data": [{"id": "01A", "name": "A"}],
+                "meta": {"limit": 1, "offset": 0, "count": 1, "has_more": True},
+            },
+        ),
+        httpx.Response(
+            200,
+            json={
+                "data": [{"id": "01B", "name": "B"}],
+                "meta": {"limit": 1, "offset": 1, "count": 1, "has_more": False},
+            },
+        ),
+    ]
+    route = respx.get(f"{BASE}/api/v1/orgs/search").mock(side_effect=pages)
+
+    page = await client.search_entities("/api/v1/orgs/search", q="x", limit=10)
+
+    assert route.call_count == 2
+    assert [r["id"] for r in page.records] == ["01A", "01B"]
+    assert page.cursor is None  # callers do not page; the wrapper gathers internally
+
+
+@respx.mock
+async def test_search_entities_warns_when_truncated_at_cap(client, caplog):
+    """When PM still reports ``has_more`` after the cap is filled, the truncated
+    candidate set is surfaced as a warning rather than silently dropped."""
+    respx.get(f"{BASE}/api/v1/orgs/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [{"id": "01A", "name": "A"}, {"id": "01B", "name": "B"}],
+                "meta": {"limit": 2, "offset": 0, "count": 2, "has_more": True},
+            },
+        )
+    )
+
+    with caplog.at_level("WARNING"):
+        page = await client.search_entities("/api/v1/orgs/search", q="x", limit=2)
+
+    assert len(page.records) == 2  # capped at the requested limit
+    assert any(r.msg == "search_match_truncated" for r in caplog.records)
+
+
+@respx.mock
 async def test_list_entities_terminates_cursor_when_done(client):
     respx.get(f"{BASE}/api/v1/jurisdictions").mock(
         return_value=httpx.Response(

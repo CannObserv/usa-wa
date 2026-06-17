@@ -15,6 +15,23 @@ def test_no_descriptor_runs_full_list_reconcile():
     assert all(not d.reconcile_enabled for d in build_descriptors())
 
 
+def test_search_match_cap_defaults_preserve_current_behavior():
+    # #12: the cap is configurable but defaults to today's effective values so the
+    # change is non-breaking (orgs 50, people 20 — the prior _SEARCH_LIMIT constants).
+    by_type = {d.entity_type: d for d in build_descriptors()}
+    assert by_type["organization"].search_match_cap == 50
+    assert by_type["person"].search_match_cap == 20
+
+
+def test_build_descriptors_plumbs_configured_search_cap():
+    # #12: SidecarSettings.powermap_search_match_cap flows to the match-cascade
+    # descriptors so an operator can widen the candidate window without a code change.
+    settings = SidecarSettings(powermap_api_key="x", powermap_search_match_cap=200)
+    by_type = {d.entity_type: d for d in build_descriptors(settings)}
+    assert by_type["organization"].search_match_cap == 200
+    assert by_type["person"].search_match_cap == 200
+
+
 def test_build_discovery_spec_roots_at_wa_subtree():
     spec = build_discovery_spec(SidecarSettings(powermap_api_key="x"))
     assert spec.root_type == "jurisdiction"

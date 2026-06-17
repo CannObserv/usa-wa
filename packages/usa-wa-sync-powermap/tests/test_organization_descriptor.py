@@ -119,6 +119,24 @@ async def test_pm_match_name_via_fts(db_session, descriptor):
     assert client.searched[1]["jurisdiction"] == "usa-wa"
 
 
+async def test_name_search_uses_configured_match_cap(db_session):
+    """#12: the descriptor's ``search_match_cap`` is the ``limit`` it passes to the
+    name-match search, so an operator-tuned cap actually widens the candidate window."""
+    row = await _add_org(db_session, source_id="C-CAP", name="Some Committee")
+    seen_limits: list[int] = []
+
+    class _RecordingClient:
+        async def search_entities(self, search_path, *, limit=20, **kwargs):
+            seen_limits.append(limit)
+            return EntityPage(records=[], cursor=None)
+
+    descriptor = OrganizationDescriptor(search_match_cap=137)
+    await descriptor.pm_match(_RecordingClient(), db_session, row)
+
+    # First call is the identifier lookup (limit=1); the name FTS uses the cap.
+    assert 137 in seen_limits
+
+
 async def test_pm_match_disambiguates_by_parent_hierarchy(db_session, descriptor):
     """Two same-name committees (FTS returns both) → resolved by the anchored parent."""
     parent_pm = ULID()
