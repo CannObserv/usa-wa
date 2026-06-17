@@ -339,6 +339,64 @@ async def test_discover_warns_when_truncated(client, caplog):
 
 
 @respx.mock
+async def test_discover_bounds_runaway_pagination(client, caplog):
+    """A misbehaving PM that always returns ``has_more=true`` (or never advances the
+    offset) must not spin the daemon forever: the safety bound trips, logs a warning,
+    and returns the partial result instead of looping unbounded."""
+    from clearinghouse_sync_powermap.pmclient import _MAX_PAGINATION_PAGES
+
+    route = respx.get(f"{BASE}/api/v1/subscriptions/discover").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [_disc_item(ULID(), "jurisdiction", 0)],
+                "meta": {"limit": 1, "offset": 0, "count": 1, "has_more": True},
+            },
+        )
+    )
+
+    with caplog.at_level("WARNING"):
+        found = await client.discover(
+            root_type="jurisdiction", root_id="usa-wa", follow=["lineage"], limit=1
+        )
+
+    # Bounded: at most _MAX_PAGINATION_PAGES requests, then break with the partial set.
+    assert route.call_count == _MAX_PAGINATION_PAGES
+    assert len(found) == _MAX_PAGINATION_PAGES
+    assert any(r.msg == "discover_pagination_bound_exceeded" for r in caplog.records)
+
+
+@respx.mock
+async def test_list_subscriptions_bounds_runaway_pagination(client, caplog):
+    """``list_subscriptions`` mirrors ``discover``: a never-terminating ``has_more``
+    feed trips the same safety bound + warning rather than spinning forever."""
+    from clearinghouse_sync_powermap.pmclient import _MAX_PAGINATION_PAGES
+
+    route = respx.get(f"{BASE}/api/v1/subscriptions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "entity_id": str(ULID()),
+                        "entity_type": "jurisdiction",
+                        "created_at": "2026-06-05T00:00:00Z",
+                    }
+                ],
+                "meta": {"limit": 1, "offset": 0, "count": 1, "has_more": True},
+            },
+        )
+    )
+
+    with caplog.at_level("WARNING"):
+        ids = await client.list_subscriptions()
+
+    assert route.call_count == _MAX_PAGINATION_PAGES
+    assert len(ids) == _MAX_PAGINATION_PAGES
+    assert any(r.msg == "list_subscriptions_pagination_bound_exceeded" for r in caplog.records)
+
+
+@respx.mock
 async def test_list_subscriptions_paginates_to_ids(client):
     a, b = ULID(), ULID()
 

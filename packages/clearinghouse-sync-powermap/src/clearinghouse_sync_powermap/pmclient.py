@@ -78,6 +78,15 @@ _BLOCKED_STATUSES = frozenset({401, 403})
 #: that). add_subscriptions chunks larger sets to stay under the cap.
 _SUBSCRIBE_BATCH = 500
 
+#: Safety ceiling on the live ``discover`` / ``list_subscriptions`` pagination loops
+#: (PM #203). Both run every sidecar cycle via the discovery backstop; a misbehaving
+#: PM that always returns ``has_more=true`` (or a non-advancing offset) would otherwise
+#: spin the daemon forever. At the loops' default ``limit`` (100/page) this is ~100k
+#: records — orders of magnitude above the WA identity cohort — so it never trips in
+#: normal operation; it is a runaway guard, not a tuning knob. On exceed: warn + break
+#: with the partial set (mirrors the ``discovery_truncated`` surfacing style).
+_MAX_PAGINATION_PAGES = 1000
+
 
 def _retryable(exc: UnexpectedStatus) -> bool:
     """Worth a backoff retry: rate-limit (429) or any server error (5xx)."""
@@ -217,7 +226,7 @@ class GeneratedPowerMapClient:
         results: list[DiscoveredEntity] = []
         follow_param = ",".join(follow)
         root = DiscoverSubscriptionsRootType(root_type)
-        while True:
+        for _page in range(_MAX_PAGINATION_PAGES):
             body = await self._send(
                 discover_subscriptions.asyncio_detailed(
                     client=self._client,
@@ -248,6 +257,19 @@ class GeneratedPowerMapClient:
             if not body.meta.has_more:
                 return results
             offset += limit
+        # Safety bound hit: PM kept signalling ``has_more`` past the page ceiling
+        # (misbehaving feed or non-advancing offset). Stop the live loop and surface
+        # the truncated result rather than spinning the daemon forever.
+        logger.warning(
+            "discover_pagination_bound_exceeded",
+            extra={
+                "root_type": root_type,
+                "root_id": root_id,
+                "max_pages": _MAX_PAGINATION_PAGES,
+                "collected": len(results),
+            },
+        )
+        return results
 
     async def list_subscriptions(self, *, entity_type: str | None = None) -> list[ULID]:
         # Paginate the subscription list; collect just the entity ids (engine diffs ids).
@@ -257,7 +279,7 @@ class GeneratedPowerMapClient:
         type_param = (
             ListSubscriptionsEntityTypeType0(entity_type) if entity_type is not None else None
         )
-        while True:
+        for _page in range(_MAX_PAGINATION_PAGES):
             kwargs: dict[str, Any] = {"client": self._client, "limit": limit, "offset": offset}
             if type_param is not None:
                 kwargs["entity_type"] = type_param
@@ -266,6 +288,17 @@ class GeneratedPowerMapClient:
             if not body.meta.has_more:
                 return ids
             offset += limit
+        # Safety bound hit (see _MAX_PAGINATION_PAGES): a never-terminating ``has_more``
+        # would otherwise spin the daemon forever. Stop and return the partial id set.
+        logger.warning(
+            "list_subscriptions_pagination_bound_exceeded",
+            extra={
+                "entity_type": entity_type,
+                "max_pages": _MAX_PAGINATION_PAGES,
+                "collected": len(ids),
+            },
+        )
+        return ids
 
     async def add_subscriptions(self, entity_ids: Sequence[ULID]) -> SubscriptionResult:
         # Chunk at PM's 500-id cap (discovery can return thousands); aggregate the
