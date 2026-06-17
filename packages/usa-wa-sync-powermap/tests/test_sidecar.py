@@ -152,6 +152,60 @@ async def test_reconciled_jurisdiction_does_not_reenqueue_writeback(db_session, 
     assert entries == []
 
 
+# --- outbox commit boundary (#8) -----------------------------------------------
+
+
+async def test_tick_commits_outbox_per_entry(db_session, state_type):
+    """#8: when tick is driven with a commit hook, the outbox drain commits per
+    delivered entry (default chunk size 1) so a slow PM never holds one open
+    transaction across every round-trip."""
+    for slug in ("usa-wa-a", "usa-wa-b", "usa-wa-c"):
+        db_session.add(
+            Jurisdiction(slug=slug, name=slug, type_id=state_type.id, recorded_at=datetime.now(UTC))
+        )
+    await db_session.flush()
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    sidecar, _ = _sidecar(client)
+    commits = 0
+
+    async def _commit() -> None:
+        nonlocal commits
+        commits += 1
+        await db_session.commit()
+
+    await sidecar.tick(db_session, now=NOW, commit=_commit)
+
+    delivered = (await db_session.execute(select(OutboxEntry))).scalars().all()
+    assert len(delivered) == 3
+    assert all(e.status == STATUS_DELIVERED for e in delivered)
+    assert commits == 3  # one commit per delivered entry, not one for the whole drain
+
+
+async def test_tick_uses_configured_commit_chunk_size(db_session, state_type):
+    """The chunk size is configurable: 4 entries at chunk_size=2 → 2 commit points."""
+    for slug in ("usa-wa-a", "usa-wa-b", "usa-wa-c", "usa-wa-d"):
+        db_session.add(
+            Jurisdiction(slug=slug, name=slug, type_id=state_type.id, recorded_at=datetime.now(UTC))
+        )
+    await db_session.flush()
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    descriptor = JurisdictionDescriptor()
+    engine = SyncEngine([descriptor], client)
+    sidecar = Sidecar(
+        engine, [descriptor], session_factory=lambda: None, outbox_commit_chunk_size=2
+    )
+    commits = 0
+
+    async def _commit() -> None:
+        nonlocal commits
+        commits += 1
+        await db_session.commit()
+
+    await sidecar.tick(db_session, now=NOW, commit=_commit)
+
+    assert commits == 2  # ceil(4/2)
+
+
 # --- run_cycle isolation (CR #13) ----------------------------------------------
 
 
@@ -177,7 +231,7 @@ async def test_run_cycle_commits_on_success():
     session = _FakeSession()
     sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: session)
 
-    async def _ok(s, *, now):
+    async def _ok(s, *, now, commit):
         return None
 
     sidecar.tick = _ok
@@ -190,7 +244,7 @@ async def test_run_cycle_isolates_and_rolls_back_on_error():
     session = _FakeSession()
     sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: session)
 
-    async def _boom(s, *, now):
+    async def _boom(s, *, now, commit):
         raise RuntimeError("poison cycle")
 
     sidecar.tick = _boom
@@ -311,7 +365,7 @@ async def test_run_cycle_isolates_backstop_failure_from_tick():
     async def _boom_backstop(s, *, now):
         raise RuntimeError("discover endpoint down")
 
-    async def _ok_tick(s, *, now):
+    async def _ok_tick(s, *, now, commit):
         tick_ran["value"] = True
 
     sidecar.run_subscription_backstop = _boom_backstop

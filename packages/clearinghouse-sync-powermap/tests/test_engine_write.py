@@ -217,6 +217,37 @@ async def test_sweep_is_idempotent(db_session, fake_descriptor):
     assert await engine.sweep_unanchored(db_session, fake_descriptor) == 0  # open entry exists
 
 
+async def test_sweep_batches_large_backlog(db_session, fake_descriptor):
+    """#7: a backlog larger than the batch size is swept in keyset-paged batches —
+    every unanchored row is enqueued, never all materialised at once. With a batch
+    size of 2 and 5 rows, all 5 get a CREATE in a single sweep call."""
+    for i in range(5):
+        await _add_entity(db_session, source_id=str(i))
+    engine = SyncEngine([fake_descriptor], FakeClient(), sweep_batch_size=2)
+
+    count = await engine.sweep_unanchored(db_session, fake_descriptor)
+
+    assert count == 5
+    entries = (await db_session.execute(select(OutboxEntry))).scalars().all()
+    assert len(entries) == 5
+    assert {e.op for e in entries} == {OP_CREATE}
+
+
+async def test_sweep_batched_terminates_on_already_enqueued(db_session, fake_descriptor):
+    """Keyset paging must advance past rows that stay unanchored after processing
+    (a CREATE leaves the anchor null until delivery). A re-sweep of an
+    already-enqueued backlog larger than the batch size terminates and enqueues
+    nothing new — no infinite loop on the still-null-anchor rows."""
+    for i in range(5):
+        await _add_entity(db_session, source_id=str(i))
+    engine = SyncEngine([fake_descriptor], FakeClient(), sweep_batch_size=2)
+    assert await engine.sweep_unanchored(db_session, fake_descriptor) == 5
+
+    # Second sweep: every row is still anchor-null but already has an open entry.
+    assert await engine.sweep_unanchored(db_session, fake_descriptor) == 0
+    assert len((await db_session.execute(select(OutboxEntry))).scalars().all()) == 5
+
+
 async def test_drain_anchors_on_new(db_session, fake_descriptor):
     row = await _add_entity(db_session, source_id="1")
     pm_id = ULID()
@@ -457,6 +488,59 @@ async def test_drain_deferral_never_counts_toward_cap(db_session):
     assert touched[0].attempts == 0
 
 
+class _AlwaysDeferred(FakeDescriptor):
+    """A descriptor whose PM prerequisite never anchors — defers every cycle."""
+
+    async def dependencies_ready(self, session, row):  # noqa: ARG002
+        return False
+
+
+async def test_deferred_too_long_surfaces_stuck_event(db_session, caplog):
+    """#15: a deps-not-ready entry defers forever WITHOUT incrementing attempts, so
+    the dead-letter cap (which keys on attempts) can never catch it — it is the
+    invisible stuck path. When such an entry has been PENDING longer than the
+    deferred-stuck threshold, the deferral logs a distinct WARNING the operator can
+    alert on (reuses created_at — no schema migration)."""
+    row = await _add_entity(db_session, source_id="1")
+    # Make the entry look long-deferred by backdating its created_at.
+    await engine_sweep_then_age(db_session, row, created_at=NOW - timedelta(hours=48))
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    engine = SyncEngine([_AlwaysDeferred()], client, deferred_stuck_threshold=timedelta(hours=24))
+
+    with caplog.at_level("WARNING"):
+        touched = await engine.drain_outbox(db_session, now=NOW)
+
+    entry = touched[0]
+    assert entry.status == STATUS_PENDING  # still deferred, not a failure
+    assert entry.attempts == 0  # deferral never counts an attempt
+    stuck = [r for r in caplog.records if r.msg == "powermap_observation_deferred_stuck"]
+    assert len(stuck) == 1
+    assert stuck[0].entity_type == "fake"
+
+
+async def test_recently_deferred_does_not_surface_stuck_event(db_session, caplog):
+    """A freshly-deferred entry (within the threshold) logs only the routine INFO
+    deferral, not the stuck WARNING — normal in-flight waiting is not noise."""
+    row = await _add_entity(db_session, source_id="1")
+    await engine_sweep_then_age(db_session, row, created_at=NOW - timedelta(minutes=5))
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    engine = SyncEngine([_AlwaysDeferred()], client, deferred_stuck_threshold=timedelta(hours=24))
+
+    with caplog.at_level("INFO"):
+        await engine.drain_outbox(db_session, now=NOW)
+
+    assert [r for r in caplog.records if r.msg == "powermap_observation_deferred_stuck"] == []
+    assert [r for r in caplog.records if r.msg == "powermap_observation_deferred"]
+
+
+async def engine_sweep_then_age(db_session, row, *, created_at):
+    """Enqueue a CREATE for ``row`` and backdate its outbox entry's created_at."""
+    entry = OutboxEntry(entity_type="fake", local_id=row.id, op=OP_CREATE, created_at=created_at)
+    db_session.add(entry)
+    await db_session.flush()
+    return entry
+
+
 async def test_drain_respects_next_attempt_at(db_session, fake_descriptor):
     await _add_entity(db_session, source_id="1")
     client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
@@ -575,6 +659,63 @@ async def test_redrive_resets_unavailable_to_pending(db_session, fake_descriptor
     assert unavailable.attempts == 0
     assert unavailable.next_attempt_at == base  # due immediately
     assert rejected.status == STATUS_REJECTED  # untouched — a data bug, not an outage
+
+
+async def test_drain_commits_per_entry_by_default(db_session, fake_descriptor):
+    """#8: when a commit hook is supplied, drain commits after each delivery by
+    default (chunk_size=1), so a slow PM never holds one transaction open across
+    every round-trip. The commit hook is invoked once per delivered entry."""
+    for sid in ("1", "2", "3"):
+        await _add_entity(db_session, source_id=sid)
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    engine = SyncEngine([fake_descriptor], client)
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+    commits = 0
+
+    async def _commit() -> None:
+        nonlocal commits
+        commits += 1
+        await db_session.commit()
+
+    touched = await engine.drain_outbox(db_session, now=NOW, commit=_commit)
+
+    assert len(touched) == 3
+    assert commits == 3  # one commit per delivered entry
+
+
+async def test_drain_commits_per_chunk(db_session, fake_descriptor):
+    """A configurable chunk size batches commits: 5 entries at chunk_size=2 →
+    commit after 2, after 4, and a final commit for the remaining 1."""
+    for sid in ("1", "2", "3", "4", "5"):
+        await _add_entity(db_session, source_id=sid)
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    engine = SyncEngine([fake_descriptor], client)
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+    commits = 0
+
+    async def _commit() -> None:
+        nonlocal commits
+        commits += 1
+        await db_session.commit()
+
+    touched = await engine.drain_outbox(db_session, now=NOW, commit=_commit, chunk_size=2)
+
+    assert len(touched) == 5
+    # ceil(5/2) = 3 commit points (2, 2, then a final commit for the last 1).
+    assert commits == 3
+
+
+async def test_drain_without_commit_hook_is_single_transaction(db_session, fake_descriptor):
+    """No commit callback → legacy single-transaction behaviour (caller commits)."""
+    await _add_entity(db_session, source_id="1")
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    engine = SyncEngine([fake_descriptor], client)
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+
+    touched = await engine.drain_outbox(db_session, now=NOW)
+
+    assert len(touched) == 1
+    assert touched[0].status == STATUS_DELIVERED
 
 
 async def test_drain_skips_dormant_type(db_session, fake_descriptor):

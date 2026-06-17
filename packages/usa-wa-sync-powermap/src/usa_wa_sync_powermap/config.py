@@ -19,6 +19,11 @@ class SidecarSettings(BaseSettings):
     powermap_api_key: str | None = None
     #: Seconds between sync cycles (feed poll + due reconcile + outbox drain).
     feed_poll_seconds: float = 60.0
+    #: Outbox delivery transaction boundary (#8): how many delivered entries to
+    #: batch per DB commit during a drain. Default 1 = commit per entry, so a slow
+    #: PM never holds one open transaction across N network round-trips; raise it
+    #: to amortise commit cost when throughput dominates over lock-hold latency.
+    outbox_commit_chunk_size: int = 1
     #: Subscription discovery (PM #203): where the WA-subtree traversal starts and
     #: which edges it follows. The default mirrors the design's usa-wa setup.
     powermap_discovery_root_type: str = "jurisdiction"
