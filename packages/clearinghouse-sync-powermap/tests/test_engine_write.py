@@ -518,6 +518,28 @@ async def test_deferred_too_long_surfaces_stuck_event(db_session, caplog):
     assert stuck[0].entity_type == "fake"
 
 
+def test_deferred_stuck_warning_is_throttled_per_entry(caplog):
+    """A wedged entry is re-checked every cycle; the stuck WARNING fires once per id
+    (then falls back to the routine INFO) rather than re-warning every cycle (#15 CR)."""
+    engine = SyncEngine(
+        [_AlwaysDeferred()], FakeClient(), deferred_stuck_threshold=timedelta(hours=24)
+    )
+    entry = OutboxEntry(
+        entity_type="fake", local_id=ULID(), op=OP_CREATE, created_at=NOW - timedelta(hours=48)
+    )
+    entry.id = ULID()
+    entry.attempts = 0
+
+    with caplog.at_level("INFO"):
+        engine._log_deferral(entry, NOW)  # first sighting → WARNING
+        engine._log_deferral(entry, NOW)  # subsequent cycle → routine INFO
+
+    stuck = [r for r in caplog.records if r.msg == "powermap_observation_deferred_stuck"]
+    routine = [r for r in caplog.records if r.msg == "powermap_observation_deferred"]
+    assert len(stuck) == 1
+    assert len(routine) == 1
+
+
 async def test_recently_deferred_does_not_surface_stuck_event(db_session, caplog):
     """A freshly-deferred entry (within the threshold) logs only the routine INFO
     deferral, not the stuck WARNING — normal in-flight waiting is not noise."""

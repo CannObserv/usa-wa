@@ -23,7 +23,7 @@ async def _amain() -> None:
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — required for the PM sidecar.")
 
-    descriptors = build_descriptors()
+    descriptors = build_descriptors(settings)
     client = GeneratedPowerMapClient(settings.powermap_base_url, settings.powermap_api_key)
     engine = SyncEngine(descriptors, client)
     reconciler = SubscriptionReconciler(client, engine, build_discovery_spec(settings))

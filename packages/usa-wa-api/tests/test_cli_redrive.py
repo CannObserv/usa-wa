@@ -9,6 +9,7 @@ against the savepointed test session, and ``main``'s arg-wiring + JSON output
 import json
 from contextlib import asynccontextmanager
 
+import pytest
 from sqlalchemy import select
 from ulid import ULID
 
@@ -51,6 +52,13 @@ def test_parser_flags():
     assert args.entity_type == "person"
     assert args.older_than_seconds == 3600
     assert args.dry_run is True
+
+
+def test_parser_rejects_negative_older_than_seconds():
+    """A negative age inverts the filter (matches everything, including future rows),
+    silently turning a scoped re-drive unscoped — reject it, mirroring Query(ge=0)."""
+    with pytest.raises(SystemExit):
+        cli._build_parser().parse_args(["--older-than-seconds", "-5"])
 
 
 async def test_run_redrives_and_commits(monkeypatch, db_session):

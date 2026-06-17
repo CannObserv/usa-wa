@@ -2,9 +2,10 @@
 
 Process model B (single daemon). Each cycle: run the due subscription re-discovery
 backstop (register/backfill new WA-subtree entities), pull the subscription-filtered
-changes feed, sweep un-anchored rows, and drain the outbox. The legacy full-list
-reconcile is retired for usa-wa (all descriptors opt out) but the generic hook
-remains for siblings.
+changes feed, run the due reconcile backstops (jurisdictions: none; cohort producers:
+the bounded anchored-cohort re-fetch that recovers dropped feed events — usa-wa#13),
+sweep un-anchored rows, and drain the outbox. The legacy full-list reconcile is
+retired for usa-wa but the generic hook remains for siblings.
 
 Per-cycle isolation (CR #13): every cycle runs in its own session inside a
 try/except that rolls back and logs on failure, so a propagating non-transient
@@ -77,23 +78,28 @@ class Sidecar:
     ) -> None:
         """One sync cycle against a single session.
 
-        Reads (feed + due reconcile) and the sweep enqueue accumulate in the open
-        transaction; the caller owns their commit. When ``commit`` is supplied, the
-        outbox *drain* commits incrementally — per delivered entry by default, or
-        every ``outbox_commit_chunk_size`` entries (#8) — so a slow PM never holds
-        the transaction open across every delivery round-trip. With no ``commit``
-        hook the whole tick is one transaction (the legacy boundary).
+        The feed read and the sweep enqueue accumulate in the open transaction; the
+        caller owns their commit. When ``commit`` is supplied, both the anchored-cohort
+        reconcile backstop (per page, #13 CR) and the outbox *drain* (per delivered
+        entry by default, or every ``outbox_commit_chunk_size`` entries, #8) commit
+        incrementally — so a slow PM never holds the transaction open across every
+        round-trip. With no ``commit`` hook the whole tick is one transaction (the
+        legacy boundary).
 
         The subscription re-discovery backstop is NOT run here — it runs in its own
         session via :meth:`run_cycle` so a discovery/PM failure cannot roll back or
         starve the feed/sweep/drain in this transaction.
         """
-        # Reads: incremental feed first, then due reconcile backstops (retired for
-        # usa-wa — all descriptors opt out — but kept generic for siblings).
+        # Reads: incremental feed first, then due reconcile backstops. Jurisdictions
+        # run none (subscription feed + discovery only); the cohort producers run the
+        # bounded anchored-cohort backstop (re-fetch our anchored rows → recover dropped
+        # feed events, usa-wa#13); the full-list backstop is sibling-only.
         await self._engine.process_feed(session)
         for descriptor in self._descriptors:
             if await self._reconcile_due(session, descriptor, now):
-                await self._engine.reconcile(session, descriptor, now=now)
+                # Pass the commit hook so a large cohort backstop commits per page
+                # rather than holding one transaction across every PM round-trip (#13 CR).
+                await self._engine.reconcile(session, descriptor, now=now, commit=commit)
         # Writes: enqueue un-anchored rows, then deliver.
         for descriptor in self._descriptors:
             if descriptor.write_enabled:
@@ -197,9 +203,11 @@ class Sidecar:
     async def _reconcile_due(
         self, session: AsyncSession, descriptor: EntityDescriptor, now: datetime
     ) -> bool:
-        # Only full-mirror entities run the full-list reconcile backstop; cohort-only
-        # producers opt out (would page PM's entire set to discard it). See usa-wa#13.
-        if descriptor.read_source == "none" or not descriptor.reconcile_enabled:
+        # Gate per reconcile_mode (usa-wa#13): ``none`` runs no backstop and is always
+        # skipped (jurisdictions — driven by the subscription feed + discovery). The
+        # ``full_list`` (sibling-only) and ``anchored_cohort`` (cohort producers)
+        # backstops both run on cadence; engine.reconcile() dispatches the right one.
+        if descriptor.read_source == "none" or descriptor.reconcile_mode == "none":
             return False
         stream = f"reconcile:{descriptor.entity_type}"
         state = (

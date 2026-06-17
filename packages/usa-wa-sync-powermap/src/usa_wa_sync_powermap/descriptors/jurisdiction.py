@@ -8,7 +8,7 @@ to the bootstrap-imported rows instead of minting duplicates.
 Scope note (usa-wa#10): the feed is now subscription-filtered (PM #203), so it
 delivers only the WA-subtree jurisdictions this key is subscribed to — no longer
 the all-50-states firehose. The unfiltered full-list reconcile backstop is
-therefore retired (``reconcile_enabled = False``); membership is driven by the
+therefore retired (``reconcile_mode = "none"``); membership is driven by the
 SubscriptionReconciler's discovery + backfill, and field updates by the feed.
 """
 
@@ -43,12 +43,13 @@ class JurisdictionDescriptor(EntityDescriptor):
     read_path = "/api/v1/jurisdictions"
     observe_path = "/api/v1/jurisdictions/observations"
     read_source = "feed"
-    # Retired (usa-wa#10): the subscription-filtered feed (PM #203) + the
-    # SubscriptionReconciler's discovery/backfill cover the WA subtree. A full-list
-    # reconcile would re-ingest the all-50-states firehose the reconcile is unfiltered
-    # against, defeating the bound. read_path stays — fetch_record uses it for feed +
-    # backfill get-by-id.
-    reconcile_enabled = False
+    # No reconcile backstop (usa-wa#10): the subscription-filtered feed (PM #203) +
+    # the SubscriptionReconciler's discovery/backfill cover the WA subtree. A
+    # full-list reconcile would re-ingest the all-50-states firehose the reconcile is
+    # unfiltered against, defeating the bound; and unlike the cohort-only producers PM
+    # is the system-of-record here (no anchored cohort WE curate to re-fetch).
+    # read_path stays — fetch_record uses it for feed + backfill get-by-id.
+    reconcile_mode = "none"
     # jur_slug identifier type is live (PM #183), so observations AUTO_ATTACH to
     # the bootstrap-imported rows instead of minting duplicates.
     write_enabled = True

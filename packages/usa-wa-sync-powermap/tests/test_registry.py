@@ -1,5 +1,7 @@
 """Registry tests — the descriptor set and the discovery spec the sidecar uses."""
 
+import pytest
+
 from usa_wa_sync_powermap import bootstrap
 from usa_wa_sync_powermap.config import SidecarSettings
 from usa_wa_sync_powermap.registry import build_descriptors, build_discovery_spec
@@ -11,8 +13,15 @@ def test_build_descriptors_covers_identity_cluster():
 
 
 def test_no_descriptor_runs_full_list_reconcile():
-    # usa-wa#10: the unfiltered full-list reconcile is retired across the board.
-    assert all(not d.reconcile_enabled for d in build_descriptors())
+    # usa-wa#10: the unfiltered full-list reconcile is retired across the board. The
+    # producers run the bounded anchored-cohort backstop (#13); jurisdictions run none.
+    modes = {d.entity_type: d.reconcile_mode for d in build_descriptors()}
+    assert all(m != "full_list" for m in modes.values())
+    assert modes["jurisdiction"] == "none"
+    assert modes["organization"] == "anchored_cohort"
+    assert modes["role"] == "anchored_cohort"
+    assert modes["role_assignment"] == "anchored_cohort"
+    assert modes["person"] == "anchored_cohort"
 
 
 def test_search_match_cap_defaults_preserve_current_behavior():
@@ -49,3 +58,40 @@ def test_build_discovery_spec_roots_at_wa_subtree():
 def test_bootstrap_entrypoint_is_callable():
     # The deploy/cutover step shells out to this; keep it importable + wired.
     assert callable(bootstrap.main)
+
+
+class _Stop(Exception):
+    """Sentinel to abort an entrypoint right after build_descriptors runs."""
+
+
+async def _assert_entrypoint_passes_settings(monkeypatch, module):
+    """#12: the daemon entrypoints must pass ``settings`` to build_descriptors so the
+    configured ``powermap_search_match_cap`` actually reaches the descriptors —
+    calling it with no args leaves the knob inert. Capture the arg, then abort before
+    any network/DB work."""
+    captured = {}
+
+    def _fake_build(settings=None):
+        captured["settings"] = settings
+        raise _Stop
+
+    monkeypatch.setattr(module, "build_descriptors", _fake_build)
+    monkeypatch.setattr(
+        module,
+        "get_sidecar_settings",
+        lambda: SidecarSettings(powermap_api_key="x", powermap_search_match_cap=123),
+    )
+    with pytest.raises(_Stop):
+        await module._amain()
+    assert captured["settings"] is not None
+    assert captured["settings"].powermap_search_match_cap == 123
+
+
+async def test_bootstrap_passes_settings_to_build_descriptors(monkeypatch):
+    await _assert_entrypoint_passes_settings(monkeypatch, bootstrap)
+
+
+async def test_daemon_main_passes_settings_to_build_descriptors(monkeypatch):
+    from usa_wa_sync_powermap import __main__ as daemon
+
+    await _assert_entrypoint_passes_settings(monkeypatch, daemon)

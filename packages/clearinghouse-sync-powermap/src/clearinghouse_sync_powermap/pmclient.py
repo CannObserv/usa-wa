@@ -415,7 +415,10 @@ class GeneratedPowerMapClient:
                     extra={"search_path": search_path, "q": q, "cap": limit},
                 )
                 break
-            offset += page_limit
+            # Advance by the rows PM actually returned, not the requested page size:
+            # if PM caps its page below ``page_limit`` (a short non-final page), an
+            # ``offset += page_limit`` would skip the records in between.
+            offset += len(body.data)
         return EntityPage(records=records[:limit], cursor=None)
 
     async def post_observation(self, observe_path: str, payload: dict) -> ObservationResult:
