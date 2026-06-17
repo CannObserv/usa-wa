@@ -360,6 +360,49 @@ async def test_anchored_cohort_paginates_in_bounded_batches(db_session):
     assert {pm_id for _path, pm_id in client.fetched} == set(ids)
 
 
+async def test_anchored_cohort_commits_per_page_when_hook_supplied(db_session):
+    """With a commit hook the cohort backstop commits after each page, so a large
+    cohort never holds one transaction across every PM round-trip (#13 CR). Batch
+    size 1 over 3 anchored rows → 3 pages → 3 commits."""
+    ids = []
+    for i in range(3):
+        pm_id = ULID()
+        ids.append(pm_id)
+        await _add_anchored(db_session, source_id=str(i), name=f"N{i}", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortDescriptor()
+    client = FakeClient(
+        entities={
+            pm_id: _record(str(i), f"N{i}", pm_id=pm_id, updated_at="2000-01-01T00:00:00Z")
+            for i, pm_id in enumerate(ids)
+        }
+    )
+    engine = SyncEngine([descriptor], client, sweep_batch_size=1)
+    commits = 0
+
+    async def fake_commit():
+        nonlocal commits
+        commits += 1
+
+    applied = await engine.reconcile(db_session, descriptor, now=NOW, commit=fake_commit)
+
+    assert applied == 3
+    assert commits == 3  # one commit per page
+
+
+async def test_anchored_cohort_no_commit_hook_stays_single_transaction(db_session):
+    """No commit hook → the backstop never commits mid-pass (legacy boundary)."""
+    pm_id = ULID()
+    await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortDescriptor()
+    client = FakeClient(
+        entities={pm_id: _record("x", "X", pm_id=pm_id, updated_at="2000-01-01T00:00:00Z")}
+    )
+    engine = SyncEngine([descriptor], client)
+
+    # Must not raise (no commit callback invoked) and must apply the row.
+    assert await engine.reconcile(db_session, descriptor, now=NOW) == 1
+
+
 async def test_anchored_cohort_stamps_last_reconcile_at(db_session):
     descriptor = CohortDescriptor()
     engine = SyncEngine([descriptor], FakeClient())

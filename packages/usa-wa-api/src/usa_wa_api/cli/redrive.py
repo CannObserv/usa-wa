@@ -24,6 +24,18 @@ from clearinghouse_core.logging import configure_logging
 from usa_wa_api.api.redrive import perform_redrive
 
 
+def _non_negative_int(value: str) -> int:
+    """argparse type: a ``>= 0`` int, mirroring the HTTP route's ``Query(ge=0)``.
+
+    A negative age would invert the filter (``created_at <= now + |X|``) and match
+    every row — silently turning a scoped re-drive into an unscoped one.
+    """
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be >= 0")
+    return parsed
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m usa_wa_api.cli.redrive",
@@ -36,7 +48,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--older-than-seconds",
-        type=int,
+        type=_non_negative_int,
         default=None,
         help="Only re-drive entries created at least this many seconds ago.",
     )

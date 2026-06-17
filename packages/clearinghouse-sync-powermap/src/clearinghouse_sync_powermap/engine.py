@@ -151,6 +151,10 @@ class SyncEngine:
         self._max_attempts = max_attempts
         self._deferred_stuck_threshold = deferred_stuck_threshold
         self._sweep_batch_size = sweep_batch_size
+        #: Outbox ids already surfaced as deferred-stuck this process, so the WARNING
+        #: fires once per wedged entry rather than every cycle (#15 throttle). Bounded
+        #: by the live stuck-entry count; a daemon restart re-warns once (acceptable).
+        self._warned_stuck: set = set()
 
     def descriptor_for(self, entity_type: str) -> EntityDescriptor | None:
         return self._by_type.get(entity_type)
@@ -413,10 +417,16 @@ class SyncEngine:
         buried in the routine deferral INFO stream. Age reuses ``created_at`` (no
         schema migration); a row created in this very cycle has no stamp yet
         (``created_at is None`` pre-server-flush) — treat that as not-yet-stuck.
+
+        Throttled (#15 CR): a wedged entry is re-checked every cycle, so the stuck
+        WARNING fires only the first time each id is seen stuck this process (then
+        falls back to the routine INFO) — one actionable signal, not per-cycle spam.
         """
         age = (now - entry.created_at) if entry.created_at is not None else None
+        is_stuck = age is not None and age >= self._deferred_stuck_threshold
         extra = {"entity_type": entry.entity_type, "local_id": str(entry.local_id)}
-        if age is not None and age >= self._deferred_stuck_threshold:
+        if is_stuck and entry.id not in self._warned_stuck:
+            self._warned_stuck.add(entry.id)
             logger.warning(
                 "powermap_observation_deferred_stuck",
                 extra={**extra, "attempts": entry.attempts, "age_seconds": age.total_seconds()},
@@ -548,7 +558,12 @@ class SyncEngine:
     # --- read path: reconcile backstops --------------------------------------
 
     async def reconcile(
-        self, session: AsyncSession, descriptor: EntityDescriptor, *, now: datetime | None = None
+        self,
+        session: AsyncSession,
+        descriptor: EntityDescriptor,
+        *,
+        now: datetime | None = None,
+        commit: Callable[[], Awaitable[None]] | None = None,
     ) -> int:
         """Run the descriptor's reconcile backstop, dispatched by ``reconcile_mode``.
 
@@ -564,13 +579,19 @@ class SyncEngine:
 
         Both backstops stamp ``reconcile:<entity_type>`` with ``now`` (when given) so
         the sidecar cadence gate sees the run.
+
+        Transaction boundary (#13 CR): like :meth:`drain_outbox`, each page makes PM
+        network round-trips. When a ``commit`` callback is supplied the backstop
+        commits after every page, so a large cohort (or sibling list) never holds one
+        open transaction across all of them. With no callback the legacy
+        single-transaction behaviour is preserved (the caller owns the commit).
         """
         if descriptor.read_source == "none" or descriptor.read_path is None:
             return 0
         if descriptor.reconcile_mode == "full_list":
-            applied = await self._reconcile_full_list(session, descriptor)
+            applied = await self._reconcile_full_list(session, descriptor, commit=commit)
         elif descriptor.reconcile_mode == "anchored_cohort":
-            applied = await self._reconcile_anchored_cohort(session, descriptor)
+            applied = await self._reconcile_anchored_cohort(session, descriptor, commit=commit)
         else:  # "none"
             return 0
         if now is not None:
@@ -580,7 +601,11 @@ class SyncEngine:
         return applied
 
     async def _reconcile_full_list(
-        self, session: AsyncSession, descriptor: EntityDescriptor
+        self,
+        session: AsyncSession,
+        descriptor: EntityDescriptor,
+        *,
+        commit: Callable[[], Awaitable[None]] | None = None,
     ) -> int:
         """Page the entity's PM list endpoint, applying every record under LWW.
 
@@ -591,6 +616,8 @@ class SyncEngine:
         reconcile is live for siblings, the same warn-and-break max-page guard the
         live ``discover`` / ``list_subscriptions`` loops use applies here too — on
         exceed: warn + break with whatever was applied so far.
+
+        Commits per page when ``commit`` is supplied (see :meth:`reconcile`).
         """
         applied = 0
         cursor: str | None = None
@@ -600,6 +627,9 @@ class SyncEngine:
             for record in page.records:
                 await self.apply_record(session, descriptor, record)
                 applied += 1
+            if commit is not None:
+                await session.flush()
+                await commit()
             cursor = page.cursor
             if not cursor:
                 return applied
@@ -614,7 +644,11 @@ class SyncEngine:
         return applied
 
     async def _reconcile_anchored_cohort(
-        self, session: AsyncSession, descriptor: EntityDescriptor
+        self,
+        session: AsyncSession,
+        descriptor: EntityDescriptor,
+        *,
+        commit: Callable[[], Awaitable[None]] | None = None,
     ) -> int:
         """Re-fetch only OUR anchored rows by id and re-apply each under LWW (#13).
 
@@ -653,6 +687,10 @@ class SyncEngine:
                     continue
                 await self.apply_record(session, descriptor, record)
                 applied += 1
+            if commit is not None:
+                # Bound the open transaction to one page of PM round-trips (#13 CR).
+                await session.flush()
+                await commit()
             if len(rows) < self._sweep_batch_size:
                 break
         return applied

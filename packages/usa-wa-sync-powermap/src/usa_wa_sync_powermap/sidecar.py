@@ -78,12 +78,13 @@ class Sidecar:
     ) -> None:
         """One sync cycle against a single session.
 
-        Reads (feed + due reconcile) and the sweep enqueue accumulate in the open
-        transaction; the caller owns their commit. When ``commit`` is supplied, the
-        outbox *drain* commits incrementally — per delivered entry by default, or
-        every ``outbox_commit_chunk_size`` entries (#8) — so a slow PM never holds
-        the transaction open across every delivery round-trip. With no ``commit``
-        hook the whole tick is one transaction (the legacy boundary).
+        The feed read and the sweep enqueue accumulate in the open transaction; the
+        caller owns their commit. When ``commit`` is supplied, both the anchored-cohort
+        reconcile backstop (per page, #13 CR) and the outbox *drain* (per delivered
+        entry by default, or every ``outbox_commit_chunk_size`` entries, #8) commit
+        incrementally — so a slow PM never holds the transaction open across every
+        round-trip. With no ``commit`` hook the whole tick is one transaction (the
+        legacy boundary).
 
         The subscription re-discovery backstop is NOT run here — it runs in its own
         session via :meth:`run_cycle` so a discovery/PM failure cannot roll back or
@@ -96,7 +97,9 @@ class Sidecar:
         await self._engine.process_feed(session)
         for descriptor in self._descriptors:
             if await self._reconcile_due(session, descriptor, now):
-                await self._engine.reconcile(session, descriptor, now=now)
+                # Pass the commit hook so a large cohort backstop commits per page
+                # rather than holding one transaction across every PM round-trip (#13 CR).
+                await self._engine.reconcile(session, descriptor, now=now, commit=commit)
         # Writes: enqueue un-anchored rows, then deliver.
         for descriptor in self._descriptors:
             if descriptor.write_enabled:

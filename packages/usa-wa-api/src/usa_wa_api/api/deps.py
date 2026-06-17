@@ -32,7 +32,9 @@ async def require_operator(x_operator_token: str | None = Header(default=None)) 
     """
     expected = os.environ.get(OPERATOR_TOKEN_ENV)
     supplied = x_operator_token or ""
-    if not expected or not hmac.compare_digest(supplied, expected):
+    # Compare on bytes: ``hmac.compare_digest`` raises TypeError on str args that
+    # are not ASCII, which would surface as a 500 instead of a clean 401.
+    if not expected or not hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing operator token.",

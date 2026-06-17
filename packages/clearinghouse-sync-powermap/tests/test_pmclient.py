@@ -165,6 +165,37 @@ async def test_search_entities_paginates_up_to_cap(client):
 
 
 @respx.mock
+async def test_search_entities_offset_advances_by_returned_count(client):
+    """Offset advances by the rows PM actually returned, not the requested page size.
+    A short non-final page (PM caps its page below the requested limit) must resume at
+    the next un-seen record — never skip the gap between len(records) and the cap."""
+    pages = [
+        httpx.Response(
+            200,
+            json={
+                "data": [{"id": "01A", "name": "A"}, {"id": "01B", "name": "B"}],
+                "meta": {"limit": 10, "offset": 0, "count": 2, "has_more": True},
+            },
+        ),
+        httpx.Response(
+            200,
+            json={
+                "data": [{"id": "01C", "name": "C"}],
+                "meta": {"limit": 10, "offset": 2, "count": 1, "has_more": False},
+            },
+        ),
+    ]
+    route = respx.get(f"{BASE}/api/v1/orgs/search").mock(side_effect=pages)
+
+    page = await client.search_entities("/api/v1/orgs/search", q="x", limit=10)
+
+    assert [r["id"] for r in page.records] == ["01A", "01B", "01C"]
+    # The 2nd request must resume at offset=2 (the rows already taken), not offset=10
+    # (the requested page size) — the latter would skip records 2..9.
+    assert "offset=2" in str(route.calls[1].request.url)
+
+
+@respx.mock
 async def test_search_entities_warns_when_truncated_at_cap(client, caplog):
     """When PM still reports ``has_more`` after the cap is filled, the truncated
     candidate set is surfaced as a warning rather than silently dropped."""
