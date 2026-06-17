@@ -61,6 +61,35 @@ def test_visibility_column_present_and_nullable():
     assert "visibility" in cols
 
 
+def test_pm_mirror_columns_present_and_nullable():
+    """The full-PM-mirror columns (#19) exist and are nullable."""
+    cols = inspect(EntityEvent).columns
+    for name in ("event_place_address", "notes", "verified_at", "pm_created_at"):
+        assert name in cols, name
+        assert cols[name].nullable is True, name
+
+
+async def test_pm_mirror_columns_round_trip(db_session):
+    """The JSONB address + text mirror fields persist and read back unchanged."""
+    event = _base_event(
+        source_id="evt-mirror",
+        event_place_address={"id": "addr-1", "city": "Olympia", "region": "WA"},
+        notes="curated by PM",
+        verified_at="2026-06-01T00:00:00.000000Z",
+        pm_created_at="2026-05-01T00:00:00.000000Z",
+    )
+    db_session.add(event)
+    await db_session.flush()
+
+    fetched = (
+        await db_session.execute(select(EntityEvent).where(EntityEvent.source_id == "evt-mirror"))
+    ).scalar_one()
+    assert fetched.event_place_address == {"id": "addr-1", "city": "Olympia", "region": "WA"}
+    assert fetched.notes == "curated by PM"
+    assert fetched.verified_at == "2026-06-01T00:00:00.000000Z"
+    assert fetched.pm_created_at == "2026-05-01T00:00:00.000000Z"
+
+
 def _base_event(**overrides) -> EntityEvent:
     """An EntityEvent with the minimal valid field set, plus overrides."""
     kwargs: dict = {

@@ -9,6 +9,7 @@ truth lives upstream (see project memory: project_identity_producer_archival).
 """
 
 from datetime import date
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -20,6 +21,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from ulid import ULID as _ULID
 
@@ -321,6 +323,15 @@ class EntityEvent(Base, TimestampMixin):
     event_second: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     event_place_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Structured place address mirrored verbatim from PM (id/city/region/…); JSONB
+    # so the nested optional sub-object round-trips without flattening (#19).
+    event_place_address: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+    # Curatorial mirror fields from PM's read EntityEvent (#19).
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verified_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # PM's own record-creation timestamp (distinct from this row's created_at).
+    pm_created_at: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Visibility — constrained to PM's enum: public | legal_only | hidden.
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="public")
