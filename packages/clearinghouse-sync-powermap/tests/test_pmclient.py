@@ -135,6 +135,57 @@ async def test_search_entities_ignores_lone_identifier_type(client):
 
 
 @respx.mock
+async def test_search_entities_paginates_up_to_cap(client):
+    """Search paginates by PM offset, accumulating up to ``limit`` records across
+    pages (carrying ``has_more`` the way list_entities does), so a correct candidate
+    on a later page is no longer silently dropped at the first 20."""
+    pages = [
+        httpx.Response(
+            200,
+            json={
+                "data": [{"id": "01A", "name": "A"}],
+                "meta": {"limit": 1, "offset": 0, "count": 1, "has_more": True},
+            },
+        ),
+        httpx.Response(
+            200,
+            json={
+                "data": [{"id": "01B", "name": "B"}],
+                "meta": {"limit": 1, "offset": 1, "count": 1, "has_more": False},
+            },
+        ),
+    ]
+    route = respx.get(f"{BASE}/api/v1/orgs/search").mock(side_effect=pages)
+
+    page = await client.search_entities("/api/v1/orgs/search", q="x", limit=10)
+
+    assert route.call_count == 2
+    assert [r["id"] for r in page.records] == ["01A", "01B"]
+    assert page.cursor is None  # callers do not page; the wrapper gathers internally
+
+
+@respx.mock
+async def test_search_entities_warns_when_truncated_at_cap(client, caplog):
+    """When PM still reports ``has_more`` after the cap is filled, the truncated
+    candidate set is surfaced as a warning rather than silently dropped."""
+    respx.get(f"{BASE}/api/v1/orgs/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [{"id": "01A", "name": "A"}, {"id": "01B", "name": "B"}],
+                "meta": {"limit": 2, "offset": 0, "count": 2, "has_more": True},
+            },
+        )
+    )
+
+    with caplog.at_level("WARNING"):
+        page = await client.search_entities("/api/v1/orgs/search", q="x", limit=2)
+
+    assert len(page.records) == 2  # capped at the requested limit
+    assert any(r.msg == "search_match_truncated" for r in caplog.records)
+
+
+@respx.mock
 async def test_list_entities_terminates_cursor_when_done(client):
     respx.get(f"{BASE}/api/v1/jurisdictions").mock(
         return_value=httpx.Response(
@@ -336,6 +387,64 @@ async def test_discover_warns_when_truncated(client, caplog):
 
     assert len(found) == 1
     assert any(r.msg == "discovery_truncated" for r in caplog.records)
+
+
+@respx.mock
+async def test_discover_bounds_runaway_pagination(client, caplog):
+    """A misbehaving PM that always returns ``has_more=true`` (or never advances the
+    offset) must not spin the daemon forever: the safety bound trips, logs a warning,
+    and returns the partial result instead of looping unbounded."""
+    from clearinghouse_sync_powermap.pmclient import _MAX_PAGINATION_PAGES
+
+    route = respx.get(f"{BASE}/api/v1/subscriptions/discover").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [_disc_item(ULID(), "jurisdiction", 0)],
+                "meta": {"limit": 1, "offset": 0, "count": 1, "has_more": True},
+            },
+        )
+    )
+
+    with caplog.at_level("WARNING"):
+        found = await client.discover(
+            root_type="jurisdiction", root_id="usa-wa", follow=["lineage"], limit=1
+        )
+
+    # Bounded: at most _MAX_PAGINATION_PAGES requests, then break with the partial set.
+    assert route.call_count == _MAX_PAGINATION_PAGES
+    assert len(found) == _MAX_PAGINATION_PAGES
+    assert any(r.msg == "discover_pagination_bound_exceeded" for r in caplog.records)
+
+
+@respx.mock
+async def test_list_subscriptions_bounds_runaway_pagination(client, caplog):
+    """``list_subscriptions`` mirrors ``discover``: a never-terminating ``has_more``
+    feed trips the same safety bound + warning rather than spinning forever."""
+    from clearinghouse_sync_powermap.pmclient import _MAX_PAGINATION_PAGES
+
+    route = respx.get(f"{BASE}/api/v1/subscriptions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "entity_id": str(ULID()),
+                        "entity_type": "jurisdiction",
+                        "created_at": "2026-06-05T00:00:00Z",
+                    }
+                ],
+                "meta": {"limit": 1, "offset": 0, "count": 1, "has_more": True},
+            },
+        )
+    )
+
+    with caplog.at_level("WARNING"):
+        ids = await client.list_subscriptions()
+
+    assert route.call_count == _MAX_PAGINATION_PAGES
+    assert len(ids) == _MAX_PAGINATION_PAGES
+    assert any(r.msg == "list_subscriptions_pagination_bound_exceeded" for r in caplog.records)
 
 
 @respx.mock

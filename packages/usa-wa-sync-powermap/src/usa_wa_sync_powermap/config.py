@@ -39,6 +39,12 @@ class SidecarSettings(BaseSettings):
     #: How often the in-loop re-discovery backstop re-runs (catches graph drift —
     #: e.g. a newly-added WA committee). Bootstrap covers the initial population.
     subscription_backstop_cadence: timedelta = timedelta(hours=1)
+    #: PM-first match-cascade name-search cap (#12): the max candidate window the
+    #: org/person descriptors page-and-confirm during a name match (passed as the
+    #: search ``limit``). The exact match must rank within it, so widen this if PM's
+    #: FTS ranking pushes a true match past the default window. ``None`` keeps each
+    #: descriptor's historical per-entity default (orgs 50, people 20) — non-breaking.
+    powermap_search_match_cap: int | None = None
 
 
 @lru_cache

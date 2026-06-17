@@ -43,6 +43,23 @@ async def test_pm_match_identifier_hit(db_session, descriptor):
     assert client.searched[0]["identifier_type"] == "person_wa_legislature_member_id"
 
 
+async def test_name_search_uses_configured_match_cap(db_session):
+    """#12: the descriptor's ``search_match_cap`` is the ``limit`` passed to the
+    name-match search."""
+    row = await _add_person(db_session, source_id="M-CAP", name="Some Person")
+    seen_limits: list[int] = []
+
+    class _RecordingClient:
+        async def search_entities(self, search_path, *, limit=20, **kwargs):
+            seen_limits.append(limit)
+            return EntityPage(records=[], cursor=None)
+
+    descriptor = PersonDescriptor(search_match_cap=91)
+    await descriptor.pm_match(_RecordingClient(), db_session, row)
+
+    assert 91 in seen_limits
+
+
 async def test_pm_match_name_fallback_confirms_normalized(db_session, descriptor):
     """PM's q filters by name server-side; the match is confirmed by exact
     normalized equality (so a loose q hit on a different person is rejected)."""

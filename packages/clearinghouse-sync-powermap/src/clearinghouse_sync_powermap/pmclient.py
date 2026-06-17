@@ -78,6 +78,15 @@ _BLOCKED_STATUSES = frozenset({401, 403})
 #: that). add_subscriptions chunks larger sets to stay under the cap.
 _SUBSCRIBE_BATCH = 500
 
+#: Safety ceiling on the live ``discover`` / ``list_subscriptions`` pagination loops
+#: (PM #203). Both run every sidecar cycle via the discovery backstop; a misbehaving
+#: PM that always returns ``has_more=true`` (or a non-advancing offset) would otherwise
+#: spin the daemon forever. At the loops' default ``limit`` (100/page) this is ~100k
+#: records — orders of magnitude above the WA identity cohort — so it never trips in
+#: normal operation; it is a runaway guard, not a tuning knob. On exceed: warn + break
+#: with the partial set (mirrors the ``discovery_truncated`` surfacing style).
+_MAX_PAGINATION_PAGES = 1000
+
 
 def _retryable(exc: UnexpectedStatus) -> bool:
     """Worth a backoff retry: rate-limit (429) or any server error (5xx)."""
@@ -217,7 +226,7 @@ class GeneratedPowerMapClient:
         results: list[DiscoveredEntity] = []
         follow_param = ",".join(follow)
         root = DiscoverSubscriptionsRootType(root_type)
-        while True:
+        for _page in range(_MAX_PAGINATION_PAGES):
             body = await self._send(
                 discover_subscriptions.asyncio_detailed(
                     client=self._client,
@@ -248,6 +257,19 @@ class GeneratedPowerMapClient:
             if not body.meta.has_more:
                 return results
             offset += limit
+        # Safety bound hit: PM kept signalling ``has_more`` past the page ceiling
+        # (misbehaving feed or non-advancing offset). Stop the live loop and surface
+        # the truncated result rather than spinning the daemon forever.
+        logger.warning(
+            "discover_pagination_bound_exceeded",
+            extra={
+                "root_type": root_type,
+                "root_id": root_id,
+                "max_pages": _MAX_PAGINATION_PAGES,
+                "collected": len(results),
+            },
+        )
+        return results
 
     async def list_subscriptions(self, *, entity_type: str | None = None) -> list[ULID]:
         # Paginate the subscription list; collect just the entity ids (engine diffs ids).
@@ -257,7 +279,7 @@ class GeneratedPowerMapClient:
         type_param = (
             ListSubscriptionsEntityTypeType0(entity_type) if entity_type is not None else None
         )
-        while True:
+        for _page in range(_MAX_PAGINATION_PAGES):
             kwargs: dict[str, Any] = {"client": self._client, "limit": limit, "offset": offset}
             if type_param is not None:
                 kwargs["entity_type"] = type_param
@@ -266,6 +288,17 @@ class GeneratedPowerMapClient:
             if not body.meta.has_more:
                 return ids
             offset += limit
+        # Safety bound hit (see _MAX_PAGINATION_PAGES): a never-terminating ``has_more``
+        # would otherwise spin the daemon forever. Stop and return the partial id set.
+        logger.warning(
+            "list_subscriptions_pagination_bound_exceeded",
+            extra={
+                "entity_type": entity_type,
+                "max_pages": _MAX_PAGINATION_PAGES,
+                "collected": len(ids),
+            },
+        )
+        return ids
 
     async def add_subscriptions(self, entity_ids: Sequence[ULID]) -> SubscriptionResult:
         # Chunk at PM's 500-id cap (discovery can return thousands); aggregate the
@@ -340,22 +373,50 @@ class GeneratedPowerMapClient:
         # filter narrows by that filter (verified against the live API). NOTE: ``q``
         # filters by name server-side via FTS (``@@ plainto_tsquery``) since
         # power-map#201 — word-token matching that folds ``&``/punctuation/word-order
-        # (and accents for people); #199 was the earlier ILIKE precursor. The match
-        # cascade issues a single such query and confirms client-side.
-        kwargs: dict[str, Any] = {"client": self._client, "q": q or "", "limit": limit}
-        # Identifier match is on the type+value PAIR; one without the other is a
-        # no-op filter, so only apply it when both are present.
-        if identifier_type is not None and identifier_value is not None:
-            kwargs["identifier_type"] = identifier_type
-            kwargs["identifier_value"] = identifier_value
-        # The jurisdiction filter applies to orgs only (people carry no jurisdiction).
-        if supports_jur and jurisdiction is not None:
-            kwargs["jurisdiction"] = jurisdiction
-        body = await self._send(op.asyncio_detailed(**kwargs))
-        if body is None:  # defensive: unexpected null body on 200 → empty page
-            return EntityPage(records=[], cursor=None)
-        records = [item.to_dict() for item in body.data]
-        return EntityPage(records=records, cursor=None)
+        # (and accents for people); #199 was the earlier ILIKE precursor.
+        #
+        # ``limit`` is treated as a MAX-RECORD cap on the candidate set the match
+        # cascade confirms client-side: the wrapper paginates by PM ``offset`` and
+        # accumulates up to ``limit`` records (carrying ``meta.has_more`` the way
+        # list_entities does), so a correct candidate beyond PM's first page is no
+        # longer silently dropped. The cap stays caller-controlled (#12) — the
+        # cascade narrows by jurisdiction + hierarchy, so a small cap is normal —
+        # and a still-truncated set (``has_more`` true at the cap) is logged rather
+        # than dropped without a trace.
+        records: list[dict] = []
+        offset = 0
+        for _page in range(_MAX_PAGINATION_PAGES):
+            page_limit = limit - len(records)
+            if page_limit <= 0:
+                break
+            kwargs: dict[str, Any] = {"client": self._client, "q": q or "", "limit": page_limit}
+            # Identifier match is on the type+value PAIR; one without the other is a
+            # no-op filter, so only apply it when both are present.
+            if identifier_type is not None and identifier_value is not None:
+                kwargs["identifier_type"] = identifier_type
+                kwargs["identifier_value"] = identifier_value
+            # The jurisdiction filter applies to orgs only (people carry no jurisdiction).
+            if supports_jur and jurisdiction is not None:
+                kwargs["jurisdiction"] = jurisdiction
+            if offset:
+                kwargs["offset"] = offset
+            body = await self._send(op.asyncio_detailed(**kwargs))
+            if body is None:  # defensive: unexpected null body on 200 → empty page
+                break
+            records.extend(item.to_dict() for item in body.data)
+            if not getattr(body.meta, "has_more", False):
+                break
+            if len(records) >= limit:
+                # Cap filled but PM has more: the confirmed candidate set is
+                # truncated. Surface it (a correct candidate past the cap reads as
+                # "new" → a mergeable duplicate) rather than dropping it silently.
+                logger.warning(
+                    "search_match_truncated",
+                    extra={"search_path": search_path, "q": q, "cap": limit},
+                )
+                break
+            offset += page_limit
+        return EntityPage(records=records[:limit], cursor=None)
 
     async def post_observation(self, observe_path: str, payload: dict) -> ObservationResult:
         submit_fn, model_cls = self._OBSERVE[observe_path]

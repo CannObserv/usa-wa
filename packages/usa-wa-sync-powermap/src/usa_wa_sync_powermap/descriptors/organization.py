@@ -95,6 +95,12 @@ class OrganizationDescriptor(EntityDescriptor):
     write_enabled = True
     enrich_identifier_type = "pm_org_id"  # enrich-on-match (#198)
 
+    def __init__(self, *, search_match_cap: int | None = None) -> None:
+        """``search_match_cap`` (#12): the name-match candidate window passed as the
+        search ``limit``. ``None`` keeps the historical default (:data:`_SEARCH_LIMIT`);
+        the registry plumbs an operator override from ``SidecarSettings``."""
+        self.search_match_cap = _SEARCH_LIMIT if search_match_cap is None else search_match_cap
+
     async def needs_enrich(self, record: dict, row: Any) -> bool:
         """Enrich when PM's matched org lacks the identifier we hold for it."""
         id_type = identifier_type_for(row.source, row.org_type)
@@ -129,7 +135,7 @@ class OrganizationDescriptor(EntityDescriptor):
         # fallback, so a single query suffices.
         target = normalize_name(row.name)
         page = await client.search_entities(
-            SEARCH_PATH, q=row.name, jurisdiction=JURISDICTION_SLUG, limit=_SEARCH_LIMIT
+            SEARCH_PATH, q=row.name, jurisdiction=JURISDICTION_SLUG, limit=self.search_match_cap
         )
         named = [c for c in page.records if normalize_name(c.get("name") or "") == target]
         if len(named) == 1:
