@@ -11,6 +11,7 @@ from clearinghouse_sync_powermap.engine import (
     APPLY_SKIPPED,
     APPLY_UPDATED,
     CHANGES_STREAM,
+    MAX_RECONCILE_PAGES,
     SyncEngine,
 )
 from clearinghouse_sync_powermap.models import OP_UPDATE, STATUS_PENDING, OutboxEntry, SyncState
@@ -386,3 +387,24 @@ async def test_anchored_cohort_skips_missing_pm_record(db_session):
     assert applied == 0
     assert row.name == "Keep"
     assert client.fetched == [("/api/v1/fakes", pm_id)]
+
+
+# --- full_list reconcile page bound (sibling firehose guard, #6) -------------
+
+
+async def test_full_list_reconcile_bounded_pages(db_session, fake_descriptor, caplog):
+    """A misbehaving PM that always returns a non-None cursor must not spin the
+    full_list reconcile forever — the page bound trips and breaks with a warning."""
+
+    class NeverEndingClient(FakeClient):
+        async def list_entities(self, read_path, params=None):
+            # Always advertise more pages (one record each) → would loop forever.
+            return EntityPage(records=[_record("1", "Spin")], cursor="more")
+
+    engine = SyncEngine([fake_descriptor], NeverEndingClient())
+
+    with caplog.at_level("WARNING"):
+        applied = await engine.reconcile(db_session, fake_descriptor, now=NOW)
+
+    assert applied == MAX_RECONCILE_PAGES  # one record per page, bounded
+    assert any(r.msg == "reconcile_pagination_bound_exceeded" for r in caplog.records)

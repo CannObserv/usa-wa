@@ -69,6 +69,16 @@ DEFAULT_MAX_ATTEMPTS = 60
 #: still deferring a day later is genuinely wedged, not just briefly waiting.
 DEFAULT_DEFERRED_STUCK_THRESHOLD = timedelta(hours=24)
 
+#: Safety ceiling on the legacy ``full_list`` reconcile pagination loop (#6). The
+#: full-list backstop is dead for usa-wa post-#10 (cohort producers use the bounded
+#: ``anchored_cohort`` backstop, jurisdictions use ``none``) but live for siblings, so
+#: a misbehaving PM that always advertises another cursor — or a non-advancing one —
+#: would otherwise spin the daemon forever. Mirrors the live ``discover`` /
+#: ``list_subscriptions`` page guard in ``pmclient`` (warn + break with the partial
+#: set). At a typical 100 records/page this is ~100k records — orders of magnitude
+#: above any bounded PM list — so it never trips normally; a runaway guard, not a knob.
+MAX_RECONCILE_PAGES = 1000
+
 #: Page size for :meth:`SyncEngine.sweep_unanchored` (#7). The sweep keyset-pages
 #: the unanchored rows by primary key instead of materialising them all at once,
 #: so a first bulk identity ingest (persons/orgs in the thousands) never loads the
@@ -575,10 +585,16 @@ class SyncEngine:
         """Page the entity's PM list endpoint, applying every record under LWW.
 
         The legacy backstop, sibling-only post-#10 (no usa-wa descriptor runs it).
+
+        Bounded (#6): a misbehaving PM that never stops advertising a cursor (or a
+        non-advancing one) must not spin this loop forever. Since the full-list
+        reconcile is live for siblings, the same warn-and-break max-page guard the
+        live ``discover`` / ``list_subscriptions`` loops use applies here too — on
+        exceed: warn + break with whatever was applied so far.
         """
         applied = 0
         cursor: str | None = None
-        while True:
+        for _page in range(MAX_RECONCILE_PAGES):
             params = {"cursor": cursor} if cursor else None
             page = await self._client.list_entities(descriptor.read_path, params)
             for record in page.records:
@@ -586,7 +602,15 @@ class SyncEngine:
                 applied += 1
             cursor = page.cursor
             if not cursor:
-                break
+                return applied
+        logger.warning(
+            "reconcile_pagination_bound_exceeded",
+            extra={
+                "entity_type": descriptor.entity_type,
+                "max_pages": MAX_RECONCILE_PAGES,
+                "applied": applied,
+            },
+        )
         return applied
 
     async def _reconcile_anchored_cohort(
