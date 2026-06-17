@@ -160,11 +160,11 @@ async def test_lww_local_newer_no_enqueue_when_write_disabled(db_session):
 
 
 async def test_reconcile_noop_when_disabled(db_session):
-    """A reconcile_enabled=False descriptor (cohort-only producer) skips the
-    full-list backstop entirely — even with records waiting (usa-wa#13)."""
+    """A ``reconcile_mode="none"`` descriptor skips the full-list backstop entirely —
+    even with records waiting (usa-wa#13)."""
 
     class NoReconcile(FakeDescriptor):
-        reconcile_enabled = False
+        reconcile_mode = "none"
 
     descriptor = NoReconcile()
     client = FakeClient(entity_pages=[EntityPage([_record("1", "X")], None)])
@@ -262,3 +262,127 @@ async def test_process_feed_skips_deletes(db_session, fake_descriptor):
 
     assert applied == 0
     assert (await db_session.execute(select(FakeEntity))).first() is None
+
+
+# --- read path: anchored-cohort reconcile backstop (usa-wa#13) ---------------
+
+
+class CohortDescriptor(FakeDescriptor):
+    """A cohort-only producer: the bounded anchored-cohort backstop, not full-list."""
+
+    reconcile_mode = "anchored_cohort"
+
+
+async def _add_anchored(session, *, source_id, name, pm_id, updated_at):
+    row = FakeEntity(source="wsl", source_id=source_id, name=name)
+    row.pm_fake_id = pm_id
+    row.updated_at = updated_at
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def test_anchored_cohort_fetches_only_anchored_rows(db_session):
+    """The anchored-cohort backstop GETs only rows whose anchor IS NOT NULL — never
+    the un-anchored rows, and never PM's global list (no list_entities call)."""
+    anchored_a = ULID()
+    anchored_b = ULID()
+    await _add_anchored(db_session, source_id="a", name="A", pm_id=anchored_a, updated_at=NOW)
+    await _add_anchored(db_session, source_id="b", name="B", pm_id=anchored_b, updated_at=NOW)
+    await _add_entity(db_session, source_id="u", name="Unanchored")  # anchor IS NULL
+
+    descriptor = CohortDescriptor()
+    client = FakeClient(
+        entities={
+            anchored_a: _record("a", "A", pm_id=anchored_a, updated_at="2000-01-01T00:00:00Z"),
+            anchored_b: _record("b", "B", pm_id=anchored_b, updated_at="2000-01-01T00:00:00Z"),
+        }
+    )
+    engine = SyncEngine([descriptor], client)
+
+    applied = await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert applied == 2
+    fetched_ids = {pm_id for _path, pm_id in client.fetched}
+    assert fetched_ids == {anchored_a, anchored_b}
+    # PM's global list endpoint must never be paged for a cohort producer.
+    assert client._entity_pages == []  # untouched (list_entities never popped)
+
+
+async def test_anchored_cohort_recovers_dropped_feed_edit_via_lww(db_session):
+    """A curation edit whose feed event was dropped is recovered on the next cohort
+    pass: PM's newer record overwrites the stale local row under LWW."""
+    pm_id = ULID()
+    # Local row is stale: old clock, old name (its feed bump never arrived).
+    row = await _add_anchored(
+        db_session,
+        source_id="x",
+        name="StaleName",
+        pm_id=pm_id,
+        updated_at=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+    descriptor = CohortDescriptor()
+    client = FakeClient(
+        entities={
+            pm_id: _record("x", "CuratedName", pm_id=pm_id, updated_at="2026-06-07T00:00:00Z")
+        }
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.name == "CuratedName"
+
+
+async def test_anchored_cohort_paginates_in_bounded_batches(db_session):
+    """The cohort query is keyset-paged (bounded), so it terminates and re-fetches
+    every anchored row even when the cohort exceeds one batch."""
+    ids = []
+    for i in range(5):
+        pm_id = ULID()
+        ids.append(pm_id)
+        await _add_anchored(db_session, source_id=str(i), name=f"N{i}", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortDescriptor()
+    client = FakeClient(
+        entities={
+            pm_id: _record(str(i), f"N{i}", pm_id=pm_id, updated_at="2000-01-01T00:00:00Z")
+            for i, pm_id in enumerate(ids)
+        }
+    )
+    # Force multiple pages: batch size 2 over 5 anchored rows → 3 pages.
+    engine = SyncEngine([descriptor], client, sweep_batch_size=2)
+
+    applied = await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert applied == 5
+    assert {pm_id for _path, pm_id in client.fetched} == set(ids)
+
+
+async def test_anchored_cohort_stamps_last_reconcile_at(db_session):
+    descriptor = CohortDescriptor()
+    engine = SyncEngine([descriptor], FakeClient())
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    state = (
+        await db_session.execute(select(SyncState).where(SyncState.stream == "reconcile:fake"))
+    ).scalar_one()
+    assert state.last_reconcile_at == NOW
+
+
+async def test_anchored_cohort_skips_missing_pm_record(db_session):
+    """A 404 on re-fetch (PM record gone between anchor and pass) is skipped, not
+    fatal — the row is left as-is and the pass continues."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="Keep", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortDescriptor()
+    client = FakeClient(entities={})  # get_entity returns None
+    engine = SyncEngine([descriptor], client)
+
+    applied = await engine.reconcile(db_session, descriptor, now=NOW)
+    await db_session.refresh(row)
+
+    assert applied == 0
+    assert row.name == "Keep"
+    assert client.fetched == [("/api/v1/fakes", pm_id)]
