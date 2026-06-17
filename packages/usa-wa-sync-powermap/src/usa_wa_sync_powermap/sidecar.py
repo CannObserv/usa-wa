@@ -11,8 +11,14 @@ try/except that rolls back and logs on failure, so a propagating non-transient
 error (the outbox worker no longer swallows bugs as transient) cannot kill the
 daemon or poison the next cycle.
 
-Commit boundary: per-cycle commit today. Per-entry commit with a configurable
-chunk size is the refinement tracked in CannObserv/usa-wa#8.
+Outbox delivery transaction boundary (#8): the read + sweep work runs in one
+session, but the outbox *drain* commits incrementally — by default once per
+delivered entry (``outbox_commit_chunk_size = 1``), so a slow PM never holds one
+open DB transaction across N network round-trips. The chunk size is configurable
+(``SidecarSettings.outbox_commit_chunk_size``) to amortise commit cost when
+throughput dominates over lock-hold latency. ``run_cycle`` passes the session's
+commit as the drain's commit hook and issues a final commit for the read/sweep
+work (and any sub-chunk drain remainder).
 """
 
 import asyncio
@@ -50,6 +56,7 @@ class Sidecar:
         feed_poll_seconds: float = 60.0,
         reconciler: SubscriptionReconciler | None = None,
         subscription_backstop_cadence: timedelta = timedelta(hours=1),
+        outbox_commit_chunk_size: int = 1,
         clock: Callable[[], datetime] = _utcnow,
     ) -> None:
         self._engine = engine
@@ -58,10 +65,24 @@ class Sidecar:
         self._feed_poll_seconds = feed_poll_seconds
         self._reconciler = reconciler
         self._subscription_backstop_cadence = subscription_backstop_cadence
+        self._outbox_commit_chunk_size = outbox_commit_chunk_size
         self._clock = clock
 
-    async def tick(self, session: AsyncSession, *, now: datetime) -> None:
-        """One sync cycle against a single session (no commit — caller owns it).
+    async def tick(
+        self,
+        session: AsyncSession,
+        *,
+        now: datetime,
+        commit: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
+        """One sync cycle against a single session.
+
+        Reads (feed + due reconcile) and the sweep enqueue accumulate in the open
+        transaction; the caller owns their commit. When ``commit`` is supplied, the
+        outbox *drain* commits incrementally — per delivered entry by default, or
+        every ``outbox_commit_chunk_size`` entries (#8) — so a slow PM never holds
+        the transaction open across every delivery round-trip. With no ``commit``
+        hook the whole tick is one transaction (the legacy boundary).
 
         The subscription re-discovery backstop is NOT run here — it runs in its own
         session via :meth:`run_cycle` so a discovery/PM failure cannot roll back or
@@ -77,7 +98,9 @@ class Sidecar:
         for descriptor in self._descriptors:
             if descriptor.write_enabled:
                 await self._engine.sweep_unanchored(session, descriptor)
-        await self._engine.drain_outbox(session, now=now)
+        await self._engine.drain_outbox(
+            session, now=now, commit=commit, chunk_size=self._outbox_commit_chunk_size
+        )
 
     async def run_cycle(self) -> None:
         """Run one isolated cycle: own session, commit on success, rollback on error.
@@ -90,7 +113,9 @@ class Sidecar:
         await self._run_backstop(now)
         async with self._session_factory() as session:
             try:
-                await self.tick(session, now=now)
+                # The drain commits incrementally via this hook (#8); the trailing
+                # commit covers the read/sweep work and any sub-chunk drain remainder.
+                await self.tick(session, now=now, commit=session.commit)
                 await session.commit()
             except Exception:
                 await session.rollback()

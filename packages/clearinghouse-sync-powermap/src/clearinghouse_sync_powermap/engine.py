@@ -15,9 +15,9 @@ Write path (this module, step 3):
 """
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 from sqlalchemy import func, select, update
@@ -56,6 +56,24 @@ CHANGES_STREAM = "changes_feed"
 #: tolerance before an entry goes terminal. ``next_attempt_at`` deferrals
 #: (dependencies-not-ready) do not increment ``attempts``, so they never count.
 DEFAULT_MAX_ATTEMPTS = 60
+
+#: How long an entry may sit deferred (PENDING, ``attempts == 0``) before each
+#: subsequent deferral escalates to a distinct WARNING (#15). A deps-not-ready
+#: deferral keeps an entry PENDING without counting an attempt, so the
+#: transport-failure cap (``DEFAULT_MAX_ATTEMPTS``) can never catch a PM
+#: prerequisite that is permanently un-anchorable — it would defer forever and
+#: invisibly. Escalating an old, still-never-attempted deferral to a WARNING makes
+#: that stuck path operator-/alert-visible without a schema migration (it reuses
+#: ``created_at``) and without touching the shared backlog read surface. 24h ≫ a
+#: normal deps-ready latency (a parent anchors within a cycle or two), so an entry
+#: still deferring a day later is genuinely wedged, not just briefly waiting.
+DEFAULT_DEFERRED_STUCK_THRESHOLD = timedelta(hours=24)
+
+#: Page size for :meth:`SyncEngine.sweep_unanchored` (#7). The sweep keyset-pages
+#: the unanchored rows by primary key instead of materialising them all at once,
+#: so a first bulk identity ingest (persons/orgs in the thousands) never loads the
+#: whole backlog into memory per cycle. Jurisdictions (~100 rows) fit in one page.
+DEFAULT_SWEEP_BATCH_SIZE = 500
 
 #: Statuses that block re-enqueue of the same source row. PENDING is the open
 #: delivery; UNAVAILABLE is a dead-letter that must not be silently re-minted by
@@ -112,11 +130,17 @@ class SyncEngine:
         *,
         batch_limit: int = 100,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        deferred_stuck_threshold: timedelta = DEFAULT_DEFERRED_STUCK_THRESHOLD,
+        sweep_batch_size: int = DEFAULT_SWEEP_BATCH_SIZE,
     ) -> None:
+        if sweep_batch_size < 1:
+            raise ValueError("sweep_batch_size must be >= 1")
         self._by_type = {d.entity_type: d for d in descriptors}
         self._client = client
         self._batch_limit = batch_limit
         self._max_attempts = max_attempts
+        self._deferred_stuck_threshold = deferred_stuck_threshold
+        self._sweep_batch_size = sweep_batch_size
 
     def descriptor_for(self, entity_type: str) -> EntityDescriptor | None:
         return self._by_type.get(entity_type)
@@ -153,38 +177,57 @@ class SyncEngine:
 
         Keeps the adapter ignorant of the sidecar — it just writes rows; the
         sweep discovers the un-anchored ones and queues them.
+
+        Batched (#7): rows are keyset-paged by primary key (``id > last_id``,
+        ``sweep_batch_size`` at a time) rather than materialised all at once, so a
+        first bulk identity ingest (persons/orgs in the thousands) never loads the
+        whole unanchored backlog into memory in a single cycle. Keyset (not
+        ``OFFSET``) is required because a CREATE leaves the anchor null until
+        delivery — those rows stay in the ``anchor IS NULL`` set within the sweep,
+        so advancing past the last processed id is what guarantees forward progress
+        and termination instead of re-reading the same already-enqueued rows.
         """
         anchor_col = getattr(descriptor.model, descriptor.anchor_column)
-        rows = (
-            (await session.execute(select(descriptor.model).where(anchor_col.is_(None))))
-            .scalars()
-            .all()
-        )
+        pk_col = descriptor.model.id
         enqueued = 0
-        for row in rows:
-            # PM-first: try to find a pre-existing PM record before creating one,
-            # so we never duplicate PM's curated tree (identifier-less backfill).
-            pm_id = await descriptor.pm_match(self._client, session, row)
-            if pm_id is not None:
-                record = await descriptor.fetch_record(self._client, pm_id)
-                if record is not None:
-                    # Adopt PM's canonical fields + anchor; no create.
-                    await descriptor.upsert_from_pm(session, record, existing=row)
-                    self._adopt_remote_clock(descriptor, row, record)
-                    # Enrich-on-match (#198): PM matched an identifier-less record by
-                    # name — push our identifiers/names onto it so it gains the data
-                    # we hold and future syncs match by identifier.
-                    if descriptor.enrich_identifier_type and await descriptor.needs_enrich(
-                        record, row
-                    ):
-                        await self._enqueue(session, descriptor, row, OP_ENRICH)
-                else:
-                    # Matched but detail fetch failed — still capture the anchor.
-                    descriptor.set_anchor(row, pm_id)
-                continue
-            if await self._enqueue(session, descriptor, row, OP_CREATE):
-                enqueued += 1
+        last_id = None
+        while True:
+            stmt = select(descriptor.model).where(anchor_col.is_(None))
+            if last_id is not None:
+                stmt = stmt.where(pk_col > last_id)
+            stmt = stmt.order_by(pk_col).limit(self._sweep_batch_size)
+            rows = (await session.execute(stmt)).scalars().all()
+            if not rows:
+                break
+            for row in rows:
+                last_id = row.id
+                if await self._sweep_row(session, descriptor, row):
+                    enqueued += 1
+            if len(rows) < self._sweep_batch_size:
+                break
         return enqueued
+
+    async def _sweep_row(self, session: AsyncSession, descriptor: EntityDescriptor, row) -> bool:
+        """Process one unanchored row; return True iff a new CREATE was enqueued."""
+        # PM-first: try to find a pre-existing PM record before creating one,
+        # so we never duplicate PM's curated tree (identifier-less backfill).
+        pm_id = await descriptor.pm_match(self._client, session, row)
+        if pm_id is not None:
+            record = await descriptor.fetch_record(self._client, pm_id)
+            if record is not None:
+                # Adopt PM's canonical fields + anchor; no create.
+                await descriptor.upsert_from_pm(session, record, existing=row)
+                self._adopt_remote_clock(descriptor, row, record)
+                # Enrich-on-match (#198): PM matched an identifier-less record by
+                # name — push our identifiers/names onto it so it gains the data
+                # we hold and future syncs match by identifier.
+                if descriptor.enrich_identifier_type and await descriptor.needs_enrich(record, row):
+                    await self._enqueue(session, descriptor, row, OP_ENRICH)
+            else:
+                # Matched but detail fetch failed — still capture the anchor.
+                descriptor.set_anchor(row, pm_id)
+            return False
+        return await self._enqueue(session, descriptor, row, OP_CREATE) is not None
 
     # --- outbox worker --------------------------------------------------------
 
@@ -209,9 +252,29 @@ class SyncEngine:
             .all()
         )
 
-    async def drain_outbox(self, session: AsyncSession, *, now: datetime) -> list[OutboxEntry]:
-        """Process all due PENDING entries once. Returns the entries touched."""
+    async def drain_outbox(
+        self,
+        session: AsyncSession,
+        *,
+        now: datetime,
+        commit: Callable[[], Awaitable[None]] | None = None,
+        chunk_size: int = 1,
+    ) -> list[OutboxEntry]:
+        """Process all due PENDING entries once. Returns the entries touched.
+
+        Transaction boundary (#8): each :meth:`_deliver` makes a PM network round
+        trip. When a ``commit`` callback is supplied, the drain commits every
+        ``chunk_size`` delivered entries (and once more at the end for any
+        remainder), so a slow PM never holds one open DB transaction across every
+        round trip. ``chunk_size=1`` (the default with a hook) commits per entry —
+        maximum durability, minimum lock hold; raise it to amortise commit cost
+        when throughput matters. With no ``commit`` callback the legacy
+        single-transaction behaviour is preserved (the caller owns the commit).
+        """
+        if chunk_size < 1:
+            raise ValueError("chunk_size must be >= 1")
         touched: list[OutboxEntry] = []
+        since_commit = 0
         for entry in await self._due_entries(session, now):
             descriptor = self.descriptor_for(entry.entity_type)
             if descriptor is None or not descriptor.write_enabled:
@@ -219,7 +282,14 @@ class SyncEngine:
                 continue
             if await self._deliver(session, descriptor, entry, now):
                 touched.append(entry)
+                since_commit += 1
+                if commit is not None and since_commit >= chunk_size:
+                    await session.flush()
+                    await commit()
+                    since_commit = 0
         await session.flush()
+        if commit is not None and since_commit:
+            await commit()
         return touched
 
     async def _deliver(
@@ -243,10 +313,7 @@ class SyncEngine:
             # Defer without counting a failure: keep PENDING, re-check next cycle.
             entry.next_attempt_at = next_attempt_at(now, entry.attempts)
             entry.last_error = "dependencies not ready"
-            logger.info(
-                "powermap_observation_deferred",
-                extra={"entity_type": entry.entity_type, "local_id": str(entry.local_id)},
-            )
+            self._log_deferral(entry, now)
             return True
 
         if entry.op == OP_ENRICH:
@@ -324,6 +391,28 @@ class SyncEngine:
                 "reason": "blocked",
             },
         )
+
+    def _log_deferral(self, entry: OutboxEntry, now: datetime) -> None:
+        """Log a deps-not-ready deferral, escalating to a WARNING once the entry has
+        been deferred longer than the stuck threshold (#15).
+
+        A deferral never increments ``attempts``, so the transport-failure cap can
+        never dead-letter a permanently un-anchorable prerequisite — it would defer
+        forever and invisibly. An aged, still-never-attempted entry is exactly that
+        signature, so it is surfaced as a distinct, alertable WARNING rather than
+        buried in the routine deferral INFO stream. Age reuses ``created_at`` (no
+        schema migration); a row created in this very cycle has no stamp yet
+        (``created_at is None`` pre-server-flush) — treat that as not-yet-stuck.
+        """
+        age = (now - entry.created_at) if entry.created_at is not None else None
+        extra = {"entity_type": entry.entity_type, "local_id": str(entry.local_id)}
+        if age is not None and age >= self._deferred_stuck_threshold:
+            logger.warning(
+                "powermap_observation_deferred_stuck",
+                extra={**extra, "attempts": entry.attempts, "age_seconds": age.total_seconds()},
+            )
+        else:
+            logger.info("powermap_observation_deferred", extra=extra)
 
     def _fail_attempt(self, entry: OutboxEntry, now: datetime, error: str) -> None:
         """Record one failed delivery attempt: increment ``attempts``, capture the

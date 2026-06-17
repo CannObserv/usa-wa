@@ -5,8 +5,6 @@ Covers the schema-wide ``pm_<entity>_id`` standardization and the new
 ``clearinghouse-sync-powermap``; here we only verify the mappings + round-trips.
 """
 
-from datetime import date
-
 from sqlalchemy import inspect, select
 from ulid import ULID
 
@@ -50,7 +48,7 @@ async def test_person_pm_anchor_round_trip(db_session):
 
 
 async def test_entity_event_round_trip(db_session):
-    """An entity event mirrors PM's polymorphic lifecycle row (no jurisdiction)."""
+    """An entity event mirrors PM's ObservationEventItem shape (no jurisdiction)."""
     person = Person(source="wsl", source_id="p-2", name_full="John Roe")
     db_session.add(person)
     await db_session.flush()
@@ -60,8 +58,11 @@ async def test_entity_event_round_trip(db_session):
         source_id="evt-1",
         entity_kind="person",
         entity_id=person.id,
-        event_type="birth",
-        date=date(1970, 1, 1),
+        event_type_slug="birth",
+        event_year=1970,
+        event_month=1,
+        event_day=1,
+        visibility="public",
     )
     db_session.add(event)
     await db_session.flush()
@@ -71,6 +72,6 @@ async def test_entity_event_round_trip(db_session):
     ).scalar_one()
     assert fetched.entity_kind == "person"
     assert fetched.entity_id == person.id
-    assert fetched.event_type == "birth"
-    assert fetched.date == date(1970, 1, 1)
+    assert fetched.event_type_slug == "birth"
+    assert (fetched.event_year, fetched.event_month, fetched.event_day) == (1970, 1, 1)
     assert fetched.pm_entity_event_id is None
