@@ -217,6 +217,37 @@ async def test_sweep_is_idempotent(db_session, fake_descriptor):
     assert await engine.sweep_unanchored(db_session, fake_descriptor) == 0  # open entry exists
 
 
+async def test_sweep_batches_large_backlog(db_session, fake_descriptor):
+    """#7: a backlog larger than the batch size is swept in keyset-paged batches —
+    every unanchored row is enqueued, never all materialised at once. With a batch
+    size of 2 and 5 rows, all 5 get a CREATE in a single sweep call."""
+    for i in range(5):
+        await _add_entity(db_session, source_id=str(i))
+    engine = SyncEngine([fake_descriptor], FakeClient(), sweep_batch_size=2)
+
+    count = await engine.sweep_unanchored(db_session, fake_descriptor)
+
+    assert count == 5
+    entries = (await db_session.execute(select(OutboxEntry))).scalars().all()
+    assert len(entries) == 5
+    assert {e.op for e in entries} == {OP_CREATE}
+
+
+async def test_sweep_batched_terminates_on_already_enqueued(db_session, fake_descriptor):
+    """Keyset paging must advance past rows that stay unanchored after processing
+    (a CREATE leaves the anchor null until delivery). A re-sweep of an
+    already-enqueued backlog larger than the batch size terminates and enqueues
+    nothing new — no infinite loop on the still-null-anchor rows."""
+    for i in range(5):
+        await _add_entity(db_session, source_id=str(i))
+    engine = SyncEngine([fake_descriptor], FakeClient(), sweep_batch_size=2)
+    assert await engine.sweep_unanchored(db_session, fake_descriptor) == 5
+
+    # Second sweep: every row is still anchor-null but already has an open entry.
+    assert await engine.sweep_unanchored(db_session, fake_descriptor) == 0
+    assert len((await db_session.execute(select(OutboxEntry))).scalars().all()) == 5
+
+
 async def test_drain_anchors_on_new(db_session, fake_descriptor):
     row = await _add_entity(db_session, source_id="1")
     pm_id = ULID()

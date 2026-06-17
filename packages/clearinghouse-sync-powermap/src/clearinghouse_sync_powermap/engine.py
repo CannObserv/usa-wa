@@ -69,6 +69,12 @@ DEFAULT_MAX_ATTEMPTS = 60
 #: still deferring a day later is genuinely wedged, not just briefly waiting.
 DEFAULT_DEFERRED_STUCK_THRESHOLD = timedelta(hours=24)
 
+#: Page size for :meth:`SyncEngine.sweep_unanchored` (#7). The sweep keyset-pages
+#: the unanchored rows by primary key instead of materialising them all at once,
+#: so a first bulk identity ingest (persons/orgs in the thousands) never loads the
+#: whole backlog into memory per cycle. Jurisdictions (~100 rows) fit in one page.
+DEFAULT_SWEEP_BATCH_SIZE = 500
+
 #: Statuses that block re-enqueue of the same source row. PENDING is the open
 #: delivery; UNAVAILABLE is a dead-letter that must not be silently re-minted by
 #: the sweep (else the cap never halts retries, UNAVAILABLE rows accumulate, and
@@ -125,12 +131,16 @@ class SyncEngine:
         batch_limit: int = 100,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         deferred_stuck_threshold: timedelta = DEFAULT_DEFERRED_STUCK_THRESHOLD,
+        sweep_batch_size: int = DEFAULT_SWEEP_BATCH_SIZE,
     ) -> None:
+        if sweep_batch_size < 1:
+            raise ValueError("sweep_batch_size must be >= 1")
         self._by_type = {d.entity_type: d for d in descriptors}
         self._client = client
         self._batch_limit = batch_limit
         self._max_attempts = max_attempts
         self._deferred_stuck_threshold = deferred_stuck_threshold
+        self._sweep_batch_size = sweep_batch_size
 
     def descriptor_for(self, entity_type: str) -> EntityDescriptor | None:
         return self._by_type.get(entity_type)
@@ -167,38 +177,57 @@ class SyncEngine:
 
         Keeps the adapter ignorant of the sidecar — it just writes rows; the
         sweep discovers the un-anchored ones and queues them.
+
+        Batched (#7): rows are keyset-paged by primary key (``id > last_id``,
+        ``sweep_batch_size`` at a time) rather than materialised all at once, so a
+        first bulk identity ingest (persons/orgs in the thousands) never loads the
+        whole unanchored backlog into memory in a single cycle. Keyset (not
+        ``OFFSET``) is required because a CREATE leaves the anchor null until
+        delivery — those rows stay in the ``anchor IS NULL`` set within the sweep,
+        so advancing past the last processed id is what guarantees forward progress
+        and termination instead of re-reading the same already-enqueued rows.
         """
         anchor_col = getattr(descriptor.model, descriptor.anchor_column)
-        rows = (
-            (await session.execute(select(descriptor.model).where(anchor_col.is_(None))))
-            .scalars()
-            .all()
-        )
+        pk_col = descriptor.model.id
         enqueued = 0
-        for row in rows:
-            # PM-first: try to find a pre-existing PM record before creating one,
-            # so we never duplicate PM's curated tree (identifier-less backfill).
-            pm_id = await descriptor.pm_match(self._client, session, row)
-            if pm_id is not None:
-                record = await descriptor.fetch_record(self._client, pm_id)
-                if record is not None:
-                    # Adopt PM's canonical fields + anchor; no create.
-                    await descriptor.upsert_from_pm(session, record, existing=row)
-                    self._adopt_remote_clock(descriptor, row, record)
-                    # Enrich-on-match (#198): PM matched an identifier-less record by
-                    # name — push our identifiers/names onto it so it gains the data
-                    # we hold and future syncs match by identifier.
-                    if descriptor.enrich_identifier_type and await descriptor.needs_enrich(
-                        record, row
-                    ):
-                        await self._enqueue(session, descriptor, row, OP_ENRICH)
-                else:
-                    # Matched but detail fetch failed — still capture the anchor.
-                    descriptor.set_anchor(row, pm_id)
-                continue
-            if await self._enqueue(session, descriptor, row, OP_CREATE):
-                enqueued += 1
+        last_id = None
+        while True:
+            stmt = select(descriptor.model).where(anchor_col.is_(None))
+            if last_id is not None:
+                stmt = stmt.where(pk_col > last_id)
+            stmt = stmt.order_by(pk_col).limit(self._sweep_batch_size)
+            rows = (await session.execute(stmt)).scalars().all()
+            if not rows:
+                break
+            for row in rows:
+                last_id = row.id
+                if await self._sweep_row(session, descriptor, row):
+                    enqueued += 1
+            if len(rows) < self._sweep_batch_size:
+                break
         return enqueued
+
+    async def _sweep_row(self, session: AsyncSession, descriptor: EntityDescriptor, row) -> bool:
+        """Process one unanchored row; return True iff a new CREATE was enqueued."""
+        # PM-first: try to find a pre-existing PM record before creating one,
+        # so we never duplicate PM's curated tree (identifier-less backfill).
+        pm_id = await descriptor.pm_match(self._client, session, row)
+        if pm_id is not None:
+            record = await descriptor.fetch_record(self._client, pm_id)
+            if record is not None:
+                # Adopt PM's canonical fields + anchor; no create.
+                await descriptor.upsert_from_pm(session, record, existing=row)
+                self._adopt_remote_clock(descriptor, row, record)
+                # Enrich-on-match (#198): PM matched an identifier-less record by
+                # name — push our identifiers/names onto it so it gains the data
+                # we hold and future syncs match by identifier.
+                if descriptor.enrich_identifier_type and await descriptor.needs_enrich(record, row):
+                    await self._enqueue(session, descriptor, row, OP_ENRICH)
+            else:
+                # Matched but detail fetch failed — still capture the anchor.
+                descriptor.set_anchor(row, pm_id)
+            return False
+        return await self._enqueue(session, descriptor, row, OP_CREATE) is not None
 
     # --- outbox worker --------------------------------------------------------
 
