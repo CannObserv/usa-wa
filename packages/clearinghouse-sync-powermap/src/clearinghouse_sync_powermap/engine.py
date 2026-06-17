@@ -17,7 +17,7 @@ Write path (this module, step 3):
 import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import httpx
 from sqlalchemy import func, select, update
@@ -56,6 +56,18 @@ CHANGES_STREAM = "changes_feed"
 #: tolerance before an entry goes terminal. ``next_attempt_at`` deferrals
 #: (dependencies-not-ready) do not increment ``attempts``, so they never count.
 DEFAULT_MAX_ATTEMPTS = 60
+
+#: How long an entry may sit deferred (PENDING, ``attempts == 0``) before each
+#: subsequent deferral escalates to a distinct WARNING (#15). A deps-not-ready
+#: deferral keeps an entry PENDING without counting an attempt, so the
+#: transport-failure cap (``DEFAULT_MAX_ATTEMPTS``) can never catch a PM
+#: prerequisite that is permanently un-anchorable — it would defer forever and
+#: invisibly. Escalating an old, still-never-attempted deferral to a WARNING makes
+#: that stuck path operator-/alert-visible without a schema migration (it reuses
+#: ``created_at``) and without touching the shared backlog read surface. 24h ≫ a
+#: normal deps-ready latency (a parent anchors within a cycle or two), so an entry
+#: still deferring a day later is genuinely wedged, not just briefly waiting.
+DEFAULT_DEFERRED_STUCK_THRESHOLD = timedelta(hours=24)
 
 #: Statuses that block re-enqueue of the same source row. PENDING is the open
 #: delivery; UNAVAILABLE is a dead-letter that must not be silently re-minted by
@@ -112,11 +124,13 @@ class SyncEngine:
         *,
         batch_limit: int = 100,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        deferred_stuck_threshold: timedelta = DEFAULT_DEFERRED_STUCK_THRESHOLD,
     ) -> None:
         self._by_type = {d.entity_type: d for d in descriptors}
         self._client = client
         self._batch_limit = batch_limit
         self._max_attempts = max_attempts
+        self._deferred_stuck_threshold = deferred_stuck_threshold
 
     def descriptor_for(self, entity_type: str) -> EntityDescriptor | None:
         return self._by_type.get(entity_type)
@@ -270,10 +284,7 @@ class SyncEngine:
             # Defer without counting a failure: keep PENDING, re-check next cycle.
             entry.next_attempt_at = next_attempt_at(now, entry.attempts)
             entry.last_error = "dependencies not ready"
-            logger.info(
-                "powermap_observation_deferred",
-                extra={"entity_type": entry.entity_type, "local_id": str(entry.local_id)},
-            )
+            self._log_deferral(entry, now)
             return True
 
         if entry.op == OP_ENRICH:
@@ -351,6 +362,28 @@ class SyncEngine:
                 "reason": "blocked",
             },
         )
+
+    def _log_deferral(self, entry: OutboxEntry, now: datetime) -> None:
+        """Log a deps-not-ready deferral, escalating to a WARNING once the entry has
+        been deferred longer than the stuck threshold (#15).
+
+        A deferral never increments ``attempts``, so the transport-failure cap can
+        never dead-letter a permanently un-anchorable prerequisite — it would defer
+        forever and invisibly. An aged, still-never-attempted entry is exactly that
+        signature, so it is surfaced as a distinct, alertable WARNING rather than
+        buried in the routine deferral INFO stream. Age reuses ``created_at`` (no
+        schema migration); a row created in this very cycle has no stamp yet
+        (``created_at is None`` pre-server-flush) — treat that as not-yet-stuck.
+        """
+        age = (now - entry.created_at) if entry.created_at is not None else None
+        extra = {"entity_type": entry.entity_type, "local_id": str(entry.local_id)}
+        if age is not None and age >= self._deferred_stuck_threshold:
+            logger.warning(
+                "powermap_observation_deferred_stuck",
+                extra={**extra, "attempts": entry.attempts, "age_seconds": age.total_seconds()},
+            )
+        else:
+            logger.info("powermap_observation_deferred", extra=extra)
 
     def _fail_attempt(self, entry: OutboxEntry, now: datetime, error: str) -> None:
         """Record one failed delivery attempt: increment ``attempts``, capture the

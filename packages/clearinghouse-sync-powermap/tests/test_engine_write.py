@@ -457,6 +457,59 @@ async def test_drain_deferral_never_counts_toward_cap(db_session):
     assert touched[0].attempts == 0
 
 
+class _AlwaysDeferred(FakeDescriptor):
+    """A descriptor whose PM prerequisite never anchors — defers every cycle."""
+
+    async def dependencies_ready(self, session, row):  # noqa: ARG002
+        return False
+
+
+async def test_deferred_too_long_surfaces_stuck_event(db_session, caplog):
+    """#15: a deps-not-ready entry defers forever WITHOUT incrementing attempts, so
+    the dead-letter cap (which keys on attempts) can never catch it — it is the
+    invisible stuck path. When such an entry has been PENDING longer than the
+    deferred-stuck threshold, the deferral logs a distinct WARNING the operator can
+    alert on (reuses created_at — no schema migration)."""
+    row = await _add_entity(db_session, source_id="1")
+    # Make the entry look long-deferred by backdating its created_at.
+    await engine_sweep_then_age(db_session, row, created_at=NOW - timedelta(hours=48))
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    engine = SyncEngine([_AlwaysDeferred()], client, deferred_stuck_threshold=timedelta(hours=24))
+
+    with caplog.at_level("WARNING"):
+        touched = await engine.drain_outbox(db_session, now=NOW)
+
+    entry = touched[0]
+    assert entry.status == STATUS_PENDING  # still deferred, not a failure
+    assert entry.attempts == 0  # deferral never counts an attempt
+    stuck = [r for r in caplog.records if r.msg == "powermap_observation_deferred_stuck"]
+    assert len(stuck) == 1
+    assert stuck[0].entity_type == "fake"
+
+
+async def test_recently_deferred_does_not_surface_stuck_event(db_session, caplog):
+    """A freshly-deferred entry (within the threshold) logs only the routine INFO
+    deferral, not the stuck WARNING — normal in-flight waiting is not noise."""
+    row = await _add_entity(db_session, source_id="1")
+    await engine_sweep_then_age(db_session, row, created_at=NOW - timedelta(minutes=5))
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    engine = SyncEngine([_AlwaysDeferred()], client, deferred_stuck_threshold=timedelta(hours=24))
+
+    with caplog.at_level("INFO"):
+        await engine.drain_outbox(db_session, now=NOW)
+
+    assert [r for r in caplog.records if r.msg == "powermap_observation_deferred_stuck"] == []
+    assert [r for r in caplog.records if r.msg == "powermap_observation_deferred"]
+
+
+async def engine_sweep_then_age(db_session, row, *, created_at):
+    """Enqueue a CREATE for ``row`` and backdate its outbox entry's created_at."""
+    entry = OutboxEntry(entity_type="fake", local_id=row.id, op=OP_CREATE, created_at=created_at)
+    db_session.add(entry)
+    await db_session.flush()
+    return entry
+
+
 async def test_drain_respects_next_attempt_at(db_session, fake_descriptor):
     await _add_entity(db_session, source_id="1")
     client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
