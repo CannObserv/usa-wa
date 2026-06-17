@@ -12,6 +12,7 @@ Examples::
     python -m usa_wa_api.cli.redrive --dry-run
     python -m usa_wa_api.cli.redrive --entity-type person
     python -m usa_wa_api.cli.redrive --older-than-seconds 3600
+    python -m usa_wa_api.cli.redrive --limit 50
 """
 
 import argparse
@@ -36,6 +37,18 @@ def _non_negative_int(value: str) -> int:
     return parsed
 
 
+def _positive_int(value: str) -> int:
+    """argparse type: a ``>= 1`` int, mirroring the HTTP route's ``Query(ge=1)``.
+
+    A limit of 0 (or below) would flip nothing — reject it rather than silently
+    no-op a re-drive the operator asked for.
+    """
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return parsed
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m usa_wa_api.cli.redrive",
@@ -53,6 +66,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Only re-drive entries created at least this many seconds ago.",
     )
     parser.add_argument(
+        "--limit",
+        type=_positive_int,
+        default=None,
+        help="Cap the number of entries re-driven (oldest first).",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Preview the matched count without mutating any rows.",
@@ -60,7 +79,12 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-async def _run(entity_type: str | None, older_than_seconds: int | None, dry_run: bool) -> dict:
+async def _run(
+    entity_type: str | None,
+    older_than_seconds: int | None,
+    limit: int | None,
+    dry_run: bool,
+) -> dict:
     """Open a session, perform the (scoped) re-drive, and commit."""
     factory = get_session_factory()
     async with factory() as session:
@@ -68,6 +92,7 @@ async def _run(entity_type: str | None, older_than_seconds: int | None, dry_run:
             session,
             entity_type=entity_type,
             older_than_seconds=older_than_seconds,
+            limit=limit,
             dry_run=dry_run,
         )
         if not dry_run:
@@ -79,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     """Parse args, run the re-drive, and print the result as JSON. Returns exit code."""
     configure_logging()
     args = _build_parser().parse_args(argv)
-    result = asyncio.run(_run(args.entity_type, args.older_than_seconds, args.dry_run))
+    result = asyncio.run(_run(args.entity_type, args.older_than_seconds, args.limit, args.dry_run))
     json.dump(result, sys.stdout)
     sys.stdout.write("\n")
     return 0

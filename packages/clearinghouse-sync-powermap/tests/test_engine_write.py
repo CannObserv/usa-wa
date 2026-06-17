@@ -469,6 +469,113 @@ async def test_dead_letter_then_redrive_is_collision_free(db_session, fake_descr
     assert entries[0].last_error is None
 
 
+async def _add_outbox(session, *, entity_type="fake", status=STATUS_UNAVAILABLE, created_at=None):
+    entry = OutboxEntry(entity_type=entity_type, local_id=ULID(), op=OP_CREATE, status=status)
+    session.add(entry)
+    await session.flush()
+    if created_at is not None:
+        entry.created_at = created_at
+        await session.flush()
+    return entry
+
+
+async def test_redrive_scopes_by_entity_type(db_session, fake_descriptor):
+    """entity_type filter flips only matching UNAVAILABLE rows; others untouched."""
+    person = await _add_outbox(db_session, entity_type="person")
+    org = await _add_outbox(db_session, entity_type="organization")
+    engine = SyncEngine([fake_descriptor], FakeClient())
+
+    count = await engine.redrive_unavailable(db_session, now=NOW, entity_type="person")
+
+    assert count == 1
+    await db_session.refresh(person)
+    await db_session.refresh(org)
+    assert person.status == STATUS_PENDING
+    assert org.status == STATUS_UNAVAILABLE
+
+
+async def test_redrive_scopes_by_age(db_session, fake_descriptor):
+    """older_than flips only rows created at/before now - older_than."""
+    old = await _add_outbox(db_session, created_at=NOW - timedelta(hours=2))
+    fresh = await _add_outbox(db_session, created_at=NOW - timedelta(seconds=1))
+    engine = SyncEngine([fake_descriptor], FakeClient())
+
+    count = await engine.redrive_unavailable(db_session, now=NOW, older_than=timedelta(hours=1))
+
+    assert count == 1
+    await db_session.refresh(old)
+    await db_session.refresh(fresh)
+    assert old.status == STATUS_PENDING
+    assert fresh.status == STATUS_UNAVAILABLE
+
+
+async def test_redrive_limit_flips_oldest_first(db_session, fake_descriptor):
+    """limit caps the flip count, taking the oldest entries first."""
+    oldest = await _add_outbox(db_session, created_at=NOW - timedelta(hours=3))
+    middle = await _add_outbox(db_session, created_at=NOW - timedelta(hours=2))
+    newest = await _add_outbox(db_session, created_at=NOW - timedelta(hours=1))
+    engine = SyncEngine([fake_descriptor], FakeClient())
+
+    count = await engine.redrive_unavailable(db_session, now=NOW, limit=2)
+
+    assert count == 2
+    for entry in (oldest, middle, newest):
+        await db_session.refresh(entry)
+    assert oldest.status == STATUS_PENDING
+    assert middle.status == STATUS_PENDING
+    assert newest.status == STATUS_UNAVAILABLE  # newest left, limit reached
+
+
+async def test_redrive_combined_filters(db_session, fake_descriptor):
+    """entity_type + age compose; only rows matching both flip."""
+    target = await _add_outbox(
+        db_session, entity_type="person", created_at=NOW - timedelta(hours=2)
+    )
+    wrong_type = await _add_outbox(
+        db_session, entity_type="organization", created_at=NOW - timedelta(hours=2)
+    )
+    too_fresh = await _add_outbox(
+        db_session, entity_type="person", created_at=NOW - timedelta(seconds=1)
+    )
+    engine = SyncEngine([fake_descriptor], FakeClient())
+
+    count = await engine.redrive_unavailable(
+        db_session, now=NOW, entity_type="person", older_than=timedelta(hours=1)
+    )
+
+    assert count == 1
+    for entry in (target, wrong_type, too_fresh):
+        await db_session.refresh(entry)
+    assert target.status == STATUS_PENDING
+    assert wrong_type.status == STATUS_UNAVAILABLE
+    assert too_fresh.status == STATUS_UNAVAILABLE
+
+
+async def test_redrive_leaves_rejected_untouched(db_session, fake_descriptor):
+    """REJECTED is a payload refusal, never re-driven even under a broad scope."""
+    rejected = await _add_outbox(db_session, status=STATUS_REJECTED)
+    engine = SyncEngine([fake_descriptor], FakeClient())
+
+    count = await engine.redrive_unavailable(db_session, now=NOW)
+
+    assert count == 0
+    await db_session.refresh(rejected)
+    assert rejected.status == STATUS_REJECTED
+
+
+async def test_count_unavailable_matches_scope_without_mutating(db_session, fake_descriptor):
+    """count_unavailable reports the scoped match count and changes nothing."""
+    person = await _add_outbox(db_session, entity_type="person")
+    await _add_outbox(db_session, entity_type="organization")
+    engine = SyncEngine([fake_descriptor], FakeClient())
+
+    matched = await engine.count_unavailable(db_session, now=NOW, entity_type="person")
+
+    assert matched == 1
+    await db_session.refresh(person)
+    assert person.status == STATUS_UNAVAILABLE  # count is non-mutating
+
+
 async def test_drain_deferral_never_counts_toward_cap(db_session):
     """deps-not-ready deferral leaves attempts untouched, so it can never trip the
     transport-failure cap (it is not a delivery failure)."""

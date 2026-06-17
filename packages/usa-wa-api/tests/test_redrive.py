@@ -100,6 +100,7 @@ async def test_redrive_dry_run_previews_without_mutating(client, db_session):
     body = response.json()
     assert body["matched"] == 2
     assert body["redriven"] == 0
+    assert body["would_redrive"] == 2  # unbounded preview equals the full pile
     assert body["dry_run"] is True
     # Nothing mutated.
     assert await _statuses(db_session) == [STATUS_UNAVAILABLE, STATUS_UNAVAILABLE]
@@ -136,6 +137,51 @@ async def test_redrive_scopes_by_entity_type(client, db_session):
         )
     ).all()
     assert dict(rows) == {"organization": STATUS_UNAVAILABLE, "person": STATUS_PENDING}
+
+
+async def test_redrive_caps_with_limit(client, db_session):
+    """limit caps the flip; matched still reports the full in-scope pile."""
+    db_session.add_all(
+        [
+            OutboxEntry(
+                entity_type="fake", local_id=ULID(), op=OP_CREATE, status=STATUS_UNAVAILABLE
+            )
+            for _ in range(3)
+        ]
+    )
+    await db_session.flush()
+
+    response = await client.post("/sync/redrive?limit=2", headers=AUTH_HEADERS)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["matched"] == 3  # full pile
+    assert body["redriven"] == 2  # capped
+    assert body["would_redrive"] == 2  # projection matches the real flip
+    assert body["limit"] == 2
+    assert await _statuses(db_session) == [STATUS_PENDING, STATUS_PENDING, STATUS_UNAVAILABLE]
+
+
+async def test_redrive_dry_run_reflects_limit_cap(client, db_session):
+    """A dry-run preview reports the capped would-redrive count, not the full pile."""
+    db_session.add_all(
+        [
+            OutboxEntry(
+                entity_type="fake", local_id=ULID(), op=OP_CREATE, status=STATUS_UNAVAILABLE
+            )
+            for _ in range(5)
+        ]
+    )
+    await db_session.flush()
+
+    response = await client.post("/sync/redrive?dry_run=true&limit=2", headers=AUTH_HEADERS)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["matched"] == 5  # full pile
+    assert body["redriven"] == 0  # nothing actually flipped
+    assert body["would_redrive"] == 2  # a real call with these params would flip 2
+    assert await _statuses(db_session) == [STATUS_UNAVAILABLE] * 5
 
 
 async def test_redrive_scopes_by_age(client, db_session):
