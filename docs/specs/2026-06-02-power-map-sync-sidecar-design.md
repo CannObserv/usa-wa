@@ -255,7 +255,7 @@ PM unreachable → read loop logs + retries next cycle; write loop leaves entrie
 6. **Write-flow live for jurisdictions** against `POST /api/v1/jurisdictions/observations`.
 7. Persons/orgs/roles/assignments write paths **activatable** (all endpoints live) — enable in this increment or the next per appetite.
 
-**Deferred (not dormant — PM-ready, but usa-wa-side work remains):** entity-event sync, pending the `canonical.entity_events` table refinement (granular partial dates etc.). The person/org descriptors carry a no-op events hook until then.
+**Entity-event sync — read-mirror wired (usa-wa#19, 2026-06-17).** The person/org descriptors override `fetch_record` to pull `GET /{people|orgs}/{id}/events` and refresh `canonical.entity_events` via `sync_entity_events` (upsert by `pm_entity_event_id` anchor + prune events PM no longer reports). The table now mirrors PM's read `EntityEvent` fully (added `event_place_address`/`notes`/`verified_at`/`pm_created_at`). The **write** direction (`to_observation` embedding `events`) stays deferred until a local adapter produces entity events — the table is producer-less today, so an embed would always be empty.
 
 ## Section 7 — PM coordination (issues shipped 2026-06-05)
 
@@ -272,7 +272,7 @@ All four issues filed 2026-06-02 are **CLOSED and deployed**. Outcomes (some div
 - **`jur_slug` identifier type** ([power-map#183](https://github.com/CannObserv/power-map/issues/183)) — ✅ shipped. Jurisdiction observations key on `jur_slug` (self-registered on NEW); the `_check_jur_slug_consistency` validator requires `identifier_value == jurisdiction_slug`, which our `to_observation` satisfies.
 - **Generic `legislative_district` type** ([power-map#184](https://github.com/CannObserv/power-map/issues/184)) — ⏳ OPEN. PM seeds only `_upper`/`_lower`; WA's 49 LDs are a single shared boundary needing the generic type. **Blocks the jurisdiction bootstrap import.**
 
-**Outstanding usa-wa follow-up:** refine `canonical.entity_events` to PM's `ObservationEventItem` shape before wiring event sync ([usa-wa#9](https://github.com/CannObserv/usa-wa/issues/9)).
+**Outstanding usa-wa follow-up:** ~~refine `canonical.entity_events` ([usa-wa#9](https://github.com/CannObserv/usa-wa/issues/9))~~ ✅ + ~~wire read-mirror event sync ([usa-wa#19](https://github.com/CannObserv/usa-wa/issues/19))~~ ✅. Remaining: the **write/embed** path (`to_observation` embedding `events`), gated on a local entity-event *producer* existing — filed as a follow-up.
 
 ### Go-live — DONE 2026-06-08
 

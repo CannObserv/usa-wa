@@ -1,7 +1,7 @@
 ---
 title: Wire entity-event sync as a person/org read sub-resource (usa-wa#19)
 date: 2026-06-17
-status: draft
+status: done
 ---
 
 # Wire entity-event sync as a person/org read sub-resource (usa-wa#19)

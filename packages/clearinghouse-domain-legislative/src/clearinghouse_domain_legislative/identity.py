@@ -267,11 +267,12 @@ class EntityEvent(Base, TimestampMixin):
     (exactly one — see ``ck_entity_events_event_type_xor``), mirroring PM's
     slug-or-id dispatch.
 
-    Sidecar sync is fully dormant until power-map#178 wires the public
-    entity-events router (read + observation); the local mirror + anchor exist
-    now so the schema is ready when that lands. The event-sync sub-resource
-    wiring (person/org ``to_observation`` embedding ``events`` +
-    ``GET /{people|orgs}/{id}/events`` pulls) is a later increment.
+    Read-mirror sync is wired (usa-wa#19): the person/org descriptors pull
+    ``GET /{people|orgs}/{id}/events`` and refresh this mirror via
+    ``sync_entity_events``. The write direction (person/org ``to_observation``
+    embedding ``events``) is deferred until a local adapter actually *produces*
+    entity events — nothing writes this table today, so an embed would always be
+    empty (tracked as a usa-wa follow-up).
     """
 
     __tablename__ = "entity_events"
