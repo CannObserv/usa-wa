@@ -2,9 +2,10 @@
 
 Process model B (single daemon). Each cycle: run the due subscription re-discovery
 backstop (register/backfill new WA-subtree entities), pull the subscription-filtered
-changes feed, sweep un-anchored rows, and drain the outbox. The legacy full-list
-reconcile is retired for usa-wa (all descriptors opt out) but the generic hook
-remains for siblings.
+changes feed, run the due reconcile backstops (jurisdictions: none; cohort producers:
+the bounded anchored-cohort re-fetch that recovers dropped feed events — usa-wa#13),
+sweep un-anchored rows, and drain the outbox. The legacy full-list reconcile is
+retired for usa-wa but the generic hook remains for siblings.
 
 Per-cycle isolation (CR #13): every cycle runs in its own session inside a
 try/except that rolls back and logs on failure, so a propagating non-transient
@@ -88,8 +89,10 @@ class Sidecar:
         session via :meth:`run_cycle` so a discovery/PM failure cannot roll back or
         starve the feed/sweep/drain in this transaction.
         """
-        # Reads: incremental feed first, then due reconcile backstops (retired for
-        # usa-wa — all descriptors opt out — but kept generic for siblings).
+        # Reads: incremental feed first, then due reconcile backstops. Jurisdictions
+        # run none (subscription feed + discovery only); the cohort producers run the
+        # bounded anchored-cohort backstop (re-fetch our anchored rows → recover dropped
+        # feed events, usa-wa#13); the full-list backstop is sibling-only.
         await self._engine.process_feed(session)
         for descriptor in self._descriptors:
             if await self._reconcile_due(session, descriptor, now):
@@ -197,9 +200,11 @@ class Sidecar:
     async def _reconcile_due(
         self, session: AsyncSession, descriptor: EntityDescriptor, now: datetime
     ) -> bool:
-        # Only full-mirror entities run the full-list reconcile backstop; cohort-only
-        # producers opt out (would page PM's entire set to discard it). See usa-wa#13.
-        if descriptor.read_source == "none" or not descriptor.reconcile_enabled:
+        # Gate per reconcile_mode (usa-wa#13): ``none`` runs no backstop and is always
+        # skipped (jurisdictions — driven by the subscription feed + discovery). The
+        # ``full_list`` (sibling-only) and ``anchored_cohort`` (cohort producers)
+        # backstops both run on cadence; engine.reconcile() dispatches the right one.
+        if descriptor.read_source == "none" or descriptor.reconcile_mode == "none":
             return False
         stream = f"reconcile:{descriptor.entity_type}"
         state = (

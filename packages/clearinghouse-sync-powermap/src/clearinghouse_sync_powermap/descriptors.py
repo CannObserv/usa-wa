@@ -58,8 +58,8 @@ def normalize_name(name: str) -> str:
 #: (see the engine); ``authority`` is descriptive of producer direction only.
 Authority = Literal["pm", "local"]
 
-#: How this entity is read from PM. **Mechanism only** — whether a full-list
-#: reconcile *backstop* also runs is a separate axis, :attr:`reconcile_enabled`.
+#: How this entity is read from PM. **Mechanism only** — which reconcile *backstop*
+#: (if any) also runs is a separate axis, :attr:`reconcile_mode`.
 #:   ``feed``      — read off the ``/changes`` feed. All live entities use this
 #:                   (jurisdictions joined the feed in PM #179; roles/assignments
 #:                   gained feed reads). The ``reconcile`` value is currently
@@ -68,14 +68,31 @@ Authority = Literal["pm", "local"]
 #:   ``none``      — no PM read surface (e.g. dormant entity-events).
 #:
 #: NOTE: ``feed`` describes the primary read; it does **not** by itself imply a
-#: reconcile backstop. The backstop is a full-list enumeration of ``read_path``,
-#: which is only meaningful for **full-mirror** entities with a bounded list
-#: (jurisdictions). Cohort-only producers (orgs/persons/roles/assignments) read
-#: their own anchored rows via the feed and set :attr:`reconcile_enabled` False —
-#: a full-list reconcile would page PM's *entire* set only to discard everything
-#: they didn't produce (update-only). A bounded anchored-cohort backstop for them
-#: is tracked in CannObserv/usa-wa#13.
+#: reconcile backstop. The backstop kind is chosen by :attr:`reconcile_mode`.
 ReadSource = Literal["feed", "reconcile", "none"]
+
+#: Which reconcile *backstop* a descriptor runs — the axis :data:`ReadSource` does
+#: not capture (``ReadSource`` is the *primary* read mechanism; this is the periodic
+#: drift-recovery backstop layered on top). The two were historically conflated in a
+#: single ``reconcile_enabled`` boolean (#13); they are now first-class:
+#:   ``none``            — no reconcile backstop. The entity's primary read (the
+#:                         subscription-filtered feed + the discovery/subscription
+#:                         backstop, post-usa-wa#10) is the only refresh path.
+#:                         Jurisdictions use this — the WA subtree is driven by the
+#:                         SubscriptionReconciler, not a full-list enumeration.
+#:   ``full_list``       — full enumeration of :attr:`read_path`, applying every
+#:                         record under LWW. The legacy backstop, meaningful only for
+#:                         full-mirror entities with a bounded PM list. **No usa-wa
+#:                         descriptor uses it** post-#10; preserved for siblings.
+#:   ``anchored_cohort`` — bounded backstop for cohort-only *producers* (orgs,
+#:                         persons, roles, assignments): re-fetch only OUR anchored
+#:                         rows (anchor ``IS NOT NULL``) by id, applying each under
+#:                         LWW. O(our cohort), never O(PM-world). Recovers a curation
+#:                         edit whose feed event was dropped — the additive discovery
+#:                         backstop backfills only *new* ids, so without this an
+#:                         already-anchored row that misses its feed bump goes stale
+#:                         forever (CannObserv/usa-wa#13).
+ReconcileMode = Literal["none", "full_list", "anchored_cohort"]
 
 
 class EntityDescriptor(ABC):
@@ -100,12 +117,12 @@ class EntityDescriptor(ABC):
     observe_path: str | None = None
     #: Read strategy (see :data:`ReadSource`).
     read_source: ReadSource = "none"
-    #: Whether the periodic **full-list reconcile backstop** runs for this entity.
-    #: True only for full-mirror entities with a bounded list (jurisdictions);
-    #: cohort-only producers set it False — a full-list reconcile would page PM's
-    #: entire set only to discard everything they didn't produce (update-only).
-    #: See the :data:`ReadSource` note and CannObserv/usa-wa#13.
-    reconcile_enabled: bool = True
+    #: Which reconcile backstop (if any) this entity runs (see :data:`ReconcileMode`).
+    #: Default ``none`` — a descriptor opts into ``full_list`` or ``anchored_cohort``
+    #: explicitly. This is the first-class successor to the old ``reconcile_enabled``
+    #: boolean, which overloaded "does a backstop run" with "which backstop"; that
+    #: boolean now derives from this mode (see :attr:`reconcile_enabled`).
+    reconcile_mode: ReconcileMode = "none"
     #: Whether the outbox worker may push this entity. Dormant types stay False.
     write_enabled: bool = False
     #: PM-native internal identifier type for enrich-on-match (power-map#198) — e.g.
@@ -119,9 +136,28 @@ class EntityDescriptor(ABC):
 
     # --- concrete helpers (shared, not overridden) ---------------------------
 
+    @property
+    def reconcile_enabled(self) -> bool:
+        """Back-compat shim: True iff *any* reconcile backstop runs for this entity.
+
+        Derived from :attr:`reconcile_mode` (``!= "none"``). Kept so call sites that
+        only ask "does a backstop run at all?" need not re-spell the mode check. New
+        code that must branch on *which* backstop reads :attr:`reconcile_mode`.
+        """
+        return self.reconcile_mode != "none"
+
     def anchor_value(self, row: Any) -> ULID | None:
         """The current PM anchor id on a local row, or None if unsynced."""
         return getattr(row, self.anchor_column)
+
+    def anchor_column_expr(self) -> Any:
+        """The mapped column object for the PM anchor (e.g. ``Model.pm_org_id``).
+
+        The engine filters/keysets on this for the un-anchored sweep and the
+        anchored-cohort reconcile, so neither has to hardcode a per-entity column
+        name — the anchor column differs per entity but is known to the descriptor.
+        """
+        return getattr(self.model, self.anchor_column)
 
     def set_anchor(self, row: Any, pm_id: ULID) -> None:
         """Write the PM anchor id back onto a local row."""

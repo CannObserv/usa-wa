@@ -6,13 +6,13 @@ import pytest
 from ulid import ULID
 
 from clearinghouse_sync_powermap.client import ObservationResult
-from clearinghouse_sync_powermap.descriptors import normalize_name
+from clearinghouse_sync_powermap.descriptors import EntityDescriptor, normalize_name
 from clearinghouse_sync_powermap.models import (
     DISPOSITION_AUTO_ATTACHED,
     DISPOSITION_NEW,
     DISPOSITION_REJECTED,
 )
-from clearinghouse_sync_powermap.testing import FakeEntity
+from clearinghouse_sync_powermap.testing import FakeDescriptor, FakeEntity
 
 
 @pytest.mark.parametrize(
@@ -87,3 +87,30 @@ def test_observation_result_rejected():
     result = ObservationResult(DISPOSITION_REJECTED, None, {"error": "dupe"})
     assert result.rejected
     assert not result.anchored
+
+
+# --- reconcile_mode contract (usa-wa#13) -------------------------------------
+
+
+def test_reconcile_mode_defaults_to_none():
+    """The base contract defaults to the ``none`` reconcile mode (no backstop) —
+    a descriptor opts into a backstop explicitly."""
+    assert EntityDescriptor.reconcile_mode == "none"
+
+
+def test_reconcile_enabled_is_derived_from_mode():
+    """Back-compat: ``reconcile_enabled`` is True iff a reconcile backstop runs
+    (any non-``none`` mode)."""
+
+    class NoneMode(FakeDescriptor):
+        reconcile_mode = "none"
+
+    class FullList(FakeDescriptor):
+        reconcile_mode = "full_list"
+
+    class Cohort(FakeDescriptor):
+        reconcile_mode = "anchored_cohort"
+
+    assert NoneMode().reconcile_enabled is False
+    assert FullList().reconcile_enabled is True
+    assert Cohort().reconcile_enabled is True

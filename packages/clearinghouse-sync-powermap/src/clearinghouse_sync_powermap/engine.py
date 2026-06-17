@@ -69,6 +69,16 @@ DEFAULT_MAX_ATTEMPTS = 60
 #: still deferring a day later is genuinely wedged, not just briefly waiting.
 DEFAULT_DEFERRED_STUCK_THRESHOLD = timedelta(hours=24)
 
+#: Safety ceiling on the legacy ``full_list`` reconcile pagination loop (#6). The
+#: full-list backstop is dead for usa-wa post-#10 (cohort producers use the bounded
+#: ``anchored_cohort`` backstop, jurisdictions use ``none``) but live for siblings, so
+#: a misbehaving PM that always advertises another cursor — or a non-advancing one —
+#: would otherwise spin the daemon forever. Mirrors the live ``discover`` /
+#: ``list_subscriptions`` page guard in ``pmclient`` (warn + break with the partial
+#: set). At a typical 100 records/page this is ~100k records — orders of magnitude
+#: above any bounded PM list — so it never trips normally; a runaway guard, not a knob.
+MAX_RECONCILE_PAGES = 1000
+
 #: Page size for :meth:`SyncEngine.sweep_unanchored` (#7). The sweep keyset-pages
 #: the unanchored rows by primary key instead of materialising them all at once,
 #: so a first bulk identity ingest (persons/orgs in the thousands) never loads the
@@ -535,27 +545,56 @@ class SyncEngine:
         if pm_ts is not None:
             descriptor.set_last_updated(row, pm_ts)
 
-    # --- read path: full reconcile (backstop / jurisdictions' primary) -------
+    # --- read path: reconcile backstops --------------------------------------
 
     async def reconcile(
         self, session: AsyncSession, descriptor: EntityDescriptor, *, now: datetime | None = None
     ) -> int:
-        """Page through the entity's PM list endpoint, applying every record.
+        """Run the descriptor's reconcile backstop, dispatched by ``reconcile_mode``.
 
-        Full-list reconcile is the periodic backstop, not the primary read. It is
-        skipped for descriptors that opt out (``reconcile_enabled=False``) — the
-        cohort-only producers, for which a full-list enumeration is the wrong scope
-        (see the ``ReadSource`` note + CannObserv/usa-wa#13).
+        A reconcile is the periodic drift-recovery backstop, never the primary read.
+        Which backstop runs is a first-class axis (CannObserv/usa-wa#13):
+
+        - ``none`` → no backstop (the feed + subscription/discovery path is the only
+          refresh). Returns 0.
+        - ``full_list`` → :meth:`_reconcile_full_list`: full enumeration of
+          ``read_path``. Legacy; sibling-only post-#10 (no usa-wa descriptor uses it).
+        - ``anchored_cohort`` → :meth:`_reconcile_anchored_cohort`: re-fetch only OUR
+          anchored rows by id, recovering a curation edit whose feed event was dropped.
+
+        Both backstops stamp ``reconcile:<entity_type>`` with ``now`` (when given) so
+        the sidecar cadence gate sees the run.
         """
-        if (
-            descriptor.read_source == "none"
-            or descriptor.read_path is None
-            or not descriptor.reconcile_enabled
-        ):
+        if descriptor.read_source == "none" or descriptor.read_path is None:
             return 0
+        if descriptor.reconcile_mode == "full_list":
+            applied = await self._reconcile_full_list(session, descriptor)
+        elif descriptor.reconcile_mode == "anchored_cohort":
+            applied = await self._reconcile_anchored_cohort(session, descriptor)
+        else:  # "none"
+            return 0
+        if now is not None:
+            state = await self._get_or_create_state(session, _reconcile_stream(descriptor))
+            state.last_reconcile_at = now
+        await session.flush()
+        return applied
+
+    async def _reconcile_full_list(
+        self, session: AsyncSession, descriptor: EntityDescriptor
+    ) -> int:
+        """Page the entity's PM list endpoint, applying every record under LWW.
+
+        The legacy backstop, sibling-only post-#10 (no usa-wa descriptor runs it).
+
+        Bounded (#6): a misbehaving PM that never stops advertising a cursor (or a
+        non-advancing one) must not spin this loop forever. Since the full-list
+        reconcile is live for siblings, the same warn-and-break max-page guard the
+        live ``discover`` / ``list_subscriptions`` loops use applies here too — on
+        exceed: warn + break with whatever was applied so far.
+        """
         applied = 0
         cursor: str | None = None
-        while True:
+        for _page in range(MAX_RECONCILE_PAGES):
             params = {"cursor": cursor} if cursor else None
             page = await self._client.list_entities(descriptor.read_path, params)
             for record in page.records:
@@ -563,11 +602,59 @@ class SyncEngine:
                 applied += 1
             cursor = page.cursor
             if not cursor:
+                return applied
+        logger.warning(
+            "reconcile_pagination_bound_exceeded",
+            extra={
+                "entity_type": descriptor.entity_type,
+                "max_pages": MAX_RECONCILE_PAGES,
+                "applied": applied,
+            },
+        )
+        return applied
+
+    async def _reconcile_anchored_cohort(
+        self, session: AsyncSession, descriptor: EntityDescriptor
+    ) -> int:
+        """Re-fetch only OUR anchored rows by id and re-apply each under LWW (#13).
+
+        The bounded backstop for cohort-only producers (orgs/persons/roles/
+        assignments). It selects local rows whose anchor ``IS NOT NULL`` — the cohort
+        WE produced and PM now curates — NOT PM's global list, so it is O(our cohort),
+        never O(PM-world). For each it ``GET``s the current PM record by the stored
+        anchor id and applies it through the LWW :meth:`apply_record` path, so a
+        curation edit whose feed event was dropped is recovered (and a row that is
+        already current is a no-op via LWW parity).
+
+        Keyset-paged by primary key (``sweep_batch_size`` at a time), mirroring
+        :meth:`sweep_unanchored`, so a large anchored cohort never materialises all at
+        once. Unlike the sweep, the anchor is *not* mutated here, so the
+        ``anchor IS NOT NULL`` set is stable across pages — but keyset paging by PK
+        still gives a deterministic, terminating walk.
+        """
+        anchor_col = descriptor.anchor_column_expr()
+        pk_col = descriptor.model.id
+        applied = 0
+        last_id = None
+        while True:
+            stmt = select(descriptor.model).where(anchor_col.is_not(None))
+            if last_id is not None:
+                stmt = stmt.where(pk_col > last_id)
+            stmt = stmt.order_by(pk_col).limit(self._sweep_batch_size)
+            rows = (await session.execute(stmt)).scalars().all()
+            if not rows:
                 break
-        if now is not None:
-            state = await self._get_or_create_state(session, _reconcile_stream(descriptor))
-            state.last_reconcile_at = now
-        await session.flush()
+            for row in rows:
+                last_id = row.id
+                pm_id = descriptor.anchor_value(row)
+                record = await descriptor.fetch_record(self._client, pm_id)
+                if record is None:
+                    # PM record gone (404) between anchor and pass — skip, not fatal.
+                    continue
+                await self.apply_record(session, descriptor, record)
+                applied += 1
+            if len(rows) < self._sweep_batch_size:
+                break
         return applied
 
     # --- read path: changes feed (incremental primary for person/org) --------

@@ -13,6 +13,7 @@ from sqlalchemy import select
 from ulid import ULID
 
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
+from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_sync_powermap.client import (
     ChangeItem,
     ChangePage,
@@ -253,14 +254,48 @@ async def test_run_cycle_isolates_and_rolls_back_on_error():
     assert session.rolled_back and not session.committed
 
 
-async def test_full_list_reconcile_retired_for_all_descriptors(db_session):
-    """usa-wa#10: the unfiltered full-list reconcile backstop is retired for every
-    descriptor — jurisdictions now ride the subscription-filtered feed + discovery,
-    producers were already feed-only."""
+async def test_jurisdiction_reconcile_skipped(db_session):
+    """usa-wa#10/#13: jurisdictions have ``reconcile_mode="none"`` — the WA subtree is
+    driven by the subscription-filtered feed + discovery, not any reconcile. So the
+    sidecar never schedules a reconcile for them."""
     sidecar, _ = _sidecar(FakeClient())
     assert await sidecar._reconcile_due(db_session, JurisdictionDescriptor(), NOW) is False
-    assert await sidecar._reconcile_due(db_session, OrganizationDescriptor(), NOW) is False
-    assert await sidecar._reconcile_due(db_session, RoleDescriptor(), NOW) is False
+
+
+async def test_anchored_cohort_producers_are_reconcile_due(db_session):
+    """usa-wa#13: the cohort producers run the bounded anchored-cohort backstop, so
+    they ARE reconcile-due (first run, no prior stamp) — unlike the retired full-list
+    firehose. The backstop re-fetches only their anchored rows."""
+    sidecar, _ = _sidecar(FakeClient())
+    assert await sidecar._reconcile_due(db_session, OrganizationDescriptor(), NOW) is True
+    assert await sidecar._reconcile_due(db_session, RoleDescriptor(), NOW) is True
+
+
+async def test_tick_runs_anchored_cohort_backstop_and_recovers_dropped_edit(db_session):
+    """End-to-end through the sidecar tick: an anchored org whose feed bump was
+    dropped (stale local name + old clock) is recovered by the cohort backstop, which
+    re-fetches only its anchored row by id and applies PM's newer record under LWW."""
+    pm_id = ULID()
+    org = Organization(
+        source="usa_wa_legislature",
+        source_id="comm-1",
+        name="StaleName",
+        org_type="committee",
+        pm_organization_id=pm_id,
+    )
+    org.updated_at = datetime(2020, 1, 1, tzinfo=UTC)
+    db_session.add(org)
+    await db_session.flush()
+
+    descriptor = OrganizationDescriptor()
+    record = {"id": str(pm_id), "name": "CuratedName", "updated_at": "2026-06-07T00:00:00Z"}
+    engine = SyncEngine([descriptor], FakeClient(entities={pm_id: record}))
+    sidecar = Sidecar(engine, [descriptor], session_factory=lambda: None)
+
+    await sidecar.tick(db_session, now=NOW)
+    await db_session.refresh(org)
+
+    assert org.name == "CuratedName"
 
 
 # --- subscription backstop ------------------------------------------------------

@@ -61,6 +61,7 @@ class FakeDescriptor(EntityDescriptor):
     read_path = "/api/v1/fakes"
     observe_path = "/api/v1/fakes/observations"
     read_source = "reconcile"
+    reconcile_mode = "full_list"
     write_enabled = True
 
     async def to_observation(self, session: Any, row: Any) -> dict:
@@ -118,6 +119,9 @@ class FakeClient:
         self.subscribed: list[Any] = list(subscribed or [])
         self.posted: list[tuple[str, dict]] = []
         self.searched: list[dict] = []
+        #: Recorded ``get_entity`` calls (read_path, pm_id) — lets a test assert WHICH
+        #: ids a reconcile re-fetched (e.g. the anchored-cohort backstop, usa-wa#13).
+        self.fetched: list[tuple[str, Any]] = []
         #: Recorded discovery calls (kwargs) and add/remove batches for assertions.
         self.discover_calls: list[dict] = []
         self.added: list[list[Any]] = []
@@ -161,6 +165,7 @@ class FakeClient:
         return EntityPage(records=[], cursor=None)
 
     async def get_entity(self, read_path: str, pm_id: Any) -> dict | None:
+        self.fetched.append((read_path, pm_id))
         return self._entities.get(pm_id) or self._entities.get(str(pm_id))
 
     async def search_entities(

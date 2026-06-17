@@ -59,7 +59,9 @@ class PersonDescriptor(EntityDescriptor):
     read_path = "/api/v1/people"
     observe_path = "/api/v1/people/observations"
     read_source = "feed"
-    reconcile_enabled = False  # cohort-only producer; feed is the only read (see usa-wa#13)
+    # Cohort-only producer: feed is the primary read; the bounded anchored-cohort
+    # backstop re-fetches only OUR anchored rows to recover dropped feed events (#13).
+    reconcile_mode = "anchored_cohort"
     write_enabled = True
     enrich_identifier_type = "pm_person_id"  # enrich-on-match (#198)
 
