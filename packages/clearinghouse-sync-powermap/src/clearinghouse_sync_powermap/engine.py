@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import httpx
-from sqlalchemy import func, select, update
+from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.logging import get_logger
@@ -476,7 +476,7 @@ class SyncEngine:
     @staticmethod
     def _unavailable_scope(
         now: datetime, entity_type: str | None, older_than: timedelta | None
-    ) -> list:
+    ) -> list[ColumnElement[bool]]:
         """WHERE predicates selecting the re-drivable (``UNAVAILABLE``) rows in scope.
 
         Always pins ``status == UNAVAILABLE`` (the only re-drivable terminal pile —
@@ -549,8 +549,13 @@ class SyncEngine:
         stmt = update(OutboxEntry)
         if limit is not None:
             # Postgres has no UPDATE ... LIMIT; select the oldest in-scope ids first.
+            # Tiebreak on id so a capped flip is deterministic when rows share a
+            # ``created_at`` (bulk inserts land on the same ``server_default now()``).
             scoped_ids = (
-                select(OutboxEntry.id).where(*filters).order_by(OutboxEntry.created_at).limit(limit)
+                select(OutboxEntry.id)
+                .where(*filters)
+                .order_by(OutboxEntry.created_at, OutboxEntry.id)
+                .limit(limit)
             )
             stmt = stmt.where(OutboxEntry.id.in_(scoped_ids))
         else:
