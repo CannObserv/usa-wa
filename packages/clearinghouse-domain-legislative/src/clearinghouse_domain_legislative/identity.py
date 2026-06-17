@@ -15,6 +15,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     ForeignKey,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -253,13 +254,22 @@ class OrganizationIdentifier(Base, TimestampMixin):
 class EntityEvent(Base, TimestampMixin):
     """Polymorphic lifecycle event for a Person or Organization.
 
-    Mirrors Power Map's entity-events surface (power-map#170): birth / death for
-    people, founding / dissolution for organizations. ``entity_id`` is
+    Mirrors Power Map's ``ObservationEventItem`` (power-map#170): birth / death
+    for people, founding / dissolution for organizations. ``entity_id`` is
     polymorphic (resolved by ``entity_kind``) so it carries no DB-level FK.
+
+    The event instant is stored as granular, individually nullable components
+    (``event_year`` … ``event_second``) rather than a single ``Date`` so partial
+    dates round-trip faithfully (e.g. "born 1970, month unknown"). The event
+    type is referenced either by ``event_type_slug`` *or* by ``event_type_id``
+    (exactly one — see ``ck_entity_events_event_type_xor``), mirroring PM's
+    slug-or-id dispatch.
 
     Sidecar sync is fully dormant until power-map#178 wires the public
     entity-events router (read + observation); the local mirror + anchor exist
-    now so the schema is ready when that lands.
+    now so the schema is ready when that lands. The event-sync sub-resource
+    wiring (person/org ``to_observation`` embedding ``events`` +
+    ``GET /{people|orgs}/{id}/events`` pulls) is a later increment.
     """
 
     __tablename__ = "entity_events"
@@ -268,6 +278,22 @@ class EntityEvent(Base, TimestampMixin):
         CheckConstraint(
             "entity_kind IN ('person', 'organization')",
             name="ck_entity_events_kind",
+        ),
+        CheckConstraint(
+            "(event_type_slug IS NOT NULL) <> (event_type_id IS NOT NULL)",
+            name="ck_entity_events_event_type_xor",
+        ),
+        CheckConstraint(
+            "visibility IN ('public', 'legal_only', 'hidden')",
+            name="ck_entity_events_visibility",
+        ),
+        CheckConstraint(
+            "linked_entity_kind IS NULL OR linked_entity_kind IN ('person', 'organization')",
+            name="ck_entity_events_linked_entity_kind",
+        ),
+        CheckConstraint(
+            "(linked_entity_kind IS NULL) = (linked_entity_id IS NULL)",
+            name="ck_entity_events_linked_entity_together",
         ),
         {"schema": SCHEMA},
     )
@@ -279,9 +305,29 @@ class EntityEvent(Base, TimestampMixin):
 
     entity_kind: Mapped[str] = mapped_column(String(16), nullable=False)
     entity_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False, index=True)
-    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    # event_type vocab: birth | death | founding | dissolution | other
-    date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # Event type — slug XOR id (exactly one set). Slug vocab is open per PM:
+    # birth | death | founding | dissolution | other.
+    event_type_slug: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    event_type_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True)
+
+    # Granular partial-date components; each nullable so any prefix can be
+    # known independently (e.g. year-only).
+    event_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    event_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    event_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    event_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    event_minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    event_second: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    event_place_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Visibility — constrained to PM's enum: public | legal_only | hidden.
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="public")
+
+    # Optional polymorphic link to another entity (set together or not at all).
+    linked_entity_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    linked_entity_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True)
 
     # PM anchor (sidecar sync).
     pm_entity_event_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
