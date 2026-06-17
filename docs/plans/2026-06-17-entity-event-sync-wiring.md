@@ -78,17 +78,18 @@ local event producer exists; file a follow-up.
    / spec step 6b note to reflect that read-mirror is wired and embed is the remaining follow-up.
    File the embed follow-up issue.
 
-## Open questions / risks
+## Resolved decisions (user, 2026-06-17)
 
-- **Natural-key `source` for PM-originated events.** Plan assumes `source="powermap"`,
-  `source_id=<pm event id>` (so `source_id == pm_entity_event_id`). Confirm this is the intended
-  convention vs. carrying through the event's own upstream source if PM exposes one. *(Default:
-  `powermap`.)*
-- **Lossy fields.** PM's read `EntityEvent` carries `event_place_address`, `notes`, `verified_at`,
-  `created_at` with no local columns. Plan drops them (mirrors only what the table models). Confirm
-  acceptable, or scope a table addition separately.
-- **Deletes.** This wires create/update mirror only. Events removed in PM won't be pruned locally
-  on a parent bump unless we diff the returned set against existing anchored rows. Plan does the
-  diff-and-prune within a parent's event set; flag if that's heavier than wanted for v1.
-- **LWW.** Must ensure mirroring a sub-resource does not bump the parent row's `updated_at` and
-  trigger a spurious write-back ([[feedback_lww_preserve_remote_clock]]).
+- **Natural key** — `source="powermap"`, `source_id=<pm event id>` (so `source_id == pm_entity_event_id`). *Confirmed.*
+- **Lossy fields → mirror PM fully.** Add columns to `canonical.entity_events` so the local table
+  mirrors PM's read `EntityEvent`: `event_place_address` (JSONB), `notes` (Text), `verified_at`
+  (Text — matches `Identifier.verified_at`), and `pm_created_at` (Text — PM's record-creation
+  timestamp; `pm_`-prefixed to avoid colliding with `TimestampMixin.created_at`). New migration on
+  top of `b96aac248962`; table is unused so the change is non-breaking.
+- **Deletes** — prune stale events: within a parent's returned event set, delete locally-anchored
+  rows whose `pm_entity_event_id` is absent from the PM response. *Confirmed.*
+- **LWW** — event mirroring must not bump the parent row's `updated_at` / trigger a spurious
+  write-back ([[feedback_lww_preserve_remote_clock]]). *Confirmed.*
+
+This adds an early migration step to the sequence: **Step 0 — add the four mirror columns +
+autogenerate the migration + `uv run alembic upgrade head`**, before the client/descriptor work.
