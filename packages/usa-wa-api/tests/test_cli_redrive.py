@@ -103,6 +103,48 @@ async def test_run_dry_run_does_not_mutate(monkeypatch, db_session):
     assert await _statuses(db_session) == [STATUS_UNAVAILABLE]
 
 
+async def test_run_caps_with_limit(monkeypatch, db_session):
+    """--limit caps the flip; the JSON result surfaces would_redrive for the cap."""
+    db_session.add_all(
+        [
+            OutboxEntry(
+                entity_type="fake", local_id=ULID(), op=OP_CREATE, status=STATUS_UNAVAILABLE
+            )
+            for _ in range(3)
+        ]
+    )
+    await db_session.flush()
+    _patch_factory(monkeypatch, db_session)
+
+    result = await cli._run(entity_type=None, older_than_seconds=None, limit=2, dry_run=False)
+
+    assert result["matched"] == 3  # full pile
+    assert result["would_redrive"] == 2
+    assert result["redriven"] == 2  # capped
+    assert await _statuses(db_session) == [STATUS_PENDING, STATUS_PENDING, STATUS_UNAVAILABLE]
+
+
+async def test_run_dry_run_reflects_limit_cap(monkeypatch, db_session):
+    """A dry-run --limit preview surfaces the capped would_redrive, mutating nothing."""
+    db_session.add_all(
+        [
+            OutboxEntry(
+                entity_type="fake", local_id=ULID(), op=OP_CREATE, status=STATUS_UNAVAILABLE
+            )
+            for _ in range(4)
+        ]
+    )
+    await db_session.flush()
+    _patch_factory(monkeypatch, db_session)
+
+    result = await cli._run(entity_type=None, older_than_seconds=None, limit=2, dry_run=True)
+
+    assert result["matched"] == 4
+    assert result["would_redrive"] == 2
+    assert result["redriven"] == 0
+    assert await _statuses(db_session) == [STATUS_UNAVAILABLE] * 4
+
+
 async def test_run_scopes_by_entity_type(monkeypatch, db_session):
     db_session.add_all(
         [
