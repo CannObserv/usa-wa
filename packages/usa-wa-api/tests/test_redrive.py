@@ -138,6 +138,28 @@ async def test_redrive_scopes_by_entity_type(client, db_session):
     assert dict(rows) == {"organization": STATUS_UNAVAILABLE, "person": STATUS_PENDING}
 
 
+async def test_redrive_caps_with_limit(client, db_session):
+    """limit caps the flip; matched still reports the full in-scope pile."""
+    db_session.add_all(
+        [
+            OutboxEntry(
+                entity_type="fake", local_id=ULID(), op=OP_CREATE, status=STATUS_UNAVAILABLE
+            )
+            for _ in range(3)
+        ]
+    )
+    await db_session.flush()
+
+    response = await client.post("/sync/redrive?limit=2", headers=AUTH_HEADERS)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["matched"] == 3  # full pile
+    assert body["redriven"] == 2  # capped
+    assert body["limit"] == 2
+    assert await _statuses(db_session) == [STATUS_PENDING, STATUS_PENDING, STATUS_UNAVAILABLE]
+
+
 async def test_redrive_scopes_by_age(client, db_session):
     """older_than_seconds only redrives entries aged past the threshold."""
     now = datetime.now(UTC)

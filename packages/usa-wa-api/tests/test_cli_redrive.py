@@ -42,15 +42,17 @@ def test_parser_defaults():
     args = cli._build_parser().parse_args([])
     assert args.entity_type is None
     assert args.older_than_seconds is None
+    assert args.limit is None
     assert args.dry_run is False
 
 
 def test_parser_flags():
     args = cli._build_parser().parse_args(
-        ["--entity-type", "person", "--older-than-seconds", "3600", "--dry-run"]
+        ["--entity-type", "person", "--older-than-seconds", "3600", "--limit", "5", "--dry-run"]
     )
     assert args.entity_type == "person"
     assert args.older_than_seconds == 3600
+    assert args.limit == 5
     assert args.dry_run is True
 
 
@@ -59,6 +61,13 @@ def test_parser_rejects_negative_older_than_seconds():
     silently turning a scoped re-drive unscoped — reject it, mirroring Query(ge=0)."""
     with pytest.raises(SystemExit):
         cli._build_parser().parse_args(["--older-than-seconds", "-5"])
+
+
+@pytest.mark.parametrize("bad", ["0", "-1"])
+def test_parser_rejects_non_positive_limit(bad):
+    """A limit < 1 flips nothing — reject it, mirroring Query(ge=1)."""
+    with pytest.raises(SystemExit):
+        cli._build_parser().parse_args(["--limit", bad])
 
 
 async def test_run_redrives_and_commits(monkeypatch, db_session):
@@ -73,7 +82,7 @@ async def test_run_redrives_and_commits(monkeypatch, db_session):
     await db_session.flush()
     _patch_factory(monkeypatch, db_session)
 
-    result = await cli._run(entity_type=None, older_than_seconds=None, dry_run=False)
+    result = await cli._run(entity_type=None, older_than_seconds=None, limit=None, dry_run=False)
 
     assert result["matched"] == 1
     assert result["redriven"] == 1
@@ -87,7 +96,7 @@ async def test_run_dry_run_does_not_mutate(monkeypatch, db_session):
     await db_session.flush()
     _patch_factory(monkeypatch, db_session)
 
-    result = await cli._run(entity_type=None, older_than_seconds=None, dry_run=True)
+    result = await cli._run(entity_type=None, older_than_seconds=None, limit=None, dry_run=True)
 
     assert result["matched"] == 1
     assert result["redriven"] == 0
@@ -111,7 +120,9 @@ async def test_run_scopes_by_entity_type(monkeypatch, db_session):
     await db_session.flush()
     _patch_factory(monkeypatch, db_session)
 
-    result = await cli._run(entity_type="person", older_than_seconds=None, dry_run=False)
+    result = await cli._run(
+        entity_type="person", older_than_seconds=None, limit=None, dry_run=False
+    )
 
     assert result["matched"] == 1
     assert result["redriven"] == 1
@@ -127,16 +138,18 @@ def test_main_wires_args_and_prints_json(monkeypatch, capsys):
     """main parses flags, calls _run with them, and prints the result as JSON."""
     seen = {}
 
-    async def _fake_run(entity_type, older_than_seconds, dry_run):
-        seen["args"] = (entity_type, older_than_seconds, dry_run)
+    async def _fake_run(entity_type, older_than_seconds, limit, dry_run):
+        seen["args"] = (entity_type, older_than_seconds, limit, dry_run)
         return {"matched": 3, "redriven": 0, "dry_run": dry_run, "entity_type": entity_type}
 
     monkeypatch.setattr(cli, "_run", _fake_run)
     monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main(["--entity-type", "person", "--older-than-seconds", "60", "--dry-run"])
+    rc = cli.main(
+        ["--entity-type", "person", "--older-than-seconds", "60", "--limit", "5", "--dry-run"]
+    )
 
     assert rc == 0
-    assert seen["args"] == ("person", 60, True)
+    assert seen["args"] == ("person", 60, 5, True)
     body = json.loads(capsys.readouterr().out)
     assert body == {"matched": 3, "redriven": 0, "dry_run": True, "entity_type": "person"}

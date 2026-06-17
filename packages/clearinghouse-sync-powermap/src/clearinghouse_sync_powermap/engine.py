@@ -473,7 +473,58 @@ class SyncEngine:
 
     # --- operator surface -----------------------------------------------------
 
-    async def redrive_unavailable(self, session: AsyncSession, *, now: datetime) -> int:
+    @staticmethod
+    def _unavailable_scope(
+        now: datetime, entity_type: str | None, older_than: timedelta | None
+    ) -> list:
+        """WHERE predicates selecting the re-drivable (``UNAVAILABLE``) rows in scope.
+
+        Always pins ``status == UNAVAILABLE`` (the only re-drivable terminal pile —
+        ``REJECTED`` is a payload refusal a blind retry would just repeat), then
+        narrows by entity type and/or age (``created_at <= now - older_than``) when
+        those filters are given. Shared by :meth:`count_unavailable` and
+        :meth:`redrive_unavailable` so the scope can never drift between the
+        preview count and the mutating flip.
+        """
+        filters = [OutboxEntry.status == STATUS_UNAVAILABLE]
+        if entity_type is not None:
+            filters.append(OutboxEntry.entity_type == entity_type)
+        if older_than is not None:
+            filters.append(OutboxEntry.created_at <= now - older_than)
+        return filters
+
+    async def count_unavailable(
+        self,
+        session: AsyncSession,
+        *,
+        now: datetime,
+        entity_type: str | None = None,
+        older_than: timedelta | None = None,
+    ) -> int:
+        """Count re-drivable (``UNAVAILABLE``) entries matching the scope, non-mutating.
+
+        Powers the ``dry_run`` preview and the operator-reported ``matched`` count
+        without touching rows. ``limit`` is intentionally absent — this reports the
+        full size of the in-scope dead-letter pile, not how many a capped flip
+        would touch.
+        """
+        return (
+            await session.execute(
+                select(func.count())
+                .select_from(OutboxEntry)
+                .where(*self._unavailable_scope(now, entity_type, older_than))
+            )
+        ).scalar_one()
+
+    async def redrive_unavailable(
+        self,
+        session: AsyncSession,
+        *,
+        now: datetime,
+        entity_type: str | None = None,
+        older_than: timedelta | None = None,
+        limit: int | None = None,
+    ) -> int:
         """Reset dead-lettered (``UNAVAILABLE``) entries back to ``PENDING``, due now.
 
         For operator use once the cause is cleared — PM has recovered (transport
@@ -482,21 +533,39 @@ class SyncEngine:
         same payloads are re-attempted on the next drain. ``REJECTED`` entries are
         intentionally left untouched — those are payload-level refusals, not
         transport/auth failures, so a blind retry would just repeat the rejection.
-        No user-friendly trigger yet (#16).
+
+        Scope the flip with ``entity_type`` / ``older_than`` (against ``created_at``)
+        and cap it with ``limit`` (oldest-first, so a bounded re-drive drains the
+        longest-stuck work first). With no scope/limit it resets every UNAVAILABLE
+        row, matching the original #5 recovery hook.
+
+        Returns the number of rows actually flipped.
 
         Safe against ``uq_powermap_outbox_open`` because the enqueue guard
         (:data:`_REENQUEUE_BLOCKING_STATUSES`) keeps at most one PENDING/UNAVAILABLE
         entry per source row, so flipping never creates a second open row.
         """
+        filters = self._unavailable_scope(now, entity_type, older_than)
+        stmt = update(OutboxEntry)
+        if limit is not None:
+            # Postgres has no UPDATE ... LIMIT; select the oldest in-scope ids first.
+            scoped_ids = (
+                select(OutboxEntry.id).where(*filters).order_by(OutboxEntry.created_at).limit(limit)
+            )
+            stmt = stmt.where(OutboxEntry.id.in_(scoped_ids))
+        else:
+            stmt = stmt.where(*filters)
         result = await session.execute(
-            update(OutboxEntry)
-            .where(OutboxEntry.status == STATUS_UNAVAILABLE)
-            .values(status=STATUS_PENDING, attempts=0, next_attempt_at=now, last_error=None)
-            .execution_options(synchronize_session=False)
+            stmt.values(
+                status=STATUS_PENDING, attempts=0, next_attempt_at=now, last_error=None
+            ).execution_options(synchronize_session=False)
         )
         count = result.rowcount
         if count:
-            logger.info("powermap_outbox_redriven", extra={"count": count})
+            logger.info(
+                "powermap_outbox_redriven",
+                extra={"count": count, "entity_type": entity_type, "limit": limit},
+            )
         return count
 
     # --- read path: LWW reconcile --------------------------------------------
