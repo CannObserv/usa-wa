@@ -389,11 +389,19 @@ class GeneratedPowerMapClient:
                 _raise_mapped(exc)
             body = resp.parsed
             if body is None or isinstance(body, HTTPValidationError):
-                break
+                return records
             records.extend(item.to_dict() for item in body.data)
             if not getattr(body.meta, "has_more", False):
-                break
+                return records
             offset += len(body.data)
+        # Safety bound hit (see _MAX_PAGINATION_PAGES): a never-terminating
+        # ``has_more`` (e.g. an empty page that never advances ``offset``) would
+        # otherwise spin forever. Stop and surface the partial set, like
+        # :meth:`list_subscriptions` — silent truncation reads as a short event list.
+        logger.warning(
+            "list_entity_events_pagination_bound_exceeded",
+            extra={"read_path": read_path, "pm_id": str(pm_id), "max_pages": _MAX_PAGINATION_PAGES},
+        )
         return records
 
     async def search_entities(

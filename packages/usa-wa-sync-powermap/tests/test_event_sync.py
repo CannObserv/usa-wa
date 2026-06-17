@@ -89,6 +89,26 @@ def test_map_pm_event_linked_entity_present_and_absent():
     assert without["linked_entity_id"] is None
 
 
+def test_map_pm_event_drops_partial_link():
+    """A link with only one half set is dropped wholesale (both-or-neither CHECK):
+    a malformed PM sub-record must not crash the parent upsert."""
+    id_only = map_pm_event(
+        _pm_event(str(ULID()), linked_entity_id=str(ULID())),  # id without type
+        entity_kind="person",
+        entity_id=ULID(),
+    )
+    assert id_only["linked_entity_kind"] is None
+    assert id_only["linked_entity_id"] is None
+
+    type_only = map_pm_event(
+        _pm_event(str(ULID()), linked_entity_type="organization"),  # type without id
+        entity_kind="person",
+        entity_id=ULID(),
+    )
+    assert type_only["linked_entity_kind"] is None
+    assert type_only["linked_entity_id"] is None
+
+
 async def _add_person(session) -> Person:
     p = Person(source="wsl", source_id="p-evt", name_full="Event Subject")
     session.add(p)

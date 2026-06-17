@@ -93,7 +93,7 @@ async def test_pm_mirror_columns_round_trip(db_session):
 def _base_event(**overrides) -> EntityEvent:
     """An EntityEvent with the minimal valid field set, plus overrides."""
     kwargs: dict = {
-        "source": "pm",
+        "source": "powermap",
         "source_id": "evt-x",
         "entity_kind": "person",
         "entity_id": ULID(),

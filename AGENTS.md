@@ -73,7 +73,7 @@ packages/
     tests/            — API tests; conftest defines savepointed db_session + AsyncClient
   usa-wa-sync-powermap/               — Layer 4: PM sync deployment binding + sidecar daemon
     src/usa_wa_sync_powermap/
-      descriptors/    — concrete EntityDescriptors (jurisdiction, organization, role, person, assignment) — full identity cluster + PM-first match cascade + enrich-on-match
+      descriptors/    — concrete EntityDescriptors (jurisdiction, organization, role, person, assignment) — full identity cluster + PM-first match cascade + enrich-on-match; `events.py` is the entity-event sub-resource read-mirror (person/org `fetch_record` pulls `/{id}/events`, `upsert_from_pm` mirrors via `sync_entity_events`)
       registry.py     — build_descriptors() — the entity set the sidecar syncs
       sidecar.py      — Sidecar: per-cycle tick (feed → reconcile → sweep → drain) + isolated run loop
       config.py       — SidecarSettings (POWERMAP_BASE_URL, POWERMAP_API_KEY)

@@ -34,8 +34,13 @@ def map_pm_event(record: dict, *, entity_kind: str, entity_id: Any) -> dict:
     """
     date = record.get("date") or {}
     event_type = record.get("event_type") or {}
+    # Both-or-neither (mirrors ck_entity_events_linked_entity_together): a PM
+    # sub-record with only one half set is dropped wholesale rather than mapped to
+    # a half-link that would raise IntegrityError and crash the parent upsert.
     linked_id = record.get("linked_entity_id")
-    linked_kind = record.get("linked_entity_type") if linked_id else None
+    linked_kind = record.get("linked_entity_type")
+    if not (linked_id and linked_kind):
+        linked_id = linked_kind = None
     return {
         "source": EVENT_SOURCE,
         "source_id": record["id"],
