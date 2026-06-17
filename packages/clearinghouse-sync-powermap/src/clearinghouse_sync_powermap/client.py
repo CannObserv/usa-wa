@@ -185,6 +185,13 @@ class PowerMapClient(Protocol):
         """Fetch one full entity record by PM id (feed gives ids, not records)."""
         ...
 
+    async def list_entity_events(self, read_path: str, pm_id: ULID) -> list[dict]:
+        """All entity-event records for a parent person/org (the ``/{id}/events``
+        sub-resource). ``read_path`` is the parent's read path (``/api/v1/people`` or
+        ``/api/v1/orgs``); the wrapper dispatches to the matching events route and
+        paginates the full set. Empty list if the parent has no events (or is gone)."""
+        ...
+
     async def search_entities(
         self,
         search_path: str,

@@ -28,6 +28,8 @@ from powermap_client.api.public_api import (
     get_role,
     list_assignments,
     list_jurisdictions,
+    list_org_events,
+    list_person_events,
     list_roles,
     list_subscriptions,
     register_subscriptions,
@@ -146,6 +148,11 @@ class GeneratedPowerMapClient:
         "/api/v1/assignments": get_assignment,
         "/api/v1/people": get_person,
         "/api/v1/orgs": get_org,
+    }
+    # parent read_path → per-parent events list op (the /{id}/events sub-resource).
+    _EVENTS = {
+        "/api/v1/people": list_person_events,
+        "/api/v1/orgs": list_org_events,
     }
     # observe_path → (submit op, request model)
     _OBSERVE = {
@@ -357,6 +364,37 @@ class GeneratedPowerMapClient:
         if parsed is None or isinstance(parsed, HTTPValidationError):
             return None
         return parsed.to_dict()
+
+    async def list_entity_events(self, read_path: str, pm_id: Any) -> list[dict]:
+        """Page the per-parent ``/{id}/events`` sub-resource into raw event dicts.
+
+        Dispatches by the parent ``read_path`` (people/orgs) and follows
+        ``meta.has_more`` the way :meth:`list_entities` does. A 404 (parent gone
+        between the feed and this fetch) yields an empty list rather than crashing
+        the cycle — symmetric with :meth:`get_entity`."""
+        op = self._EVENTS[read_path]
+        records: list[dict] = []
+        offset = 0
+        limit = 100
+        for _page in range(_MAX_PAGINATION_PAGES):
+            try:
+                resp = await op.asyncio_detailed(
+                    str(pm_id), client=self._client, limit=limit, offset=offset
+                )
+            except UnexpectedStatus as exc:
+                if exc.status_code == 404:
+                    return []  # parent gone between feed and fetch
+                if _retryable(exc):
+                    raise RetryableClientError(f"PM {exc.status_code}") from exc
+                _raise_mapped(exc)
+            body = resp.parsed
+            if body is None or isinstance(body, HTTPValidationError):
+                break
+            records.extend(item.to_dict() for item in body.data)
+            if not getattr(body.meta, "has_more", False):
+                break
+            offset += len(body.data)
+        return records
 
     async def search_entities(
         self,

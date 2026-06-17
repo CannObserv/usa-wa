@@ -607,3 +607,76 @@ async def test_post_observation_400_raises_payload_rejected(client):
             "/api/v1/jurisdictions/observations",
             {"identifier_type": "t", "identifier_value": "v", "slug": "s", "name": "n"},
         )
+
+
+def _event_json(event_id: str, *, slug: str = "birth", year: int | None = 1970) -> dict:
+    """A minimal PM read EntityEvent body (EntityEvent.from_dict-shaped)."""
+    return {
+        "id": event_id,
+        "event_type": {"id": str(ULID()), "slug": slug, "display_name": slug.title()},
+        "date": {"year": year} if year is not None else {},
+        "visibility": "public",
+        "created_at": "2026-05-01T00:00:00Z",
+    }
+
+
+@respx.mock
+async def test_list_entity_events_people_paginates_and_flattens(client):
+    """The people sub-resource is fetched by parent id, paginated via meta, flattened."""
+    pm_id = ULID()
+    route = respx.get(f"{BASE}/api/v1/people/{pm_id}/events").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "data": [_event_json("evt-1")],
+                    "meta": {"limit": 100, "offset": 0, "count": 1, "has_more": True},
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "data": [_event_json("evt-2", slug="death", year=2024)],
+                    "meta": {"limit": 100, "offset": 1, "count": 1, "has_more": False},
+                },
+            ),
+        ]
+    )
+
+    events = await client.list_entity_events("/api/v1/people", pm_id)
+
+    assert [e["id"] for e in events] == ["evt-1", "evt-2"]
+    assert events[0]["event_type"]["slug"] == "birth"
+    assert events[1]["date"]["year"] == 2024
+    assert route.call_count == 2
+    assert route.calls[0].request.headers["X-API-Key"] == "secret-key"
+
+
+@respx.mock
+async def test_list_entity_events_orgs_single_page(client):
+    """The orgs sub-resource dispatches to the /orgs/{id}/events route."""
+    pm_id = ULID()
+    respx.get(f"{BASE}/api/v1/orgs/{pm_id}/events").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [_event_json("evt-o", slug="founding")],
+                "meta": {"limit": 100, "offset": 0, "count": 1, "has_more": False},
+            },
+        )
+    )
+
+    events = await client.list_entity_events("/api/v1/orgs", pm_id)
+
+    assert [e["id"] for e in events] == ["evt-o"]
+
+
+@respx.mock
+async def test_list_entity_events_404_returns_empty(client):
+    """A parent gone between the feed and the events fetch → empty list, not a crash."""
+    pm_id = ULID()
+    respx.get(f"{BASE}/api/v1/people/{pm_id}/events").mock(
+        return_value=httpx.Response(404, json={"detail": "not found"})
+    )
+
+    assert await client.list_entity_events("/api/v1/people", pm_id) == []
