@@ -21,6 +21,7 @@ dev = [
     "pytest-cov>=6.0,<7",
     "respx>=0.21,<1",
     "ruff>=0.9,<1",
+    "vcrpy>=6.0,<7",
 ]
 
 [tool.uv.sources]

@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
+    "zeep>=4.3.1",
 ]
 
 [tool.uv.sources]

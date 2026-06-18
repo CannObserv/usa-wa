@@ -50,9 +50,22 @@ class LegislativeSession(Base, TimestampMixin):
     slug: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     classification: Mapped[str] = mapped_column(String(32), nullable=False)
-    # classification vocab: regular | special | other
+    # classification vocab: regular | special | biennium | other
+    # (biennium added 2026-06-18 for the WSL P1a synthesis — bills can carry
+    # across regular/special sessions within a biennium, so the biennium itself
+    # is modeled as a parent session, and its child regular/special sessions
+    # point to it via parent_legislative_session_id.)
     # (Dropped extraordinary + sine_die in v1.2; dropped per-session timestamps
     # in v1.3 — end_date now carries sine die semantics for adjourned sessions.)
+
+    # Self-FK enabling parent/child session hierarchy (biennium → regular/special).
+    # Nullable because the root session in a hierarchy (or a free-standing one) has none.
+    parent_legislative_session_id: Mapped[_ULID | None] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.legislative_sessions.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
 
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)

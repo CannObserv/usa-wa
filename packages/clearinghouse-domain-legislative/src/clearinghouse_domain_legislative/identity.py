@@ -92,7 +92,17 @@ class Organization(Base, TimestampMixin):
     org_type: Mapped[str] = mapped_column(String(32), nullable=False)
     # org_type vocab: chamber | party | committee | subcommittee | caucus
     #               | candidate_committee | lobbying_firm | pac
-    #               | government_agency | other
+    #               | legislature | government_agency | other
+    # (legislature added 2026-06-18 for the WSL P1a synthesis — the legislative
+    # branch itself, distinct from executive `government_agency` regulators.)
+
+    # Canonical acronym (e.g. "APP" for House Appropriations). PM Org observations
+    # support a list of acronyms; this column tracks the single canonical/source-of-truth
+    # value. Added 2026-06-18 for WSL committees.
+    acronym: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Primary phone contact (E.164-ish source string; not normalized at write time).
+    # PM Org observations accept this as a `phone` contact_method. Added 2026-06-18.
+    phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     parent_organization_id: Mapped[_ULID | None] = mapped_column(
         ULID(),
