@@ -30,8 +30,14 @@ from clearinghouse_core.provenance import (
 )
 
 NATURAL_KEY: tuple[str, ...] = ("jurisdiction_id", "source", "source_id")
-"""Convention: every canonical entity carries these three columns; the
-combined UNIQUE constraint drives idempotent upsert."""
+"""Default natural-key columns used for ON CONFLICT upserts.
+
+This was the convention before the 2026-06-09 decoupling, when every canonical
+table FK'd ``jurisdiction_id``. Post-decoupling, several tables (Organization,
+Person, LegislativeSession, …) carry UNIQUE on just ``(source, source_id)`` so
+they can hold rows with NULL jurisdiction. Adapters whose entity tables match
+the shorter shape pass ``natural_key=("source", "source_id")`` to
+:class:`AdapterRunner`."""
 
 
 @dataclass(frozen=True)
@@ -60,11 +66,13 @@ class AdapterRunner:
         *,
         source: Source,
         jurisdiction: Jurisdiction,
+        natural_key: tuple[str, ...] = NATURAL_KEY,
     ) -> None:
         self.adapter = adapter
         self.session = session
         self.source = source
         self.jurisdiction = jurisdiction
+        self.natural_key = natural_key
 
     async def fetch_and_normalize(self, resource_id: str, *, force: bool = False) -> int:
         """Cache-or-fetch one resource, then upsert its normalized entities.
@@ -183,22 +191,39 @@ class AdapterRunner:
         return upserted
 
     async def _upsert(self, entity: Base) -> None:
-        """ON CONFLICT DO UPDATE on ``(jurisdiction_id, source, source_id)``."""
+        """ON CONFLICT DO UPDATE on ``self.natural_key``; populate ``entity.id``.
+
+        After the statement runs we ``SELECT id`` back by the natural key so
+        ``entity.id`` always points at the row actually persisted — whether
+        this was an INSERT (fresh ULID) or an UPDATE (existing row's ULID).
+        Without that, downstream Citation rows pick up the in-memory ULID we
+        generated locally and dangle whenever the conflict path triggered.
+        """
         mapper = inspect(entity).mapper
+        table = mapper.local_table
         cols = {c.key: getattr(entity, c.key) for c in mapper.columns if hasattr(entity, c.key)}
         # Only include columns actually set on the entity (skip defaults that
         # SQLAlchemy will provide via server_default).
-        cols = {k: v for k, v in cols.items() if v is not None or k in NATURAL_KEY}
-        stmt = insert(mapper.local_table).values(**cols)
-        update_cols = {k: v for k, v in cols.items() if k not in NATURAL_KEY and k != "id"}
+        cols = {k: v for k, v in cols.items() if v is not None or k in self.natural_key}
+        stmt = insert(table).values(**cols)
+        update_cols = {k: v for k, v in cols.items() if k not in self.natural_key and k != "id"}
         if update_cols:
             stmt = stmt.on_conflict_do_update(
-                index_elements=list(NATURAL_KEY),
+                index_elements=list(self.natural_key),
                 set_=update_cols,
             )
         else:
-            stmt = stmt.on_conflict_do_nothing(index_elements=list(NATURAL_KEY))
+            stmt = stmt.on_conflict_do_nothing(index_elements=list(self.natural_key))
         await self.session.execute(stmt)
+
+        # Read back the persisted id by natural key so the entity instance
+        # tracks the row that's actually in the table (handles both INSERT
+        # and UPDATE paths uniformly).
+        nk_filter = [table.c[k] == cols[k] for k in self.natural_key if k in cols]
+        lookup = select(table.c.id).where(*nk_filter)
+        persisted_id = (await self.session.execute(lookup)).scalar_one_or_none()
+        if persisted_id is not None:
+            entity.id = persisted_id
 
 
 def _citation_type(entity: Base) -> str:

@@ -54,3 +54,13 @@ Same convention as the Jurisdictional IA plan: every code-touching step must clo
 - **`USA_WA_BIENNIUM` env override semantics.** Computing the current biennium from `date.today()` works through 2026; the rollover to 2027-28 happens at the calendar boundary. The override exists for testing and for early-year edge cases when the new biennium hasn't formally started but adapters want to ingest it. Document in `refresh.py` docstring.
 - **Cassette commit size.** A single cassette is typically 50–200 KB; well within repo norms. If WSL response shape balloons unexpectedly (e.g., includes inline member lists), revisit cassette filtering before committing.
 - **Step 7 issue body.** Sidecar follow-up is a small enough change (one method + tests) that it might land alongside this plan rather than as a separate follow-up. Decide after step 6 lands: if the descriptor extension is trivial, fold it in; if it requires its own brainstorm/spec cut, keep it as a separate issue.
+
+## Revisions during execution
+
+Captured per the writing-plans skill (Phase 4 small-revision policy). None change scope; all are mechanics adjustments uncovered during implementation.
+
+- **Step 1 — vcrpy version pin.** Bumped from `>=6.0,<7` to `>=7.0` (8.x resolved). The 6.x line errors against `urllib3 2.7` (`AttributeError: 'VCRHTTPResponse' object has no attribute 'version_string'`). Workspace `dev` group constraint updated.
+- **Step 3 — WSL field-shape pin.** WSDL inspection confirmed `Phone` (not `PhoneNumber` as the spec text guessed), and `GetActiveCommittees` takes **no biennium parameter** — it implicitly returns the currently-active set. Transport method signature dropped the `biennium` argument; the biennium remains adapter-side metadata. Cassette recorded: 34 active committees (within the spec's ~50 estimate).
+- **Step 5 — AdapterRunner natural-key + RETURNING-equivalent SELECT.** Two latent runner issues surfaced when integrating against canonical `Organization`:
+  1. The runner hardcoded `NATURAL_KEY = ("jurisdiction_id", "source", "source_id")` predating the 2026-06-09 decoupling. Several canonical tables now carry UQ on `(source, source_id)` only. Added a `natural_key` constructor parameter (default unchanged for backward compatibility); WSL adapter constructs the runner with `natural_key=("source", "source_id")`.
+  2. `_extract_id_after_upsert` returned the in-memory `entity.id` (typically `None` for ORM-assigned defaults that fire only at flush), causing `citations.entity_id` NOT NULL violations. `_upsert` now executes a follow-up `SELECT id WHERE <natural-key cols>` and assigns the persisted id back onto the entity so Citations bind to the row actually written (whether INSERT or UPDATE). All six existing AdapterRunner tests still pass.
