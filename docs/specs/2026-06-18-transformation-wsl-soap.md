@@ -55,7 +55,7 @@ The first cut exists to prove the SOAP transport end-to-end with a small but mea
 | Synthesized | 2 | `canonical.organizations` (House + Senate chambers, parent = legislature) |
 | Synthesized | 1 | `canonical.legislative_sessions` (biennium row, `classification="biennium"`, parent = null) |
 | Synthesized | 2 | `canonical.legislative_sessions` (2025 Regular + 2026 Regular, `classification="regular"`, parent = biennium row) |
-| Live SOAP via `CommitteeService.GetActiveCommittees("2025-26")` | ~50 | `canonical.organizations` (committees, parent = House / Senate / Joint) |
+| Live SOAP via `CommitteeService.GetActiveCommittees("2025-26")` | ~50 | `canonical.organizations` (committees, parent = House / Senate / legislature for Joint; `acronym` + `phone` columns populated) |
 
 Synthesis vs. fetch is decided per-entity (see § Per-entity correspondence below). The split reflects WSL's actual contract: WSL has no `GetBienniums` or `GetSessions` endpoint, so we synthesize the structure; WSL does have first-class committee data, so we fetch.
 
@@ -78,6 +78,14 @@ The first cut needs the following adds to the canonical model:
    Cross-jurisdictional flexibility: jurisdictions without a biennium-level container (some states with annual sessions; some unicameral states) leave `parent_legislative_session_id=null`. Jurisdictions with deeper hierarchies (e.g., a future "Congress 119" → "session 1" / "session 2" mapping for `usa-fed`) use the same self-FK shape.
 
    The existing `biennium_label: text(16) nullable` column stays as a denormalized fast-filter (avoids a parent-row join for "all bills from biennium 2025–26"). The two representations agree by construction.
+
+4. **`canonical.organizations.acronym` text nullable** — new column (varchar(64)) holding the canonical short acronym (e.g., `"CB"` for Capital Budget, `"WAYS"` for Senate Ways & Means). Single denormalized column rather than reusing `canonical.organization_identifiers` because: (a) the v1.4 IA UQ `(jurisdiction_id, scheme, value)` would collide when the same acronym appears in different bienniums (different Org rows by `Id`); (b) acronym is semantically a label/display attribute, not a third-party identifier; (c) WSL exposes one acronym per Committee element. The sidecar's `to_observation` emits `org_acronyms: [row.acronym]` (a single-element list) to satisfy PM's [`OrganizationObservationRequest.org_acronyms: list[str]`](../../packages/powermap-client/powermap_client/models/organization_observation_request.py) shape; PM's match cascade folds cross-biennium rows by shared acronym at the PM layer, not in our local canonical model.
+
+5. **`canonical.organizations.phone` text nullable** — new column (varchar(64)) holding a primary phone number (e.g., committee staff phone from `Committee.PhoneNumber`). Single denormalized column rather than a 1:N `organization_contact_methods` table because: (a) WSL exposes one phone per committee; (b) the sidecar's `to_observation` wraps it as `contact_methods: [{contact_type: "phone", value: row.phone}]` per PM's [`ObservationContactMethod`](../../packages/powermap-client/powermap_client/models/observation_contact_method.py) shape; (c) future multi-method support (people with multiple emails, secondary phones) can land alongside person ingestion in P1b.
+
+   Both columns (`acronym`, `phone`) land in the same migration alongside `parent_legislative_session_id`.
+
+   **Sidecar follow-up:** the Organization descriptor at [`packages/usa-wa-sync-powermap/src/usa_wa_sync_powermap/descriptors/organization.py`](../../packages/usa-wa-sync-powermap/src/usa_wa_sync_powermap/descriptors/organization.py) currently emits only `identifier_type`, `identifier_value`, `names`, `jurisdiction_affiliations`, `organization_parent_id`. Extending it to emit `org_acronyms: [row.acronym]` (when non-null) and `contact_methods: [{contact_type: "phone", value: row.phone}]` (when non-null) is a small follow-up not blocking this spec's adapter work; file as a sidecar issue alongside the adapter implementation.
 
 ## Per-entity correspondence
 
@@ -119,16 +127,17 @@ WSL `Committee` element fields (observed shape):
 
 | usa-wa column | WSL field | Direction | Transform | Notes |
 |---|---|---|---|---|
-| `source_id` | `Acronym` | ← | passthrough (uppercase) | WSL-stable committee identifier. `Id` (numeric) is biennium-scoped and not stable across bienniums; `Acronym` is. |
+| `source_id` | `Id` | ← | passthrough (string) | WSL committee identifier. Biennium-scoped: WSL re-keys `Id` across bienniums, so a committee's canonical Org row is per-(committee, biennium) tuple. Cross-biennium continuity is established at the PM layer through shared `acronym` (see § Vocabulary additions item 4). |
 | `name` | `LongName` | ← | direct | E.g., `"House Committee on Capital Budget"`. |
 | `short_name` | `Name` | ← | direct | E.g., `"Capital Budget"`. |
+| `acronym` | `Acronym` | ← | passthrough (uppercase) | New column (see § Vocabulary additions item 4). E.g., `"CB"`, `"WAYS"`. Sidecar emits as `org_acronyms: [acronym]` in `to_observation`. |
 | `org_type` | (always `committee`) | → adapter | constant | Subcommittees use `subcommittee` (P1b — `GetCommittees` returns subcommittees too; deferred). |
 | `parent_organization_id` | `Agency` | ← | `"House"` → House Org id; `"Senate"` → Senate Org id; `"Joint"` → legislature Org id | The synthesized anchor IDs are passed into the adapter via a `BootstrapAnchors` dataclass so normalize can resolve `Agency` text → parent FK. Joint committees parent at the legislature level (cleaner than maintaining a synthesized `Joint` chamber row). |
 | `jurisdiction_id` | (always `usa-wa`) | → adapter | constant | Same FK as the anchors. |
+| `phone` | `PhoneNumber` | ← | direct (strip whitespace) | New column (see § Vocabulary additions item 5). Sidecar wraps as `contact_methods: [{contact_type: "phone", value: phone}]` in `to_observation`. |
 | `powermap_organization_id` | `null` | — | | Set after sidecar match. |
-| — | `PhoneNumber` | ← | drop | Power Map's `contact_methods` is the right home; deferred until sidecar wiring covers committee contacts. |
 
-**Natural-key UNIQUE:** `(jurisdiction_id, source, source_id)` per the canonical convention.
+**Natural-key UNIQUE on the Organization row:** `(jurisdiction_id, source, source_id)` per the canonical convention.
 
 ### `canonical.legislative_sessions` (P1a — synthesized)
 
@@ -210,7 +219,7 @@ Detailed mapping deferred to P1b. The pattern matches the LegiScan spec (chamber
 
 5. **Joint committee chamber attribution.** WSL classifies Joint committees as `Agency="Joint"`; they have no chamber parent. We park them under the legislature Org. Reconstructing "which chamber's staff drives this Joint committee" requires external knowledge.
 
-6. **WSL `Id` vs `Acronym` for committees.** `Id` (numeric) is biennium-scoped; `Acronym` is more stable across bienniums but not absolutely (rare renaming, e.g., "Ways & Means" splits or merges). Our `source_id=Acronym` choice trades absolute stability for cross-biennium join-ability. Document and accept.
+6. **WSL `Id` per biennium re-keying.** `Id` is the per-biennium committee identifier WSL guarantees stable within that biennium. Across bienniums, WSL may re-key the `Id` (committees can be renamed/restructured to reflect scope changes, and `Id` may or may not be stable through such changes — TBD empirically). Our `source_id=Id` choice gives biennium-scoped Organization rows; cross-biennium continuity is established at the PM layer through the shared `acronym` column (see § Vocabulary additions item 4) — when an acronym is stable across bienniums (the common case for WA committees, e.g., `WAYS`, `CB`), PM's match cascade folds rows; when not (committee splits/merges), they remain distinct, which is the correct semantic.
 
 ### Lossy → (us → WSL)
 
@@ -218,15 +227,15 @@ Detailed mapping deferred to P1b. The pattern matches the LegiScan spec (chamber
 
 ## Open questions
 
-1. **Committee `Id` vs `Acronym` stability.** Verify `Acronym` stability empirically across at least three bienniums (2021-22, 2023-24, 2025-26) before locking the natural key. If `Acronym` proves unstable, fall back to `(jurisdiction_id, source, biennium, Id)` as the natural key per committee row, which loses the cross-biennium join-ability but matches WSL's actual key. *(Open until P1a cassette inspection.)*
+1. **Cross-biennium `Acronym` stability.** Committees are guaranteed stable within a biennium. Across bienniums, WSL may rename committees to indicate changed purpose/scope (e.g., a "Capital Budget" committee re-scoped as "Capital Budget & Housing"); whether `Id` and/or `Acronym` change at the same time is unclear empirically. *Resolution:* the schema accommodates both axes — per-biennium Organization rows (via `source_id=Id`) and cross-biennium continuity through the `acronym` column at the PM-matching layer (PM folds rows by shared acronym when stable; keeps them distinct when not). P1a cassette inspection records the 2025-26 state; subsequent biennium captures (2027-28 in early 2027) test the stability hypothesis. No spec change required either way — both stable and unstable acronyms are correctly represented.
 
-   The same cassette pass pins down exact `Committee` field names (this spec asserts `Agency` / `Acronym` / `LongName` / `Name` based on the WSL service documentation pattern, but observed XML may show different casing or naming — e.g., `AgencyName` vs. `Agency`). The first P1a step records cassettes against live WSL and the normalize layer codes against the recorded shape.
+   The same cassette pass pins down exact `Committee` field names (this spec asserts `Agency` / `Acronym` / `LongName` / `Name` / `PhoneNumber` based on WSL documentation patterns, but observed XML may show different casing — e.g., `AgencyName` vs. `Agency`). The first P1a step records cassettes against live WSL and the normalize layer codes against the recorded shape.
 
-2. **Subcommittee detection rule.** Once `GetCommittees` lands in P1b, decide whether to use a regex pattern (`r"^.+? Subcommittee on (.+)$"`) or to maintain a hand-curated mapping (acronym → parent acronym). Regex is fragile to naming exceptions; hand-curation is brittle to new subcommittees mid-biennium. Recommend regex with a fallback warning log. *(Defer to P1b.)*
+2. **Subcommittee detection rule.** `GetActiveCommittees` does not return subcommittees; `GetCommittees` does (P1b scope). *Resolution:* the subcommittee result set is small enough to audit by hand — when P1b lands, run the operation once against live WSL, inspect the output for programmatic patterns (likely a `ParentCommitteeAcronym` field or naming convention), and code the parent inference accordingly. Fall back to a hand-curated `(subcommittee_acronym → parent_acronym)` mapping table maintained alongside the adapter package if no programmatic rule is reliable. *(Defer to P1b — concrete approach decided after live inspection.)*
 
-3. **Special session synthesis trigger.** Specials are unscheduled. The first cut covers Regular sessions only. Future synthesis needs an external signal — operator-supplied date range, or scraping `app.leg.wa.gov` for the Governor's proclamation. Defer until WA actually calls a Special during the operational lifetime of the service. *(Open — operational question, not schema.)*
+3. **Special session synthesis trigger.** Specials are unscheduled and irregular. The first cut covers Regular sessions only. *Resolution:* operator supplies known past Special session metadata (start date, end date, biennium) as configuration; the adapter inspects WSL SOAP responses (which scope by biennium, not session) for entities introduced/acted during that window and tags them to the correct Special session row. Going forward, the same operator-supplied-config pattern handles new Specials as the Governor proclaims them. *(Defer to P1b — operational, not blocking.)*
 
-4. **`Committee.PhoneNumber` and other contact data.** Push to Power Map's `contact_methods` once the sidecar's committee descriptor lands. The first cut drops it. *(Open — sidecar follow-up; not blocking P1a.)*
+4. ✅ **`Committee.PhoneNumber` and other contact data.** Resolved — phone is in scope for P1a via the new `canonical.organizations.phone` column (see § Vocabulary additions item 4). Sidecar's `to_observation` extension to emit `contact_methods` is a separate follow-up issue but does not block the adapter implementation.
 
 ## Cross-references
 
