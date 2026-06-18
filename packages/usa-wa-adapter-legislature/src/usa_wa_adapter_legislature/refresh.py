@@ -20,6 +20,7 @@ back to the prior odd year (``2026-06-18`` → ``2025-26``). Override via
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import os
 import sys
 from datetime import UTC, date, datetime
@@ -107,7 +108,10 @@ async def run_refresh(session: AsyncSession, *, biennium: str | None = None) -> 
         natural_key=("source", "source_id"),
     )
     summary = await runner.refresh()
-    logger.info("wsl_refresh_summary", extra={"summary": summary.__dict__, "biennium": biennium})
+    logger.info(
+        "wsl_refresh_summary",
+        extra={"summary": dataclasses.asdict(summary), "biennium": biennium},
+    )
     return summary
 
 
@@ -119,8 +123,15 @@ async def _main() -> int:
         return 2
     engine = create_async_engine(database_url)
     try:
-        async with AsyncSession(engine) as session, session.begin():
-            summary = await run_refresh(session)
+        try:
+            async with AsyncSession(engine) as session, session.begin():
+                summary = await run_refresh(session)
+        except Exception:
+            # Surface the failure cleanly so cron/journal gets a single
+            # actionable line plus the traceback in logs, and the process
+            # exits 1 (operator-style) instead of dumping a bare traceback.
+            logger.exception("wsl_refresh_failed")
+            return 1
         print(
             f"WSL refresh: discovered={summary.discovered} "
             f"fetched={summary.fetched} "

@@ -5,12 +5,16 @@ A :class:`WSLClient` instance caches one ``zeep.Client`` per ``service`` name
 serializes responses to plain Python dicts so downstream normalizers don't
 depend on zeep's typed-object model.
 
-Networking is delegated to ``zeep`` (which uses ``requests`` under the hood);
-tests stub it out via vcrpy cassettes.
+zeep itself is synchronous (uses ``requests`` under the hood), so the public
+methods here are ``async`` and dispatch the blocking work via
+``asyncio.to_thread``. Callers in async contexts (sidecar daemon, FastAPI
+handlers, AdapterRunner) never block the event loop. Tests stub out the
+network via vcrpy cassettes.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from zeep import Client
@@ -31,28 +35,44 @@ class WSLClient:
         self._wsdl_url = f"{base_url}/{service}.asmx?wsdl"
         self._client: Client | None = None
 
-    @property
-    def client(self) -> Client:
-        """Lazily-constructed zeep client; cached for the instance lifetime."""
+    def _ensure_client(self) -> Client:
+        """Build the zeep client on first call; cache it for the lifetime."""
         if self._client is None:
             self._client = Client(self._wsdl_url)
         return self._client
 
-    def get_active_committees(self) -> list[dict[str, Any]]:
-        """Call ``CommitteeService.GetActiveCommittees()``.
+    @property
+    def client(self) -> Client:
+        """Sync accessor for the lazily-constructed zeep client.
+
+        Exposed for callers in sync contexts (e.g. one-shot recording scripts).
+        Async callers should use the public coroutine methods instead so the
+        blocking SOAP traffic runs off the event loop.
+        """
+        return self._ensure_client()
+
+    def _get_active_committees_sync(self) -> list[dict[str, Any]]:
+        result = self._ensure_client().service.GetActiveCommittees()
+        serialized = serialize_object(result, dict)
+        if serialized is None:
+            return []
+        return list(serialized)
+
+    async def get_active_committees(self) -> list[dict[str, Any]]:
+        """Call ``CommitteeService.GetActiveCommittees()`` off the event loop.
 
         Returns a list of plain-dict Committee rows for the *currently active*
         committees (implicit current biennium — the WSDL signature has no
         biennium parameter). The WSDL ``Committee`` complexType inherits the
         LegislativeEntity fields (Id, Name, LongName, Agency, Acronym) and adds
         Phone — zeep flattens these into one dict.
+
+        Wraps zeep's synchronous SOAP call in ``asyncio.to_thread`` so the
+        event loop stays responsive while WSL replies (which can take a few
+        hundred ms over a cold WSDL).
         """
         if self.service != "CommitteeService":
             raise ValueError(
                 f"get_active_committees requires service='CommitteeService', got {self.service!r}"
             )
-        result = self.client.service.GetActiveCommittees()
-        serialized = serialize_object(result, dict)
-        if serialized is None:
-            return []
-        return list(serialized)
+        return await asyncio.to_thread(self._get_active_committees_sync)

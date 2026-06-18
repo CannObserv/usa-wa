@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.provenance import Citation, FetchEvent, RawPayload, Source
+from clearinghouse_core.testing import assert_test_url_safety
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.sessions import LegislativeSession
 
@@ -28,7 +29,14 @@ pytestmark = pytest.mark.integration
 
 
 async def _seed_jurisdiction(database_url: str) -> None:
-    """Ensure the usa-wa Jurisdiction cache row exists (the refresh assumes it)."""
+    """Ensure the usa-wa Jurisdiction cache row exists (the refresh assumes it).
+
+    Re-asserts the conftest URL safety guard before any destructive DML — this
+    test opens its own engine and bypasses the savepointed ``db_session``
+    fixture, so the module-level check at conftest import isn't sufficient
+    on its own.
+    """
+    assert_test_url_safety(database_url)
     engine = create_async_engine(database_url)
     try:
         async with engine.begin() as conn:
@@ -68,6 +76,7 @@ async def _seed_jurisdiction(database_url: str) -> None:
 async def test_refresh_module_writes_full_anchor_chain_to_test_db():
     test_db_url = os.environ.get("TEST_DATABASE_URL")
     assert test_db_url, "TEST_DATABASE_URL must be set"
+    assert_test_url_safety(test_db_url)
 
     # Run alembic upgrade head against the test DB so the schema matches.
     subprocess.run(

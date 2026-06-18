@@ -13,6 +13,7 @@ ID is read back. Re-running yields the same anchor IDs and writes no new rows.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -40,7 +41,7 @@ class BootstrapAnchors:
     regular_session_ids: dict[int, _ULID] = field(default_factory=dict)
 
 
-async def _upsert_org(session: AsyncSession, row: dict) -> _ULID:
+async def _upsert_org(session: AsyncSession, row: dict[str, Any]) -> _ULID:
     """Insert an Organization row by natural key; return the existing-or-new id."""
     stmt = (
         pg_insert(Organization)
@@ -59,7 +60,7 @@ async def _upsert_org(session: AsyncSession, row: dict) -> _ULID:
     return fetched
 
 
-async def _upsert_session(session: AsyncSession, row: dict) -> _ULID:
+async def _upsert_session(session: AsyncSession, row: dict[str, Any]) -> _ULID:
     """Insert a LegislativeSession by natural key; return the existing-or-new id."""
     stmt = (
         pg_insert(LegislativeSession)
@@ -102,7 +103,8 @@ async def bootstrap_synthetic_anchors(
         year = int(row["source_id"].removeprefix("session:"))
         regular_ids[year] = await _upsert_session(session, row)
 
-    await session.flush()
+    # No trailing flush: every _upsert_* call already autoflushes via its
+    # follow-up SELECT.
     return BootstrapAnchors(
         legislature_id=legislature_id,
         house_id=house_id,

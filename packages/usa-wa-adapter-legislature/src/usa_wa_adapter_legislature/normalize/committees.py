@@ -65,6 +65,11 @@ async def normalize_committees(
         acronym = committee.get("Acronym")
         phone_raw = committee.get("Phone")
         phone = phone_raw.strip() if isinstance(phone_raw, str) else None
+        # Whitespace-only WSL Phone values collapse to ``""`` after strip; treat
+        # those as missing so downstream readers don't see two truth values
+        # ("" vs None) for "no phone."
+        if phone == "":
+            phone = None
 
         entities.append(
             Organization(

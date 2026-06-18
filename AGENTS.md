@@ -66,6 +66,13 @@ packages/
                       — openapi-python-client output; excluded from ruff/coverage/pre-commit.
                         Regenerate when PM's API changes (see "Regenerating the PM client" below).
   usa-wa-adapter-legislature/         — Layer 3: WA Legislature SOAP source mapping
+    src/usa_wa_adapter_legislature/
+      adapter.py      — WALegislatureAdapter(BaseAdapter): discover/fetch_one/normalize for the committees:<biennium> resource
+      synthesis.py    — pure functions emitting canonical-row dicts for anchors WSL doesn't expose (legislature/chamber/biennium/regular)
+      bootstrap.py    — bootstrap_synthetic_anchors: idempotent ON CONFLICT DO NOTHING upserts of the 6 anchor rows; returns BootstrapAnchors
+      transport.py    — WSLClient: per-service zeep wrapper with lazy WSDL load; SOAP calls dispatched via asyncio.to_thread
+      normalize/      — per-resource normalizers (committees.py: WSL Committee → canonical Organization with chamber-parent resolution)
+      refresh.py      — `python -m usa_wa_adapter_legislature.refresh` CLI entrypoint; biennium-from-date with USA_WA_BIENNIUM override
   usa-wa-api/                         — Layer 4: WA deployment (FastAPI + MCP + REST)
     src/usa_wa_api/api/
       main.py         — App factory, lifespan, router registration
@@ -142,6 +149,7 @@ Currently defined:
 - `TEST_DATABASE_URL` — PostgreSQL connection string for the test database
 - `BUILD_ID` — git SHA stamped by the systemd unit's `ExecStartPre`; defaults to `"dev"` outside systemd
 - `USA_WA_OPERATOR_TOKEN` — shared secret gating the mutating operator endpoint `POST /sync/redrive` (re-drives dead-lettered `UNAVAILABLE` outbox entries). **Fail-closed:** if unset, the endpoint is locked for everyone, so it must be set in `/etc/usa-wa/.env` before the re-drive route can be used. The on-box CLI (`python -m usa_wa_api.cli.redrive`) needs no token — shell access is the trust boundary.
+- `USA_WA_BIENNIUM` — optional override for the auto-computed WA biennium label (e.g. `2025-26`) used by the WSL refresh. Without it, `refresh.py` derives the biennium from the current UTC date (WA bienniums start on odd years). Useful for backfills and early-year edge cases.
 
 PM sidecar tunables (`SidecarSettings`, env-overridable): `OUTBOX_COMMIT_CHUNK_SIZE` (delivered entries per DB commit during a drain; default 1 = per-entry) and `POWERMAP_SEARCH_MATCH_CAP` (max candidate window the org/person name-match cascade pages; default unset = per-entity default).
 
@@ -172,6 +180,9 @@ uv run alembic revision --autogenerate -m "description"
 
 # FastAPI dev server
 uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
+
+# WSL refresh (cron-style; one-shot pull from CommitteeService.GetActiveCommittees)
+python -m usa_wa_adapter_legislature.refresh
 ```
 
 Full reference: `docs/COMMANDS.md`

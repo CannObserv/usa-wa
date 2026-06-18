@@ -93,6 +93,8 @@ def biennium_session(legislature_id: _ULID, biennium: str) -> dict[str, Any]:
     itself is modeled as a parent session. Its child regular/special sessions
     reference it via ``parent_legislative_session_id``.
     """
+    # Validate the biennium label up front so callers get a clear ValueError
+    # before any DB write fans out from the synthesized row.
     parse_biennium(biennium)
     return {
         "source": _SOURCE,

@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 import clearinghouse_sync_powermap  # noqa: F401  (registers sync-schema tables)
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.models import Base  # noqa: F401
+from clearinghouse_core.testing import assert_test_url_safety
 from clearinghouse_domain_legislative import identity as _identity  # noqa: F401
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
@@ -38,21 +39,7 @@ if not TEST_DATABASE_URL:
         "Load env: export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)"
     )
 
-
-def _check_test_url_safety(test_url: str) -> None:
-    """Raise if test_url matches the production DATABASE_URL."""
-    prod_url = os.environ.get("DATABASE_URL")
-    if prod_url and test_url == prod_url:
-        raise RuntimeError(
-            "TEST_DATABASE_URL must not equal DATABASE_URL. "
-            "Test teardown drops all model-mapped tables (Base.metadata.drop_all) "
-            "and would destroy matching production data. "
-            "Set TEST_DATABASE_URL to a dedicated test database "
-            "(database name should include '_test')."
-        )
-
-
-_check_test_url_safety(TEST_DATABASE_URL)
+assert_test_url_safety(TEST_DATABASE_URL)
 
 
 def _declared_schemas() -> set[str]:

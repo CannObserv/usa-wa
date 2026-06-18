@@ -57,7 +57,7 @@ class WALegislatureAdapter(BaseAdapter):
         """Pull the committee list from WSL and stash as JSON-encoded bytes."""
         if not resource_id.startswith(COMMITTEES_RESOURCE_PREFIX):
             raise ValueError(f"unknown resource_id: {resource_id!r}")
-        committees = self._committee_client.get_active_committees()
+        committees = await self._committee_client.get_active_committees()
         body = json.dumps(committees).encode("utf-8")
         return FetchedPayload(
             url=f"{WSL_BASE_URL}/CommitteeService.asmx#GetActiveCommittees",

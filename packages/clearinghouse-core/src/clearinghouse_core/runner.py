@@ -7,7 +7,6 @@ and discovery iteration. Same code for every adapter.
 from collections.abc import AsyncIterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from sqlalchemy import inspect, select
 from sqlalchemy.dialects.postgresql import insert
@@ -162,13 +161,17 @@ class AdapterRunner:
         return raw
 
     async def _persist_batch(self, event: FetchEvent, batch: NormalizedBatch) -> int:
-        """Upsert each entity by natural key; write a default citation per entity."""
+        """Upsert each entity by natural key; write a default citation per entity.
+
+        ``_upsert`` populates ``entity.id`` with the persisted row's ULID
+        (whether INSERT or UPDATE), so Citation rows can reference it directly.
+        """
         upserted = 0
         for entity in batch.entities:
             await self._upsert(entity)
             citation = Citation(
                 entity_type=_citation_type(entity),
-                entity_id=_extract_id_after_upsert(entity, self.session),
+                entity_id=entity.id,
                 fetch_event_id=event.id,
                 field_path=None,
                 confidence=self.source.reliability,
@@ -180,7 +183,7 @@ class AdapterRunner:
             self.session.add(
                 Citation(
                     entity_type=_citation_type(fc.entity),
-                    entity_id=_extract_id_after_upsert(fc.entity, self.session),
+                    entity_id=fc.entity.id,
                     fetch_event_id=event.id,
                     field_path=fc.field_path,
                     confidence=fc.confidence,
@@ -228,16 +231,3 @@ class AdapterRunner:
 
 def _citation_type(entity: Base) -> str:
     return entity.__class__.__name__.lower()
-
-
-def _extract_id_after_upsert(entity: Base, session: AsyncSession) -> Any:
-    """Return the entity's ULID after upsert. If the row was inserted, the
-    instance's ``id`` is set already; if updated, we re-query by natural key.
-
-    For MVP we assume the adapter populated ``id`` before passing the entity
-    in. The runner relies on the adapter generating fresh ULIDs for new rows
-    and reusing the existing ULID for known rows (via a pre-fetch lookup).
-    Refinement: have the runner do the lookup itself based on natural key,
-    populating ``entity.id`` if a row already exists.
-    """
-    return entity.id
