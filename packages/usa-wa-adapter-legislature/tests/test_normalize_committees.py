@@ -170,6 +170,18 @@ async def test_normalize_handles_missing_phone(anchors, jurisdiction_id):
     assert org.phone is None
 
 
+async def test_normalize_whitespace_only_phone_becomes_none(anchors, jurisdiction_id):
+    """All-whitespace Phone collapses to None after strip (no "" vs None ambiguity)."""
+    whitespace = _house_committee() | {"Phone": "   "}
+    batch = await normalize_committees(
+        _payload([whitespace]),
+        anchors=anchors,
+        jurisdiction_id=jurisdiction_id,
+    )
+    [org] = batch.entities
+    assert org.phone is None
+
+
 async def test_normalize_uppercases_acronym(anchors, jurisdiction_id):
     """Acronym is forced uppercase for consistency."""
     lc = _house_committee() | {"Acronym": "agnr"}

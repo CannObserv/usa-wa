@@ -67,7 +67,14 @@ class NormalizedBatch:
 
 @dataclass(frozen=True)
 class FactCitation:
-    """An adapter-supplied citation for a specific field of an entity."""
+    """An adapter-supplied citation for a specific field of an entity.
+
+    The referenced ``entity`` must also appear in :attr:`NormalizedBatch.entities`.
+    The runner upserts each entity and populates its ``.id`` with the persisted
+    ULID before writing citations; a FactCitation pointing at an entity outside
+    that list would carry whatever local ULID the adapter assigned (or ``None``)
+    and the Citation row would dangle or raise a NOT NULL violation.
+    """
 
     entity: Base
     field_path: str

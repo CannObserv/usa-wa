@@ -103,8 +103,10 @@ async def bootstrap_synthetic_anchors(
         year = int(row["source_id"].removeprefix("session:"))
         regular_ids[year] = await _upsert_session(session, row)
 
-    # No trailing flush: every _upsert_* call already autoflushes via its
-    # follow-up SELECT.
+    # No trailing flush: each _upsert_* runs the INSERT immediately within the
+    # open transaction; subsequent reads see the row without needing an explicit
+    # ORM flush (these are Core-level session.execute(insert_stmt) calls, not
+    # session.add(...) pending state).
     return BootstrapAnchors(
         legislature_id=legislature_id,
         house_id=house_id,

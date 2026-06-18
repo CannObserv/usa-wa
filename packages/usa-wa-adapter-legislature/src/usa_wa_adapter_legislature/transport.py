@@ -41,16 +41,6 @@ class WSLClient:
             self._client = Client(self._wsdl_url)
         return self._client
 
-    @property
-    def client(self) -> Client:
-        """Sync accessor for the lazily-constructed zeep client.
-
-        Exposed for callers in sync contexts (e.g. one-shot recording scripts).
-        Async callers should use the public coroutine methods instead so the
-        blocking SOAP traffic runs off the event loop.
-        """
-        return self._ensure_client()
-
     def _get_active_committees_sync(self) -> list[dict[str, Any]]:
         result = self._ensure_client().service.GetActiveCommittees()
         serialized = serialize_object(result, dict)

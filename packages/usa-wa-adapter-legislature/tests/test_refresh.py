@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from clearinghouse_core.provenance import Source
 from clearinghouse_domain_legislative.identity import Organization
+from usa_wa_adapter_legislature import refresh as refresh_module
 from usa_wa_adapter_legislature.refresh import biennium_for_date, run_refresh
 
 CASSETTE_DIR = Path(__file__).parent / "cassettes"
@@ -90,3 +91,40 @@ async def test_run_refresh_raises_when_jurisdiction_missing(db_session):
     """A clean DB without the usa-wa jurisdiction row → explicit error."""
     with pytest.raises(LookupError, match="usa-wa"):
         await run_refresh(db_session, biennium="2025-26")
+
+
+async def test_main_returns_2_when_database_url_unset(monkeypatch, capsys):
+    """Missing DATABASE_URL → stderr message + exit code 2 (config error)."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    code = await refresh_module._main()
+    assert code == 2
+    captured = capsys.readouterr()
+    assert "DATABASE_URL is not set" in captured.err
+
+
+async def test_main_returns_1_when_run_refresh_raises(monkeypatch, capsys, db_session):
+    """An exception from run_refresh is caught, logged, and produces exit 1.
+
+    Uses the test DB (via the ``db_session`` fixture's URL) so the engine and
+    AsyncSession lifecycle in ``_main`` run end-to-end; only ``run_refresh``
+    itself is patched to raise. This exercises the real try/except + engine
+    disposal path rather than the mocked-context-manager version.
+    """
+    import os
+
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("simulated WSL failure")
+
+    with (
+        patch.object(refresh_module, "run_refresh", boom),
+        patch.object(refresh_module.logger, "exception") as mock_exception,
+    ):
+        code = await refresh_module._main()
+
+    assert code == 1
+    mock_exception.assert_called_once_with("wsl_refresh_failed")
+    # The success-path summary line must not have printed.
+    captured = capsys.readouterr()
+    assert "WSL refresh:" not in captured.out
