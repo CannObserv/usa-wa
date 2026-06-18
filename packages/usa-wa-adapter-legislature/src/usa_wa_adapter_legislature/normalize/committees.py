@@ -2,7 +2,8 @@
 
 Maps the WSDL ``Committee`` shape (``Id``, ``Name``, ``LongName``, ``Agency``,
 ``Acronym``, ``Phone``) onto :class:`Organization`, using the bootstrap anchors
-to resolve the parent chamber Org by ``Agency`` text.
+to resolve the parent Org by ``Agency`` text (House/Senate → chamber; Joint →
+the WA Legislature anchor).
 """
 
 from __future__ import annotations
@@ -21,12 +22,19 @@ logger = get_logger(__name__)
 _SOURCE = "usa_wa_legislature"
 
 
-def _chamber_parent_for(agency: str | None, anchors: BootstrapAnchors) -> _ULID | None:
-    """Resolve ``Agency`` ('House' / 'Senate') to the matching chamber Org id."""
+def _parent_for_agency(agency: str | None, anchors: BootstrapAnchors) -> _ULID | None:
+    """Resolve ``Agency`` to its parent Org id.
+
+    'House'/'Senate' parent to the matching chamber. 'Joint' (cross-chamber bodies
+    like Joint Transportation) parents to the WA Legislature anchor — their natural
+    common ancestor — not to either chamber and not to NULL. Any other value is
+    genuinely unknown → ``None`` (caller warns)."""
     if agency == "House":
         return anchors.house_id
     if agency == "Senate":
         return anchors.senate_id
+    if agency == "Joint":
+        return anchors.legislature_id
     return None
 
 
@@ -52,7 +60,7 @@ async def normalize_committees(
             continue
 
         agency = committee.get("Agency")
-        parent_id = _chamber_parent_for(agency, anchors)
+        parent_id = _parent_for_agency(agency, anchors)
         if parent_id is None:
             logger.warning(
                 "wsl_committee_unknown_agency",

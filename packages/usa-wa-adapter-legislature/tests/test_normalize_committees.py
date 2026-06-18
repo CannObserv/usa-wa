@@ -118,16 +118,43 @@ async def test_normalize_skips_committee_missing_longname(anchors, jurisdiction_
     assert batch.entities[0].source_id == "31700"
 
 
-async def test_normalize_unknown_agency_yields_null_parent(anchors, jurisdiction_id):
+async def test_normalize_unknown_agency_yields_null_parent(anchors, jurisdiction_id, caplog):
     """An Agency value the anchors don't cover → parent=None (warning logged)."""
-    weird = _house_committee() | {"Agency": "Joint", "Id": 99999}
-    batch = await normalize_committees(
-        _payload([weird]),
-        anchors=anchors,
-        jurisdiction_id=jurisdiction_id,
-    )
+    weird = _house_committee() | {"Agency": "Executive", "Id": 99999}
+    with caplog.at_level("WARNING"):
+        batch = await normalize_committees(
+            _payload([weird]),
+            anchors=anchors,
+            jurisdiction_id=jurisdiction_id,
+        )
     [org] = batch.entities
     assert org.parent_organization_id is None
+    assert "wsl_committee_unknown_agency" in caplog.text
+
+
+async def test_normalize_joint_committee_attaches_to_legislature(anchors, jurisdiction_id, caplog):
+    """Agency='Joint' parents to the WA Legislature anchor — not a chamber, not NULL.
+
+    Joint committees (cross-chamber, e.g. Joint Transportation) have no single
+    chamber parent; the legislature Org is their natural common ancestor. The path
+    is expected, so it must not emit the unknown-agency warning.
+    """
+    joint = _house_committee() | {
+        "Agency": "Joint",
+        "Id": 12345,
+        "Name": "Transportation",
+        "LongName": "Joint Transportation Committee",
+        "Acronym": "JTC",
+    }
+    with caplog.at_level("WARNING"):
+        batch = await normalize_committees(
+            _payload([joint]),
+            anchors=anchors,
+            jurisdiction_id=jurisdiction_id,
+        )
+    [org] = batch.entities
+    assert org.parent_organization_id == anchors.legislature_id
+    assert "wsl_committee_unknown_agency" not in caplog.text
 
 
 async def test_normalize_strips_phone_whitespace(anchors, jurisdiction_id):

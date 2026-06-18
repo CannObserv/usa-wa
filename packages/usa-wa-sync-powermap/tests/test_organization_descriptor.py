@@ -34,6 +34,8 @@ async def _add_org(
     anchor=None,
     jurisdiction_id=None,
     parent_id=None,
+    acronym=None,
+    phone=None,
 ):
     row = Organization(
         source=source,
@@ -43,6 +45,8 @@ async def _add_org(
         pm_organization_id=anchor,
         jurisdiction_id=jurisdiction_id,
         parent_organization_id=parent_id,
+        acronym=acronym,
+        phone=phone,
     )
     session.add(row)
     await session.flush()
@@ -203,6 +207,40 @@ async def test_to_observation_committee_payload(db_session, descriptor, usa_wa):
         {"jurisdiction_id": str(usa_wa.pm_jurisdiction_id), "affiliation_type_slug": "governing"}
     ]
     assert obs["organization_parent_id"] == str(parent.pm_organization_id)
+
+
+async def test_to_observation_emits_acronym_and_phone(db_session, descriptor, usa_wa):
+    """acronym → org_acronyms[0]; phone → a phone contact_method."""
+    row = await _add_org(
+        db_session,
+        source_id="C-9",
+        name="House Committee on Appropriations",
+        jurisdiction_id=usa_wa.id,
+        acronym="APP",
+        phone="(360) 786-7204",
+    )
+
+    obs = await descriptor.to_observation(db_session, row)
+
+    assert obs["org_acronyms"] == ["APP"]
+    assert obs["contact_methods"] == [{"contact_type": "phone", "value": "(360) 786-7204"}]
+
+
+async def test_to_observation_omits_acronym_and_phone_when_absent(db_session, descriptor, usa_wa):
+    """No acronym/phone → neither key is present (PM keys on presence, not null)."""
+    row = await _add_org(db_session, source_id="C-10", name="Bare Org", jurisdiction_id=usa_wa.id)
+    obs = await descriptor.to_observation(db_session, row)
+    assert "org_acronyms" not in obs
+    assert "contact_methods" not in obs
+
+
+async def test_to_observation_omits_acronym_when_empty_string(db_session, descriptor, usa_wa):
+    """An empty-string acronym is treated as absent (no org_acronyms: [''])."""
+    row = await _add_org(
+        db_session, source_id="C-11", name="Empty Acr Org", jurisdiction_id=usa_wa.id, acronym=""
+    )
+    obs = await descriptor.to_observation(db_session, row)
+    assert "org_acronyms" not in obs
 
 
 async def test_to_observation_omits_affiliation_when_jurisdiction_unsynced(

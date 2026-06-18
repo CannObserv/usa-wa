@@ -188,6 +188,13 @@ class OrganizationDescriptor(EntityDescriptor):
             # Typed name *evidence* — PM curates ``is_canonical``; we never assert it.
             "names": [{"name": row.name, "name_type": "legal"}],
         }
+        # Single-value local columns → PM's list-shaped fields. Guard on truthiness
+        # so an empty-string acronym never lands as ``org_acronyms: [""]``; phone is
+        # already None-or-nonempty from the normalizer.
+        if row.acronym:
+            payload["org_acronyms"] = [row.acronym]
+        if row.phone:
+            payload["contact_methods"] = [{"contact_type": "phone", "value": row.phone}]
         affiliation = await self._governing_affiliation(session, row)
         if affiliation is not None:
             payload["jurisdiction_affiliations"] = [affiliation]
