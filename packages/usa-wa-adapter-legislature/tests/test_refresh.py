@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import date
 from pathlib import Path
 from unittest.mock import patch
@@ -96,28 +97,31 @@ async def test_run_refresh_raises_when_jurisdiction_missing(db_session):
 async def test_main_returns_2_when_database_url_unset(monkeypatch, capsys):
     """Missing DATABASE_URL → stderr message + exit code 2 (config error)."""
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    code = await refresh_module._main()
+    with patch.object(refresh_module, "configure_logging"):
+        # Patched no-op: configure_logging mutates root-logger handlers
+        # globally; leaving it untouched would persist a stdout JSON handler
+        # for every subsequent test in the session.
+        code = await refresh_module._main()
     assert code == 2
     captured = capsys.readouterr()
     assert "DATABASE_URL is not set" in captured.err
 
 
-async def test_main_returns_1_when_run_refresh_raises(monkeypatch, capsys, db_session):
+async def test_main_returns_1_when_run_refresh_raises(monkeypatch, capsys, test_engine):
     """An exception from run_refresh is caught, logged, and produces exit 1.
 
-    Uses the test DB (via the ``db_session`` fixture's URL) so the engine and
-    AsyncSession lifecycle in ``_main`` run end-to-end; only ``run_refresh``
-    itself is patched to raise. This exercises the real try/except + engine
-    disposal path rather than the mocked-context-manager version.
+    Depends on ``test_engine`` (not ``db_session``) because we only need the
+    schema setup side effect — ``_main`` opens its own engine against
+    TEST_DATABASE_URL and ``run_refresh`` is patched to raise before any
+    queries fire, so a savepointed session would be unused.
     """
-    import os
-
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
 
     async def boom(*_args, **_kwargs):
         raise RuntimeError("simulated WSL failure")
 
     with (
+        patch.object(refresh_module, "configure_logging"),
         patch.object(refresh_module, "run_refresh", boom),
         patch.object(refresh_module.logger, "exception") as mock_exception,
     ):
