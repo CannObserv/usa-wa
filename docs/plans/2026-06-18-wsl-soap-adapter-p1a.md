@@ -1,7 +1,7 @@
 ---
 title: WSL SOAP adapter — P1a first cut (legislature/chamber/session anchors + committees)
 date: 2026-06-18
-status: draft
+status: done
 ---
 
 # WSL SOAP adapter — P1a first cut
@@ -45,7 +45,7 @@ Same convention as the Jurisdictional IA plan: every code-touching step must clo
 
 6. **CLI entrypoint (TDD via integration test).** `refresh.py`: loads `DATABASE_URL` from env, computes biennium from current date (override via `USA_WA_BIENNIUM`), opens async session, resolves `usa-wa` jurisdiction by slug + lazy-creates `usa_wa_legislature` source row, calls `bootstrap_synthetic_anchors`, constructs adapter + runner, invokes `runner.refresh()`, prints `RunSummary`, exits with appropriate code. **Verifiable when:** common gates pass; new `tests/test_refresh_e2e.py` marked `@pytest.mark.integration` invokes `python -m usa_wa_adapter_legislature.refresh` (via `subprocess` or in-process equivalent) against `TEST_DATABASE_URL` post-`alembic upgrade head` + live WSL; asserts 1 + 2 + 1 + 2 + ~50 = 56 rows present across `organizations` + `legislative_sessions` with the FK chain valid; `uv run pytest -m integration` passes.
 
-7. **File the sidecar follow-up issue.** Open a usa-wa GitHub issue captioned "sidecar: emit org_acronyms + contact_methods for organizations with new acronym/phone columns" — the Organization descriptor's `to_observation` extension flagged in the spec § Vocabulary additions item 5. Body lists the small change (one method update + tests), cross-links to this plan and the WSL transformation spec, notes it does not block P1a but does block end-to-end PM delivery of committee acronyms/contact methods. **Verifiable when:** issue is filed and linked from the plan completion comment.
+7. **File the sidecar follow-up issue.** Open a usa-wa GitHub issue captioned "sidecar: emit org_acronyms + contact_methods for organizations with new acronym/phone columns" — the Organization descriptor's `to_observation` extension flagged in the spec § Vocabulary additions item 5. Body lists the small change (one method update + tests), cross-links to this plan and the WSL transformation spec, notes it does not block P1a but does block end-to-end PM delivery of committee acronyms/contact methods. **Verifiable when:** issue is filed and linked from the plan completion comment. **Done:** [usa-wa#21](https://github.com/CannObserv/usa-wa/issues/21).
 
 ## Open questions / risks
 
