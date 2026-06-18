@@ -71,7 +71,7 @@ packages/
       synthesis.py    — pure functions emitting canonical-row dicts for anchors WSL doesn't expose (legislature/chamber/biennium/regular)
       bootstrap.py    — bootstrap_synthetic_anchors: idempotent ON CONFLICT DO NOTHING upserts of the 6 anchor rows; returns BootstrapAnchors
       transport.py    — WSLClient: per-service zeep wrapper with lazy WSDL load; SOAP calls dispatched via asyncio.to_thread
-      normalize/      — per-resource normalizers (committees.py: WSL Committee → canonical Organization with chamber-parent resolution)
+      normalize/      — per-resource normalizers (committees.py: WSL Committee → canonical Organization; Agency resolves the parent — House/Senate → chamber, Joint → legislature)
       refresh.py      — `python -m usa_wa_adapter_legislature.refresh` CLI entrypoint; biennium-from-date with USA_WA_BIENNIUM override
   usa-wa-api/                         — Layer 4: WA deployment (FastAPI + MCP + REST)
     src/usa_wa_api/api/
