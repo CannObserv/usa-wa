@@ -15,8 +15,11 @@ WorkingDirectory=/home/exedev/usa-wa
 # Pin PATH so `uv` + `psql` resolve regardless of the inherited systemd default.
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
-# Owner DSN (DATABASE_URL_OWNER) lives only in /etc/usa-wa/.env on the migrate
-# host. alembic/env.py prefers it over DATABASE_URL; the live units never load it.
+# Owner DSN (DATABASE_URL_OWNER) is read from /etc/usa-wa/.env; alembic/env.py
+# prefers it over DATABASE_URL. On this single VM the API + sidecar units load
+# the same file, so they also see DATABASE_URL_OWNER in their environment — they
+# just never read it (only alembic does). To enforce least privilege on a
+# multi-host split, move the owner DSN into a file loaded only by this unit.
 EnvironmentFile=/etc/usa-wa/.env
 EnvironmentFile=-/home/exedev/usa-wa/.env
 

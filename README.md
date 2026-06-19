@@ -44,6 +44,11 @@ test conftest enforces this and `Base.metadata.drop_all` runs on teardown.
 
 ## Database migrations
 
+Migrations need the owner role (DDL). In production, run the oneshot unit
+(`alembic upgrade head` + `scripts/grants.sql` under `DATABASE_URL_OWNER`):
+`sudo systemctl start usa-wa-migrate`. Ad-hoc `alembic` works when
+`DATABASE_URL_OWNER` is set (`alembic/env.py` prefers it over `DATABASE_URL`):
+
 ```bash
 uv run alembic upgrade head
 uv run alembic revision --autogenerate -m "description"

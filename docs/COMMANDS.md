@@ -44,6 +44,18 @@ uv run pytest -m integration
 
 ## Database migrations
 
+Migrations require the **owner role** (DDL rights) — the DML-only `usa_wa_app`
+that serves traffic cannot run them. In production, apply via the oneshot unit,
+which runs `alembic upgrade head` + `scripts/grants.sql` under `DATABASE_URL_OWNER`:
+
+```bash
+sudo systemctl start usa-wa-migrate
+```
+
+Ad-hoc `alembic` commands work too, but only when `DATABASE_URL_OWNER` is in the
+environment (the standard `export $(cat /etc/usa-wa/.env .env | xargs)` loads it;
+`alembic/env.py` prefers it over `DATABASE_URL`):
+
 ```bash
 # Apply pending migrations
 uv run alembic upgrade head

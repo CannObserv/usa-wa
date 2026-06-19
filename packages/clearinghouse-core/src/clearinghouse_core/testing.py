@@ -53,5 +53,5 @@ def assert_test_url_safety(test_url: str) -> None:
         if prod_role and url.username == prod_role:
             raise RuntimeError(
                 f"TEST_DATABASE_URL must not connect as the same role as production "
-                f"({prod_role!r}); use a dedicated test role (e.g. one ending '_test_app')."
+                f"({prod_role!r}); use a dedicated test role (e.g. usa_wa_test_owner)."
             )

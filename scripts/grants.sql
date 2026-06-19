@@ -51,6 +51,9 @@ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'usa_wa_test_owner') THEN
     CREATE ROLE usa_wa_test_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
   END IF;
+  -- usa_wa_test_app: reserved for a future DML-only test path. The suite
+  -- currently connects as usa_wa_test_owner (it owns its own schema lifecycle),
+  -- so this role is created for symmetry with prod but is otherwise unused.
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'usa_wa_test_app') THEN
     CREATE ROLE usa_wa_test_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
   END IF;
