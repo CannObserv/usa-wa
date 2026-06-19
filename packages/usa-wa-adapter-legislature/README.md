@@ -26,4 +26,13 @@ rm packages/usa-wa-adapter-legislature/tests/cassettes/<name>.yaml
 
 Per-call cassettes (one operation per file) are easier to refresh and less brittle than mixing operations.
 
+### Refresh cadence (decision, #24)
+
+Do **not** put cassette re-recording on a calendar. WA committees reorganize on the order of once per biennium, so a monthly re-record is churn. Policy:
+
+- **Opportunistically** — re-record the affected cassette whenever you touch `CommitteeService` (e.g. when P1b adds `GetActiveCommitteeMembers`), so the committee snapshot tracks alongside the new work.
+- **Mandatory at each new biennium** — capture the new biennium's `committee_service_get_active_committees_<biennium>.yaml` in early odd years (next: 2027-28 in early 2027). This also tests the cross-biennium `Id`/`Acronym` stability hypothesis (see the transformation spec's Open Questions).
+
+Production data is refreshed independently of the cassettes: the `usa-wa-wsl-refresh.timer` systemd unit runs `python -m usa_wa_adapter_legislature.refresh` daily against live WSL (idempotent via the Source row's `cache_ttl_days=1`).
+
 Path: `tests/conftest.py` configures the shared VCR instance (`wsl_vcr` fixture) — match keys are `method/scheme/host/port/path` (body matching off, since zeep's SOAP envelope namespace prefixes shuffle across runs).

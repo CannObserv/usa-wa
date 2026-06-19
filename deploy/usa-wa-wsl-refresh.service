@@ -1,0 +1,25 @@
+[Unit]
+Description=usa-wa — WSL SOAP refresh (committees + synthesized anchors) one-shot
+After=network-online.target postgresql.service
+Wants=network-online.target
+# Schema must be at head before the DML-only refresh runs. Ordering only — a
+# failed/absent migrate must not wedge the timer on an already-migrated box.
+After=usa-wa-migrate.service
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/usa-wa
+
+# Pin PATH so `uv` resolves regardless of the inherited systemd default.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# App role only. refresh.py reads DATABASE_URL (DML — no DDL). DATABASE_URL_OWNER
+# also lives in /etc/usa-wa/.env on this single VM but refresh never reads it
+# (only alembic does). Later EnvironmentFiles override earlier ones.
+EnvironmentFile=/etc/usa-wa/.env
+EnvironmentFile=-/home/exedev/usa-wa/.env
+
+ExecStart=/usr/local/bin/uv run python -m usa_wa_adapter_legislature.refresh
+
+# This unit is started by usa-wa-wsl-refresh.timer; no [Install] WantedBy.

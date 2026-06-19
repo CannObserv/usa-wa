@@ -1,0 +1,15 @@
+[Unit]
+Description=usa-wa — daily WSL SOAP refresh
+Documentation=https://github.com/CannObserv/usa-wa/issues/24
+
+[Timer]
+# Daily at 06:00 UTC. The Source row's cache_ttl_days=1 makes same-day re-runs
+# idempotent (no live SOAP call, no new rows), so a missed-then-caught run is safe.
+OnCalendar=*-*-* 06:00:00 UTC
+# Run on next boot if the box was down at the scheduled time.
+Persistent=true
+# Jitter to avoid hammering WSL on the dot.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
