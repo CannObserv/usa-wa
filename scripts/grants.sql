@@ -12,16 +12,17 @@
 -- in the same deploy.
 --
 -- Run as a superuser (postgres) against the database being (re)owned. Role
--- names are psql variables, so the same script serves prod and the test DB:
+-- names are psql variables; defaults target prod (usa_wa_owner / usa_wa_app):
 --
---   prod:  psql -d usa_wa      -v owner=usa_wa_owner      -v app=usa_wa_app      \
---                              -v reassign_from=usa_wa -f scripts/grants.sql
---   test:  psql -d usa_wa_test -v owner=usa_wa_test_owner -v app=usa_wa_test_app \
---                              -v reassign_from=usa_wa -f scripts/grants.sql
+--   prod:  psql -d usa_wa -v owner=usa_wa_owner -v app=usa_wa_app \
+--                         -v reassign_from=usa_wa -f scripts/grants.sql
 --
--- Defaults target prod (usa_wa_owner / usa_wa_app) when -v is omitted.
 -- `reassign_from` is the legacy single role whose objects are handed to <owner>;
 -- omit it (or set empty) once the one-time cutover has run.
+--
+-- NOT for the test DB: usa_wa_test's schemas don't exist until the suite creates
+-- them per session, so the schema-grant steps below would error. The test DB
+-- needs only its role + `ALTER DATABASE usa_wa_test OWNER TO usa_wa_test_owner`.
 --
 -- Passwords are deliberately NOT set here — never commit credentials. After the
 -- first run, set them out-of-band on the migration host:

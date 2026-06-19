@@ -12,6 +12,9 @@ RemainAfterExit=yes
 User=exedev
 WorkingDirectory=/home/exedev/usa-wa
 
+# Pin PATH so `uv` + `psql` resolve regardless of the inherited systemd default.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
 # Owner DSN (DATABASE_URL_OWNER) lives only in /etc/usa-wa/.env on the migrate
 # host. alembic/env.py prefers it over DATABASE_URL; the live units never load it.
 EnvironmentFile=/etc/usa-wa/.env

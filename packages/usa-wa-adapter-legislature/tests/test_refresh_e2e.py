@@ -78,21 +78,24 @@ async def test_refresh_module_writes_full_anchor_chain_to_test_db():
     assert test_db_url, "TEST_DATABASE_URL must be set"
     assert_test_url_safety(test_db_url)
 
-    # Run alembic upgrade head against the test DB so the schema matches.
-    # Drop DATABASE_URL_OWNER from the child env: alembic/env.py prefers it over
-    # DATABASE_URL, so an inherited owner DSN would silently retarget the live DB.
+    # Child env points DATABASE_URL at the test DB and drops DATABASE_URL_OWNER:
+    # alembic/env.py prefers the owner DSN over DATABASE_URL, so an inherited
+    # owner DSN would silently retarget the live DB. Reused for both subprocesses
+    # so neither the migrate nor the refresh run can fall through to prod.
     child_env = {k: v for k, v in os.environ.items() if k != "DATABASE_URL_OWNER"}
+    child_env["DATABASE_URL"] = test_db_url
+    # Run alembic upgrade head against the test DB so the schema matches.
     subprocess.run(
         ["uv", "run", "alembic", "upgrade", "head"],
         check=True,
-        env={**child_env, "DATABASE_URL": test_db_url},
+        env=child_env,
         capture_output=True,
     )
     await _seed_jurisdiction(test_db_url)
 
     result = subprocess.run(
         [sys.executable, "-m", "usa_wa_adapter_legislature.refresh"],
-        env={**os.environ, "DATABASE_URL": test_db_url, "USA_WA_BIENNIUM": "2025-26"},
+        env={**child_env, "USA_WA_BIENNIUM": "2025-26"},
         capture_output=True,
         text=True,
         check=False,

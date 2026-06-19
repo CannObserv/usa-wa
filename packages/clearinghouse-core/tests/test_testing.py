@@ -41,8 +41,18 @@ def test_assert_test_url_safety_non_test_database_name_raises(monkeypatch):
         assert_test_url_safety("postgresql+asyncpg://test_user@localhost/usa_wa")
 
 
-def test_assert_test_url_safety_app_role_raises(monkeypatch):
-    """A test URL connecting as the prod ops role 'usa_wa_app' is rejected."""
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    with pytest.raises(RuntimeError, match="usa_wa_app"):
+def test_assert_test_url_safety_same_role_as_prod_raises(monkeypatch):
+    """A test URL connecting as the *prod* role (whatever it is named) is rejected.
+
+    The forbidden role is derived from DATABASE_URL's username, so the guard is
+    jurisdiction-agnostic — no hardcoded role name.
+    """
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://usa_wa_app@localhost/usa_wa")
+    with pytest.raises(RuntimeError, match="same role as production"):
         assert_test_url_safety("postgresql+asyncpg://usa_wa_app@localhost/usa_wa_test")
+
+
+def test_assert_test_url_safety_distinct_role_from_prod_passes(monkeypatch):
+    """A dedicated test role against a *_test DB is fine even when DATABASE_URL is set."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://usa_wa_app@localhost/usa_wa")
+    assert_test_url_safety("postgresql+asyncpg://usa_wa_test_owner@localhost/usa_wa_test")

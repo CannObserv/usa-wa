@@ -10,10 +10,6 @@ import os
 
 from sqlalchemy.engine import make_url
 
-#: Production ops role. A test DSN must never connect as this user — it carries
-#: write rights on the live database.
-_PROD_APP_ROLE = "usa_wa_app"
-
 
 def assert_test_url_safety(test_url: str) -> None:
     """Raise if ``test_url`` could reach production data.
@@ -29,7 +25,10 @@ def assert_test_url_safety(test_url: str) -> None:
     1. ``test_url`` must not equal the production ``DATABASE_URL``.
     2. The test database name must end in ``_test`` — catches a typo pointing
        the test DSN at the prod database even when ``DATABASE_URL`` is unset.
-    3. The test DSN must not connect as the prod ops role ``usa_wa_app``.
+    3. The test DSN must not connect as the *same role* the production
+       ``DATABASE_URL`` uses. The forbidden role is derived from
+       ``DATABASE_URL``'s username rather than hardcoded, so this stays
+       jurisdiction-agnostic and self-maintaining for sibling deployments.
 
     Intentionally callable at module-import time *and* at test-body time so
     callers can re-assert immediately before any destructive operation.
@@ -49,8 +48,10 @@ def assert_test_url_safety(test_url: str) -> None:
             f"TEST_DATABASE_URL database name {url.database!r} must end in '_test'. "
             "A test DSN pointed at any other database can wipe non-test rows."
         )
-    if url.username == _PROD_APP_ROLE:
-        raise RuntimeError(
-            f"TEST_DATABASE_URL must not connect as the prod ops role "
-            f"{_PROD_APP_ROLE!r}; use a dedicated test role (e.g. usa_wa_test_app)."
-        )
+    if prod_url:
+        prod_role = make_url(prod_url).username
+        if prod_role and url.username == prod_role:
+            raise RuntimeError(
+                f"TEST_DATABASE_URL must not connect as the same role as production "
+                f"({prod_role!r}); use a dedicated test role (e.g. one ending '_test_app')."
+            )
