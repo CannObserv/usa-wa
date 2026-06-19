@@ -30,10 +30,16 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    """Read database URL from environment or alembic.ini."""
-    return os.environ.get(
-        "DATABASE_URL",
-        config.get_main_option("sqlalchemy.url", ""),
+    """Read database URL from environment or alembic.ini.
+
+    Prefers ``DATABASE_URL_OWNER`` (the DDL-owning role) when set so migrations
+    run under ownership rights, falling back to ``DATABASE_URL`` for manual or
+    pre-role-separation environments.
+    """
+    return (
+        os.environ.get("DATABASE_URL_OWNER")
+        or os.environ.get("DATABASE_URL")
+        or config.get_main_option("sqlalchemy.url", "")
     )
 
 

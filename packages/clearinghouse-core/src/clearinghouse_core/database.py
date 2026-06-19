@@ -1,5 +1,6 @@
 """Async database engine and session factory."""
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -39,3 +40,26 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
     if _session_factory is None:
         _session_factory = async_sessionmaker(get_engine(), expire_on_commit=False)
     return _session_factory
+
+
+async def fetch_connection_fingerprint(session: AsyncSession) -> tuple[str, str]:
+    """Return ``(current_user, current_database)`` for the session's connection.
+
+    Used at startup to make role/DB confusion immediately visible — a sidecar
+    or API booted against the wrong DSN announces it in its first log line.
+    """
+    row = (await session.execute(text("SELECT current_user, current_database()"))).one()
+    return str(row[0]), str(row[1])
+
+
+async def log_connection_fingerprint(session: AsyncSession, *, context: str) -> None:
+    """Log the connected role + database. Best-effort: never raises on failure."""
+    try:
+        db_user, db_name = await fetch_connection_fingerprint(session)
+    except Exception:  # noqa: BLE001 — fingerprint is diagnostic, must not block boot
+        logger.warning("database fingerprint unavailable", extra={"context": context})
+        return
+    logger.info(
+        "database connection fingerprint",
+        extra={"db_user": db_user, "db_name": db_name, "context": context},
+    )

@@ -6,7 +6,7 @@ registry, and runs the daemon until killed.
 
 import asyncio
 
-from clearinghouse_core.database import get_session_factory
+from clearinghouse_core.database import get_session_factory, log_connection_fingerprint
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.engine import SyncEngine
 from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
@@ -23,6 +23,10 @@ async def _amain() -> None:
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — required for the PM sidecar.")
 
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        await log_connection_fingerprint(session, context="sync-sidecar")
+
     descriptors = build_descriptors(settings)
     client = GeneratedPowerMapClient(settings.powermap_base_url, settings.powermap_api_key)
     engine = SyncEngine(descriptors, client)
@@ -30,7 +34,7 @@ async def _amain() -> None:
     sidecar = Sidecar(
         engine,
         descriptors,
-        get_session_factory(),
+        session_factory,
         feed_poll_seconds=settings.feed_poll_seconds,
         reconciler=reconciler,
         subscription_backstop_cadence=settings.subscription_backstop_cadence,

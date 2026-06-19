@@ -11,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.config import get_settings
-from clearinghouse_core.database import get_session_factory
+from clearinghouse_core.database import get_session_factory, log_connection_fingerprint
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.engine import outbox_backlog
 from usa_wa_api.api.deps import get_db_session
@@ -25,6 +25,9 @@ async def lifespan(app: FastAPI):
     """One-time setup on startup, teardown on shutdown."""
     configure_logging()
     logger.info("application starting")
+    session_factory = get_session_factory()
+    async with session_factory() as session:
+        await log_connection_fingerprint(session, context="api")
     yield
     logger.info("application stopping")
 

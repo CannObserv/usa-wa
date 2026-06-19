@@ -79,10 +79,13 @@ async def test_refresh_module_writes_full_anchor_chain_to_test_db():
     assert_test_url_safety(test_db_url)
 
     # Run alembic upgrade head against the test DB so the schema matches.
+    # Drop DATABASE_URL_OWNER from the child env: alembic/env.py prefers it over
+    # DATABASE_URL, so an inherited owner DSN would silently retarget the live DB.
+    child_env = {k: v for k, v in os.environ.items() if k != "DATABASE_URL_OWNER"}
     subprocess.run(
         ["uv", "run", "alembic", "upgrade", "head"],
         check=True,
-        env={**os.environ, "DATABASE_URL": test_db_url},
+        env={**child_env, "DATABASE_URL": test_db_url},
         capture_output=True,
     )
     await _seed_jurisdiction(test_db_url)

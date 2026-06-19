@@ -89,19 +89,21 @@ def test_alembic_upgrade_head_seeds_expected_row_counts():
 
     asyncio.run(_wipe(test_url))
 
-    # alembic/env.py reads DATABASE_URL from os.environ first, then falls back
-    # to alembic.ini's sqlalchemy.url. Temporarily override DATABASE_URL so the
-    # upgrade targets TEST_DATABASE_URL instead of the live DB.
+    # alembic/env.py resolves the URL as DATABASE_URL_OWNER → DATABASE_URL →
+    # alembic.ini. Point DATABASE_URL at the test DB *and* clear the owner DSN
+    # for the duration, so the upgrade can never fall through to the live DB.
     config = Config(str(ALEMBIC_INI))
-    saved_url = os.environ.get("DATABASE_URL")
+    saved = {k: os.environ.get(k) for k in ("DATABASE_URL", "DATABASE_URL_OWNER")}
     os.environ["DATABASE_URL"] = test_url
+    os.environ.pop("DATABASE_URL_OWNER", None)
     try:
         command.upgrade(config, "head")
     finally:
-        if saved_url is None:
-            os.environ.pop("DATABASE_URL", None)
-        else:
-            os.environ["DATABASE_URL"] = saved_url
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
     counts = asyncio.run(_fetch_counts(test_url))
     assert counts["jurisdiction_types"] == 16, counts

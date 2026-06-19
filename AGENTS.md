@@ -105,6 +105,21 @@ deploy/               — Systemd unit + deployment config
 
 `8001` = `8000 + 1`. The exe.dev proxy transparently forwards ports 3000–9999; the dev server is reachable at `https://usa-wa.exe.xyz:8001/`.
 
+### DB role topology (defense-in-depth, issue #22)
+
+DDL and DML rights are split across roles so a misconfigured DSN can't migrate/drop the live DB:
+
+| Role | Rights | Used by |
+|---|---|---|
+| `usa_wa_owner` | owns all tables/sequences; CREATE/ALTER/DROP | `alembic upgrade head` only — the `usa-wa-migrate.service` oneshot |
+| `usa_wa_app` | SELECT/INSERT/UPDATE/DELETE only (no DDL) | live API, sync sidecar, WSL refresh cron, on-box CLIs |
+| `usa_wa_test_owner` / `usa_wa_test_app` | same split, bound to the **separate** `usa_wa_test` database | the test suite |
+
+- `DATABASE_URL` (app role) serves; `DATABASE_URL_OWNER` (owner role, migrate host only) migrates. `alembic/env.py` prefers `DATABASE_URL_OWNER` when set, else `DATABASE_URL`.
+- [`scripts/grants.sql`](scripts/grants.sql) is the version-controlled source of truth for grants — idempotent, re-applied after every migration by [`scripts/migrate.sh`](scripts/migrate.sh). `ALTER DEFAULT PRIVILEGES` means new tables auto-grant DML to the app role. **Add new schemas to it** when a migration introduces one.
+- Provision once as superuser: `psql -d usa_wa -v reassign_from=usa_wa -f scripts/grants.sql` (then per-role `ALTER ROLE … PASSWORD` out-of-band; passwords are never committed). Repeat for the test DB with `-v owner=usa_wa_test_owner -v app=usa_wa_test_app -d usa_wa_test`.
+- Both the API lifespan and the sidecar log a startup fingerprint (`current_user` + `current_database`) — role/DB confusion shows up in the first `journalctl` line.
+
 ## Server Lifecycle
 
 **Port 8000 belongs to systemd.** Never start uvicorn manually on port 8000.
@@ -115,7 +130,7 @@ deploy/               — Systemd unit + deployment config
 | Testing a worktree/branch | `uv run uvicorn ... --port 8001 --reload` |
 | Debugging the live service | `sudo journalctl -u usa-wa -f` |
 | After editing `deploy/usa-wa.service` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa` |
-| After DB model changes | `uv run alembic upgrade head` then restart |
+| After DB model changes | `sudo systemctl start usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa |
 
 **Dev server workflow.** Run on port `8001` so the live service stays up. Load env first:
 
@@ -145,8 +160,9 @@ export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 
 Currently defined:
 - `GH_TOKEN` — GitHub personal access token (used by `gh` CLI)
-- `DATABASE_URL` — PostgreSQL connection string
-- `TEST_DATABASE_URL` — PostgreSQL connection string for the test database
+- `DATABASE_URL` — PostgreSQL connection string (app role `usa_wa_app` — DML only)
+- `DATABASE_URL_OWNER` — owner-role DSN for migrations (migrate host only; `usa-wa-migrate.service` + `scripts/migrate.sh`). `alembic/env.py` prefers it over `DATABASE_URL`. Absent from the live API/sidecar units.
+- `TEST_DATABASE_URL` — PostgreSQL connection string for the test database (test role; database name must end in `_test`)
 - `BUILD_ID` — git SHA stamped by the systemd unit's `ExecStartPre`; defaults to `"dev"` outside systemd
 - `USA_WA_OPERATOR_TOKEN` — shared secret gating the mutating operator endpoint `POST /sync/redrive` (re-drives dead-lettered `UNAVAILABLE` outbox entries). **Fail-closed:** if unset, the endpoint is locked for everyone, so it must be set in `/etc/usa-wa/.env` before the re-drive route can be used. The on-box CLI (`python -m usa_wa_api.cli.redrive`) needs no token — shell access is the trust boundary.
 - `USA_WA_BIENNIUM` — optional override for the auto-computed WA biennium label (e.g. `2025-26`) used by the WSL refresh. Without it, `refresh.py` derives the biennium from the current UTC date (WA bienniums start on odd years). Useful for backfills and early-year edge cases.

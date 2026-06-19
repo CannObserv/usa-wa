@@ -1,0 +1,23 @@
+[Unit]
+Description=usa-wa — apply Alembic migrations + DB grants under the owner role
+After=network.target postgresql.service
+# Bring schema to head before the API/sidecar (which run as the DML-only app
+# role) start. Ordering only — not a hard dependency; a failed migrate must not
+# wedge the boot of an already-migrated box.
+Before=usa-wa.service usa-wa-sync-powermap.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=exedev
+WorkingDirectory=/home/exedev/usa-wa
+
+# Owner DSN (DATABASE_URL_OWNER) lives only in /etc/usa-wa/.env on the migrate
+# host. alembic/env.py prefers it over DATABASE_URL; the live units never load it.
+EnvironmentFile=/etc/usa-wa/.env
+EnvironmentFile=-/home/exedev/usa-wa/.env
+
+ExecStart=/home/exedev/usa-wa/scripts/migrate.sh
+
+[Install]
+WantedBy=multi-user.target
