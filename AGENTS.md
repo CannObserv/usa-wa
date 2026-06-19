@@ -101,6 +101,7 @@ deploy/               — Systemd unit + deployment config
 |---|---|---|---|
 | API (live) | FastAPI | 8000 | `systemctl` (`usa-wa.service`) |
 | PM sync sidecar | asyncio daemon | — | `systemctl` (`usa-wa-sync-powermap.service`) |
+| WSL refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-wsl-refresh.timer` → `.service`; 06:00 UTC) |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
 
 `8001` = `8000 + 1`. The exe.dev proxy transparently forwards ports 3000–9999; the dev server is reachable at `https://usa-wa.exe.xyz:8001/`.
@@ -131,7 +132,9 @@ DDL and DML rights are split across roles so a misconfigured DSN can't migrate/d
 | Testing a worktree/branch | `uv run uvicorn ... --port 8001 --reload` |
 | Debugging the live service | `sudo journalctl -u usa-wa -f` |
 | After editing `deploy/usa-wa.service` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa` |
+| After editing `deploy/usa-wa-wsl-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-wsl-refresh.timer` |
 | After DB model changes | `sudo systemctl start usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa |
+| Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
 
 **Dev server workflow.** Run on port `8001` so the live service stays up. Load env first:
 
@@ -199,7 +202,9 @@ uv run alembic revision --autogenerate -m "description"
 # FastAPI dev server
 uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
 
-# WSL refresh (cron-style; one-shot pull from CommitteeService.GetActiveCommittees)
+# WSL refresh — one-shot pull from CommitteeService.GetActiveCommittees.
+# Prod runs this daily at 06:00 UTC via the usa-wa-wsl-refresh.timer systemd
+# unit; the command below is the manual / backfill form (pair with USA_WA_BIENNIUM).
 python -m usa_wa_adapter_legislature.refresh
 ```
 
