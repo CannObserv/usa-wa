@@ -131,6 +131,13 @@ class EntityDescriptor(ABC):
     #: that PM entity. ``None`` disables enrichment (roles/assignments match
     #: structurally; jurisdictions are PM-authoritative).
     enrich_identifier_type: str | None = None
+    #: Observation fields :meth:`to_enrich_observation` carries through from the
+    #: :meth:`to_observation` base payload (when present). Append-only evidence PM
+    #: lacks — never PM-curated state (parent, affiliations). Default carries only
+    #: typed-name evidence; a descriptor with extra source-only facts (e.g. an org's
+    #: acronym/phone) extends this tuple. Keeps the portable layer jurisdiction-
+    #: agnostic — field vocabulary lives on the concrete sibling descriptor.
+    enrich_carry_fields: tuple[str, ...] = ("names",)
     #: Full-reconcile cadence (backstop; default hourly).
     reconcile_cadence: timedelta = timedelta(hours=1)
 
@@ -277,11 +284,12 @@ class EntityDescriptor(ABC):
         instead of resolving by our identifier, per power-map#198), and demotes the
         row's real identifier to an ``additional_identifiers`` entry to append.
 
-        Deliberately **narrow**: only the identifier and typed-name evidence ride
-        along. Other observation fields (org parent, jurisdiction affiliations) are
-        *not* re-asserted — they belong to how PM curates the entity (which we
-        adopted on match), and enrich exists solely to convey the identifier we
-        hold. Append-only, idempotent.
+        Deliberately **narrow**: only the identifier and the descriptor's declared
+        :attr:`enrich_carry_fields` (typed-name evidence by default, plus any
+        source-only facts PM lacks) ride along. Other observation fields (org
+        parent, jurisdiction affiliations) are *not* re-asserted — they belong to
+        how PM curates the entity (which we adopted on match), and enrich conveys
+        only the evidence we hold. Append-only, idempotent.
         """
         base = await self.to_observation(session, row)
         real_type = base.pop("identifier_type", None)
@@ -294,8 +302,9 @@ class EntityDescriptor(ABC):
             payload["additional_identifiers"] = [
                 {"identifier_type_slug": real_type, "identifier_value": real_value}
             ]
-        if base.get("names"):
-            payload["names"] = base["names"]
+        for field in self.enrich_carry_fields:
+            if base.get(field):
+                payload[field] = base[field]
         return payload
 
     async def dependencies_ready(self, session: Any, row: Any) -> bool:

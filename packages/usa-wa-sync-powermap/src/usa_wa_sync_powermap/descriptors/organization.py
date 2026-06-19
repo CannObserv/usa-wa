@@ -97,6 +97,9 @@ class OrganizationDescriptor(EntityDescriptor):
     reconcile_mode = "anchored_cohort"
     write_enabled = True
     enrich_identifier_type = "pm_org_id"  # enrich-on-match (#198)
+    # Acronym/phone are WSL-sourced facts PM lacks — attach them on match, same
+    # rationale as the identifier itself (#25). Parent/affiliations stay excluded.
+    enrich_carry_fields = ("names", "org_acronyms", "contact_methods")
 
     def __init__(self, *, search_match_cap: int | None = None) -> None:
         """``search_match_cap`` (#12): the name-match candidate window passed as the

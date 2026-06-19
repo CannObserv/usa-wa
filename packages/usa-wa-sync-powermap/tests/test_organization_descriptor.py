@@ -368,3 +368,30 @@ async def test_to_enrich_observation_rekeys_to_pm_org_id(db_session, descriptor,
     # Enrich is narrow: parent + affiliations are NOT re-asserted (PM curates them).
     assert "jurisdiction_affiliations" not in obs
     assert "organization_parent_id" not in obs
+    # No acronym/phone on this row → those carry-through fields stay absent.
+    assert "org_acronyms" not in obs
+    assert "contact_methods" not in obs
+
+
+async def test_to_enrich_observation_carries_acronym_and_phone(db_session, descriptor, usa_wa):
+    """WSL-sourced acronym/phone ride along on enrich — facts PM lacks (#25)."""
+    usa_wa.pm_jurisdiction_id = ULID()
+    await db_session.flush()
+    row = await _add_org(
+        db_session,
+        source_id="C-2",
+        name="Appropriations",
+        anchor=ULID(),
+        jurisdiction_id=usa_wa.id,
+        acronym="APP",
+        phone="(360) 786-7204",
+    )
+
+    obs = await descriptor.to_enrich_observation(db_session, row)
+
+    assert obs["org_acronyms"] == ["APP"]
+    assert obs["contact_methods"] == [{"contact_type": "phone", "value": "(360) 786-7204"}]
+    # Still anchor-keyed and narrow — parent/affiliations remain PM-curated.
+    assert obs["identifier_type"] == "pm_org_id"
+    assert "jurisdiction_affiliations" not in obs
+    assert "organization_parent_id" not in obs
