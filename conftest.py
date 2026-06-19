@@ -25,11 +25,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 # Import Base *and* trigger model registration in every workspace package
 # that defines tables. As new packages are added, list them here so their
-# tables appear in Base.metadata before tests collect schemas.
+# tables appear in Base.metadata before tests collect schemas. This is the
+# authoritative registration list for the create_all path below; note that
+# declared_schemas() *also* self-registers the sibling packages it needs, so
+# schema discovery is belt-and-suspenders — a package missing from this list
+# would still be reset, but would not be created by create_all.
 import clearinghouse_sync_powermap  # noqa: F401  (registers sync-schema tables)
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.models import Base  # noqa: F401
-from clearinghouse_core.testing import assert_test_url_safety
+from clearinghouse_core.testing import assert_test_url_safety, declared_schemas
 from clearinghouse_domain_legislative import identity as _identity  # noqa: F401
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
@@ -40,11 +44,6 @@ if not TEST_DATABASE_URL:
     )
 
 assert_test_url_safety(TEST_DATABASE_URL)
-
-
-def _declared_schemas() -> set[str]:
-    """All Postgres schemas referenced by any table in Base.metadata."""
-    return {t.schema for t in Base.metadata.tables.values() if t.schema}
 
 
 @pytest.fixture(scope="session")
@@ -64,7 +63,7 @@ async def test_engine():
     fight with ``Base.metadata.create_all``.
     """
     engine = create_async_engine(TEST_DATABASE_URL)
-    schemas = _declared_schemas()
+    schemas = declared_schemas()
     async with engine.begin() as conn:
         await conn.execute(text("DROP TABLE IF EXISTS public.alembic_version"))
         for schema in schemas:

@@ -21,20 +21,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import command
+from clearinghouse_core.testing import reset_migration_schemas
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ALEMBIC_INI = REPO_ROOT / "alembic.ini"
-
-
-async def _wipe(test_url: str) -> None:
-    """Drop alembic_version + the two declared schemas so the upgrade runs
-    against a known-clean state."""
-    engine = create_async_engine(test_url)
-    async with engine.begin() as conn:
-        await conn.execute(text("DROP TABLE IF EXISTS public.alembic_version"))
-        await conn.execute(text("DROP SCHEMA IF EXISTS clearinghouse_core CASCADE"))
-        await conn.execute(text("DROP SCHEMA IF EXISTS canonical CASCADE"))
-    await engine.dispose()
 
 
 async def _fetch_counts(test_url: str) -> dict[str, int]:
@@ -87,7 +77,7 @@ def test_alembic_upgrade_head_seeds_expected_row_counts():
     if not test_url:
         pytest.skip("TEST_DATABASE_URL not set")
 
-    asyncio.run(_wipe(test_url))
+    asyncio.run(reset_migration_schemas(test_url))
 
     # alembic/env.py resolves the URL as DATABASE_URL_OWNER → DATABASE_URL →
     # alembic.ini. Point DATABASE_URL at the test DB *and* clear the owner DSN

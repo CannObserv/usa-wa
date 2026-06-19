@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from clearinghouse_core.testing import assert_test_url_safety
+from clearinghouse_core.testing import assert_test_url_safety, declared_schemas
 
 _PROD_URL = "postgresql+asyncpg://app@localhost/usa_wa"
 _TEST_URL = "postgresql+asyncpg://test_user@localhost/usa_wa_test"
@@ -56,3 +56,17 @@ def test_assert_test_url_safety_distinct_role_from_prod_passes(monkeypatch):
     """A dedicated test role against a *_test DB is fine even when DATABASE_URL is set."""
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://usa_wa_app@localhost/usa_wa")
     assert_test_url_safety("postgresql+asyncpg://usa_wa_test_owner@localhost/usa_wa_test")
+
+
+def test_declared_schemas_includes_every_workspace_schema():
+    """``declared_schemas`` is the single source of truth for full-DB resets.
+
+    Regression guard for issue #26: the ``sync`` schema was added to the
+    migration chain (#22) but integration-test wipes still listed only the two
+    original schemas, so a from-base re-migration collided on
+    ``sync.powermap_outbox``. The helper must surface *every* schema the
+    migration chain creates — derived from ``Base.metadata`` so it can't drift
+    out of date as new schemas are added — regardless of the caller's import
+    context (it forces sibling registration imports itself).
+    """
+    assert declared_schemas() >= {"clearinghouse_core", "canonical", "sync"}

@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.provenance import Citation, FetchEvent, RawPayload, Source
-from clearinghouse_core.testing import assert_test_url_safety
+from clearinghouse_core.testing import assert_test_url_safety, reset_migration_schemas
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.sessions import LegislativeSession
 
@@ -84,6 +84,12 @@ async def test_refresh_module_writes_full_anchor_chain_to_test_db():
     # so neither the migrate nor the refresh run can fall through to prod.
     child_env = {k: v for k, v in os.environ.items() if k != "DATABASE_URL_OWNER"}
     child_env["DATABASE_URL"] = test_db_url
+    # Reset to a known-clean state first: drop alembic_version + every declared
+    # schema so the upgrade always replays from base. Without this the test
+    # inherits whatever schema state a prior integration test left behind — a
+    # half-migrated DB (alembic_version cleared but tables present) makes the
+    # from-base upgrade collide on existing tables (issue #26).
+    await reset_migration_schemas(test_db_url)
     # Run alembic upgrade head against the test DB so the schema matches.
     subprocess.run(
         ["uv", "run", "alembic", "upgrade", "head"],
