@@ -114,3 +114,65 @@ def test_reconcile_enabled_is_derived_from_mode():
     assert NoneMode().reconcile_enabled is False
     assert FullList().reconcile_enabled is True
     assert Cohort().reconcile_enabled is True
+
+
+# --- enrich-on-match carry-through (base contract; lives where the loop does) ---
+
+
+class _EnrichDescriptor(FakeDescriptor):
+    """FakeDescriptor variant exercising :meth:`to_enrich_observation`.
+
+    Its ``to_observation`` returns the identifier plus a declared carry field
+    (``extra``) and an *undeclared* one (``omitted``) so a single call proves the
+    loop copies only what ``enrich_carry_fields`` names.
+    """
+
+    enrich_identifier_type = "pm_fake_anchor"
+    enrich_carry_fields = ("names", "extra")
+
+    async def to_observation(self, session, row):
+        return {
+            "identifier_type": "fake_source_id",
+            "identifier_value": row.source_id,
+            "names": [{"name": row.name, "name_type": "legal"}],
+            "extra": ["carried"],
+            "omitted": ["dropped"],
+        }
+
+
+def test_enrich_carry_fields_defaults_to_names_only():
+    """The base default is typed-name evidence only — siblings opt into more."""
+    assert EntityDescriptor.enrich_carry_fields == ("names",)
+
+
+async def test_to_enrich_observation_carries_declared_fields_only():
+    """Re-keys to the PM anchor, demotes the real id, carries declared fields."""
+    desc = _EnrichDescriptor()
+    anchor = ULID()
+    row = FakeEntity(source="s", source_id="X-1", name="Widget", pm_fake_id=anchor)
+
+    obs = await desc.to_enrich_observation(None, row)
+
+    assert obs["identifier_type"] == "pm_fake_anchor"
+    assert obs["identifier_value"] == str(anchor)
+    assert obs["additional_identifiers"] == [
+        {"identifier_type_slug": "fake_source_id", "identifier_value": "X-1"}
+    ]
+    # Declared carry fields ride along; an undeclared base field does not.
+    assert obs["names"] == [{"name": "Widget", "name_type": "legal"}]
+    assert obs["extra"] == ["carried"]
+    assert "omitted" not in obs
+
+
+async def test_to_enrich_observation_honours_narrowed_carry_set():
+    """Default carry set (``names`` only) drops a sibling's extra fields."""
+
+    class _NamesOnly(_EnrichDescriptor):
+        enrich_carry_fields = ("names",)
+
+    row = FakeEntity(source="s", source_id="X-2", name="Gadget", pm_fake_id=ULID())
+
+    obs = await _NamesOnly().to_enrich_observation(None, row)
+
+    assert obs["names"] == [{"name": "Gadget", "name_type": "legal"}]
+    assert "extra" not in obs
