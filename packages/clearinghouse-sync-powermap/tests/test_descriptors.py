@@ -130,7 +130,8 @@ class _EnrichDescriptor(FakeDescriptor):
     enrich_identifier_type = "pm_fake_anchor"
     enrich_carry_fields = ("names", "extra")
 
-    async def to_observation(self, session, row):
+    async def to_observation(self, session: object, row: object) -> dict:
+        """Base payload with a declared and an undeclared carry field."""
         return {
             "identifier_type": "fake_source_id",
             "identifier_value": row.source_id,
@@ -174,5 +175,10 @@ async def test_to_enrich_observation_honours_narrowed_carry_set():
 
     obs = await _NamesOnly().to_enrich_observation(None, row)
 
+    # Re-keying still holds on the narrowed path; only the extra field drops.
+    assert obs["identifier_type"] == "pm_fake_anchor"
+    assert obs["additional_identifiers"] == [
+        {"identifier_type_slug": "fake_source_id", "identifier_value": "X-2"}
+    ]
     assert obs["names"] == [{"name": "Gadget", "name_type": "legal"}]
     assert "extra" not in obs
