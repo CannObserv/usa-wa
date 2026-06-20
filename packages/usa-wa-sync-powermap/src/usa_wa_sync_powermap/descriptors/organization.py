@@ -51,6 +51,12 @@ SEARCH_PATH = "/api/v1/orgs/search"
 #: The org↔jurisdiction affiliation that means "is governed by" (PM #194); its
 #: ``jurisdiction_id`` equals our local ``pm_jurisdiction_id``.
 GOVERNING = "governing"
+#: Human-readable ``display_label`` for a phone contact_method, by org_type (#31).
+#: WSL carries no per-phone label, so we synthesize one — an unlabelled number is
+#: unreadable in PM's admin/change-feed. ``_DEFAULT_PHONE_LABEL`` covers org types
+#: that lack a specific label (anchors rarely carry a phone, but stay correct if so).
+_PHONE_LABEL_BY_ORG_TYPE = {"committee": "Committee Office", "subcommittee": "Committee Office"}
+_DEFAULT_PHONE_LABEL = "Main Office"
 #: Upper bound on FTS candidates to confirm — and the **recall ceiling**: the exact
 #: match must rank within this window or it reads as "new" → a (mergeable) duplicate.
 #: Ample headroom today (jurisdiction-scoped FTS AND-of-tokens over a ~120-org
@@ -192,12 +198,18 @@ class OrganizationDescriptor(EntityDescriptor):
             "names": [{"name": row.name, "name_type": "legal"}],
         }
         # Single-value local columns → PM's list-shaped fields. Guard on truthiness
-        # so an empty-string acronym never lands as ``org_acronyms: [""]``; phone is
-        # already None-or-nonempty from the normalizer.
+        # so an empty-string acronym never lands as ``org_acronyms: [{...}]``; phone is
+        # already None-or-nonempty from the normalizer. ``org_acronyms`` is a list of
+        # ``{acronym, is_canonical?}`` objects (PM schema; the bare-string form is
+        # 422-rejected). We assert the acronym as evidence only — PM curates
+        # ``is_canonical`` (default false), the same hands-off stance as ``names``.
         if row.acronym:
-            payload["org_acronyms"] = [row.acronym]
+            payload["org_acronyms"] = [{"acronym": row.acronym}]
         if row.phone:
-            payload["contact_methods"] = [{"contact_type": "phone", "value": row.phone}]
+            label = _PHONE_LABEL_BY_ORG_TYPE.get(row.org_type, _DEFAULT_PHONE_LABEL)
+            payload["contact_methods"] = [
+                {"contact_type": "phone", "value": row.phone, "display_label": label}
+            ]
         affiliation = await self._governing_affiliation(session, row)
         if affiliation is not None:
             payload["jurisdiction_affiliations"] = [affiliation]

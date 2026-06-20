@@ -210,7 +210,10 @@ async def test_to_observation_committee_payload(db_session, descriptor, usa_wa):
 
 
 async def test_to_observation_emits_acronym_and_phone(db_session, descriptor, usa_wa):
-    """acronym → org_acronyms[0]; phone → a phone contact_method."""
+    """acronym → org_acronyms[0]; phone → a labelled phone contact_method.
+
+    WSL carries no per-phone label, so committee phones get a static
+    ``display_label`` (#31) — operators can't read an unlabelled number."""
     row = await _add_org(
         db_session,
         source_id="C-9",
@@ -222,8 +225,35 @@ async def test_to_observation_emits_acronym_and_phone(db_session, descriptor, us
 
     obs = await descriptor.to_observation(db_session, row)
 
-    assert obs["org_acronyms"] == ["APP"]
-    assert obs["contact_methods"] == [{"contact_type": "phone", "value": "(360) 786-7204"}]
+    assert obs["org_acronyms"] == [{"acronym": "APP"}]
+    assert obs["contact_methods"] == [
+        {
+            "contact_type": "phone",
+            "value": "(360) 786-7204",
+            "display_label": "Committee Office",
+        }
+    ]
+
+
+async def test_to_observation_phone_label_falls_back_for_non_committee(
+    db_session, descriptor, usa_wa
+):
+    """A non-committee org with a phone gets the generic ``Main Office`` label —
+    ``Committee Office`` is committee-specific (the descriptor is org-type-generic)."""
+    row = await _add_org(
+        db_session,
+        source_id="HOUSE",
+        name="House",
+        org_type="chamber",
+        jurisdiction_id=usa_wa.id,
+        phone="(360) 786-0000",
+    )
+
+    obs = await descriptor.to_observation(db_session, row)
+
+    assert obs["contact_methods"] == [
+        {"contact_type": "phone", "value": "(360) 786-0000", "display_label": "Main Office"}
+    ]
 
 
 async def test_to_observation_omits_acronym_and_phone_when_absent(db_session, descriptor, usa_wa):
@@ -389,8 +419,14 @@ async def test_to_enrich_observation_carries_acronym_and_phone(db_session, descr
 
     obs = await descriptor.to_enrich_observation(db_session, row)
 
-    assert obs["org_acronyms"] == ["APP"]
-    assert obs["contact_methods"] == [{"contact_type": "phone", "value": "(360) 786-7204"}]
+    assert obs["org_acronyms"] == [{"acronym": "APP"}]
+    assert obs["contact_methods"] == [
+        {
+            "contact_type": "phone",
+            "value": "(360) 786-7204",
+            "display_label": "Committee Office",
+        }
+    ]
     # Still anchor-keyed and narrow — parent/affiliations remain PM-curated.
     assert obs["identifier_type"] == "pm_org_id"
     assert "jurisdiction_affiliations" not in obs

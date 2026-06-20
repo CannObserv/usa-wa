@@ -206,6 +206,12 @@ uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
 # Prod runs this daily at 06:00 UTC via the usa-wa-wsl-refresh.timer systemd
 # unit; the command below is the manual / backfill form (pair with USA_WA_BIENNIUM).
 python -m usa_wa_adapter_legislature.refresh
+
+# Contact-label backfill (#31) — one-off re-observation of produced orgs holding a
+# phone, so PM adopts the synthesized contact display_label. Idempotent + re-runnable;
+# --dry-run counts the cohort without submitting. No operator token (shell = trust boundary).
+python -m usa_wa_sync_powermap.backfill_contact_labels --dry-run
+python -m usa_wa_sync_powermap.backfill_contact_labels
 ```
 
 Full reference: `docs/COMMANDS.md`
