@@ -9,13 +9,14 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.observation_acronym import ObservationAcronym
     from ..models.observation_additional_identifier import ObservationAdditionalIdentifier
     from ..models.observation_address import ObservationAddress
     from ..models.observation_contact_method import ObservationContactMethod
     from ..models.observation_event_item import ObservationEventItem
     from ..models.observation_jurisdiction_affiliation import ObservationJurisdictionAffiliation
     from ..models.observation_link import ObservationLink
-    from ..models.observation_name import ObservationName
+    from ..models.observation_org_name import ObservationOrgName
 
 
 T = TypeVar("T", bound="OrganizationObservationRequest")
@@ -28,8 +29,8 @@ class OrganizationObservationRequest:
     Attributes:
         identifier_type (str):
         identifier_value (str):
-        names (list[ObservationName] | Unset):
-        org_acronyms (list[str] | Unset):
+        names (list[ObservationOrgName] | Unset):
+        org_acronyms (list[ObservationAcronym] | Unset):
         organization_parent_id (None | str | Unset):
         organization_parent_name (None | str | Unset):
         organization_parent_acronym (None | str | Unset):
@@ -43,8 +44,8 @@ class OrganizationObservationRequest:
 
     identifier_type: str
     identifier_value: str
-    names: list[ObservationName] | Unset = UNSET
-    org_acronyms: list[str] | Unset = UNSET
+    names: list[ObservationOrgName] | Unset = UNSET
+    org_acronyms: list[ObservationAcronym] | Unset = UNSET
     organization_parent_id: None | str | Unset = UNSET
     organization_parent_name: None | str | Unset = UNSET
     organization_parent_acronym: None | str | Unset = UNSET
@@ -68,9 +69,12 @@ class OrganizationObservationRequest:
                 names_item = names_item_data.to_dict()
                 names.append(names_item)
 
-        org_acronyms: list[str] | Unset = UNSET
+        org_acronyms: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.org_acronyms, Unset):
-            org_acronyms = self.org_acronyms
+            org_acronyms = []
+            for org_acronyms_item_data in self.org_acronyms:
+                org_acronyms_item = org_acronyms_item_data.to_dict()
+                org_acronyms.append(org_acronyms_item)
 
         organization_parent_id: None | str | Unset
         if isinstance(self.organization_parent_id, Unset):
@@ -167,13 +171,14 @@ class OrganizationObservationRequest:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.observation_acronym import ObservationAcronym
         from ..models.observation_additional_identifier import ObservationAdditionalIdentifier
         from ..models.observation_address import ObservationAddress
         from ..models.observation_contact_method import ObservationContactMethod
         from ..models.observation_event_item import ObservationEventItem
         from ..models.observation_jurisdiction_affiliation import ObservationJurisdictionAffiliation
         from ..models.observation_link import ObservationLink
-        from ..models.observation_name import ObservationName
+        from ..models.observation_org_name import ObservationOrgName
 
         d = dict(src_dict)
         identifier_type = d.pop("identifier_type")
@@ -181,15 +186,22 @@ class OrganizationObservationRequest:
         identifier_value = d.pop("identifier_value")
 
         _names = d.pop("names", UNSET)
-        names: list[ObservationName] | Unset = UNSET
+        names: list[ObservationOrgName] | Unset = UNSET
         if _names is not UNSET:
             names = []
             for names_item_data in _names:
-                names_item = ObservationName.from_dict(names_item_data)
+                names_item = ObservationOrgName.from_dict(names_item_data)
 
                 names.append(names_item)
 
-        org_acronyms = cast(list[str], d.pop("org_acronyms", UNSET))
+        _org_acronyms = d.pop("org_acronyms", UNSET)
+        org_acronyms: list[ObservationAcronym] | Unset = UNSET
+        if _org_acronyms is not UNSET:
+            org_acronyms = []
+            for org_acronyms_item_data in _org_acronyms:
+                org_acronyms_item = ObservationAcronym.from_dict(org_acronyms_item_data)
+
+                org_acronyms.append(org_acronyms_item)
 
         def _parse_organization_parent_id(data: object) -> None | str | Unset:
             if data is None:

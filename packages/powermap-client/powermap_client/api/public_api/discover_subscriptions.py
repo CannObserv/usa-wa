@@ -95,11 +95,11 @@ def sync_detailed(
         root_type (DiscoverSubscriptionsRootType): Entity type of the traversal root
         root_id (str): ULID or slug of the root entity
         follow (str | Unset): Comma-separated traversal steps (applied in order): lineage —
-            jurisdiction lineage edges (recursive); affiliated_orgs — orgs with 'governing'
-            affiliation for in-scope jurisdictions; org_children — child orgs via parent_id
-            (recursive); roles — roles owned by in-scope orgs; assignments — role_assignments for in-
-            scope roles; people — persons via in-scope assignments. Each step has prerequisites; a
-            violation returns 422. Default: ''.
+            jurisdiction lineage and spatial-containment edges (recursive); affiliated_orgs — orgs
+            with 'governing' affiliation for in-scope jurisdictions; org_children — child orgs via
+            parent_id (recursive); roles — roles owned by in-scope orgs; assignments —
+            role_assignments for in-scope roles; people — persons via in-scope assignments. Each step
+            has prerequisites; a violation returns 422. Default: ''.
         limit (int | Unset):  Default: 100.
         offset (int | Unset):  Default: 0.
 
@@ -147,11 +147,11 @@ def sync(
         root_type (DiscoverSubscriptionsRootType): Entity type of the traversal root
         root_id (str): ULID or slug of the root entity
         follow (str | Unset): Comma-separated traversal steps (applied in order): lineage —
-            jurisdiction lineage edges (recursive); affiliated_orgs — orgs with 'governing'
-            affiliation for in-scope jurisdictions; org_children — child orgs via parent_id
-            (recursive); roles — roles owned by in-scope orgs; assignments — role_assignments for in-
-            scope roles; people — persons via in-scope assignments. Each step has prerequisites; a
-            violation returns 422. Default: ''.
+            jurisdiction lineage and spatial-containment edges (recursive); affiliated_orgs — orgs
+            with 'governing' affiliation for in-scope jurisdictions; org_children — child orgs via
+            parent_id (recursive); roles — roles owned by in-scope orgs; assignments —
+            role_assignments for in-scope roles; people — persons via in-scope assignments. Each step
+            has prerequisites; a violation returns 422. Default: ''.
         limit (int | Unset):  Default: 100.
         offset (int | Unset):  Default: 0.
 
@@ -194,11 +194,11 @@ async def asyncio_detailed(
         root_type (DiscoverSubscriptionsRootType): Entity type of the traversal root
         root_id (str): ULID or slug of the root entity
         follow (str | Unset): Comma-separated traversal steps (applied in order): lineage —
-            jurisdiction lineage edges (recursive); affiliated_orgs — orgs with 'governing'
-            affiliation for in-scope jurisdictions; org_children — child orgs via parent_id
-            (recursive); roles — roles owned by in-scope orgs; assignments — role_assignments for in-
-            scope roles; people — persons via in-scope assignments. Each step has prerequisites; a
-            violation returns 422. Default: ''.
+            jurisdiction lineage and spatial-containment edges (recursive); affiliated_orgs — orgs
+            with 'governing' affiliation for in-scope jurisdictions; org_children — child orgs via
+            parent_id (recursive); roles — roles owned by in-scope orgs; assignments —
+            role_assignments for in-scope roles; people — persons via in-scope assignments. Each step
+            has prerequisites; a violation returns 422. Default: ''.
         limit (int | Unset):  Default: 100.
         offset (int | Unset):  Default: 0.
 
@@ -244,11 +244,11 @@ async def asyncio(
         root_type (DiscoverSubscriptionsRootType): Entity type of the traversal root
         root_id (str): ULID or slug of the root entity
         follow (str | Unset): Comma-separated traversal steps (applied in order): lineage —
-            jurisdiction lineage edges (recursive); affiliated_orgs — orgs with 'governing'
-            affiliation for in-scope jurisdictions; org_children — child orgs via parent_id
-            (recursive); roles — roles owned by in-scope orgs; assignments — role_assignments for in-
-            scope roles; people — persons via in-scope assignments. Each step has prerequisites; a
-            violation returns 422. Default: ''.
+            jurisdiction lineage and spatial-containment edges (recursive); affiliated_orgs — orgs
+            with 'governing' affiliation for in-scope jurisdictions; org_children — child orgs via
+            parent_id (recursive); roles — roles owned by in-scope orgs; assignments —
+            role_assignments for in-scope roles; people — persons via in-scope assignments. Each step
+            has prerequisites; a violation returns 422. Default: ''.
         limit (int | Unset):  Default: 100.
         offset (int | Unset):  Default: 0.
 

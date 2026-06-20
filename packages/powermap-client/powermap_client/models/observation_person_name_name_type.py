@@ -1,7 +1,7 @@
 from enum import Enum
 
 
-class ObservationNameNameType(str, Enum):
+class ObservationPersonNameNameType(str, Enum):
     ALIAS = "alias"
     DEADNAME = "deadname"
     FORMER = "former"

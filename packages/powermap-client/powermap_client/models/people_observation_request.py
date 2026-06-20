@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ..models.observation_contact_method import ObservationContactMethod
     from ..models.observation_event_item import ObservationEventItem
     from ..models.observation_link import ObservationLink
-    from ..models.observation_name import ObservationName
+    from ..models.observation_person_name import ObservationPersonName
     from ..models.observation_role_assignment import ObservationRoleAssignment
 
 
@@ -28,7 +28,7 @@ class PeopleObservationRequest:
     Attributes:
         identifier_type (str):
         identifier_value (str):
-        names (list[ObservationName] | Unset):
+        names (list[ObservationPersonName] | Unset):
         personal_pronouns (None | str | Unset):
         role_assignments (list[ObservationRoleAssignment] | Unset):
         links (list[ObservationLink] | Unset):
@@ -40,7 +40,7 @@ class PeopleObservationRequest:
 
     identifier_type: str
     identifier_value: str
-    names: list[ObservationName] | Unset = UNSET
+    names: list[ObservationPersonName] | Unset = UNSET
     personal_pronouns: None | str | Unset = UNSET
     role_assignments: list[ObservationRoleAssignment] | Unset = UNSET
     links: list[ObservationLink] | Unset = UNSET
@@ -144,7 +144,7 @@ class PeopleObservationRequest:
         from ..models.observation_contact_method import ObservationContactMethod
         from ..models.observation_event_item import ObservationEventItem
         from ..models.observation_link import ObservationLink
-        from ..models.observation_name import ObservationName
+        from ..models.observation_person_name import ObservationPersonName
         from ..models.observation_role_assignment import ObservationRoleAssignment
 
         d = dict(src_dict)
@@ -153,11 +153,11 @@ class PeopleObservationRequest:
         identifier_value = d.pop("identifier_value")
 
         _names = d.pop("names", UNSET)
-        names: list[ObservationName] | Unset = UNSET
+        names: list[ObservationPersonName] | Unset = UNSET
         if _names is not UNSET:
             names = []
             for names_item_data in _names:
-                names_item = ObservationName.from_dict(names_item_data)
+                names_item = ObservationPersonName.from_dict(names_item_data)
 
                 names.append(names_item)
 

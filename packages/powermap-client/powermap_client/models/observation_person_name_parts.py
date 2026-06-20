@@ -6,14 +6,16 @@ from typing import Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..models.observation_name_parts_primary_identifier_type_0 import ObservationNamePartsPrimaryIdentifierType0
+from ..models.observation_person_name_parts_primary_identifier_type_0 import (
+    ObservationPersonNamePartsPrimaryIdentifierType0,
+)
 from ..types import UNSET, Unset
 
-T = TypeVar("T", bound="ObservationNameParts")
+T = TypeVar("T", bound="ObservationPersonNameParts")
 
 
 @_attrs_define
-class ObservationNameParts:
+class ObservationPersonNameParts:
     """Structured name parts supplied by upstream source (pre-parsed, not auto-decomposed).
 
     Attributes:
@@ -22,7 +24,7 @@ class ObservationNameParts:
         additional_names (list[str] | Unset):
         honorific_prefix (None | str | Unset):
         honorific_suffix (None | str | Unset):
-        primary_identifier (None | ObservationNamePartsPrimaryIdentifierType0 | Unset):
+        primary_identifier (None | ObservationPersonNamePartsPrimaryIdentifierType0 | Unset):
     """
 
     given_names: list[str] | Unset = UNSET
@@ -30,7 +32,7 @@ class ObservationNameParts:
     additional_names: list[str] | Unset = UNSET
     honorific_prefix: None | str | Unset = UNSET
     honorific_suffix: None | str | Unset = UNSET
-    primary_identifier: None | ObservationNamePartsPrimaryIdentifierType0 | Unset = UNSET
+    primary_identifier: None | ObservationPersonNamePartsPrimaryIdentifierType0 | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -61,7 +63,7 @@ class ObservationNameParts:
         primary_identifier: None | str | Unset
         if isinstance(self.primary_identifier, Unset):
             primary_identifier = UNSET
-        elif isinstance(self.primary_identifier, ObservationNamePartsPrimaryIdentifierType0):
+        elif isinstance(self.primary_identifier, ObservationPersonNamePartsPrimaryIdentifierType0):
             primary_identifier = self.primary_identifier.value
         else:
             primary_identifier = self.primary_identifier
@@ -111,7 +113,7 @@ class ObservationNameParts:
 
         honorific_suffix = _parse_honorific_suffix(d.pop("honorific_suffix", UNSET))
 
-        def _parse_primary_identifier(data: object) -> None | ObservationNamePartsPrimaryIdentifierType0 | Unset:
+        def _parse_primary_identifier(data: object) -> None | ObservationPersonNamePartsPrimaryIdentifierType0 | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
@@ -119,16 +121,16 @@ class ObservationNameParts:
             try:
                 if not isinstance(data, str):
                     raise TypeError()
-                primary_identifier_type_0 = ObservationNamePartsPrimaryIdentifierType0(data)
+                primary_identifier_type_0 = ObservationPersonNamePartsPrimaryIdentifierType0(data)
 
                 return primary_identifier_type_0
             except (TypeError, ValueError, AttributeError, KeyError):
                 pass
-            return cast(None | ObservationNamePartsPrimaryIdentifierType0 | Unset, data)
+            return cast(None | ObservationPersonNamePartsPrimaryIdentifierType0 | Unset, data)
 
         primary_identifier = _parse_primary_identifier(d.pop("primary_identifier", UNSET))
 
-        observation_name_parts = cls(
+        observation_person_name_parts = cls(
             given_names=given_names,
             family_names=family_names,
             additional_names=additional_names,
@@ -137,8 +139,8 @@ class ObservationNameParts:
             primary_identifier=primary_identifier,
         )
 
-        observation_name_parts.additional_properties = d
-        return observation_name_parts
+        observation_person_name_parts.additional_properties = d
+        return observation_person_name_parts
 
     @property
     def additional_keys(self) -> list[str]:

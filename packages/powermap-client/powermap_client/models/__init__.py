@@ -206,6 +206,7 @@ from .link_type import LinkType
 from .link_types_response import LinkTypesResponse
 from .list_jurisdiction_relationships_direction import ListJurisdictionRelationshipsDirection
 from .list_subscriptions_entity_type_type_0 import ListSubscriptionsEntityTypeType0
+from .observation_acronym import ObservationAcronym
 from .observation_additional_identifier import ObservationAdditionalIdentifier
 from .observation_address import ObservationAddress
 from .observation_address_address_type import ObservationAddressAddressType
@@ -216,10 +217,12 @@ from .observation_event_item_linked_entity_type_type_0 import ObservationEventIt
 from .observation_event_item_visibility import ObservationEventItemVisibility
 from .observation_jurisdiction_affiliation import ObservationJurisdictionAffiliation
 from .observation_link import ObservationLink
-from .observation_name import ObservationName
-from .observation_name_name_type import ObservationNameNameType
-from .observation_name_parts import ObservationNameParts
-from .observation_name_parts_primary_identifier_type_0 import ObservationNamePartsPrimaryIdentifierType0
+from .observation_org_name import ObservationOrgName
+from .observation_org_name_name_type import ObservationOrgNameNameType
+from .observation_person_name import ObservationPersonName
+from .observation_person_name_name_type import ObservationPersonNameNameType
+from .observation_person_name_parts import ObservationPersonNameParts
+from .observation_person_name_parts_primary_identifier_type_0 import ObservationPersonNamePartsPrimaryIdentifierType0
 from .observation_response import ObservationResponse
 from .observation_response_entity_type_type_0 import ObservationResponseEntityTypeType0
 from .observation_role_assignment import ObservationRoleAssignment
@@ -374,6 +377,7 @@ __all__ = (
     "LinkTypesResponse",
     "ListJurisdictionRelationshipsDirection",
     "ListSubscriptionsEntityTypeType0",
+    "ObservationAcronym",
     "ObservationAdditionalIdentifier",
     "ObservationAddress",
     "ObservationAddressAddressType",
@@ -384,10 +388,12 @@ __all__ = (
     "ObservationEventItemVisibility",
     "ObservationJurisdictionAffiliation",
     "ObservationLink",
-    "ObservationName",
-    "ObservationNameNameType",
-    "ObservationNameParts",
-    "ObservationNamePartsPrimaryIdentifierType0",
+    "ObservationOrgName",
+    "ObservationOrgNameNameType",
+    "ObservationPersonName",
+    "ObservationPersonNameNameType",
+    "ObservationPersonNameParts",
+    "ObservationPersonNamePartsPrimaryIdentifierType0",
     "ObservationResponse",
     "ObservationResponseEntityTypeType0",
     "ObservationRoleAssignment",

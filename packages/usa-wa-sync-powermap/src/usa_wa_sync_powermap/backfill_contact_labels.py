@@ -34,12 +34,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_domain_legislative.identity import Organization
+from clearinghouse_sync_powermap.client import DeliveryBlockedError, PayloadRejectedError
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
+from clearinghouse_sync_powermap.engine import TRANSIENT_EXCEPTIONS
 from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
 
 logger = get_logger(__name__)
+
+#: Source whose orgs carry WSL-sourced phones — the only producer of contact rows
+#: today. Scopes the cohort so a future phone-bearing source isn't swept in silently.
+_SOURCE = "usa_wa_legislature"
+#: Per-row delivery failures that must not abort the whole one-off run: transport
+#: blips (retry next run) and a permanent auth block. A ``PayloadRejectedError`` is
+#: caught separately and counted as a ``rejected`` outcome. Anything else (a bug in
+#: payload construction) propagates — the engine's stance: never mask a real bug.
+_DELIVERY_FAILURES = (*TRANSIENT_EXCEPTIONS, DeliveryBlockedError)
 
 
 async def backfill_contact_labels(
@@ -51,31 +62,73 @@ async def backfill_contact_labels(
 ) -> dict:
     """Re-observe every produced org that holds a phone so PM adopts the new label.
 
-    Selects the contact-bearing cohort (``phone IS NOT NULL``), builds each row's
-    observation through ``descriptor`` (enrich when anchored, else full observe),
-    and posts it. On an anchoring disposition the anchor is (re)written — a no-op
-    for already-anchored rows, but it captures one for a previously-unanchored row.
-    Returns a JSON-able summary; ``dry_run`` counts the cohort without posting.
+    Selects the contact-bearing WSL cohort (``source == usa_wa_legislature`` AND
+    ``phone IS NOT NULL``), builds each row's observation through ``descriptor``
+    (enrich when anchored, else full observe), and posts it. A previously-unanchored
+    row that PM anchors has its anchor captured; an already-anchored row is left
+    untouched. Each row is isolated: a per-row delivery failure (transport/auth) or
+    a PM rejection is counted and skipped, never aborting the run — bugs still
+    propagate. Returns a JSON-able outcome breakdown that sums to ``scanned``;
+    ``dry_run`` counts the cohort without posting (and needs no client).
     """
     rows = (
-        (await session.execute(select(Organization).where(Organization.phone.is_not(None))))
+        (
+            await session.execute(
+                select(Organization).where(
+                    Organization.source == _SOURCE, Organization.phone.is_not(None)
+                )
+            )
+        )
         .scalars()
         .all()
     )
-    submitted = 0
-    anchored = 0
+    summary = {
+        "scanned": len(rows),
+        "accepted": 0,
+        "rejected": 0,
+        "failed": 0,
+        "skipped": 0,
+        "dry_run": dry_run,
+    }
+    if dry_run:
+        return summary
     for row in rows:
-        if dry_run:
+        if not await descriptor.dependencies_ready(session, row):
+            # A PM prerequisite (e.g. parent org) isn't anchored — the same gate the
+            # engine enforces before delivery. Skip rather than post a malformed obs.
+            summary["skipped"] += 1
+            logger.warning("contact_label_backfill_skipped", extra={"source_id": row.source_id})
             continue
         if descriptor.anchor_value(row) is not None:
             payload = await descriptor.to_enrich_observation(session, row)
         else:
             payload = await descriptor.to_observation(session, row)
-        result = await client.post_observation(descriptor.observe_path, payload)
-        submitted += 1
+        try:
+            result = await client.post_observation(descriptor.observe_path, payload)
+        except PayloadRejectedError as exc:
+            summary["rejected"] += 1
+            logger.warning(
+                "contact_label_backfill_rejected",
+                extra={"source_id": row.source_id, "error": str(exc)},
+            )
+            continue
+        except _DELIVERY_FAILURES as exc:
+            summary["failed"] += 1
+            logger.warning(
+                "contact_label_backfill_failed",
+                extra={"source_id": row.source_id, "error": repr(exc)},
+            )
+            continue
         if result.anchored:
-            descriptor.set_anchor(row, result.pm_id)
-            anchored += 1
+            summary["accepted"] += 1
+            if descriptor.anchor_value(row) is None:
+                # Capture the anchor only for a genuinely new row; never re-point an
+                # existing anchor (PM echoes the same id for an enrich re-observe).
+                descriptor.set_anchor(row, result.pm_id)
+        elif result.rejected:
+            summary["rejected"] += 1
+        else:
+            summary["failed"] += 1
         logger.info(
             "contact_label_backfill_submitted",
             extra={
@@ -84,12 +137,7 @@ async def backfill_contact_labels(
                 "anchored": result.anchored,
             },
         )
-    return {
-        "scanned": len(rows),
-        "submitted": submitted,
-        "anchored": anchored,
-        "dry_run": dry_run,
-    }
+    return summary
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -106,19 +154,22 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 async def _run(dry_run: bool) -> dict:
-    """Open a session + PM client, run the backfill, and commit any anchor writes."""
+    """Open a session (+ PM client when submitting), run the backfill, and commit
+    any anchor writes. A ``dry_run`` reads only — no client is constructed."""
     settings = get_sidecar_settings()
-    if not dry_run and not settings.powermap_api_key:
-        raise RuntimeError("POWERMAP_API_KEY is not set — required to submit observations.")
     factory = get_session_factory()
+    if dry_run:
+        async with factory() as session:
+            return await backfill_contact_labels(
+                session, OrganizationDescriptor(), None, dry_run=True
+            )
+    if not settings.powermap_api_key:
+        raise RuntimeError("POWERMAP_API_KEY is not set — required to submit observations.")
     client = GeneratedPowerMapClient(settings.powermap_base_url, settings.powermap_api_key)
     try:
         async with factory() as session:
-            result = await backfill_contact_labels(
-                session, OrganizationDescriptor(), client, dry_run=dry_run
-            )
-            if not dry_run:
-                await session.commit()
+            result = await backfill_contact_labels(session, OrganizationDescriptor(), client)
+            await session.commit()
             return result
     finally:
         await client.aclose()

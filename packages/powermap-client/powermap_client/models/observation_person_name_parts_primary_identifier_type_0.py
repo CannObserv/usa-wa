@@ -1,7 +1,7 @@
 from enum import Enum
 
 
-class ObservationNamePartsPrimaryIdentifierType0(str, Enum):
+class ObservationPersonNamePartsPrimaryIdentifierType0(str, Enum):
     FAMILY = "family"
     GIVEN = "given"
     MONONYM = "mononym"
