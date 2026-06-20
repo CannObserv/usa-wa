@@ -58,6 +58,9 @@ async def _add_org(
 
 def test_identifier_type_for_maps_source_and_org_type():
     assert identifier_type_for("usa_wa_legislature", "chamber") == "org_wa_legislature_chamber"
+    # The legislature anchor gets its own type — not the committee type it formerly
+    # fell through to (#33; the mismodeling surfaced while diagnosing #29).
+    assert identifier_type_for("usa_wa_legislature", "legislature") == "org_wa_legislature"
     assert (
         identifier_type_for("usa_wa_legislature", "committee") == "org_wa_legislature_committee_id"
     )

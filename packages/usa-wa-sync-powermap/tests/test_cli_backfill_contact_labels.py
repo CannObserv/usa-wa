@@ -53,6 +53,23 @@ async def _add_phone_org(db_session, *, source_id, anchor):
     return row
 
 
+async def _add_acronym_only_org(db_session, *, source_id, anchor):
+    """A committee that carries an acronym but no phone — outside the original
+    phone-only cohort, still needing the object-shape acronym re-observe (#33)."""
+    row = Organization(
+        source="usa_wa_legislature",
+        source_id=source_id,
+        name=f"Org {source_id}",
+        org_type="committee",
+        acronym="AGNR",
+        phone=None,
+        pm_organization_id=anchor,
+    )
+    db_session.add(row)
+    await db_session.flush()
+    return row
+
+
 # --- parser -------------------------------------------------------------------
 
 
@@ -83,6 +100,19 @@ async def test_run_dry_run_counts_without_submitting(monkeypatch, db_session, us
         "skipped": 0,
         "dry_run": True,
     }
+
+
+async def test_dry_run_includes_acronym_only_org(monkeypatch, db_session, usa_wa):
+    """Cohort covers an acronym-bearing org with no phone (#33): the #31 object-shape
+    acronym fix only reaches already-anchored committees via a re-observe, and 4 WA
+    committees carry an acronym but no phone — phone-only filtering would strand them."""
+    await _add_acronym_only_org(db_session, source_id="A-1", anchor=ULID())
+    _patch_factory(monkeypatch, db_session)
+    _patch_settings(monkeypatch, api_key="")
+
+    result = await cli._run(dry_run=True)
+
+    assert result["scanned"] == 1
 
 
 async def test_run_requires_api_key_when_submitting(monkeypatch, db_session):

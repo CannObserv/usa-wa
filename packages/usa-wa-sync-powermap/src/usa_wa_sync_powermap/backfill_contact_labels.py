@@ -1,11 +1,15 @@
-"""One-off backfill: re-observe produced orgs so PM picks up phone ``display_label``.
+"""One-off backfill: re-observe produced orgs so PM picks up phone ``display_label``
+and object-shape ``org_acronyms``.
 
 The first org-observation run (2026-06-19) submitted 30 committee phones with no
-``display_label`` (usa-wa#31). ``to_observation``/``to_enrich_observation`` now
-synthesize a label, but only *future* observations carry it — the phone value
-itself is unchanged, so neither the feed nor the sweep re-emits the already-anchored
-rows. This backfill closes that gap with a one-off re-observation of every produced
-org that holds a phone, exercising PM's round-trip update path:
+``display_label`` (usa-wa#31) and 34 acronyms in the bare-string shape PM 422-rejects.
+``to_observation``/``to_enrich_observation`` now synthesize a label and emit the
+``{acronym}`` object, but only *future* observations carry the fix — the underlying
+phone/acronym values are unchanged, so neither the feed nor the sweep re-emits the
+already-anchored rows (and ``needs_enrich`` gates on identifier presence, which the
+committees already have, so the enrich never re-fires). This backfill closes that gap
+with a one-off re-observation of every produced org that holds a phone **or** an
+acronym (#33), exercising PM's round-trip update path:
 
 - anchored rows → the enrich observation (keyed by ``pm_org_id``);
 - a produced-but-unanchored row → the full observe payload (identifier-keyed).
@@ -28,7 +32,7 @@ import json
 import sys
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.database import get_session_factory
@@ -62,10 +66,12 @@ async def backfill_contact_labels(
     *,
     dry_run: bool = False,
 ) -> dict:
-    """Re-observe every produced org that holds a phone so PM adopts the new label.
+    """Re-observe every produced org that holds a phone or acronym so PM adopts the
+    new label and the object-shape acronym.
 
-    Selects the contact-bearing WSL cohort (``source == usa_wa_legislature`` AND
-    ``phone IS NOT NULL``), builds each row's observation through ``descriptor``
+    Selects the WSL cohort (``source == usa_wa_legislature`` AND
+    (``phone IS NOT NULL`` OR ``acronym IS NOT NULL``)), builds each row's observation
+    through ``descriptor``
     (enrich when anchored, else full observe), and posts it. A previously-unanchored
     row that PM anchors has its anchor captured; an already-anchored row is left
     untouched. Each row is isolated: a transport blip or a PM rejection is counted
@@ -78,7 +84,8 @@ async def backfill_contact_labels(
         (
             await session.execute(
                 select(Organization).where(
-                    Organization.source == _SOURCE, Organization.phone.is_not(None)
+                    Organization.source == _SOURCE,
+                    or_(Organization.phone.is_not(None), Organization.acronym.is_not(None)),
                 )
             )
         )

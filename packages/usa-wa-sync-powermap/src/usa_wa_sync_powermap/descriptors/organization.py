@@ -74,6 +74,8 @@ def identifier_type_for(source: str, org_type: str | None) -> str | None:
     if source == "usa_wa_legislature":
         if org_type == "chamber":
             return "org_wa_legislature_chamber"
+        if org_type == "legislature":
+            return "org_wa_legislature"
         return "org_wa_legislature_committee_id"
     if source == "usa_wa_pdc":
         return "org_wa_pdc"
