@@ -139,6 +139,21 @@ def test_main_wires_args_and_prints_json(monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out) == {"scanned": 2, "accepted": 0, "dry_run": True}
 
 
+def test_main_nonzero_exit_on_failures(monkeypatch, capsys):
+    """A run with any rejected/failed rows exits non-zero so $? signals it (#31 #10)."""
+
+    async def _fake_run(dry_run):
+        return {"scanned": 3, "accepted": 1, "rejected": 1, "failed": 1, "dry_run": dry_run}
+
+    monkeypatch.setattr(cli, "_run", _fake_run)
+    monkeypatch.setattr(cli, "configure_logging", lambda: None)
+
+    rc = cli.main([])
+
+    assert rc == 1
+    assert json.loads(capsys.readouterr().out)["failed"] == 1
+
+
 async def test_run_dry_run_leaves_rows_unmutated(monkeypatch, db_session, usa_wa):
     """A dry-run preview does not write an anchor or otherwise touch the rows."""
     await _add_phone_org(db_session, source_id="C-3", anchor=None)

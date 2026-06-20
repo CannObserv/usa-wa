@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_domain_legislative.identity import Organization
-from clearinghouse_sync_powermap.client import DeliveryBlockedError, PayloadRejectedError
+from clearinghouse_sync_powermap.client import PayloadRejectedError
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.engine import TRANSIENT_EXCEPTIONS
 from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
@@ -46,11 +46,13 @@ logger = get_logger(__name__)
 #: Source whose orgs carry WSL-sourced phones — the only producer of contact rows
 #: today. Scopes the cohort so a future phone-bearing source isn't swept in silently.
 _SOURCE = "usa_wa_legislature"
-#: Per-row delivery failures that must not abort the whole one-off run: transport
-#: blips (retry next run) and a permanent auth block. A ``PayloadRejectedError`` is
-#: caught separately and counted as a ``rejected`` outcome. Anything else (a bug in
-#: payload construction) propagates — the engine's stance: never mask a real bug.
-_DELIVERY_FAILURES = (*TRANSIENT_EXCEPTIONS, DeliveryBlockedError)
+#: Per-row delivery failures isolated so one bad row doesn't abort the run: transport
+#: blips (retry on the next run). A ``PayloadRejectedError`` (422) is caught separately
+#: and counted as ``rejected``. A ``DeliveryBlockedError`` (401/403) is deliberately
+#: **not** caught — it's a global credential failure, not a per-row condition, so no
+#: other row will succeed; letting it propagate aborts fast. Bugs propagate too — the
+#: engine's stance: never mask a real bug.
+_DELIVERY_FAILURES = TRANSIENT_EXCEPTIONS
 
 
 async def backfill_contact_labels(
@@ -66,10 +68,11 @@ async def backfill_contact_labels(
     ``phone IS NOT NULL``), builds each row's observation through ``descriptor``
     (enrich when anchored, else full observe), and posts it. A previously-unanchored
     row that PM anchors has its anchor captured; an already-anchored row is left
-    untouched. Each row is isolated: a per-row delivery failure (transport/auth) or
-    a PM rejection is counted and skipped, never aborting the run — bugs still
-    propagate. Returns a JSON-able outcome breakdown that sums to ``scanned``;
-    ``dry_run`` counts the cohort without posting (and needs no client).
+    untouched. Each row is isolated: a transport blip or a PM rejection is counted
+    and skipped, never aborting the run. A global auth block (``DeliveryBlockedError``)
+    and real bugs propagate — no point posting every remaining row to a dead endpoint.
+    Returns a JSON-able outcome breakdown that sums to ``scanned``; ``dry_run`` counts
+    the cohort without posting (and needs no client).
     """
     rows = (
         (
@@ -176,13 +179,18 @@ async def _run(dry_run: bool) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Parse args, run the backfill, and print the summary as JSON. Returns exit code."""
+    """Parse args, run the backfill, and print the summary as JSON.
+
+    Returns a non-zero exit code when any row was rejected or failed, so an operator
+    scripting the command (or reading ``$?``) sees a partial/total failure without
+    parsing the JSON body. A clean or dry run exits 0.
+    """
     configure_logging()
     args = _build_parser().parse_args(argv)
     result = asyncio.run(_run(args.dry_run))
     json.dump(result, sys.stdout)
     sys.stdout.write("\n")
-    return 0
+    return 1 if result.get("rejected", 0) or result.get("failed", 0) else 0
 
 
 if __name__ == "__main__":  # pragma: no cover

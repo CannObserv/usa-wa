@@ -16,6 +16,7 @@ from ulid import ULID
 
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_sync_powermap.client import (
+    DeliveryBlockedError,
     ObservationResult,
     PayloadRejectedError,
     RetryableClientError,
@@ -186,8 +187,8 @@ async def test_backfill_counts_rejected_disposition(db_session, usa_wa):
 
 
 async def test_backfill_isolates_delivery_failure_and_continues(db_session, usa_wa):
-    """A per-row delivery failure (transient/auth/payload) is counted and skipped — it
-    must not abort the run, so a later healthy row still delivers (#31 CR finding 1)."""
+    """A per-row transport blip is counted as failed and skipped — it must not abort
+    the run, so a later healthy row still delivers (#31 CR finding 1)."""
     bad_anchor, good_anchor = ULID(), ULID()
     await _add_org(
         db_session, source_id="C-A", name="Bad Row", phone="(360) 786-3333", anchor=bad_anchor
@@ -234,6 +235,40 @@ async def test_backfill_payload_rejection_is_isolated(db_session, usa_wa):
         "skipped": 0,
         "dry_run": False,
     }
+
+
+async def test_backfill_auth_block_aborts_run(db_session, usa_wa):
+    """A ``DeliveryBlockedError`` (401/403) is a global credential failure, not a
+    per-row condition — it propagates and aborts rather than failing every row
+    against a dead endpoint (#31 CR round-2 finding 11)."""
+
+    def _blocked(_payload):
+        raise DeliveryBlockedError("PM 403 Insufficient scope")
+
+    await _add_org(
+        db_session, source_id="C-9", name="Blocked", phone="(360) 786-8888", anchor=ULID()
+    )
+    client = FakeClient(observation_result=_blocked)
+
+    with pytest.raises(DeliveryBlockedError):
+        await backfill_contact_labels(db_session, OrganizationDescriptor(), client)
+
+
+async def test_backfill_counts_unexpected_disposition(db_session, usa_wa):
+    """A result that is neither anchoring nor rejected (e.g. an id-less non-rejected
+    disposition) is counted as failed, never silently dropped (#31 CR round-2 #12)."""
+
+    def _weird(_payload):
+        return ObservationResult(disposition="new", pm_id=None, raw={})
+
+    await _add_org(db_session, source_id="C-W", name="Weird", phone="(360) 786-1212", anchor=ULID())
+    client = FakeClient(observation_result=_weird)
+
+    summary = await backfill_contact_labels(db_session, OrganizationDescriptor(), client)
+
+    assert summary["accepted"] == 0
+    assert summary["rejected"] == 0
+    assert summary["failed"] == 1
 
 
 async def test_backfill_propagates_unexpected_bug(db_session, usa_wa):
