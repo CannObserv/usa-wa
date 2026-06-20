@@ -16,7 +16,7 @@ from sqlalchemy import select
 from ulid import ULID
 
 from clearinghouse_domain_legislative.identity import Organization
-from clearinghouse_sync_powermap.client import ObservationResult
+from clearinghouse_sync_powermap.client import DeliveryBlockedError, ObservationResult
 from clearinghouse_sync_powermap.models import DISPOSITION_AUTO_ATTACHED
 from usa_wa_sync_powermap import backfill_contact_labels as cli
 
@@ -152,6 +152,23 @@ def test_main_nonzero_exit_on_failures(monkeypatch, capsys):
 
     assert rc == 1
     assert json.loads(capsys.readouterr().out)["failed"] == 1
+
+
+def test_main_auth_block_exits_distinct_code(monkeypatch, capsys):
+    """A global auth block surfaces as a one-line diagnostic + exit 2, not a traceback
+    (#31 CR round-3 finding 13)."""
+
+    async def _fake_run(dry_run):
+        raise DeliveryBlockedError("PM 403 Insufficient scope")
+
+    monkeypatch.setattr(cli, "_run", _fake_run)
+    monkeypatch.setattr(cli, "configure_logging", lambda: None)
+
+    rc = cli.main([])
+
+    assert rc == 2
+    body = json.loads(capsys.readouterr().out)
+    assert body["error"].startswith("delivery blocked")
 
 
 async def test_run_dry_run_leaves_rows_unmutated(monkeypatch, db_session, usa_wa):

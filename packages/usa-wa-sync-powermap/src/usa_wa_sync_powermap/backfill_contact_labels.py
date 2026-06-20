@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_domain_legislative.identity import Organization
-from clearinghouse_sync_powermap.client import PayloadRejectedError
+from clearinghouse_sync_powermap.client import DeliveryBlockedError, PayloadRejectedError
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.engine import TRANSIENT_EXCEPTIONS
 from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
@@ -181,13 +181,20 @@ async def _run(dry_run: bool) -> dict:
 def main(argv: list[str] | None = None) -> int:
     """Parse args, run the backfill, and print the summary as JSON.
 
-    Returns a non-zero exit code when any row was rejected or failed, so an operator
-    scripting the command (or reading ``$?``) sees a partial/total failure without
-    parsing the JSON body. A clean or dry run exits 0.
+    Exit codes: ``0`` clean (or dry-run); ``1`` some rows rejected/failed; ``2`` a
+    global auth block (``DeliveryBlockedError``) aborted the run — reported as a
+    one-line diagnostic instead of a raw traceback, so the JSON contract holds.
     """
     configure_logging()
     args = _build_parser().parse_args(argv)
-    result = asyncio.run(_run(args.dry_run))
+    try:
+        result = asyncio.run(_run(args.dry_run))
+    except DeliveryBlockedError as exc:
+        json.dump(
+            {"error": "delivery blocked — check POWERMAP_API_KEY", "detail": str(exc)}, sys.stdout
+        )
+        sys.stdout.write("\n")
+        return 2
     json.dump(result, sys.stdout)
     sys.stdout.write("\n")
     return 1 if result.get("rejected", 0) or result.get("failed", 0) else 0
