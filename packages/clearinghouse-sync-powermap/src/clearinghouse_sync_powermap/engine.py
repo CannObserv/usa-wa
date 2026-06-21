@@ -235,13 +235,30 @@ class SyncEngine:
                 # Enrich-on-match (#198): PM matched an identifier-less record by
                 # name — push our identifiers/names onto it so it gains the data
                 # we hold and future syncs match by identifier.
-                if descriptor.enrich_identifier_type and await descriptor.needs_enrich(record, row):
-                    await self._enqueue(session, descriptor, row, OP_ENRICH)
+                await self._maybe_enqueue_enrich(session, descriptor, record, row)
             else:
                 # Matched but detail fetch failed — still capture the anchor.
                 descriptor.set_anchor(row, pm_id)
             return False
         return await self._enqueue(session, descriptor, row, OP_CREATE) is not None
+
+    async def _maybe_enqueue_enrich(
+        self, session: AsyncSession, descriptor: EntityDescriptor, record: dict, row
+    ) -> None:
+        """Enqueue an ENRICH for an anchored row whose PM ``record`` lacks data it
+        holds (enrich-on-match #198; re-enrich on drift #34).
+
+        Shared by the un-anchored sweep (first match) and the anchored-cohort
+        reconcile (re-evaluation), so a held identifier that changes after anchoring
+        — e.g. the #33 legislature anchor-type switch — self-heals on the next
+        reconcile instead of needing a manual re-observe. No-op unless the descriptor
+        opts into enrichment (:attr:`enrich_identifier_type`). Idempotent: the
+        :meth:`_enqueue` blocking-status guard suppresses a duplicate while an entry
+        for this row is still open, and once delivered PM holds the data so
+        :meth:`needs_enrich` returns False — no write-back loop.
+        """
+        if descriptor.enrich_identifier_type and await descriptor.needs_enrich(record, row):
+            await self._enqueue(session, descriptor, row, OP_ENRICH)
 
     # --- outbox worker --------------------------------------------------------
 
@@ -766,6 +783,10 @@ class SyncEngine:
                     # PM record gone (404) between anchor and pass — skip, not fatal.
                     continue
                 await self.apply_record(session, descriptor, record)
+                # Re-evaluate enrichment for the anchored row (#34 trigger gap): a
+                # held identifier/carry-field that changed after anchoring re-enqueues
+                # an ENRICH here rather than waiting on a manual backfill re-observe.
+                await self._maybe_enqueue_enrich(session, descriptor, record, row)
                 applied += 1
             if commit is not None:
                 # Bound the open transaction to one page of PM round-trips (#13 CR).

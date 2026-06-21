@@ -14,7 +14,13 @@ from clearinghouse_sync_powermap.engine import (
     MAX_RECONCILE_PAGES,
     SyncEngine,
 )
-from clearinghouse_sync_powermap.models import OP_UPDATE, STATUS_PENDING, OutboxEntry, SyncState
+from clearinghouse_sync_powermap.models import (
+    OP_ENRICH,
+    OP_UPDATE,
+    STATUS_PENDING,
+    OutboxEntry,
+    SyncState,
+)
 from clearinghouse_sync_powermap.testing import FakeClient, FakeDescriptor, FakeEntity
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
@@ -430,6 +436,81 @@ async def test_anchored_cohort_skips_missing_pm_record(db_session):
     assert applied == 0
     assert row.name == "Keep"
     assert client.fetched == [("/api/v1/fakes", pm_id)]
+
+
+# --- anchored-cohort re-enrich (trigger gap, #34) ----------------------------
+
+
+class CohortEnrichDescriptor(CohortDescriptor):
+    """A cohort producer that also enriches: when the anchored-cohort backstop
+    re-fetches OUR row and PM's record lacks an identifier we hold, the reconcile
+    must re-enqueue an ENRICH so the change self-heals (the #34 trigger gap). Here
+    ``needs_enrich`` is True iff PM carries no identifiers at all."""
+
+    enrich_identifier_type = "pm_fake_id"
+
+    async def needs_enrich(self, record, row):  # noqa: ARG002
+        return not record.get("identifiers")
+
+
+# PM newer than the local clock (the reconcile steady state — local adopted PM's
+# clock on the prior pass), so apply_record takes the PM-wins branch and never
+# enqueues an UPDATE. This isolates the re-enrich trigger from the LWW write-back.
+_PM_NEWER = "2050-01-01T00:00:00Z"
+
+
+def _record_with_identifier(source_id, name, *, pm_id, updated_at=_PM_NEWER):
+    rec = _record(source_id, name, pm_id=pm_id, updated_at=updated_at)
+    rec["identifiers"] = [{"type_slug": "pm_fake_id", "value": str(pm_id)}]
+    return rec
+
+
+async def test_anchored_cohort_enqueues_enrich_when_identifier_missing(db_session):
+    """An anchored row whose PM record lacks our identifier → the cohort backstop
+    enqueues an ENRICH (closes the #34 trigger gap: identifier-level changes such as
+    the #33 legislature anchor-type switch self-heal on the next reconcile)."""
+    pm_id = ULID()
+    await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortEnrichDescriptor()
+    client = FakeClient(entities={pm_id: _record("x", "X", pm_id=pm_id, updated_at=_PM_NEWER)})
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert entry.op == OP_ENRICH
+
+
+async def test_anchored_cohort_no_enrich_when_identifier_present(db_session):
+    """PM's record already holds our identifier → needs_enrich False → no ENRICH.
+    This is also the convergence guarantee: once a prior enrich lands, the next
+    reconcile is a no-op (no write-back loop)."""
+    pm_id = ULID()
+    await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortEnrichDescriptor()
+    client = FakeClient(entities={pm_id: _record_with_identifier("x", "X", pm_id=pm_id)})
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert (await db_session.execute(select(OutboxEntry))).scalars().all() == []
+
+
+async def test_anchored_cohort_enrich_is_idempotent_across_cycles(db_session):
+    """Re-running the cohort backstop while the ENRICH is still PENDING must not
+    mint a second entry — the _enqueue blocking-status guard dedups."""
+    pm_id = ULID()
+    await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortEnrichDescriptor()
+    client = FakeClient(entities={pm_id: _record("x", "X", pm_id=pm_id, updated_at=_PM_NEWER)})
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    entries = (await db_session.execute(select(OutboxEntry))).scalars().all()
+    assert len(entries) == 1
+    assert entries[0].op == OP_ENRICH
 
 
 # --- full_list reconcile page bound (sibling firehose guard, #6) -------------
