@@ -1,7 +1,7 @@
 ---
 title: Re-enrich already-anchored rows when held identifiers / carry-fields change (#34)
 date: 2026-06-21
-status: draft
+status: done
 ---
 
 # Re-enrich already-anchored rows (#34)
@@ -40,7 +40,7 @@ Two phases, shipped separately.
 5. **(RED)** Test the carry-payload hash: stable input → stable hash; a changed acronym shape / added carry field / added `contact_methods` label → changed hash. Pure-function test, no DB.
 6. Add a sync-schema model `EnrichFingerprint` (`entity_type`, `local_id`, `payload_hash`, timestamps; unique on `(entity_type, local_id)`) plus a nullable `payload_hash` column on `OutboxEntry`, in `clearinghouse_sync_powermap/models.py`; autogenerate the alembic migration; add the schema to `scripts/grants.sql` if it introduces a new schema.
 7. **(RED→GREEN)** Add `needs_reenrich(session, descriptor, row)` (or an engine helper): compute current `to_enrich_observation` hash, compare to the stored fingerprint, return True on mismatch (or no stored row). Wire it into `_maybe_enqueue_enrich` alongside the identifier check (enqueue `OP_ENRICH` if either fires). When enqueuing an `OP_ENRICH` entry, **stamp the computed hash onto the `OutboxEntry.payload_hash`**. Test: changed carry shape on an anchored row → enrich enqueued with the hash stamped.
-8. **(GREEN)** On enrich delivery success (the `_deliver` settle path for `OP_ENRICH`), upsert `EnrichFingerprint` from the entry's stamped `payload_hash`. Test: after delivery, the same reconcile no longer enqueues (fingerprint matches); a subsequent carry change re-fires once.
+8. **(GREEN)** On an enrich entry's **terminal PM verdict** (the `_deliver` settle path for `OP_ENRICH` — delivered OR rejected, revised from "success only" to prevent a rejected payload being replayed every reconcile), upsert `EnrichFingerprint` from the entry's stamped `payload_hash`. Not stamped on transient/blocked failures (those retry the same payload). Test: after delivery, the same reconcile no longer enqueues (fingerprint matches); a rejected enrich also stamps (no replay); a subsequent carry change re-fires once.
 9. **(REFACTOR)** Update `backfill_contact_labels` docstring to note it is now a force-push convenience; update `AGENTS.md`/`docs/COMMANDS.md` if the operator story changes. `uv run pytest` + `ruff` green.
 10. Commit Phase 2 (`#34 feat: fingerprint-based carry-field re-enrich`), then run the migrate oneshot + restart the sidecar per the runbook.
 
