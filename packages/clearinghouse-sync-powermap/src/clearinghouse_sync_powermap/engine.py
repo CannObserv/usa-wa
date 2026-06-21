@@ -5,13 +5,57 @@ takes an explicit ``session`` and (where a clock matters) an explicit ``now`` so
 the logic is deterministic and unit-testable. The long-running daemon (step 7)
 owns the loops and the wall clock; this class owns the per-cycle work.
 
-Write path (this module, step 3):
-    sweep_unanchored → enqueue CREATE
-    drain_outbox     → post observations, settle dispositions, back off on transient
-                       error, dead-letter to UNAVAILABLE once the retry cap is
-                       exhausted (or immediately on a permanent auth/scope block),
-                       and park to REJECTED on a permanent payload refusal — a poison
-                       entry parks itself rather than rolling back the whole cycle.
+Sync topology (the whole map, for readers + agents)
+===================================================
+Two directions, bidirectional sync between the local cache and PM. PM is the
+system of record; the local cache is a query-latency mirror we *produce into*.
+
+WRITE path (local → PM) — four triggers, one ledger (:class:`OutboxEntry`),
+one drainer (:meth:`drain_outbox`). At most one OPEN entry per row (partial-
+unique index), so the triggers can never double-queue the same row:
+
+  1. CREATE  — :meth:`sweep_unanchored` finds an un-anchored local row, the
+               :meth:`EntityDescriptor.pm_match` cascade (identifier → name →
+               hierarchy) finds NO PM match → mint a new PM entity.
+  2. ENRICH  — :meth:`sweep_unanchored` matched an identifier-less PM record by
+               *name* (enrich-on-match, power-map#198): adopt PM's anchor, then
+               push our identifier + carry evidence onto it keyed by ``pm_id``.
+  3. UPDATE  — :meth:`apply_record` (read path, below) finds the local row is
+               strictly newer than PM under LWW → push our value up. Keyed by
+               our *real* identifier.
+  4. ENRICH  — :meth:`_reconcile_anchored_cohort` re-evaluates an already-
+               anchored row (usa-wa#34): PM lost / never had our identifier
+               (trigger gap), or our carry payload drifted from the last one we
+               sent (detection gap, local fingerprint). Re-attach by ``pm_id``.
+
+  UPDATE vs ENRICH — the only essential overlap: ENRICH's payload is a SUBSET of
+  UPDATE's ``to_observation`` (carry evidence, minus PM-curated parent/affiliations).
+  They differ in KEYING: UPDATE keys by our real identifier — unsafe when PM does
+  not hold it yet (PM mints a duplicate); ENRICH keys by ``pm_id`` and is always
+  safe. So when both would fire for one row, ENRICH supersedes the UPDATE
+  (:meth:`_upgrade_blocking_update_to_enrich`).
+
+READ path (PM → local) — both converge on the single LWW arbiter
+:meth:`apply_record` (PM-newer-or-tie → PM wins; local-newer → keep + maybe
+enqueue an UPDATE), so the clock comparison lives in exactly one place:
+
+  - :meth:`process_feed`            — incremental PRIMARY: PM's changes feed.
+  - :meth:`reconcile` →
+    :meth:`_reconcile_anchored_cohort` — bounded BACKSTOP: re-fetch only OUR
+                                         anchored rows to recover a dropped feed
+                                         event (and, since #34, to re-enrich).
+
+  Enrich re-evaluation lives ONLY on the reconcile backstop, not the feed: the
+  reconcile is the one path that already walks the whole anchored cohort, so a
+  held-identifier change or carry drift self-heals on the reconcile cadence
+  (hourly), not per feed event. Consolidating all three enrich triggers into
+  ``apply_record`` is a tracked simplification (usa-wa#35).
+
+Write-path drain detail (:meth:`drain_outbox`):
+    post observations, settle dispositions, back off on transient error,
+    dead-letter to UNAVAILABLE once the retry cap is exhausted (or immediately on
+    a permanent auth/scope block), and park to REJECTED on a permanent payload
+    refusal — a poison entry parks itself rather than rolling back the whole cycle.
 """
 
 import asyncio
