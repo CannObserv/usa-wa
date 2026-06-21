@@ -566,6 +566,14 @@ def test_enrich_fingerprint_is_stable_and_content_addressed():
     assert enrich_fingerprint(a) != enrich_fingerprint(added)
 
 
+def test_enrich_fingerprint_is_list_order_insensitive():
+    """Carry fields are evidence sets — equal evidence in a different order hashes
+    equally, so a descriptor that emits a list from a set/dict never thrashes (#34)."""
+    a = {"names": [{"name": "X"}, {"name": "Y"}]}
+    b = {"names": [{"name": "Y"}, {"name": "X"}]}
+    assert enrich_fingerprint(a) == enrich_fingerprint(b)
+
+
 async def test_anchored_cohort_reenriches_on_carry_drift(db_session):
     """PM already holds our identifier, but the carry payload we hold drifted from the
     stored fingerprint (a shape fix / added field, #31) → the cohort backstop enqueues
@@ -585,6 +593,28 @@ async def test_anchored_cohort_reenriches_on_carry_drift(db_session):
     assert entry.op == OP_ENRICH
     expected = enrich_fingerprint(await descriptor.to_enrich_observation(db_session, row))
     assert entry.payload_hash == expected
+
+
+async def test_anchored_cohort_upgrades_blocking_update_to_enrich(db_session):
+    """A locally-newer anchored row that ALSO needs enrich: apply_record queues an
+    OP_UPDATE (keyed by our real identifier, which PM lacks → duplicate risk), so the
+    reconcile upgrades that open UPDATE to an ENRICH (attach-by-pm_id) rather than
+    letting the dedup guard silently drop the corrective ENRICH (#34 finding #1)."""
+    pm_id = ULID()
+    # Local NEWER than PM (NOW vs ancient record) → LWW keeps local + enqueues an
+    # OP_UPDATE; PM record carries NO identifier → needs_enrich True.
+    await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortEnrichDescriptor()
+    client = FakeClient(
+        entities={pm_id: _record("x", "X", pm_id=pm_id, updated_at="2000-01-01T00:00:00Z")}
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()  # exactly one open
+    assert entry.op == OP_ENRICH  # upgraded from the blocking UPDATE
+    assert entry.payload_hash is not None
 
 
 async def test_reenrich_converges_after_delivery(db_session):

@@ -1,9 +1,9 @@
 """Durable sync-state models (Postgres schema ``sync``).
 
-Two tables back the engine's at-least-once delivery + incremental-read state.
-They are deployment-agnostic — the ``entity_type`` discriminator is a free
-string resolved against the sibling's descriptor registry, so no concrete
-entity names are baked in here.
+Three tables back the engine's at-least-once delivery, incremental-read state,
+and enrich re-propagation. They are deployment-agnostic — the ``entity_type``
+discriminator is a free string resolved against the sibling's descriptor
+registry, so no concrete entity names are baked in here.
 
 - :class:`OutboxEntry` — the local→PM delivery ledger. One open (``PENDING``)
   row per source row at a time (partial-unique index); the worker re-reads the

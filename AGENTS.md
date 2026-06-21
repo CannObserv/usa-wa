@@ -59,7 +59,7 @@ packages/
       descriptors.py  — EntityDescriptor contract (per-entity sync behaviour; zero usa-wa imports)
       engine.py       — SyncEngine: changes-feed + reconcile reads, LWW, outbox worker, backoff
       client.py       — PowerMapClient Protocol + value types (ObservationResult, ChangePage…)
-      models.py       — sync-schema OutboxEntry + SyncState (durable delivery ledger + feed cursor)
+      models.py       — sync-schema OutboxEntry + SyncState + EnrichFingerprint (delivery ledger + feed cursor + enrich re-propagation stamp)
       testing.py      — shipped test doubles (FakeEntity/Descriptor/Client) for this + sibling tests
       pmclient.py     — GeneratedPowerMapClient: adapts the generated SDK to the PowerMapClient Protocol
   powermap-client/                    — GENERATED OpenAPI client for Power Map (do not hand-edit)

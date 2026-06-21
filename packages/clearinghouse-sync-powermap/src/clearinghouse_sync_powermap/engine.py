@@ -53,15 +53,35 @@ logger = get_logger(__name__)
 CHANGES_STREAM = "changes_feed"
 
 
+def _canonicalize(obj: object) -> object:
+    """Recursively normalise a payload for hashing: sort lists by content so order
+    never affects the hash (dict keys are sorted by the dump step).
+
+    Enrich carry fields are *evidence sets* (names, acronyms, contact methods) —
+    their order carries no meaning, so two payloads holding the same evidence in a
+    different order must hash equally. Sorting list items by their canonical JSON
+    makes the hash robust to a descriptor that builds a carry list from a set/dict
+    iteration (otherwise a nondeterministic order would re-enrich every cycle).
+    """
+    if isinstance(obj, dict):
+        return {k: _canonicalize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        items = [_canonicalize(v) for v in obj]
+        return sorted(items, key=lambda x: json.dumps(x, sort_keys=True, default=str))
+    return obj
+
+
 def enrich_fingerprint(payload: dict) -> str:
     """A stable content hash of an enrich observation payload (#34).
 
-    Canonicalises the payload (sorted keys, compact separators, ``str`` fallback
-    for ULIDs/datetimes) so the hash depends only on content, not key order or
-    Python repr. List order is left as the descriptor emits it — ``to_observation``
-    builds carry fields in a fixed order, so equal evidence hashes equally.
+    Canonicalises the payload (sorted keys + sorted list items, compact separators,
+    ``str`` fallback for ULIDs/datetimes) so the hash depends only on content — not
+    key order, list order, or Python repr. Carry fields are evidence sets, so equal
+    evidence hashes equally regardless of how a descriptor ordered it.
     """
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    canonical = json.dumps(
+        _canonicalize(payload), sort_keys=True, separators=(",", ":"), default=str
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -288,19 +308,57 @@ class SyncEngine:
         hash so the settle path can stamp the fingerprint, after which an unchanged
         payload no longer drifts — no write-back loop. The fingerprint is local (what
         we last sent), so PM curating our evidence away never re-triggers.
+
+        When the identifier is missing but a freshly-queued ``OP_UPDATE`` already
+        blocks the enqueue (the LWW ``KEPT_LOCAL`` path ran first this cycle), the
+        UPDATE is upgraded to an ENRICH: an UPDATE is keyed by our *real* identifier,
+        which PM cannot resolve when it lacks that identifier (duplicate risk),
+        whereas ENRICH attaches by ``pm_id`` and carries the same evidence
+        (carry fields ⊆ ``to_observation``, minus the PM-curated fields we must not
+        re-assert). See finding #1, usa-wa#34.
         """
         if not descriptor.enrich_identifier_type:
             return
+        identifier_missing = await descriptor.needs_enrich(record, row)
+        # Build the payload (and hash) only when it can matter — the sweep happy path
+        # (identifier already present, no drift check) skips this entirely (#34 CR-4).
+        if not identifier_missing and not check_drift:
+            return
         payload = await descriptor.to_enrich_observation(session, row)
         fingerprint = enrich_fingerprint(payload)
-        identifier_missing = await descriptor.needs_enrich(record, row)
         drift = check_drift and await self._enrich_payload_drifted(
             session, descriptor, row, fingerprint
         )
-        if identifier_missing or drift:
-            entry = await self._enqueue(session, descriptor, row, OP_ENRICH)
-            if entry is not None:
-                entry.payload_hash = fingerprint
+        if not (identifier_missing or drift):
+            return
+        entry = await self._enqueue(session, descriptor, row, OP_ENRICH)
+        if entry is not None:
+            entry.payload_hash = fingerprint
+        elif identifier_missing:
+            await self._upgrade_blocking_update_to_enrich(session, descriptor, row, fingerprint)
+
+    async def _upgrade_blocking_update_to_enrich(
+        self, session: AsyncSession, descriptor: EntityDescriptor, row, fingerprint: str
+    ) -> None:
+        """Convert a row's open ``OP_UPDATE`` to an ``OP_ENRICH`` in place (#34, finding #1).
+
+        Called only when the identifier is missing and the enqueue was blocked — i.e.
+        the LWW ``KEPT_LOCAL`` path just queued an UPDATE this cycle. An UPDATE keyed by
+        an identifier PM does not hold risks minting a duplicate; ENRICH attaches by
+        ``pm_id`` instead. Touches only a still-open ``PENDING`` UPDATE — a dead-lettered
+        (``UNAVAILABLE``) entry or an already-``ENRICH`` entry is left untouched.
+        """
+        entry = await session.scalar(
+            select(OutboxEntry).where(
+                OutboxEntry.entity_type == descriptor.entity_type,
+                OutboxEntry.local_id == row.id,
+                OutboxEntry.status == STATUS_PENDING,
+                OutboxEntry.op == OP_UPDATE,
+            )
+        )
+        if entry is not None:
+            entry.op = OP_ENRICH
+            entry.payload_hash = fingerprint
 
     async def _enrich_payload_drifted(
         self, session: AsyncSession, descriptor: EntityDescriptor, row, fingerprint: str
@@ -858,6 +916,12 @@ class SyncEngine:
         once. Unlike the sweep, the anchor is *not* mutated here, so the
         ``anchor IS NOT NULL`` set is stable across pages — but keyset paging by PK
         still gives a deterministic, terminating walk.
+
+        Re-enrich (#34) is evaluated here, not on the changes-feed apply path: this is
+        the single place that re-derives the carry payload for the whole anchored
+        cohort, so a held-identifier change or carry-field drift self-heals on the
+        reconcile cadence (hourly) rather than per feed event. A feed bump alone does
+        not re-enrich — it defers to this backstop (see :meth:`_maybe_enqueue_enrich`).
         """
         anchor_col = descriptor.anchor_column_expr()
         pk_col = descriptor.model.id
