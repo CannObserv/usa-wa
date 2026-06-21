@@ -353,13 +353,17 @@ class SyncEngine:
         payload no longer drifts — no write-back loop. The fingerprint is local (what
         we last sent), so PM curating our evidence away never re-triggers.
 
-        When the identifier is missing but a freshly-queued ``OP_UPDATE`` already
-        blocks the enqueue (the LWW ``KEPT_LOCAL`` path ran first this cycle), the
-        UPDATE is upgraded to an ENRICH: an UPDATE is keyed by our *real* identifier,
-        which PM cannot resolve when it lacks that identifier (duplicate risk),
-        whereas ENRICH attaches by ``pm_id`` and carries the same evidence
-        (carry fields ⊆ ``to_observation``, minus the PM-curated fields we must not
-        re-assert). See finding #1, usa-wa#34.
+        When the identifier is missing but an open ``OP_UPDATE`` already blocks the
+        enqueue (the LWW ``KEPT_LOCAL`` path queued one), the UPDATE is upgraded to an
+        ENRICH: an UPDATE is keyed by our *real* identifier, which PM cannot resolve
+        when it lacks that identifier (duplicate risk), whereas ENRICH attaches by
+        ``pm_id`` and carries the same evidence (carry fields ⊆ ``to_observation``,
+        minus the PM-curated fields we must not re-assert). See finding #1, usa-wa#34.
+
+        Drift-only with a blocking UPDATE is deliberately left as-is (no upgrade): the
+        UPDATE resolves by an identifier PM *holds* (no duplicate risk) and carries a
+        superset of the enrich evidence, so it already conveys the drifted carry —
+        upgrading would only drop the non-carry local fields the UPDATE exists to push.
         """
         if not descriptor.enrich_identifier_type:
             return
@@ -386,11 +390,16 @@ class SyncEngine:
     ) -> None:
         """Convert a row's open ``OP_UPDATE`` to an ``OP_ENRICH`` in place (#34, finding #1).
 
-        Called only when the identifier is missing and the enqueue was blocked — i.e.
-        the LWW ``KEPT_LOCAL`` path just queued an UPDATE this cycle. An UPDATE keyed by
-        an identifier PM does not hold risks minting a duplicate; ENRICH attaches by
-        ``pm_id`` instead. Touches only a still-open ``PENDING`` UPDATE — a dead-lettered
-        (``UNAVAILABLE``) entry or an already-``ENRICH`` entry is left untouched.
+        Called only when the identifier is missing and the enqueue was blocked. The
+        blocking UPDATE is typically the one the LWW ``KEPT_LOCAL`` path queued this
+        cycle, but it may also be an older un-drained UPDATE (a deps-not-ready deferral
+        or a backed-off failed attempt) re-encountered on a later reconcile — either is
+        safe to convert. An UPDATE keyed by an identifier PM does not hold risks minting
+        a duplicate; ENRICH attaches by ``pm_id`` instead. Touches only a still-open
+        ``PENDING`` UPDATE — a dead-lettered (``UNAVAILABLE``) entry or an already-``ENRICH``
+        entry is left untouched. ``attempts``/``next_attempt_at`` are intentionally
+        preserved: an inherited backoff only defers the (now-corrected) delivery by one
+        cycle, not worth a reset.
         """
         entry = await session.scalar(
             select(OutboxEntry).where(
