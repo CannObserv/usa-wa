@@ -14,6 +14,10 @@ entity names are baked in here.
   see ``SyncEngine.redrive_unavailable``).
 - :class:`SyncState` — per-stream cursor + last-reconcile stamp. One row per
   logical stream (e.g. ``changes_feed``, or per-entity reconcile keys).
+- :class:`EnrichFingerprint` — the last enrich payload hash delivered (or settled)
+  per source row. The engine re-enriches an already-anchored row when the carry
+  payload it holds drifts from this stamp (#34 detection gap), so a payload-shape
+  correction reaches the existing cohort without a manual backfill.
 """
 
 from datetime import datetime
@@ -100,6 +104,11 @@ class OutboxEntry(Base, TimestampMixin):
     )
     last_disposition: Mapped[str | None] = mapped_column(String(32), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: For ENRICH entries: the carry-payload hash computed at enqueue, copied to
+    #: :class:`EnrichFingerprint` once the entry reaches a terminal PM verdict so a
+    #: re-enrich is not posted again for an unchanged payload (#34). Null for
+    #: CREATE/UPDATE (their re-enqueue is governed by the sweep, not a fingerprint).
+    payload_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class SyncState(Base, TimestampMixin):
@@ -117,3 +126,28 @@ class SyncState(Base, TimestampMixin):
     last_reconcile_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class EnrichFingerprint(Base, TimestampMixin):
+    """The last enrich carry-payload hash settled for one source row (#34).
+
+    The engine stamps this when an ENRICH entry reaches a terminal PM verdict
+    (delivered or rejected). On the next anchored-cohort reconcile the engine
+    rebuilds the row's enrich payload, hashes it, and re-enqueues an ENRICH only
+    when the hash differs from the stored stamp — so a carry-field shape fix or a
+    newly-added carry field propagates to the already-anchored cohort, while an
+    unchanged payload never re-posts (no write-back loop). The stamp is local
+    (what *we* last sent), never a diff against PM's curated record, so PM
+    curating our evidence away does not re-trigger.
+    """
+
+    __tablename__ = "powermap_enrich_fingerprint"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "local_id", name="uq_powermap_enrich_fingerprint_row"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    local_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)

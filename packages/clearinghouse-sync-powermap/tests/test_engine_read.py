@@ -5,7 +5,12 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from ulid import ULID
 
-from clearinghouse_sync_powermap.client import ChangeItem, ChangePage, EntityPage
+from clearinghouse_sync_powermap.client import (
+    ChangeItem,
+    ChangePage,
+    EntityPage,
+    ObservationResult,
+)
 from clearinghouse_sync_powermap.engine import (
     APPLY_KEPT_LOCAL,
     APPLY_SKIPPED,
@@ -13,17 +18,24 @@ from clearinghouse_sync_powermap.engine import (
     CHANGES_STREAM,
     MAX_RECONCILE_PAGES,
     SyncEngine,
+    enrich_fingerprint,
 )
 from clearinghouse_sync_powermap.models import (
+    DISPOSITION_AUTO_ATTACHED,
+    DISPOSITION_REJECTED,
     OP_ENRICH,
     OP_UPDATE,
     STATUS_PENDING,
+    EnrichFingerprint,
     OutboxEntry,
     SyncState,
 )
 from clearinghouse_sync_powermap.testing import FakeClient, FakeDescriptor, FakeEntity
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
+#: Far-future clock for drain calls, so an outbox entry (whose next_attempt_at
+#: server-defaults to the real wall clock at insert) is always past-due.
+FUTURE = datetime(2099, 1, 1, tzinfo=UTC)
 
 
 def _record(source_id, name, *, pm_id=None, updated_at="2050-01-01T00:00:00Z"):
@@ -443,14 +455,37 @@ async def test_anchored_cohort_skips_missing_pm_record(db_session):
 
 class CohortEnrichDescriptor(CohortDescriptor):
     """A cohort producer that also enriches: when the anchored-cohort backstop
-    re-fetches OUR row and PM's record lacks an identifier we hold, the reconcile
-    must re-enqueue an ENRICH so the change self-heals (the #34 trigger gap). Here
-    ``needs_enrich`` is True iff PM carries no identifiers at all."""
+    re-fetches OUR row and PM's record lacks an identifier we hold (``needs_enrich``,
+    #34 trigger gap) or the carry payload we hold drifts (#34 detection gap), the
+    reconcile must re-enqueue an ENRICH so the change self-heals. ``needs_enrich`` is
+    True iff PM carries no identifiers at all; the ``names`` carry field tracks
+    ``row.name`` so a name change drifts the enrich payload."""
 
     enrich_identifier_type = "pm_fake_id"
 
     async def needs_enrich(self, record, row):  # noqa: ARG002
         return not record.get("identifiers")
+
+    async def to_observation(self, session, row):  # noqa: ARG002
+        return {
+            "identifier_type": "fake_real_id",
+            "identifier_value": row.source_id,
+            "names": [{"name": row.name, "name_type": "legal"}],
+        }
+
+
+async def _seed_fingerprint(session, descriptor, row):
+    """Seed the row's current enrich-payload fingerprint, modelling a row already
+    enriched on its current carry payload (so neither #34 trigger fires)."""
+    payload = await descriptor.to_enrich_observation(session, row)
+    session.add(
+        EnrichFingerprint(
+            entity_type=descriptor.entity_type,
+            local_id=row.id,
+            payload_hash=enrich_fingerprint(payload),
+        )
+    )
+    await session.flush()
 
 
 # PM newer than the local clock (the reconcile steady state — local adopted PM's
@@ -481,13 +516,16 @@ async def test_anchored_cohort_enqueues_enrich_when_identifier_missing(db_sessio
     assert entry.op == OP_ENRICH
 
 
-async def test_anchored_cohort_no_enrich_when_identifier_present(db_session):
-    """PM's record already holds our identifier → needs_enrich False → no ENRICH.
-    This is also the convergence guarantee: once a prior enrich lands, the next
-    reconcile is a no-op (no write-back loop)."""
+async def test_anchored_cohort_no_enrich_when_identifier_present_and_fingerprint_current(
+    db_session,
+):
+    """PM holds our identifier (needs_enrich False) AND the row's current enrich
+    payload matches its stored fingerprint (no drift) → no ENRICH. The steady-state
+    convergence guarantee: a fully-propagated row is a reconcile no-op."""
     pm_id = ULID()
-    await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
     descriptor = CohortEnrichDescriptor()
+    await _seed_fingerprint(db_session, descriptor, row)
     client = FakeClient(entities={pm_id: _record_with_identifier("x", "X", pm_id=pm_id)})
     engine = SyncEngine([descriptor], client)
 
@@ -511,6 +549,131 @@ async def test_anchored_cohort_enrich_is_idempotent_across_cycles(db_session):
     entries = (await db_session.execute(select(OutboxEntry))).scalars().all()
     assert len(entries) == 1
     assert entries[0].op == OP_ENRICH
+
+
+# --- carry-field drift re-enrich (detection gap, #34) ------------------------
+
+
+def test_enrich_fingerprint_is_stable_and_content_addressed():
+    """Equal payloads hash equally regardless of key order; a changed carry field
+    (acronym shape fix, added contact label) changes the hash."""
+    a = {"identifier_type": "pm_org_id", "names": [{"name": "X"}]}
+    b = {"names": [{"name": "X"}], "identifier_type": "pm_org_id"}  # reordered keys
+    assert enrich_fingerprint(a) == enrich_fingerprint(b)
+    changed = {"identifier_type": "pm_org_id", "names": [{"name": "Y"}]}
+    assert enrich_fingerprint(a) != enrich_fingerprint(changed)
+    added = {**a, "org_acronyms": [{"acronym": "X"}]}
+    assert enrich_fingerprint(a) != enrich_fingerprint(added)
+
+
+async def test_anchored_cohort_reenriches_on_carry_drift(db_session):
+    """PM already holds our identifier, but the carry payload we hold drifted from the
+    stored fingerprint (a shape fix / added field, #31) → the cohort backstop enqueues
+    an ENRICH stamped with the new hash, even though needs_enrich is False."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="Old", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortEnrichDescriptor()
+    await _seed_fingerprint(db_session, descriptor, row)  # stamp at name "Old"
+    row.name = "New"  # carry payload (names) now drifts from the stamp
+    await db_session.flush()
+    client = FakeClient(entities={pm_id: _record_with_identifier("x", "New", pm_id=pm_id)})
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert entry.op == OP_ENRICH
+    expected = enrich_fingerprint(await descriptor.to_enrich_observation(db_session, row))
+    assert entry.payload_hash == expected
+
+
+async def test_reenrich_converges_after_delivery(db_session):
+    """Full loop: drift → ENRICH enqueued → delivered (fingerprint stamped) → the next
+    reconcile sees the payload match its fingerprint and enqueues nothing. No loop."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortEnrichDescriptor()
+    record = _record_with_identifier("x", "X", pm_id=pm_id)
+    client = FakeClient(
+        entities={pm_id: record},
+        observation_result=ObservationResult(DISPOSITION_AUTO_ATTACHED, pm_id, {}),
+    )
+    engine = SyncEngine([descriptor], client)
+
+    # First reconcile: no fingerprint yet → drift → ENRICH enqueued.
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    assert (await db_session.execute(select(OutboxEntry))).scalar_one().op == OP_ENRICH
+
+    # Deliver it → fingerprint stamped.
+    await engine.drain_outbox(db_session, now=FUTURE)
+    fp = (await db_session.execute(select(EnrichFingerprint))).scalar_one()
+    assert fp.local_id == row.id
+
+    # Second reconcile: payload matches the fingerprint → nothing new enqueued.
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    open_entries = (
+        (await db_session.execute(select(OutboxEntry).where(OutboxEntry.status == STATUS_PENDING)))
+        .scalars()
+        .all()
+    )
+    assert open_entries == []
+
+
+async def test_reenrich_fingerprint_updates_on_redelivery(db_session):
+    """A second drift+delivery updates the existing fingerprint row in place (not a
+    second row), so the stamp always reflects the latest settled payload."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="A", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortEnrichDescriptor()
+    client = FakeClient(
+        entities={pm_id: _record_with_identifier("x", "A", pm_id=pm_id)},
+        observation_result=ObservationResult(DISPOSITION_AUTO_ATTACHED, pm_id, {}),
+    )
+    engine = SyncEngine([descriptor], client)
+
+    # First cycle: enrich payload at name "A" → delivered → fingerprint stamped.
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    await engine.drain_outbox(db_session, now=FUTURE)
+
+    # Drift the carry payload (the engine compares hashes regardless of field
+    # provenance), then a second cycle re-enriches and updates the stamp in place.
+    client._entities[pm_id] = _record_with_identifier("x", "B", pm_id=pm_id)
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    await db_session.refresh(row)
+    await engine.drain_outbox(db_session, now=FUTURE)
+
+    fp = (await db_session.execute(select(EnrichFingerprint))).scalar_one()  # exactly one row
+    expected = enrich_fingerprint(await descriptor.to_enrich_observation(db_session, row))
+    assert fp.payload_hash == expected
+
+
+async def test_enrich_rejection_stamps_fingerprint_to_avoid_replay(db_session):
+    """A rejected ENRICH still stamps the fingerprint (#34): PM gave a terminal verdict
+    on this exact payload, so the reconcile must not re-post the identical payload every
+    cycle. The drift trigger re-arms only when the payload changes."""
+    pm_id = ULID()
+    await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortEnrichDescriptor()
+    record = _record_with_identifier("x", "X", pm_id=pm_id)
+    client = FakeClient(
+        entities={pm_id: record},
+        observation_result=ObservationResult(DISPOSITION_REJECTED, None, {"reason": "bad"}),
+    )
+    engine = SyncEngine([descriptor], client)
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    await engine.drain_outbox(db_session, now=FUTURE)
+
+    fp = (await db_session.execute(select(EnrichFingerprint))).scalar_one()
+    assert fp.payload_hash is not None
+    # Re-running the reconcile must NOT enqueue a fresh ENRICH (payload unchanged).
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    pending = (
+        (await db_session.execute(select(OutboxEntry).where(OutboxEntry.status == STATUS_PENDING)))
+        .scalars()
+        .all()
+    )
+    assert pending == []
 
 
 # --- full_list reconcile page bound (sibling firehose guard, #6) -------------

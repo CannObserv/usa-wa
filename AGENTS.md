@@ -207,9 +207,12 @@ uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
 # unit; the command below is the manual / backfill form (pair with USA_WA_BIENNIUM).
 python -m usa_wa_adapter_legislature.refresh
 
-# Contact-label backfill (#31) — one-off re-observation of produced orgs holding a
-# phone, so PM adopts the synthesized contact display_label. Idempotent + re-runnable;
+# Contact-label backfill (#31) — re-observation of produced orgs holding a phone,
+# so PM adopts the synthesized contact display_label. Idempotent + re-runnable;
 # --dry-run counts the cohort without submitting. No operator token (shell = trust boundary).
+# Since #34 the sidecar self-heals carry-field drift on its own (anchored-cohort
+# reconcile re-enqueues an ENRICH on a local-fingerprint mismatch), so this is now a
+# force-push convenience, not the only recovery path.
 python -m usa_wa_sync_powermap.backfill_contact_labels --dry-run
 python -m usa_wa_sync_powermap.backfill_contact_labels
 ```

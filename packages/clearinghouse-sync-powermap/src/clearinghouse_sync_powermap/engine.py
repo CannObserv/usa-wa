@@ -15,6 +15,8 @@ Write path (this module, step 3):
 """
 
 import asyncio
+import hashlib
+import json
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -39,6 +41,7 @@ from clearinghouse_sync_powermap.models import (
     STATUS_PENDING,
     STATUS_REJECTED,
     STATUS_UNAVAILABLE,
+    EnrichFingerprint,
     OutboxEntry,
     SyncState,
 )
@@ -48,6 +51,19 @@ logger = get_logger(__name__)
 
 #: SyncState stream key for the shared PM changes feed.
 CHANGES_STREAM = "changes_feed"
+
+
+def enrich_fingerprint(payload: dict) -> str:
+    """A stable content hash of an enrich observation payload (#34).
+
+    Canonicalises the payload (sorted keys, compact separators, ``str`` fallback
+    for ULIDs/datetimes) so the hash depends only on content, not key order or
+    Python repr. List order is left as the descriptor emits it — ``to_observation``
+    builds carry fields in a fixed order, so equal evidence hashes equally.
+    """
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
 
 #: Default transport-failure retry cap before an entry is dead-lettered to
 #: ``UNAVAILABLE``. Because :func:`retry.backoff` ceilings at 1h after ~7
@@ -243,22 +259,64 @@ class SyncEngine:
         return await self._enqueue(session, descriptor, row, OP_CREATE) is not None
 
     async def _maybe_enqueue_enrich(
-        self, session: AsyncSession, descriptor: EntityDescriptor, record: dict, row
+        self,
+        session: AsyncSession,
+        descriptor: EntityDescriptor,
+        record: dict,
+        row,
+        *,
+        check_drift: bool = False,
     ) -> None:
         """Enqueue an ENRICH for an anchored row whose PM ``record`` lacks data it
-        holds (enrich-on-match #198; re-enrich on drift #34).
+        holds (enrich-on-match #198) or whose carry payload has drifted (#34).
 
-        Shared by the un-anchored sweep (first match) and the anchored-cohort
-        reconcile (re-evaluation), so a held identifier that changes after anchoring
-        — e.g. the #33 legislature anchor-type switch — self-heals on the next
-        reconcile instead of needing a manual re-observe. No-op unless the descriptor
-        opts into enrichment (:attr:`enrich_identifier_type`). Idempotent: the
-        :meth:`_enqueue` blocking-status guard suppresses a duplicate while an entry
-        for this row is still open, and once delivered PM holds the data so
-        :meth:`needs_enrich` returns False — no write-back loop.
+        Two triggers:
+
+        - **identifier missing** (:meth:`needs_enrich`, read from PM) — the original
+          enrich-on-match: PM matched an identifier-less record by name. Always
+          checked, so a held identifier that changes after anchoring (the #33
+          legislature anchor-type switch) self-heals on the next reconcile.
+        - **carry-payload drift** (``check_drift``, local fingerprint) — the current
+          enrich payload differs from the last one we settled (:class:`EnrichFingerprint`).
+          Catches a carry-field shape fix (#31) or a newly-added carry field reaching
+          the existing cohort. Reconcile-only: the un-anchored sweep is a row's first
+          match, so there is nothing to have drifted from.
+
+        No-op unless the descriptor opts into enrichment (:attr:`enrich_identifier_type`).
+        Idempotent: the :meth:`_enqueue` blocking-status guard suppresses a duplicate
+        while an entry for this row is open; the enqueued entry carries the payload
+        hash so the settle path can stamp the fingerprint, after which an unchanged
+        payload no longer drifts — no write-back loop. The fingerprint is local (what
+        we last sent), so PM curating our evidence away never re-triggers.
         """
-        if descriptor.enrich_identifier_type and await descriptor.needs_enrich(record, row):
-            await self._enqueue(session, descriptor, row, OP_ENRICH)
+        if not descriptor.enrich_identifier_type:
+            return
+        payload = await descriptor.to_enrich_observation(session, row)
+        fingerprint = enrich_fingerprint(payload)
+        identifier_missing = await descriptor.needs_enrich(record, row)
+        drift = check_drift and await self._enrich_payload_drifted(
+            session, descriptor, row, fingerprint
+        )
+        if identifier_missing or drift:
+            entry = await self._enqueue(session, descriptor, row, OP_ENRICH)
+            if entry is not None:
+                entry.payload_hash = fingerprint
+
+    async def _enrich_payload_drifted(
+        self, session: AsyncSession, descriptor: EntityDescriptor, row, fingerprint: str
+    ) -> bool:
+        """Whether ``row``'s current enrich ``fingerprint`` differs from the last one
+        we settled (#34). True when no stamp exists yet — so the pre-fingerprint
+        anchored cohort re-enriches once (the automated successor to the manual
+        backfill), then goes quiet once each row's stamp is written. Append-only and
+        idempotent at PM, so the one-time cohort re-enrich is safe."""
+        stored = await session.scalar(
+            select(EnrichFingerprint.payload_hash).where(
+                EnrichFingerprint.entity_type == descriptor.entity_type,
+                EnrichFingerprint.local_id == row.id,
+            )
+        )
+        return stored != fingerprint
 
     # --- outbox worker --------------------------------------------------------
 
@@ -369,7 +427,7 @@ class SyncEngine:
             # No raw= here: a 422 carries its detail in str(exc); PM's structured
             # `reason` (power-map#225) is a rejected-*disposition* concept, so the
             # log's `reason` field is correctly None on this validation-error path.
-            self._reject(entry, str(exc))
+            await self._reject(session, entry, str(exc))
             return True
 
         entry.last_disposition = result.disposition
@@ -377,23 +435,32 @@ class SyncEngine:
             descriptor.set_anchor(row, result.pm_id)
             entry.status = STATUS_DELIVERED
             entry.last_error = None
+            await self._stamp_enrich_fingerprint(session, entry)
         elif result.rejected:
-            self._reject(entry, str(result.raw), raw=result.raw)
+            await self._reject(session, entry, str(result.raw), raw=result.raw)
         else:
             # Unexpected disposition — count it as a failed attempt so an operator
             # can see it and it cannot loop forever.
             self._fail_attempt(entry, now, f"unexpected disposition: {result.disposition!r}")
         return True
 
-    def _reject(self, entry: OutboxEntry, error: str, *, raw: dict | None = None) -> None:
+    async def _reject(
+        self, session: AsyncSession, entry: OutboxEntry, error: str, *, raw: dict | None = None
+    ) -> None:
         """Park an entry to the ``REJECTED`` terminal state (PM refused the payload).
 
         Shared by the ``rejected`` disposition path and the permanent payload-error
         path. ``REJECTED`` is re-sweepable: once the data is fixed, the next sweep
         re-enqueues the corrected row.
+
+        For an ENRICH it also stamps the fingerprint (#34): PM gave a terminal verdict
+        on this exact payload, so the reconcile must not re-post the identical payload
+        every cycle. A subsequent data/code fix changes the payload hash, which re-arms
+        the drift trigger — so a rejection self-heals on the fix, not by blind retry.
         """
         entry.status = STATUS_REJECTED
         entry.last_error = error
+        await self._stamp_enrich_fingerprint(session, entry)
         logger.error(
             "powermap_observation_rejected",
             extra={
@@ -405,6 +472,35 @@ class SyncEngine:
                 "raw": raw,
             },
         )
+
+    async def _stamp_enrich_fingerprint(self, session: AsyncSession, entry: OutboxEntry) -> None:
+        """Record an ENRICH entry's settled payload hash as the row's fingerprint (#34).
+
+        Idempotent upsert keyed on ``(entity_type, local_id)``. No-op unless the entry
+        is an ENRICH carrying a ``payload_hash`` (CREATE/UPDATE never stamp). Called on
+        a terminal PM verdict (delivered or rejected) — not on transient/blocked
+        failures, which retry the same payload and must leave the prior stamp intact.
+        After stamping, :meth:`_enrich_payload_drifted` returns False for an unchanged
+        payload, so the reconcile stops re-enqueuing — convergence.
+        """
+        if entry.op != OP_ENRICH or entry.payload_hash is None:
+            return
+        existing = await session.scalar(
+            select(EnrichFingerprint).where(
+                EnrichFingerprint.entity_type == entry.entity_type,
+                EnrichFingerprint.local_id == entry.local_id,
+            )
+        )
+        if existing is None:
+            session.add(
+                EnrichFingerprint(
+                    entity_type=entry.entity_type,
+                    local_id=entry.local_id,
+                    payload_hash=entry.payload_hash,
+                )
+            )
+        else:
+            existing.payload_hash = entry.payload_hash
 
     def _park_blocked(self, entry: OutboxEntry, error: str) -> None:
         """Immediately dead-letter a permanently-blocked entry to ``UNAVAILABLE``.
@@ -783,10 +879,10 @@ class SyncEngine:
                     # PM record gone (404) between anchor and pass — skip, not fatal.
                     continue
                 await self.apply_record(session, descriptor, record)
-                # Re-evaluate enrichment for the anchored row (#34 trigger gap): a
-                # held identifier/carry-field that changed after anchoring re-enqueues
-                # an ENRICH here rather than waiting on a manual backfill re-observe.
-                await self._maybe_enqueue_enrich(session, descriptor, record, row)
+                # Re-evaluate enrichment for the anchored row (#34): a held identifier
+                # (trigger gap) or a drifted carry payload (detection gap, check_drift)
+                # re-enqueues an ENRICH here rather than waiting on a manual backfill.
+                await self._maybe_enqueue_enrich(session, descriptor, record, row, check_drift=True)
                 applied += 1
             if commit is not None:
                 # Bound the open transaction to one page of PM round-trips (#13 CR).

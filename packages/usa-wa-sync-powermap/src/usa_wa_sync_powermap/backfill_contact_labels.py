@@ -20,6 +20,14 @@ operator token (shell access is the trust boundary, as with the redrive CLI), an
 ``--dry-run`` previews the cohort without submitting. Safe to re-run: re-observing
 an unchanged entity is idempotent in PM.
 
+Status (#34): the sidecar now self-heals this class of drift on its own — the
+anchored-cohort reconcile re-enqueues an ENRICH whenever a row's carry payload
+differs from the last one it settled (a local fingerprint, see
+``SyncEngine._enrich_payload_drifted``). So this CLI is no longer the *only*
+recovery path; it remains a force-push convenience for an immediate, bounded,
+operator-driven backfill (e.g. right after a shape fix, without waiting for the
+next reconcile cadence).
+
 Examples::
 
     python -m usa_wa_sync_powermap.backfill_contact_labels --dry-run
