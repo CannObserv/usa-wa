@@ -379,6 +379,9 @@ class SyncEngine:
             extra={
                 "entity_type": entry.entity_type,
                 "local_id": str(entry.local_id),
+                # PM's diagnostic reason (power-map#225), promoted from raw to a
+                # top-level field so a rejection is greppable without parsing raw.
+                "reason": raw.get("reason") if isinstance(raw, dict) else None,
                 "raw": raw,
             },
         )

@@ -293,6 +293,27 @@ async def test_drain_rejected_marks_terminal(db_session, fake_descriptor):
     assert row.pm_fake_id is None  # unresolved, awaits operator
 
 
+async def test_drain_rejected_log_surfaces_reason(db_session, fake_descriptor, caplog):
+    """PM's ``reason`` (power-map#225) is promoted to a structured log field so a
+    rejection is diagnosable without bisecting ``raw`` by hand (usa-wa#33)."""
+    await _add_entity(db_session, source_id="1")
+    client = FakeClient(
+        observation_result=ObservationResult(
+            DISPOSITION_REJECTED,
+            None,
+            {"disposition": "rejected", "reason": "unknown_identifier_type: 'org_wa_x'"},
+        )
+    )
+    engine = SyncEngine([fake_descriptor], client)
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+
+    with caplog.at_level("ERROR"):
+        await engine.drain_outbox(db_session, now=NOW)
+
+    rejected = [r for r in caplog.records if r.msg == "powermap_observation_rejected"]
+    assert [r.reason for r in rejected] == ["unknown_identifier_type: 'org_wa_x'"]
+
+
 def _raise_blocked(payload):
     raise DeliveryBlockedError("PM 403")
 
