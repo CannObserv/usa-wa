@@ -349,6 +349,9 @@ class SyncEngine:
             # terminal state, like a `rejected` disposition, instead of crash-looping.
             # str(exc) (not repr) keeps last_error parallel to the disposition path's
             # str(result.raw) — a plain message, no `ClassName(...)` wrapper.
+            # No raw= here: a 422 carries its detail in str(exc); PM's structured
+            # `reason` (power-map#225) is a rejected-*disposition* concept, so the
+            # log's `reason` field is correctly None on this validation-error path.
             self._reject(entry, str(exc))
             return True
 

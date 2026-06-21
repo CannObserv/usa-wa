@@ -153,12 +153,15 @@ async def backfill_contact_labels(
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m usa_wa_sync_powermap.backfill_contact_labels",
-        description="Re-observe produced orgs so PM adopts phone contact display_labels (#31).",
+        description=(
+            "Re-observe produced orgs so PM adopts phone display_labels and "
+            "object-shape acronyms (#31, #33)."
+        ),
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Count the contact-bearing cohort without submitting any observation.",
+        help="Count the phone/acronym-bearing cohort without submitting any observation.",
     )
     return parser
 

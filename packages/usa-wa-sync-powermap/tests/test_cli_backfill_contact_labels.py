@@ -115,6 +115,28 @@ async def test_dry_run_includes_acronym_only_org(monkeypatch, db_session, usa_wa
     assert result["scanned"] == 1
 
 
+async def test_dry_run_excludes_org_with_neither_phone_nor_acronym(monkeypatch, db_session, usa_wa):
+    """The cohort filter is phone OR acronym — a row with neither must not be swept in.
+    Locks the predicate so a future mis-edit can't silently widen to all WA orgs (#33)."""
+    bare = Organization(
+        source="usa_wa_legislature",
+        source_id="B-1",
+        name="Bare Org",
+        org_type="committee",
+        phone=None,
+        acronym=None,
+        pm_organization_id=ULID(),
+    )
+    db_session.add(bare)
+    await db_session.flush()
+    _patch_factory(monkeypatch, db_session)
+    _patch_settings(monkeypatch, api_key="")
+
+    result = await cli._run(dry_run=True)
+
+    assert result["scanned"] == 0
+
+
 async def test_run_requires_api_key_when_submitting(monkeypatch, db_session):
     """Fail-closed: a real submission with no POWERMAP_API_KEY raises before any post."""
     _patch_factory(monkeypatch, db_session)
