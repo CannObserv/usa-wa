@@ -126,6 +126,26 @@ DDL and DML rights are split across roles so a misconfigured DSN can't migrate/d
 
 **Port 8000 belongs to systemd.** Never start uvicorn manually on port 8000.
 
+**Deploy convention: units never sync the venv (issue #30).** Every systemd
+entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
+`usa-wa-sync-powermap.service`, `usa-wa-wsl-refresh.service`, `scripts/migrate.sh`).
+`--no-sync` runs against the installed venv as-is; `--frozen` skips re-locking.
+So unit start never mutates the environment — the daily WSL refresh timer can't
+silently apply a dependency change a `git pull` landed in `uv.lock`. (Note:
+`--frozen` *alone* would not prevent this — it still syncs the venv to the lock;
+`--no-sync` is the flag that stops it.) **Dependency changes land only via a
+deliberate `uv sync --frozen` after a pull that touches `uv.lock`:**
+
+```bash
+git pull
+uv sync --frozen                       # reconcile venv ⇄ uv.lock deliberately
+sudo systemctl start usa-wa-migrate    # if DB models changed
+sudo systemctl restart usa-wa usa-wa-sync-powermap
+```
+
+If the venv is missing a locked dependency, units fail loudly at import — the
+intended signal to run `uv sync`.
+
 | Situation | Action |
 |---|---|
 | Code committed to main | `sudo systemctl restart usa-wa` |

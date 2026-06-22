@@ -19,7 +19,10 @@ EnvironmentFile=-/run/usa-wa/build-id
 EnvironmentFile=/etc/usa-wa/.env
 EnvironmentFile=-/home/exedev/usa-wa/.env
 
-ExecStart=/usr/local/bin/uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8000
+# --frozen --no-sync: run against the installed venv as-is; never re-lock or
+# sync at unit start. Dependency changes land only via a deliberate `uv sync`
+# in the deploy runbook (AGENTS.md § Server Lifecycle, issue #30).
+ExecStart=/usr/local/bin/uv run --frozen --no-sync uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8000
 Restart=on-failure
 RestartSec=5
 

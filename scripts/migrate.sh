@@ -12,7 +12,10 @@ cd "$(dirname "$0")/.."
 
 : "${DATABASE_URL_OWNER:?DATABASE_URL_OWNER is required (the owner-role DSN)}"
 
-uv run alembic upgrade head
+# --frozen --no-sync: run against the installed venv as-is; never re-lock or
+# sync here. Dependency changes land only via a deliberate `uv sync` in the
+# deploy runbook (AGENTS.md § Server Lifecycle, issue #30).
+uv run --frozen --no-sync alembic upgrade head
 
 # psql speaks libpq, not SQLAlchemy — strip the async driver tag from the DSN.
 psql "${DATABASE_URL_OWNER/+asyncpg/}" -v ON_ERROR_STOP=1 -f scripts/grants.sql

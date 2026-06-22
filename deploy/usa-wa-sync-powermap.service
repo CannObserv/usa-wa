@@ -13,7 +13,10 @@ WorkingDirectory=/home/exedev/usa-wa
 EnvironmentFile=/etc/usa-wa/.env
 EnvironmentFile=-/home/exedev/usa-wa/.env
 
-ExecStart=/usr/local/bin/uv run python -m usa_wa_sync_powermap
+# --frozen --no-sync: run against the installed venv as-is; never re-lock or
+# sync at unit start. Dependency changes land only via a deliberate `uv sync`
+# in the deploy runbook (AGENTS.md § Server Lifecycle, issue #30).
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_sync_powermap
 Restart=on-failure
 RestartSec=5
 

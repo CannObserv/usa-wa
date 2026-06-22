@@ -20,7 +20,11 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=/etc/usa-wa/.env
 EnvironmentFile=-/home/exedev/usa-wa/.env
 
-ExecStart=/usr/local/bin/uv run python -m usa_wa_adapter_legislature.refresh
+# --frozen --no-sync: run against the installed venv as-is; never re-lock or
+# sync at unit start. The daily timer therefore can't silently apply a
+# dependency change a `git pull` landed in uv.lock — those land only via a
+# deliberate `uv sync` in the deploy runbook (AGENTS.md § Server Lifecycle, #30).
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_adapter_legislature.refresh
 
 # Bound the network-facing zeep WSDL fetch + SOAP call so a hung WSL endpoint
 # fails deterministically instead of relying on the manager default; the timer
