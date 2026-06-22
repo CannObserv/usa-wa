@@ -134,26 +134,33 @@ So unit start never mutates the environment — the daily WSL refresh timer can'
 silently apply a dependency change a `git pull` landed in `uv.lock`. (Note:
 `--frozen` *alone* would not prevent this — it still syncs the venv to the lock;
 `--no-sync` is the flag that stops it.) **Dependency changes land only via a
-deliberate `uv sync --frozen` after a pull that touches `uv.lock`:**
+deliberate `uv sync --locked` after a pull that touches `uv.lock`:**
 
 ```bash
 git pull
-uv sync --frozen                       # reconcile venv ⇄ uv.lock deliberately
+uv sync --locked                       # reconcile venv ⇄ uv.lock deliberately
 sudo systemctl start usa-wa-migrate    # if DB models changed
 sudo systemctl restart usa-wa usa-wa-sync-powermap
 ```
 
+`uv sync` here uses `--locked` (not `--frozen`): it additionally asserts
+`uv.lock` is consistent with `pyproject.toml`, catching a committed lock that
+went stale — a deploy-time integrity check worth failing on. Units stay on
+`--frozen` so a lock/pyproject drift can't wedge the daily timer.
+
 If the venv is missing a locked dependency, units fail loudly at import — the
-intended signal to run `uv sync`.
+intended signal to run `uv sync`. **First provision (or after a venv wipe)
+requires a plain `uv sync`** — `--no-sync` units can't start against an absent
+`.venv`.
 
 | Situation | Action |
 |---|---|
-| Code committed to main | `sudo systemctl restart usa-wa` |
+| Code committed to main | `sudo systemctl restart usa-wa` (run `uv sync --locked` first if `uv.lock` changed — units are `--no-sync`; see convention above) |
 | Testing a worktree/branch | `uv run uvicorn ... --port 8001 --reload` |
 | Debugging the live service | `sudo journalctl -u usa-wa -f` |
 | After editing `deploy/usa-wa.service` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa` |
 | After editing `deploy/usa-wa-wsl-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-wsl-refresh.timer` |
-| After DB model changes | `sudo systemctl start usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa |
+| After DB model changes | (run `uv sync --locked` first if `uv.lock` changed — `migrate.sh` is `--no-sync`) `sudo systemctl start usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa |
 | Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
 
 **Dev server workflow.** Run on port `8001` so the live service stays up. Load env first:
