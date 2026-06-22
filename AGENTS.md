@@ -160,7 +160,7 @@ requires a plain `uv sync`** — `--no-sync` units can't start against an absent
 | Debugging the live service | `sudo journalctl -u usa-wa -f` |
 | After editing `deploy/usa-wa.service` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa` |
 | After editing `deploy/usa-wa-wsl-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-wsl-refresh.timer` |
-| After DB model changes | (run `uv sync --locked` first if `uv.lock` changed — `migrate.sh` is `--no-sync`) `sudo systemctl start usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa |
+| After DB model changes | `sudo systemctl start usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`) |
 | Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
 
 **Dev server workflow.** Run on port `8001` so the live service stays up. Load env first:
