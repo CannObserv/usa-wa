@@ -124,6 +124,29 @@ async def test_backfill_ignores_other_sources(db_session, usa_wa):
     assert summary["scanned"] == 0
 
 
+async def test_backfill_skips_retired_orgs(db_session, usa_wa):
+    """A retired (PM-deleted) org carries a dead anchor — re-observing it would push
+    against a tombstoned PM entity. The backfill excludes it (usa-wa#38)."""
+    from datetime import UTC, datetime
+
+    row = await _add_org(
+        db_session,
+        source_id="C-dead",
+        name="Merged-Away Committee",
+        phone="(360) 786-1111",
+        anchor=ULID(),
+        jurisdiction_id=usa_wa.id,
+    )
+    row.retired_at = datetime.now(UTC)
+    await db_session.flush()
+    client = FakeClient()
+
+    summary = await backfill_contact_labels(db_session, OrganizationDescriptor(), client)
+
+    assert client.posted == []
+    assert summary["scanned"] == 0
+
+
 async def test_backfill_dry_run_posts_nothing(db_session, usa_wa):
     """``dry_run`` counts the cohort but submits no observation and mutates no anchor."""
     await _add_org(

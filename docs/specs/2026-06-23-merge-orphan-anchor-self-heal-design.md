@@ -180,3 +180,10 @@ power-map#235 added optional `merged_into: <winner_id>` to the `deleted` change 
 - **Migration ordering** — `retired_at` is additive/nullable; no backfill needed.
   Deploy is the standard migrate-then-restart (units are `--no-sync`). usa-wa#37 adds
   no migration (the `retired_at` columns already exist on all four cached models).
+- **Read-path leakage** — RESOLVED (usa-wa#38). Retirement keeps the row as provenance
+  (no hard-delete) but leaves a dead anchor, so it must not surface in *live* reads.
+  Audit found no user-facing read surface yet; the guardrail is a shared
+  `queries.exclude_retired(stmt, *models, include_retired=…)` helper (backed by
+  `RetirableMixin.not_retired()`) that every read routes through, plus a fix to
+  `backfill_contact_labels` to skip retired orgs. No retirement cascade — each entity
+  heals on its own anchor.

@@ -46,6 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_domain_legislative.identity import Organization
+from clearinghouse_domain_legislative.queries import exclude_retired
 from clearinghouse_sync_powermap.client import DeliveryBlockedError, PayloadRejectedError
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.engine import TRANSIENT_EXCEPTIONS
@@ -91,9 +92,12 @@ async def backfill_contact_labels(
     rows = (
         (
             await session.execute(
-                select(Organization).where(
-                    Organization.source == _SOURCE,
-                    or_(Organization.phone.is_not(None), Organization.acronym.is_not(None)),
+                exclude_retired(
+                    select(Organization).where(
+                        Organization.source == _SOURCE,
+                        or_(Organization.phone.is_not(None), Organization.acronym.is_not(None)),
+                    ),
+                    Organization,
                 )
             )
         )

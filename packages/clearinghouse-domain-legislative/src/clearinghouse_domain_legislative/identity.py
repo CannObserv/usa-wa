@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    ColumnElement,
     Date,
     DateTime,
     ForeignKey,
@@ -36,7 +37,26 @@ def _new_ulid() -> _ULID:
     return _ULID()
 
 
-class Person(Base, TimestampMixin):
+class RetirableMixin:
+    """Soft-delete tombstone shared by the four identity models (usa-wa#31/#36/#38).
+
+    ``retired_at`` is stamped when PM deletes the entity with no surviving merge-
+    winner — a genuine delete, not a merge. The row is **kept as provenance**
+    (the local cache mirrors PM; the tombstone is the evidence of the delete),
+    never hard-deleted. Retired rows are excluded from the PM-sync sweep/reconcile
+    (never re-created or re-fetched) and must be excluded from *live* reads via
+    :func:`clearinghouse_domain_legislative.queries.exclude_retired`.
+    """
+
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @classmethod
+    def not_retired(cls) -> ColumnElement[bool]:
+        """SQL predicate selecting only live (non-retired) rows: ``retired_at IS NULL``."""
+        return cls.retired_at.is_(None)
+
+
+class Person(Base, TimestampMixin, RetirableMixin):
     """A human. Replaces Legislator from the P0 skeleton."""
 
     __tablename__ = "persons"
@@ -65,13 +85,10 @@ class Person(Base, TimestampMixin):
     # PM anchor (sidecar sync). Standardized to ``pm_<entity>_id`` (was
     # ``powermap_person_id`` pre-sidecar) so the sync engine keys uniformly.
     pm_person_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
-    # Merge-orphan tombstone (#31): set when PM deleted this entity with no surviving
-    # merge-winner. Excluded from the PM-sync sweep/reconcile so it is never re-created
-    # or re-fetched.
-    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # retired_at tombstone provided by RetirableMixin (#31/#38).
 
 
-class Organization(Base, TimestampMixin):
+class Organization(Base, TimestampMixin, RetirableMixin):
     """Any non-person legal/political entity. Discriminated by org_type."""
 
     __tablename__ = "organizations"
@@ -117,11 +134,10 @@ class Organization(Base, TimestampMixin):
     )
     # PM anchor (sidecar sync). Was ``powermap_organization_id`` pre-sidecar.
     pm_organization_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
-    # Merge-orphan tombstone (#31): PM deleted this org with no surviving merge-winner.
-    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # retired_at tombstone provided by RetirableMixin (#31/#38).
 
 
-class Role(Base, TimestampMixin):
+class Role(Base, TimestampMixin, RetirableMixin):
     """A named slot within an Organization. Roles are templates; Assignment binds them in time."""
 
     __tablename__ = "roles"
@@ -153,11 +169,10 @@ class Role(Base, TimestampMixin):
     # PM anchor (sidecar sync). Write path dormant until power-map#176 ships
     # the roles observation endpoint.
     pm_role_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
-    # Merge-orphan tombstone (#31): PM deleted this role with no surviving merge-winner.
-    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # retired_at tombstone provided by RetirableMixin (#31/#38).
 
 
-class Assignment(Base, TimestampMixin):
+class Assignment(Base, TimestampMixin, RetirableMixin):
     """Person × Role × Period. Bridges people to their chamber/party/committee context."""
 
     __tablename__ = "assignments"
@@ -195,8 +210,7 @@ class Assignment(Base, TimestampMixin):
     # PM anchor (sidecar sync). Write path dormant until power-map#177 ships
     # the assignments observation endpoint.
     pm_assignment_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
-    # Merge-orphan tombstone (#31): PM deleted this assignment with no surviving winner.
-    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # retired_at tombstone provided by RetirableMixin (#31/#38).
 
 
 class PersonIdentifier(Base, TimestampMixin):
