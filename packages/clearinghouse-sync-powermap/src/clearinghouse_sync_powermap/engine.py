@@ -56,10 +56,11 @@ enqueue an UPDATE), so the clock comparison lives in exactly one place:
   :meth:`_heal_dead_anchor`: ``process_feed`` on a ``deleted`` event naming a row we
   anchored (the timely signal), and ``_reconcile_anchored_cohort`` on a re-fetch 404
   (the backstop). The heal re-resolves the winner by identifier and re-anchors +
-  re-enriches, or retires the row (``retired_at``) on a genuine delete; a descriptor
-  that can't re-match (no ``supports_rematch``) logs once and leaves it. Retired rows
-  are excluded from the sweep and reconcile. Deterministic loser→winner mapping is a
-  PM follow-up (power-map#235).
+  re-enriches; retires the row (``retired_at``) on a genuine delete; or retires a
+  duplicate orphan when a many-to-one merge already left another local row on the
+  winner. A descriptor that can't re-match (no ``supports_rematch``) logs once and
+  leaves it. Retired rows are excluded from the sweep and reconcile. Deterministic
+  loser→winner mapping is a PM follow-up (power-map#235).
 
 Write-path drain detail (:meth:`drain_outbox`):
     post observations, settle dispositions, back off on transient error,
@@ -500,7 +501,10 @@ class SyncEngine:
         # anchors to the winner, PM merged two of our rows into one canonical entity.
         # Re-pointing this row too would mint a duplicate anchor (and crash the next
         # anchor-keyed local_match). The winner is already represented → retire this
-        # orphan instead.
+        # orphan instead. We do NOT re-push the orphan's carry evidence (label/acronym)
+        # to the winner: PM's merge already carried both rows' contacts + identifiers
+        # onto the winner (both ids land there — that's why both rematch to it), so the
+        # winner is already complete; the other row's re-anchor pushes its own evidence.
         holder = await self._row_by_anchor(session, descriptor, winner)
         if holder is not None and holder.id != row.id:
             descriptor.retire(row, now)
