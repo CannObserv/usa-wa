@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-23
 **Status:** Approved (brainstorm) → implementation plan pending
-**Related:** usa-wa#31 (backfill that surfaced this), power-map#230 (merge duplicates), power-map#231 (NULL-fill writer), #34 (fingerprint carry-field re-enrich)
+**Related:** usa-wa#31 (backfill that surfaced this), power-map#230 (merge duplicates), power-map#231 (NULL-fill writer), power-map#235 (the `merged_into` PM follow-up filed from this design), #34 (fingerprint carry-field re-enrich)
 
 ## Problem
 
@@ -153,7 +153,7 @@ PM merge → emits deleted(loser) + updated(winner)
 - self-heal does **not** name-match: an identifier miss with a fuzzy-name candidate
   present still retires (precision over recall).
 
-## PM follow-up (separate power-map issue)
+## PM follow-up (separate power-map issue — power-map#235)
 
 Add `merged_into: <winner_id>` to the `deleted` change event (or a `merged`
 `change_kind`). usa-wa would prefer that explicit mapping when present and fall back
