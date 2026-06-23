@@ -13,7 +13,7 @@ reaches production metadata or alembic autogen — only test runs that import it
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import String, select
+from sqlalchemy import DateTime, String, select
 from sqlalchemy.orm import Mapped, mapped_column
 from ulid import ULID as _ULID
 
@@ -48,6 +48,7 @@ class FakeEntity(Base, TimestampMixin):
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     pm_fake_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True)
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class FakeDescriptor(EntityDescriptor):
@@ -56,6 +57,7 @@ class FakeDescriptor(EntityDescriptor):
     entity_type = "fake"
     model = FakeEntity
     anchor_column = "pm_fake_id"
+    retired_column = "retired_at"
     natural_key = ("source", "source_id")
     authority = "local"
     read_path = "/api/v1/fakes"
@@ -63,6 +65,13 @@ class FakeDescriptor(EntityDescriptor):
     read_source = "reconcile"
     reconcile_mode = "full_list"
     write_enabled = True
+    #: Test knobs for merge-orphan self-heal: when ``supports_rematch`` is set,
+    #: :meth:`rematch_anchor` returns ``rematch_result`` (a preset winner id or None).
+    supports_rematch = False
+    rematch_result: Any = None
+
+    async def rematch_anchor(self, client: Any, session: Any, row: Any) -> Any | None:
+        return self.rematch_result
 
     async def to_observation(self, session: Any, row: Any) -> dict:
         return {"source": row.source, "source_id": row.source_id, "name": row.name}

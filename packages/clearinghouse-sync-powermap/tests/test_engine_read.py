@@ -725,3 +725,135 @@ async def test_full_list_reconcile_bounded_pages(db_session, fake_descriptor, ca
 
     assert applied == MAX_RECONCILE_PAGES  # one record per page, bounded
     assert any(r.msg == "reconcile_pagination_bound_exceeded" for r in caplog.records)
+
+
+# --- merge-orphan anchor self-heal (usa-wa#31 / power-map#235) ----------------
+
+
+class RematchCohortDescriptor(CohortEnrichDescriptor):
+    """A cohort producer that can re-resolve a dead anchor to its PM merge-winner.
+
+    ``rematch_result`` is the winner id (or None for a genuine delete) the
+    identifier-only :meth:`rematch_anchor` returns — set per-test."""
+
+    supports_rematch = True
+
+
+async def test_dead_anchor_reanchors_to_winner_and_enqueues_enrich(db_session):
+    """A 404 on an anchored row's re-fetch (PM merged it away) re-resolves the winner
+    by identifier, re-points the anchor, and re-enqueues an ENRICH so the carry fields
+    re-push to the winner."""
+    loser, winner = ULID(), ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=loser, updated_at=NOW)
+    descriptor = RematchCohortDescriptor()
+    descriptor.rematch_result = winner
+    client = FakeClient(
+        entities={winner: _record("x", "Winner", pm_id=winner, updated_at=_PM_NEWER)}
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.pm_fake_id == winner  # re-anchored to the surviving winner
+    assert row.retired_at is None  # not retired
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert entry.op == OP_ENRICH  # carry fields re-pushed to the winner
+
+
+async def test_dead_anchor_retires_when_no_winner(db_session):
+    """A dead anchor with no surviving identifier winner is a genuine delete → retire
+    locally (tombstone), leaving the anchor untouched."""
+    loser = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=loser, updated_at=NOW)
+    descriptor = RematchCohortDescriptor()
+    descriptor.rematch_result = None  # identifier miss → genuine delete
+    client = FakeClient(entities={})  # loser 404s
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.retired_at == NOW  # retired locally
+    assert row.pm_fake_id == loser  # anchor left as-is (tombstoned, not re-pointed)
+
+
+async def test_dead_anchor_unsupported_descriptor_leaves_row(db_session):
+    """A descriptor that can't re-match (supports_rematch False) logs and leaves the
+    row — never wrongly retires a possibly-merged entity it can't resolve."""
+    loser = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="Keep", pm_id=loser, updated_at=NOW)
+    descriptor = CohortDescriptor()  # supports_rematch False
+    client = FakeClient(entities={})  # loser 404s
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.retired_at is None
+    assert row.name == "Keep"
+    assert row.pm_fake_id == loser
+
+
+async def test_process_feed_deleted_heals_our_anchored_row(db_session):
+    """A `deleted` feed event for a row we anchored routes to the heal: re-anchor to
+    the merge-winner (the timely path; the reconcile 404 is the backstop)."""
+    loser, winner = ULID(), ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=loser, updated_at=NOW)
+    descriptor = RematchCohortDescriptor()
+    descriptor.rematch_result = winner
+    item = ChangeItem(entity_type="fake", entity_id=loser, changed_at=NOW, change_kind="deleted")
+    client = FakeClient(
+        changes_pages=[ChangePage(items=[item], next_after=9)],
+        entities={winner: _record("x", "Winner", pm_id=winner, updated_at=_PM_NEWER)},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.pm_fake_id == winner
+
+
+async def test_process_feed_deleted_ignores_unproduced_entity(db_session):
+    """A `deleted` event for an entity we never anchored is a no-op (not ours)."""
+    descriptor = RematchCohortDescriptor()
+    descriptor.rematch_result = ULID()
+    item = ChangeItem(entity_type="fake", entity_id=ULID(), changed_at=NOW, change_kind="deleted")
+    client = FakeClient(changes_pages=[ChangePage(items=[item], next_after=9)])
+    engine = SyncEngine([descriptor], client)
+
+    applied = await engine.process_feed(db_session, now=NOW)
+
+    assert applied == 0
+    assert (await db_session.execute(select(FakeEntity))).first() is None
+
+
+async def test_sweep_excludes_retired_rows(db_session):
+    """A retired row (genuine delete) is never re-created by the un-anchored sweep."""
+    row = await _add_entity(db_session, source_id="r", name="Retired")  # anchor IS NULL
+    row.retired_at = NOW
+    await db_session.flush()
+    descriptor = CohortDescriptor()
+    engine = SyncEngine([descriptor], FakeClient())
+
+    enqueued = await engine.sweep_unanchored(db_session, descriptor)
+
+    assert enqueued == 0
+    assert (await db_session.execute(select(OutboxEntry))).scalars().all() == []
+
+
+async def test_anchored_cohort_excludes_retired_rows(db_session):
+    """A retired row is not re-fetched by the anchored-cohort reconcile."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="r", name="R", pm_id=pm_id, updated_at=NOW)
+    row.retired_at = NOW
+    await db_session.flush()
+    descriptor = CohortDescriptor()
+    client = FakeClient(entities={pm_id: _record("r", "R", pm_id=pm_id)})
+    engine = SyncEngine([descriptor], client)
+
+    applied = await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert applied == 0
+    assert client.fetched == []  # retired row never re-fetched

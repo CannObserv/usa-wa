@@ -96,6 +96,8 @@ class OrganizationDescriptor(EntityDescriptor):
     # keys on the anchor (PM's backfilled orgs have no usa-wa identifier to derive
     # ``source``/``source_id`` from) — see :meth:`local_match`.
     natural_key = ("source", "source_id")
+    retired_column = "retired_at"  # merge-orphan tombstone (#31)
+    supports_rematch = True  # can re-resolve a dead anchor to its merge-winner by id
     authority = "pm"  # PM is system-of-record for the org tree
     read_path = "/api/v1/orgs"
     observe_path = "/api/v1/orgs/observations"
@@ -181,6 +183,30 @@ class OrganizationDescriptor(EntityDescriptor):
             return None
         parent = await session.get(Organization, row.parent_organization_id)
         return parent.pm_organization_id if parent is not None else None
+
+    async def rematch_anchor(self, client: Any, session: Any, row: Any) -> Any | None:
+        """Re-resolve a dead anchor (PM merged the org away) to the surviving winner by
+        **identifier only** — the high-precision stage of :meth:`pm_match`, no name/
+        hierarchy fuzz. PM transfers our committee identifier to the merge winner, so an
+        exact ``(identifier_type, value)`` lookup finds it; a miss → genuine delete
+        (the engine retires). Identifier ids are globally unique, so no jurisdiction
+        scope (mirrors ``pm_match`` step 1)."""
+        id_type = identifier_type_for(row.source, row.org_type)
+        if id_type is None:
+            return None
+        page = await client.search_entities(
+            SEARCH_PATH,
+            identifier_type=id_type,
+            identifier_value=row.source_id,
+            limit=1,
+        )
+        for rec in page.records:
+            logger.info(
+                "org_rematch_identifier",
+                extra={"source_id": row.source_id, "pm_id": rec.get("id")},
+            )
+            return as_ulid(rec["id"])
+        return None
 
     # --- write path ----------------------------------------------------------
 

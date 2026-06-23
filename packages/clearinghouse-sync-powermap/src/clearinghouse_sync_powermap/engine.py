@@ -63,7 +63,8 @@ import hashlib
 import json
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 from sqlalchemy import ColumnElement, func, select, update
@@ -76,7 +77,7 @@ from clearinghouse_sync_powermap.client import (
     PowerMapClient,
     RetryableClientError,
 )
-from clearinghouse_sync_powermap.descriptors import EntityDescriptor
+from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid
 from clearinghouse_sync_powermap.models import (
     OP_CREATE,
     OP_ENRICH,
@@ -95,6 +96,12 @@ logger = get_logger(__name__)
 
 #: SyncState stream key for the shared PM changes feed.
 CHANGES_STREAM = "changes_feed"
+
+
+def _utcnow() -> datetime:
+    """Wall clock fallback for retire/heal timestamps when a caller supplies no
+    ``now`` (the feed/reconcile paths thread one; this guards ad-hoc callers)."""
+    return datetime.now(UTC)
 
 
 def _canonicalize(obj: object) -> object:
@@ -287,6 +294,10 @@ class SyncEngine:
         last_id = None
         while True:
             stmt = select(descriptor.model).where(anchor_col.is_(None))
+            if descriptor.retired_column is not None:
+                # Never re-create a retired (genuinely-deleted) row — it would
+                # resurrect a deliberately-deleted entity in PM (#31).
+                stmt = stmt.where(descriptor.retired_column_expr().is_(None))
             if last_id is not None:
                 stmt = stmt.where(pk_col > last_id)
             stmt = stmt.order_by(pk_col).limit(self._sweep_batch_size)
@@ -428,6 +439,69 @@ class SyncEngine:
             )
         )
         return stored != fingerprint
+
+    # --- merge-orphan self-heal (usa-wa#31 / power-map#235) -------------------
+
+    async def _row_by_anchor(
+        self, session: AsyncSession, descriptor: EntityDescriptor, pm_id: Any
+    ) -> Any | None:
+        """The local row anchored to ``pm_id``, or None. Generic by-anchor lookup so
+        the feed's ``deleted`` branch can find a row from a bare entity id (no record)."""
+        if pm_id is None:
+            return None
+        return await session.scalar(
+            select(descriptor.model).where(descriptor.anchor_column_expr() == as_ulid(pm_id))
+        )
+
+    async def _heal_dead_anchor(
+        self, session: AsyncSession, descriptor: EntityDescriptor, row, *, now: datetime
+    ) -> None:
+        """Heal a row whose PM anchor is dead — PM merged the entity away (a 404 on
+        re-fetch, or a ``deleted`` feed event) and our anchor points at the deleted
+        loser. Re-resolve the surviving winner by identifier and re-anchor + re-enrich
+        (the carry fields the winner lacks re-push via #34 drift). A descriptor that
+        cannot re-match is left untouched and logged (never wrongly retired); one that
+        can but finds no winner is a genuine delete → retire locally.
+
+        Idempotent: a row already re-anchored to a live winner won't 404 again, and a
+        retired row is excluded from the sweep/reconcile that would re-encounter it.
+        """
+        if not descriptor.supports_rematch:
+            logger.warning(
+                "dead_anchor_unhealed",
+                extra={
+                    "entity_type": descriptor.entity_type,
+                    "anchor": str(descriptor.anchor_value(row)),
+                },
+            )
+            return
+        winner = await descriptor.rematch_anchor(self._client, session, row)
+        if winner is None:
+            # No surviving identifier winner → genuine delete (or a merge that didn't
+            # transfer identifiers — power-map#235 will disambiguate). Retire, loudly.
+            descriptor.retire(row, now)
+            await session.flush()
+            logger.warning(
+                "dead_anchor_retired",
+                extra={"entity_type": descriptor.entity_type, "local_id": str(row.id)},
+            )
+            return
+        old = descriptor.anchor_value(row)
+        descriptor.set_anchor(row, winner)
+        record = await descriptor.fetch_record(self._client, winner)
+        if record is not None:
+            await self.apply_record(session, descriptor, record)
+            await self._maybe_enqueue_enrich(session, descriptor, record, row, check_drift=True)
+        await session.flush()
+        logger.info(
+            "dead_anchor_reanchored",
+            extra={
+                "entity_type": descriptor.entity_type,
+                "local_id": str(row.id),
+                "old_anchor": str(old),
+                "winner": str(winner),
+            },
+        )
 
     # --- outbox worker --------------------------------------------------------
 
@@ -895,7 +969,9 @@ class SyncEngine:
         if descriptor.reconcile_mode == "full_list":
             applied = await self._reconcile_full_list(session, descriptor, commit=commit)
         elif descriptor.reconcile_mode == "anchored_cohort":
-            applied = await self._reconcile_anchored_cohort(session, descriptor, commit=commit)
+            applied = await self._reconcile_anchored_cohort(
+                session, descriptor, now=now, commit=commit
+            )
         else:  # "none"
             return 0
         if now is not None:
@@ -952,6 +1028,7 @@ class SyncEngine:
         session: AsyncSession,
         descriptor: EntityDescriptor,
         *,
+        now: datetime | None = None,
         commit: Callable[[], Awaitable[None]] | None = None,
     ) -> int:
         """Re-fetch only OUR anchored rows by id and re-apply each under LWW (#13).
@@ -982,6 +1059,9 @@ class SyncEngine:
         last_id = None
         while True:
             stmt = select(descriptor.model).where(anchor_col.is_not(None))
+            if descriptor.retired_column is not None:
+                # Skip retired (genuinely-deleted) rows — never re-fetch a tombstoned id.
+                stmt = stmt.where(descriptor.retired_column_expr().is_(None))
             if last_id is not None:
                 stmt = stmt.where(pk_col > last_id)
             stmt = stmt.order_by(pk_col).limit(self._sweep_batch_size)
@@ -993,7 +1073,9 @@ class SyncEngine:
                 pm_id = descriptor.anchor_value(row)
                 record = await descriptor.fetch_record(self._client, pm_id)
                 if record is None:
-                    # PM record gone (404) between anchor and pass — skip, not fatal.
+                    # PM record gone (404): the entity was merged/deleted. Self-heal —
+                    # re-anchor to the merge-winner, or retire on a genuine delete (#31).
+                    await self._heal_dead_anchor(session, descriptor, row, now=now or _utcnow())
                     continue
                 await self.apply_record(session, descriptor, record)
                 # Re-evaluate enrichment for the anchored row (#34): a held identifier
@@ -1011,12 +1093,18 @@ class SyncEngine:
 
     # --- read path: changes feed (incremental primary for person/org) --------
 
-    async def process_feed(self, session: AsyncSession, *, limit: int = 100) -> int:
+    async def process_feed(
+        self, session: AsyncSession, *, now: datetime | None = None, limit: int = 100
+    ) -> int:
         """Pull one batch of changes, apply them, and advance the cursor.
 
         The feed yields ``(entity_type, id, change_kind)`` only, so each change
         is resolved to a full record via :meth:`PowerMapClient.get_entity`
-        before upsert. Deletes are skipped at MVP (archival is a later concern).
+        before upsert. A ``deleted`` event is the timely merge-orphan signal: if it
+        names a row we anchored, route it to :meth:`_heal_dead_anchor` (re-anchor to
+        the merge-winner, or retire on a genuine delete, #31); a delete for an entity
+        we never produced is still skipped. ``now`` stamps any retirement (threaded
+        from the sidecar tick; falls back to wall clock for ad-hoc callers).
 
         Read-path scope note: a permanent client error here (the typed
         :class:`DeliveryBlockedError` / :class:`PayloadRejectedError`, e.g. a
@@ -1036,6 +1124,9 @@ class SyncEngine:
             if descriptor is None or descriptor.read_source == "none":
                 continue
             if item.change_kind == "deleted":
+                row = await self._row_by_anchor(session, descriptor, item.entity_id)
+                if row is not None and not descriptor.is_retired(row):
+                    await self._heal_dead_anchor(session, descriptor, row, now=now or _utcnow())
                 continue
             record = await descriptor.fetch_record(self._client, item.entity_id)
             if record is None:

@@ -140,6 +140,17 @@ class EntityDescriptor(ABC):
     enrich_carry_fields: tuple[str, ...] = ("names",)
     #: Full-reconcile cadence (backstop; default hourly).
     reconcile_cadence: timedelta = timedelta(hours=1)
+    #: Column holding the local "retired" tombstone (e.g. ``"retired_at"``), stamped
+    #: when a dead anchor resolves to no surviving PM winner (a genuine delete, not a
+    #: merge). Retired rows are excluded from the un-anchored sweep and the
+    #: anchored-cohort reconcile, so a deliberately-deleted entity is never re-created
+    #: or re-fetched. ``None`` → no retirement marker (retirement disabled).
+    retired_column: str | None = None
+    #: Whether this descriptor can re-resolve a dead anchor to its merge-winner via
+    #: :meth:`rematch_anchor`. When False the engine logs an unhealed dead anchor and
+    #: leaves the row, rather than retiring a possibly-merged row with no identifier
+    #: signal (see the merge-orphan self-heal design, usa-wa#31 / power-map#235).
+    supports_rematch: bool = False
 
     # --- concrete helpers (shared, not overridden) ---------------------------
 
@@ -169,6 +180,22 @@ class EntityDescriptor(ABC):
     def set_anchor(self, row: Any, pm_id: ULID) -> None:
         """Write the PM anchor id back onto a local row."""
         setattr(row, self.anchor_column, pm_id)
+
+    def retired_column_expr(self) -> Any:
+        """The mapped column for the retirement tombstone (e.g. ``Model.retired_at``).
+
+        The engine filters the un-anchored sweep and the anchored-cohort reconcile on
+        ``IS NULL`` of this so a retired row is never re-created or re-fetched.
+        """
+        return getattr(self.model, self.retired_column)
+
+    def is_retired(self, row: Any) -> bool:
+        """Whether a local row has been retired (genuine-delete tombstone set)."""
+        return self.retired_column is not None and getattr(row, self.retired_column) is not None
+
+    def retire(self, row: Any, now: datetime) -> None:
+        """Stamp a row's retirement tombstone — PM deleted it with no surviving winner."""
+        setattr(row, self.retired_column, now)
 
     def natural_key_values(self, row: Any) -> tuple[Any, ...]:
         """The local natural-key tuple for a row (used for upsert matching)."""
@@ -248,6 +275,20 @@ class EntityDescriptor(ABC):
 
         Default ``None`` keeps identifier-only entities (jurisdictions) on the
         plain observe path. Override for orgs/persons (see :func:`normalize_name`).
+        """
+        return None
+
+    async def rematch_anchor(self, client: Any, session: Any, row: Any) -> ULID | None:
+        """Re-resolve a dead-anchored row to its surviving PM **merge-winner**.
+
+        Used by the engine's merge-orphan self-heal when a row's anchor 404s or PM
+        emits a ``deleted`` event for it: PM merged the entity into another, and our
+        anchor now points at the deleted loser. Unlike :meth:`pm_match`, this resolves
+        by **identifier only** — never name/hierarchy fuzz — because re-anchoring an
+        already-produced row to the wrong entity is worse than retiring it. Returns the
+        winner PM id, or ``None`` when no identifier winner exists (→ the engine
+        retires the row). Only consulted when :attr:`supports_rematch` is True; default
+        ``None``.
         """
         return None
 

@@ -41,6 +41,7 @@ class RoleDescriptor(EntityDescriptor):
     entity_type = "role"
     model = Role
     anchor_column = "pm_role_id"
+    retired_column = "retired_at"  # merge-orphan tombstone (#31); no id re-match yet → log-and-skip
     natural_key = ("source", "source_id")
     authority = "pm"
     read_path = "/api/v1/roles"

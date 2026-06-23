@@ -434,3 +434,34 @@ async def test_to_enrich_observation_carries_acronym_and_phone(db_session, descr
     assert obs["identifier_type"] == "pm_org_id"
     assert "jurisdiction_affiliations" not in obs
     assert "organization_parent_id" not in obs
+
+
+# --- rematch_anchor (merge-orphan self-heal, #31) ----------------------------
+
+
+async def test_rematch_anchor_resolves_winner_by_identifier(db_session, descriptor):
+    """A dead anchor re-resolves to the merge-winner via an exact identifier lookup
+    (no jurisdiction scope; no name/hierarchy fuzz)."""
+    winner = ULID()
+    row = await _add_org(db_session, source_id="C-1", name="House Approps")
+    client = FakeClient(search_pages=[EntityPage(records=[{"id": str(winner)}], cursor=None)])
+
+    assert await descriptor.rematch_anchor(client, db_session, row) == winner
+    assert len(client.searched) == 1
+    assert client.searched[0]["identifier_type"] == "org_wa_legislature_committee_id"
+    assert client.searched[0]["identifier_value"] == "C-1"
+    assert client.searched[0]["jurisdiction"] is None
+
+
+async def test_rematch_anchor_returns_none_on_identifier_miss(db_session, descriptor):
+    """No identifier winner → None (the engine retires: genuine delete, not a merge)."""
+    row = await _add_org(db_session, source_id="C-2", name="Gone Committee")
+    client = FakeClient(search_pages=[EntityPage(records=[], cursor=None)])
+
+    assert await descriptor.rematch_anchor(client, db_session, row) is None
+
+
+def test_org_descriptor_supports_rematch_and_retirement():
+    desc = OrganizationDescriptor()
+    assert desc.supports_rematch is True
+    assert desc.retired_column == "retired_at"

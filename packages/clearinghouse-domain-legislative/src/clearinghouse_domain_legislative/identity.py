@@ -8,13 +8,14 @@ power-map. Local copies in this schema serve query latency; the canonical
 truth lives upstream (see project memory: project_identity_producer_archival).
 """
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
+    DateTime,
     ForeignKey,
     Integer,
     String,
@@ -64,6 +65,10 @@ class Person(Base, TimestampMixin):
     # PM anchor (sidecar sync). Standardized to ``pm_<entity>_id`` (was
     # ``powermap_person_id`` pre-sidecar) so the sync engine keys uniformly.
     pm_person_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
+    # Merge-orphan tombstone (#31): set when PM deleted this entity with no surviving
+    # merge-winner. Excluded from the PM-sync sweep/reconcile so it is never re-created
+    # or re-fetched.
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Organization(Base, TimestampMixin):
@@ -112,6 +117,8 @@ class Organization(Base, TimestampMixin):
     )
     # PM anchor (sidecar sync). Was ``powermap_organization_id`` pre-sidecar.
     pm_organization_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
+    # Merge-orphan tombstone (#31): PM deleted this org with no surviving merge-winner.
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Role(Base, TimestampMixin):
@@ -146,6 +153,8 @@ class Role(Base, TimestampMixin):
     # PM anchor (sidecar sync). Write path dormant until power-map#176 ships
     # the roles observation endpoint.
     pm_role_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
+    # Merge-orphan tombstone (#31): PM deleted this role with no surviving merge-winner.
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Assignment(Base, TimestampMixin):
@@ -186,6 +195,8 @@ class Assignment(Base, TimestampMixin):
     # PM anchor (sidecar sync). Write path dormant until power-map#177 ships
     # the assignments observation endpoint.
     pm_assignment_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
+    # Merge-orphan tombstone (#31): PM deleted this assignment with no surviving winner.
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PersonIdentifier(Base, TimestampMixin):

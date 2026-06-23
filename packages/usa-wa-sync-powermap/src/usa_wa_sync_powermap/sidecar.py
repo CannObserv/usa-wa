@@ -94,7 +94,7 @@ class Sidecar:
         # run none (subscription feed + discovery only); the cohort producers run the
         # bounded anchored-cohort backstop (re-fetch our anchored rows → recover dropped
         # feed events, usa-wa#13); the full-list backstop is sibling-only.
-        await self._engine.process_feed(session)
+        await self._engine.process_feed(session, now=now)
         for descriptor in self._descriptors:
             if await self._reconcile_due(session, descriptor, now):
                 # Pass the commit hook so a large cohort backstop commits per page
