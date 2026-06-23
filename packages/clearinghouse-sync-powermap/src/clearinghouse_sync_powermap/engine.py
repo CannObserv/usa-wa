@@ -51,6 +51,16 @@ enqueue an UPDATE), so the clock comparison lives in exactly one place:
   (hourly), not per feed event. Consolidating all three enrich triggers into
   ``apply_record`` is a tracked simplification (usa-wa#35).
 
+  DEAD-ANCHOR self-heal (usa-wa#31/#36) — a PM-side merge deletes the loser and
+  keeps the winner, orphaning our anchor. Both read paths detect it and route to
+  :meth:`_heal_dead_anchor`: ``process_feed`` on a ``deleted`` event naming a row we
+  anchored (the timely signal), and ``_reconcile_anchored_cohort`` on a re-fetch 404
+  (the backstop). The heal re-resolves the winner by identifier and re-anchors +
+  re-enriches, or retires the row (``retired_at``) on a genuine delete; a descriptor
+  that can't re-match (no ``supports_rematch``) logs once and leaves it. Retired rows
+  are excluded from the sweep and reconcile. Deterministic loser→winner mapping is a
+  PM follow-up (power-map#235).
+
 Write-path drain detail (:meth:`drain_outbox`):
     post observations, settle dispositions, back off on transient error,
     dead-letter to UNAVAILABLE once the retry cap is exhausted (or immediately on
@@ -63,7 +73,7 @@ import hashlib
 import json
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
@@ -96,12 +106,6 @@ logger = get_logger(__name__)
 
 #: SyncState stream key for the shared PM changes feed.
 CHANGES_STREAM = "changes_feed"
-
-
-def _utcnow() -> datetime:
-    """Wall clock fallback for retire/heal timestamps when a caller supplies no
-    ``now`` (the feed/reconcile paths thread one; this guards ad-hoc callers)."""
-    return datetime.now(UTC)
 
 
 def _canonicalize(obj: object) -> object:
@@ -242,6 +246,11 @@ class SyncEngine:
         #: fires once per wedged entry rather than every cycle (#15 throttle). Bounded
         #: by the live stuck-entry count; a daemon restart re-warns once (acceptable).
         self._warned_stuck: set = set()
+        #: Local row ids already surfaced as an unhealable dead anchor this process, so
+        #: a descriptor that can't re-match (person/role/assignment until power-map#235)
+        #: warns once per wedged row rather than every reconcile cycle (#36). Same
+        #: throttle shape as ``_warned_stuck``; a restart re-warns once (acceptable).
+        self._warned_dead_anchors: set = set()
 
     def descriptor_for(self, entity_type: str) -> EntityDescriptor | None:
         return self._by_type.get(entity_type)
@@ -460,20 +469,24 @@ class SyncEngine:
         re-fetch, or a ``deleted`` feed event) and our anchor points at the deleted
         loser. Re-resolve the surviving winner by identifier and re-anchor + re-enrich
         (the carry fields the winner lacks re-push via #34 drift). A descriptor that
-        cannot re-match is left untouched and logged (never wrongly retired); one that
-        can but finds no winner is a genuine delete → retire locally.
+        cannot re-match is left untouched and logged once (never wrongly retired); one
+        that can but finds no winner is a genuine delete → retire locally.
 
         Idempotent: a row already re-anchored to a live winner won't 404 again, and a
         retired row is excluded from the sweep/reconcile that would re-encounter it.
         """
+        log_ctx = {"entity_type": descriptor.entity_type, "local_id": str(row.id)}
         if not descriptor.supports_rematch:
-            logger.warning(
-                "dead_anchor_unhealed",
-                extra={
-                    "entity_type": descriptor.entity_type,
-                    "anchor": str(descriptor.anchor_value(row)),
-                },
-            )
+            # Can't resolve a winner (person/role/assignment until they re-anchor from
+            # power-map#235's merged_into — tracked in usa-wa#37). Leave the row —
+            # retiring a possibly-merged entity with no id signal would be wrong — and
+            # warn ONCE per row this process (#36 CR), not every cycle.
+            if row.id not in self._warned_dead_anchors:
+                self._warned_dead_anchors.add(row.id)
+                logger.warning(
+                    "dead_anchor_unhealed",
+                    extra={**log_ctx, "anchor": str(descriptor.anchor_value(row))},
+                )
             return
         winner = await descriptor.rematch_anchor(self._client, session, row)
         if winner is None:
@@ -481,9 +494,20 @@ class SyncEngine:
             # transfer identifiers — power-map#235 will disambiguate). Retire, loudly.
             descriptor.retire(row, now)
             await session.flush()
+            logger.warning("dead_anchor_retired", extra=log_ctx)
+            return
+        # Many-to-one merge guard (#36 CR finding 1): if another local row already
+        # anchors to the winner, PM merged two of our rows into one canonical entity.
+        # Re-pointing this row too would mint a duplicate anchor (and crash the next
+        # anchor-keyed local_match). The winner is already represented → retire this
+        # orphan instead.
+        holder = await self._row_by_anchor(session, descriptor, winner)
+        if holder is not None and holder.id != row.id:
+            descriptor.retire(row, now)
+            await session.flush()
             logger.warning(
-                "dead_anchor_retired",
-                extra={"entity_type": descriptor.entity_type, "local_id": str(row.id)},
+                "dead_anchor_retired_duplicate_winner",
+                extra={**log_ctx, "winner": str(winner), "kept_local_id": str(holder.id)},
             )
             return
         old = descriptor.anchor_value(row)
@@ -495,12 +519,7 @@ class SyncEngine:
         await session.flush()
         logger.info(
             "dead_anchor_reanchored",
-            extra={
-                "entity_type": descriptor.entity_type,
-                "local_id": str(row.id),
-                "old_anchor": str(old),
-                "winner": str(winner),
-            },
+            extra={**log_ctx, "old_anchor": str(old), "winner": str(winner)},
         )
 
     # --- outbox worker --------------------------------------------------------
@@ -969,6 +988,10 @@ class SyncEngine:
         if descriptor.reconcile_mode == "full_list":
             applied = await self._reconcile_full_list(session, descriptor, commit=commit)
         elif descriptor.reconcile_mode == "anchored_cohort":
+            if now is None:
+                # The cohort backstop self-heals dead anchors, which stamps retire/
+                # heal timestamps — it needs a real clock, never a silent fallback (#36).
+                raise ValueError("anchored_cohort reconcile requires an explicit now")
             applied = await self._reconcile_anchored_cohort(
                 session, descriptor, now=now, commit=commit
             )
@@ -1028,7 +1051,7 @@ class SyncEngine:
         session: AsyncSession,
         descriptor: EntityDescriptor,
         *,
-        now: datetime | None = None,
+        now: datetime,
         commit: Callable[[], Awaitable[None]] | None = None,
     ) -> int:
         """Re-fetch only OUR anchored rows by id and re-apply each under LWW (#13).
@@ -1075,7 +1098,7 @@ class SyncEngine:
                 if record is None:
                     # PM record gone (404): the entity was merged/deleted. Self-heal —
                     # re-anchor to the merge-winner, or retire on a genuine delete (#31).
-                    await self._heal_dead_anchor(session, descriptor, row, now=now or _utcnow())
+                    await self._heal_dead_anchor(session, descriptor, row, now=now)
                     continue
                 await self.apply_record(session, descriptor, record)
                 # Re-evaluate enrichment for the anchored row (#34): a held identifier
@@ -1093,9 +1116,7 @@ class SyncEngine:
 
     # --- read path: changes feed (incremental primary for person/org) --------
 
-    async def process_feed(
-        self, session: AsyncSession, *, now: datetime | None = None, limit: int = 100
-    ) -> int:
+    async def process_feed(self, session: AsyncSession, *, now: datetime, limit: int = 100) -> int:
         """Pull one batch of changes, apply them, and advance the cursor.
 
         The feed yields ``(entity_type, id, change_kind)`` only, so each change
@@ -1126,7 +1147,7 @@ class SyncEngine:
             if item.change_kind == "deleted":
                 row = await self._row_by_anchor(session, descriptor, item.entity_id)
                 if row is not None and not descriptor.is_retired(row):
-                    await self._heal_dead_anchor(session, descriptor, row, now=now or _utcnow())
+                    await self._heal_dead_anchor(session, descriptor, row, now=now)
                 continue
             record = await descriptor.fetch_record(self._client, item.entity_id)
             if record is None:

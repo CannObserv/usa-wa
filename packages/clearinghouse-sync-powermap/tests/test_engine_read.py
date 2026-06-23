@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy import select
 from ulid import ULID
 
@@ -220,7 +221,7 @@ async def test_process_feed_applies_and_advances_cursor(db_session, fake_descrip
     )
     engine = SyncEngine([fake_descriptor], client)
 
-    applied = await engine.process_feed(db_session)
+    applied = await engine.process_feed(db_session, now=NOW)
 
     assert applied == 1
     assert (await db_session.execute(select(FakeEntity))).scalar_one().name == "FromFeed"
@@ -246,7 +247,7 @@ async def test_process_feed_reads_stored_integer_cursor_as_after(db_session, fak
     client = CapturingClient()
     engine = SyncEngine([fake_descriptor], client)
 
-    await engine.process_feed(db_session)
+    await engine.process_feed(db_session, now=NOW)
 
     assert client.seen_after == 7
 
@@ -267,7 +268,7 @@ async def test_process_feed_resets_stale_timestamp_cursor_to_zero(db_session, fa
     client = CapturingClient()
     engine = SyncEngine([fake_descriptor], client)
 
-    await engine.process_feed(db_session)
+    await engine.process_feed(db_session, now=NOW)
 
     assert client.seen_after == 0
 
@@ -277,7 +278,7 @@ async def test_process_feed_skips_deletes(db_session, fake_descriptor):
     client = FakeClient(changes_pages=[ChangePage(items=[item], next_after=9)])
     engine = SyncEngine([fake_descriptor], client)
 
-    applied = await engine.process_feed(db_session)
+    applied = await engine.process_feed(db_session, now=NOW)
 
     assert applied == 0
     assert (await db_session.execute(select(FakeEntity))).first() is None
@@ -857,3 +858,54 @@ async def test_anchored_cohort_excludes_retired_rows(db_session):
 
     assert applied == 0
     assert client.fetched == []  # retired row never re-fetched
+
+
+async def test_dead_anchor_many_to_one_merge_retires_duplicate(db_session):
+    """Two of our rows merged into one PM winner: the first re-anchors; the second
+    finds the winner already held locally → retire the orphan rather than mint a
+    duplicate anchor (which would crash the next anchor-keyed local_match). (#36 CR #1)"""
+    loser_a, loser_b, winner = ULID(), ULID(), ULID()
+    row_a = await _add_anchored(db_session, source_id="a", name="A", pm_id=loser_a, updated_at=NOW)
+    row_b = await _add_anchored(db_session, source_id="b", name="B", pm_id=loser_b, updated_at=NOW)
+    descriptor = RematchCohortDescriptor()
+    descriptor.rematch_result = winner  # both rows resolve to the same winner
+    client = FakeClient(
+        entities={winner: _record("a", "Winner", pm_id=winner, updated_at=_PM_NEWER)}
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    await db_session.refresh(row_a)
+    await db_session.refresh(row_b)
+
+    anchors = {row_a.pm_fake_id, row_b.pm_fake_id}
+    retired = [r for r in (row_a, row_b) if r.retired_at is not None]
+    assert winner in anchors  # exactly one row re-anchored to the winner
+    assert len(retired) == 1  # the other retired as a duplicate orphan
+    assert retired[0].pm_fake_id != winner  # the orphan never got the duplicate anchor
+
+
+async def test_dead_anchor_unsupported_warns_once_across_cycles(db_session, caplog):
+    """An unsupported-rematch dead anchor (person/role until power-map#235) 404s every
+    reconcile, but the WARNING fires once per row per process, not every cycle (#36 CR #2)."""
+    loser = ULID()
+    await _add_anchored(db_session, source_id="x", name="X", pm_id=loser, updated_at=NOW)
+    descriptor = CohortDescriptor()  # supports_rematch False
+    client = FakeClient(entities={})  # loser 404s every pass
+    engine = SyncEngine([descriptor], client)
+
+    with caplog.at_level("WARNING"):
+        await engine.reconcile(db_session, descriptor, now=NOW)
+        await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert sum(r.msg == "dead_anchor_unhealed" for r in caplog.records) == 1
+
+
+async def test_anchored_cohort_requires_now(db_session):
+    """The cohort backstop self-heals (retire/heal stamps) → it must be given a real
+    clock; a None now is a programming error, not a silent wall-clock fallback (#36 CR #5)."""
+    descriptor = CohortDescriptor()
+    engine = SyncEngine([descriptor], FakeClient())
+
+    with pytest.raises(ValueError, match="requires an explicit now"):
+        await engine.reconcile(db_session, descriptor, now=None)
