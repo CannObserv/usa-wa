@@ -82,6 +82,11 @@ class ChangeItem:
     entity_id: ULID
     changed_at: datetime
     change_kind: str  # "updated" | "deleted"
+    #: On a merge ``deleted`` event, the surviving winner the loser was merged into
+    #: (power-map#235); ``None`` on a genuine delete or an ``updated`` event. Lets the
+    #: engine re-anchor any entity type to the winner deterministically — no per-entity
+    #: identifier re-match, no fuzz (usa-wa#37).
+    merged_into: ULID | None = None
 
 
 @dataclass(frozen=True)

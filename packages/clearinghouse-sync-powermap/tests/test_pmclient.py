@@ -68,6 +68,44 @@ async def test_get_changes_maps_feed_and_sends_auth(client):
     assert item.entity_type == "jurisdiction"
     assert item.entity_id == pm_id
     assert item.change_kind == "updated"
+    assert item.merged_into is None  # absent field → None (not the Unset sentinel)
+
+
+@respx.mock
+async def test_get_changes_maps_merged_into_on_delete(client):
+    """A merge `deleted` event carries merged_into (power-map#235) — map it to a ULID;
+    leave it None when the field is absent (a genuine delete)."""
+    loser, winner = ULID(), ULID()
+    respx.get(f"{BASE}/api/v1/changes").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "seq_id": 7,
+                        "entity_type": "organization",
+                        "entity_id": str(loser),
+                        "changed_at": "2026-06-05T00:00:00Z",
+                        "change_kind": "deleted",
+                        "merged_into": str(winner),
+                    },
+                    {
+                        "seq_id": 8,
+                        "entity_type": "organization",
+                        "entity_id": str(ULID()),
+                        "changed_at": "2026-06-05T00:00:00Z",
+                        "change_kind": "deleted",
+                    },
+                ],
+                "meta": {"limit": 100, "count": 2, "has_more": False, "next_after": 8},
+            },
+        )
+    )
+
+    page = await client.get_changes(after=None)
+
+    assert page.items[0].merged_into == winner  # merge → winner id
+    assert page.items[1].merged_into is None  # genuine delete → None
 
 
 @respx.mock

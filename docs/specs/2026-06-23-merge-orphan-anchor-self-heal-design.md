@@ -153,19 +153,30 @@ PM merge → emits deleted(loser) + updated(winner)
 - self-heal does **not** name-match: an identifier miss with a fuzzy-name candidate
   present still retires (precision over recall).
 
-## PM follow-up (separate power-map issue — power-map#235)
+## PM follow-up (power-map#235 — SHIPPED 2026-06-23; consumed in usa-wa#37)
 
-Add `merged_into: <winner_id>` to the `deleted` change event (or a `merged`
-`change_kind`). usa-wa would prefer that explicit mapping when present and fall back
-to identifier re-match otherwise — making re-anchor deterministic, removing the
-identifier-transfer assumption, and benefiting every sibling subscriber. Not a
-blocker for this work.
+power-map#235 added optional `merged_into: <winner_id>` to the `deleted` change event
+(option A — the `change_kind` enum is unchanged). usa-wa#37 consumes it:
 
-## Open questions / risks
+- A feed `deleted` **with** `merged_into` re-anchors **any** entity type to the named
+  winner generically — no per-descriptor identifier re-match, no fuzz, no
+  `supports_rematch` gate (`_heal_dead_anchor(winner_hint=…)`).
+- A feed `deleted` **without** `merged_into` is now a deterministic genuine delete. A
+  rematch-capable descriptor (org) still runs identifier re-match first (backstop for a
+  merge whose event lacked `merged_into` — a PM gap or a pre-#235 backlog delete),
+  retiring only on a miss; a non-rematch type (person/role/assignment) retires directly,
+  closing the prior merge/delete ambiguity.
+- `rematch_anchor` / `supports_rematch` narrow to the **backstop path** — a 404 reconcile
+  *or* a bare `deleted` feed event with no `merged_into` — org-only, by identifier.
 
-- **Identifier transfer assumption** — see "Re-match precision". Mitigated by the
-  retire-path warning log and resolved by the PM follow-up.
-- **Person/role/assignment** — the engine logic is generic and covers them, but only
-  org merges have been observed; tests focus on org + the generic `FakeEntity`.
+## Open questions / risks (resolved by power-map#235 / usa-wa#37)
+
+- **Identifier transfer assumption** — RESOLVED. The feed re-anchor is now driven by
+  PM's explicit `merged_into`, not the identifier-transfer heuristic. The heuristic
+  survives only as the org-only 404 backstop.
+- **Person/role/assignment** — RESOLVED on the feed path: they re-anchor generically
+  from `merged_into` and retire on a genuine delete. Inert only if a dead anchor is
+  *first* seen via the 404 backstop (no `merged_into` there) — degraded, not wrong.
 - **Migration ordering** — `retired_at` is additive/nullable; no backfill needed.
-  Deploy is the standard migrate-then-restart (units are `--no-sync`).
+  Deploy is the standard migrate-then-restart (units are `--no-sync`). usa-wa#37 adds
+  no migration (the `retired_at` columns already exist on all four cached models).

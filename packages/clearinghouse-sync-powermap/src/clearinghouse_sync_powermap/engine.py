@@ -51,16 +51,24 @@ enqueue an UPDATE), so the clock comparison lives in exactly one place:
   (hourly), not per feed event. Consolidating all three enrich triggers into
   ``apply_record`` is a tracked simplification (usa-wa#35).
 
-  DEAD-ANCHOR self-heal (usa-wa#31/#36) — a PM-side merge deletes the loser and
+  DEAD-ANCHOR self-heal (usa-wa#31/#36/#37) — a PM-side merge deletes the loser and
   keeps the winner, orphaning our anchor. Both read paths detect it and route to
-  :meth:`_heal_dead_anchor`: ``process_feed`` on a ``deleted`` event naming a row we
-  anchored (the timely signal), and ``_reconcile_anchored_cohort`` on a re-fetch 404
-  (the backstop). The heal re-resolves the winner by identifier and re-anchors +
-  re-enriches; retires the row (``retired_at``) on a genuine delete; or retires a
-  duplicate orphan when a many-to-one merge already left another local row on the
-  winner. A descriptor that can't re-match (no ``supports_rematch``) logs once and
-  leaves it. Retired rows are excluded from the sweep and reconcile. Deterministic
-  loser→winner mapping is a PM follow-up (power-map#235).
+  :meth:`_heal_dead_anchor`: ``process_feed`` on a ``deleted`` event (the timely
+  signal) and ``_reconcile_anchored_cohort`` on a re-fetch 404 (the backstop). The
+  winner is resolved from one of two signals, in order of trust:
+
+  - PM's explicit ``merged_into`` on the ``deleted`` event (power-map#235, consumed in
+    usa-wa#37) — deterministic, so it re-anchors *any* entity type generically with no
+    identifier re-match.
+  - identifier re-match — the backstop when no ``merged_into`` was seen (a 404, or a
+    bare ``deleted`` for a rematch-capable org). Only the org descriptor supports it.
+
+  A bare ``deleted`` (no ``merged_into``) is otherwise an unambiguous genuine delete
+  post-power-map#235: non-rematch types (person/role/assignment) retire (``retired_at``).
+  The heal also retires a duplicate orphan when a many-to-one merge already left another
+  local row on the winner, and a non-rematch type with no winner signal at all (a 404
+  backstop) logs once and leaves the row. Retired rows are excluded from the sweep and
+  reconcile.
 
 Write-path drain detail (:meth:`drain_outbox`):
     post observations, settle dispositions, back off on transient error,
@@ -80,6 +88,7 @@ from typing import Any
 import httpx
 from sqlalchemy import ColumnElement, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from ulid import ULID
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.client import (
@@ -464,24 +473,42 @@ class SyncEngine:
         )
 
     async def _heal_dead_anchor(
-        self, session: AsyncSession, descriptor: EntityDescriptor, row, *, now: datetime
+        self,
+        session: AsyncSession,
+        descriptor: EntityDescriptor,
+        row,
+        *,
+        now: datetime,
+        winner_hint: ULID | None = None,
     ) -> None:
         """Heal a row whose PM anchor is dead — PM merged the entity away (a 404 on
         re-fetch, or a ``deleted`` feed event) and our anchor points at the deleted
-        loser. Re-resolve the surviving winner by identifier and re-anchor + re-enrich
-        (the carry fields the winner lacks re-push via #34 drift). A descriptor that
-        cannot re-match is left untouched and logged once (never wrongly retired); one
-        that can but finds no winner is a genuine delete → retire locally.
+        loser. Re-anchor to the surviving winner + re-enrich (the carry fields the
+        winner lacks re-push via #34 drift).
+
+        The winner comes from one of two signals, in order of trust:
+
+        - ``winner_hint`` — PM's explicit ``merged_into`` on the ``deleted`` feed event
+          (power-map#235 / usa-wa#37). Deterministic, so it heals *any* entity type
+          generically — no identifier re-match, no ``supports_rematch`` gate.
+        - identifier re-match — the backstop signal, when no ``merged_into`` was seen:
+          a re-fetch 404, *or* a bare ``deleted`` feed event carrying no ``merged_into``
+          for a rematch-capable descriptor. Only the org descriptor supports it; a
+          descriptor that can't re-match is left untouched and logged once (never
+          wrongly retired), and one that can but finds no winner retires locally.
 
         Idempotent: a row already re-anchored to a live winner won't 404 again, and a
         retired row is excluded from the sweep/reconcile that would re-encounter it.
         """
         log_ctx = {"entity_type": descriptor.entity_type, "local_id": str(row.id)}
-        if not descriptor.supports_rematch:
-            # Can't resolve a winner (person/role/assignment until they re-anchor from
-            # power-map#235's merged_into — tracked in usa-wa#37). Leave the row —
-            # retiring a possibly-merged entity with no id signal would be wrong — and
-            # warn ONCE per row this process (#36 CR), not every cycle.
+        if winner_hint is not None:
+            winner: ULID | None = winner_hint
+        elif not descriptor.supports_rematch:
+            # No explicit winner and can't resolve one by identifier (person/role/
+            # assignment on the 404 backstop — the feed path carries merged_into and
+            # never reaches here). Leave the row — retiring a possibly-merged entity
+            # with no signal would be wrong — and warn ONCE per row this process
+            # (#36 CR), not every cycle.
             if row.id not in self._warned_dead_anchors:
                 self._warned_dead_anchors.add(row.id)
                 logger.warning(
@@ -489,14 +516,16 @@ class SyncEngine:
                     extra={**log_ctx, "anchor": str(descriptor.anchor_value(row))},
                 )
             return
-        winner = await descriptor.rematch_anchor(self._client, session, row)
-        if winner is None:
-            # No surviving identifier winner → genuine delete (or a merge that didn't
-            # transfer identifiers — power-map#235 will disambiguate). Retire, loudly.
-            descriptor.retire(row, now)
-            await session.flush()
-            logger.warning("dead_anchor_retired", extra=log_ctx)
-            return
+        else:
+            winner = await descriptor.rematch_anchor(self._client, session, row)
+            if winner is None:
+                # No surviving identifier winner → genuine delete (or a merge that
+                # didn't transfer identifiers). Retire, loudly. (The feed path settles
+                # this deterministically via merged_into; this is only the 404 backstop.)
+                descriptor.retire(row, now)
+                await session.flush()
+                logger.warning("dead_anchor_retired", extra=log_ctx)
+                return
         # Many-to-one merge guard (#36 CR finding 1): if another local row already
         # anchors to the winner, PM merged two of our rows into one canonical entity.
         # Re-pointing this row too would mint a duplicate anchor (and crash the next
@@ -516,6 +545,11 @@ class SyncEngine:
             return
         old = descriptor.anchor_value(row)
         descriptor.set_anchor(row, winner)
+        # fetch_record can 404 here if the named winner was itself later merged away (a
+        # merge chain). We've re-anchored to it regardless, so the row is briefly a fresh
+        # dead anchor — harmless: the next feed deleted(winner) / reconcile 404 re-heals
+        # it to the final winner. We only adopt canonical fields + re-enrich when the
+        # winner resolves (CR #7).
         record = await descriptor.fetch_record(self._client, winner)
         if record is not None:
             await self.apply_record(session, descriptor, record)
@@ -1150,7 +1184,34 @@ class SyncEngine:
                 continue
             if item.change_kind == "deleted":
                 row = await self._row_by_anchor(session, descriptor, item.entity_id)
-                if row is not None and not descriptor.is_retired(row):
+                if row is None or descriptor.is_retired(row):
+                    continue
+                if item.merged_into is not None:
+                    # Merge: PM names the surviving winner (power-map#235). Re-anchor any
+                    # entity type to it deterministically — no identifier re-match.
+                    await self._heal_dead_anchor(
+                        session, descriptor, row, now=now, winner_hint=item.merged_into
+                    )
+                elif descriptor.supports_rematch:
+                    # Bare delete on a rematch-capable descriptor (org): keep the #36
+                    # backstop ahead of any retire. Identifier re-match re-anchors a merge
+                    # whose event lacked merged_into — a PM gap, or a pre-power-map#235
+                    # backlog delete — and retires only on a genuine miss. Same path as the
+                    # 404 reconcile, so feed and backstop behave identically (CR #1).
+                    await self._heal_dead_anchor(session, descriptor, row, now=now)
+                elif descriptor.retired_column is not None:
+                    # Genuine delete for a non-rematch type (person/role/assignment): absent
+                    # merged_into is unambiguous post-power-map#235, so retire — the
+                    # merge/delete ambiguity that blocked this is gone (usa-wa#37). Distinct
+                    # log key from the heuristic identifier-miss retire (CR #2).
+                    descriptor.retire(row, now)
+                    await session.flush()
+                    logger.info(
+                        "dead_anchor_retired_deleted",
+                        extra={"entity_type": descriptor.entity_type, "local_id": str(row.id)},
+                    )
+                else:
+                    # No tombstone column: defer to the heal routine's warn-and-leave.
                     await self._heal_dead_anchor(session, descriptor, row, now=now)
                 continue
             record = await descriptor.fetch_record(self._client, item.entity_id)

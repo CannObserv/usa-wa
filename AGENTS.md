@@ -57,7 +57,7 @@ packages/
   clearinghouse-sync-powermap/        — Layer 1-adjacent: portable Power Map sync engine (sibling-reusable)
     src/clearinghouse_sync_powermap/
       descriptors.py  — EntityDescriptor contract (per-entity sync behaviour; zero usa-wa imports)
-      engine.py       — SyncEngine: changes-feed + reconcile reads, LWW, outbox worker, backoff, merge-orphan anchor self-heal (#36)
+      engine.py       — SyncEngine: changes-feed + reconcile reads, LWW, outbox worker, backoff, merge-orphan anchor self-heal (#36) + merged_into generic re-resolution (#37)
       client.py       — PowerMapClient Protocol + value types (ObservationResult, ChangePage…)
       models.py       — sync-schema OutboxEntry + SyncState + EnrichFingerprint (delivery ledger + feed cursor + enrich re-propagation stamp)
       testing.py      — shipped test doubles (FakeEntity/Descriptor/Client) for this + sibling tests

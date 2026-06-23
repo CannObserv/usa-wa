@@ -797,13 +797,19 @@ async def test_dead_anchor_unsupported_descriptor_leaves_row(db_session):
 
 
 async def test_process_feed_deleted_heals_our_anchored_row(db_session):
-    """A `deleted` feed event for a row we anchored routes to the heal: re-anchor to
-    the merge-winner (the timely path; the reconcile 404 is the backstop)."""
+    """A merge `deleted` feed event (carrying merged_into) for a row we anchored routes
+    to the heal: re-anchor to the named winner (the timely path; the reconcile 404 is
+    the backstop). Post-power-map#235 the merge signal is the explicit merged_into."""
     loser, winner = ULID(), ULID()
     row = await _add_anchored(db_session, source_id="x", name="X", pm_id=loser, updated_at=NOW)
     descriptor = RematchCohortDescriptor()
-    descriptor.rematch_result = winner
-    item = ChangeItem(entity_type="fake", entity_id=loser, changed_at=NOW, change_kind="deleted")
+    item = ChangeItem(
+        entity_type="fake",
+        entity_id=loser,
+        changed_at=NOW,
+        change_kind="deleted",
+        merged_into=winner,
+    )
     client = FakeClient(
         changes_pages=[ChangePage(items=[item], next_after=9)],
         entities={winner: _record("x", "Winner", pm_id=winner, updated_at=_PM_NEWER)},
@@ -899,6 +905,171 @@ async def test_dead_anchor_unsupported_warns_once_across_cycles(db_session, capl
         await engine.reconcile(db_session, descriptor, now=NOW)
 
     assert sum(r.msg == "dead_anchor_unhealed" for r in caplog.records) == 1
+
+
+# --- power-map#235 merged_into: generic, deterministic re-anchor (usa-wa#37) -----
+
+
+async def test_process_feed_merged_into_reanchors_unsupported_descriptor(db_session):
+    """A `deleted` event carrying `merged_into` re-anchors ANY entity type to the
+    named winner — no identifier re-match, so even a descriptor that can't rematch
+    (person/role/assignment) heals generically (usa-wa#37 / power-map#235)."""
+    loser, winner = ULID(), ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=loser, updated_at=NOW)
+    descriptor = CohortDescriptor()  # supports_rematch False — would have stayed inert
+    item = ChangeItem(
+        entity_type="fake",
+        entity_id=loser,
+        changed_at=NOW,
+        change_kind="deleted",
+        merged_into=winner,
+    )
+    client = FakeClient(
+        changes_pages=[ChangePage(items=[item], next_after=9)],
+        entities={winner: _record("x", "Winner", pm_id=winner, updated_at=_PM_NEWER)},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.pm_fake_id == winner  # re-anchored from the explicit winner id
+    assert row.retired_at is None
+
+
+async def test_process_feed_merged_into_preferred_over_rematch(db_session):
+    """When `merged_into` is present the engine trusts it and does NOT consult the
+    descriptor's identifier re-match — the explicit PM signal wins over the heuristic."""
+    loser, winner, wrong = ULID(), ULID(), ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=loser, updated_at=NOW)
+    descriptor = RematchCohortDescriptor()
+    descriptor.rematch_result = wrong  # would mis-anchor if consulted
+    item = ChangeItem(
+        entity_type="fake",
+        entity_id=loser,
+        changed_at=NOW,
+        change_kind="deleted",
+        merged_into=winner,
+    )
+    client = FakeClient(
+        changes_pages=[ChangePage(items=[item], next_after=9)],
+        entities={winner: _record("x", "Winner", pm_id=winner, updated_at=_PM_NEWER)},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.pm_fake_id == winner  # the merged_into winner, not rematch_result
+
+
+async def test_process_feed_genuine_delete_retires_any_type(db_session):
+    """A `deleted` event WITHOUT `merged_into` is a deterministic genuine delete: retire
+    the row even for a descriptor that can't re-match (the merge/delete ambiguity that
+    blocked this before power-map#235 is gone)."""
+    loser = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=loser, updated_at=NOW)
+    descriptor = CohortDescriptor()  # supports_rematch False
+    item = ChangeItem(entity_type="fake", entity_id=loser, changed_at=NOW, change_kind="deleted")
+    client = FakeClient(changes_pages=[ChangePage(items=[item], next_after=9)])
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.retired_at == NOW  # genuine delete → tombstoned
+    assert row.pm_fake_id == loser  # anchor left as-is
+
+
+async def test_process_feed_bare_delete_org_uses_rematch_backstop(db_session):
+    """A bare `deleted` (no merged_into) on a rematch-capable descriptor (org) keeps the
+    #36 identifier backstop ahead of any retire: a merge whose event lacked merged_into
+    (PM gap / pre-power-map#235 backlog) still re-anchors rather than wrongly retiring an
+    org permanently out of the sweep+reconcile (CR #1)."""
+    loser, winner = ULID(), ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=loser, updated_at=NOW)
+    descriptor = RematchCohortDescriptor()  # supports_rematch True
+    descriptor.rematch_result = winner  # identifier winner survives
+    item = ChangeItem(entity_type="fake", entity_id=loser, changed_at=NOW, change_kind="deleted")
+    client = FakeClient(
+        changes_pages=[ChangePage(items=[item], next_after=9)],
+        entities={winner: _record("x", "Winner", pm_id=winner, updated_at=_PM_NEWER)},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.pm_fake_id == winner  # re-anchored via the backstop, not retired
+    assert row.retired_at is None
+
+
+class NoTombstoneDescriptor(FakeDescriptor):
+    """A feed descriptor with neither re-match nor a retirement column — the defensive
+    fallback path: a dead anchor it can't resolve and can't tombstone is left in place."""
+
+    retired_column = None
+    supports_rematch = False
+
+
+async def test_process_feed_bare_delete_no_tombstone_leaves_row(db_session, caplog):
+    """A bare `deleted` for a descriptor that can't re-match AND has no tombstone column
+    falls through to warn-and-leave — never silently drops the row (engine.py else arm)."""
+    loser = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="Keep", pm_id=loser, updated_at=NOW)
+    descriptor = NoTombstoneDescriptor()
+    item = ChangeItem(entity_type="fake", entity_id=loser, changed_at=NOW, change_kind="deleted")
+    client = FakeClient(changes_pages=[ChangePage(items=[item], next_after=9)])
+    engine = SyncEngine([descriptor], client)
+
+    with caplog.at_level("WARNING"):
+        await engine.process_feed(db_session, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.pm_fake_id == loser  # left in place
+    assert row.retired_at is None
+    assert any(r.msg == "dead_anchor_unhealed" for r in caplog.records)
+
+
+async def test_process_feed_merged_into_many_to_one_retires_duplicate(db_session):
+    """Two of our rows merged into one winner, both surfacing via merged_into: the
+    first re-anchors, the second finds the winner already held → retire the orphan
+    rather than mint a duplicate anchor (the #36 guard generalizes to the hint path)."""
+    loser_a, loser_b, winner = ULID(), ULID(), ULID()
+    row_a = await _add_anchored(db_session, source_id="a", name="A", pm_id=loser_a, updated_at=NOW)
+    row_b = await _add_anchored(db_session, source_id="b", name="B", pm_id=loser_b, updated_at=NOW)
+    descriptor = CohortDescriptor()  # supports_rematch False — hint-driven only
+    items = [
+        ChangeItem(
+            entity_type="fake",
+            entity_id=loser_a,
+            changed_at=NOW,
+            change_kind="deleted",
+            merged_into=winner,
+        ),
+        ChangeItem(
+            entity_type="fake",
+            entity_id=loser_b,
+            changed_at=NOW,
+            change_kind="deleted",
+            merged_into=winner,
+        ),
+    ]
+    client = FakeClient(
+        changes_pages=[ChangePage(items=items, next_after=9)],
+        entities={winner: _record("a", "Winner", pm_id=winner, updated_at=_PM_NEWER)},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+    await db_session.refresh(row_a)
+    await db_session.refresh(row_b)
+
+    anchors = {row_a.pm_fake_id, row_b.pm_fake_id}
+    retired = [r for r in (row_a, row_b) if r.retired_at is not None]
+    assert winner in anchors  # exactly one re-anchored
+    assert len(retired) == 1  # the other retired as a duplicate orphan
+    assert retired[0].pm_fake_id != winner
 
 
 async def test_anchored_cohort_requires_now(db_session):

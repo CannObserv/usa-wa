@@ -147,9 +147,12 @@ class EntityDescriptor(ABC):
     #: or re-fetched. ``None`` → no retirement marker (retirement disabled).
     retired_column: str | None = None
     #: Whether this descriptor can re-resolve a dead anchor to its merge-winner via
-    #: :meth:`rematch_anchor`. When False the engine logs an unhealed dead anchor and
-    #: leaves the row, rather than retiring a possibly-merged row with no identifier
-    #: signal (see the merge-orphan self-heal design, usa-wa#31 / power-map#235).
+    #: :meth:`rematch_anchor`. Consulted **on the backstop path only** — a re-fetch 404,
+    #: or a bare ``deleted`` feed event with no ``merged_into``. When PM names the winner
+    #: (``merged_into``, power-map#235) the engine re-anchors any entity type generically
+    #: without this. When False *and* no ``merged_into`` is available, the engine logs an
+    #: unhealed dead anchor and leaves the row, rather than retiring a possibly-merged row
+    #: with no signal (merge-orphan self-heal, usa-wa#31 / #37).
     supports_rematch: bool = False
 
     # --- concrete helpers (shared, not overridden) ---------------------------
@@ -281,14 +284,14 @@ class EntityDescriptor(ABC):
     async def rematch_anchor(self, client: Any, session: Any, row: Any) -> ULID | None:
         """Re-resolve a dead-anchored row to its surviving PM **merge-winner**.
 
-        Used by the engine's merge-orphan self-heal when a row's anchor 404s or PM
-        emits a ``deleted`` event for it: PM merged the entity into another, and our
-        anchor now points at the deleted loser. Unlike :meth:`pm_match`, this resolves
-        by **identifier only** — never name/hierarchy fuzz — because re-anchoring an
-        already-produced row to the wrong entity is worse than retiring it. Returns the
-        winner PM id, or ``None`` when no identifier winner exists (→ the engine
-        retires the row). Only consulted when :attr:`supports_rematch` is True; default
-        ``None``.
+        The **backstop path only**: when PM names the winner (``merged_into``,
+        power-map#235) the engine re-anchors without this. This covers the gap when no
+        ``merged_into`` was seen — a re-fetch 404, or a bare ``deleted`` feed event for a
+        rematch-capable descriptor — so the winner is re-resolved by **identifier only**
+        (never name/hierarchy fuzz — re-anchoring a produced row to the wrong entity is
+        worse than retiring it). Returns the winner PM id, or ``None`` when no identifier
+        winner exists (→ the engine retires the row). Only consulted when
+        :attr:`supports_rematch` is True; default ``None``.
         """
         return None
 

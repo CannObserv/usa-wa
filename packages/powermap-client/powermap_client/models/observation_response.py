@@ -20,11 +20,13 @@ class ObservationResponse:
         disposition (str):
         entity_id (None | str | Unset):
         entity_type (None | ObservationResponseEntityTypeType0 | Unset):
+        reason (None | str | Unset):
     """
 
     disposition: str
     entity_id: None | str | Unset = UNSET
     entity_type: None | ObservationResponseEntityTypeType0 | Unset = UNSET
+    reason: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,6 +46,12 @@ class ObservationResponse:
         else:
             entity_type = self.entity_type
 
+        reason: None | str | Unset
+        if isinstance(self.reason, Unset):
+            reason = UNSET
+        else:
+            reason = self.reason
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -55,6 +63,8 @@ class ObservationResponse:
             field_dict["entity_id"] = entity_id
         if entity_type is not UNSET:
             field_dict["entity_type"] = entity_type
+        if reason is not UNSET:
+            field_dict["reason"] = reason
 
         return field_dict
 
@@ -89,10 +99,20 @@ class ObservationResponse:
 
         entity_type = _parse_entity_type(d.pop("entity_type", UNSET))
 
+        def _parse_reason(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        reason = _parse_reason(d.pop("reason", UNSET))
+
         observation_response = cls(
             disposition=disposition,
             entity_id=entity_id,
             entity_type=entity_type,
+            reason=reason,
         )
 
         observation_response.additional_properties = d

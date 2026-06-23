@@ -214,6 +214,10 @@ class GeneratedPowerMapClient:
                 entity_id=as_ulid(ci.entity_id),
                 changed_at=_parse_ts(ci.changed_at),
                 change_kind=ci.change_kind.value,
+                # power-map#235: optional winner id on a merge ``deleted`` event. The
+                # generated field is ``Unset`` when absent (genuine delete) — coerce
+                # to None so the engine sees a clean ``ULID | None``.
+                merged_into=as_ulid(ci.merged_into) if isinstance(ci.merged_into, str) else None,
             )
             for ci in feed.data
         ]
