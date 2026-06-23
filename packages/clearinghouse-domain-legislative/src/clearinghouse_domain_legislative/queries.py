@@ -12,10 +12,14 @@ the ``retired_at IS NULL`` predicate is spelled once and the audit/provenance
 escape hatch (``include_retired=True``) is explicit at the call site (usa-wa#38).
 """
 
+from sqlalchemy import Select
+
 from clearinghouse_domain_legislative.identity import RetirableMixin
 
 
-def exclude_retired(stmt, *models: type[RetirableMixin], include_retired: bool = False):
+def exclude_retired(
+    stmt: Select, *models: type[RetirableMixin], include_retired: bool = False
+) -> Select:
     """Filter retired (soft-deleted) rows out of a SELECT, one model hop at a time.
 
     Apply once per :class:`RetirableMixin` model the statement reads or joins

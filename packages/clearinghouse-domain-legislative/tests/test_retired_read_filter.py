@@ -6,6 +6,8 @@ provenance but must not leak into *live* reads. These tests pin the shared
 every read endpoint routes through.
 """
 
+from datetime import UTC, datetime
+
 import pytest
 from sqlalchemy import select
 
@@ -27,8 +29,6 @@ def test_all_identity_models_expose_not_retired():
 
 
 async def _org(db_session, source_id, *, retired):
-    from datetime import UTC, datetime
-
     org = Organization(
         source="wsl",
         source_id=source_id,
@@ -69,8 +69,6 @@ async def test_include_retired_escape_hatch_returns_all(db_session):
 
 async def test_exclude_retired_filters_each_join_hop(db_session):
     """A join through org → role filters retired rows at every supplied model."""
-    from datetime import UTC, datetime
-
     live_org = await _org(db_session, "live-3", retired=False)
     dead_org = await _org(db_session, "dead-3", retired=True)
 

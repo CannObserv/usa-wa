@@ -10,6 +10,8 @@ round-trip update path (re-observe an already-anchored entity → PM applies the
 new label).
 """
 
+from datetime import UTC, datetime
+
 import pytest
 from sqlalchemy import select
 from ulid import ULID
@@ -127,8 +129,6 @@ async def test_backfill_ignores_other_sources(db_session, usa_wa):
 async def test_backfill_skips_retired_orgs(db_session, usa_wa):
     """A retired (PM-deleted) org carries a dead anchor — re-observing it would push
     against a tombstoned PM entity. The backfill excludes it (usa-wa#38)."""
-    from datetime import UTC, datetime
-
     row = await _add_org(
         db_session,
         source_id="C-dead",

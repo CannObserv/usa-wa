@@ -54,6 +54,8 @@ packages/
   clearinghouse-domain-legislative/   — Layer 2: legislative-government model (state/federal)
     src/clearinghouse_domain_legislative/
                       — Bill, Legislator, BillAction, StatuteSection, etc. (skeletoned step 7)
+      identity.py     — Person/Organization/Role/Assignment + RetirableMixin (retired_at tombstone, #38)
+      queries.py      — exclude_retired(): read-side retired_at guardrail every live read routes through (#38)
   clearinghouse-sync-powermap/        — Layer 1-adjacent: portable Power Map sync engine (sibling-reusable)
     src/clearinghouse_sync_powermap/
       descriptors.py  — EntityDescriptor contract (per-entity sync behaviour; zero usa-wa imports)
