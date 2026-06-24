@@ -8,6 +8,58 @@
 - **Outputs:** per-entity correspondence tables; vocabulary mappings; lossy-direction inventory; vocab/schema deltas required to receive WSL data cleanly.
 - **Non-goals:** legislative-document text content (P3); Code Reviser identifier parsing (existing `document_identifiers` table covers storage); GovInfo XML mimetype handling; pre-2025 historical backfill; consumption of WSL's non-SOAP surfaces (web pages, calendars, agency reports).
 
+## Empirical validation (2026-06-24)
+
+The draft's `Committee`-shape assumptions were checked against live WSL
+(`CommitteeService` / `SponsorService`, bienniums 2019-20 → 2025-26). Findings,
+applied inline below:
+
+- **`Id` is the stable committee key — not `Acronym`.** `Id` is identical across
+  2021-22 / 2023-24 / 2025-26 for every carried-over committee (APP=31634,
+  CB=31635, TR=31651, HCW=31644; 0 of 30 shared committees re-keyed 2023-24→2025-26).
+  **`Acronym` *and* `LongName` change on a stable `Id`** (Id 29195: `BFGT`
+  "Business, Financial Services, Gaming & Trade" → `BTE` "Business, Trade &
+  Economic Development"; 5 such renames 2023-24→2025-26). `source_id=Id` is
+  correct; the proposed PM-layer "fold cross-biennium rows by shared `Acronym`"
+  continuity mechanism is **unsound** (acronyms are not stable) and is dropped.
+  A renumbering occurred at the 2019→2021 boundary (Commerce & Gaming 20900→31639),
+  so `Id` stability holds only within the in-scope modern era.
+- **`GetCommittees(biennium)` ≈ `GetActiveCommittees`** — both return the same
+  flat list (34 for 2025-26: 19 House + 15 Senate). Neither exposes a richer set.
+- **No Joint committees in any biennium** of `CommitteeService` (`GetCommittees`
+  checked 1991-92 → 2025-26: every row is `Agency=House`/`Senate`). WA's joint
+  bodies are a **separate class reachable only through
+  `CommitteeMeetingService.GetCommitteeMeetings(beginDate, endDate)`**, where each
+  meeting carries `Agency` ∈ {`House`, `Senate`, `Joint`, `Other`} and a nested
+  `Committees.Committee[]` list (`Id, Name, LongName, Agency, Acronym, Phone`).
+  Persistent statutory joint/agency bodies recur every biennium — JTC (`Id=-140`),
+  JLARC (`-5`), Select Committee on Pension Policy, Pension Funding Council,
+  Veterans' & Military Affairs, Joint Committee on Employment Relations (27992),
+  **Joint Committee on Energy Supply, Energy Conservation, and Energy Resilience
+  (Id 13945, `ESEC`, RCW 44.39)** — alongside many transient task forces. The
+  id-space is heterogeneous (small/negative sentinels for standing statutory bodies,
+  large positives for task forces), `LongName` is double-prefixed with the agency
+  ("Joint Joint Committee on…"), and a body appears only if it *met* in the window.
+  Bringing joint committees into the org graph is therefore its own cut
+  (meeting-derived dedup, or synthesis of the statutory core from RCW), not a tweak
+  to the `GetActiveCommittees` normalizer. The `Agency="Joint"` → legislature mapping
+  in the current normalizer is dead against `CommitteeService` data but is the right
+  shape for that future cut.
+- **Subcommittees appear (rarely) as peer rows**, detectable only by "Subcommittee"
+  in `LongName` (2019-20 & 2021-22: Id 29190 "Senate Committee on Behavioral Health
+  Subcommittee to Health & Long Term Care", Agency=Senate). None in 2023-24/2025-26.
+  No structural parent field — the parent committee is named inside `LongName`.
+- **Committees retire.** Id 31639 (2021-22 "Commerce & Gaming" → 2023-24 "Regulated
+  Substances & Gaming") is absent in 2025-26. Retirement is detected by per-biennium
+  presence diffing, not exposed as a field — ties to `RetirableMixin` (#38).
+- **The `Committee` element carries exactly `Id, Name, LongName, Agency, Acronym,
+  Phone`** — the field is `Phone`, not `PhoneNumber`. `GetActiveCommittees` takes
+  **no** biennium argument (implicit current biennium); `GetCommittees(biennium)` is
+  the parameterized historical form.
+- **`LongName`, `Acronym`, and active-status are biennium-scoped, not timeless.** The
+  single durable Org row (keyed on `Id`) keeps only the latest values — see new
+  Lossy ← items 7–8 and Open Q 5.
+
 ## Why this exists
 
 WSL SOAP is the **authoritative source** for everything WA-legislative — bills, amendments, sponsors, committee actions, hearings, votes, session laws. Every other WA legislative data source (OpenStates, LegiScan WA scrape, third-party aggregators) is downstream of WSL with varying lag and fidelity. The adapter at [`packages/usa-wa-adapter-legislature/`](../../packages/usa-wa-adapter-legislature/) ingests WSL SOAP directly so canonical-table writes carry first-party provenance, not third-party derivations.
@@ -25,7 +77,7 @@ Each service is an ASMX endpoint with one WSDL per service. Methods scoped per-b
 | `SponsorService` | `GetSponsors`, `GetHouseSponsors`, `GetSenateSponsors`, `GetRequesters` | `Person`, `PersonIdentifier`, `Assignment` (chamber membership) |
 | `CommitteeService` | `GetActiveCommittees`, `GetCommittees`, `GetActiveCommitteeMembers`, `GetCommitteeMembers`, `GetHouseCommittees`, `GetSenateCommittees` | `Organization` (committee), `Role`, `Assignment` (committee membership) |
 | `CommitteeActionService` | `GetCommitteeReferralsByBill`, `GetDoPassByCommittee`, `GetCommitteeExecutiveActionsByBill`, … (15 ops; per-committee/per-bill scoping) | `BillAction` (committee phase), `VoteCount` (in-committee votes) |
-| `CommitteeMeetingService` | `GetCommitteeMeetings`, `GetCommitteeMeetingItems`, `GetRevisedCommitteeMeetings` | `BillEvent` (hearing), `BillAction` (executive session items) |
+| `CommitteeMeetingService` | `GetCommitteeMeetings`, `GetCommitteeMeetingItems`, `GetRevisedCommitteeMeetings` | `BillEvent` (hearing), `BillAction` (executive session items); **also the only source of `Joint`/`Other` committee `Organization` rows** (see § Empirical validation + Lossy ← item 5) |
 | `LegislativeDocumentService` | `GetDocuments`, `GetDocumentsByClass`, `GetAllDocumentsByClass`, `GetDocumentClasses` | `BillVersion`, `BillSupplement` (analysis, report, fiscal note, summary), `document_identifiers` |
 | `SessionLawService` | `GetBillByChapterNumber`, `GetChapterNumbersByYear`, `GetSessionLawByBill`, `GetSessionLawByBillId`, `GetSessionLawByInitiativeNumber` | `Bill.enacted_as`, `bill_statute_changes` |
 | `RcwCiteAffectedService` | `GetRcwCitesAffected` | `bill_statutory_citations` |
@@ -36,10 +88,10 @@ Each service is an ASMX endpoint with one WSDL per service. Methods scoped per-b
 
 **Biennium as the scope unit.** Every WSL operation that returns more than one row takes a biennium string. The biennium is the closest WSL has to a "session container" — within a biennium, WA holds annual Regular Sessions (mid-Jan to late-April or sine-die) plus zero or more Special Sessions called by the Governor. WSL does not encode the Regular-vs-Special distinction at the SOAP level; we derive it from calendar conventions and synthesize the `LegislativeSession` rows.
 
-**SOAP envelope shape.** Most operations return a typed list element under the SOAP body — e.g., `GetActiveCommittees` returns an `ArrayOfCommittee` containing zero or more `Committee` elements with fields like `Id`, `Name`, `LongName`, `Acronym`, `Agency` (`House` / `Senate` / `Joint`), `PhoneNumber`. SOAP fault envelopes (`<soap:Fault>`) appear for transport-level failures (bad biennium parameter, service down). Per-operation shapes vary; the adapter's normalize layer handles each one specifically. Exact field names are pinned in the P1a cassette pass (see § Open questions).
+**SOAP envelope shape.** Most operations return a typed list element under the SOAP body — e.g., `GetActiveCommittees` returns an `ArrayOfCommittee` containing zero or more `Committee` elements with the fields `Id`, `Name`, `LongName`, `Acronym`, `Agency` (`House` / `Senate`; `Joint` is documented but never observed), `Phone`. SOAP fault envelopes (`<soap:Fault>`) appear for transport-level failures (bad biennium parameter, service down). Per-operation shapes vary; the adapter's normalize layer handles each one specifically. Field names confirmed against live WSL (see § Empirical validation).
 
 **Identifier conventions:**
-- **Committee:** `Acronym` (e.g., `HC` for House Capital Budget, `WAYS` for Senate Ways & Means) is the WSL-stable committee identifier. Used as `Organization.source_id` for committee rows.
+- **Committee:** `Id` (a stable numeric surrogate, e.g. `31635` for House Capital Budget) is the WSL-stable committee identifier and is used as `Organization.source_id`. `Acronym` (`CB`, `WAYS`) is a *display* attribute, **not** a stable key — it changes across bienniums on a fixed `Id` (see § Empirical validation). `Id` is stable across the in-scope modern bienniums (2021-22→2025-26); a historical renumbering at the 2019→2021 boundary puts pre-2021 backfill out of the stability guarantee.
 - **Bill:** `BillId` (e.g., `HB 1234`) is the human-facing identifier; `BillNumber` (the integer 1234) is the chamber-scoped numeric. We compose `source_id = f"{bill_type}-{number}-{biennium}"` (e.g., `HB-1234-2025-26`) for stable cross-biennium uniqueness.
 - **Member / Sponsor:** WSL `LongName` (e.g., `Riccelli`) and `Id` (numeric, possibly `MemberId`). We use the numeric ID as `Person.source_id`.
 
@@ -55,7 +107,7 @@ The first cut exists to prove the SOAP transport end-to-end with a small but mea
 | Synthesized | 2 | `canonical.organizations` (House + Senate chambers, parent = legislature) |
 | Synthesized | 1 | `canonical.legislative_sessions` (biennium row, `classification="biennium"`, parent = null) |
 | Synthesized | 2 | `canonical.legislative_sessions` (2025 Regular + 2026 Regular, `classification="regular"`, parent = biennium row) |
-| Live SOAP via `CommitteeService.GetActiveCommittees("2025-26")` | ~50 | `canonical.organizations` (committees, parent = House / Senate / legislature for Joint; `acronym` + `phone` columns populated) |
+| Live SOAP via `CommitteeService.GetActiveCommittees()` (no biennium arg — implicit current) | 34 (19 House + 15 Senate; no Joint observed) | `canonical.organizations` (committees, parent = House / Senate; `acronym` + `phone` columns populated) |
 
 Synthesis vs. fetch is decided per-entity (see § Per-entity correspondence below). The split reflects WSL's actual contract: WSL has no `GetBienniums` or `GetSessions` endpoint, so we synthesize the structure; WSL does have first-class committee data, so we fetch.
 
@@ -79,9 +131,9 @@ The first cut needs the following adds to the canonical model:
 
    The existing `biennium_label: text(16) nullable` column stays as a denormalized fast-filter (avoids a parent-row join for "all bills from biennium 2025–26"). The two representations agree by construction.
 
-4. **`canonical.organizations.acronym` text nullable** — new column (varchar(64)) holding the canonical short acronym (e.g., `"CB"` for Capital Budget, `"WAYS"` for Senate Ways & Means). Single denormalized column rather than reusing `canonical.organization_identifiers` because: (a) the v1.4 IA UQ `(jurisdiction_id, scheme, value)` would collide when the same acronym appears in different bienniums (different Org rows by `Id`); (b) acronym is semantically a label/display attribute, not a third-party identifier; (c) WSL exposes one acronym per Committee element. The sidecar's `to_observation` emits `org_acronyms: [row.acronym]` (a single-element list) to satisfy PM's [`OrganizationObservationRequest.org_acronyms: list[str]`](../../packages/powermap-client/powermap_client/models/organization_observation_request.py) shape; PM's match cascade folds cross-biennium rows by shared acronym at the PM layer, not in our local canonical model.
+4. **`canonical.organizations.acronym` text nullable** — new column (varchar(64)) holding the current short acronym (e.g., `"CB"` for Capital Budget, `"WAYS"` for Senate Ways & Means). Single denormalized column rather than reusing `canonical.organization_identifiers` because: (a) acronym is semantically a label/display attribute, not a third-party identifier; (b) WSL exposes one acronym per Committee element; (c) it is **not stable across bienniums** (changes on a fixed `Id` — see § Empirical validation), so it must never serve as a join/match key. The sidecar's `to_observation` emits `org_acronyms: [row.acronym]` (a single-element list) to satisfy PM's [`OrganizationObservationRequest.org_acronyms: list[str]`](../../packages/powermap-client/powermap_client/models/organization_observation_request.py) shape — as a display label only. (The earlier plan to use `acronym` as PM's cross-biennium fold key is dropped: `Id` is stable, so each committee is already a single durable Org row; there is no cross-biennium duplication to fold.)
 
-5. **`canonical.organizations.phone` text nullable** — new column (varchar(64)) holding a primary phone number (e.g., committee staff phone from `Committee.PhoneNumber`). Single denormalized column rather than a 1:N `organization_contact_methods` table because: (a) WSL exposes one phone per committee; (b) the sidecar's `to_observation` wraps it as `contact_methods: [{contact_type: "phone", value: row.phone}]` per PM's [`ObservationContactMethod`](../../packages/powermap-client/powermap_client/models/observation_contact_method.py) shape; (c) future multi-method support (people with multiple emails, secondary phones) can land alongside person ingestion in P1b.
+5. **`canonical.organizations.phone` text nullable** — new column (varchar(64)) holding a primary phone number (e.g., committee staff phone from `Committee.Phone`). Single denormalized column rather than a 1:N `organization_contact_methods` table because: (a) WSL exposes one phone per committee; (b) the sidecar's `to_observation` wraps it as `contact_methods: [{contact_type: "phone", value: row.phone}]` per PM's [`ObservationContactMethod`](../../packages/powermap-client/powermap_client/models/observation_contact_method.py) shape; (c) future multi-method support (people with multiple emails, secondary phones) can land alongside person ingestion in P1b.
 
    Both columns (`acronym`, `phone`) land in the same migration alongside `parent_legislative_session_id`.
 
@@ -116,25 +168,25 @@ WSL `Committee` element fields (observed shape):
 
 ```xml
 <Committee>
-  <Id>27</Id>
+  <Id>31635</Id>
   <Name>Capital Budget</Name>
   <LongName>House Committee on Capital Budget</LongName>
   <Agency>House</Agency>
   <Acronym>CB</Acronym>
-  <PhoneNumber>(360) 786-7100</PhoneNumber>
+  <Phone>(360) 786-7100</Phone>
 </Committee>
 ```
 
 | usa-wa column | WSL field | Direction | Transform | Notes |
 |---|---|---|---|---|
-| `source_id` | `Id` | ← | passthrough (string) | WSL committee identifier. Biennium-scoped: WSL re-keys `Id` across bienniums, so a committee's canonical Org row is per-(committee, biennium) tuple. Cross-biennium continuity is established at the PM layer through shared `acronym` (see § Vocabulary additions item 4). |
-| `name` | `LongName` | ← | direct | E.g., `"House Committee on Capital Budget"`. |
+| `source_id` | `Id` | ← | passthrough (string) | WSL committee identifier — a **stable** numeric surrogate (verified identical across 2021-22→2025-26). P1a writes one durable row per `Id`; the resolved target (Open Q 5) mints a new name-epoch Org on rename and retains `Id` as the lineage link — an implementation change tracked separately. (See § Empirical validation: `Id` stable, `Acronym`/`LongName` not; the earlier "per-biennium re-keying / PM acronym-folding" plan is dropped.) |
+| `name` | `LongName` | ← | direct | E.g., `"House Committee on Capital Budget"`. Changes across bienniums on a stable `Id`. P1a overwrites latest-wins (Lossy ← item 7); resolved target (Open Q 5) treats a rename as a new Org + retirement of the prior. |
 | `short_name` | `Name` | ← | direct | E.g., `"Capital Budget"`. |
-| `acronym` | `Acronym` | ← | passthrough (uppercase) | New column (see § Vocabulary additions item 4). E.g., `"CB"`, `"WAYS"`. Sidecar emits as `org_acronyms: [acronym]` in `to_observation`. |
-| `org_type` | (always `committee`) | → adapter | constant | Subcommittees use `subcommittee` (P1b — `GetCommittees` returns subcommittees too; deferred). |
-| `parent_organization_id` | `Agency` | ← | `"House"` → House Org id; `"Senate"` → Senate Org id; `"Joint"` → legislature Org id | The synthesized anchor IDs are passed into the adapter via a `BootstrapAnchors` dataclass so normalize can resolve `Agency` text → parent FK. Joint committees parent at the legislature level (cleaner than maintaining a synthesized `Joint` chamber row). |
+| `acronym` | `Acronym` | ← | passthrough (uppercase, latest-wins) | New column (see § Vocabulary additions item 4). E.g., `"CB"`, `"WAYS"`. **Not stable** across bienniums — display attribute only, never a join/match key. Sidecar emits as `org_acronyms: [acronym]` in `to_observation`. |
+| `org_type` | (always `committee`) | → adapter | constant | Subcommittees would use `subcommittee` — but they appear only rarely, as peer rows detectable by "Subcommittee" in `LongName` (none in 2023-24/2025-26); deferred to P1b (see Lossy ← item 4). |
+| `parent_organization_id` | `Agency` | ← | `"House"` → House Org id; `"Senate"` → Senate Org id; `"Joint"` → legislature Org id (defensive only — no Joint committee observed in any biennium) | The synthesized anchor IDs are passed into the adapter via a `BootstrapAnchors` dataclass so normalize can resolve `Agency` text → parent FK. |
 | `jurisdiction_id` | (always `usa-wa`) | → adapter | constant | Same FK as the anchors. |
-| `phone` | `PhoneNumber` | ← | direct (strip whitespace) | New column (see § Vocabulary additions item 5). Sidecar wraps as `contact_methods: [{contact_type: "phone", value: phone}]` in `to_observation`. |
+| `phone` | `Phone` | ← | direct (strip whitespace) | New column (see § Vocabulary additions item 5). Sidecar wraps as `contact_methods: [{contact_type: "phone", value: phone}]` in `to_observation`. |
 | `powermap_organization_id` | `null` | — | | Set after sidecar match. |
 
 **Natural-key UNIQUE on the Organization row:** `(jurisdiction_id, source, source_id)` per the canonical convention.
@@ -178,13 +230,21 @@ External-ID schemes (`wa_legislature_member_id`, `wa_legislature_long_id`) flow 
 
 ### `canonical.assignments` (P1b — sketched)
 
-Chamber + party + committee memberships. WSL surfaces these in three places:
+Chamber + party + committee memberships. WSL surfaces these in three places (signatures confirmed against live WSL 2026-06-24):
 
-- `SponsorService.GetSponsors(biennium)` returns chamber + party for current members.
-- `CommitteeService.GetActiveCommitteeMembers(committee_acronym, biennium)` returns committee membership.
-- `CommitteeService.GetCommitteeMembers(committee_acronym, biennium)` returns historical membership.
+- `SponsorService.GetSponsors(biennium)` returns chamber + party for current members (`Party` as `"R"`/`"D"`).
+- `CommitteeService.GetActiveCommitteeMembers(agency, committeeName)` returns *current* committee membership (no biennium arg; keyed by `agency` + committee **`Name`**, not acronym; `Party` as full word `"Democrat"`/`"Republican"`).
+- `CommitteeService.GetCommitteeMembers(biennium, agency, committeeName)` returns the membership for a specified biennium.
 
-Detailed mapping deferred to P1b. The pattern matches the LegiScan spec (chamber Assignment = `(Person, chamber_role, valid_from=biennium_start)`; committee Assignment = `(Person, committee_role, …)` with party derived as a separate Assignment to a synthesized Party Org).
+**Assignment carries the per-biennium dimension — the committee Org does not.** A committee membership is `(Person → committee Org → Role)` scoped by `legislative_session_id` (the **biennium** session row) plus `valid_from`/`valid_to`. The committee Org is a durable name-epoch entity (Open Q 5 / #40); each biennium produces a fresh set of session-scoped Assignments pointing at the *same* Org. **Do not** mint per-biennium Org rows — that would duplicate identity and contradict PM's reuse-Org-across-biennia behavior. Mirrors how Persons work (one durable Person, N per-biennium assignments) and the LegiScan spec (chamber Assignment = `(Person, chamber_role, valid_from=biennium_start)`; committee Assignment = `(Person, committee_role, …)`; party derived as a separate Assignment to a synthesized Party Org).
+
+Consequence: per-biennium committee **presence** falls out of the assignment layer for free — a committee with session-scoped Assignments for biennium Y existed in Y — complementing the `retired_at` tombstone (#40) without a separate per-biennium participation table.
+
+Known limits (don't change the shape):
+- **No `position`/role field** in `GetActiveCommitteeMembers` — chair / vice-chair / ranking-member is *not* in SOAP; the committee-`Role` dimension needs another source (web scrape or manual curation).
+- **Intra-biennium churn is snapshot-lossy** (Lossy ← item 3) — biennium membership sets are captured; `valid_from`/`valid_to` record changes only as repeated refreshes observe them.
+- **`Party` encoding differs across endpoints** (`"R"`/`"D"` vs `"Democrat"`/`"Republican"`) — the normalizer must canonicalize.
+- **Person `Id` may differ across endpoints** (`GetActiveCommitteeMembers` vs `GetSponsors`) — confirm the stable `Person.source_id` before ingesting either (P1b step zero).
 
 ### `canonical.bills` and related entities (P1c — sketched)
 
@@ -215,11 +275,15 @@ Detailed mapping deferred to P1b. The pattern matches the LegiScan spec (chamber
 
 3. **No effective-date stamps on committee composition.** A committee that re-orgs mid-biennium (rare but possible) shows as a single row in `GetActiveCommittees`; we lose the "previously chaired by X, now chaired by Y" history. Power Map's bitemporal Assignment store is the right home for that history once committee memberships ingest in P1b.
 
-4. **Subcommittee parent inference.** `GetActiveCommittees` does not return subcommittees (only top-level committees per chamber + Joint). `GetCommittees` does include subcommittees but the parent inference relies on naming conventions (`House Capital Budget Subcommittee on …`). P1b will need a small lookup table or regex pattern to identify subcommittees and their parent committees.
+4. **Subcommittees are flattened, parent inferred from name.** Subcommittees do **not** form a richer set — `GetCommittees(biennium)` returns the same flat list as `GetActiveCommittees`, and when a subcommittee exists it appears as a *peer* row with the chamber's `Agency`, not nested. They are rare (2019-20 & 2021-22: Id 29190 "Senate Committee on Behavioral Health Subcommittee to Health & Long Term Care"; **none** in 2023-24/2025-26) and carry no structural parent field — the parent committee is named inside `LongName`. P1b detection = "Subcommittee" substring in `LongName` + parent-name match (small enough to hand-curate).
 
-5. **Joint committee chamber attribution.** WSL classifies Joint committees as `Agency="Joint"`; they have no chamber parent. We park them under the legislature Org. Reconstructing "which chamber's staff drives this Joint committee" requires external knowledge.
+5. **Joint committees are a separate, meeting-derived class.** `CommitteeService` returns **no** Joint committee in any biennium (1991-92 → 2025-26). Joint/`Other` bodies are exposed only via `CommitteeMeetingService.GetCommitteeMeetings`, as committee refs on each meeting (`Agency` ∈ {House, Senate, Joint, Other}). This is lossy/awkward as an org source: (a) a body appears only if it *met* in the queried window (dormant statutory committees vanish); (b) `LongName` is double-prefixed with the agency and must be cleaned (`Acronym` is the reliable label); (c) the id-space mixes small/negative sentinels (JTC `-140`, JLARC `-5`) with large positives (ESEC 13945, JCER 27992). The standing statutory core (RCW-authorized: JTC, JLARC, SCPP, PFC, VMA, ESEC/RCW 44.39, …) is stable enough to synthesize from statute as an alternative to meeting-scraping. Decision deferred to its own cut; the `Agency="Joint"` → legislature mapping already in the normalizer is the right shape for it.
 
-6. **WSL `Id` per biennium re-keying.** `Id` is the per-biennium committee identifier WSL guarantees stable within that biennium. Across bienniums, WSL may re-key the `Id` (committees can be renamed/restructured to reflect scope changes, and `Id` may or may not be stable through such changes — TBD empirically). Our `source_id=Id` choice gives biennium-scoped Organization rows; cross-biennium continuity is established at the PM layer through the shared `acronym` column (see § Vocabulary additions item 4) — when an acronym is stable across bienniums (the common case for WA committees, e.g., `WAYS`, `CB`), PM's match cascade folds rows; when not (committee splits/merges), they remain distinct, which is the correct semantic.
+6. **WSL `Id` stability (modern era only).** `Id` is a stable numeric surrogate across the in-scope bienniums (verified identical 2021-22→2025-26 for every carried-over committee). A renumbering occurred at the 2019→2021 boundary (Commerce & Gaming 20900→31639), so `Id` stability is **not** guaranteed across that historical break — irrelevant here (pre-2025 backfill is out of scope). `source_id=Id` therefore yields one durable Org row per committee; no PM-layer acronym-folding is needed or used (acronyms are not stable — see item 7).
+
+7. **Name & acronym history (P1a latest-wins; superseded by Open Q 5).** `LongName` and `Acronym` change across bienniums on a stable `Id` (5 renames 2023-24→2025-26, e.g. Id 29195 `BFGT`/"Business, Financial Services, Gaming & Trade" → `BTE`/"Business, Trade & Economic Development"; Id 31639 "Commerce & Gaming"→"Regulated Substances & Gaming"). **P1a** overwrites both on each refresh, losing prior-biennium values. **Resolved target (Open Q 5):** mirror Power Map — a rename mints a new name-epoch Org and retires the prior, so the lineage is preserved as distinct Org rows rather than lost.
+
+8. **Active-in-biennium status (P1a unrepresented; superseded by Open Q 5).** A committee that exists in one biennium and not the next (Id 31639 retired after 2024) leaves a **P1a** durable Org row with no presence marker. `GetActiveCommittees` is current-only (no biennium arg); historical presence comes from diffing `GetCommittees(biennium)` across bienniums. **Resolved target (Open Q 5):** retire the absent committee via `RetirableMixin`/`retired_at` (#38), propagating to PM; "was X active in biennium Y?" is then answered by the live-vs-retired Org set plus the `Id` lineage link.
 
 ### Lossy → (us → WSL)
 
@@ -227,15 +291,18 @@ Detailed mapping deferred to P1b. The pattern matches the LegiScan spec (chamber
 
 ## Open questions
 
-1. **Cross-biennium `Acronym` stability.** Committees are guaranteed stable within a biennium. Across bienniums, WSL may rename committees to indicate changed purpose/scope (e.g., a "Capital Budget" committee re-scoped as "Capital Budget & Housing"); whether `Id` and/or `Acronym` change at the same time is unclear empirically. *Resolution:* the schema accommodates both axes — per-biennium Organization rows (via `source_id=Id`) and cross-biennium continuity through the `acronym` column at the PM-matching layer (PM folds rows by shared acronym when stable; keeps them distinct when not). P1a cassette inspection records the 2025-26 state; subsequent biennium captures (2027-28 in early 2027) test the stability hypothesis. No spec change required either way — both stable and unstable acronyms are correctly represented.
+1. ✅ **Cross-biennium `Id` / `Acronym` stability.** *Resolved empirically (2026-06-24):* `Id` is the stable key (identical 2021-22→2025-26); `Acronym` and `LongName` both change on a fixed `Id`. `source_id=Id` gives one durable Org row per committee; the previously-planned PM acronym-folding is dropped as unsound. Field names confirmed: `Id, Name, LongName, Agency, Acronym, Phone` (the field is `Phone`, not `PhoneNumber`). A renumbering at the 2019→2021 boundary bounds `Id` stability to the modern (in-scope) era. See § Empirical validation + Lossy ← items 6–7.
 
-   The same cassette pass pins down exact `Committee` field names (this spec asserts `Agency` / `Acronym` / `LongName` / `Name` / `PhoneNumber` based on WSL documentation patterns, but observed XML may show different casing — e.g., `AgencyName` vs. `Agency`). The first P1a step records cassettes against live WSL and the normalize layer codes against the recorded shape.
+2. ✅ **Subcommittee detection + parent linkage.** *Resolved empirically:* there is no separate subcommittee endpoint or field — `GetCommittees` returns the same flat list as `GetActiveCommittees`, and a subcommittee (when present) is a peer row with the chamber's `Agency`. Only signal is "Subcommittee" in `LongName`; parent committee is named in the same string. Rare (none in 2023-24/2025-26). *Resolution:* P1b detects by `LongName` substring + parent-name match, then sets the subcommittee row's `parent_organization_id` to the **parent committee** Org (not the chamber). PM's `OrganizationObservationRequest` exposes settable `organization_parent_id` / `organization_parent_name` / `organization_parent_acronym`, and the sidecar org descriptor already emits `organization_parent_id` from the local parent FK ([organization.py](../../packages/usa-wa-sync-powermap/src/usa_wa_sync_powermap/descriptors/organization.py) `_parent_pm_id`), so the parent link propagates to PM with no descriptor change. Hand-curate the subcommittee→parent map if the name match is unreliable. See Lossy ← item 4.
 
-2. **Subcommittee detection rule.** `GetActiveCommittees` does not return subcommittees; `GetCommittees` does (P1b scope). *Resolution:* the subcommittee result set is small enough to audit by hand — when P1b lands, run the operation once against live WSL, inspect the output for programmatic patterns (likely a `ParentCommitteeAcronym` field or naming convention), and code the parent inference accordingly. Fall back to a hand-curated `(subcommittee_acronym → parent_acronym)` mapping table maintained alongside the adapter package if no programmatic rule is reliable. *(Defer to P1b — concrete approach decided after live inspection.)*
+3. ✅ **Special session detection is data-driven, not operator-config.** *Resolved empirically (2026-06-24):* WSL exposes the regular/special distinction in session-law data — no operator config needed for specials that enacted law. `SessionLawService.GetChapterNumbersByYear(year)` returns a parseable `LegislativeSession` label per enacted chapter (`"2023 Regular Session"` vs `"2023 1st Special Session"`) plus `LegislatureNumber` and `Year`; and a bill's `GetCurrentStatus.Status` carries the session-law citation `C <chapter> L <yy> E<n>`, where `E<n>` marks the *n*th extraordinary (special) session (regular-session chapters have no `E` suffix). *Worked example:* `2E2SSB 5536` (the Blake fix) → `Status="C 1 L 23 E1"`, `ActionDate=2023-05-16` = Chapter 1, Laws of 2023, **1st Special Session** (the one-day special on 2023-05-16); the recap history shows the regular-session sine-die failure (2023-04-23) then the 2023-05-16 "reintroduced… Rules suspended" reconvening. *Resolution:* synthesize special-session `LegislativeSession` rows by parsing distinct `LegislativeSession` strings from `GetChapterNumbersByYear`, and bind bills to them via the `E<n>` citation; operator-supplied config is retained only as a fallback for a special that produced **no** session law (rare). Implementation lands with the session-law cut (P1c); the trigger itself is no longer an open question.
 
-3. **Special session synthesis trigger.** Specials are unscheduled and irregular. The first cut covers Regular sessions only. *Resolution:* operator supplies known past Special session metadata (start date, end date, biennium) as configuration; the adapter inspects WSL SOAP responses (which scope by biennium, not session) for entities introduced/acted during that window and tags them to the correct Special session row. Going forward, the same operator-supplied-config pattern handles new Specials as the Governor proclaims them. *(Defer to P1b — operational, not blocking.)*
+4. ✅ **`Committee.Phone` and other contact data.** Resolved — phone is in scope for P1a via the new `canonical.organizations.phone` column (see § Vocabulary additions item 5). Sidecar's `to_observation` extension to emit `contact_methods` is a separate follow-up issue but does not block the adapter implementation.
 
-4. ✅ **`Committee.PhoneNumber` and other contact data.** Resolved — phone is in scope for P1a via the new `canonical.organizations.phone` column (see § Vocabulary additions item 4). Sidecar's `to_observation` extension to emit `contact_methods` is a separate follow-up issue but does not block the adapter implementation.
+5. ✅ **Committee biennium-history modeling — mirror Power Map's name-change-is-new-Org rule.** *Resolved (2026-06-24):* Power Map treats a committee **name change as a new `Organization` entity**, regardless of whether the WSL `Id` stayed the same; a stable name (and `Id`) reuses the existing Org across biennia. usa-wa mirrors this:
+   - **Identity tracks name, not bare `Id`.** A committee Org represents a (lineage, name-epoch). Stable `(name, Id)` across bienniums → reuse the same canonical Org row. An observed **rename** (e.g. Id 31639 "Commerce & Gaming" → "Regulated Substances & Gaming") → **mint a new Org row and retire the predecessor** (`RetirableMixin` / `retired_at`, #38), rather than overwriting the name in place. This keeps a 1:1 correspondence with PM's Org set and propagates retirement/archival across both services.
+   - **Disappearance → retirement.** A committee absent from the new biennium (Id 31639 after 2024) is retired the same way; "was X active in biennium Y?" is answered by the live-vs-retired Org set per biennium plus the lineage link.
+   - **Implication for the current implementation:** `source_id = WSL Id` alone (P1a) does **not** mirror this — it folds renames into one latest-wins row (see Lossy ← items 7–8, which describe the *current* P1a behavior, now superseded by this resolution). The natural key must incorporate a name epoch (or rename detection must mint+retire), and the WSL `Id` is retained as a stored lineage identifier linking successive name-epoch Orgs. *This is an implementation change ahead of P1b committee-membership ingestion (member Assignments attach to the name-epoch Org) — track as its own issue.*
 
 ## Cross-references
 
