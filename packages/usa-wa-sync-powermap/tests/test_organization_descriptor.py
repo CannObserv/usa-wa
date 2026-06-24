@@ -348,6 +348,39 @@ async def test_upsert_update_only_skips_unknown_org(db_session, descriptor):
     assert (await db_session.execute(select(Organization))).scalars().all() == []
 
 
+async def test_upsert_mirrors_pm_archived_at_to_retired_tombstone(db_session, descriptor):
+    """PM archival (its "inactive" signal) is not a delete — it arrives as an
+    ``updated`` feed event carrying ``archived_at`` on the still-present record.
+    Mirror it onto the local retirement tombstone so the inactivated committee
+    drops out of live reads (usa-wa#40). PM curates the inactivation (incl. the
+    dormant-vs-abolished call); we only mirror — ``authority = "pm"``."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-1", name="X", anchor=pm_id)
+    assert row.retired_at is None
+
+    record = _pm_org(pm_id, name="X")
+    record["archived_at"] = "2026-06-20T00:00:00Z"
+    result = await descriptor.upsert_from_pm(db_session, record, existing=row)
+
+    assert result is row
+    assert row.retired_at == datetime(2026, 6, 20, tzinfo=UTC)  # mirrors PM's own clock
+
+
+async def test_upsert_clears_tombstone_when_pm_unarchives(db_session, descriptor):
+    """PM un-archiving (``archived_at`` back to null/absent) revives the row — clear
+    the mirror. Safe against resurrecting a genuine delete: a deleted PM org has no
+    record to deliver an ``updated`` event, so this path never fires for it."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-1", name="X", anchor=pm_id)
+    row.retired_at = datetime(2026, 6, 20, tzinfo=UTC)
+    await db_session.flush()
+
+    result = await descriptor.upsert_from_pm(db_session, _pm_org(pm_id, name="X"), existing=row)
+
+    assert result is row
+    assert row.retired_at is None
+
+
 async def test_local_match_by_anchor(db_session, descriptor):
     pm_id = ULID()
     row = await _add_org(db_session, source_id="C-1", name="X", anchor=pm_id)

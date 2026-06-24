@@ -314,6 +314,13 @@ class OrganizationDescriptor(EntityDescriptor):
             row.parent_organization_id = parent_id
         if record.get("id") is not None:
             row.pm_organization_id = as_ulid(record["id"])
+        # PM archival is its "inactive" signal — a still-present record carrying a
+        # non-null ``archived_at`` (not a delete; deletes arrive as ``deleted`` feed
+        # events → the engine's retire path). Mirror it onto the local retirement
+        # tombstone so the inactivated org drops out of live reads; clear it when PM
+        # un-archives (``archived_at`` back to null/absent). PM owns the inactivation
+        # decision incl. dormant-vs-abolished — ``authority = "pm"`` (usa-wa#40).
+        row.retired_at = _parse_ts(record.get("archived_at"))
         await session.flush()
         if "events" in record:  # mirror the embedded events sub-resource (#19)
             await sync_entity_events(
