@@ -38,13 +38,19 @@ def _new_ulid() -> _ULID:
 
 
 class RetirableMixin:
-    """Soft-delete tombstone shared by the four identity models (usa-wa#31/#36/#38).
+    """Soft-delete / inactive tombstone shared by the four identity models (usa-wa#31/#36/#38/#40).
 
-    ``retired_at`` is stamped when PM deletes the entity with no surviving merge-
-    winner — a genuine delete, not a merge. The row is **kept as provenance**
-    (the local cache mirrors PM; the tombstone is the evidence of the delete),
-    never hard-deleted. Retired rows are excluded from the PM-sync sweep/reconcile
-    (never re-created or re-fetched) and must be excluded from *live* reads via
+    ``retired_at`` is stamped in two cases, both meaning "not live, but kept as
+    provenance" (the local cache mirrors PM; the row is never hard-deleted):
+
+    - **Genuine delete** — PM deletes the entity with no surviving merge-winner
+      (not a merge); stamped by the engine's dead-anchor retire path (#31/#36/#38).
+    - **PM archival** — PM's "inactive" signal (``archived_at`` on its read model,
+      a non-delete); mirrored onto ``retired_at`` by the org descriptor's
+      ``upsert_from_pm`` (#40). Cleared when PM un-archives.
+
+    Retired rows are excluded from the PM-sync sweep/reconcile (never re-created or
+    re-fetched) and must be excluded from *live* reads via
     :func:`clearinghouse_domain_legislative.queries.exclude_retired`.
     """
 

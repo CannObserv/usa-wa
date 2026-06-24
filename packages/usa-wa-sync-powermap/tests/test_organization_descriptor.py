@@ -337,6 +337,7 @@ async def test_upsert_adopts_canonical_name_and_anchor(db_session, descriptor, u
     assert row.name == "Washington State House Appropriations Committee"  # adopted PM canonical
     assert row.pm_organization_id == pm_id
     assert row.jurisdiction_id == usa_wa.id  # resolved governing affiliation → local jurisdiction
+    assert row.retired_at is None  # a live (un-archived) record leaves the tombstone clear
 
 
 async def test_upsert_update_only_skips_unknown_org(db_session, descriptor):
@@ -364,6 +365,22 @@ async def test_upsert_mirrors_pm_archived_at_to_retired_tombstone(db_session, de
 
     assert result is row
     assert row.retired_at == datetime(2026, 6, 20, tzinfo=UTC)  # mirrors PM's own clock
+
+
+async def test_upsert_adopts_name_and_archives_together(db_session, descriptor):
+    """The realistic feed shape: one record carries both a (possibly new) canonical
+    name and ``archived_at``. The mirror coexists with name adoption — name is taken
+    *and* the tombstone is stamped in the same upsert."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-1", name="Old Name", anchor=pm_id)
+
+    record = _pm_org(pm_id, name="Regulated Substances & Gaming")
+    record["archived_at"] = "2026-06-20T00:00:00Z"
+    result = await descriptor.upsert_from_pm(db_session, record, existing=row)
+
+    assert result is row
+    assert row.name == "Regulated Substances & Gaming"
+    assert row.retired_at == datetime(2026, 6, 20, tzinfo=UTC)
 
 
 async def test_upsert_clears_tombstone_when_pm_unarchives(db_session, descriptor):

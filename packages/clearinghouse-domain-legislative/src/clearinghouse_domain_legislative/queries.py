@@ -1,11 +1,12 @@
 """Read-side query helpers for the identity cluster.
 
 The local identity tables (Person/Organization/Role/Assignment) are a query-
-latency mirror of Power Map. When PM deletes an entity with no surviving merge-
-winner the sidecar stamps a ``retired_at`` tombstone (usa-wa#31/#36) and keeps the
-row as provenance rather than hard-deleting it. A retired row therefore still
-carries a (now dead) PM anchor and is otherwise untouched, so it would leak into
-the read fan-out unless callers filter it out.
+latency mirror of Power Map. The sidecar stamps a ``retired_at`` tombstone in two
+cases — when PM deletes an entity with no surviving merge-winner (usa-wa#31/#36),
+and when PM *archives* it (its "inactive" signal, mirrored from the read model's
+``archived_at``, usa-wa#40) — and keeps the row as provenance rather than hard-
+deleting it. A retired row therefore still carries its PM anchor and is otherwise
+untouched, so it would leak into the read fan-out unless callers filter it out.
 
 :func:`exclude_retired` is the one guardrail every *live* read routes through, so
 the ``retired_at IS NULL`` predicate is spelled once and the audit/provenance

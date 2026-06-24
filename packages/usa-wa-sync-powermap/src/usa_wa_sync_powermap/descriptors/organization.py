@@ -96,7 +96,7 @@ class OrganizationDescriptor(EntityDescriptor):
     # keys on the anchor (PM's backfilled orgs have no usa-wa identifier to derive
     # ``source``/``source_id`` from) — see :meth:`local_match`.
     natural_key = ("source", "source_id")
-    retired_column = "retired_at"  # merge-orphan tombstone (#31)
+    retired_column = "retired_at"  # merge-orphan tombstone (#31) + PM archival mirror (#40)
     supports_rematch = True  # can re-resolve a dead anchor to its merge-winner by id
     authority = "pm"  # PM is system-of-record for the org tree
     read_path = "/api/v1/orgs"
