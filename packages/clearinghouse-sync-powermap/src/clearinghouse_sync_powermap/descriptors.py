@@ -23,6 +23,16 @@ from ulid import ULID
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
 
 
+def parse_pm_timestamp(value: str | None) -> datetime | None:
+    """Parse a PM ISO-8601 timestamp (``...Z``) into an aware datetime, or ``None``.
+
+    Shared so descriptors don't each redefine a private ``_parse_ts``; the engine
+    and concrete descriptors compare PM clocks (``updated_at``) and mirror PM
+    instants (``archived_at``) through the same parser.
+    """
+    return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
+
+
 def as_ulid(value: Any) -> ULID:
     """Coerce a PM id (str or ULID) to a ULID. Public — reused by siblings/tests."""
     return value if isinstance(value, ULID) else ULID.from_str(str(value))
@@ -199,6 +209,27 @@ class EntityDescriptor(ABC):
     def retire(self, row: Any, now: datetime) -> None:
         """Stamp a row's retirement tombstone — PM deleted it with no surviving winner."""
         setattr(row, self.retired_column, now)
+
+    def mirror_archival(self, row: Any, record: dict) -> None:
+        """Mirror PM's ``archived_at`` (its "inactive" signal) onto the retirement
+        tombstone — set when archived, cleared on un-archive (set-or-clear, PM's own
+        clock, mirroring LWW). A no-op when the entity has no tombstone
+        (:attr:`retired_column` is ``None``), so identifier-only/PM-authoritative
+        entities (jurisdictions) are unaffected even if PM sends ``archived_at``.
+
+        Called from a descriptor's :meth:`upsert_from_pm` so every
+        ``RetirableMixin``-backed cache row drops out of live reads when PM
+        inactivates it (usa-wa#40 orgs; #41 person/role/assignment). PM owns the
+        inactivation decision (incl. dormant-vs-abolished) — ``authority = "pm"``;
+        this only mirrors. A **delete** does not arrive here (no record to upsert);
+        it flows through the engine's dead-anchor retire path. And a retired row is
+        excluded from the un-anchored sweep and the anchored-cohort reconcile, so
+        ``upsert_from_pm`` never reaches a merge-orphan/genuine-delete tombstone —
+        the un-archive clear can't wrongly revive one.
+        """
+        if self.retired_column is None:
+            return
+        setattr(row, self.retired_column, parse_pm_timestamp(record.get("archived_at")))
 
     def natural_key_values(self, row: Any) -> tuple[Any, ...]:
         """The local natural-key tuple for a row (used for upsert matching)."""

@@ -46,8 +46,9 @@ class RetirableMixin:
     - **Genuine delete** — PM deletes the entity with no surviving merge-winner
       (not a merge); stamped by the engine's dead-anchor retire path (#31/#36/#38).
     - **PM archival** — PM's "inactive" signal (``archived_at`` on its read model,
-      a non-delete); mirrored onto ``retired_at`` by the org descriptor's
-      ``upsert_from_pm`` (#40). Cleared when PM un-archives.
+      a non-delete); mirrored onto ``retired_at`` by the sync descriptors'
+      ``upsert_from_pm`` via the shared ``EntityDescriptor.mirror_archival`` hook
+      (#40 orgs; #41 person/role/assignment). Cleared when PM un-archives.
 
     Retired rows are excluded from the PM-sync sweep/reconcile (never re-created or
     re-fetched) and must be excluded from *live* reads via

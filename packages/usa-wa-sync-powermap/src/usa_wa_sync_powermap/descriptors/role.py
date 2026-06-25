@@ -26,13 +26,9 @@ from sqlalchemy import select
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Organization, Role
-from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid
+from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid, parse_pm_timestamp
 
 logger = get_logger(__name__)
-
-
-def _parse_ts(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
 
 
 class RoleDescriptor(EntityDescriptor):
@@ -87,11 +83,11 @@ class RoleDescriptor(EntityDescriptor):
             row.name = title  # adopt PM's curated title
         if record.get("id") is not None:
             row.pm_role_id = as_ulid(record["id"])
+        self.mirror_archival(row, record)  # PM archival → retirement tombstone (#41)
         await session.flush()
         return row
 
     def last_updated(self, obj: Any) -> datetime | None:
         if isinstance(obj, Role):
             return obj.updated_at
-        ts = obj.get("updated_at")
-        return _parse_ts(ts) if ts else None
+        return parse_pm_timestamp(obj.get("updated_at"))

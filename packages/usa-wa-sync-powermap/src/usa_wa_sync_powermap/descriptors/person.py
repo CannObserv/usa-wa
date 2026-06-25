@@ -24,7 +24,12 @@ from sqlalchemy import select
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Person
-from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid, normalize_name
+from clearinghouse_sync_powermap.descriptors import (
+    EntityDescriptor,
+    as_ulid,
+    normalize_name,
+    parse_pm_timestamp,
+)
 from usa_wa_sync_powermap.descriptors.events import sync_entity_events
 
 logger = get_logger(__name__)
@@ -43,10 +48,6 @@ def identifier_type_for(source: str) -> str | None:
     if source == "usa_wa_pdc":
         return "person_wa_pdc"
     return None
-
-
-def _parse_ts(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
 
 
 class PersonDescriptor(EntityDescriptor):
@@ -158,6 +159,7 @@ class PersonDescriptor(EntityDescriptor):
             row.name_full = name  # adopt PM's curated display name
         if record.get("id") is not None:
             row.pm_person_id = as_ulid(record["id"])
+        self.mirror_archival(row, record)  # PM archival → retirement tombstone (#41)
         await session.flush()
         if "events" in record:  # mirror the embedded events sub-resource (#19)
             await sync_entity_events(
@@ -168,5 +170,4 @@ class PersonDescriptor(EntityDescriptor):
     def last_updated(self, obj: Any) -> datetime | None:
         if isinstance(obj, Person):
             return obj.updated_at
-        ts = obj.get("updated_at")
-        return _parse_ts(ts) if ts else None
+        return parse_pm_timestamp(obj.get("updated_at"))

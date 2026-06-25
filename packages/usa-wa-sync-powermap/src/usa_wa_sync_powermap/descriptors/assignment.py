@@ -19,13 +19,9 @@ from sqlalchemy import select
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
-from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid
+from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid, parse_pm_timestamp
 
 logger = get_logger(__name__)
-
-
-def _parse_ts(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
 
 
 def _parse_date(value: str | None) -> date | None:
@@ -98,11 +94,11 @@ class AssignmentDescriptor(EntityDescriptor):
             row.valid_to = _parse_date(record.get("end_date"))
         if record.get("id") is not None:
             row.pm_assignment_id = as_ulid(record["id"])
+        self.mirror_archival(row, record)  # PM archival → retirement tombstone (#41)
         await session.flush()
         return row
 
     def last_updated(self, obj: Any) -> datetime | None:
         if isinstance(obj, Assignment):
             return obj.updated_at
-        ts = obj.get("updated_at")
-        return _parse_ts(ts) if ts else None
+        return parse_pm_timestamp(obj.get("updated_at"))

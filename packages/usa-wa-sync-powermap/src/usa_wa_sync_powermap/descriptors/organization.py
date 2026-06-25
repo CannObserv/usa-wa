@@ -39,7 +39,12 @@ from sqlalchemy import select
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Organization
-from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid, normalize_name
+from clearinghouse_sync_powermap.descriptors import (
+    EntityDescriptor,
+    as_ulid,
+    normalize_name,
+    parse_pm_timestamp,
+)
 from usa_wa_sync_powermap.descriptors.events import sync_entity_events
 
 logger = get_logger(__name__)
@@ -80,10 +85,6 @@ def identifier_type_for(source: str, org_type: str | None) -> str | None:
     if source == "usa_wa_pdc":
         return "org_wa_pdc"
     return None
-
-
-def _parse_ts(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
 
 
 class OrganizationDescriptor(EntityDescriptor):
@@ -314,13 +315,10 @@ class OrganizationDescriptor(EntityDescriptor):
             row.parent_organization_id = parent_id
         if record.get("id") is not None:
             row.pm_organization_id = as_ulid(record["id"])
-        # PM archival is its "inactive" signal — a still-present record carrying a
-        # non-null ``archived_at`` (not a delete; deletes arrive as ``deleted`` feed
-        # events → the engine's retire path). Mirror it onto the local retirement
-        # tombstone so the inactivated org drops out of live reads; clear it when PM
-        # un-archives (``archived_at`` back to null/absent). PM owns the inactivation
-        # decision incl. dormant-vs-abolished — ``authority = "pm"`` (usa-wa#40).
-        row.retired_at = _parse_ts(record.get("archived_at"))
+        # Mirror PM's archival (its "inactive" signal) onto the retirement tombstone
+        # so the inactivated org drops out of live reads (usa-wa#40); shared across
+        # the identity descriptors (usa-wa#41).
+        self.mirror_archival(row, record)
         await session.flush()
         if "events" in record:  # mirror the embedded events sub-resource (#19)
             await sync_entity_events(
@@ -360,5 +358,4 @@ class OrganizationDescriptor(EntityDescriptor):
     def last_updated(self, obj: Any) -> datetime | None:
         if isinstance(obj, Organization):
             return obj.updated_at
-        ts = obj.get("updated_at")
-        return _parse_ts(ts) if ts else None
+        return parse_pm_timestamp(obj.get("updated_at"))
