@@ -37,33 +37,44 @@ def _new_ulid() -> _ULID:
     return _ULID()
 
 
-class RetirableMixin:
-    """Soft-delete / inactive tombstone shared by the four identity models (usa-wa#31/#36/#38/#40).
+class LifecycleMixin:
+    """Two PM-parity lifecycle tombstones shared by the four identity models — the
+    local cache mirrors PM (rows are never hard-deleted), so both are soft markers
+    kept as provenance (usa-wa#31/#36/#38/#40/#41/#42).
 
-    ``retired_at`` is stamped in two cases, both meaning "not live, but kept as
-    provenance" (the local cache mirrors PM; the row is never hard-deleted):
+    PM tracks these as **orthogonal axes with opposite re-fetch semantics**; usa-wa
+    mirrors PM's nomenclature 1:1 with two columns rather than overloading one:
 
-    - **Genuine delete** — PM deletes the entity with no surviving merge-winner
-      (not a merge); stamped by the engine's dead-anchor retire path (#31/#36/#38).
-    - **PM archival** — PM's "inactive" signal (``archived_at`` on its read model,
-      a non-delete); mirrored onto ``retired_at`` by the sync descriptors'
-      ``upsert_from_pm`` via the shared ``EntityDescriptor.mirror_archival`` hook
-      (#40 orgs; #41 person/role/assignment). Cleared when PM un-archives.
+    - **``archived_at``** — mirrors PM's ``archived_at`` (its reversible "inactive"
+      soft-delete gate). The PM id stays **live**, so the sync engine keeps an
+      archived row in its sweep/reconcile cohort and re-fetches it — that is how a
+      dropped un-archive event self-heals (#42). Set/cleared by the descriptors'
+      ``EntityDescriptor.mirror_archival`` from PM's own clock (#40 orgs;
+      #41 person/role/assignment).
+    - **``deleted_at``** — terminal tombstone for a genuine delete / merge-orphan
+      with no surviving winner. The PM id is **gone** (re-fetch 404s), so the engine
+      excludes a deleted row from the sweep/reconcile — it must never be re-created
+      or re-fetched. Stamped only by the engine's dead-anchor heal path (#31/#36/#38).
 
-    Retired rows are excluded from the PM-sync sweep/reconcile (never re-created or
-    re-fetched) and must be excluded from *live* reads via
-    :func:`clearinghouse_domain_legislative.queries.exclude_retired`.
+    A row is **live** iff *both* are NULL. Live reads route through
+    :func:`clearinghouse_domain_legislative.queries.live_only` (filters both); the
+    PM-sync sweep/reconcile filters on ``deleted_at IS NULL`` only — via the portable
+    ``EntityDescriptor.deleted_column_expr`` (the engine can't import this domain
+    layer) — so an archived row (live anchor) stays in the cohort (#42).
     """
 
-    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     @classmethod
-    def not_retired(cls) -> ColumnElement[bool]:
-        """SQL predicate selecting only live (non-retired) rows: ``retired_at IS NULL``."""
-        return cls.retired_at.is_(None)
+    def is_live(cls) -> ColumnElement[bool]:
+        """Predicate for live rows: ``archived_at IS NULL AND deleted_at IS NULL``.
+
+        The live-read filter (both axes hide a row from the read fan-out)."""
+        return cls.archived_at.is_(None) & cls.deleted_at.is_(None)
 
 
-class Person(Base, TimestampMixin, RetirableMixin):
+class Person(Base, TimestampMixin, LifecycleMixin):
     """A human. Replaces Legislator from the P0 skeleton."""
 
     __tablename__ = "persons"
@@ -92,10 +103,10 @@ class Person(Base, TimestampMixin, RetirableMixin):
     # PM anchor (sidecar sync). Standardized to ``pm_<entity>_id`` (was
     # ``powermap_person_id`` pre-sidecar) so the sync engine keys uniformly.
     pm_person_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
-    # retired_at tombstone provided by RetirableMixin (#31/#38).
+    # archived_at + deleted_at tombstones provided by LifecycleMixin (#31/#38/#42).
 
 
-class Organization(Base, TimestampMixin, RetirableMixin):
+class Organization(Base, TimestampMixin, LifecycleMixin):
     """Any non-person legal/political entity. Discriminated by org_type."""
 
     __tablename__ = "organizations"
@@ -141,10 +152,10 @@ class Organization(Base, TimestampMixin, RetirableMixin):
     )
     # PM anchor (sidecar sync). Was ``powermap_organization_id`` pre-sidecar.
     pm_organization_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
-    # retired_at tombstone provided by RetirableMixin (#31/#38).
+    # archived_at + deleted_at tombstones provided by LifecycleMixin (#31/#38/#42).
 
 
-class Role(Base, TimestampMixin, RetirableMixin):
+class Role(Base, TimestampMixin, LifecycleMixin):
     """A named slot within an Organization. Roles are templates; Assignment binds them in time."""
 
     __tablename__ = "roles"
@@ -176,10 +187,10 @@ class Role(Base, TimestampMixin, RetirableMixin):
     # PM anchor (sidecar sync). Write path dormant until power-map#176 ships
     # the roles observation endpoint.
     pm_role_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
-    # retired_at tombstone provided by RetirableMixin (#31/#38).
+    # archived_at + deleted_at tombstones provided by LifecycleMixin (#31/#38/#42).
 
 
-class Assignment(Base, TimestampMixin, RetirableMixin):
+class Assignment(Base, TimestampMixin, LifecycleMixin):
     """Person × Role × Period. Bridges people to their chamber/party/committee context."""
 
     __tablename__ = "assignments"
@@ -217,7 +228,7 @@ class Assignment(Base, TimestampMixin, RetirableMixin):
     # PM anchor (sidecar sync). Write path dormant until power-map#177 ships
     # the assignments observation endpoint.
     pm_assignment_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
-    # retired_at tombstone provided by RetirableMixin (#31/#38).
+    # archived_at + deleted_at tombstones provided by LifecycleMixin (#31/#38/#42).
 
 
 class PersonIdentifier(Base, TimestampMixin):

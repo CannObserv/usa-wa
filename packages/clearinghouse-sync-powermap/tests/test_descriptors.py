@@ -116,36 +116,44 @@ def test_reconcile_enabled_is_derived_from_mode():
     assert Cohort().reconcile_enabled is True
 
 
-# --- archival mirror (PM archived_at → local retirement tombstone, usa-wa#41) ---
+# --- archival mirror (PM archived_at → local archived_at, usa-wa#41/#42) ---
 
 
-def test_mirror_archival_stamps_tombstone_from_archived_at(fake_descriptor):
-    """A PM record carrying ``archived_at`` stamps the descriptor's retirement
-    tombstone with PM's own clock (set-or-clear, mirrors LWW)."""
+def test_mirror_archival_stamps_archived_at_from_pm(fake_descriptor):
+    """A PM record carrying ``archived_at`` stamps the local ``archived_column``
+    with PM's own clock (set-or-clear, mirrors LWW)."""
     row = FakeEntity(source="s", source_id="1", name="x")
     fake_descriptor.mirror_archival(row, {"archived_at": "2026-06-20T00:00:00Z"})
-    assert row.retired_at == datetime(2026, 6, 20, tzinfo=UTC)
+    assert row.archived_at == datetime(2026, 6, 20, tzinfo=UTC)
 
 
-def test_mirror_archival_clears_tombstone_when_unarchived(fake_descriptor):
-    """``archived_at`` back to null/absent clears the tombstone (PM un-archive)."""
+def test_mirror_archival_clears_archived_at_when_unarchived(fake_descriptor):
+    """``archived_at`` back to null/absent clears the local mirror (PM un-archive)."""
     row = FakeEntity(source="s", source_id="1", name="x")
-    row.retired_at = datetime(2026, 6, 20, tzinfo=UTC)
+    row.archived_at = datetime(2026, 6, 20, tzinfo=UTC)
     fake_descriptor.mirror_archival(row, {})
-    assert row.retired_at is None
+    assert row.archived_at is None
 
 
-def test_mirror_archival_noop_without_retired_column():
-    """A descriptor with no retirement tombstone (``retired_column is None``) is a
-    no-op — the mirror keys on the configured column, so non-retirable entities
-    (e.g. jurisdictions) are unaffected even if PM sends ``archived_at``."""
+def test_mirror_archival_does_not_touch_deleted_at(fake_descriptor):
+    """Archival is the reversible axis — mirroring it never sets the terminal
+    ``deleted_at`` tombstone (the two axes are independent, usa-wa#42)."""
+    row = FakeEntity(source="s", source_id="1", name="x")
+    fake_descriptor.mirror_archival(row, {"archived_at": "2026-06-20T00:00:00Z"})
+    assert row.deleted_at is None
 
-    class _NoTombstone(FakeDescriptor):
-        retired_column = None
+
+def test_mirror_archival_noop_without_archived_column():
+    """A descriptor that doesn't mirror archival (``archived_column is None``) is a
+    no-op — so non-archival-mirroring entities (e.g. jurisdictions) are unaffected
+    even if PM sends ``archived_at``."""
+
+    class _NoArchival(FakeDescriptor):
+        archived_column = None
 
     row = FakeEntity(source="s", source_id="1", name="x")
-    _NoTombstone().mirror_archival(row, {"archived_at": "2026-06-20T00:00:00Z"})
-    assert row.retired_at is None  # untouched
+    _NoArchival().mirror_archival(row, {"archived_at": "2026-06-20T00:00:00Z"})
+    assert row.archived_at is None  # untouched
 
 
 # --- enrich-on-match carry-through (base contract; lives where the loop does) ---

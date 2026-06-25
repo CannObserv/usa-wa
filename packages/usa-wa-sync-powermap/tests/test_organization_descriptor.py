@@ -337,7 +337,7 @@ async def test_upsert_adopts_canonical_name_and_anchor(db_session, descriptor, u
     assert row.name == "Washington State House Appropriations Committee"  # adopted PM canonical
     assert row.pm_organization_id == pm_id
     assert row.jurisdiction_id == usa_wa.id  # resolved governing affiliation → local jurisdiction
-    assert row.retired_at is None  # a live (un-archived) record leaves the tombstone clear
+    assert row.archived_at is None  # a live (un-archived) record leaves the tombstone clear
 
 
 async def test_upsert_update_only_skips_unknown_org(db_session, descriptor):
@@ -357,14 +357,14 @@ async def test_upsert_mirrors_pm_archived_at_to_retired_tombstone(db_session, de
     dormant-vs-abolished call); we only mirror — ``authority = "pm"``."""
     pm_id = ULID()
     row = await _add_org(db_session, source_id="C-1", name="X", anchor=pm_id)
-    assert row.retired_at is None
+    assert row.archived_at is None
 
     record = _pm_org(pm_id, name="X")
     record["archived_at"] = "2026-06-20T00:00:00Z"
     result = await descriptor.upsert_from_pm(db_session, record, existing=row)
 
     assert result is row
-    assert row.retired_at == datetime(2026, 6, 20, tzinfo=UTC)  # mirrors PM's own clock
+    assert row.archived_at == datetime(2026, 6, 20, tzinfo=UTC)  # mirrors PM's own clock
 
 
 async def test_upsert_adopts_name_and_archives_together(db_session, descriptor):
@@ -380,7 +380,7 @@ async def test_upsert_adopts_name_and_archives_together(db_session, descriptor):
 
     assert result is row
     assert row.name == "Regulated Substances & Gaming"
-    assert row.retired_at == datetime(2026, 6, 20, tzinfo=UTC)
+    assert row.archived_at == datetime(2026, 6, 20, tzinfo=UTC)
 
 
 async def test_upsert_clears_tombstone_when_pm_unarchives(db_session, descriptor):
@@ -389,13 +389,13 @@ async def test_upsert_clears_tombstone_when_pm_unarchives(db_session, descriptor
     record to deliver an ``updated`` event, so this path never fires for it."""
     pm_id = ULID()
     row = await _add_org(db_session, source_id="C-1", name="X", anchor=pm_id)
-    row.retired_at = datetime(2026, 6, 20, tzinfo=UTC)
+    row.archived_at = datetime(2026, 6, 20, tzinfo=UTC)
     await db_session.flush()
 
     result = await descriptor.upsert_from_pm(db_session, _pm_org(pm_id, name="X"), existing=row)
 
     assert result is row
-    assert row.retired_at is None
+    assert row.archived_at is None
 
 
 async def test_local_match_by_anchor(db_session, descriptor):
@@ -511,7 +511,8 @@ async def test_rematch_anchor_returns_none_on_identifier_miss(db_session, descri
     assert await descriptor.rematch_anchor(client, db_session, row) is None
 
 
-def test_org_descriptor_supports_rematch_and_retirement():
+def test_org_descriptor_supports_rematch_and_lifecycle_columns():
     desc = OrganizationDescriptor()
     assert desc.supports_rematch is True
-    assert desc.retired_column == "retired_at"
+    assert desc.deleted_column == "deleted_at"
+    assert desc.archived_column == "archived_at"

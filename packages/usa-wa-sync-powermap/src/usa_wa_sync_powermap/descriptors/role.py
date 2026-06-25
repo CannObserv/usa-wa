@@ -37,7 +37,8 @@ class RoleDescriptor(EntityDescriptor):
     entity_type = "role"
     model = Role
     anchor_column = "pm_role_id"
-    retired_column = "retired_at"  # merge-orphan tombstone (#31); no id re-match yet → log-and-skip
+    deleted_column = "deleted_at"  # terminal tombstone (#31); no id re-match yet → log-and-skip
+    archived_column = "archived_at"  # PM reversible archival mirror (#41/#42)
     natural_key = ("source", "source_id")
     authority = "pm"
     read_path = "/api/v1/roles"
@@ -83,7 +84,7 @@ class RoleDescriptor(EntityDescriptor):
             row.name = title  # adopt PM's curated title
         if record.get("id") is not None:
             row.pm_role_id = as_ulid(record["id"])
-        self.mirror_archival(row, record)  # PM archival → retirement tombstone (#41)
+        self.mirror_archival(row, record)  # PM archived_at → local archived_at mirror (#41/#42)
         await session.flush()
         return row
 

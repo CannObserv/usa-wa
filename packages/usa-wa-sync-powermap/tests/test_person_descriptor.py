@@ -170,31 +170,31 @@ async def test_upsert_update_only_skips_unknown(db_session, descriptor):
 
 async def test_upsert_mirrors_pm_archived_at_to_retired_tombstone(db_session, descriptor):
     """PM archival (its "inactive" signal, not a delete) arrives as an ``updated``
-    feed event carrying ``archived_at``; mirror it onto ``retired_at`` so the
+    feed event carrying ``archived_at``; mirror it onto ``archived_at`` so the
     archived person drops out of live reads (usa-wa#41, parity with the org #40 fix)."""
     pm_id = ULID()
     row = await _add_person(db_session, source_id="M-1", anchor=pm_id)
-    assert row.retired_at is None
+    assert row.archived_at is None
 
     record = {"id": str(pm_id), "display_name": "Jay Inslee", "archived_at": "2026-06-20T00:00:00Z"}
     result = await descriptor.upsert_from_pm(db_session, record, existing=row)
 
     assert result is row
-    assert row.retired_at == datetime(2026, 6, 20, tzinfo=UTC)  # mirrors PM's own clock
+    assert row.archived_at == datetime(2026, 6, 20, tzinfo=UTC)  # mirrors PM's own clock
 
 
 async def test_upsert_clears_tombstone_when_pm_unarchives(db_session, descriptor):
     """PM un-archiving (``archived_at`` back to null/absent) revives the row."""
     pm_id = ULID()
     row = await _add_person(db_session, source_id="M-1", anchor=pm_id)
-    row.retired_at = datetime(2026, 6, 20, tzinfo=UTC)
+    row.archived_at = datetime(2026, 6, 20, tzinfo=UTC)
     await db_session.flush()
 
     record = {"id": str(pm_id), "display_name": "Jay Inslee"}
     result = await descriptor.upsert_from_pm(db_session, record, existing=row)
 
     assert result is row
-    assert row.retired_at is None
+    assert row.archived_at is None
 
 
 async def test_last_updated_row_and_record(db_session, descriptor):

@@ -150,12 +150,18 @@ class EntityDescriptor(ABC):
     enrich_carry_fields: tuple[str, ...] = ("names",)
     #: Full-reconcile cadence (backstop; default hourly).
     reconcile_cadence: timedelta = timedelta(hours=1)
-    #: Column holding the local "retired" tombstone (e.g. ``"retired_at"``), stamped
-    #: when a dead anchor resolves to no surviving PM winner (a genuine delete, not a
-    #: merge). Retired rows are excluded from the un-anchored sweep and the
+    #: Column holding the local terminal-delete tombstone (e.g. ``"deleted_at"``),
+    #: stamped when a dead anchor resolves to no surviving PM winner (a genuine delete,
+    #: not a merge). Deleted rows are excluded from the un-anchored sweep and the
     #: anchored-cohort reconcile, so a deliberately-deleted entity is never re-created
-    #: or re-fetched. ``None`` → no retirement marker (retirement disabled).
-    retired_column: str | None = None
+    #: or re-fetched. ``None`` → no delete marker (terminal retirement disabled).
+    deleted_column: str | None = None
+    #: Column holding the local mirror of PM's reversible ``archived_at`` (e.g.
+    #: ``"archived_at"``), set/cleared by :meth:`mirror_archival`. Unlike
+    #: :attr:`deleted_column`, an archived row keeps a **live** anchor and is therefore
+    #: *kept in* the sweep/reconcile cohort so a dropped un-archive event self-heals
+    #: (usa-wa#42). ``None`` → PM archival not mirrored (e.g. identifier-only entities).
+    archived_column: str | None = None
     #: Whether this descriptor can re-resolve a dead anchor to its merge-winner via
     #: :meth:`rematch_anchor`. Consulted **on the backstop path only** — a re-fetch 404,
     #: or a bare ``deleted`` feed event with no ``merged_into``. When PM names the winner
@@ -194,53 +200,56 @@ class EntityDescriptor(ABC):
         """Write the PM anchor id back onto a local row."""
         setattr(row, self.anchor_column, pm_id)
 
-    def retired_column_expr(self) -> Any:
-        """The mapped column for the retirement tombstone (e.g. ``Model.retired_at``).
+    def deleted_column_expr(self) -> Any:
+        """The mapped column for the terminal-delete tombstone (e.g. ``Model.deleted_at``).
 
         The engine filters the un-anchored sweep and the anchored-cohort reconcile on
-        ``IS NULL`` of this so a retired row is never re-created or re-fetched.
+        ``IS NULL`` of this so a deleted row is never re-created or re-fetched. An
+        *archived* row (``archived_column`` set, this NULL) keeps a live anchor and so
+        stays in the cohort — that is the usa-wa#42 fix.
         """
-        return getattr(self.model, self.retired_column)
+        return getattr(self.model, self.deleted_column)
 
-    def is_retired(self, row: Any) -> bool:
-        """Whether a local row has been retired (genuine-delete tombstone set)."""
-        return self.retired_column is not None and getattr(row, self.retired_column) is not None
+    def is_deleted(self, row: Any) -> bool:
+        """Whether a local row carries a terminal-delete tombstone."""
+        return self.deleted_column is not None and getattr(row, self.deleted_column) is not None
 
-    def retire(self, row: Any, now: datetime) -> None:
-        """Stamp a row's retirement tombstone — PM deleted it with no surviving winner."""
-        setattr(row, self.retired_column, now)
+    def is_archived(self, row: Any) -> bool:
+        """Whether a local row carries the reversible PM-archival mirror."""
+        return self.archived_column is not None and getattr(row, self.archived_column) is not None
+
+    def mark_deleted(self, row: Any, now: datetime) -> None:
+        """Stamp a row's terminal-delete tombstone — PM deleted it with no surviving
+        winner. Clears any ``archived_column`` too: a genuine delete supersedes the
+        reversible archived axis (a deleted id is gone from PM, so it can never
+        un-archive)."""
+        setattr(row, self.deleted_column, now)
+        if self.archived_column is not None:
+            setattr(row, self.archived_column, None)
 
     def mirror_archival(self, row: Any, record: dict) -> None:
-        """Mirror PM's ``archived_at`` (its "inactive" signal) onto the retirement
-        tombstone — set when archived, cleared on un-archive (set-or-clear, PM's own
-        clock, mirroring LWW). A no-op when the entity has no tombstone
-        (:attr:`retired_column` is ``None``), so identifier-only/PM-authoritative
+        """Mirror PM's reversible ``archived_at`` onto the local ``archived_column`` —
+        set when archived, cleared on un-archive (set-or-clear, PM's own clock,
+        mirroring LWW). A no-op when the entity doesn't mirror archival
+        (:attr:`archived_column` is ``None``), so identifier-only/PM-authoritative
         entities (jurisdictions) are unaffected even if PM sends ``archived_at``.
 
-        Called from a descriptor's :meth:`upsert_from_pm` so every
-        ``RetirableMixin``-backed cache row drops out of live reads when PM
-        inactivates it (usa-wa#40 orgs; #41 person/role/assignment). PM owns the
-        inactivation decision (incl. dormant-vs-abolished) — ``authority = "pm"``;
-        this only mirrors.
+        Called from a descriptor's :meth:`upsert_from_pm` so every archival-mirroring
+        cache row drops out of live reads when PM inactivates it (usa-wa#40 orgs;
+        #41 person/role/assignment). PM owns the inactivation decision (incl.
+        dormant-vs-abolished) — ``authority = "pm"``; this only mirrors.
 
-        The set-or-clear (clearing on un-archive) does **not** wrongly revive a
-        genuine-delete or merge-orphan tombstone — but the protection is the dead
-        PM id, not a retired-row read filter. ``upsert_from_pm`` *does* run on
-        retired rows: the feed ``updated`` path (``process_feed`` → ``apply_record``)
-        does not check :meth:`is_retired` (only the ``deleted`` branch does), and
-        that path is exactly how an un-archive revives a row. The distinction is the
-        anchor id: a genuine-delete / merge-orphan id is **gone from PM**, so
-        ``fetch_record`` returns ``None`` and the feed delivers no record to clear
-        its tombstone; an archival-retired row keeps a **live** anchor, so PM's
-        ``updated`` events still arrive and clearing on un-archive is the intended
-        revival. (The un-anchored sweep and anchored-cohort reconcile *do* filter
-        retired rows — relevant to those backstops, but not the load-bearing reason
-        the feed clear is safe. NOTE: that same reconcile filter means a *dropped*
-        un-archive event is not recovered by the backstop — usa-wa#42.)
+        Distinct from :attr:`deleted_column` (the terminal tombstone): an archived
+        entity keeps a **live** PM id. So both feed paths *and* the anchored-cohort
+        reconcile re-fetch it — clearing on un-archive happens on whichever arrives
+        first, and a dropped un-archive feed event is recovered by the next reconcile
+        (usa-wa#42, the bug the deleted/archived split closed). A genuine-delete /
+        merge-orphan id is gone from PM, so it lives on :attr:`deleted_column`, never
+        here — and is never re-fetched.
         """
-        if self.retired_column is None:
+        if self.archived_column is None:
             return
-        setattr(row, self.retired_column, parse_pm_timestamp(record.get("archived_at")))
+        setattr(row, self.archived_column, parse_pm_timestamp(record.get("archived_at")))
 
     def natural_key_values(self, row: Any) -> tuple[Any, ...]:
         """The local natural-key tuple for a row (used for upsert matching)."""

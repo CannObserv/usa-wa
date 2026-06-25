@@ -64,7 +64,7 @@ enqueue an UPDATE), so the clock comparison lives in exactly one place:
     bare ``deleted`` for a rematch-capable org). Only the org descriptor supports it.
 
   A bare ``deleted`` (no ``merged_into``) is otherwise an unambiguous genuine delete
-  post-power-map#235: non-rematch types (person/role/assignment) retire (``retired_at``).
+  post-power-map#235: non-rematch types (person/role/assignment) delete (``deleted_at``).
   The heal also retires a duplicate orphan when a many-to-one merge already left another
   local row on the winner, and a non-rematch type with no winner signal at all (a 404
   backstop) logs once and leaves the row. Retired rows are excluded from the sweep and
@@ -313,10 +313,11 @@ class SyncEngine:
         last_id = None
         while True:
             stmt = select(descriptor.model).where(anchor_col.is_(None))
-            if descriptor.retired_column is not None:
-                # Never re-create a retired (genuinely-deleted) row — it would
-                # resurrect a deliberately-deleted entity in PM (#31).
-                stmt = stmt.where(descriptor.retired_column_expr().is_(None))
+            if descriptor.deleted_column is not None:
+                # Never re-create a terminally-deleted row — it would resurrect a
+                # deliberately-deleted entity in PM (#31). An *archived* row keeps a
+                # live anchor (deleted_at NULL) and so stays eligible (#42).
+                stmt = stmt.where(descriptor.deleted_column_expr().is_(None))
             if last_id is not None:
                 stmt = stmt.where(pk_col > last_id)
             stmt = stmt.order_by(pk_col).limit(self._sweep_batch_size)
@@ -503,6 +504,17 @@ class SyncEngine:
         log_ctx = {"entity_type": descriptor.entity_type, "local_id": str(row.id)}
         if winner_hint is not None:
             winner: ULID | None = winner_hint
+        elif not descriptor.supports_rematch and descriptor.is_archived(row):
+            # The row was already archived in PM and now 404s. PM enforces
+            # archive-before-hard-delete (409 unless ``archived_at`` is set), so a 404
+            # on an *archived* id is a settled genuine delete, not an ambiguous merge —
+            # promote archived → deleted even without identifier re-match. This also
+            # stops the row 404ing on every reconcile cycle (it was kept in the cohort
+            # by the archived axis, usa-wa#42).
+            descriptor.mark_deleted(row, now)
+            await session.flush()
+            logger.info("dead_anchor_deleted_from_archived", extra=log_ctx)
+            return
         elif not descriptor.supports_rematch:
             # No explicit winner and can't resolve one by identifier (person/role/
             # assignment on the 404 backstop — the feed path carries merged_into and
@@ -522,9 +534,9 @@ class SyncEngine:
                 # No surviving identifier winner → genuine delete (or a merge that
                 # didn't transfer identifiers). Retire, loudly. (The feed path settles
                 # this deterministically via merged_into; this is only the 404 backstop.)
-                descriptor.retire(row, now)
+                descriptor.mark_deleted(row, now)
                 await session.flush()
-                logger.warning("dead_anchor_retired", extra=log_ctx)
+                logger.warning("dead_anchor_deleted", extra=log_ctx)
                 return
         # Many-to-one merge guard (#36 CR finding 1): if another local row already
         # anchors to the winner, PM merged two of our rows into one canonical entity.
@@ -536,10 +548,10 @@ class SyncEngine:
         # winner is already complete; the other row's re-anchor pushes its own evidence.
         holder = await self._row_by_anchor(session, descriptor, winner)
         if holder is not None and holder.id != row.id:
-            descriptor.retire(row, now)
+            descriptor.mark_deleted(row, now)
             await session.flush()
             logger.warning(
-                "dead_anchor_retired_duplicate_winner",
+                "dead_anchor_deleted_duplicate_winner",
                 extra={**log_ctx, "winner": str(winner), "kept_local_id": str(holder.id)},
             )
             return
@@ -1120,9 +1132,11 @@ class SyncEngine:
         last_id = None
         while True:
             stmt = select(descriptor.model).where(anchor_col.is_not(None))
-            if descriptor.retired_column is not None:
-                # Skip retired (genuinely-deleted) rows — never re-fetch a tombstoned id.
-                stmt = stmt.where(descriptor.retired_column_expr().is_(None))
+            if descriptor.deleted_column is not None:
+                # Skip terminally-deleted rows — never re-fetch a tombstoned id. An
+                # *archived* row (live anchor, deleted_at NULL) IS re-fetched, so a
+                # dropped un-archive event is recovered here (#42).
+                stmt = stmt.where(descriptor.deleted_column_expr().is_(None))
             if last_id is not None:
                 stmt = stmt.where(pk_col > last_id)
             stmt = stmt.order_by(pk_col).limit(self._sweep_batch_size)
@@ -1184,7 +1198,7 @@ class SyncEngine:
                 continue
             if item.change_kind == "deleted":
                 row = await self._row_by_anchor(session, descriptor, item.entity_id)
-                if row is None or descriptor.is_retired(row):
+                if row is None or descriptor.is_deleted(row):
                     continue
                 if item.merged_into is not None:
                     # Merge: PM names the surviving winner (power-map#235). Re-anchor any
@@ -1199,15 +1213,15 @@ class SyncEngine:
                     # backlog delete — and retires only on a genuine miss. Same path as the
                     # 404 reconcile, so feed and backstop behave identically (CR #1).
                     await self._heal_dead_anchor(session, descriptor, row, now=now)
-                elif descriptor.retired_column is not None:
+                elif descriptor.deleted_column is not None:
                     # Genuine delete for a non-rematch type (person/role/assignment): absent
-                    # merged_into is unambiguous post-power-map#235, so retire — the
+                    # merged_into is unambiguous post-power-map#235, so delete — the
                     # merge/delete ambiguity that blocked this is gone (usa-wa#37). Distinct
-                    # log key from the heuristic identifier-miss retire (CR #2).
-                    descriptor.retire(row, now)
+                    # log key from the heuristic identifier-miss delete (CR #2).
+                    descriptor.mark_deleted(row, now)
                     await session.flush()
                     logger.info(
-                        "dead_anchor_retired_deleted",
+                        "dead_anchor_deleted_via_feed",
                         extra={"entity_type": descriptor.entity_type, "local_id": str(row.id)},
                     )
                 else:

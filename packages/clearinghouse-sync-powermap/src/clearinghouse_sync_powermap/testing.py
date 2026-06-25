@@ -48,7 +48,8 @@ class FakeEntity(Base, TimestampMixin):
     source_id: Mapped[str] = mapped_column(String(128), nullable=False)
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     pm_fake_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True)
-    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class FakeDescriptor(EntityDescriptor):
@@ -57,7 +58,8 @@ class FakeDescriptor(EntityDescriptor):
     entity_type = "fake"
     model = FakeEntity
     anchor_column = "pm_fake_id"
-    retired_column = "retired_at"
+    deleted_column = "deleted_at"
+    archived_column = "archived_at"
     natural_key = ("source", "source_id")
     authority = "local"
     read_path = "/api/v1/fakes"

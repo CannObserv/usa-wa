@@ -135,18 +135,18 @@ async def test_upsert_update_only_skips_unknown(db_session, descriptor):
 
 
 async def test_upsert_mirrors_pm_archived_at_to_retired_tombstone(db_session, descriptor):
-    """PM archival on an anchored assignment mirrors onto ``retired_at`` (usa-wa#41)."""
+    """PM archival on an anchored assignment mirrors onto ``archived_at`` (usa-wa#41)."""
     pm_id = ULID()
     a, _p, _r = await _scaffold(db_session, person_anchor=ULID(), role_anchor=ULID())
     a.pm_assignment_id = pm_id
     await db_session.flush()
-    assert a.retired_at is None
+    assert a.archived_at is None
 
     record = {"id": str(pm_id), "is_current": True, "archived_at": "2026-06-20T00:00:00Z"}
     result = await descriptor.upsert_from_pm(db_session, record, existing=a)
 
     assert result is a
-    assert a.retired_at == datetime(2026, 6, 20, tzinfo=UTC)
+    assert a.archived_at == datetime(2026, 6, 20, tzinfo=UTC)
 
 
 async def test_upsert_clears_tombstone_when_pm_unarchives(db_session, descriptor):
@@ -154,7 +154,7 @@ async def test_upsert_clears_tombstone_when_pm_unarchives(db_session, descriptor
     pm_id = ULID()
     a, _p, _r = await _scaffold(db_session, person_anchor=ULID(), role_anchor=ULID())
     a.pm_assignment_id = pm_id
-    a.retired_at = datetime(2026, 6, 20, tzinfo=UTC)
+    a.archived_at = datetime(2026, 6, 20, tzinfo=UTC)
     await db_session.flush()
 
     result = await descriptor.upsert_from_pm(
@@ -162,7 +162,7 @@ async def test_upsert_clears_tombstone_when_pm_unarchives(db_session, descriptor
     )
 
     assert result is a
-    assert a.retired_at is None
+    assert a.archived_at is None
 
 
 async def test_last_updated_row_and_record(db_session, descriptor):

@@ -34,7 +34,8 @@ class AssignmentDescriptor(EntityDescriptor):
     entity_type = "role_assignment"
     model = Assignment
     anchor_column = "pm_assignment_id"
-    retired_column = "retired_at"  # merge-orphan tombstone (#31); no id re-match yet → log-and-skip
+    deleted_column = "deleted_at"  # terminal tombstone (#31); no id re-match yet → log-and-skip
+    archived_column = "archived_at"  # PM reversible archival mirror (#41/#42)
     natural_key = ("source", "source_id")
     authority = "pm"
     read_path = "/api/v1/assignments"
@@ -94,7 +95,7 @@ class AssignmentDescriptor(EntityDescriptor):
             row.valid_to = _parse_date(record.get("end_date"))
         if record.get("id") is not None:
             row.pm_assignment_id = as_ulid(record["id"])
-        self.mirror_archival(row, record)  # PM archival → retirement tombstone (#41)
+        self.mirror_archival(row, record)  # PM archived_at → local archived_at mirror (#41/#42)
         await session.flush()
         return row
 

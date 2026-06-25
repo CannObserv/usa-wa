@@ -126,9 +126,9 @@ async def test_backfill_ignores_other_sources(db_session, usa_wa):
     assert summary["scanned"] == 0
 
 
-async def test_backfill_skips_retired_orgs(db_session, usa_wa):
-    """A retired (PM-deleted) org carries a dead anchor — re-observing it would push
-    against a tombstoned PM entity. The backfill excludes it (usa-wa#38)."""
+async def test_backfill_skips_deleted_orgs(db_session, usa_wa):
+    """A deleted (PM-deleted) org carries a dead anchor — re-observing it would push
+    against a tombstoned PM entity. The backfill excludes it (usa-wa#38/#42)."""
     row = await _add_org(
         db_session,
         source_id="C-dead",
@@ -137,7 +137,7 @@ async def test_backfill_skips_retired_orgs(db_session, usa_wa):
         anchor=ULID(),
         jurisdiction_id=usa_wa.id,
     )
-    row.retired_at = datetime.now(UTC)
+    row.deleted_at = datetime.now(UTC)
     await db_session.flush()
     client = FakeClient()
 

@@ -1,46 +1,50 @@
 """Read-side query helpers for the identity cluster.
 
 The local identity tables (Person/Organization/Role/Assignment) are a query-
-latency mirror of Power Map. The sidecar stamps a ``retired_at`` tombstone in two
-cases — when PM deletes an entity with no surviving merge-winner (usa-wa#31/#36),
-and when PM *archives* it (its "inactive" signal, mirrored from the read model's
-``archived_at``, usa-wa#40) — and keeps the row as provenance rather than hard-
-deleting it. A retired row therefore still carries its PM anchor and is otherwise
-untouched, so it would leak into the read fan-out unless callers filter it out.
+latency mirror of Power Map. The sidecar marks a row not-live on either of two PM-
+parity axes (usa-wa#42) and keeps the row as provenance rather than hard-deleting
+it:
 
-:func:`exclude_retired` is the one guardrail every *live* read routes through, so
-the ``retired_at IS NULL`` predicate is spelled once and the audit/provenance
-escape hatch (``include_retired=True``) is explicit at the call site (usa-wa#38).
+- ``archived_at`` — PM archived the entity (its reversible "inactive" signal,
+  mirrored from PM's ``archived_at``, usa-wa#40/#41). The PM id is still live.
+- ``deleted_at`` — PM deleted the entity with no surviving merge-winner
+  (usa-wa#31/#36). The PM id is gone.
+
+Either marker keeps its PM anchor and is otherwise untouched, so a non-live row
+would leak into the read fan-out unless callers filter it out.
+
+:func:`live_only` is the one guardrail every *live* read routes through, so the
+``archived_at IS NULL AND deleted_at IS NULL`` predicate is spelled once and the
+audit/provenance escape hatch (``include_hidden=True``) is explicit at the call
+site (usa-wa#38).
 """
 
 from sqlalchemy import Select
 
-from clearinghouse_domain_legislative.identity import RetirableMixin
+from clearinghouse_domain_legislative.identity import LifecycleMixin
 
 
-def exclude_retired(
-    stmt: Select, *models: type[RetirableMixin], include_retired: bool = False
-) -> Select:
-    """Filter retired (soft-deleted) rows out of a SELECT, one model hop at a time.
+def live_only(stmt: Select, *models: type[LifecycleMixin], include_hidden: bool = False) -> Select:
+    """Filter non-live (archived or deleted) rows out of a SELECT, one model hop at a time.
 
-    Apply once per :class:`RetirableMixin` model the statement reads or joins
-    through — a live role hanging off a *retired* org is dropped only if the org
-    hop is filtered too, so pass every retirable model in the query::
+    Apply once per :class:`LifecycleMixin` model the statement reads or joins
+    through — a live role hanging off an *archived* org is dropped only if the org
+    hop is filtered too, so pass every lifecycle model in the query::
 
-        exclude_retired(
+        live_only(
             select(Role).join(Organization, Role.organization_id == Organization.id),
             Role,
             Organization,
         )
 
-    ``include_retired=True`` is the audit/provenance escape hatch: it returns
+    ``include_hidden=True`` is the audit/provenance escape hatch: it returns
     ``stmt`` unchanged. Passing no models raises — a silent no-op would leak
-    retired rows, the exact bug this helper exists to prevent.
+    non-live rows, the exact bug this helper exists to prevent.
     """
-    if include_retired:
+    if include_hidden:
         return stmt
     if not models:
-        raise ValueError("exclude_retired requires at least one model to filter")
+        raise ValueError("live_only requires at least one model to filter")
     for model in models:
-        stmt = stmt.where(model.not_retired())
+        stmt = stmt.where(model.is_live())
     return stmt

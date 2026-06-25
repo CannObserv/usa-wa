@@ -757,7 +757,7 @@ async def test_dead_anchor_reanchors_to_winner_and_enqueues_enrich(db_session):
     await db_session.refresh(row)
 
     assert row.pm_fake_id == winner  # re-anchored to the surviving winner
-    assert row.retired_at is None  # not retired
+    assert row.deleted_at is None  # not deleted
     entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
     assert entry.op == OP_ENRICH  # carry fields re-pushed to the winner
 
@@ -775,7 +775,7 @@ async def test_dead_anchor_retires_when_no_winner(db_session):
     await engine.reconcile(db_session, descriptor, now=NOW)
     await db_session.refresh(row)
 
-    assert row.retired_at == NOW  # retired locally
+    assert row.deleted_at == NOW  # deleted locally
     assert row.pm_fake_id == loser  # anchor left as-is (tombstoned, not re-pointed)
 
 
@@ -791,7 +791,7 @@ async def test_dead_anchor_unsupported_descriptor_leaves_row(db_session):
     await engine.reconcile(db_session, descriptor, now=NOW)
     await db_session.refresh(row)
 
-    assert row.retired_at is None
+    assert row.deleted_at is None
     assert row.name == "Keep"
     assert row.pm_fake_id == loser
 
@@ -836,10 +836,22 @@ async def test_process_feed_deleted_ignores_unproduced_entity(db_session):
     assert (await db_session.execute(select(FakeEntity))).first() is None
 
 
-async def test_sweep_excludes_retired_rows(db_session):
-    """A retired row (genuine delete) is never re-created by the un-anchored sweep."""
-    row = await _add_entity(db_session, source_id="r", name="Retired")  # anchor IS NULL
-    row.retired_at = NOW
+class ArchivalCohortDescriptor(CohortDescriptor):
+    """Cohort descriptor that mirrors PM ``archived_at`` on import, like the real
+    org/person/role/assignment descriptors — so reconcile exercises the archived
+    axis (usa-wa#42)."""
+
+    async def upsert_from_pm(self, session, record, existing=None):
+        row = await super().upsert_from_pm(session, record, existing)
+        self.mirror_archival(row, record)
+        await session.flush()
+        return row
+
+
+async def test_sweep_excludes_deleted_rows(db_session):
+    """A deleted row (terminal tombstone) is never re-created by the un-anchored sweep."""
+    row = await _add_entity(db_session, source_id="r", name="Deleted")  # anchor IS NULL
+    row.deleted_at = NOW
     await db_session.flush()
     descriptor = CohortDescriptor()
     engine = SyncEngine([descriptor], FakeClient())
@@ -850,11 +862,11 @@ async def test_sweep_excludes_retired_rows(db_session):
     assert (await db_session.execute(select(OutboxEntry))).scalars().all() == []
 
 
-async def test_anchored_cohort_excludes_retired_rows(db_session):
-    """A retired row is not re-fetched by the anchored-cohort reconcile."""
+async def test_anchored_cohort_excludes_deleted_rows(db_session):
+    """A deleted row (dead anchor) is not re-fetched by the anchored-cohort reconcile."""
     pm_id = ULID()
     row = await _add_anchored(db_session, source_id="r", name="R", pm_id=pm_id, updated_at=NOW)
-    row.retired_at = NOW
+    row.deleted_at = NOW
     await db_session.flush()
     descriptor = CohortDescriptor()
     client = FakeClient(entities={pm_id: _record("r", "R", pm_id=pm_id)})
@@ -863,7 +875,44 @@ async def test_anchored_cohort_excludes_retired_rows(db_session):
     applied = await engine.reconcile(db_session, descriptor, now=NOW)
 
     assert applied == 0
-    assert client.fetched == []  # retired row never re-fetched
+    assert client.fetched == []  # deleted row never re-fetched
+
+
+async def test_anchored_cohort_refetches_archived_rows(db_session):
+    """An *archived* row keeps a live anchor, so the anchored-cohort reconcile MUST
+    re-fetch it (unlike a deleted row) — the backstop that recovers a dropped feed
+    event (usa-wa#42)."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="a", name="A", pm_id=pm_id, updated_at=NOW)
+    row.archived_at = NOW  # archived locally, anchor still live
+    await db_session.flush()
+    descriptor = ArchivalCohortDescriptor()
+    client = FakeClient(entities={pm_id: _record("a", "A", pm_id=pm_id)})
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert pm_id in [f[1] for f in client.fetched]  # archived row IS re-fetched (live anchor)
+
+
+async def test_anchored_cohort_recovers_dropped_unarchive(db_session):
+    """The #42 fix: a dropped un-archive feed event is recovered by reconcile. The
+    local row is still archived; PM has since un-archived (``archived_at`` null); the
+    reconcile re-fetch clears the local tombstone and revives the row."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="a", name="A", pm_id=pm_id, updated_at=NOW)
+    row.archived_at = NOW  # local still archived (the un-archive event was dropped)
+    await db_session.flush()
+    descriptor = ArchivalCohortDescriptor()
+    # PM record carries no archived_at (un-archived) and a newer clock so LWW applies.
+    client = FakeClient(entities={pm_id: _record("a", "A", pm_id=pm_id, updated_at=_PM_NEWER)})
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.archived_at is None  # tombstone cleared → row revived
+    assert row.deleted_at is None
 
 
 async def test_dead_anchor_many_to_one_merge_retires_duplicate(db_session):
@@ -885,10 +934,10 @@ async def test_dead_anchor_many_to_one_merge_retires_duplicate(db_session):
     await db_session.refresh(row_b)
 
     anchors = {row_a.pm_fake_id, row_b.pm_fake_id}
-    retired = [r for r in (row_a, row_b) if r.retired_at is not None]
+    deleted = [r for r in (row_a, row_b) if r.deleted_at is not None]
     assert winner in anchors  # exactly one row re-anchored to the winner
-    assert len(retired) == 1  # the other retired as a duplicate orphan
-    assert retired[0].pm_fake_id != winner  # the orphan never got the duplicate anchor
+    assert len(deleted) == 1  # the other deleted as a duplicate orphan
+    assert deleted[0].pm_fake_id != winner  # the orphan never got the duplicate anchor
 
 
 async def test_dead_anchor_unsupported_warns_once_across_cycles(db_session, caplog):
@@ -905,6 +954,25 @@ async def test_dead_anchor_unsupported_warns_once_across_cycles(db_session, capl
         await engine.reconcile(db_session, descriptor, now=NOW)
 
     assert sum(r.msg == "dead_anchor_unhealed" for r in caplog.records) == 1
+
+
+async def test_dead_anchor_archived_then_404_promotes_to_deleted(db_session):
+    """A non-rematch row that was *archived* and now 404s is a settled delete (PM
+    enforces archive-before-hard-delete), so the 404 backstop promotes archived →
+    deleted rather than leaving it to 404 every cycle (usa-wa#42 CR)."""
+    loser = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=loser, updated_at=NOW)
+    row.archived_at = NOW  # archived locally; PM has since hard-deleted it
+    await db_session.flush()
+    descriptor = CohortDescriptor()  # supports_rematch False
+    client = FakeClient(entities={})  # loser 404s
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.deleted_at == NOW  # promoted to terminal tombstone
+    assert row.archived_at is None  # archived axis cleared (delete supersedes)
 
 
 # --- power-map#235 merged_into: generic, deterministic re-anchor (usa-wa#37) -----
@@ -934,7 +1002,7 @@ async def test_process_feed_merged_into_reanchors_unsupported_descriptor(db_sess
     await db_session.refresh(row)
 
     assert row.pm_fake_id == winner  # re-anchored from the explicit winner id
-    assert row.retired_at is None
+    assert row.deleted_at is None
 
 
 async def test_process_feed_merged_into_preferred_over_rematch(db_session):
@@ -977,7 +1045,7 @@ async def test_process_feed_genuine_delete_retires_any_type(db_session):
     await engine.process_feed(db_session, now=NOW)
     await db_session.refresh(row)
 
-    assert row.retired_at == NOW  # genuine delete → tombstoned
+    assert row.deleted_at == NOW  # genuine delete → tombstoned
     assert row.pm_fake_id == loser  # anchor left as-is
 
 
@@ -1000,15 +1068,15 @@ async def test_process_feed_bare_delete_org_uses_rematch_backstop(db_session):
     await engine.process_feed(db_session, now=NOW)
     await db_session.refresh(row)
 
-    assert row.pm_fake_id == winner  # re-anchored via the backstop, not retired
-    assert row.retired_at is None
+    assert row.pm_fake_id == winner  # re-anchored via the backstop, not deleted
+    assert row.deleted_at is None
 
 
 class NoTombstoneDescriptor(FakeDescriptor):
     """A feed descriptor with neither re-match nor a retirement column — the defensive
     fallback path: a dead anchor it can't resolve and can't tombstone is left in place."""
 
-    retired_column = None
+    deleted_column = None
     supports_rematch = False
 
 
@@ -1027,7 +1095,7 @@ async def test_process_feed_bare_delete_no_tombstone_leaves_row(db_session, capl
     await db_session.refresh(row)
 
     assert row.pm_fake_id == loser  # left in place
-    assert row.retired_at is None
+    assert row.deleted_at is None
     assert any(r.msg == "dead_anchor_unhealed" for r in caplog.records)
 
 
@@ -1066,10 +1134,10 @@ async def test_process_feed_merged_into_many_to_one_retires_duplicate(db_session
     await db_session.refresh(row_b)
 
     anchors = {row_a.pm_fake_id, row_b.pm_fake_id}
-    retired = [r for r in (row_a, row_b) if r.retired_at is not None]
+    deleted = [r for r in (row_a, row_b) if r.deleted_at is not None]
     assert winner in anchors  # exactly one re-anchored
-    assert len(retired) == 1  # the other retired as a duplicate orphan
-    assert retired[0].pm_fake_id != winner
+    assert len(deleted) == 1  # the other deleted as a duplicate orphan
+    assert deleted[0].pm_fake_id != winner
 
 
 async def test_anchored_cohort_requires_now(db_session):

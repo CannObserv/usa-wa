@@ -97,17 +97,17 @@ async def test_upsert_update_only_skips_unknown_role(db_session, descriptor):
 
 
 async def test_upsert_mirrors_pm_archived_at_to_retired_tombstone(db_session, descriptor):
-    """PM archival on an anchored role mirrors onto ``retired_at`` (usa-wa#41)."""
+    """PM archival on an anchored role mirrors onto ``archived_at`` (usa-wa#41)."""
     org = await _add_org(db_session, anchor=ULID())
     pm_id = ULID()
     role = await _add_role(db_session, org=org, anchor=pm_id)
-    assert role.retired_at is None
+    assert role.archived_at is None
 
     record = {"id": str(pm_id), "title": "Chair", "archived_at": "2026-06-20T00:00:00Z"}
     result = await descriptor.upsert_from_pm(db_session, record, existing=role)
 
     assert result is role
-    assert role.retired_at == datetime(2026, 6, 20, tzinfo=UTC)
+    assert role.archived_at == datetime(2026, 6, 20, tzinfo=UTC)
 
 
 async def test_upsert_clears_tombstone_when_pm_unarchives(db_session, descriptor):
@@ -115,7 +115,7 @@ async def test_upsert_clears_tombstone_when_pm_unarchives(db_session, descriptor
     org = await _add_org(db_session, anchor=ULID())
     pm_id = ULID()
     role = await _add_role(db_session, org=org, anchor=pm_id)
-    role.retired_at = datetime(2026, 6, 20, tzinfo=UTC)
+    role.archived_at = datetime(2026, 6, 20, tzinfo=UTC)
     await db_session.flush()
 
     result = await descriptor.upsert_from_pm(
@@ -123,7 +123,7 @@ async def test_upsert_clears_tombstone_when_pm_unarchives(db_session, descriptor
     )
 
     assert result is role
-    assert role.retired_at is None
+    assert role.archived_at is None
 
 
 async def test_last_updated_row_and_record(db_session, descriptor):
