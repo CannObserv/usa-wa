@@ -13,7 +13,6 @@ Auth is PM's ``X-API-Key`` header, wired through the generated
 """
 
 from collections.abc import Sequence
-from datetime import datetime
 from typing import Any, NoReturn
 
 from powermap_client import AuthenticatedClient
@@ -68,7 +67,7 @@ from clearinghouse_sync_powermap.client import (
     RetryableClientError,
     SubscriptionResult,
 )
-from clearinghouse_sync_powermap.descriptors import as_ulid
+from clearinghouse_sync_powermap.descriptors import as_ulid, parse_pm_timestamp
 
 logger = get_logger(__name__)
 
@@ -108,10 +107,6 @@ def _raise_mapped(exc: UnexpectedStatus) -> NoReturn:
     if exc.status_code in _BLOCKED_STATUSES:
         raise DeliveryBlockedError(f"PM {exc.status_code}") from exc
     raise PayloadRejectedError(f"PM {exc.status_code}") from exc
-
-
-def _parse_ts(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
 
 
 def _list_paged(fn, *, with_query: bool):
@@ -212,7 +207,7 @@ class GeneratedPowerMapClient:
                 # raise here and fail the page (acceptable — it signals a contract break).
                 entity_type=ci.entity_type.value,
                 entity_id=as_ulid(ci.entity_id),
-                changed_at=_parse_ts(ci.changed_at),
+                changed_at=parse_pm_timestamp(ci.changed_at),
                 change_kind=ci.change_kind.value,
                 # power-map#235: optional winner id on a merge ``deleted`` event. The
                 # generated field is ``Unset`` when absent (genuine delete) — coerce
