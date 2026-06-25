@@ -19,13 +19,9 @@ from sqlalchemy import select
 
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.logging import get_logger
-from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid
+from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid, parse_pm_timestamp
 
 logger = get_logger(__name__)
-
-
-def _parse_ts(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -121,16 +117,16 @@ class JurisdictionDescriptor(EntityDescriptor):
         elif type_id is not None:
             row.type_id = type_id
         row.name = record["name"]
-        row.valid_from = _parse_ts(record.get("valid_from"))
-        row.valid_until = _parse_ts(record.get("valid_until"))
-        recorded = _parse_ts(record.get("recorded_at"))
+        row.valid_from = parse_pm_timestamp(record.get("valid_from"))
+        row.valid_until = parse_pm_timestamp(record.get("valid_until"))
+        recorded = parse_pm_timestamp(record.get("recorded_at"))
         if is_new:
             # recorded_at is NOT NULL; stamp now() only when PM omits it on insert.
             row.recorded_at = recorded or datetime.now(UTC)
         elif recorded is not None:
             # On update, keep the prior value when PM omits it (no churn).
             row.recorded_at = recorded
-        row.superseded_at = _parse_ts(record.get("superseded_at"))
+        row.superseded_at = parse_pm_timestamp(record.get("superseded_at"))
         if record.get("id") is not None:
             row.pm_jurisdiction_id = as_ulid(record["id"])
         # NOTE: PM's updated_at is mirrored onto the row by the engine
@@ -142,5 +138,4 @@ class JurisdictionDescriptor(EntityDescriptor):
     def last_updated(self, obj: Any) -> datetime | None:
         if isinstance(obj, Jurisdiction):
             return obj.updated_at
-        ts = obj.get("updated_at")
-        return _parse_ts(ts) if ts else None
+        return parse_pm_timestamp(obj.get("updated_at"))

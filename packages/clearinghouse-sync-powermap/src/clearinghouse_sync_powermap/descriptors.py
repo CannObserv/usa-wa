@@ -221,11 +221,22 @@ class EntityDescriptor(ABC):
         ``RetirableMixin``-backed cache row drops out of live reads when PM
         inactivates it (usa-wa#40 orgs; #41 person/role/assignment). PM owns the
         inactivation decision (incl. dormant-vs-abolished) — ``authority = "pm"``;
-        this only mirrors. A **delete** does not arrive here (no record to upsert);
-        it flows through the engine's dead-anchor retire path. And a retired row is
-        excluded from the un-anchored sweep and the anchored-cohort reconcile, so
-        ``upsert_from_pm`` never reaches a merge-orphan/genuine-delete tombstone —
-        the un-archive clear can't wrongly revive one.
+        this only mirrors.
+
+        The set-or-clear (clearing on un-archive) does **not** wrongly revive a
+        genuine-delete or merge-orphan tombstone — but the protection is the dead
+        PM id, not a retired-row read filter. ``upsert_from_pm`` *does* run on
+        retired rows: the feed ``updated`` path (``process_feed`` → ``apply_record``)
+        does not check :meth:`is_retired` (only the ``deleted`` branch does), and
+        that path is exactly how an un-archive revives a row. The distinction is the
+        anchor id: a genuine-delete / merge-orphan id is **gone from PM**, so
+        ``fetch_record`` returns ``None`` and the feed delivers no record to clear
+        its tombstone; an archival-retired row keeps a **live** anchor, so PM's
+        ``updated`` events still arrive and clearing on un-archive is the intended
+        revival. (The un-anchored sweep and anchored-cohort reconcile *do* filter
+        retired rows — relevant to those backstops, but not the load-bearing reason
+        the feed clear is safe. NOTE: that same reconcile filter means a *dropped*
+        un-archive event is not recovered by the backstop — usa-wa#42.)
         """
         if self.retired_column is None:
             return
