@@ -181,7 +181,11 @@ async def test_upsert_empty_acronyms_prunes_existing(db_session):
         db_session, organization_id=org.id, pm_acronyms=[_pm_acronym(str(ULID()))]
     )
 
-    record = _pm_org_with_acronyms(pm_id, name="Y", acronyms=[])
+    # Build the record with an explicit *present-but-empty* key — not via the
+    # helper's ``acronyms or []`` default, which would make empty indistinguishable
+    # from absent (the empty-vs-absent distinction this test pair guards).
+    record = _pm_org_with_acronyms(pm_id, name="Y")
+    record["acronyms"] = []
     result = await OrganizationDescriptor().upsert_from_pm(db_session, record, existing=org)
     assert result is org
     assert await _acronyms_for(db_session, org.id) == []
