@@ -13,6 +13,12 @@ it:
 Either marker keeps its PM anchor and is otherwise untouched, so a non-live row
 would leak into the read fan-out unless callers filter it out.
 
+PM's **third** lifecycle axis — ``Organization.active`` (the operational
+live-vs-dissolved domain flag, usa-wa#43) — is deliberately **not** a liveness
+filter: a dissolved-but-not-archived committee is still a real, queryable row, so
+inactive orgs stay in the read fan-out. ``live_only`` filters the two
+``LifecycleMixin`` tombstones only; do not add ``active`` here.
+
 :func:`live_only` is the one guardrail every *live* read routes through, so the
 ``archived_at IS NULL AND deleted_at IS NULL`` predicate is spelled once and the
 audit/provenance escape hatch (``include_hidden=True``) is explicit at the call

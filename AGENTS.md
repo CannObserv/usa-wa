@@ -54,7 +54,7 @@ packages/
   clearinghouse-domain-legislative/   — Layer 2: legislative-government model (state/federal)
     src/clearinghouse_domain_legislative/
                       — Bill, Legislator, BillAction, StatuteSection, etc. (skeletoned step 7)
-      identity.py     — Person/Organization/Role/Assignment + LifecycleMixin (archived_at + deleted_at tombstones — PM archived/deleted axis split, #38/#42)
+      identity.py     — Person/Organization/Role/Assignment + LifecycleMixin (archived_at + deleted_at tombstones — PM archived/deleted axis split, #38/#42) + Organization.active (PM's third axis: operational live/dissolved domain flag — orgs-only, NOT a live-read gate, #43)
       queries.py      — live_only(): read-side liveness guardrail (archived_at + deleted_at IS NULL) every live read routes through (#38/#42)
   clearinghouse-sync-powermap/        — Layer 1-adjacent: portable Power Map sync engine (sibling-reusable)
     src/clearinghouse_sync_powermap/
