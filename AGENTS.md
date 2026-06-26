@@ -141,7 +141,7 @@ deliberate `uv sync --locked` after a pull that touches `uv.lock`:**
 ```bash
 git pull
 uv sync --locked                       # reconcile venv ⇄ uv.lock deliberately
-sudo systemctl start usa-wa-migrate    # if DB models changed
+sudo systemctl restart usa-wa-migrate  # if DB models changed (restart, not start — see note)
 sudo systemctl restart usa-wa usa-wa-sync-powermap
 ```
 
@@ -162,7 +162,7 @@ requires a plain `uv sync`** — `--no-sync` units can't start against an absent
 | Debugging the live service | `sudo journalctl -u usa-wa -f` |
 | After editing `deploy/usa-wa.service` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa` |
 | After editing `deploy/usa-wa-wsl-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-wsl-refresh.timer` |
-| After DB model changes | `sudo systemctl start usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`) |
+| After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
 | Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
 
 **Dev server workflow.** Run on port `8001` so the live service stays up. Load env first:
@@ -224,7 +224,8 @@ uv run pytest -m integration
 uv run ruff check .
 
 # Database migrations (need the owner role — see § DB role topology)
-# prod: sudo systemctl start usa-wa-migrate; ad-hoc alembic needs DATABASE_URL_OWNER
+# prod: sudo systemctl restart usa-wa-migrate (restart, not start — RemainAfterExit
+#       oneshot no-ops on start once already active); ad-hoc alembic needs DATABASE_URL_OWNER
 uv run alembic upgrade head
 uv run alembic revision --autogenerate -m "description"
 
