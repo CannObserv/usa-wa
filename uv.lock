@@ -1259,6 +1259,7 @@ dependencies = [
     { name = "clearinghouse-core" },
     { name = "clearinghouse-domain-legislative" },
     { name = "clearinghouse-sync-powermap" },
+    { name = "usa-wa-adapter-legislature" },
 ]
 
 [package.metadata]
@@ -1266,6 +1267,7 @@ requires-dist = [
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
     { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
     { name = "clearinghouse-sync-powermap", editable = "packages/clearinghouse-sync-powermap" },
+    { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
 ]
 
 [[package]]

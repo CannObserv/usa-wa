@@ -48,6 +48,32 @@ class WSLClient:
             return []
         return list(serialized)
 
+    def _get_committees_sync(self, biennium: str) -> list[dict[str, Any]]:
+        result = self._ensure_client().service.GetCommittees(biennium)
+        serialized = serialize_object(result, dict)
+        if serialized is None:
+            return []
+        return list(serialized)
+
+    async def get_committees(self, biennium: str) -> list[dict[str, Any]]:
+        """Call ``CommitteeService.GetCommittees(biennium)`` off the event loop.
+
+        The **parameterized historical** form of the committee pull: returns the
+        flat ``Committee`` list for an explicit biennium (``"2023-24"`` style),
+        as opposed to :meth:`get_active_committees`' implicit-current pull. This
+        is the explicit-membership source for biennium-absence retirement (#44) —
+        diffing the produced cohort against a *named* biennium's roster makes
+        "absent from biennium N" a deliberate diff, not a function of run timing.
+
+        Same dict shape (``Id, Name, LongName, Agency, Acronym, Phone``) and same
+        ``asyncio.to_thread`` dispatch as :meth:`get_active_committees`.
+        """
+        if self.service != "CommitteeService":
+            raise ValueError(
+                f"get_committees requires service='CommitteeService', got {self.service!r}"
+            )
+        return await asyncio.to_thread(self._get_committees_sync, biennium)
+
     async def get_active_committees(self) -> list[dict[str, Any]]:
         """Call ``CommitteeService.GetActiveCommittees()`` off the event loop.
 

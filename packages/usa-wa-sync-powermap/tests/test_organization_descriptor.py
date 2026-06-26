@@ -455,6 +455,27 @@ async def test_to_observation_omits_active(db_session, descriptor, usa_wa):
     assert "active" not in payload
 
 
+async def test_to_active_observation_keys_by_anchor(db_session, descriptor):
+    """The producer active-flag payload (#44) is enrich-keyed by the PM anchor
+    (``pm_org_id``) and asserts only ``active`` — no name/acronym evidence
+    re-asserted (the org is already curated in PM). Synchronous."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-9", name="Defunct Committee", anchor=pm_id)
+
+    retire = descriptor.to_active_observation(row, active=False)
+    reactivate = descriptor.to_active_observation(row, active=True)
+
+    assert retire["identifier_type"] == "pm_org_id"
+    assert retire["identifier_value"] == str(pm_id)
+    assert retire["active"] is False
+    assert reactivate["active"] is True  # same shape drives reactivation
+    # Minimal mutation — no curated-evidence fields ride along.
+    for payload in (retire, reactivate):
+        assert "names" not in payload
+        assert "org_acronyms" not in payload
+        assert "contact_methods" not in payload
+
+
 async def test_local_match_by_anchor(db_session, descriptor):
     pm_id = ULID()
     row = await _add_org(db_session, source_id="C-1", name="X", anchor=pm_id)

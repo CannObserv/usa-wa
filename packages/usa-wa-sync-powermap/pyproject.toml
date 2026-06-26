@@ -8,12 +8,14 @@ dependencies = [
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
     "clearinghouse-sync-powermap",
+    "usa-wa-adapter-legislature",
 ]
 
 [tool.uv.sources]
 clearinghouse-core = { workspace = true }
 clearinghouse-domain-legislative = { workspace = true }
 clearinghouse-sync-powermap = { workspace = true }
+usa-wa-adapter-legislature = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

@@ -250,6 +250,32 @@ class OrganizationDescriptor(EntityDescriptor):
             payload["organization_parent_id"] = str(parent_pm)
         return payload
 
+    def to_active_observation(self, row: Any, *, active: bool) -> dict:
+        """Build the one-shot **producer active-flag** observation.
+
+        Drives the WSL biennium-absence axis (#44) in **both** directions:
+        ``active=False`` retires a committee the current roster dropped, ``active=True``
+        reactivates one that reappears. A deliberate producer action, **not** routine
+        sync (:meth:`to_observation` keeps ``active`` out to avoid an LWW write-back
+        fight with PM's authority over the axis, #43).
+
+        Enrich-keyed by the PM anchor (``pm_org_id``, power-map#198) like
+        :meth:`to_enrich_observation`, but asserts **only** ``active`` — no
+        curated-evidence fields (names/acronyms/contact/parent) re-ridden, since PM
+        already curates the org and this conveys a single state mutation. PM applies
+        ``active`` independently of any name evidence (power-map ``submit_org_observation``),
+        so an evidence-less payload is accepted. Synchronous — no DB access needed.
+
+        The caller is responsible for the guards this payload cannot enforce: the row
+        must be anchored (``pm_org_id`` set), and an org carrying ``archived_at`` must
+        be skipped — PM 422s ``active`` on an archived org (``active_on_archived_org``).
+        """
+        return {
+            "identifier_type": self.enrich_identifier_type,
+            "identifier_value": str(self.anchor_value(row)),
+            "active": active,
+        }
+
     async def _governing_affiliation(self, session: Any, row: Any) -> dict | None:
         """Build the ``governing`` affiliation from the local org's jurisdiction.
 
