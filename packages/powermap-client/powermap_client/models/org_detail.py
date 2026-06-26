@@ -24,6 +24,7 @@ class OrgDetail:
 
     Attributes:
         id (str):
+        active (bool):
         created_at (str):
         updated_at (str):
         name (None | str | Unset):
@@ -38,6 +39,7 @@ class OrgDetail:
     """
 
     id: str
+    active: bool
     created_at: str
     updated_at: str
     name: None | str | Unset = UNSET
@@ -53,6 +55,8 @@ class OrgDetail:
 
     def to_dict(self) -> dict[str, Any]:
         id = self.id
+
+        active = self.active
 
         created_at = self.created_at
 
@@ -121,6 +125,7 @@ class OrgDetail:
         field_dict.update(
             {
                 "id": id,
+                "active": active,
                 "created_at": created_at,
                 "updated_at": updated_at,
             }
@@ -155,6 +160,8 @@ class OrgDetail:
 
         d = dict(src_dict)
         id = d.pop("id")
+
+        active = d.pop("active")
 
         created_at = d.pop("created_at")
 
@@ -245,6 +252,7 @@ class OrgDetail:
 
         org_detail = cls(
             id=id,
+            active=active,
             created_at=created_at,
             updated_at=updated_at,
             name=name,

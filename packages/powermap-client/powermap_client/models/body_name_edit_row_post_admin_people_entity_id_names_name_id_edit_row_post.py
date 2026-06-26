@@ -26,6 +26,8 @@ class BodyNameEditRowPostAdminPeopleEntityIdNamesNameIdEditRowPost:
         script (None | str | Unset):
         sort_as (None | str | Unset):
         reading_of_id (None | str | Unset):
+        effective_start (None | str | Unset):
+        effective_end (None | str | Unset):
         given_names (list[str] | Unset):
         family_names (list[str] | Unset):
         additional_names (list[str] | Unset):
@@ -42,6 +44,8 @@ class BodyNameEditRowPostAdminPeopleEntityIdNamesNameIdEditRowPost:
     script: None | str | Unset = UNSET
     sort_as: None | str | Unset = UNSET
     reading_of_id: None | str | Unset = UNSET
+    effective_start: None | str | Unset = UNSET
+    effective_end: None | str | Unset = UNSET
     given_names: list[str] | Unset = UNSET
     family_names: list[str] | Unset = UNSET
     additional_names: list[str] | Unset = UNSET
@@ -88,6 +92,18 @@ class BodyNameEditRowPostAdminPeopleEntityIdNamesNameIdEditRowPost:
             reading_of_id = UNSET
         else:
             reading_of_id = self.reading_of_id
+
+        effective_start: None | str | Unset
+        if isinstance(self.effective_start, Unset):
+            effective_start = UNSET
+        else:
+            effective_start = self.effective_start
+
+        effective_end: None | str | Unset
+        if isinstance(self.effective_end, Unset):
+            effective_end = UNSET
+        else:
+            effective_end = self.effective_end
 
         given_names: list[str] | Unset = UNSET
         if not isinstance(self.given_names, Unset):
@@ -140,6 +156,10 @@ class BodyNameEditRowPostAdminPeopleEntityIdNamesNameIdEditRowPost:
             field_dict["sort_as"] = sort_as
         if reading_of_id is not UNSET:
             field_dict["reading_of_id"] = reading_of_id
+        if effective_start is not UNSET:
+            field_dict["effective_start"] = effective_start
+        if effective_end is not UNSET:
+            field_dict["effective_end"] = effective_end
         if given_names is not UNSET:
             field_dict["given_names"] = given_names
         if family_names is not UNSET:
@@ -221,6 +241,24 @@ class BodyNameEditRowPostAdminPeopleEntityIdNamesNameIdEditRowPost:
 
         reading_of_id = _parse_reading_of_id(d.pop("reading_of_id", UNSET))
 
+        def _parse_effective_start(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        effective_start = _parse_effective_start(d.pop("effective_start", UNSET))
+
+        def _parse_effective_end(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        effective_end = _parse_effective_end(d.pop("effective_end", UNSET))
+
         given_names = cast(list[str], d.pop("given_names", UNSET))
 
         family_names = cast(list[str], d.pop("family_names", UNSET))
@@ -263,6 +301,8 @@ class BodyNameEditRowPostAdminPeopleEntityIdNamesNameIdEditRowPost:
             script=script,
             sort_as=sort_as,
             reading_of_id=reading_of_id,
+            effective_start=effective_start,
+            effective_end=effective_end,
             given_names=given_names,
             family_names=family_names,
             additional_names=additional_names,

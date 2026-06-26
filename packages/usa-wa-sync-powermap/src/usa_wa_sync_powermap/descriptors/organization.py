@@ -320,6 +320,13 @@ class OrganizationDescriptor(EntityDescriptor):
         # so the inactivated org drops out of live reads (usa-wa#40); shared across
         # the identity descriptors (usa-wa#41).
         self.mirror_archival(row, record)
+        # Mirror PM's ``active`` domain flag (power-map#240/usa-wa#43). PM authority.
+        # ``is not None`` guards the detail-only field: a search-shaped record omits
+        # ``active``, and a missing key must not clobber the local value. Unlike
+        # archival this is NOT a hide gate — the row stays in live reads either way.
+        active = record.get("active")
+        if active is not None:
+            row.active = active
         await session.flush()
         if "events" in record:  # mirror the embedded events sub-resource (#19)
             await sync_entity_events(

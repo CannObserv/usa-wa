@@ -29,18 +29,41 @@ def test_all_identity_models_expose_is_live():
         assert model.is_live().compare(model.archived_at.is_(None) & model.deleted_at.is_(None))
 
 
-async def _org(db_session, source_id, *, archived=False, deleted=False):
+async def _org(db_session, source_id, *, archived=False, deleted=False, active=True):
     org = Organization(
         source="wsl",
         source_id=source_id,
         name="Acme",
         org_type="committee",
+        active=active,
         archived_at=datetime.now(UTC) if archived else None,
         deleted_at=datetime.now(UTC) if deleted else None,
     )
     db_session.add(org)
     await db_session.flush()
     return org
+
+
+def test_active_is_orgs_only_and_not_a_lifecycle_axis():
+    """``active`` is a domain flag on Organization alone — not on the other identity
+    models, and not part of ``is_live()`` (it never hides a row from reads)."""
+    assert "active" in Organization.__table__.columns
+    for model in (Person, Role, Assignment):
+        assert "active" not in model.__table__.columns
+    # is_live() stays the two archived/deleted axes — active is absent from it.
+    assert "active" not in str(Organization.is_live())
+
+
+async def test_live_only_keeps_inactive_orgs_visible(db_session):
+    """``active=false`` is a domain flag, NOT a live-read gate (usa-wa#43): a
+    dissolved-but-not-archived committee stays in the read fan-out."""
+    live = await _org(db_session, "active-1")
+    inactive = await _org(db_session, "inactive-1", active=False)
+
+    stmt = live_only(select(Organization), Organization)
+    ids = {r.id for r in (await db_session.execute(stmt)).scalars().all()}
+
+    assert ids == {live.id, inactive.id}
 
 
 async def test_live_only_drops_archived_and_deleted_rows(db_session):

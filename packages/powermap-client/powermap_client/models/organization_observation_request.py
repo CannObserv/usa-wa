@@ -40,6 +40,7 @@ class OrganizationObservationRequest:
         additional_identifiers (list[ObservationAdditionalIdentifier] | Unset):
         jurisdiction_affiliations (list[ObservationJurisdictionAffiliation] | Unset):
         events (list[ObservationEventItem] | Unset):
+        active (bool | None | Unset):
     """
 
     identifier_type: str
@@ -55,6 +56,7 @@ class OrganizationObservationRequest:
     additional_identifiers: list[ObservationAdditionalIdentifier] | Unset = UNSET
     jurisdiction_affiliations: list[ObservationJurisdictionAffiliation] | Unset = UNSET
     events: list[ObservationEventItem] | Unset = UNSET
+    active: bool | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -136,6 +138,12 @@ class OrganizationObservationRequest:
                 events_item = events_item_data.to_dict()
                 events.append(events_item)
 
+        active: bool | None | Unset
+        if isinstance(self.active, Unset):
+            active = UNSET
+        else:
+            active = self.active
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -166,6 +174,8 @@ class OrganizationObservationRequest:
             field_dict["jurisdiction_affiliations"] = jurisdiction_affiliations
         if events is not UNSET:
             field_dict["events"] = events
+        if active is not UNSET:
+            field_dict["active"] = active
 
         return field_dict
 
@@ -288,6 +298,15 @@ class OrganizationObservationRequest:
 
                 events.append(events_item)
 
+        def _parse_active(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        active = _parse_active(d.pop("active", UNSET))
+
         organization_observation_request = cls(
             identifier_type=identifier_type,
             identifier_value=identifier_value,
@@ -302,6 +321,7 @@ class OrganizationObservationRequest:
             additional_identifiers=additional_identifiers,
             jurisdiction_affiliations=jurisdiction_affiliations,
             events=events,
+            active=active,
         )
 
         organization_observation_request.additional_properties = d

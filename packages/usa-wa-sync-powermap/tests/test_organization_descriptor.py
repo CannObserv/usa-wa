@@ -295,6 +295,7 @@ def _pm_org(
     parent_id=None,
     governing_jur=None,
     updated_at="2030-01-01T00:00:00Z",
+    active=True,
 ):
     affiliations = []
     if governing_jur is not None:
@@ -314,6 +315,8 @@ def _pm_org(
         "parent_id": str(parent_id) if parent_id else None,
         "jurisdiction_affiliations": affiliations,
         "updated_at": updated_at,
+        # power-map#240: detail payload carries ``active`` (required bool).
+        "active": active,
     }
 
 
@@ -396,6 +399,60 @@ async def test_upsert_clears_tombstone_when_pm_unarchives(db_session, descriptor
 
     assert result is row
     assert row.archived_at is None
+
+
+async def test_upsert_mirrors_pm_active_flag(db_session, descriptor):
+    """power-map#240: mirror PM's ``active`` (orgs-only domain flag) onto the local
+    column. PM is authority; a feed ``updated`` carrying ``active=false`` (a
+    dissolved committee) lands locally — but the row stays live (not a hide gate)."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-1", name="X", anchor=pm_id)
+    assert row.active is True  # default
+
+    result = await descriptor.upsert_from_pm(
+        db_session, _pm_org(pm_id, name="X", active=False), existing=row
+    )
+
+    assert result is row
+    assert row.active is False
+    assert row.archived_at is None  # active is orthogonal to archival — not a hide gate
+
+
+async def test_upsert_active_round_trips_back_to_true(db_session, descriptor):
+    """A re-activation (``active`` back to true) mirrors in — PM-authoritative LWW."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-1", name="X", anchor=pm_id)
+    row.active = False
+    await db_session.flush()
+
+    await descriptor.upsert_from_pm(db_session, _pm_org(pm_id, name="X", active=True), existing=row)
+
+    assert row.active is True
+
+
+async def test_upsert_leaves_active_untouched_when_record_omits_it(db_session, descriptor):
+    """A search-shaped record omits ``active`` (detail-only field). Guard ``is not
+    None`` so an absent key never clobbers the local value to false/None."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-1", name="X", anchor=pm_id)
+    row.active = False
+    await db_session.flush()
+
+    record = _pm_org(pm_id, name="X")
+    del record["active"]  # search results carry no active
+    await descriptor.upsert_from_pm(db_session, record, existing=row)
+
+    assert row.active is False  # untouched, not reset to default-true
+
+
+async def test_to_observation_omits_active(db_session, descriptor, usa_wa):
+    """``active`` is PM-authoritative and rejected on archived orgs
+    (``active_on_archived_org``); the routine observation must never echo it back —
+    that would invite an LWW write-back fight and the 422. Producer-set is #44."""
+    row = await _add_org(db_session, source_id="C-1", name="X")
+    payload = await descriptor.to_observation(db_session, row)
+
+    assert "active" not in payload
 
 
 async def test_local_match_by_anchor(db_session, descriptor):

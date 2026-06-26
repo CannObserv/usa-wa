@@ -22,6 +22,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -153,6 +154,16 @@ class Organization(Base, TimestampMixin, LifecycleMixin):
     # PM anchor (sidecar sync). Was ``powermap_organization_id`` pre-sidecar.
     pm_organization_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
     # archived_at + deleted_at tombstones provided by LifecycleMixin (#31/#38/#42).
+
+    # PM's third lifecycle axis — the operationally-live-vs-dissolved domain flag
+    # (``organizations.active``, orgs-only; power-map#240/usa-wa#43). Mirrored from PM
+    # (authority="pm") in the org descriptor's ``upsert_from_pm``. Distinct from the
+    # archived/deleted tombstones: a dissolved committee is **inactive**, not archived,
+    # so ``active`` is a plain column here — NOT in LifecycleMixin/is_live/live_only.
+    # It never hides a row from reads; inactive orgs stay in the read fan-out.
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
 
 
 class Role(Base, TimestampMixin, LifecycleMixin):
