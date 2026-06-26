@@ -1,7 +1,7 @@
 ---
 title: Mirror PM Org `active` axis locally (read-mirror MVP)
 date: 2026-06-26
-status: planned
+status: implemented
 ---
 
 # Mirror PM Org `active` axis locally
