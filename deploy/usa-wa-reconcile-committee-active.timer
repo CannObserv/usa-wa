@@ -1,0 +1,20 @@
+[Unit]
+Description=usa-wa — weekly committee active-flag reconciliation
+Documentation=https://github.com/CannObserv/usa-wa/issues/48
+
+[Timer]
+# Weekly, Sunday 07:00 UTC — an hour after the 06:00 daily WSL refresh so that
+# day's pull has freshened the committee cohort the reconcile diffs against.
+# Committee membership only turns over at biennium boundaries (~2 yrs), so weekly
+# is well above the freshness floor; it lands a rollover (and any reactivation
+# self-heal of a transient partial-pull false retirement) within ≤7 days with no
+# manual action. Reconcile is idempotent — a no-diff run emits nothing — so a
+# missed-then-caught run is safe.
+OnCalendar=Sun *-*-* 07:00:00 UTC
+# Run on next boot if the box was down at the scheduled time.
+Persistent=true
+# Jitter to avoid firing on the dot.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

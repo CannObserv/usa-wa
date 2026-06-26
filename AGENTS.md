@@ -86,7 +86,7 @@ packages/
       registry.py     — build_descriptors() — the entity set the sidecar syncs
       sidecar.py      — Sidecar: per-cycle tick (feed → reconcile → sweep → drain) + isolated run loop
       config.py       — SidecarSettings (POWERMAP_BASE_URL, POWERMAP_API_KEY)
-      reconcile_committee_active.py — one-shot producer CLI (#44): diffs the produced committee cohort against `CommitteeService.GetCommittees(biennium)` and reconciles PM `active` both ways — `active=false` for committees the roster dropped, `active=true` for ones that reappear (reactivation self-heals a modest partial-pull false retirement on the next clean run). Guarded by an empty-pull check + cohort floor (denominator = active cohort); skips archived/deleted/unanchored; emit-only (PM stays authority for `active`, mirrors it back — no local write). Deliberate action, not routine sync (`to_observation` keeps `active` out, #43)
+      reconcile_committee_active.py — one-shot producer CLI (#44): diffs the produced committee cohort against `CommitteeService.GetCommittees(biennium)` and reconciles PM `active` both ways — `active=false` for committees the roster dropped, `active=true` for ones that reappear (reactivation self-heals a modest partial-pull false retirement on the next clean run). Guarded by an empty-pull check + cohort floor (denominator = active cohort); skips archived/deleted/unanchored; emit-only (PM stays authority for `active`, mirrors it back — no local write). Weekly timer (Sun 07:00 UTC, #48) + ad-hoc; out-of-band from routine sync (`to_observation` keeps `active` out, #43)
       __main__.py     — daemon entrypoint (python -m usa_wa_sync_powermap)
 alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base
 docs/specs/           — Architecture specs (source of truth for design decisions)
@@ -105,6 +105,7 @@ deploy/               — Systemd unit + deployment config
 | API (live) | FastAPI | 8000 | `systemctl` (`usa-wa.service`) |
 | PM sync sidecar | asyncio daemon | — | `systemctl` (`usa-wa-sync-powermap.service`) |
 | WSL refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-wsl-refresh.timer` → `.service`; 06:00 UTC) |
+| Committee active reconcile (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-active.timer` → `.service`; Sun 07:00 UTC) |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
 
 `8001` = `8000 + 1`. The exe.dev proxy transparently forwards ports 3000–9999; the dev server is reachable at `https://usa-wa.exe.xyz:8001/`.
@@ -131,7 +132,8 @@ DDL and DML rights are split across roles so a misconfigured DSN can't migrate/d
 
 **Deploy convention: units never sync the venv (issue #30).** Every systemd
 entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
-`usa-wa-sync-powermap.service`, `usa-wa-wsl-refresh.service`, `scripts/migrate.sh`).
+`usa-wa-sync-powermap.service`, `usa-wa-wsl-refresh.service`,
+`usa-wa-reconcile-committee-active.service`, `scripts/migrate.sh`).
 `--no-sync` runs against the installed venv as-is; `--frozen` skips re-locking.
 So unit start never mutates the environment — the daily WSL refresh timer can't
 silently apply a dependency change a `git pull` landed in `uv.lock`. (Note:
@@ -163,8 +165,10 @@ requires a plain `uv sync`** — `--no-sync` units can't start against an absent
 | Debugging the live service | `sudo journalctl -u usa-wa -f` |
 | After editing `deploy/usa-wa.service` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa` |
 | After editing `deploy/usa-wa-wsl-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-wsl-refresh.timer` |
+| After editing `deploy/usa-wa-reconcile-committee-active.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-active.timer` |
 | After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
 | Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
+| Run the committee active reconcile now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-active.service` |
 
 **Dev server workflow.** Run on port `8001` so the live service stays up. Load env first:
 
@@ -254,6 +258,8 @@ python -m usa_wa_sync_powermap.backfill_contact_labels
 # GetActiveCommittees), guarded by an empty-pull abort + a cohort floor (--max-absent-fraction,
 # default 0.34) so a partial WSL pull can't mass-retire. Skips archived/deleted/unanchored;
 # emit-only (PM mirrors `active` back). Idempotent; no operator token (shell = trust boundary).
+# Prod runs this weekly (Sun 07:00 UTC) via usa-wa-reconcile-committee-active.timer (#48);
+# the forms below are the manual / backfill / dry-run surface.
 # --dry-run previews the diff. Biennium: --biennium, else USA_WA_BIENNIUM, else current date.
 # Exit codes: 0 clean; 1 some rows rejected/failed; 2 auth block; 3 guardrail abort.
 python -m usa_wa_sync_powermap.reconcile_committee_active --dry-run

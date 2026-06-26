@@ -65,16 +65,42 @@ Full command reference: [`docs/COMMANDS.md`](docs/COMMANDS.md)
 
 ## Deploy
 
-The systemd unit lives at [`deploy/usa-wa.service`](deploy/usa-wa.service). To install on a fresh host:
+The systemd units live under [`deploy/`](deploy/) — the live API plus a sync
+sidecar, a migrate oneshot, and two timer-driven oneshots.
+
+Production secrets live in `/etc/usa-wa/.env` (managed manually on the VM, not in
+the repo) — **this file must exist before enabling any unit**, or migrate (owner
+DSN) and the services (app DSN) fail to start. The unit's `ExecStartPre` writes
+the current git SHA to `/run/usa-wa/build-id` and exposes it as `BUILD_ID`.
+
+To install on a fresh host, copy all units, then enable in this order at
+provision time — migrate first, run synchronously by `--now`, so the schema is at
+head before the services start (only the timers declare `After=usa-wa-migrate`;
+the API and sidecar do not, so this manual ordering is what guarantees it here):
 
 ```bash
-# Copy into systemd's path
-sudo cp deploy/usa-wa.service /etc/systemd/system/usa-wa.service
+# Copy all units into systemd's path
+sudo cp deploy/usa-wa*.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now usa-wa
+
+# 1. Migrate to head (owner role; RemainAfterExit oneshot — runs once now)
+sudo systemctl enable --now usa-wa-migrate
+
+# 2. Long-running services (app role)
+sudo systemctl enable --now usa-wa usa-wa-sync-powermap
 
 # Tail logs
 sudo journalctl -u usa-wa -f
 ```
 
-Production secrets live in `/etc/usa-wa/.env` (managed manually on the VM, not in the repo). The unit's `ExecStartPre` writes the current git SHA to `/run/usa-wa/build-id` and exposes it as `BUILD_ID`.
+### Scheduled units
+
+The deploy also ships timer-driven oneshots; a fresh host must `enable` their
+**timers** explicitly — they are not pulled in by `usa-wa.service`. (The units
+above already landed in `/etc/systemd/system/` via the `usa-wa*` copy.)
+
+```bash
+sudo systemctl enable --now usa-wa-wsl-refresh.timer                 # daily 06:00 UTC
+sudo systemctl enable --now usa-wa-reconcile-committee-active.timer  # weekly Sun 07:00 UTC
+sudo systemctl list-timers 'usa-wa-*'                               # verify next-elapse
+```
