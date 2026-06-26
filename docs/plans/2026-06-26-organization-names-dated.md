@@ -149,3 +149,6 @@ PM round-trip** — `upsert_from_pm` reads `record.get("names")` and calls
    historical-association need (`org_acronyms` is a *separate* PM list from
    `names`); a sibling `organization_acronyms` table is tracked in
    [usa-wa#47](https://github.com/CannObserv/usa-wa/issues/47), out of scope here.
+   **Resolved:** shipped in #47 — a thinner mirror (`OrgAcronym` is
+   `{id, acronym, is_canonical}` only, no `name_type`/dated window), read via the
+   embedded `OrgDetail.acronyms[]`.

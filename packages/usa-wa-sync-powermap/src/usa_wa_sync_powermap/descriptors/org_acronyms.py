@@ -14,6 +14,13 @@ Only the **read/mirror** direction is wired: usa-wa does not produce org acronym
 as a local writer (the rename producer, usa-wa#46, emits to PM and the mirror
 brings it back). ``Organization.acronym`` stays the resolved current scalar; this
 table is the history/association surface.
+
+PM contract (confirmed against the live API, usa-wa#47 CR): an org with **zero**
+acronyms serializes ``acronyms: []`` (the key is present, never omitted). So the
+org descriptor's ``if "acronyms" in record`` guard passes even for a zero-acronym
+org, and :func:`sync_org_acronyms` runs with an empty list — pruning the last
+locally-held acronym when PM drops it. (Unlike names, an org can legitimately
+reach zero acronyms; this is why the empty-list prune path matters here.)
 """
 
 from typing import Any

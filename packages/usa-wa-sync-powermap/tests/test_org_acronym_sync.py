@@ -120,6 +120,19 @@ async def test_sync_prunes_acronyms_absent_from_pm(db_session):
     assert {r.source_id for r in rows} == {keep}
 
 
+async def test_sync_empty_list_prunes_all(db_session):
+    """An org can legitimately reach **zero** acronyms — PM emits ``acronyms: []``
+    (key present, confirmed live, #47 CR), so an empty sync must prune every row
+    rather than leave a phantom former acronym behind."""
+    org = await _add_org(db_session)
+    a, b = str(ULID()), str(ULID())
+    await sync_org_acronyms(
+        db_session, organization_id=org.id, pm_acronyms=[_pm_acronym(a), _pm_acronym(b)]
+    )
+    await sync_org_acronyms(db_session, organization_id=org.id, pm_acronyms=[])
+    assert await _acronyms_for(db_session, org.id) == []
+
+
 # --- descriptor wiring -------------------------------------------------------
 
 
@@ -155,6 +168,23 @@ async def test_upsert_mirrors_embedded_acronyms(db_session):
     assert result is org
     rows = await _acronyms_for(db_session, org.id)
     assert {r.source_id for r in rows} == {canonical, former}
+
+
+async def test_upsert_empty_acronyms_prunes_existing(db_session):
+    """A record with ``acronyms: []`` (PM's zero-acronym shape) prunes prior rows —
+    the guard passes on the present key, then ``sync_org_acronyms([])`` clears them."""
+    pm_id = ULID()
+    org = await _add_org(db_session, source_id="C-9", name="Y")
+    org.pm_organization_id = pm_id
+    await db_session.flush()
+    await sync_org_acronyms(
+        db_session, organization_id=org.id, pm_acronyms=[_pm_acronym(str(ULID()))]
+    )
+
+    record = _pm_org_with_acronyms(pm_id, name="Y", acronyms=[])
+    result = await OrganizationDescriptor().upsert_from_pm(db_session, record, existing=org)
+    assert result is org
+    assert await _acronyms_for(db_session, org.id) == []
 
 
 async def test_upsert_handles_record_without_acronyms(db_session):
