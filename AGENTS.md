@@ -86,6 +86,7 @@ packages/
       registry.py     — build_descriptors() — the entity set the sidecar syncs
       sidecar.py      — Sidecar: per-cycle tick (feed → reconcile → sweep → drain) + isolated run loop
       config.py       — SidecarSettings (POWERMAP_BASE_URL, POWERMAP_API_KEY)
+      reconcile_committee_active.py — one-shot producer CLI (#44): diffs the produced committee cohort against `CommitteeService.GetCommittees(biennium)` and reconciles PM `active` both ways — `active=false` for committees the roster dropped, `active=true` for ones that reappear (reactivation self-heals a modest partial-pull false retirement on the next clean run). Guarded by an empty-pull check + cohort floor (denominator = active cohort); skips archived/deleted/unanchored; emit-only (PM stays authority for `active`, mirrors it back — no local write). Deliberate action, not routine sync (`to_observation` keeps `active` out, #43)
       __main__.py     — daemon entrypoint (python -m usa_wa_sync_powermap)
 alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base
 docs/specs/           — Architecture specs (source of truth for design decisions)
@@ -245,6 +246,18 @@ python -m usa_wa_adapter_legislature.refresh
 # force-push convenience, not the only recovery path.
 python -m usa_wa_sync_powermap.backfill_contact_labels --dry-run
 python -m usa_wa_sync_powermap.backfill_contact_labels
+
+# Committee active-flag reconciliation (#44) — reconciles PM `active` for WSL committees
+# against the current biennium's `GetCommittees(biennium)` roster: `active=false` for the
+# absent, `active=true` for the returning (reactivation self-heals a transient partial-pull
+# false retirement next cycle). Explicit-membership diff (not current-only
+# GetActiveCommittees), guarded by an empty-pull abort + a cohort floor (--max-absent-fraction,
+# default 0.34) so a partial WSL pull can't mass-retire. Skips archived/deleted/unanchored;
+# emit-only (PM mirrors `active` back). Idempotent; no operator token (shell = trust boundary).
+# --dry-run previews the diff. Biennium: --biennium, else USA_WA_BIENNIUM, else current date.
+# Exit codes: 0 clean; 1 some rows rejected/failed; 2 auth block; 3 guardrail abort.
+python -m usa_wa_sync_powermap.reconcile_committee_active --dry-run
+python -m usa_wa_sync_powermap.reconcile_committee_active --biennium 2025-26
 ```
 
 Full reference: `docs/COMMANDS.md`
