@@ -46,6 +46,7 @@ from clearinghouse_sync_powermap.descriptors import (
     parse_pm_timestamp,
 )
 from usa_wa_sync_powermap.descriptors.events import sync_entity_events
+from usa_wa_sync_powermap.descriptors.org_names import sync_org_names
 
 logger = get_logger(__name__)
 
@@ -287,6 +288,12 @@ class OrganizationDescriptor(EntityDescriptor):
 
         See :meth:`PersonDescriptor.fetch_record`; a parent feed bump may carry an
         event change, so the events are embedded for the mirror refresh.
+
+        Note: the dated-name mirror (#45) consumes ``record["names"]``, which rides
+        **embedded** in the ``OrgDetail`` payload from ``get_entity`` — it is *not*
+        attached here like ``events`` (a separate sub-resource). If PM ever moves
+        names to their own endpoint, ``upsert_from_pm``'s ``sync_org_names`` would
+        silently no-op; attach them here then (see ``descriptors/org_names.py``).
         """
         record = await client.get_entity(self.read_path, pm_id)
         if record is None:
@@ -332,6 +339,8 @@ class OrganizationDescriptor(EntityDescriptor):
             await sync_entity_events(
                 session, entity_kind="organization", entity_id=row.id, pm_events=record["events"]
             )
+        if "names" in record:  # mirror the embedded dated-name variants (#45)
+            await sync_org_names(session, organization_id=row.id, pm_names=record["names"] or [])
         return row
 
     async def _governing_local_jurisdiction(self, session: Any, record: dict) -> Any | None:

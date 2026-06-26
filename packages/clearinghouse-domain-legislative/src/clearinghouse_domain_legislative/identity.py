@@ -317,6 +317,54 @@ class OrganizationIdentifier(Base, TimestampMixin):
     verified_at: Mapped["Text | None"] = mapped_column(Text, nullable=True)
 
 
+class OrganizationName(Base, TimestampMixin):
+    """A single dated name variant for an Organization — mirror of PM's ``OrgName``.
+
+    PM ships dated org names (power-map#239): a name valid over an
+    ``[effective_start, effective_end)`` window (e.g. a committee renamed
+    mid-biennium). ``Organization.name`` stays the resolved **current** scalar (the
+    hot-path live read); this child table is the history/association surface —
+    queried by name when historical WSL data references a *former* committee name
+    (usa-wa#45).
+
+    Read-mirror only: the org descriptor's ``upsert_from_pm`` mirrors the embedded
+    ``OrgDetail.names[]`` via ``sync_org_names``. usa-wa does not write this table
+    as a producer — the rename producer (usa-wa#46) emits to PM and the mirror
+    brings it back. ``(source, source_id)`` is the idempotency key; ``source_id``
+    is PM's ``OrgName`` id, so it equals ``pm_org_name_id`` for mirrored rows.
+
+    No ``(organization_id, name)`` unique constraint: the same name can recur
+    across disjoint windows.
+    """
+
+    __tablename__ = "organization_names"
+    __table_args__ = (
+        UniqueConstraint("source", "source_id", name="uq_organization_names_natural_key"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    organization_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(512), nullable=False)
+    # Open vocab mirrored verbatim from PM (legal | common | former | …); no CHECK —
+    # PM is system-of-record and a CHECK would 422-drift on a new PM slug (usa-wa#45).
+    name_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_canonical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    effective_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    effective_end: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # Per-name PM anchor (sidecar sync) — PM's ``OrgName`` id.
+    pm_org_name_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
+
+
 class EntityEvent(Base, TimestampMixin):
     """Polymorphic lifecycle event for a Person or Organization.
 
