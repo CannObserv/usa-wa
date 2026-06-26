@@ -365,6 +365,52 @@ class OrganizationName(Base, TimestampMixin):
     pm_org_name_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
 
 
+class OrganizationAcronym(Base, TimestampMixin):
+    """A single acronym variant for an Organization — mirror of PM's ``OrgAcronym``.
+
+    PM models acronyms as a list **separate** from ``names``
+    (``acronyms: list[OrgAcronym]`` embedded in ``OrgDetail``). ``Organization.acronym``
+    stays the resolved **current** scalar (the hot-path live read); this child table is
+    the history/association surface — queried by acronym when historical WSL data
+    references a *former* committee acronym (usa-wa#47).
+
+    Thinner than :class:`OrganizationName`: PM's ``OrgAcronym`` is
+    ``{id, acronym, is_canonical}`` only — no ``name_type``, no dated window. So no
+    ``effective_*`` columns and no type vocab.
+
+    Read-mirror only: the org descriptor's ``upsert_from_pm`` mirrors the embedded
+    ``OrgDetail.acronyms[]`` via ``sync_org_acronyms``. usa-wa does not write this table
+    as a producer — the rename producer (usa-wa#46) emits to PM and the mirror brings
+    it back. ``(source, source_id)`` is the idempotency key; ``source_id`` is PM's
+    ``OrgAcronym`` id, so it equals ``pm_org_acronym_id`` for mirrored rows.
+
+    No ``(organization_id, acronym)`` unique constraint: the same acronym can recur
+    (canonical → former → re-adopted).
+    """
+
+    __tablename__ = "organization_acronyms"
+    __table_args__ = (
+        UniqueConstraint("source", "source_id", name="uq_organization_acronyms_natural_key"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    organization_id: Mapped[_ULID] = mapped_column(
+        ULID(),
+        ForeignKey(f"{SCHEMA}.organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    acronym: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_canonical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # Per-acronym PM anchor (sidecar sync) — PM's ``OrgAcronym`` id.
+    pm_org_acronym_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
+
+
 class EntityEvent(Base, TimestampMixin):
     """Polymorphic lifecycle event for a Person or Organization.
 

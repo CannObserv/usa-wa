@@ -54,7 +54,7 @@ packages/
   clearinghouse-domain-legislative/   — Layer 2: legislative-government model (state/federal)
     src/clearinghouse_domain_legislative/
                       — Bill, Legislator, BillAction, StatuteSection, etc. (skeletoned step 7)
-      identity.py     — Person/Organization/Role/Assignment + LifecycleMixin (archived_at + deleted_at tombstones — PM archived/deleted axis split, #38/#42) + Organization.active (PM's third axis: operational live/dissolved domain flag — orgs-only, NOT a live-read gate, #43) + OrganizationName (dated name variants mirrored from PM `OrgName`/power-map#239; `Organization.name` stays the resolved current scalar, this child table is the history/association surface, #45)
+      identity.py     — Person/Organization/Role/Assignment + LifecycleMixin (archived_at + deleted_at tombstones — PM archived/deleted axis split, #38/#42) + Organization.active (PM's third axis: operational live/dissolved domain flag — orgs-only, NOT a live-read gate, #43) + OrganizationName (dated name variants mirrored from PM `OrgName`/power-map#239; `Organization.name` stays the resolved current scalar, this child table is the history/association surface, #45) + OrganizationAcronym (acronym variants mirrored from PM `OrgAcronym` — list distinct from names, no type/dated window; `Organization.acronym` stays the resolved current scalar, #47)
       queries.py      — live_only(): read-side liveness guardrail (archived_at + deleted_at IS NULL) every live read routes through (#38/#42)
   clearinghouse-sync-powermap/        — Layer 1-adjacent: portable Power Map sync engine (sibling-reusable)
     src/clearinghouse_sync_powermap/
@@ -82,7 +82,7 @@ packages/
     tests/            — API tests; conftest defines savepointed db_session + AsyncClient
   usa-wa-sync-powermap/               — Layer 4: PM sync deployment binding + sidecar daemon
     src/usa_wa_sync_powermap/
-      descriptors/    — concrete EntityDescriptors (jurisdiction, organization, role, person, assignment) — full identity cluster + PM-first match cascade + enrich-on-match; `events.py` is the entity-event sub-resource read-mirror (person/org `fetch_record` pulls `/{id}/events`, `upsert_from_pm` mirrors via `sync_entity_events`); `org_names.py` is the dated-name read-mirror (org `upsert_from_pm` mirrors the embedded `OrgDetail.names[]` via `sync_org_names` → `OrganizationName`, #45)
+      descriptors/    — concrete EntityDescriptors (jurisdiction, organization, role, person, assignment) — full identity cluster + PM-first match cascade + enrich-on-match; `events.py` is the entity-event sub-resource read-mirror (person/org `fetch_record` pulls `/{id}/events`, `upsert_from_pm` mirrors via `sync_entity_events`); `org_names.py` is the dated-name read-mirror (org `upsert_from_pm` mirrors the embedded `OrgDetail.names[]` via `sync_org_names` → `OrganizationName`, #45); `org_acronyms.py` is the sibling acronym read-mirror (org `upsert_from_pm` mirrors the embedded `OrgDetail.acronyms[]` via `sync_org_acronyms` → `OrganizationAcronym`, #47)
       registry.py     — build_descriptors() — the entity set the sidecar syncs
       sidecar.py      — Sidecar: per-cycle tick (feed → reconcile → sweep → drain) + isolated run loop
       config.py       — SidecarSettings (POWERMAP_BASE_URL, POWERMAP_API_KEY)

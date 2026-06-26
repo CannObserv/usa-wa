@@ -1,0 +1,88 @@
+"""Org-acronym sub-resource sync (usa-wa#47).
+
+Org acronyms are not a standalone entity — they are a list embedded in PM's
+``OrgDetail`` (``acronyms: list[OrgAcronym]``), distinct from ``names``. The org
+descriptor's ``fetch_record`` already pulls the full ``OrgDetail``, so the
+acronyms ride along with no extra round-trip; ``upsert_from_pm`` mirrors them into
+``canonical.organization_acronyms`` via :func:`sync_org_acronyms`.
+
+Sibling to :mod:`usa_wa_sync_powermap.descriptors.org_names` (#45) but thinner:
+PM's ``OrgAcronym`` is ``{id, acronym, is_canonical}`` only — no ``name_type``,
+no dated window — so there is no date parsing or type vocab here.
+
+Only the **read/mirror** direction is wired: usa-wa does not produce org acronyms
+as a local writer (the rename producer, usa-wa#46, emits to PM and the mirror
+brings it back). ``Organization.acronym`` stays the resolved current scalar; this
+table is the history/association surface.
+"""
+
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from clearinghouse_domain_legislative.identity import OrganizationAcronym
+from clearinghouse_sync_powermap.descriptors import as_ulid
+
+#: ``source`` stamped on every PM-originated acronym row. The natural key is
+#: ``(source, source_id)``; ``source_id`` is PM's ``OrgAcronym`` id, so it equals
+#: ``pm_org_acronym_id`` for mirrored rows.
+ACRONYM_SOURCE = "powermap"
+
+
+def map_pm_org_acronym(record: dict, *, organization_id: Any) -> dict:
+    """Map a PM read ``OrgAcronym`` dict onto local ``OrganizationAcronym`` columns.
+
+    ``organization_id`` comes from the parent context (the local org row), not from
+    PM. PM's ``OrgAcronym`` carries no type or dated window, so this is a flat map.
+    """
+    return {
+        "source": ACRONYM_SOURCE,
+        "source_id": record["id"],
+        "organization_id": organization_id,
+        "acronym": record["acronym"],
+        "is_canonical": bool(record.get("is_canonical")),
+        "pm_org_acronym_id": as_ulid(record["id"]),
+    }
+
+
+async def sync_org_acronyms(
+    session: AsyncSession, *, organization_id: Any, pm_acronyms: list[dict]
+) -> None:
+    """Reconcile an org's local acronym mirror against PM's current ``acronyms[]`` set.
+
+    Insert acronyms new to us (by ``pm_org_acronym_id`` anchor), update existing rows
+    in place, and prune locally-anchored rows that PM no longer reports for this org.
+    Touches only ``organization_acronyms`` — never the parent ``Organization`` — so it
+    cannot trigger a spurious LWW write-back of the org.
+    """
+    existing = (
+        (
+            await session.execute(
+                select(OrganizationAcronym).where(
+                    OrganizationAcronym.organization_id == organization_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_anchor = {row.pm_org_acronym_id: row for row in existing if row.pm_org_acronym_id}
+
+    seen: set[Any] = set()
+    for record in pm_acronyms:
+        mapped = map_pm_org_acronym(record, organization_id=organization_id)
+        anchor = mapped["pm_org_acronym_id"]
+        seen.add(anchor)
+        row = by_anchor.get(anchor)
+        if row is None:
+            session.add(OrganizationAcronym(**mapped))
+        else:
+            for column, value in mapped.items():
+                setattr(row, column, value)
+
+    for anchor, row in by_anchor.items():
+        if anchor not in seen:
+            await session.delete(row)
+
+    await session.flush()
