@@ -8,6 +8,11 @@ After=network.target postgresql.service
 # removable without breaking boot ordering (keeps the #50 one-sided-read drift
 # from recurring in either direction).
 Before=usa-wa.service usa-wa-sync-powermap.service
+# Alert the operator if a migration fails (#49). Ordering-only Before= means a
+# failed migrate doesn't wedge boot, so the failure is otherwise silent — and a
+# half-applied/failed schema is exactly what must not pass unnoticed. %n expands
+# to this unit's full name (the notify handler's instance).
+OnFailure=usa-wa-notify-failure@%n.service
 
 [Service]
 Type=oneshot

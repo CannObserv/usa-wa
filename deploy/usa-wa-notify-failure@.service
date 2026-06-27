@@ -1,0 +1,36 @@
+[Unit]
+# Failure-alert handler for the unattended oneshots (issue #49). Templated so a
+# single unit serves every failable oneshot: each declares
+# `OnFailure=usa-wa-notify-failure@%n.service`, so %i here is the failing unit's
+# full name (e.g. `usa-wa-wsl-refresh.service`). systemd starts this on a failed
+# result — a non-zero exit (the reconcile contract: 1 rejected / 2 auth / 3
+# guardrail abort, #44) OR a TimeoutStartSec= hang of a wedged WSL/PM endpoint.
+#
+# No OnFailure= on this unit itself: a failed alert-send must not recurse. A lost
+# alert (gateway down) still leaves the original failure in the journal.
+Description=usa-wa — failure alert for %i (emails the operator via the exe.dev gateway)
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/usa-wa
+
+# Pin PATH so curl/jq/systemctl/journalctl resolve regardless of the inherited
+# systemd default (same convention as the serving units).
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# USA_WA_ALERT_EMAIL (recipient) is read from /etc/usa-wa/.env — uncommitted,
+# survives repo resets, configurable per box. The script fails closed if it's
+# unset. Later EnvironmentFiles override earlier ones.
+EnvironmentFile=/etc/usa-wa/.env
+EnvironmentFile=-/home/exedev/usa-wa/.env
+
+# %i is the failing unit's full name (carries the `.service` suffix); the script
+# uses it for `systemctl show`/`journalctl` lookups and the alert subject.
+ExecStart=/home/exedev/usa-wa/scripts/notify-failure.sh %i
+
+# Bound the single gateway POST so a hung metadata endpoint can't wedge the
+# handler; a dropped alert is acceptable (journal still holds the failure).
+TimeoutStartSec=30
+
+# Triggered via OnFailure=; no [Install] WantedBy.

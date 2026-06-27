@@ -5,6 +5,12 @@ Description=usa-wa — committee active-flag reconciliation against the WSL bien
 # already-migrated box.
 After=network-online.target postgresql.service usa-wa-migrate.service
 Wants=network-online.target
+# Alert the operator on failure (#49). This is the unit #49 is really about: a
+# guardrail mass-retirement abort (exit 3) or a string of rejected rows (exit 1)
+# on the weekly timer would otherwise wait ≤7 days for the next fire to be seen.
+# The handler surfaces the exit code in its subject so the operator can triage.
+# %n expands to this unit's full name (the notify handler's instance).
+OnFailure=usa-wa-notify-failure@%n.service
 
 [Service]
 Type=oneshot

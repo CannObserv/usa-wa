@@ -106,9 +106,32 @@ deploy/               — Systemd unit + deployment config
 | PM sync sidecar | asyncio daemon | — | `systemctl` (`usa-wa-sync-powermap.service`) |
 | WSL refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-wsl-refresh.timer` → `.service`; 06:00 UTC) |
 | Committee active reconcile (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-active.timer` → `.service`; Sun 07:00 UTC) |
+| Failure alerts | templated oneshot | — | `OnFailure=` → `usa-wa-notify-failure@.service` |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
 
 `8001` = `8000 + 1`. The exe.dev proxy transparently forwards ports 3000–9999; the dev server is reachable at `https://usa-wa.exe.xyz:8001/`.
+
+### Failure alerting (#49)
+
+The unattended oneshots fail silently on a headless box — a `failed` state in the
+journal nobody is watching. Each failable oneshot (`usa-wa-migrate`,
+`usa-wa-wsl-refresh`, `usa-wa-reconcile-committee-active`) carries
+`OnFailure=usa-wa-notify-failure@%n.service`, so systemd starts the templated
+handler on a non-zero exit **or** a `TimeoutStartSec=` hang. `%n` (the failing
+unit's full name) becomes the handler's instance.
+
+[`deploy/usa-wa-notify-failure@.service`](deploy/usa-wa-notify-failure@.service)
+runs [`scripts/notify-failure.sh`](scripts/notify-failure.sh), which emails the
+operator via the **exe.dev email gateway** (`POST
+http://169.254.169.254/gateway/email/send`, a documented VM feature — no MTA/SMTP
+creds needed). The reconcile exit-code contract (#44: 1 rejected / 2 auth / 3
+guardrail abort) is surfaced **in the subject line** so a mass-retirement abort is
+triageable without opening the journal. Recipient is `USA_WA_ALERT_EMAIL`
+(`/etc/usa-wa/.env`); the script **fails closed** if it's unset — set it before
+relying on alerts. The handler has no `OnFailure=` on itself (a failed send must
+not recurse); a dropped alert still leaves the failure in the journal. The
+serving units (`usa-wa`, `sync-powermap`) restart in place via `Restart=` and so
+don't route through this one-shot alert.
 
 ### DB role topology (defense-in-depth, issue #22)
 
@@ -166,6 +189,7 @@ requires a plain `uv sync`** — `--no-sync` units can't start against an absent
 | After editing `deploy/usa-wa.service` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa` |
 | After editing `deploy/usa-wa-wsl-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-wsl-refresh.timer` |
 | After editing `deploy/usa-wa-reconcile-committee-active.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-active.timer` |
+| After editing `deploy/usa-wa-notify-failure@.service` | `sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
 | After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
 | Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
 | Run the committee active reconcile now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-active.service` |
@@ -223,6 +247,7 @@ Currently defined:
 - `BUILD_ID` — git SHA stamped by the systemd unit's `ExecStartPre`; defaults to `"dev"` outside systemd
 - `USA_WA_OPERATOR_TOKEN` — shared secret gating the mutating operator endpoint `POST /sync/redrive` (re-drives dead-lettered `UNAVAILABLE` outbox entries). **Fail-closed:** if unset, the endpoint is locked for everyone, so it must be set in `/etc/usa-wa/.env` before the re-drive route can be used. The on-box CLI (`python -m usa_wa_api.cli.redrive`) needs no token — shell access is the trust boundary.
 - `USA_WA_BIENNIUM` — optional override for the auto-computed WA biennium label (e.g. `2025-26`) used by the WSL refresh. Without it, `refresh.py` derives the biennium from the current UTC date (WA bienniums start on odd years). Useful for backfills and early-year edge cases.
+- `USA_WA_ALERT_EMAIL` — recipient for oneshot failure alerts (#49). Consumed by `scripts/notify-failure.sh` (the `usa-wa-notify-failure@.service` `OnFailure=` handler). Must be **you / an exe.dev team member** (gateway recipient allow-list). The script **fails closed** if unset, so set it in `/etc/usa-wa/.env` to arm alerting. See § Failure alerting.
 
 PM sidecar tunables (`SidecarSettings`, env-overridable): `OUTBOX_COMMIT_CHUNK_SIZE` (delivered entries per DB commit during a drain; default 1 = per-entry) and `POWERMAP_SEARCH_MATCH_CAP` (max candidate window the org/person name-match cascade pages; default unset = per-entity default).
 

@@ -5,6 +5,10 @@ Description=usa-wa — WSL SOAP refresh (committees + synthesized anchors) one-s
 # already-migrated box.
 After=network-online.target postgresql.service usa-wa-migrate.service
 Wants=network-online.target
+# Alert the operator on a failed/timed-out refresh (#49) — on this daily
+# unattended timer a failure is otherwise only a journal line nobody watches.
+# %n expands to this unit's full name (the notify handler's instance).
+OnFailure=usa-wa-notify-failure@%n.service
 
 [Service]
 Type=oneshot
