@@ -10,9 +10,11 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  # Static validation of deploy/ systemd units (issue #51). No-ops where
-  # systemd-analyze is absent (non-systemd contributor boxes); the gate that
-  # matters runs on the single VM, which has it.
+  # Static validation of deploy/ systemd units (issue #51). Assumes the VM's
+  # env: verify resolves absolute ExecStart paths (/usr/local/bin/uv) and
+  # User=exedev against the local box, so OFF-VM it can false-FAIL (not just
+  # no-op) even with systemd-analyze present. No-ops only where systemd-analyze
+  # is absent. The gate that matters runs on the single VM.
   - repo: local
     hooks:
       - id: systemd-verify-units

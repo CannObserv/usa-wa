@@ -23,15 +23,18 @@ if [ "$#" -eq 0 ]; then
 fi
 
 # stderr lines that systemd-analyze emits without failing its own exit code.
+# Deliberately broad (`ignoring`, `Failed to`): a gate should over-block and
+# defer to a human, so resist narrowing this into uselessness on a future
+# benign advisory.
 warning_re='Unknown key name|Unknown section|Unknown lvalue|ignoring|Failed to'
 
 status=0
 for unit in "$@"; do
     output=$(systemd-analyze verify "$unit" 2>&1)
     rc=$?
-    if [ "$rc" -ne 0 ] || echo "$output" | grep -Eq "$warning_re"; then
+    if [ "$rc" -ne 0 ] || printf '%s\n' "$output" | grep -Eq "$warning_re"; then
         echo "verify-units: FAIL $unit" >&2
-        [ -n "$output" ] && echo "$output" >&2
+        [ -n "$output" ] && printf '%s\n' "$output" >&2
         status=1
     fi
 done

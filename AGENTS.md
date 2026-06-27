@@ -179,7 +179,11 @@ unknown/misspelled directives — a plain `$?` gate would pass them. Catches:
 directive/section typos, malformed syntax, nonexistent `ExecStart=` binaries.
 Does **not** catch misspelled `After=`/`Before=` ordering deps (systemd treats
 ordering against absent units as legitimate). No-ops where `systemd-analyze` is
-absent. Run ad-hoc: `./scripts/verify-units.sh deploy/*.service deploy/*.timer`.
+absent. Because `verify` resolves absolute `ExecStart=` paths
+(`/usr/local/bin/uv`) and `User=exedev` against the *local* box, off-VM it can
+false-**fail** even with `systemd-analyze` present — a failure off-VM means "run
+it on the VM," not "your unit is broken." Run ad-hoc:
+`./scripts/verify-units.sh deploy/*.service deploy/*.timer`.
 
 **Dev server workflow.** Run on port `8001` so the live service stays up. Load env first:
 
