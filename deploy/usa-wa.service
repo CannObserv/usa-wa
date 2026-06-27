@@ -1,6 +1,10 @@
 [Unit]
 Description=usa-wa — Washington State law, regulation, and policy tracking service
-After=network.target postgresql.service
+# usa-wa-migrate.service: schema must be at head before this DML-only app-role
+# service serves. Redundant with migrate's reciprocal Before=, but declared here
+# too for local discoverability. Ordering only — a failed/absent migrate must not
+# wedge serving on an already-migrated box (no Wants=/Requires=).
+After=network.target postgresql.service usa-wa-migrate.service
 
 [Service]
 Type=simple

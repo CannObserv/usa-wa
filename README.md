@@ -74,9 +74,13 @@ DSN) and the services (app DSN) fail to start. The unit's `ExecStartPre` writes
 the current git SHA to `/run/usa-wa/build-id` and exposes it as `BUILD_ID`.
 
 To install on a fresh host, copy all units, then enable in this order at
-provision time — migrate first, run synchronously by `--now`, so the schema is at
-head before the services start (only the timers declare `After=usa-wa-migrate`;
-the API and sidecar do not, so this manual ordering is what guarantees it here):
+provision time — migrate first, run synchronously by `--now`. Boot ordering is
+already enforced by the units (the API and sidecar declare
+`After=usa-wa-migrate.service`, and migrate declares the reciprocal `Before=`;
+the timer-driven oneshots below carry the same `After=`), so a reboot can't serve
+against a not-yet-migrated schema. The `--now` here is for provision-time
+synchrony: it runs migrate to completion before you enable the services in the
+same session.
 
 ```bash
 # Copy all units into systemd's path

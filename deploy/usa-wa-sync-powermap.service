@@ -1,6 +1,10 @@
 [Unit]
 Description=usa-wa Power Map sync sidecar — bidirectional canonical-data sync to Power Map
-After=network-online.target postgresql.service
+# usa-wa-migrate.service: schema must be at head before this DML-only app-role
+# sidecar starts. Redundant with migrate's reciprocal Before=, but declared here
+# too for local discoverability. Ordering only — a failed/absent migrate must not
+# wedge the sidecar on an already-migrated box (no Wants=/Requires=).
+After=network-online.target postgresql.service usa-wa-migrate.service
 Wants=network-online.target
 
 [Service]

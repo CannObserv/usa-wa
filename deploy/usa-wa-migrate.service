@@ -3,7 +3,10 @@ Description=usa-wa — apply Alembic migrations + DB grants under the owner role
 After=network.target postgresql.service
 # Bring schema to head before the API/sidecar (which run as the DML-only app
 # role) start. Ordering only — not a hard dependency; a failed migrate must not
-# wedge the boot of an already-migrated box.
+# wedge the boot of an already-migrated box. The edge is declared bilaterally:
+# both consumers also carry After=usa-wa-migrate.service, so either side is
+# removable without breaking boot ordering (keeps the #50 one-sided-read drift
+# from recurring in either direction).
 Before=usa-wa.service usa-wa-sync-powermap.service
 
 [Service]
