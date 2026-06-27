@@ -57,17 +57,34 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
 }
 
 
+def _join_continuations(text: str) -> list[str]:
+    """Fold systemd trailing-backslash line continuations into single lines."""
+    lines: list[str] = []
+    pending = ""
+    for raw in text.splitlines():
+        if raw.endswith("\\"):
+            pending += raw[:-1] + " "
+            continue
+        lines.append(pending + raw)
+        pending = ""
+    if pending:  # dangling backslash on the final line
+        lines.append(pending)
+    return lines
+
+
 def parse_unit_ordering(path: Path) -> tuple[set[str], set[str]]:
     """Return (After tokens, Before tokens) from a unit's [Unit] section.
 
     Purpose-built rather than configparser: systemd directives may repeat
     across lines (additive) and duplicate keys, which configparser collapses
-    or rejects. Tokens are space-split and accumulated as sets.
+    or rejects. Tokens are space-split and accumulated as sets. Trailing-
+    backslash line continuations are joined first (systemd folds a long
+    ``After=a.service \\`` + newline ``b.service`` into one logical line).
     """
     after: set[str] = set()
     before: set[str] = set()
     section = None
-    for raw in path.read_text().splitlines():
+    for raw in _join_continuations(path.read_text()):
         line = raw.strip()
         if not line or line.startswith(("#", ";")):
             continue
@@ -95,3 +112,14 @@ def test_ordering_edges_match(name):
     after, before = parse_unit_ordering(DEPLOY / name)
     assert after == EXPECTED[name]["After"]
     assert before == EXPECTED[name]["Before"]
+
+
+def test_parser_folds_line_continuations(tmp_path):
+    unit = tmp_path / "wrapped.service"
+    unit.write_text(
+        "[Unit]\nAfter=a.service \\\n      b.service\nBefore=c.service\n"
+        "[Service]\nExecStart=/bin/true\n"
+    )
+    after, before = parse_unit_ordering(unit)
+    assert after == {"a.service", "b.service"}
+    assert before == {"c.service"}

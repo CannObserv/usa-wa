@@ -178,7 +178,11 @@ fails on a non-zero exit **and** on stderr warning markers (`Unknown key name`,
 unknown/misspelled directives — a plain `$?` gate would pass them. Catches:
 directive/section typos, malformed syntax, nonexistent `ExecStart=` binaries.
 Does **not** catch misspelled `After=`/`Before=` ordering deps (systemd treats
-ordering against absent units as legitimate). No-ops where `systemd-analyze` is
+ordering against absent units as legitimate) — that gap is closed instead by
+[`scripts/tests/test_unit_ordering.py`](scripts/tests/test_unit_ordering.py)
+(#52), which asserts the intended `After=`/`Before=` graph as data and
+cross-checks the on-disk unit set so a new unit forces an explicit ordering
+decision. No-ops where `systemd-analyze` is
 absent. Because `verify` resolves absolute `ExecStart=` paths
 (`/usr/local/bin/uv`) and `User=exedev` against the *local* box, off-VM it can
 false-**fail** even with `systemd-analyze` present — a failure off-VM means "run
