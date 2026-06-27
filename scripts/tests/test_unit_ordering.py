@@ -123,3 +123,12 @@ def test_parser_folds_line_continuations(tmp_path):
     after, before = parse_unit_ordering(unit)
     assert after == {"a.service", "b.service"}
     assert before == {"c.service"}
+
+
+def test_parser_tolerates_trailing_backslash_at_eof(tmp_path):
+    # Dangling continuation on the final line — the `if pending` branch.
+    unit = tmp_path / "dangling.service"
+    unit.write_text("[Unit]\nAfter=a.service \\")
+    after, before = parse_unit_ordering(unit)
+    assert after == {"a.service"}
+    assert before == set()
