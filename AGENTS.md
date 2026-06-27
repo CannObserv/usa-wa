@@ -170,6 +170,17 @@ requires a plain `uv sync`** — `--no-sync` units can't start against an absent
 | Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
 | Run the committee active reconcile now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-active.service` |
 
+**Validating unit edits (#51).** A path-filtered pre-commit hook
+(`systemd-verify-units` → [`scripts/verify-units.sh`](scripts/verify-units.sh))
+runs `systemd-analyze verify` on any changed `deploy/*.{service,timer}`. It
+fails on a non-zero exit **and** on stderr warning markers (`Unknown key name`,
+`Unknown section`, `ignoring`, …), because `systemd-analyze` exits 0 on
+unknown/misspelled directives — a plain `$?` gate would pass them. Catches:
+directive/section typos, malformed syntax, nonexistent `ExecStart=` binaries.
+Does **not** catch misspelled `After=`/`Before=` ordering deps (systemd treats
+ordering against absent units as legitimate). No-ops where `systemd-analyze` is
+absent. Run ad-hoc: `./scripts/verify-units.sh deploy/*.service deploy/*.timer`.
+
 **Dev server workflow.** Run on port `8001` so the live service stays up. Load env first:
 
 ```bash

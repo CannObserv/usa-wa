@@ -34,7 +34,7 @@ usa-wa-api = { workspace = true }
 usa-wa-sync-powermap = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["packages"]
+testpaths = ["packages", "scripts"]
 addopts = "-v --tb=short -m 'not integration' --cov=packages --cov-report=term-missing"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"

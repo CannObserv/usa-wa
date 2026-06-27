@@ -9,3 +9,14 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+
+  # Static validation of deploy/ systemd units (issue #51). No-ops where
+  # systemd-analyze is absent (non-systemd contributor boxes); the gate that
+  # matters runs on the single VM, which has it.
+  - repo: local
+    hooks:
+      - id: systemd-verify-units
+        name: systemd-analyze verify (deploy units)
+        entry: scripts/verify-units.sh
+        language: script
+        files: ^deploy/.*\.(service|timer)$
