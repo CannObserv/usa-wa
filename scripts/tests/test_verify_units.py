@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).parent.parent / "verify-units.sh"
+SCRIPT = Path(__file__).parent.parent / "verify-units.sh"  # scripts/tests/ → scripts/
 
 pytestmark = pytest.mark.skipif(
     shutil.which("systemd-analyze") is None,
