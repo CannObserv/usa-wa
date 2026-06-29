@@ -50,6 +50,26 @@ def biennium_for_date(today: date) -> str:
     return f"{start}-{end_suffix:02d}"
 
 
+def _biennium_start_year(label: str) -> int:
+    """Parse the odd start year from a ``YYYY-YY`` biennium label."""
+    return int(label.split("-", 1)[0])
+
+
+def biennium_start_date(label: str) -> date:
+    """The date a biennium begins — Jan 1 of its odd start year.
+
+    WSL exposes no explicit committee name-change date; this biennium-start boundary
+    is the documented approximation used to window a detected rename (#46).
+    """
+    return date(_biennium_start_year(label), 1, 1)
+
+
+def previous_biennium(label: str) -> str:
+    """The biennium two years before ``label`` (the rename diff's "before" side, #46)."""
+    start = _biennium_start_year(label) - 2
+    return f"{start}-{(start + 1) % 100:02d}"
+
+
 async def _resolve_jurisdiction(session: AsyncSession) -> Jurisdiction:
     row = (
         await session.execute(select(Jurisdiction).where(Jurisdiction.slug == "usa-wa"))

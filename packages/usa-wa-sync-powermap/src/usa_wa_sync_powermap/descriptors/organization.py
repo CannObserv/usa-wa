@@ -276,6 +276,40 @@ class OrganizationDescriptor(EntityDescriptor):
             "active": active,
         }
 
+    def to_names_observation(
+        self, row: Any, *, prior_name: str, new_name: str, boundary: Any
+    ) -> dict:
+        """Build the one-shot **producer dated-name** observation for a WSL rename (#46).
+
+        A committee keeps a stable WSL ``Id`` while its ``LongName`` changes (usually at a
+        biennium boundary); :mod:`reconcile_committee_names` detects that as a rename and
+        calls this to emit the windowed name evidence. The boundary is half-open
+        ``[effective_start, effective_end)``:
+
+        - **prior name** carries ``effective_end = boundary`` only — its true start may be
+          bienniums old and is left to PM (omitted, not nulled).
+        - **new name** carries ``effective_start = boundary`` and an open end (the current
+          name).
+
+        Both rows are asserted as ``legal`` *evidence* — PM curates ``is_canonical`` and
+        resolves the canonical scalar, the same hands-off stance as :meth:`to_observation`'s
+        ``names``. Temporality lives in the window, not in ``name_type`` (a name that *was*
+        legal stays ``legal`` within its window). Enrich-keyed by the PM anchor
+        (``pm_org_id``), like :meth:`to_active_observation`; PM applies dated-name evidence
+        independently, so no other curated fields are re-ridden. Synchronous — no DB access.
+
+        Caller guards (this payload can't enforce them): the row must be anchored
+        (``pm_org_id`` set) and live (an archived org 422s evidence).
+        """
+        return {
+            "identifier_type": self.enrich_identifier_type,
+            "identifier_value": str(self.anchor_value(row)),
+            "names": [
+                {"name": prior_name, "name_type": "legal", "effective_end": boundary.isoformat()},
+                {"name": new_name, "name_type": "legal", "effective_start": boundary.isoformat()},
+            ],
+        }
+
     async def _governing_affiliation(self, session: Any, row: Any) -> dict | None:
         """Build the ``governing`` affiliation from the local org's jurisdiction.
 

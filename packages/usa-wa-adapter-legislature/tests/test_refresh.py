@@ -14,7 +14,12 @@ from sqlalchemy import select
 from clearinghouse_core.provenance import Source
 from clearinghouse_domain_legislative.identity import Organization
 from usa_wa_adapter_legislature import refresh as refresh_module
-from usa_wa_adapter_legislature.refresh import biennium_for_date, run_refresh
+from usa_wa_adapter_legislature.refresh import (
+    biennium_for_date,
+    biennium_start_date,
+    previous_biennium,
+    run_refresh,
+)
 
 CASSETTE_DIR = Path(__file__).parent / "cassettes"
 CASSETTE = "committee_service_get_active_committees_2025-26.yaml"
@@ -34,6 +39,35 @@ CASSETTE = "committee_service_get_active_committees_2025-26.yaml"
 def test_biennium_for_date_rolls_on_odd_years(today, expected):
     """WA bienniums start on odd years; even-year dates roll back to the start."""
     assert biennium_for_date(today) == expected
+
+
+@pytest.mark.parametrize(
+    "label,expected",
+    [
+        ("2025-26", date(2025, 1, 1)),
+        ("2027-28", date(2027, 1, 1)),
+        ("2099-00", date(2099, 1, 1)),
+    ],
+)
+def test_biennium_start_date_is_jan1_of_the_odd_year(label, expected):
+    """The window boundary for a rename = the biennium's start (Jan 1 of the odd year).
+
+    WSL exposes no real name-change date, so the boundary is the documented
+    biennium-start approximation."""
+    assert biennium_start_date(label) == expected
+
+
+@pytest.mark.parametrize(
+    "label,expected",
+    [
+        ("2025-26", "2023-24"),
+        ("2027-28", "2025-26"),
+        ("2001-02", "1999-00"),
+    ],
+)
+def test_previous_biennium_steps_back_two_years(label, expected):
+    """The prior biennium is the rename diff's "before" side."""
+    assert previous_biennium(label) == expected
 
 
 async def test_run_refresh_seeds_source_and_runs_adapter(db_session, usa_wa):

@@ -87,6 +87,7 @@ packages/
       sidecar.py      — Sidecar: per-cycle tick (feed → reconcile → sweep → drain) + isolated run loop
       config.py       — SidecarSettings (POWERMAP_BASE_URL, POWERMAP_API_KEY)
       reconcile_committee_active.py — one-shot producer CLI (#44): diffs the produced committee cohort against `CommitteeService.GetCommittees(biennium)` and reconciles PM `active` both ways — `active=false` for committees the roster dropped, `active=true` for ones that reappear (reactivation self-heals a modest partial-pull false retirement on the next clean run). Guarded by an empty-pull check + cohort floor (denominator = active cohort); skips archived/deleted/unanchored; emit-only (PM stays authority for `active`, mirrors it back — no local write). Weekly timer (Sun 07:00 UTC, #48) + ad-hoc; out-of-band from routine sync (`to_observation` keeps `active` out, #43)
+      reconcile_committee_names.py — one-shot producer CLI (#46): the write-side sibling of #45's read mirror. Detects a WSL committee **rename** (stable `Id`, changed `LongName`) by diffing `GetCommittees(current)` vs `GetCommittees(prior)` on `normalize_name(LongName)` — WSL's own raw name, **not** the PM-resolved `Organization.name` scalar (which would false-fire on PM canonicalisation and miss round-tripped renames). Emits windowed dated-name evidence via `OrganizationDescriptor.to_names_observation` (prior name `effective_end` = biennium-start boundary; new name `effective_start` = same, open end). Guarded by an empty-pull (either roster) + rename-storm floor (`--max-rename-fraction`, default 0.34); skips unproduced/archived/deleted/unanchored; emit-only (PM curates `is_canonical`, #45 read mirror brings windows back — no local write). Ad-hoc CLI (no timer wired yet); `--dry-run` previews
       __main__.py     — daemon entrypoint (python -m usa_wa_sync_powermap)
 alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base
 docs/specs/           — Architecture specs (source of truth for design decisions)
@@ -308,6 +309,20 @@ python -m usa_wa_sync_powermap.backfill_contact_labels
 # Exit codes: 0 clean; 1 some rows rejected/failed; 2 auth block; 3 guardrail abort.
 python -m usa_wa_sync_powermap.reconcile_committee_active --dry-run
 python -m usa_wa_sync_powermap.reconcile_committee_active --biennium 2025-26
+
+# Committee rename detection (#46) — write-side sibling of #45's read mirror. Diffs
+# `GetCommittees(current)` vs `GetCommittees(prior)` on the stable `Id`; a changed
+# `normalize_name(LongName)` is a rename. Emits windowed dated-name evidence (prior name
+# effective_end = biennium-start boundary; new name effective_start = same, open end) so PM
+# curates is_canonical and the #45 read mirror brings the windows back — emit-only, no local
+# write. Diffs WSL's RAW LongName, not the PM-resolved Organization.name scalar (which would
+# false-fire on PM canonicalisation + miss round-tripped renames). Guarded by empty-pull
+# (either roster) + rename-storm floor (--max-rename-fraction, default 0.34). Skips
+# unproduced/archived/deleted/unanchored. Idempotent; no operator token (shell = trust boundary).
+# --dry-run previews. Biennium: --biennium, else USA_WA_BIENNIUM, else current date.
+# Exit codes: 0 clean; 1 some rows rejected/failed; 2 auth block; 3 guardrail abort.
+python -m usa_wa_sync_powermap.reconcile_committee_names --dry-run
+python -m usa_wa_sync_powermap.reconcile_committee_names --biennium 2025-26
 ```
 
 Full reference: `docs/COMMANDS.md`
