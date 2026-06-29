@@ -64,6 +64,8 @@ async def sweep_payloads(session: AsyncSession, *, limit: int | None = None) -> 
     (``limited``) so a bounded run never reads as full coverage.
     """
     report = SweepReport()
+    # Full re-hash every run — O(all payloads). Fine now; add a since-cursor
+    # before #39's archival docket volume makes this unbounded (see #55).
     stmt = (
         select(
             RawPayload.body,

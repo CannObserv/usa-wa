@@ -91,16 +91,30 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_co
 
 -- 6. Write-once provenance (#54). The provenance spine is append-only by
 --    contract; make it append-only by *grant* so the live app role physically
---    cannot rewrite or erase history. After step 4 granted full DML to <app>,
---    revoke UPDATE/DELETE on these three tables — INSERT (+ SELECT) remain, so
---    adapters still append fetch events / payloads / citations, but no serving
---    role can tamper with an existing row. Only <owner> (migrations) can, which
---    is the intended trust boundary. The integrity sweep (re-hash vs
---    content_hash) is the at-rest detector; this is the at-rest preventer.
---    Default privileges (step 5) still grant full DML on FUTURE tables, so add a
---    matching REVOKE here when a new provenance/append-only table is introduced.
-REVOKE UPDATE, DELETE ON
+--    cannot rewrite stored history. After step 4 granted full DML to <app>:
+--
+--    a) Immutability — REVOKE UPDATE on all three tables. INSERT (+ SELECT)
+--       remain, so adapters still append fetch events / payloads / citations,
+--       but no serving role can rewrite an existing row's bytes. The integrity
+--       sweep (re-hash vs content_hash) is the at-rest detector; this is the
+--       at-rest preventer.
+--    b) Permanence — REVOKE DELETE on fetch_events + citations only: those are
+--       the durable provenance ledger, never deleted by the app. raw_payloads
+--       deliberately KEEPS DELETE — it is the GC-able cache (see RawPayload
+--       docstring + Source.retention_policy, #54), and the eventual retention
+--       GC runs as the app role; archival payloads are protected by
+--       retention_policy in the GC's WHERE clause, not by this grant.
+--
+--    Only <owner> (migrations) can UPDATE/DELETE the ledger. Default privileges
+--    (step 5) still grant full DML on FUTURE clearinghouse_core tables, so a new
+--    append-only table must be added here — scripts/tests/test_grants_append_only.py
+--    fails if a clearinghouse_core table isn't classified, forcing the decision.
+REVOKE UPDATE ON
   clearinghouse_core.fetch_events,
   clearinghouse_core.raw_payloads,
+  clearinghouse_core.citations
+  FROM :"app";
+REVOKE DELETE ON
+  clearinghouse_core.fetch_events,
   clearinghouse_core.citations
   FROM :"app";

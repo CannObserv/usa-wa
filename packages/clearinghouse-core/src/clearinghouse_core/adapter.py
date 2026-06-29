@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from clearinghouse_core.models import Base
 
@@ -46,13 +46,16 @@ class FetchedPayload:
     etag: str | None = None
     last_modified: str | None = None
     resource_version_key: str | None = None
-    parsed: object | None = None
+    parsed: Any | None = None
     """Optional already-parsed structured form of ``body``, set when the adapter
     parsed the response during fetch (e.g. a SOAP source archiving the raw wire
     envelope as ``body`` while keeping the zeep-derived dicts here). A *derived*
     artifact: ``body`` stays the archived, hashed source of truth; ``parsed`` only
-    saves :meth:`BaseAdapter.normalize` a re-parse. ``None`` means "parse ``body``
-    yourself" — the pre-archival default."""
+    saves :meth:`BaseAdapter.normalize` a re-parse. Its concrete shape is a
+    contract between an adapter's ``fetch_one`` and its ``normalize`` — opaque to
+    the runner (hence ``Any``); the committees adapter, for instance, carries
+    ``list[dict]``. ``None`` means "parse ``body`` yourself" — the pre-archival
+    default."""
 
 
 @dataclass

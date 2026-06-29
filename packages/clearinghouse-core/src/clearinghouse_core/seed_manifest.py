@@ -31,9 +31,13 @@ from pathlib import Path
 SHA256_SIDECAR_SUFFIX = ".sha256"
 META_SIDECAR_SUFFIX = ".meta.json"
 
+#: Keys the meta JSON owns; a caller ``extra`` may not shadow them.
+_RESERVED_META_KEYS = frozenset({"sha256", "size_bytes"})
+
 
 class SeedIntegrityError(Exception):
-    """A seed's content does not match its recorded sidecar digest."""
+    """A seed cannot be verified against its sidecar — content diverged, or the
+    sidecar is absent. Fail-closed: callers treat any instance as "do not ingest"."""
 
 
 @dataclass(frozen=True)
@@ -57,8 +61,16 @@ def sha256_hex(content: bytes) -> str:
 
 
 def build_manifest(content: bytes, *, extra: dict | None = None) -> SeedManifest:
-    """Compute the integrity facts for ``content`` without writing anything."""
-    return SeedManifest(sha256=sha256_hex(content), size_bytes=len(content), extra=extra or {})
+    """Compute the integrity facts for ``content`` without writing anything.
+
+    Raises ``ValueError`` if ``extra`` collides with a reserved meta key
+    (``sha256`` / ``size_bytes``) — a silent shadow would corrupt the manifest.
+    """
+    extra = extra or {}
+    collisions = _RESERVED_META_KEYS & extra.keys()
+    if collisions:
+        raise ValueError(f"extra may not shadow reserved meta keys: {sorted(collisions)}")
+    return SeedManifest(sha256=sha256_hex(content), size_bytes=len(content), extra=extra)
 
 
 def _sidecar(seed_path: Path, suffix: str) -> Path:
@@ -85,13 +97,25 @@ def write_sidecars(seed_path: Path, content: bytes, *, extra: dict | None = None
 
 
 def read_sha256_sidecar(seed_path: Path) -> str:
-    """Return the hex digest recorded in ``<seed>.sha256`` (sha256sum format)."""
-    text = _sidecar(seed_path, SHA256_SIDECAR_SUFFIX).read_text()
+    """Return the hex digest recorded in ``<seed>.sha256`` (sha256sum format).
+
+    Raises :class:`SeedIntegrityError` if the sidecar is absent — an unverifiable
+    seed is an integrity failure, fail-closed (not a bare ``FileNotFoundError``).
+    """
+    sidecar = _sidecar(seed_path, SHA256_SIDECAR_SUFFIX)
+    try:
+        text = sidecar.read_text()
+    except FileNotFoundError as exc:
+        raise SeedIntegrityError(f"{sidecar.name}: sha256 sidecar is missing") from exc
     return text.split()[0]
 
 
 def verify(seed_path: Path, content: bytes) -> bool:
-    """True iff ``content`` hashes to the digest recorded in the `.sha256` sidecar."""
+    """True iff ``content`` hashes to the digest recorded in the `.sha256` sidecar.
+
+    Raises :class:`SeedIntegrityError` if the sidecar is absent — a missing
+    sidecar is unverifiable, not a quiet ``False`` that conflates with tampering.
+    """
     return sha256_hex(content) == read_sha256_sidecar(seed_path)
 
 

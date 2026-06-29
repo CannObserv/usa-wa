@@ -7,12 +7,12 @@ import pytest
 from usa_wa_adapter_legislature.transport import WSLClient
 
 
-async def test_get_active_committees_returns_committee_rows(wsl_vcr):
+async def test_fetch_active_committees_returns_committee_rows(wsl_vcr):
     """Cassette replay yields the recorded committee set with expected shape."""
     cassette = "committee_service_get_active_committees_2025-26.yaml"
     with wsl_vcr.use_cassette(cassette):
         client = WSLClient("CommitteeService")
-        rows = await client.get_active_committees()
+        rows = (await client.fetch_active_committees()).committees
 
     # Recorded snapshot: 34 active committees for the 2025-26 biennium.
     assert len(rows) == 34
@@ -26,23 +26,16 @@ async def test_get_active_committees_returns_committee_rows(wsl_vcr):
     assert agencies == {"House", "Senate"}
 
 
-async def test_get_active_committees_phone_is_string_when_present(wsl_vcr):
+async def test_fetch_active_committees_phone_is_string_when_present(wsl_vcr):
     """Phone strings round-trip as plain text (zeep doesn't coerce to a type)."""
     cassette = "committee_service_get_active_committees_2025-26.yaml"
     with wsl_vcr.use_cassette(cassette):
         client = WSLClient("CommitteeService")
-        rows = await client.get_active_committees()
+        rows = (await client.fetch_active_committees()).committees
 
     phones = [r["Phone"] for r in rows if r["Phone"]]
     assert phones, "expected at least one committee with a Phone"
     assert all(isinstance(p, str) for p in phones)
-
-
-async def test_get_active_committees_wrong_service_raises():
-    """Misuse-guard: the service-name dispatch is enforced."""
-    client = WSLClient("LegislationService")
-    with pytest.raises(ValueError, match="CommitteeService"):
-        await client.get_active_committees()
 
 
 async def test_fetch_active_committees_captures_pristine_wire(wsl_vcr):

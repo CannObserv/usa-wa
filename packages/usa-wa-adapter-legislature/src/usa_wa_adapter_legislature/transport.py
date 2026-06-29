@@ -88,13 +88,6 @@ class WSLClient:
             self._client = Client(self._wsdl_url, transport=self._transport)
         return self._client
 
-    def _get_active_committees_sync(self) -> list[dict[str, Any]]:
-        result = self._ensure_client().service.GetActiveCommittees()
-        serialized = serialize_object(result, dict)
-        if serialized is None:
-            return []
-        return list(serialized)
-
     def _fetch_active_committees_sync(self) -> WireFetch:
         result = self._ensure_client().service.GetActiveCommittees()
         serialized = serialize_object(result, dict)
@@ -117,13 +110,13 @@ class WSLClient:
 
         The **parameterized historical** form of the committee pull: returns the
         flat ``Committee`` list for an explicit biennium (``"2023-24"`` style),
-        as opposed to :meth:`get_active_committees`' implicit-current pull. This
+        as opposed to :meth:`fetch_active_committees`' implicit-current pull. This
         is the explicit-membership source for biennium-absence retirement (#44) —
         diffing the produced cohort against a *named* biennium's roster makes
         "absent from biennium N" a deliberate diff, not a function of run timing.
 
         Same dict shape (``Id, Name, LongName, Agency, Acronym, Phone``) and same
-        ``asyncio.to_thread`` dispatch as :meth:`get_active_committees`.
+        ``asyncio.to_thread`` dispatch as :meth:`fetch_active_committees`.
         """
         if self.service != "CommitteeService":
             raise ValueError(
@@ -131,33 +124,17 @@ class WSLClient:
             )
         return await asyncio.to_thread(self._get_committees_sync, biennium)
 
-    async def get_active_committees(self) -> list[dict[str, Any]]:
-        """Call ``CommitteeService.GetActiveCommittees()`` off the event loop.
-
-        Returns a list of plain-dict Committee rows for the *currently active*
-        committees (implicit current biennium — the WSDL signature has no
-        biennium parameter). The WSDL ``Committee`` complexType inherits the
-        LegislativeEntity fields (Id, Name, LongName, Agency, Acronym) and adds
-        Phone — zeep flattens these into one dict.
-
-        Wraps zeep's synchronous SOAP call in ``asyncio.to_thread`` so the
-        event loop stays responsive while WSL replies (which can take a few
-        hundred ms over a cold WSDL).
-        """
-        if self.service != "CommitteeService":
-            raise ValueError(
-                f"get_active_committees requires service='CommitteeService', got {self.service!r}"
-            )
-        return await asyncio.to_thread(self._get_active_committees_sync)
-
     async def fetch_active_committees(self) -> WireFetch:
-        """Archival pull: ``GetActiveCommittees()`` keeping the pristine wire.
+        """Archival pull of the *currently active* committees, keeping the wire.
 
-        Same SOAP call and ``asyncio.to_thread`` dispatch as
-        :meth:`get_active_committees`, but returns a :class:`WireFetch` carrying
-        the raw response envelope bytes (for archival + hashing, #54) alongside
-        the derived dict parse. This is the form the adapter's ``fetch_one`` uses
-        so ``RawPayload.body`` holds what WSL sent, not our re-serialization.
+        The implicit-current-biennium pull (``GetActiveCommittees()`` — the WSDL
+        signature has no biennium parameter), wrapped in ``asyncio.to_thread`` so
+        the event loop stays responsive while WSL replies. Returns a
+        :class:`WireFetch`: the derived ``Committee`` dicts (``Id, Name, LongName,
+        Agency, Acronym, Phone`` — zeep flattens the WSDL complexType into one
+        dict) plus the raw response envelope bytes for archival + hashing (#54).
+        This is the form the adapter's ``fetch_one`` uses so ``RawPayload.body``
+        holds what WSL sent, not our re-serialization.
         """
         if self.service != "CommitteeService":
             raise ValueError(

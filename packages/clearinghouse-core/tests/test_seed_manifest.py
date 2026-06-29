@@ -68,3 +68,24 @@ def test_read_sha256_sidecar_parses_hex(tmp_path):
     seed_manifest.write_sidecars(seed, content)
 
     assert seed_manifest.read_sha256_sidecar(seed) == hashlib.sha256(content).hexdigest()
+
+
+def test_missing_sidecar_raises_seed_integrity_error(tmp_path):
+    """An absent sidecar is unverifiable — fail closed, not a bare FileNotFoundError."""
+    seed = tmp_path / "no_sidecar.xml"  # no write_sidecars call
+
+    with pytest.raises(seed_manifest.SeedIntegrityError, match="missing"):
+        seed_manifest.read_sha256_sidecar(seed)
+    with pytest.raises(seed_manifest.SeedIntegrityError):
+        seed_manifest.verify(seed, b"x")
+    with pytest.raises(seed_manifest.SeedIntegrityError):
+        seed_manifest.verified_digest(seed, b"x")
+
+
+def test_extra_may_not_shadow_reserved_meta_keys(tmp_path):
+    """A reserved-key collision in extra raises rather than silently corrupting meta."""
+    seed = tmp_path / "s.xml"
+    seed.write_bytes(b"x")
+
+    with pytest.raises(ValueError, match="reserved meta keys"):
+        seed_manifest.write_sidecars(seed, b"x", extra={"sha256": "spoofed"})
