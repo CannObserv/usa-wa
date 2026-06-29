@@ -65,6 +65,11 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
+    "usa-wa-reconcile-committee-names.service": {
+        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
     "usa-wa-wsl-refresh.service": {
         "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
         "Before": set(),
@@ -75,6 +80,11 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     "usa-wa-notify-failure@.service": {"After": set(), "Before": set(), "OnFailure": set()},
     # Timers carry their schedule in [Timer]; no [Unit] ordering by design.
     "usa-wa-reconcile-committee-active.timer": {
+        "After": set(),
+        "Before": set(),
+        "OnFailure": set(),
+    },
+    "usa-wa-reconcile-committee-names.timer": {
         "After": set(),
         "Before": set(),
         "OnFailure": set(),

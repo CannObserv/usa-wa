@@ -87,7 +87,7 @@ packages/
       sidecar.py      — Sidecar: per-cycle tick (feed → reconcile → sweep → drain) + isolated run loop
       config.py       — SidecarSettings (POWERMAP_BASE_URL, POWERMAP_API_KEY)
       reconcile_committee_active.py — one-shot producer CLI (#44): diffs the produced committee cohort against `CommitteeService.GetCommittees(biennium)` and reconciles PM `active` both ways — `active=false` for committees the roster dropped, `active=true` for ones that reappear (reactivation self-heals a modest partial-pull false retirement on the next clean run). Guarded by an empty-pull check + cohort floor (denominator = active cohort); skips archived/deleted/unanchored; emit-only (PM stays authority for `active`, mirrors it back — no local write). Weekly timer (Sun 07:00 UTC, #48) + ad-hoc; out-of-band from routine sync (`to_observation` keeps `active` out, #43)
-      reconcile_committee_names.py — one-shot producer CLI (#46): the write-side sibling of #45's read mirror. Detects a WSL committee **rename** (stable `Id`, changed `LongName`) by diffing `GetCommittees(current)` vs `GetCommittees(prior)` on `normalize_name(LongName)` — WSL's own raw name, **not** the PM-resolved `Organization.name` scalar (which would false-fire on PM canonicalisation and miss round-tripped renames). Emits windowed dated-name evidence via `OrganizationDescriptor.to_names_observation` (prior name `effective_end` = biennium-start boundary; new name `effective_start` = same, open end). Guarded by empty-pull (either roster) + low-overlap (`--min-overlap-fraction`, default 0.5 — stable WSL Ids mean a healthy diff overlaps near-totally; a thin overlap = wrong-biennium pull, which would otherwise read as a hollow "renamed: 0") + rename-storm floor (`--max-rename-fraction`, default 0.34); skips unanchored + the live-cohort-absent (counted **hidden** = archived/deleted-but-produced vs **unproduced** = never-produced/other-source); emit-only (PM curates `is_canonical`, #45 read mirror brings windows back — no local write). Ad-hoc CLI (no timer wired yet); `--dry-run` previews
+      reconcile_committee_names.py — one-shot producer CLI (#46): the write-side sibling of #45's read mirror. Detects a WSL committee **rename** (stable `Id`, changed `LongName`) by diffing `GetCommittees(current)` vs `GetCommittees(prior)` on `normalize_name(LongName)` — WSL's own raw name, **not** the PM-resolved `Organization.name` scalar (which would false-fire on PM canonicalisation and miss round-tripped renames). Emits windowed dated-name evidence via `OrganizationDescriptor.to_names_observation` (prior name `effective_end` = biennium-start boundary; new name `effective_start` = same, open end). Guarded by empty-pull (either roster) + low-overlap (`--min-overlap-fraction`, default 0.5 — stable WSL Ids mean a healthy diff overlaps near-totally; a thin overlap = wrong-biennium pull, which would otherwise read as a hollow "renamed: 0") + rename-storm floor (`--max-rename-fraction`, default 0.34); skips unanchored + the live-cohort-absent (counted **hidden** = archived/deleted-but-produced vs **unproduced** = never-produced/other-source); emit-only (PM curates `is_canonical`, #45 read mirror brings windows back — no local write). Weekly timer (Sun 07:30 UTC, #53) + ad-hoc; `--dry-run` previews
       __main__.py     — daemon entrypoint (python -m usa_wa_sync_powermap)
 alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base
 docs/specs/           — Architecture specs (source of truth for design decisions)
@@ -107,6 +107,7 @@ deploy/               — Systemd unit + deployment config
 | PM sync sidecar | asyncio daemon | — | `systemctl` (`usa-wa-sync-powermap.service`) |
 | WSL refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-wsl-refresh.timer` → `.service`; 06:00 UTC) |
 | Committee active reconcile (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-active.timer` → `.service`; Sun 07:00 UTC) |
+| Committee rename detection (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-names.timer` → `.service`; Sun 07:30 UTC) |
 | Failure alerts | templated oneshot | — | `OnFailure=` → `usa-wa-notify-failure@.service` |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
 
@@ -116,7 +117,8 @@ deploy/               — Systemd unit + deployment config
 
 The unattended oneshots fail silently on a headless box — a `failed` state in the
 journal nobody is watching. Each failable oneshot (`usa-wa-migrate`,
-`usa-wa-wsl-refresh`, `usa-wa-reconcile-committee-active`) carries
+`usa-wa-wsl-refresh`, `usa-wa-reconcile-committee-active`,
+`usa-wa-reconcile-committee-names`) carries
 `OnFailure=usa-wa-notify-failure@%n.service`, so systemd starts the templated
 handler on a non-zero exit **or** a `TimeoutStartSec=` hang. `%n` (the failing
 unit's full name) becomes the handler's instance.
@@ -157,7 +159,8 @@ DDL and DML rights are split across roles so a misconfigured DSN can't migrate/d
 **Deploy convention: units never sync the venv (issue #30).** Every systemd
 entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
 `usa-wa-sync-powermap.service`, `usa-wa-wsl-refresh.service`,
-`usa-wa-reconcile-committee-active.service`, `scripts/migrate.sh`).
+`usa-wa-reconcile-committee-active.service`,
+`usa-wa-reconcile-committee-names.service`, `scripts/migrate.sh`).
 `--no-sync` runs against the installed venv as-is; `--frozen` skips re-locking.
 So unit start never mutates the environment — the daily WSL refresh timer can't
 silently apply a dependency change a `git pull` landed in `uv.lock`. (Note:
@@ -190,10 +193,12 @@ requires a plain `uv sync`** — `--no-sync` units can't start against an absent
 | After editing `deploy/usa-wa.service` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa` |
 | After editing `deploy/usa-wa-wsl-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-wsl-refresh.timer` |
 | After editing `deploy/usa-wa-reconcile-committee-active.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-active.timer` |
+| After editing `deploy/usa-wa-reconcile-committee-names.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-names.timer` |
 | After editing `deploy/usa-wa-notify-failure@.service` | `sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
 | After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
 | Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
 | Run the committee active reconcile now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-active.service` |
+| Run the committee rename detection now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-names.service` |
 
 **Validating unit edits (#51).** A path-filtered pre-commit hook
 (`systemd-verify-units` → [`scripts/verify-units.sh`](scripts/verify-units.sh))
@@ -321,6 +326,8 @@ python -m usa_wa_sync_powermap.reconcile_committee_active --biennium 2025-26
 # diff overlaps heavily, so a thin overlap = wrong-biennium pull) + rename-storm floor
 # (--max-rename-fraction, default 0.34). Skips unanchored + live-cohort-absent (hidden vs
 # unproduced). Idempotent; no operator token (shell = trust boundary).
+# Prod runs this weekly (Sun 07:30 UTC) via usa-wa-reconcile-committee-names.timer (#53),
+# staggered 30 min off the active reconcile; the forms below are the manual / dry-run surface.
 # --dry-run previews. Biennium: --biennium, else USA_WA_BIENNIUM, else current date.
 # Exit codes: 0 clean; 1 some rows rejected/failed; 2 auth block; 3 guardrail abort.
 python -m usa_wa_sync_powermap.reconcile_committee_names --dry-run

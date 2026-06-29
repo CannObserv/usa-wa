@@ -1,0 +1,46 @@
+[Unit]
+Description=usa-wa — committee rename detection against the WSL biennium roster (#46/#53) one-shot
+# usa-wa-migrate.service: schema must be at head before the DML-read reconcile
+# runs. Ordering only — a failed/absent migrate must not wedge the timer on an
+# already-migrated box.
+After=network-online.target postgresql.service usa-wa-migrate.service
+Wants=network-online.target
+# Alert the operator on failure (#49). A guardrail abort (exit 3 — empty-pull,
+# low-overlap, or rename-storm floor) or a string of rejected rows (exit 1) on
+# the weekly timer would otherwise wait ≤7 days for the next fire to be seen.
+# The handler surfaces the exit code in its subject so the operator can triage.
+# %n expands to this unit's full name (the notify handler's instance).
+OnFailure=usa-wa-notify-failure@%n.service
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/usa-wa
+
+# Pin PATH so `uv` resolves regardless of the inherited systemd default.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# App role only. reconcile reads DATABASE_URL (DML — no DDL; emit-only to PM, no
+# local name write) plus POWERMAP_BASE_URL / POWERMAP_API_KEY. DATABASE_URL_OWNER
+# also lives in /etc/usa-wa/.env on this single VM but reconcile never reads it
+# (only alembic does). Later EnvironmentFiles override earlier ones.
+EnvironmentFile=/etc/usa-wa/.env
+EnvironmentFile=-/home/exedev/usa-wa/.env
+
+# --frozen --no-sync: run against the installed venv as-is; never re-lock or
+# sync at unit start. The timer therefore can't silently apply a dependency
+# change a `git pull` landed in uv.lock — those land only via a deliberate
+# `uv sync` in the deploy runbook (AGENTS.md § Server Lifecycle, #30).
+#
+# Guardrails (empty-pull abort + low-overlap + rename-storm floor) make
+# autonomous runs safe; a partial / wrong-biennium WSL pull aborts with exit 3
+# (took no action) rather than emitting bogus rename evidence.
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_sync_powermap.reconcile_committee_names
+
+# Bound the two network-facing zeep WSDL fetches + GetCommittees SOAP calls
+# (current + prior biennium) plus per-row PM submissions so a hung endpoint
+# fails deterministically instead of relying on the manager default; the timer
+# retries on the next fire.
+TimeoutStartSec=300
+
+# This unit is started by usa-wa-reconcile-committee-names.timer; no [Install] WantedBy.
