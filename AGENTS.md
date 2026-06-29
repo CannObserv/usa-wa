@@ -46,7 +46,8 @@ packages/
       jurisdictions.py — Jurisdiction cache mirror (4 tables: types/relationship_types lookups, jurisdictions, jurisdiction_relationships) — local copy of Power Map's Jurisdiction extension
       provenance.py   — Source, FetchEvent, RawPayload, Citation, Note, DocumentIdentifier (every canonical fact traces back to these)
       adapter.py      — BaseAdapter contract + FetchedPayload / NormalizedBatch / ResourceRef
-      runner.py       — AdapterRunner: cache-or-fetch decision, idempotent upsert, provenance writing
+      runner.py       — AdapterRunner: cache-or-fetch decision, idempotent upsert, provenance writing (derives FetchEvent.content_hash = sha256(RawPayload.body) — the #54 integrity baseline, single chokepoint)
+      integrity.py    — provenance integrity sweep (#54): `python -m clearinghouse_core.integrity` re-hashes RawPayload bodies vs FetchEvent.content_hash; exit 1 on mismatch (corruption/tamper); NULL baselines = unbaselined, skipped. Weekly timer + OnFailure alert
       db/             — ULID SQLAlchemy column type (see db/ulid.md for rationale)
       database.py     — Async engine + session factory
       config.py       — Settings / env access (pydantic-settings)
@@ -108,6 +109,7 @@ deploy/               — Systemd unit + deployment config
 | WSL refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-wsl-refresh.timer` → `.service`; 06:00 UTC) |
 | Committee active reconcile (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-active.timer` → `.service`; Sun 07:00 UTC) |
 | Committee rename detection (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-names.timer` → `.service`; Sun 07:30 UTC) |
+| Provenance integrity sweep (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-integrity-sweep.timer` → `.service`; Sun 08:00 UTC) |
 | Failure alerts | templated oneshot | — | `OnFailure=` → `usa-wa-notify-failure@.service` |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
 
@@ -118,7 +120,7 @@ deploy/               — Systemd unit + deployment config
 The unattended oneshots fail silently on a headless box — a `failed` state in the
 journal nobody is watching. Each failable oneshot (`usa-wa-migrate`,
 `usa-wa-wsl-refresh`, `usa-wa-reconcile-committee-active`,
-`usa-wa-reconcile-committee-names`) carries
+`usa-wa-reconcile-committee-names`, `usa-wa-integrity-sweep`) carries
 `OnFailure=usa-wa-notify-failure@%n.service`, so systemd starts the templated
 handler on a non-zero exit **or** a `TimeoutStartSec=` hang. `%n` (the failing
 unit's full name) becomes the handler's instance.
@@ -160,7 +162,8 @@ DDL and DML rights are split across roles so a misconfigured DSN can't migrate/d
 entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
 `usa-wa-sync-powermap.service`, `usa-wa-wsl-refresh.service`,
 `usa-wa-reconcile-committee-active.service`,
-`usa-wa-reconcile-committee-names.service`, `scripts/migrate.sh`).
+`usa-wa-reconcile-committee-names.service`,
+`usa-wa-integrity-sweep.service`, `scripts/migrate.sh`).
 `--no-sync` runs against the installed venv as-is; `--frozen` skips re-locking.
 So unit start never mutates the environment — the daily WSL refresh timer can't
 silently apply a dependency change a `git pull` landed in `uv.lock`. (Note:
@@ -194,11 +197,13 @@ requires a plain `uv sync`** — `--no-sync` units can't start against an absent
 | After editing `deploy/usa-wa-wsl-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-wsl-refresh.timer` |
 | After editing `deploy/usa-wa-reconcile-committee-active.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-active.timer` |
 | After editing `deploy/usa-wa-reconcile-committee-names.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-names.timer` |
+| After editing `deploy/usa-wa-integrity-sweep.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-integrity-sweep.timer` |
 | After editing `deploy/usa-wa-notify-failure@.service` | `sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
 | After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
 | Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
 | Run the committee active reconcile now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-active.service` |
 | Run the committee rename detection now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-names.service` |
+| Run the provenance integrity sweep now (ad-hoc) | `sudo systemctl start usa-wa-integrity-sweep.service` |
 
 **Validating unit edits (#51).** A path-filtered pre-commit hook
 (`systemd-verify-units` → [`scripts/verify-units.sh`](scripts/verify-units.sh))
@@ -332,6 +337,15 @@ python -m usa_wa_sync_powermap.reconcile_committee_active --biennium 2025-26
 # Exit codes: 0 clean; 1 some rows rejected/failed; 2 auth block; 3 guardrail abort.
 python -m usa_wa_sync_powermap.reconcile_committee_names --dry-run
 python -m usa_wa_sync_powermap.reconcile_committee_names --biennium 2025-26
+
+# Provenance integrity sweep (#54) — re-hashes every stored RawPayload body against
+# its FetchEvent.content_hash baseline; a divergence is corruption/tamper at rest.
+# Read-only (app role, SELECT only); NULL baselines (pre-#54 legacy) are counted as
+# "unbaselined", never a mismatch. Exit 0 clean / 1 mismatch (the non-zero the #49
+# OnFailure handler emails on). Prod runs this weekly (Sun 08:00 UTC) via
+# usa-wa-integrity-sweep.timer; --limit N caps the scan for a quick partial check.
+python -m clearinghouse_core.integrity
+python -m clearinghouse_core.integrity --limit 500
 ```
 
 Full reference: `docs/COMMANDS.md`

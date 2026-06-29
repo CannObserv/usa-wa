@@ -1,0 +1,36 @@
+[Unit]
+Description=usa-wa — provenance integrity sweep (re-hash RawPayload vs content_hash, #54) one-shot
+# usa-wa-migrate.service: schema must be at head before the sweep reads the
+# provenance tables. Ordering only — a failed/absent migrate must not wedge the
+# timer on an already-migrated box. DB-only (no WSL/PM egress), so plain
+# network.target, not network-online.target.
+After=network.target postgresql.service usa-wa-migrate.service
+# Alert the operator on failure (#49). A mismatch (exit 1 — corruption/tamper)
+# on the weekly timer would otherwise wait ≤7 days to be seen; this sweep IS the
+# at-rest tamper detector (#54), so a silent failure defeats its purpose. %n
+# expands to this unit's full name (the notify handler's instance).
+OnFailure=usa-wa-notify-failure@%n.service
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/usa-wa
+
+# Pin PATH so `uv` resolves regardless of the inherited systemd default.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# App role only. The sweep reads DATABASE_URL (SELECT on the provenance tables —
+# the #54 grant REVOKE removed only UPDATE/DELETE, not SELECT/INSERT). It never
+# writes, so no owner role. Later EnvironmentFiles override earlier ones.
+EnvironmentFile=/etc/usa-wa/.env
+EnvironmentFile=-/home/exedev/usa-wa/.env
+
+# --frozen --no-sync: run against the installed venv as-is; never re-lock or sync
+# at unit start (AGENTS.md § Server Lifecycle, #30).
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m clearinghouse_core.integrity
+
+# Bound the full re-hash so a pathological archive size or a stuck DB fails
+# deterministically rather than hanging the manager; the timer retries next fire.
+TimeoutStartSec=600
+
+# This unit is started by usa-wa-integrity-sweep.timer; no [Install] WantedBy.

@@ -75,6 +75,14 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
+    # DB-only sweep (#54) — re-hashes RawPayload vs content_hash. No WSL/PM
+    # egress, so plain network.target (not network-online). Fails (exit 1) on a
+    # mismatch → notify handler, since it IS the at-rest tamper detector.
+    "usa-wa-integrity-sweep.service": {
+        "After": {"network.target", "postgresql.service", "usa-wa-migrate.service"},
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
     # The notify handler is itself a oneshot; it carries no ordering and must NOT
     # set OnFailure on itself (a failed alert send must not recurse).
     "usa-wa-notify-failure@.service": {"After": set(), "Before": set(), "OnFailure": set()},
@@ -90,6 +98,7 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "OnFailure": set(),
     },
     "usa-wa-wsl-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
+    "usa-wa-integrity-sweep.timer": {"After": set(), "Before": set(), "OnFailure": set()},
 }
 
 

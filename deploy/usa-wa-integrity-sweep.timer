@@ -1,0 +1,19 @@
+[Unit]
+Description=usa-wa — weekly provenance integrity sweep
+Documentation=https://github.com/CannObserv/usa-wa/issues/54
+
+[Timer]
+# Weekly, Sunday 08:00 UTC — staggered after the two committee-roster oneshots
+# (Sun 07:00 active-flag, 07:30 rename) and well clear of the 06:00 daily WSL
+# refresh, so the sweep re-hashes a quiescent archive rather than racing a write.
+# Corruption/tamper at rest is not time-sensitive to the hour; weekly bounds
+# detection latency to ≤7 days with no manual action. The sweep is read-only and
+# idempotent — a missed-then-caught run is safe.
+OnCalendar=Sun *-*-* 08:00:00 UTC
+# Run on next boot if the box was down at the scheduled time.
+Persistent=true
+# Jitter to avoid firing on the dot.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
