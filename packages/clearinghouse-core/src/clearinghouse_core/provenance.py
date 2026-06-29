@@ -49,6 +49,20 @@ class FetchStatus(StrEnum):
     skipped = "skipped"
 
 
+class RetentionPolicy(StrEnum):
+    """How long a Source's :class:`RawPayload` bodies should be kept (#54).
+
+    ``operational_cache`` (default) — bodies are an operational cache, eligible
+    for GC past the source's ``cache_ttl_days`` (the GC itself is not yet built;
+    today every payload is de-facto retained). ``archival`` — provenance-critical
+    source whose bodies are a long-lived tamper-evident record; a future GC must
+    never delete them. Stored as a String (FetchStatus precedent), not a native
+    PG enum, so adding a value later is a data change, not a DDL migration."""
+
+    operational_cache = "operational_cache"
+    archival = "archival"
+
+
 class Source(Base, TimestampMixin):
     """A configured data source feeding the clearinghouse.
 
@@ -74,6 +88,15 @@ class Source(Base, TimestampMixin):
     base_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     reliability: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
     cache_ttl_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    retention_policy: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=RetentionPolicy.operational_cache.value,
+        server_default=RetentionPolicy.operational_cache.value,
+    )
+    """Payload-retention contract for this source (#54). Defaults to
+    ``operational_cache``; provenance-critical feeds set ``archival`` to opt out
+    of the (not-yet-built) RawPayload GC. See :class:`RetentionPolicy`."""
     config: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     jurisdiction: Mapped[Jurisdiction] = relationship()

@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import configure_logging, get_logger
-from clearinghouse_core.provenance import Source
+from clearinghouse_core.provenance import RetentionPolicy, Source
 from clearinghouse_core.runner import AdapterRunner, RunSummary
 from usa_wa_adapter_legislature.adapter import WALegislatureAdapter
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
@@ -96,6 +96,10 @@ async def _get_or_create_source(session: AsyncSession, jurisdiction: Jurisdictio
         base_url=WSL_BASE_URL,
         reliability=1.0,
         cache_ttl_days=1,
+        # Provenance-critical: the archived SOAP wire (#54) is a long-lived
+        # tamper-evident record, not an operational cache — exempt from any
+        # future RawPayload GC.
+        retention_policy=RetentionPolicy.archival,
     )
     session.add(row)
     await session.flush()

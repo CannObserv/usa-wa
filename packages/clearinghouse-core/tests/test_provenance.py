@@ -19,6 +19,7 @@ from clearinghouse_core.provenance import (
     FetchEvent,
     FetchStatus,
     RawPayload,
+    RetentionPolicy,
     Source,
 )
 
@@ -81,6 +82,30 @@ async def test_full_provenance_chain_persists(seeded):
     assert s["fetch"].source_id == s["source"].id
     assert s["payload"].fetch_event_id == s["fetch"].id
     assert s["payload"].size_bytes == 16
+
+
+async def test_source_retention_policy_defaults_to_operational_cache(db_session, seeded):
+    """A Source defaults to the short-TTL operational-cache retention (#54).
+
+    The default keeps existing behaviour: payloads are eligible for the eventual
+    cache GC. Archival sources opt out explicitly.
+    """
+    source = seeded["source"]
+    await db_session.refresh(source)
+    assert source.retention_policy == RetentionPolicy.operational_cache
+
+
+async def test_source_retention_policy_archival_is_settable(db_session, seeded):
+    """A provenance-critical source can be marked archival (#54).
+
+    The flag is the forward contract: an eventual RawPayload GC deletes only
+    operational_cache payloads past TTL and never touches archival ones.
+    """
+    source = seeded["source"]
+    source.retention_policy = RetentionPolicy.archival
+    await db_session.flush()
+    await db_session.refresh(source)
+    assert source.retention_policy == RetentionPolicy.archival
 
 
 async def test_citation_polymorphic_insert(db_session, seeded):
