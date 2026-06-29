@@ -74,12 +74,16 @@ def test_parser_defaults():
     assert args.dry_run is False
     assert args.biennium is None
     assert args.max_rename_fraction == cli.DEFAULT_MAX_RENAME_FRACTION
+    assert args.min_overlap_fraction == cli.DEFAULT_MIN_OVERLAP_FRACTION
 
 
 def test_parser_accepts_overrides():
-    args = cli._build_parser().parse_args(["--biennium", "2023-24", "--max-rename-fraction", "0.9"])
+    args = cli._build_parser().parse_args(
+        ["--biennium", "2023-24", "--max-rename-fraction", "0.9", "--min-overlap-fraction", "0.2"]
+    )
     assert args.biennium == "2023-24"
     assert args.max_rename_fraction == 0.9
+    assert args.min_overlap_fraction == 0.2
 
 
 def test_resolve_biennium_arg_wins(monkeypatch):
@@ -113,7 +117,9 @@ async def test_run_dry_run_counts_without_pm_client(monkeypatch, db_session, usa
         },
     )
 
-    args = SimpleNamespace(biennium="2025-26", dry_run=True, max_rename_fraction=1.0)
+    args = SimpleNamespace(
+        biennium="2025-26", dry_run=True, max_rename_fraction=1.0, min_overlap_fraction=0.0
+    )
     result = await cli._run(args)
 
     assert result["dry_run"] is True
@@ -126,7 +132,9 @@ async def test_run_requires_api_key_when_submitting(monkeypatch, db_session):
     _patch_settings(monkeypatch, api_key="")
     _patch_wsl(monkeypatch, {"2025-26": [{"Id": 200, "LongName": "New Name"}]})
 
-    args = SimpleNamespace(biennium="2025-26", dry_run=False, max_rename_fraction=1.0)
+    args = SimpleNamespace(
+        biennium="2025-26", dry_run=False, max_rename_fraction=1.0, min_overlap_fraction=0.0
+    )
     with pytest.raises(RuntimeError, match="POWERMAP_API_KEY"):
         await cli._run(args)
 
@@ -158,7 +166,9 @@ async def test_run_submits_and_closes_client(monkeypatch, db_session, usa_wa):
 
     monkeypatch.setattr(cli, "GeneratedPowerMapClient", _FakePM)
 
-    args = SimpleNamespace(biennium="2025-26", dry_run=False, max_rename_fraction=1.0)
+    args = SimpleNamespace(
+        biennium="2025-26", dry_run=False, max_rename_fraction=1.0, min_overlap_fraction=0.0
+    )
     result = await cli._run(args)
 
     assert result["emitted"] == 1

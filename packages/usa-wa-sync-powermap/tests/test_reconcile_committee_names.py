@@ -203,6 +203,34 @@ async def test_dropped_committee_is_not_a_rename(db_session, usa_wa):
     assert summary["renamed"] == 0
 
 
+async def test_roster_row_missing_longname_is_dropped(db_session, usa_wa, caplog):
+    """A roster row missing LongName can't seed a diff — it's dropped (and logged), so a
+    healthy renamed committee alongside it is still detected."""
+    await _add_committee(db_session, source_id="200", name="New Name", anchor=ULID())
+    wsl = _FakeWSL(
+        _rosters(
+            prior=[_committee(200, "Old Name"), {"Id": 201}],  # 201 has no LongName
+            current=[_committee(200, "New Name"), {"Id": 201, "LongName": "Has One"}],
+        )
+    )
+    pm = _FakePM()
+
+    with caplog.at_level("WARNING"):
+        summary = await reconcile_committee_names(
+            db_session,
+            OrganizationDescriptor(),
+            wsl,
+            pm,
+            biennium="2025-26",
+            max_rename_fraction=1.0,
+        )
+
+    # 201 dropped from prior → only 200 overlaps → only 200's rename detected.
+    assert summary["renamed"] == 1
+    assert summary["overlap"] == 1
+    assert any("reconcile_names_roster_row_dropped" in r.message for r in caplog.records)
+
+
 # --- per-row eligibility ------------------------------------------------------
 
 
@@ -240,9 +268,9 @@ async def test_unproduced_renamed_is_skipped(db_session, usa_wa):
     assert summary["skipped_unproduced"] == 1
 
 
-async def test_archived_renamed_is_skipped(db_session, usa_wa):
-    """An archived committee is out of the live cohort and PM 422s evidence on it →
-    not emitted."""
+async def test_archived_renamed_is_counted_hidden(db_session, usa_wa):
+    """An archived committee is out of the live cohort and PM 422s evidence on it → not
+    emitted, counted as *hidden* (still produced, just archived) not *unproduced*."""
     row = await _add_committee(db_session, source_id="200", name="New Name", anchor=ULID())
     row.archived_at = datetime.now(UTC)
     await db_session.flush()
@@ -256,7 +284,27 @@ async def test_archived_renamed_is_skipped(db_session, usa_wa):
     )
 
     assert pm.posted == []
-    assert summary["skipped_unproduced"] == 1
+    assert summary["skipped_hidden"] == 1
+    assert summary["skipped_unproduced"] == 0
+
+
+async def test_deleted_renamed_is_counted_hidden(db_session, usa_wa):
+    """A deleted committee is likewise out of the live cohort → hidden, not emitted."""
+    row = await _add_committee(db_session, source_id="200", name="New Name", anchor=ULID())
+    row.deleted_at = datetime.now(UTC)
+    await db_session.flush()
+    wsl = _FakeWSL(
+        _rosters(prior=[_committee(200, "Old Name")], current=[_committee(200, "New Name")])
+    )
+    pm = _FakePM()
+
+    summary = await reconcile_committee_names(
+        db_session, OrganizationDescriptor(), wsl, pm, biennium="2025-26", max_rename_fraction=1.0
+    )
+
+    assert pm.posted == []
+    assert summary["skipped_hidden"] == 1
+    assert summary["skipped_unproduced"] == 0
 
 
 async def test_other_source_renamed_is_out_of_scope(db_session, usa_wa):
@@ -308,6 +356,55 @@ async def test_empty_prior_pull_aborts(db_session, usa_wa):
 
     assert pm.posted == []
     assert summary["aborted"] == "empty_pull"
+
+
+async def test_low_overlap_aborts(db_session, usa_wa):
+    """A thin shared-Id overlap (wrong-biennium pull / Id-scheme change) aborts rather than
+    reporting a hollow "renamed: 0" — WSL Ids are stable, so a real diff overlaps heavily."""
+    for sid in ("1", "2", "3", "4"):
+        await _add_committee(db_session, source_id=sid, name=f"C{sid}", anchor=ULID())
+    wsl = _FakeWSL(
+        _rosters(
+            prior=[_committee(1, "Renamed One")] + [_committee(c, f"X{c}") for c in (91, 92, 93)],
+            current=[_committee(int(s), f"C{s}") for s in ("1", "2", "3", "4")],
+        )
+    )  # overlap = {1}; 1/4 = 0.25 < default 0.5
+    pm = _FakePM()
+
+    summary = await reconcile_committee_names(
+        db_session, OrganizationDescriptor(), wsl, pm, biennium="2025-26"
+    )
+
+    assert pm.posted == []
+    assert summary["aborted"] == "low_overlap"
+    assert summary["overlap"] == 1
+    assert summary["emitted"] == 0
+
+
+async def test_low_overlap_override_allows_high_growth(db_session, usa_wa):
+    """An operator can lower the floor for a biennium that genuinely added many committees."""
+    await _add_committee(db_session, source_id="1", name="C1", anchor=ULID())
+    wsl = _FakeWSL(
+        _rosters(
+            prior=[_committee(1, "Old One"), _committee(91, "X91"), _committee(92, "X92")],
+            current=[_committee(1, "C1"), _committee(2, "New Two"), _committee(3, "New Three")],
+        )
+    )  # overlap = {1}; 1/3 = 0.33 < default but allowed at 0.1
+    pm = _FakePM()
+
+    summary = await reconcile_committee_names(
+        db_session,
+        OrganizationDescriptor(),
+        wsl,
+        pm,
+        biennium="2025-26",
+        min_overlap_fraction=0.1,
+        max_rename_fraction=1.0,
+    )
+
+    assert summary["aborted"] is None
+    assert summary["renamed"] == 1
+    assert summary["emitted"] == 1
 
 
 async def test_rename_storm_aborts(db_session, usa_wa):

@@ -33,13 +33,19 @@ Guardrails mirror the #44 ``reconcile_committee_active`` sibling:
 - **Empty-pull abort.** Either roster empty reads as a failed pull, never a real diff — an
   empty *current* would window nothing; an empty *prior* would make every committee look
   brand-new and mis-window. Abort.
+- **Low-overlap abort.** WSL committee ``Id``s are stable across bienniums, so a healthy
+  diff overlaps near-totally. Too thin a shared-``Id`` overlap (``--min-overlap-fraction``)
+  means a wrong-biennium pull or an Id-scheme change — a meaningless diff that would
+  otherwise slip past the other guards (``renamed=0`` can't trip the storm floor) and read
+  as a clean "no renames". Abort.
 - **Rename-storm floor.** A renamed fraction over ``--max-rename-fraction`` reads as a
   normalisation/encoding artifact or a wrong-biennium pull, not a real mass rename → abort.
 
-Per-row eligibility (skip + count): a renamed ``Id`` we never produced (no live row), one
-that is archived/deleted (out of the :func:`live_only` cohort, and PM 422s evidence on an
-archived org), or one PM never anchored (can't attach by id). Per-row PM rejections and
-transport blips are isolated; a global auth block and real bugs propagate.
+Per-row eligibility (skip + count): a renamed ``Id`` absent from the live cohort — split
+into *hidden* (archived/deleted but still produced; PM 422s evidence on an archived org) vs
+*unproduced* (never produced, or owned by another source) — or one PM never anchored (can't
+attach by id). Per-row PM rejections and transport blips are isolated; a global auth block
+and real bugs propagate.
 
 Thin operator surface — ``python -m usa_wa_sync_powermap.reconcile_committee_names``, no
 operator token (shell access is the trust boundary, as with the redrive / contact-label /
@@ -92,6 +98,14 @@ _ORG_TYPE = "committee"
 #: headroom while still catching a wrong-biennium pull or a normalisation artifact.
 #: Operator-overridable (``--max-rename-fraction``).
 DEFAULT_MAX_RENAME_FRACTION = 0.34
+#: Low-overlap floor: abort if the two rosters share fewer than this fraction of the current
+#: cohort's ``Id``s. WSL committee ``Id``s are **stable** across bienniums, so a healthy
+#: current-vs-prior diff overlaps near-totally; a thin overlap means a wrong ``--biennium``,
+#: a prior the source lacks data for, or an Id-scheme change — a meaningless diff that would
+#: otherwise pass both other guards (``renamed=0`` can't trip the storm floor) and read as a
+#: clean "no renames". Half is generous headroom for genuine new-committee growth.
+#: Operator-overridable (``--min-overlap-fraction``).
+DEFAULT_MIN_OVERLAP_FRACTION = 0.5
 #: Per-row delivery failures isolated so one bad row doesn't abort the run. As with #44,
 #: ``DeliveryBlockedError`` (401/403) is deliberately **not** here — a global credential
 #: failure aborts fast rather than failing every row.
@@ -101,14 +115,21 @@ _DELIVERY_FAILURES = TRANSIENT_EXCEPTIONS
 EXIT_ABORTED = 3
 
 
-def _roster_by_id(roster: list[dict]) -> dict[str, str]:
+def _roster_by_id(roster: list[dict], *, label: str) -> dict[str, str]:
     """Map a ``GetCommittees`` roster to ``{source_id: LongName}``, dropping rows missing
-    either field (a malformed row can't seed a rename diff)."""
+    either field (a malformed row can't seed a rename diff).
+
+    A dropped row is logged (``label`` identifies which roster) — a missing ``LongName``
+    silently suppresses that committee's rename detection, so it must not pass unobserved."""
     by_id: dict[str, str] = {}
     for committee in roster:
         cid = committee.get("Id")
         long_name = committee.get("LongName")
         if cid is None or not long_name:
+            logger.warning(
+                "reconcile_names_roster_row_dropped",
+                extra={"roster": label, "committee_id": cid, "has_long_name": bool(long_name)},
+            )
             continue
         by_id[str(cid)] = long_name
     return by_id
@@ -133,6 +154,21 @@ async def _live_committee_by_source_id(session: AsyncSession) -> dict[str, Organ
         .all()
     )
     return {row.source_id: row for row in rows}
+
+
+async def _produced_committee_source_ids(session: AsyncSession) -> set[str]:
+    """All WSL-produced committee ``source_id``s regardless of liveness — used to classify a
+    renamed Id absent from the live cohort as *hidden* (archived/deleted) vs genuinely
+    *unproduced* (never produced, or owned by another source)."""
+    rows = (
+        await session.execute(
+            select(Organization.source_id).where(
+                Organization.source == _SOURCE,
+                Organization.org_type == _ORG_TYPE,
+            )
+        )
+    ).all()
+    return {source_id for (source_id,) in rows}
 
 
 async def _emit_names(
@@ -192,18 +228,20 @@ async def reconcile_committee_names(
     biennium: str,
     dry_run: bool = False,
     max_rename_fraction: float = DEFAULT_MAX_RENAME_FRACTION,
+    min_overlap_fraction: float = DEFAULT_MIN_OVERLAP_FRACTION,
 ) -> dict:
     """Diff WSL's ``GetCommittees`` rosters for ``biennium`` and its predecessor on the
     stable ``Id`` and emit windowed dated-name evidence for each committee whose
     (normalized) ``LongName`` changed.
 
-    Guardrails (see module docstring): either roster empty aborts (``empty_pull``); a
-    renamed fraction over ``max_rename_fraction`` aborts (``rename_storm``). Both gate the
-    whole run. Renamed committees we never produced (or that are archived/deleted/from
-    another source — absent from the live cohort) are counted-skipped; unanchored ones are
-    counted and skipped. Per-row transport blips and PM rejections are isolated; a global
-    auth block and real bugs propagate. ``dry_run`` runs the diff and guards but posts
-    nothing.
+    Guardrails (see module docstring): either roster empty aborts (``empty_pull``); too thin
+    a shared-``Id`` overlap aborts (``low_overlap`` — a meaningless diff that would otherwise
+    read as a clean "no renames"); a renamed fraction over ``max_rename_fraction`` aborts
+    (``rename_storm``). All gate the whole run. A renamed committee absent from the live
+    cohort is counted-skipped, split into *hidden* (archived/deleted — still produced) vs
+    *unproduced* (never produced, or owned by another source); unanchored ones are counted
+    and skipped. Per-row transport blips and PM rejections are isolated; a global auth block
+    and real bugs propagate. ``dry_run`` runs the diff and guards but posts nothing.
 
     Emit-to-PM-only: PM resolves canonical and the #45 read mirror brings the windows back,
     so no local column is mutated and the caller need not commit. Returns a JSON-able
@@ -211,8 +249,8 @@ async def reconcile_committee_names(
     included), not strictly net-new renames.
     """
     prior_label = previous_biennium(biennium)
-    current = _roster_by_id(await wsl_client.get_committees(biennium))
-    prior = _roster_by_id(await wsl_client.get_committees(prior_label))
+    current = _roster_by_id(await wsl_client.get_committees(biennium), label=biennium)
+    prior = _roster_by_id(await wsl_client.get_committees(prior_label), label=prior_label)
     overlap = current.keys() & prior.keys()
     renamed = sorted(
         cid for cid in overlap if normalize_name(prior[cid]) != normalize_name(current[cid])
@@ -226,6 +264,7 @@ async def reconcile_committee_names(
         "renamed": len(renamed),
         "emitted": 0,
         "skipped_unanchored": 0,
+        "skipped_hidden": 0,
         "skipped_unproduced": 0,
         "rejected": 0,
         "failed": 0,
@@ -238,6 +277,21 @@ async def reconcile_committee_names(
         summary["aborted"] = "empty_pull"
         logger.warning(
             "reconcile_names_aborted", extra={"reason": "empty_pull", "biennium": biennium}
+        )
+        return summary
+    if len(overlap) / len(current) < min_overlap_fraction:
+        # Thin overlap ⇒ wrong-biennium pull / Id-scheme change, not a real diff. WSL Ids are
+        # stable, so a healthy diff overlaps near-totally; abort rather than report a hollow
+        # "renamed: 0". (Guards the storm floor too — a tiny overlap makes it hair-trigger.)
+        summary["aborted"] = "low_overlap"
+        logger.warning(
+            "reconcile_names_aborted",
+            extra={
+                "reason": "low_overlap",
+                "overlap": len(overlap),
+                "current": len(current),
+                "min_overlap_fraction": min_overlap_fraction,
+            },
         )
         return summary
     if overlap and len(renamed) / len(overlap) > max_rename_fraction:
@@ -257,12 +311,18 @@ async def reconcile_committee_names(
         return summary
     boundary = biennium_start_date(biennium)
     cohort = await _live_committee_by_source_id(session)
+    produced = await _produced_committee_source_ids(session)
     for cid in renamed:
         row = cohort.get(cid)
         if row is None:
-            # Never produced, or archived/deleted/other-source ⇒ out of the live cohort.
-            summary["skipped_unproduced"] += 1
-            logger.warning("reconcile_names_unproduced", extra={"source_id": cid})
+            # Absent from the live cohort: hidden (archived/deleted but still produced) vs
+            # genuinely unproduced (never produced, or owned by another source).
+            if cid in produced:
+                summary["skipped_hidden"] += 1
+                logger.warning("reconcile_names_hidden", extra={"source_id": cid})
+            else:
+                summary["skipped_unproduced"] += 1
+                logger.warning("reconcile_names_unproduced", extra={"source_id": cid})
             continue
         await _emit_names(
             descriptor,
@@ -304,6 +364,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "high-churn biennium."
         ),
     )
+    parser.add_argument(
+        "--min-overlap-fraction",
+        type=float,
+        default=DEFAULT_MIN_OVERLAP_FRACTION,
+        help=(
+            "Abort if the two rosters share fewer than this fraction of the current cohort's "
+            f"Ids (default {DEFAULT_MIN_OVERLAP_FRACTION}); a thin overlap means a "
+            "wrong-biennium pull. Lower it only if a biennium genuinely added many committees."
+        ),
+    )
     return parser
 
 
@@ -332,6 +402,7 @@ async def _run(args: argparse.Namespace) -> dict:
                 biennium=biennium,
                 dry_run=True,
                 max_rename_fraction=args.max_rename_fraction,
+                min_overlap_fraction=args.min_overlap_fraction,
             )
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — required to submit observations.")
@@ -345,6 +416,7 @@ async def _run(args: argparse.Namespace) -> dict:
                 pm_client,
                 biennium=biennium,
                 max_rename_fraction=args.max_rename_fraction,
+                min_overlap_fraction=args.min_overlap_fraction,
             )
     finally:
         await pm_client.aclose()
