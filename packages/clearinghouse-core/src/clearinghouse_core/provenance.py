@@ -106,6 +106,14 @@ class FetchEvent(Base, CreatedAtMixin):
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
     content_hash: Mapped[bytes | None] = mapped_column(LargeBinary(32), nullable=True)
+    """sha256 over *exactly* the bytes in the paired :class:`RawPayload.body`,
+    pre-any-app-compression, no normalization — the integrity baseline (#54). The
+    :class:`~clearinghouse_core.runner.AdapterRunner` always populates this
+    (adapter-supplied digest wins, else derived ``sha256(body)``), so rows written
+    since #54 are never NULL. The column stays nullable only for the legacy tail
+    fetched before #54; NULL means "unbaselined," NOT a mismatch — an integrity
+    sweep must skip-and-count those separately and must never treat NULL (or an
+    all-zeros sentinel) as a verified hash."""
     etag: Mapped[str | None] = mapped_column(String(256), nullable=True)
     last_modified: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[FetchStatus] = mapped_column(String(16), nullable=False)

@@ -13,6 +13,7 @@ Covers:
 - discover + refresh aggregate summary
 """
 
+import hashlib
 from collections.abc import AsyncIterable
 from datetime import UTC, datetime, timedelta
 
@@ -79,9 +80,11 @@ class FakeAdapter(BaseAdapter):
         jurisdiction_id: ULID,
         *,
         body: bytes = b"<widget id='X'/>",
+        content_hash: bytes | None = None,
     ) -> None:
         self.jurisdiction_id = jurisdiction_id
         self.body = body
+        self.content_hash = content_hash
         self.fetch_calls = 0
         self.discover_calls = 0
         self.normalize_calls = 0
@@ -98,6 +101,7 @@ class FakeAdapter(BaseAdapter):
             content_type="application/xml",
             body=self.body,
             http_status=200,
+            content_hash=self.content_hash,
         )
 
     async def discover(self, since: datetime | None) -> AsyncIterable[ResourceRef]:
@@ -183,6 +187,62 @@ async def test_fetch_and_normalize_writes_provenance_chain(db_session, setup):
     assert len(citations) == 1
     assert citations[0].entity_type == "fakewidget"
     assert citations[0].confidence == pytest.approx(0.9)
+    # Integrity baseline (#54): every fetch carries sha256(body), never NULL.
+    assert events[0].content_hash == hashlib.sha256(adapter.body).digest()
+
+
+async def test_content_hash_derived_from_body_when_adapter_omits(db_session, setup):
+    """The runner derives content_hash = sha256(body) when the adapter leaves it None.
+
+    Single chokepoint so no adapter can skip the integrity baseline (#54).
+    """
+    adapter = setup["adapter"]
+    runner = setup["runner"]
+    jur_id = setup["jurisdiction"].id
+    assert adapter.content_hash is None  # adapter supplies no hash
+
+    adapter._next_entities = [_widget(jur_id, "W-1", "first")]
+    await runner.fetch_and_normalize("W-1")
+
+    event = (await db_session.execute(select(FetchEvent))).scalar_one()
+    assert event.content_hash == hashlib.sha256(adapter.body).digest()
+    assert event.content_hash is not None
+
+
+async def test_adapter_supplied_content_hash_is_preserved(db_session):
+    """An adapter-supplied content_hash wins over the derived fallback.
+
+    Lets an adapter that streamed its own digest (or hashes a wire form distinct
+    from the stored body) keep authority over the baseline.
+    """
+    state_type = JurisdictionType(slug="state", display_name="State")
+    db_session.add(state_type)
+    await db_session.flush()
+    jurisdiction = Jurisdiction(
+        slug="usa-wa", name="WA", type_id=state_type.id, recorded_at=datetime.now(UTC)
+    )
+    db_session.add(jurisdiction)
+    await db_session.flush()
+    source = Source(
+        jurisdiction_id=jurisdiction.id,
+        name="Fake Source",
+        slug="fake_source",
+        kind="http",
+        reliability=0.9,
+        cache_ttl_days=1,
+    )
+    db_session.add(source)
+    await db_session.flush()
+
+    supplied = bytes(range(32))  # a deliberately-not-sha256(body) digest
+    adapter = FakeAdapter(jurisdiction_id=jurisdiction.id, content_hash=supplied)
+    runner = AdapterRunner(adapter, db_session, source=source, jurisdiction=jurisdiction)
+    adapter._next_entities = [_widget(jurisdiction.id, "W-1", "first")]
+    await runner.fetch_and_normalize("W-1")
+
+    event = (await db_session.execute(select(FetchEvent))).scalar_one()
+    assert event.content_hash == supplied
+    assert event.content_hash != hashlib.sha256(adapter.body).digest()
 
 
 async def test_cache_hit_short_circuits_within_ttl(db_session, setup):

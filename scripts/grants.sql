@@ -88,3 +88,19 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_co
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"app";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_core, sync
   GRANT USAGE, SELECT ON SEQUENCES TO :"app";
+
+-- 6. Write-once provenance (#54). The provenance spine is append-only by
+--    contract; make it append-only by *grant* so the live app role physically
+--    cannot rewrite or erase history. After step 4 granted full DML to <app>,
+--    revoke UPDATE/DELETE on these three tables — INSERT (+ SELECT) remain, so
+--    adapters still append fetch events / payloads / citations, but no serving
+--    role can tamper with an existing row. Only <owner> (migrations) can, which
+--    is the intended trust boundary. The integrity sweep (re-hash vs
+--    content_hash) is the at-rest detector; this is the at-rest preventer.
+--    Default privileges (step 5) still grant full DML on FUTURE tables, so add a
+--    matching REVOKE here when a new provenance/append-only table is introduced.
+REVOKE UPDATE, DELETE ON
+  clearinghouse_core.fetch_events,
+  clearinghouse_core.raw_payloads,
+  clearinghouse_core.citations
+  FROM :"app";

@@ -4,6 +4,7 @@ Owns the cache-or-fetch decision, idempotent upsert, provenance writing,
 and discovery iteration. Same code for every adapter.
 """
 
+import hashlib
 from collections.abc import AsyncIterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -133,6 +134,14 @@ class AdapterRunner:
     async def _record_fetch_event(
         self, resource_id: str, payload: FetchedPayload, *, status: FetchStatus
     ) -> FetchEvent:
+        # Integrity baseline (#54): every fetch event carries a content hash, never
+        # NULL. The runner is the single chokepoint so no adapter can forget it. An
+        # adapter-supplied hash wins (e.g. a streamed digest, or a hash over a wire
+        # form distinct from the stored body); otherwise derive sha256(body). The
+        # canonical hashed form is exactly RawPayload.body — see provenance.py.
+        content_hash = payload.content_hash
+        if content_hash is None:
+            content_hash = hashlib.sha256(payload.body).digest()
         event = FetchEvent(
             source_id=self.source.id,
             resource_id=resource_id,
@@ -140,7 +149,7 @@ class AdapterRunner:
             url=payload.url,
             fetched_at=payload.fetched_at,
             http_status=payload.http_status,
-            content_hash=payload.content_hash,
+            content_hash=content_hash,
             etag=payload.etag,
             last_modified=payload.last_modified,
             status=status,
