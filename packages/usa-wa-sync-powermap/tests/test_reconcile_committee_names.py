@@ -381,6 +381,27 @@ async def test_low_overlap_aborts(db_session, usa_wa):
     assert summary["emitted"] == 0
 
 
+async def test_high_growth_biennium_does_not_abort(db_session, usa_wa):
+    """A biennium that keeps every prior committee but adds many new ones is a meaningful
+    diff — the smaller-roster denominator keeps overlap at 1.0, so no low-overlap abort."""
+    await _add_committee(db_session, source_id="1", name="New One", anchor=ULID())
+    wsl = _FakeWSL(
+        _rosters(
+            prior=[_committee(1, "Old One")],  # 1 prior committee, fully retained
+            current=[_committee(1, "New One")] + [_committee(c, f"Added {c}") for c in range(2, 9)],
+        )
+    )  # overlap = {1}; against current 1/8 = 0.125 (would abort), against prior 1/1 = 1.0
+    pm = _FakePM()
+
+    summary = await reconcile_committee_names(
+        db_session, OrganizationDescriptor(), wsl, pm, biennium="2025-26", max_rename_fraction=1.0
+    )
+
+    assert summary["aborted"] is None
+    assert summary["renamed"] == 1
+    assert summary["emitted"] == 1
+
+
 async def test_low_overlap_override_allows_high_growth(db_session, usa_wa):
     """An operator can lower the floor for a biennium that genuinely added many committees."""
     await _add_committee(db_session, source_id="1", name="C1", anchor=ULID())

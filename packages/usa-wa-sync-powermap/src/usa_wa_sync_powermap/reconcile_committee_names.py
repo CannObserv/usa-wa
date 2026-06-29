@@ -34,10 +34,11 @@ Guardrails mirror the #44 ``reconcile_committee_active`` sibling:
   empty *current* would window nothing; an empty *prior* would make every committee look
   brand-new and mis-window. Abort.
 - **Low-overlap abort.** WSL committee ``Id``s are stable across bienniums, so a healthy
-  diff overlaps near-totally. Too thin a shared-``Id`` overlap (``--min-overlap-fraction``)
-  means a wrong-biennium pull or an Id-scheme change — a meaningless diff that would
-  otherwise slip past the other guards (``renamed=0`` can't trip the storm floor) and read
-  as a clean "no renames". Abort.
+  diff overlaps near-totally. Too thin a shared-``Id`` overlap (``--min-overlap-fraction``,
+  measured against the *smaller* roster so one-sided growth/drop doesn't false-trip) means a
+  wrong-biennium pull or an Id-scheme change — a meaningless diff that would otherwise slip
+  past the other guards (``renamed=0`` can't trip the storm floor) and read as a clean "no
+  renames". Abort.
 - **Rename-storm floor.** A renamed fraction over ``--max-rename-fraction`` reads as a
   normalisation/encoding artifact or a wrong-biennium pull, not a real mass rename → abort.
 
@@ -98,12 +99,13 @@ _ORG_TYPE = "committee"
 #: headroom while still catching a wrong-biennium pull or a normalisation artifact.
 #: Operator-overridable (``--max-rename-fraction``).
 DEFAULT_MAX_RENAME_FRACTION = 0.34
-#: Low-overlap floor: abort if the two rosters share fewer than this fraction of the current
-#: cohort's ``Id``s. WSL committee ``Id``s are **stable** across bienniums, so a healthy
-#: current-vs-prior diff overlaps near-totally; a thin overlap means a wrong ``--biennium``,
-#: a prior the source lacks data for, or an Id-scheme change — a meaningless diff that would
-#: otherwise pass both other guards (``renamed=0`` can't trip the storm floor) and read as a
-#: clean "no renames". Half is generous headroom for genuine new-committee growth.
+#: Low-overlap floor: abort if the two rosters share fewer than this fraction of the
+#: **smaller** roster's ``Id``s. WSL committee ``Id``s are **stable** across bienniums, so a
+#: healthy current-vs-prior diff overlaps near-totally; a thin overlap means a wrong
+#: ``--biennium``, a prior the source lacks data for, or an Id-scheme change — a meaningless
+#: diff that would otherwise pass both other guards (``renamed=0`` can't trip the storm
+#: floor) and read as a clean "no renames". The smaller-roster denominator reads 1.0 under
+#: one-sided growth or drop, so only genuine divergence trips it. Half is generous headroom.
 #: Operator-overridable (``--min-overlap-fraction``).
 DEFAULT_MIN_OVERLAP_FRACTION = 0.5
 #: Per-row delivery failures isolated so one bad row doesn't abort the run. As with #44,
@@ -279,7 +281,11 @@ async def reconcile_committee_names(
             "reconcile_names_aborted", extra={"reason": "empty_pull", "biennium": biennium}
         )
         return summary
-    if len(overlap) / len(current) < min_overlap_fraction:
+    # Denominator is the SMALLER roster: "of the smaller cohort, what fraction overlapped."
+    # That reads 1.0 whenever one roster contains the other (pure growth *or* pure drop) and
+    # only drops when the rosters genuinely diverge — the wrong-biennium case — so a
+    # legitimate high-growth biennium doesn't false-abort on a current-only denominator.
+    if len(overlap) / min(len(current), len(prior)) < min_overlap_fraction:
         # Thin overlap ⇒ wrong-biennium pull / Id-scheme change, not a real diff. WSL Ids are
         # stable, so a healthy diff overlaps near-totally; abort rather than report a hollow
         # "renamed: 0". (Guards the storm floor too — a tiny overlap makes it hair-trigger.)
@@ -290,6 +296,7 @@ async def reconcile_committee_names(
                 "reason": "low_overlap",
                 "overlap": len(overlap),
                 "current": len(current),
+                "prior": len(prior),
                 "min_overlap_fraction": min_overlap_fraction,
             },
         )
