@@ -10,7 +10,6 @@ remain stubbed for subsequent P1 cuts.
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterable
 from datetime import UTC, datetime
 
@@ -54,17 +53,22 @@ class WALegislatureAdapter(BaseAdapter):
         yield ResourceRef(resource_id=f"{COMMITTEES_RESOURCE_PREFIX}{self.biennium}")
 
     async def fetch_one(self, resource_id: str) -> FetchedPayload:
-        """Pull the committee list from WSL and stash as JSON-encoded bytes."""
+        """Pull the committee list from WSL, archiving the pristine SOAP wire.
+
+        ``body`` is the raw response envelope WSL sent (the provenance source of
+        truth the runner hashes, #54); the zeep-derived committee dicts ride along
+        on ``parsed`` so :meth:`normalize` doesn't re-parse the XML.
+        """
         if not resource_id.startswith(COMMITTEES_RESOURCE_PREFIX):
             raise ValueError(f"unknown resource_id: {resource_id!r}")
-        committees = await self._committee_client.get_active_committees()
-        body = json.dumps(committees).encode("utf-8")
+        fetched = await self._committee_client.fetch_active_committees()
         return FetchedPayload(
             url=f"{WSL_BASE_URL}/CommitteeService.asmx#GetActiveCommittees",
             fetched_at=datetime.now(UTC),
-            content_type="application/json",
-            body=body,
+            content_type=fetched.content_type,
+            body=fetched.wire,
             http_status=200,
+            parsed=fetched.committees,
         )
 
     async def normalize(self, payload: FetchedPayload) -> NormalizedBatch:

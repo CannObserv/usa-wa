@@ -15,12 +15,53 @@ network via vcrpy cassettes.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import Any
 
 from zeep import Client
 from zeep.helpers import serialize_object
+from zeep.transports import Transport
 
 WSL_BASE_URL = "https://wslwebservices.leg.wa.gov"
+
+
+@dataclass(frozen=True)
+class WireFetch:
+    """An archival fetch result: the pristine wire bytes plus the derived parse.
+
+    ``wire`` is the raw SOAP-XML response body WSL actually sent — the
+    provenance source of truth that gets archived and hashed (#54). ``committees``
+    is the derived dict parse (zeep → ``serialize_object``), saved so the
+    normalizer doesn't re-parse the envelope. Treat ``committees`` as derivative:
+    if the two ever disagree, ``wire`` is authoritative.
+    """
+
+    committees: list[dict[str, Any]]
+    wire: bytes
+    content_type: str
+
+
+class _CapturingTransport(Transport):
+    """zeep transport that stashes the last operation response's raw bytes.
+
+    SOAP operation calls route through :meth:`Transport.post`; the WSDL load uses
+    ``get``/``load``. Overriding ``post`` therefore captures exactly the
+    operation response envelope — the wire form we archive — without the WSDL GET
+    bleeding in. Single-threaded by contract: one logical fetch at a time per
+    client (the async wrappers serialize via ``asyncio.to_thread``), so the
+    last-write attributes are safe to read immediately after the call returns.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.last_wire: bytes | None = None
+        self.last_content_type: str | None = None
+
+    def post(self, address: str, message: Any, headers: dict[str, str]) -> Any:
+        response = super().post(address, message, headers)
+        self.last_wire = response.content
+        self.last_content_type = response.headers.get("Content-Type")
+        return response
 
 
 class WSLClient:
@@ -33,12 +74,18 @@ class WSLClient:
     def __init__(self, service: str, *, base_url: str = WSL_BASE_URL) -> None:
         self.service = service
         self._wsdl_url = f"{base_url}/{service}.asmx?wsdl"
+        self._transport = _CapturingTransport()
         self._client: Client | None = None
 
     def _ensure_client(self) -> Client:
-        """Build the zeep client on first call; cache it for the lifetime."""
+        """Build the zeep client on first call; cache it for the lifetime.
+
+        Built on a :class:`_CapturingTransport` so the archival fetch path can
+        recover the pristine response wire (#54) — a no-op cost for the
+        non-archival reads that ignore it.
+        """
         if self._client is None:
-            self._client = Client(self._wsdl_url)
+            self._client = Client(self._wsdl_url, transport=self._transport)
         return self._client
 
     def _get_active_committees_sync(self) -> list[dict[str, Any]]:
@@ -47,6 +94,16 @@ class WSLClient:
         if serialized is None:
             return []
         return list(serialized)
+
+    def _fetch_active_committees_sync(self) -> WireFetch:
+        result = self._ensure_client().service.GetActiveCommittees()
+        serialized = serialize_object(result, dict)
+        committees = list(serialized) if serialized is not None else []
+        return WireFetch(
+            committees=committees,
+            wire=self._transport.last_wire or b"",
+            content_type=self._transport.last_content_type or "text/xml",
+        )
 
     def _get_committees_sync(self, biennium: str) -> list[dict[str, Any]]:
         result = self._ensure_client().service.GetCommittees(biennium)
@@ -92,3 +149,18 @@ class WSLClient:
                 f"get_active_committees requires service='CommitteeService', got {self.service!r}"
             )
         return await asyncio.to_thread(self._get_active_committees_sync)
+
+    async def fetch_active_committees(self) -> WireFetch:
+        """Archival pull: ``GetActiveCommittees()`` keeping the pristine wire.
+
+        Same SOAP call and ``asyncio.to_thread`` dispatch as
+        :meth:`get_active_committees`, but returns a :class:`WireFetch` carrying
+        the raw response envelope bytes (for archival + hashing, #54) alongside
+        the derived dict parse. This is the form the adapter's ``fetch_one`` uses
+        so ``RawPayload.body`` holds what WSL sent, not our re-serialization.
+        """
+        if self.service != "CommitteeService":
+            raise ValueError(
+                f"fetch_active_committees requires service='CommitteeService', got {self.service!r}"
+            )
+        return await asyncio.to_thread(self._fetch_active_committees_sync)

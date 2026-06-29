@@ -46,6 +46,13 @@ class FetchedPayload:
     etag: str | None = None
     last_modified: str | None = None
     resource_version_key: str | None = None
+    parsed: object | None = None
+    """Optional already-parsed structured form of ``body``, set when the adapter
+    parsed the response during fetch (e.g. a SOAP source archiving the raw wire
+    envelope as ``body`` while keeping the zeep-derived dicts here). A *derived*
+    artifact: ``body`` stays the archived, hashed source of truth; ``parsed`` only
+    saves :meth:`BaseAdapter.normalize` a re-parse. ``None`` means "parse ``body``
+    yourself" — the pre-archival default."""
 
 
 @dataclass

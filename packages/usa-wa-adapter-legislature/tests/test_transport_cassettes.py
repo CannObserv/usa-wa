@@ -43,3 +43,35 @@ async def test_get_active_committees_wrong_service_raises():
     client = WSLClient("LegislationService")
     with pytest.raises(ValueError, match="CommitteeService"):
         await client.get_active_committees()
+
+
+async def test_fetch_active_committees_captures_pristine_wire(wsl_vcr):
+    """The archival fetch returns the raw SOAP envelope bytes alongside the parse.
+
+    Provenance baseline (#54): ``wire`` is what WSL actually sent (the SOAP-XML
+    response body), not our re-serialization. ``committees`` is the derived parse.
+    """
+    cassette = "committee_service_get_active_committees_2025-26.yaml"
+    with wsl_vcr.use_cassette(cassette):
+        client = WSLClient("CommitteeService")
+        fetched = await client.fetch_active_committees()
+
+    # Wire is non-empty SOAP XML, not JSON.
+    assert fetched.wire
+    assert isinstance(fetched.wire, bytes)
+    assert b"GetActiveCommittees" in fetched.wire
+    assert fetched.wire.lstrip().startswith(b"<")
+    assert "xml" in fetched.content_type.lower()
+
+    # Parsed committees match the legacy list shape (same recorded snapshot).
+    assert len(fetched.committees) == 34
+    expected_keys = {"Id", "Name", "LongName", "Agency", "Acronym", "Phone"}
+    for row in fetched.committees:
+        assert expected_keys.issubset(row.keys())
+
+
+async def test_fetch_active_committees_wrong_service_raises():
+    """The archival fetch enforces the same service-name dispatch guard."""
+    client = WSLClient("LegislationService")
+    with pytest.raises(ValueError, match="CommitteeService"):
+        await client.fetch_active_committees()

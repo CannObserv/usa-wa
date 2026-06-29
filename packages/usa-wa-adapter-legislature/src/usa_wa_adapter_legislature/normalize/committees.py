@@ -44,8 +44,16 @@ async def normalize_committees(
     anchors: BootstrapAnchors,
     jurisdiction_id: _ULID,
 ) -> NormalizedBatch:
-    """Parse a committees payload and emit canonical Organization rows."""
-    committees = json.loads(payload.body.decode("utf-8"))
+    """Parse a committees payload and emit canonical Organization rows.
+
+    Prefers ``payload.parsed`` (the zeep-derived dicts the adapter carries
+    alongside the archived SOAP wire, #54); falls back to decoding ``body`` as
+    JSON for the pre-archival payload shape (and JSON-body tests).
+    """
+    if payload.parsed is not None:
+        committees = payload.parsed
+    else:
+        committees = json.loads(payload.body.decode("utf-8"))
     entities: list[Organization] = []
     for committee in committees:
         long_name = committee.get("LongName")
