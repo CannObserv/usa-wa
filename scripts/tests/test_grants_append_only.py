@@ -106,3 +106,15 @@ def test_revoke_update_matches_intent(table):
 def test_revoke_delete_matches_intent(table):
     revoked = table in _revoked_tables("DELETE")
     assert revoked == EXPECTED[table]["revoke_delete"]
+
+
+def test_insert_and_select_are_never_revoked():
+    """The append path needs INSERT (+ SELECT) on the provenance tables.
+
+    The complement of write-once: only UPDATE/DELETE may be revoked. An
+    over-broad REVOKE INSERT/SELECT would break the runner's append path, and the
+    runner's own tests run as the test-owner role (immune to grants), so they
+    would not catch it — this guard does.
+    """
+    assert _revoked_tables("INSERT") == set()
+    assert _revoked_tables("SELECT") == set()

@@ -109,6 +109,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_co
 --    (step 5) still grant full DML on FUTURE clearinghouse_core tables, so a new
 --    append-only table must be added here — scripts/tests/test_grants_append_only.py
 --    fails if a clearinghouse_core table isn't classified, forcing the decision.
+--    Both REVOKEs are idempotent (a no-op on an already-revoked privilege), so
+--    they re-apply cleanly after every migration like the rest of this file.
 REVOKE UPDATE ON
   clearinghouse_core.fetch_events,
   clearinghouse_core.raw_payloads,
