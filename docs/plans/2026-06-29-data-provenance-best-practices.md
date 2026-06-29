@@ -1,7 +1,7 @@
 ---
 title: Data-provenance best practices (content_hash, wire archival, integrity sweep)
 date: 2026-06-29
-status: in-progress
+status: implemented
 ---
 
 # Data-provenance best practices
@@ -117,6 +117,18 @@ storage placement (the dimension #54 left unstated):
 3. **Item 3** — `Source.retention_policy` column + migration.
 4. **Item 4** — integrity-sweep CLI + oneshot/timer + alert wiring.
 5. **Item 5** — seed `.sha256`/`.meta.json` manifest convention (with #39).
+
+## Implementation status (2026-06-29)
+
+All five items shipped under #54. Item 5 delivered the *reusable convention*
+(`clearinghouse_core.seed_manifest`: `write_sidecars` / `verify` /
+`verified_digest` — the ingest seam that hands a verified raw digest to
+`FetchEvent.content_hash`); the concrete seed file itself rides #39, which
+becomes its first caller. Items 1–4 are live in the runner, transport, schema,
+and a weekly systemd sweep. Deferred-by-decision (recorded above): app-level
+payload compression beyond TOAST, the actual RawPayload GC, and the sweep
+since-cursor — each waits on #39 producing real archival volume to measure
+against.
 
 ## Open questions
 
