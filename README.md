@@ -106,5 +106,6 @@ above already landed in `/etc/systemd/system/` via the `usa-wa*` copy.)
 ```bash
 sudo systemctl enable --now usa-wa-wsl-refresh.timer                 # daily 06:00 UTC
 sudo systemctl enable --now usa-wa-reconcile-committee-active.timer  # weekly Sun 07:00 UTC
+sudo systemctl enable --now usa-wa-reconcile-committee-names.timer   # weekly Sun 07:30 UTC
 sudo systemctl list-timers 'usa-wa-*'                               # verify next-elapse
 ```

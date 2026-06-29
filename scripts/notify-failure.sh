@@ -2,8 +2,9 @@
 # OnFailure= handler for usa-wa's unattended oneshots (issue #49).
 #
 # Started by `usa-wa-notify-failure@<failed-unit>.service` when a failable
-# oneshot — usa-wa-migrate, usa-wa-wsl-refresh, usa-wa-reconcile-committee-active
-# — exits non-zero or times out. Emails the operator via the exe.dev email
+# oneshot — usa-wa-migrate, usa-wa-wsl-refresh, usa-wa-reconcile-committee-active,
+# usa-wa-reconcile-committee-names — exits non-zero or times out. Emails the
+# operator via the exe.dev email
 # gateway (a documented VM feature: https://exe.dev/docs/send-email.md), so it
 # needs no MTA and no SMTP creds on this single headless VM.
 #
