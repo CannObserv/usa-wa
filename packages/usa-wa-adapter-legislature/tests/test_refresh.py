@@ -20,9 +20,41 @@ from usa_wa_adapter_legislature.refresh import (
     previous_biennium,
     run_refresh,
 )
+from usa_wa_adapter_legislature.transport import WireFetch
 
 CASSETTE_DIR = Path(__file__).parent / "cassettes"
 CASSETTE = "committee_service_get_active_committees_2025-26.yaml"
+
+
+class _FakeMeetingClient:
+    """Injectable CommitteeMeetingService stand-in (no network) for the daily-pull path."""
+
+    def __init__(self, records: list[dict]) -> None:
+        self._records = records
+
+    async def fetch_committee_meetings(self, begin, end) -> WireFetch:  # noqa: ANN001
+        return WireFetch(records=self._records, wire=b"<docket/>", content_type="text/xml")
+
+
+def _jtc_docket() -> list[dict]:
+    """A one-meeting docket carrying the Joint Transportation Committee (Id -140)."""
+    return [
+        {
+            "Agency": "Joint",
+            "Committees": {
+                "Committee": [
+                    {
+                        "Id": -140,
+                        "Name": "Joint Transportation Committee",
+                        "LongName": "Joint Joint Transportation Committee",
+                        "Agency": "Joint",
+                        "Acronym": "JTC",
+                        "Phone": None,
+                    }
+                ]
+            },
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -85,8 +117,13 @@ async def test_run_refresh_seeds_source_and_runs_adapter(db_session, usa_wa):
             return_value="2025-26",
         ),
     ):
-        summary = await run_refresh(db_session, biennium="2025-26")
+        summary = await run_refresh(
+            db_session,
+            biennium="2025-26",
+            meeting_client=_FakeMeetingClient(_jtc_docket()),
+        )
 
+    # The committees summary is unchanged by the additive meeting pull.
     assert summary.discovered == 1
     assert summary.fetched == 1
     assert summary.upserted_entities == 34
@@ -103,6 +140,14 @@ async def test_run_refresh_seeds_source_and_runs_adapter(db_session, usa_wa):
     )
     assert len(committees) == 34
 
+    # The additive current-window meeting pull produced the Joint body (org_type='other').
+    others = (
+        (await db_session.execute(select(Organization).where(Organization.org_type == "other")))
+        .scalars()
+        .all()
+    )
+    assert {o.source_id for o in others} == {"-140"}
+
 
 async def test_run_refresh_is_idempotent_on_source_creation(db_session, usa_wa):
     """A second call reuses the existing Source (no duplicate slug violation)."""
@@ -113,10 +158,14 @@ async def test_run_refresh_is_idempotent_on_source_creation(db_session, usa_wa):
         decode_compressed_response=True,
     )
     with recorder.use_cassette(CASSETTE):
-        await run_refresh(db_session, biennium="2025-26")
+        await run_refresh(
+            db_session, biennium="2025-26", meeting_client=_FakeMeetingClient(_jtc_docket())
+        )
 
     # Second invocation hits the cache (no new SOAP call); Source row is reused.
-    await run_refresh(db_session, biennium="2025-26")
+    await run_refresh(
+        db_session, biennium="2025-26", meeting_client=_FakeMeetingClient(_jtc_docket())
+    )
 
     sources = (await db_session.execute(select(Source))).scalars().all()
     assert len(sources) == 1

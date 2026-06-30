@@ -34,6 +34,7 @@ from clearinghouse_core.provenance import RetentionPolicy, Source
 from clearinghouse_core.runner import AdapterRunner, RunSummary
 from usa_wa_adapter_legislature.adapter import WALegislatureAdapter
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
+from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.transport import WSL_BASE_URL, WSLClient
 
 logger = get_logger(__name__)
@@ -106,10 +107,21 @@ async def _get_or_create_source(session: AsyncSession, jurisdiction: Jurisdictio
     return row
 
 
-async def run_refresh(session: AsyncSession, *, biennium: str | None = None) -> RunSummary:
+async def run_refresh(
+    session: AsyncSession,
+    *,
+    biennium: str | None = None,
+    meeting_client: WSLClient | None = None,
+) -> RunSummary:
     """Execute one WSL refresh cycle against the supplied session.
 
-    Returns the :class:`RunSummary` aggregated across discovered resources.
+    Runs the committees discovery, then an **additive** current-biennium meeting-docket
+    pull for the Joint/`Other` class (#39). Returns the committees :class:`RunSummary`;
+    the meeting pull is logged separately and is best-effort — a meeting-service outage
+    must not fail the (primary) committees refresh.
+
+    ``meeting_client`` is injectable for tests; production defaults to a real
+    ``CommitteeMeetingService`` client.
     """
     if biennium is None:
         biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
@@ -123,6 +135,7 @@ async def run_refresh(session: AsyncSession, *, biennium: str | None = None) -> 
         jurisdiction_id=jurisdiction.id,
         biennium=biennium,
         client=WSLClient("CommitteeService"),
+        meeting_client=meeting_client,
     )
     runner = AdapterRunner(
         adapter,
@@ -136,7 +149,27 @@ async def run_refresh(session: AsyncSession, *, biennium: str | None = None) -> 
         "wsl_refresh_summary",
         extra={"summary": dataclasses.asdict(summary), "biennium": biennium},
     )
+    await _discover_current_meeting_window(runner, biennium)
     return summary
+
+
+async def _discover_current_meeting_window(runner: AdapterRunner, biennium: str) -> None:
+    """Additive Joint/`Other` discovery from the current biennium's meeting window.
+
+    Cache-or-fetch keyed on the stable ``committee-meetings:<begin>:<end>`` id (the
+    source's ``cache_ttl_days`` bounds re-fetch). Absence of a previously-seen body
+    from the window is **not** retirement — the meeting normalizer only ever upserts
+    the bodies present, never marks an absent one inactive (#39). Best-effort: a
+    failure is logged and swallowed so the committees refresh still succeeds."""
+    resource_id = meetings_resource_id(*biennium_window(biennium))
+    try:
+        upserted = await runner.fetch_and_normalize(resource_id)
+        logger.info(
+            "wsl_meeting_discovery",
+            extra={"biennium": biennium, "resource_id": resource_id, "upserted": upserted},
+        )
+    except Exception:
+        logger.exception("wsl_meeting_discovery_failed", extra={"resource_id": resource_id})
 
 
 async def _main() -> int:

@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 import vcr
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from clearinghouse_core.provenance import Citation, FetchEvent, RawPayload, Source
 from clearinghouse_core.runner import AdapterRunner
@@ -238,3 +239,68 @@ async def test_meeting_window_archives_wire_and_upserts_joint_other(db_session, 
     assert org.source_id == "-140"
     assert org.name == "Joint Joint Transportation Committee"
     assert org.parent_organization_id == anchors.legislature_id
+
+
+async def test_meeting_absence_is_not_retirement(db_session, usa_wa, wsl_source):
+    """A joint body absent from a window is left fully intact — meeting-absence is not
+    retirement for the Joint/Other class; the normalizer only ever upserts present bodies."""
+    anchors = await bootstrap_synthetic_anchors(
+        db_session, biennium="2025-26", jurisdiction_id=usa_wa.id
+    )
+    # An existing, live joint org that will NOT appear in this window's docket.
+    await db_session.execute(
+        pg_insert(Organization).values(
+            source="usa_wa_legislature",
+            source_id="-140",
+            jurisdiction_id=usa_wa.id,
+            name="Joint Joint Transportation Committee",
+            org_type="other",
+            parent_organization_id=anchors.legislature_id,
+        )
+    )
+    # The docket carries a *different* joint body (-5), not -140.
+    records = [
+        {
+            "Agency": "Joint",
+            "Committees": {
+                "Committee": [
+                    {
+                        "Id": -5,
+                        "Name": "JLARC",
+                        "LongName": "Joint JLARC",
+                        "Agency": "Joint",
+                        "Acronym": "JLARC",
+                        "Phone": None,
+                    }
+                ]
+            },
+        }
+    ]
+    adapter = WALegislatureAdapter(
+        anchors=anchors,
+        jurisdiction_id=usa_wa.id,
+        biennium="2025-26",
+        meeting_client=_FakeMeetingClient(records, wire=b"<docket/>"),
+    )
+    runner = AdapterRunner(
+        adapter,
+        db_session,
+        source=wsl_source,
+        jurisdiction=usa_wa,
+        natural_key=("source", "source_id"),
+    )
+    await runner.fetch_and_normalize(meetings_resource_id(*biennium_window("2025-26")))
+
+    rows = {
+        o.source_id: o
+        for o in (
+            await db_session.execute(select(Organization).where(Organization.org_type == "other"))
+        )
+        .scalars()
+        .all()
+    }
+    assert set(rows) == {"-140", "-5"}  # -5 discovered; -140 retained, not retired
+    survivor = rows["-140"]
+    assert survivor.active is True
+    assert survivor.archived_at is None
+    assert survivor.deleted_at is None
