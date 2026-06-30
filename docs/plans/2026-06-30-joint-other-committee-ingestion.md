@@ -1,7 +1,7 @@
 ---
 title: Joint/Other committee ingestion — meeting-derived, harvest-then-freeze (#39)
 date: 2026-06-30
-status: draft
+status: done
 ---
 
 # Joint/Other committee ingestion (#39)

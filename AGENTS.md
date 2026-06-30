@@ -71,12 +71,16 @@ packages/
                         Regenerate when PM's API changes (see "Regenerating the PM client" below).
   usa-wa-adapter-legislature/         — Layer 3: WA Legislature SOAP source mapping
     src/usa_wa_adapter_legislature/
-      adapter.py      — WALegislatureAdapter(BaseAdapter): discover/fetch_one/normalize for the committees:<biennium> resource
+      adapter.py      — WALegislatureAdapter(BaseAdapter): discover/fetch_one/normalize; dispatches two resources — committees:<biennium> (CommitteeService) and committee-meetings:<begin>:<end> (CommitteeMeetingService, #39), normalize routes by service URL
       synthesis.py    — pure functions emitting canonical-row dicts for anchors WSL doesn't expose (legislature/chamber/biennium/regular)
       bootstrap.py    — bootstrap_synthetic_anchors: idempotent ON CONFLICT DO NOTHING upserts of the 6 anchor rows; returns BootstrapAnchors
-      transport.py    — WSLClient: per-service zeep wrapper with lazy WSDL load; SOAP calls dispatched via asyncio.to_thread
-      normalize/      — per-resource normalizers (committees.py: WSL Committee → canonical Organization; Agency resolves the parent — House/Senate → chamber, Joint → legislature)
-      refresh.py      — `python -m usa_wa_adapter_legislature.refresh` CLI entrypoint; biennium-from-date with USA_WA_BIENNIUM override
+      transport.py    — WSLClient: per-service zeep wrapper with lazy WSDL load; SOAP calls via asyncio.to_thread. fetch_active_committees + fetch_committee_meetings return WireFetch (parsed records + pristine SOAP wire for archival, #54)
+      meeting_windows.py — biennium → (begin, end) window + committee-meetings:<begin>:<end> resource-id keying (#39); once-per-window cache key for docket frugality
+      normalize/      — per-resource normalizers. committees.py: WSL Committee → Organization (House/Senate → chamber, Joint → legislature; org_type='committee'). committee_meetings.py: meeting refs → Joint/`Other` Organizations (#39) — dedup by stable Id, name=LongName verbatim, org_type='other', parent=legislature; House/Senate skipped (CommitteeService's domain). parent_for_agency shared (extended for 'Other')
+      committee_seed.py — frozen Joint/`Other` seed (de)serialization (deterministic bytes for stable hashing); DEFAULT_SEED_PATH = data/joint_other_committees_seed.json
+      harvest_committee_meetings.py — backfill CLI (#39): sweep a biennium range through the runner (archive wire + upsert org_type='other'), then freeze the deduped cohort to the seed + seed_manifest sidecars. Closed windows = cache hits on re-run
+      ingest_committee_seed.py — no-WSL seed loader (#39): verified_digest gates the bytes → synthetic FetchEvent.content_hash + archived RawPayload, fill-only upsert (seed is a floor, not an authority)
+      refresh.py      — `python -m usa_wa_adapter_legislature.refresh` CLI entrypoint; biennium-from-date with USA_WA_BIENNIUM override. Daily run also pulls the current biennium's meeting window for additive Joint/`Other` discovery (best-effort; window-absence ≠ retirement, #39)
   usa-wa-api/                         — Layer 4: WA deployment (FastAPI + MCP + REST)
     src/usa_wa_api/api/
       main.py         — App factory, lifespan, router registration
@@ -293,10 +297,25 @@ uv run alembic revision --autogenerate -m "description"
 # FastAPI dev server
 uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
 
-# WSL refresh — one-shot pull from CommitteeService.GetActiveCommittees.
+# WSL refresh — one-shot pull from CommitteeService.GetActiveCommittees, plus an
+# additive current-biennium meeting-window pull for Joint/Other discovery (#39).
 # Prod runs this daily at 06:00 UTC via the usa-wa-wsl-refresh.timer systemd
 # unit; the command below is the manual / backfill form (pair with USA_WA_BIENNIUM).
 python -m usa_wa_adapter_legislature.refresh
+
+# Joint/Other committee backfill (#39) — sweep CommitteeMeetingService.GetCommitteeMeetings
+# over a biennium range (the only source of Joint/Other committees), archiving the pristine
+# SOAP wire and upserting org_type='other' rows, then FREEZE the deduped durable cohort to
+# data/joint_other_committees_seed.json (+ .sha256/.meta.json sidecars). Hits live WSL (one
+# POST per window) AND mutates the DB — not read-only; --dry-run still upserts but skips the
+# seed write. Closed windows are cache hits on re-run. Commit the produced seed.
+python -m usa_wa_adapter_legislature.harvest_committee_meetings --from-biennium 2023-24 --to-biennium 2025-26
+
+# Joint/Other seed ingest (#39) — the no-WSL counterpart: materialize the frozen cohort on a
+# fresh deploy. verified_digest gates the seed bytes (fails closed on a sidecar mismatch),
+# writes a synthetic hashed FetchEvent + archived RawPayload, and fill-only upserts (existing
+# rows untouched — the seed is a floor, not an authority). Needs the committed seed file.
+python -m usa_wa_adapter_legislature.ingest_committee_seed
 
 # Contact-label backfill (#31) — re-observation of produced orgs holding a phone,
 # so PM adopts the synthesized contact display_label. Idempotent + re-runnable;
