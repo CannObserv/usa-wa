@@ -1,0 +1,581 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - Zeep/4.3.2 (www.python-zeep.org)
+    method: GET
+    uri: https://wslwebservices.leg.wa.gov/CommitteeMeetingService.asmx?wsdl
+  response:
+    body:
+      string: "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<wsdl:definitions xmlns:s=\"http://www.w3.org/2001/XMLSchema\"
+        xmlns:soap12=\"http://schemas.xmlsoap.org/wsdl/soap12/\" xmlns:http=\"http://schemas.xmlsoap.org/wsdl/http/\"
+        xmlns:mime=\"http://schemas.xmlsoap.org/wsdl/mime/\" xmlns:tns=\"http://WSLWebServices.leg.wa.gov/\"
+        xmlns:soap=\"http://schemas.xmlsoap.org/wsdl/soap/\" xmlns:tm=\"http://microsoft.com/wsdl/mime/textMatching/\"
+        xmlns:soapenc=\"http://schemas.xmlsoap.org/soap/encoding/\" targetNamespace=\"http://WSLWebServices.leg.wa.gov/\"
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">\r\n  <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Information on committee meetings
+        of the Washington State Legislature.</wsdl:documentation>\r\n  <wsdl:types>\r\n
+        \   <s:schema elementFormDefault=\"qualified\" targetNamespace=\"http://WSLWebServices.leg.wa.gov/\">\r\n
+        \     <s:element name=\"GetCommitteeMeetings\">\r\n        <s:complexType>\r\n
+        \         <s:sequence>\r\n            <s:element minOccurs=\"1\" maxOccurs=\"1\"
+        name=\"beginDate\" type=\"s:dateTime\" />\r\n            <s:element minOccurs=\"1\"
+        maxOccurs=\"1\" name=\"endDate\" type=\"s:dateTime\" />\r\n          </s:sequence>\r\n
+        \       </s:complexType>\r\n      </s:element>\r\n      <s:element name=\"GetCommitteeMeetingsResponse\">\r\n
+        \       <s:complexType>\r\n          <s:sequence>\r\n            <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"GetCommitteeMeetingsResult\" type=\"tns:ArrayOfCommitteeMeeting\"
+        />\r\n          </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:complexType name=\"ArrayOfCommitteeMeeting\">\r\n        <s:sequence>\r\n
+        \         <s:element minOccurs=\"0\" maxOccurs=\"unbounded\" name=\"CommitteeMeeting\"
+        nillable=\"true\" type=\"tns:CommitteeMeeting\" />\r\n        </s:sequence>\r\n
+        \     </s:complexType>\r\n      <s:complexType name=\"CommitteeMeeting\">\r\n
+        \       <s:sequence>\r\n          <s:element minOccurs=\"1\" maxOccurs=\"1\"
+        name=\"AgendaId\" type=\"s:int\" />\r\n          <s:element minOccurs=\"0\"
+        maxOccurs=\"1\" name=\"Agency\" type=\"s:string\" />\r\n          <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"Committees\" type=\"tns:ArrayOfCommittee\"
+        />\r\n          <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"Room\" type=\"s:string\"
+        />\r\n          <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"Building\"
+        type=\"s:string\" />\r\n          <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"Address\" type=\"s:string\" />\r\n          <s:element minOccurs=\"0\"
+        maxOccurs=\"1\" name=\"City\" type=\"s:string\" />\r\n          <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"State\" type=\"s:string\" />\r\n          <s:element
+        minOccurs=\"1\" maxOccurs=\"1\" name=\"ZipCode\" type=\"s:int\" />\r\n          <s:element
+        minOccurs=\"1\" maxOccurs=\"1\" name=\"Date\" type=\"s:dateTime\" />\r\n          <s:element
+        minOccurs=\"1\" maxOccurs=\"1\" name=\"Cancelled\" type=\"s:boolean\" />\r\n
+        \         <s:element minOccurs=\"1\" maxOccurs=\"1\" name=\"RevisedDate\"
+        type=\"s:dateTime\" />\r\n          <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"ContactInformation\" type=\"s:string\" />\r\n          <s:element minOccurs=\"0\"
+        maxOccurs=\"1\" name=\"CommitteeType\" type=\"s:string\" />\r\n          <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"Notes\" type=\"s:string\" />\r\n        </s:sequence>\r\n
+        \     </s:complexType>\r\n      <s:complexType name=\"ArrayOfCommittee\">\r\n
+        \       <s:sequence>\r\n          <s:element minOccurs=\"0\" maxOccurs=\"unbounded\"
+        name=\"Committee\" nillable=\"true\" type=\"tns:Committee\" />\r\n        </s:sequence>\r\n
+        \     </s:complexType>\r\n      <s:complexType name=\"Committee\">\r\n        <s:complexContent
+        mixed=\"false\">\r\n          <s:extension base=\"tns:LegislativeEntity\">\r\n
+        \           <s:sequence>\r\n              <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"Phone\" type=\"s:string\" />\r\n            </s:sequence>\r\n          </s:extension>\r\n
+        \       </s:complexContent>\r\n      </s:complexType>\r\n      <s:complexType
+        name=\"LegislativeEntity\">\r\n        <s:sequence>\r\n          <s:element
+        minOccurs=\"1\" maxOccurs=\"1\" name=\"Id\" type=\"s:int\" />\r\n          <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"Name\" type=\"s:string\" />\r\n          <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"LongName\" type=\"s:string\" />\r\n
+        \         <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"Agency\" type=\"s:string\"
+        />\r\n          <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"Acronym\"
+        type=\"s:string\" />\r\n        </s:sequence>\r\n      </s:complexType>\r\n
+        \     <s:element name=\"GetRevisedCommitteeMeetings\">\r\n        <s:complexType>\r\n
+        \         <s:sequence>\r\n            <s:element minOccurs=\"1\" maxOccurs=\"1\"
+        name=\"changedSinceDate\" type=\"s:dateTime\" />\r\n          </s:sequence>\r\n
+        \       </s:complexType>\r\n      </s:element>\r\n      <s:element name=\"GetRevisedCommitteeMeetingsResponse\">\r\n
+        \       <s:complexType>\r\n          <s:sequence>\r\n            <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"GetRevisedCommitteeMeetingsResult\"
+        type=\"tns:ArrayOfCommitteeMeeting\" />\r\n          </s:sequence>\r\n        </s:complexType>\r\n
+        \     </s:element>\r\n      <s:element name=\"GetCommitteeMeetingItems\">\r\n
+        \       <s:complexType>\r\n          <s:sequence>\r\n            <s:element
+        minOccurs=\"1\" maxOccurs=\"1\" name=\"agendaId\" type=\"s:int\" />\r\n          </s:sequence>\r\n
+        \       </s:complexType>\r\n      </s:element>\r\n      <s:element name=\"GetCommitteeMeetingItemsResponse\">\r\n
+        \       <s:complexType>\r\n          <s:sequence>\r\n            <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"GetCommitteeMeetingItemsResult\" type=\"tns:ArrayOfCommitteeMeetingItem\"
+        />\r\n          </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:complexType name=\"ArrayOfCommitteeMeetingItem\">\r\n        <s:sequence>\r\n
+        \         <s:element minOccurs=\"0\" maxOccurs=\"unbounded\" name=\"CommitteeMeetingItem\"
+        nillable=\"true\" type=\"tns:CommitteeMeetingItem\" />\r\n        </s:sequence>\r\n
+        \     </s:complexType>\r\n      <s:complexType name=\"CommitteeMeetingItem\">\r\n
+        \       <s:sequence>\r\n          <s:element minOccurs=\"1\" maxOccurs=\"1\"
+        name=\"AgendaId\" type=\"s:int\" />\r\n          <s:element minOccurs=\"0\"
+        maxOccurs=\"1\" name=\"HearingType\" type=\"s:string\" />\r\n          <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"HearingTypeDescription\" type=\"s:string\"
+        />\r\n          <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"BillId\"
+        type=\"s:string\" />\r\n          <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"ItemDescription\" type=\"s:string\" />\r\n          <s:element minOccurs=\"1\"
+        maxOccurs=\"1\" name=\"Order\" type=\"s:int\" />\r\n          <s:element minOccurs=\"0\"
+        maxOccurs=\"1\" name=\"Biennium\" type=\"s:string\" />\r\n          <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"SortOrderString\" type=\"s:string\"
+        />\r\n        </s:sequence>\r\n      </s:complexType>\r\n      <s:element
+        name=\"ArrayOfCommitteeMeeting\" nillable=\"true\" type=\"tns:ArrayOfCommitteeMeeting\"
+        />\r\n      <s:element name=\"ArrayOfCommitteeMeetingItem\" nillable=\"true\"
+        type=\"tns:ArrayOfCommitteeMeetingItem\" />\r\n    </s:schema>\r\n  </wsdl:types>\r\n
+        \ <wsdl:message name=\"GetCommitteeMeetingsSoapIn\">\r\n    <wsdl:part name=\"parameters\"
+        element=\"tns:GetCommitteeMeetings\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetCommitteeMeetingsSoapOut\">\r\n    <wsdl:part name=\"parameters\"
+        element=\"tns:GetCommitteeMeetingsResponse\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetRevisedCommitteeMeetingsSoapIn\">\r\n    <wsdl:part name=\"parameters\"
+        element=\"tns:GetRevisedCommitteeMeetings\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetRevisedCommitteeMeetingsSoapOut\">\r\n    <wsdl:part name=\"parameters\"
+        element=\"tns:GetRevisedCommitteeMeetingsResponse\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetCommitteeMeetingItemsSoapIn\">\r\n    <wsdl:part
+        name=\"parameters\" element=\"tns:GetCommitteeMeetingItems\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetCommitteeMeetingItemsSoapOut\">\r\n    <wsdl:part
+        name=\"parameters\" element=\"tns:GetCommitteeMeetingItemsResponse\" />\r\n
+        \ </wsdl:message>\r\n  <wsdl:message name=\"GetCommitteeMeetingsHttpGetIn\">\r\n
+        \   <wsdl:part name=\"beginDate\" type=\"s:string\" />\r\n    <wsdl:part name=\"endDate\"
+        type=\"s:string\" />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetCommitteeMeetingsHttpGetOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfCommitteeMeeting\" />\r\n
+        \ </wsdl:message>\r\n  <wsdl:message name=\"GetRevisedCommitteeMeetingsHttpGetIn\">\r\n
+        \   <wsdl:part name=\"changedSinceDate\" type=\"s:string\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetRevisedCommitteeMeetingsHttpGetOut\">\r\n    <wsdl:part
+        name=\"Body\" element=\"tns:ArrayOfCommitteeMeeting\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetCommitteeMeetingItemsHttpGetIn\">\r\n    <wsdl:part
+        name=\"agendaId\" type=\"s:string\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetCommitteeMeetingItemsHttpGetOut\">\r\n    <wsdl:part name=\"Body\"
+        element=\"tns:ArrayOfCommitteeMeetingItem\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetCommitteeMeetingsHttpPostIn\">\r\n    <wsdl:part name=\"beginDate\"
+        type=\"s:string\" />\r\n    <wsdl:part name=\"endDate\" type=\"s:string\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetCommitteeMeetingsHttpPostOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfCommitteeMeeting\" />\r\n
+        \ </wsdl:message>\r\n  <wsdl:message name=\"GetRevisedCommitteeMeetingsHttpPostIn\">\r\n
+        \   <wsdl:part name=\"changedSinceDate\" type=\"s:string\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetRevisedCommitteeMeetingsHttpPostOut\">\r\n    <wsdl:part
+        name=\"Body\" element=\"tns:ArrayOfCommitteeMeeting\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetCommitteeMeetingItemsHttpPostIn\">\r\n    <wsdl:part
+        name=\"agendaId\" type=\"s:string\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetCommitteeMeetingItemsHttpPostOut\">\r\n    <wsdl:part name=\"Body\"
+        element=\"tns:ArrayOfCommitteeMeetingItem\" />\r\n  </wsdl:message>\r\n  <wsdl:portType
+        name=\"CommitteeMeetingServiceSoap\">\r\n    <wsdl:operation name=\"GetCommitteeMeetings\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Returns
+        a list of Committee Meetings for a given date range. &lt;BR&gt;Exception thrown
+        for invalid date range.</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetCommitteeMeetingsSoapIn\"
+        />\r\n      <wsdl:output message=\"tns:GetCommitteeMeetingsSoapOut\" />\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetRevisedCommitteeMeetings\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Returns
+        a list of Committee Meetings that have been revised since a given date.</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetRevisedCommitteeMeetingsSoapIn\" />\r\n
+        \     <wsdl:output message=\"tns:GetRevisedCommitteeMeetingsSoapOut\" />\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetCommitteeMeetingItems\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Returns
+        a list of meeting items for a specific Committee Meeting.</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetCommitteeMeetingItemsSoapIn\" />\r\n      <wsdl:output
+        message=\"tns:GetCommitteeMeetingItemsSoapOut\" />\r\n    </wsdl:operation>\r\n
+        \ </wsdl:portType>\r\n  <wsdl:portType name=\"CommitteeMeetingServiceHttpGet\">\r\n
+        \   <wsdl:operation name=\"GetCommitteeMeetings\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Returns a list of Committee
+        Meetings for a given date range. &lt;BR&gt;Exception thrown for invalid date
+        range.</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetCommitteeMeetingsHttpGetIn\"
+        />\r\n      <wsdl:output message=\"tns:GetCommitteeMeetingsHttpGetOut\" />\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetRevisedCommitteeMeetings\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Returns
+        a list of Committee Meetings that have been revised since a given date.</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetRevisedCommitteeMeetingsHttpGetIn\" />\r\n
+        \     <wsdl:output message=\"tns:GetRevisedCommitteeMeetingsHttpGetOut\" />\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetCommitteeMeetingItems\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Returns
+        a list of meeting items for a specific Committee Meeting.</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetCommitteeMeetingItemsHttpGetIn\" />\r\n
+        \     <wsdl:output message=\"tns:GetCommitteeMeetingItemsHttpGetOut\" />\r\n
+        \   </wsdl:operation>\r\n  </wsdl:portType>\r\n  <wsdl:portType name=\"CommitteeMeetingServiceHttpPost\">\r\n
+        \   <wsdl:operation name=\"GetCommitteeMeetings\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Returns a list of Committee
+        Meetings for a given date range. &lt;BR&gt;Exception thrown for invalid date
+        range.</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetCommitteeMeetingsHttpPostIn\"
+        />\r\n      <wsdl:output message=\"tns:GetCommitteeMeetingsHttpPostOut\" />\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetRevisedCommitteeMeetings\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Returns
+        a list of Committee Meetings that have been revised since a given date.</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetRevisedCommitteeMeetingsHttpPostIn\" />\r\n
+        \     <wsdl:output message=\"tns:GetRevisedCommitteeMeetingsHttpPostOut\"
+        />\r\n    </wsdl:operation>\r\n    <wsdl:operation name=\"GetCommitteeMeetingItems\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Returns
+        a list of meeting items for a specific Committee Meeting.</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetCommitteeMeetingItemsHttpPostIn\" />\r\n
+        \     <wsdl:output message=\"tns:GetCommitteeMeetingItemsHttpPostOut\" />\r\n
+        \   </wsdl:operation>\r\n  </wsdl:portType>\r\n  <wsdl:binding name=\"CommitteeMeetingServiceSoap\"
+        type=\"tns:CommitteeMeetingServiceSoap\">\r\n    <soap:binding transport=\"http://schemas.xmlsoap.org/soap/http\"
+        />\r\n    <wsdl:operation name=\"GetCommitteeMeetings\">\r\n      <soap:operation
+        soapAction=\"http://WSLWebServices.leg.wa.gov/GetCommitteeMeetings\" style=\"document\"
+        />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\" />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <soap:body use=\"literal\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetRevisedCommitteeMeetings\">\r\n
+        \     <soap:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetRevisedCommitteeMeetings\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetCommitteeMeetingItems\">\r\n      <soap:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetCommitteeMeetingItems\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n  </wsdl:binding>\r\n
+        \ <wsdl:binding name=\"CommitteeMeetingServiceSoap12\" type=\"tns:CommitteeMeetingServiceSoap\">\r\n
+        \   <soap12:binding transport=\"http://schemas.xmlsoap.org/soap/http\" />\r\n
+        \   <wsdl:operation name=\"GetCommitteeMeetings\">\r\n      <soap12:operation
+        soapAction=\"http://WSLWebServices.leg.wa.gov/GetCommitteeMeetings\" style=\"document\"
+        />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\" />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <soap12:body use=\"literal\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetRevisedCommitteeMeetings\">\r\n
+        \     <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetRevisedCommitteeMeetings\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetCommitteeMeetingItems\">\r\n      <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetCommitteeMeetingItems\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n  </wsdl:binding>\r\n
+        \ <wsdl:binding name=\"CommitteeMeetingServiceHttpGet\" type=\"tns:CommitteeMeetingServiceHttpGet\">\r\n
+        \   <http:binding verb=\"GET\" />\r\n    <wsdl:operation name=\"GetCommitteeMeetings\">\r\n
+        \     <http:operation location=\"/GetCommitteeMeetings\" />\r\n      <wsdl:input>\r\n
+        \       <http:urlEncoded />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n
+        \       <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetRevisedCommitteeMeetings\">\r\n      <http:operation
+        location=\"/GetRevisedCommitteeMeetings\" />\r\n      <wsdl:input>\r\n        <http:urlEncoded
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <mime:mimeXml
+        part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetCommitteeMeetingItems\">\r\n      <http:operation location=\"/GetCommitteeMeetingItems\"
+        />\r\n      <wsdl:input>\r\n        <http:urlEncoded />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n  </wsdl:binding>\r\n  <wsdl:binding name=\"CommitteeMeetingServiceHttpPost\"
+        type=\"tns:CommitteeMeetingServiceHttpPost\">\r\n    <http:binding verb=\"POST\"
+        />\r\n    <wsdl:operation name=\"GetCommitteeMeetings\">\r\n      <http:operation
+        location=\"/GetCommitteeMeetings\" />\r\n      <wsdl:input>\r\n        <mime:content
+        type=\"application/x-www-form-urlencoded\" />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n
+        \       <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetRevisedCommitteeMeetings\">\r\n      <http:operation
+        location=\"/GetRevisedCommitteeMeetings\" />\r\n      <wsdl:input>\r\n        <mime:content
+        type=\"application/x-www-form-urlencoded\" />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n
+        \       <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetCommitteeMeetingItems\">\r\n      <http:operation
+        location=\"/GetCommitteeMeetingItems\" />\r\n      <wsdl:input>\r\n        <mime:content
+        type=\"application/x-www-form-urlencoded\" />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n
+        \       <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n
+        \ </wsdl:binding>\r\n  <wsdl:service name=\"CommitteeMeetingService\">\r\n
+        \   <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Information
+        on committee meetings of the Washington State Legislature.</wsdl:documentation>\r\n
+        \   <wsdl:port name=\"CommitteeMeetingServiceSoap\" binding=\"tns:CommitteeMeetingServiceSoap\">\r\n
+        \     <soap:address location=\"https://wslwebservices.leg.wa.gov/CommitteeMeetingService.asmx\"
+        />\r\n    </wsdl:port>\r\n    <wsdl:port name=\"CommitteeMeetingServiceSoap12\"
+        binding=\"tns:CommitteeMeetingServiceSoap12\">\r\n      <soap12:address location=\"https://wslwebservices.leg.wa.gov/CommitteeMeetingService.asmx\"
+        />\r\n    </wsdl:port>\r\n    <wsdl:port name=\"CommitteeMeetingServiceHttpGet\"
+        binding=\"tns:CommitteeMeetingServiceHttpGet\">\r\n      <http:address location=\"https://wslwebservices.leg.wa.gov/CommitteeMeetingService.asmx\"
+        />\r\n    </wsdl:port>\r\n    <wsdl:port name=\"CommitteeMeetingServiceHttpPost\"
+        binding=\"tns:CommitteeMeetingServiceHttpPost\">\r\n      <http:address location=\"https://wslwebservices.leg.wa.gov/CommitteeMeetingService.asmx\"
+        />\r\n    </wsdl:port>\r\n  </wsdl:service>\r\n</wsdl:definitions>"
+    headers:
+      Cache-Control:
+      - private, max-age=0
+      Content-Length:
+      - '18998'
+      Content-Type:
+      - text/xml; charset=utf-8
+      Date:
+      - Tue, 30 Jun 2026 01:06:55 GMT
+      Server:
+      - Microsoft-IIS/10.0
+      Server-Timing:
+      - dtTrId;desc="da66bd3065786bb57611b54e05f53854", dtSInfo;desc="0"
+      - dtRpid;desc="323575159"
+      Set-Cookie:
+      - dtCookie=v_4_srv_17_sn_FA97B4BC176171DA39D2F8AE0FBEDA36_perc_100000_ol_0_mul_1_app-3A58b9dc846cbd8ccb_1_rcs-3Acss_0;
+        Path=/; Domain=.wa.gov
+      X-AspNet-Version:
+      - 4.0.30319
+      X-Powered-By:
+      - ASP.NET
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '<?xml version=''1.0'' encoding=''utf-8''?>
+
+      <soap-env:Envelope xmlns:soap-env="http://schemas.xmlsoap.org/soap/envelope/"><soap-env:Body><ns0:GetCommitteeMeetings
+      xmlns:ns0="http://WSLWebServices.leg.wa.gov/"><ns0:beginDate>2024-01-16T00:00:00</ns0:beginDate><ns0:endDate>2024-01-16T23:59:59</ns0:endDate></ns0:GetCommitteeMeetings></soap-env:Body></soap-env:Envelope>'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '363'
+      Content-Type:
+      - text/xml; charset=utf-8
+      Cookie:
+      - dtCookie=v_4_srv_17_sn_FA97B4BC176171DA39D2F8AE0FBEDA36_perc_100000_ol_0_mul_1_app-3A58b9dc846cbd8ccb_1_rcs-3Acss_0
+      SOAPAction:
+      - '"http://WSLWebServices.leg.wa.gov/GetCommitteeMeetings"'
+      User-Agent:
+      - Zeep/4.3.2 (www.python-zeep.org)
+    method: POST
+    uri: https://wslwebservices.leg.wa.gov/CommitteeMeetingService.asmx
+  response:
+    body:
+      string: '<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema"><soap:Body><GetCommitteeMeetingsResponse
+        xmlns="http://WSLWebServices.leg.wa.gov/"><GetCommitteeMeetingsResult><CommitteeMeeting><AgendaId>31606</AgendaId><Agency>Senate</Agency><Committees><Committee><Id>456</Id><Name>Ways
+        &amp; Means</Name><LongName>Senate Ways &amp; Means</LongName><Agency>Senate</Agency><Acronym>WM</Acronym><Phone
+        /></Committee></Committees><Room>Senate Hearing Rm 4 and Virtual</Room><Building>J.A.
+        Cherberg Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T16:00:00</Date><Cancelled>false</Cancelled><RevisedDate>0001-01-01T00:00:00</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>Possible executive session
+        on bills heard in committee. Possible other business.
+
+
+        See https://app.leg.wa.gov/CSI/Senate for testimony options. To view committee
+        meetings or access the committee meeting documents, visit the Legislature''s
+        committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31614</AgendaId><Agency>Senate</Agency><Committees><Committee><Id>28243</Id><Name>Human
+        Services</Name><LongName>Senate Human Services</LongName><Agency>Senate</Agency><Acronym>HS</Acronym><Phone
+        /></Committee></Committees><Room>Senate Hearing Rm 2 and Virtual</Room><Building>J.A.
+        Cherberg</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T10:30:00</Date><Cancelled>false</Cancelled><RevisedDate>0001-01-01T00:00:00</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>Possible executive session
+        on bills heard in committee. Possible other business.
+
+
+        See https://app.leg.wa.gov/CSI/Senate for testimony options. To view committee
+        meetings or access the committee meeting documents, visit the Legislature''s
+        committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31631</AgendaId><Agency>House</Agency><Committees><Committee><Id>31650</Id><Name>State
+        Government &amp; Tribal Relations</Name><LongName>House State Government &amp;
+        Tribal Relations</LongName><Agency>House</Agency><Acronym>SGOV</Acronym><Phone
+        /></Committee></Committees><Room>House Hearing Rm E and Virtual</Room><Building>John
+        L. O''Brien Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T13:30:00</Date><Cancelled>false</Cancelled><RevisedDate>0001-01-01T00:00:00</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31634</AgendaId><Agency>House</Agency><Committees><Committee><Id>31649</Id><Name>Agriculture
+        &amp; Natural Resources</Name><LongName>House Agriculture &amp; Natural Resources</LongName><Agency>House</Agency><Acronym>AGNR</Acronym><Phone
+        /></Committee></Committees><Room>House Hearing Rm B and Virtual</Room><Building>John
+        L. O''Brien Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T10:30:00</Date><Cancelled>false</Cancelled><RevisedDate>0001-01-01T00:00:00</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31652</AgendaId><Agency>Senate</Agency><Committees><Committee><Id>34080</Id><Name>Local
+        Government, Land Use &amp; Tribal Affairs</Name><LongName>Senate Local Government,
+        Land Use &amp; Tribal Affairs</LongName><Agency>Senate</Agency><Acronym>LGLT</Acronym><Phone
+        /></Committee></Committees><Room>Senate Hearing Rm 3 and Virtual</Room><Building>J.A.
+        Cherberg Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T08:00:00</Date><Cancelled>false</Cancelled><RevisedDate>0001-01-01T00:00:00</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>Possible executive session
+        on bills heard in committee. Possible other business.
+
+
+        See https://app.leg.wa.gov/CSI/Senate for testimony options. To view committee
+        meetings or access the committee meeting documents, visit the Legislature''s
+        committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31655</AgendaId><Agency>House</Agency><Committees><Committee><Id>31641</Id><Name>Education</Name><LongName>House
+        Education</LongName><Agency>House</Agency><Acronym>ED</Acronym><Phone /></Committee></Committees><Room>House
+        Hearing Rm A and Virtual</Room><Building>John L. O''Brien Building</Building><Address>Olympia,
+        WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T16:00:00</Date><Cancelled>false</Cancelled><RevisedDate>0001-01-01T00:00:00</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31663</AgendaId><Agency>House</Agency><Committees><Committee><Id>31645</Id><Name>Labor
+        &amp; Workplace Standards</Name><LongName>House Labor &amp; Workplace Standards</LongName><Agency>House</Agency><Acronym>LAWS</Acronym><Phone
+        /></Committee></Committees><Room>House Hearing Rm D and Virtual</Room><Building>John
+        L. O''Brien Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T10:30:00</Date><Cancelled>false</Cancelled><RevisedDate>0001-01-01T00:00:00</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31669</AgendaId><Agency>House</Agency><Committees><Committee><Id>31646</Id><Name>Local
+        Government</Name><LongName>House Local Government</LongName><Agency>House</Agency><Acronym>LG</Acronym><Phone
+        /></Committee></Committees><Room>House Hearing Rm E and Virtual</Room><Building>John
+        L. O''Brien Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T10:30:00</Date><Cancelled>false</Cancelled><RevisedDate>0001-01-01T00:00:00</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31686</AgendaId><Agency>House</Agency><Committees><Committee><Id>31633</Id><Name>Housing</Name><LongName>House
+        Housing</LongName><Agency>House</Agency><Acronym>HOUS</Acronym><Phone /></Committee></Committees><Room>House
+        Hearing Rm B and Virtual</Room><Building>John L. O''Brien Building</Building><Address>Olympia,
+        WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T16:00:00</Date><Cancelled>false</Cancelled><RevisedDate>0001-01-01T00:00:00</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31687</AgendaId><Agency>House</Agency><Committees><Committee><Id>31636</Id><Name>Civil
+        Rights &amp; Judiciary</Name><LongName>House Civil Rights &amp; Judiciary</LongName><Agency>House</Agency><Acronym>CRJ</Acronym><Phone
+        /></Committee></Committees><Room>House Hearing Rm A and Virtual</Room><Building>John
+        L. O''Brien Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T10:30:00</Date><Cancelled>false</Cancelled><RevisedDate>0001-01-01T00:00:00</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31636</AgendaId><Agency>House</Agency><Committees><Committee><Id>31631</Id><Name>Early
+        Learning &amp; Human Services</Name><LongName>House Early Learning &amp; Human
+        Services</LongName><Agency>House</Agency><Acronym>ELHS</Acronym><Phone /></Committee></Committees><Room>House
+        Hearing Rm D and Virtual</Room><Building>John L. O''Brien Building</Building><Address>Olympia,
+        WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T13:30:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-11T09:04:11.913</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31626</AgendaId><Agency>House</Agency><Committees><Committee><Id>31647</Id><Name>Community
+        Safety</Name><LongName>House Community Safety</LongName><Agency>House</Agency><Acronym>CS</Acronym><Phone
+        /></Committee></Committees><Room>House Hearing Rm D and Virtual</Room><Building>John
+        L. O''Brien Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T16:00:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-11T10:24:26.49</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31679</AgendaId><Agency>Senate</Agency><Committees><Committee><Id>28240</Id><Name>Environment,
+        Energy &amp; Technology</Name><LongName>Senate Environment, Energy &amp; Technology</LongName><Agency>Senate</Agency><Acronym>ENET</Acronym><Phone
+        /></Committee></Committees><Room>Senate Hearing Rm 1 and Virtual</Room><Building>J.A.
+        Cherberg</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T13:30:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-11T14:21:05.447</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>Possible executive session
+        on bills heard in committee. Possible other business.
+
+
+        See https://app.leg.wa.gov/CSI/Senate for testimony options. To view committee
+        meetings or access the committee meeting documents, visit the Legislature''s
+        committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31620</AgendaId><Agency>House</Agency><Committees><Committee><Id>31639</Id><Name>Regulated
+        Substances &amp; Gaming</Name><LongName>House Regulated Substances &amp; Gaming</LongName><Agency>House</Agency><Acronym>RSG</Acronym><Phone
+        /></Committee></Committees><Room>House Hearing Rm E and Virtual</Room><Building>John
+        L. O''Brien Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T16:00:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-12T08:57:25.58</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31677</AgendaId><Agency>Senate</Agency><Committees><Committee><Id>28245</Id><Name>State
+        Government &amp; Elections</Name><LongName>Senate State Government &amp; Elections</LongName><Agency>Senate</Agency><Acronym>SGE</Acronym><Phone
+        /></Committee></Committees><Room>Senate Hearing Rm 2 and Virtual</Room><Building>J.A.
+        Cherberg</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T13:30:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-12T11:30:58.037</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>Possible other business.
+
+
+        See https://app.leg.wa.gov/CSI/Senate for testimony options. To view committee
+        meetings or access the committee meeting documents, visit the Legislature''s
+        committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31671</AgendaId><Agency>House</Agency><Committees><Committee><Id>31638</Id><Name>Postsecondary
+        Education &amp; Workforce</Name><LongName>House Postsecondary Education &amp;
+        Workforce</LongName><Agency>House</Agency><Acronym>PEW</Acronym><Phone /></Committee></Committees><Room>House
+        Hearing Rm B and Virtual</Room><Building>John L. O''Brien Building</Building><Address>Olympia,
+        WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T13:30:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-12T13:20:47.663</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31642</AgendaId><Agency>Senate</Agency><Committees><Committee><Id>28244</Id><Name>Labor
+        &amp; Commerce</Name><LongName>Senate Labor &amp; Commerce</LongName><Agency>Senate</Agency><Acronym>LC</Acronym><Phone
+        /></Committee></Committees><Room>Senate Hearing Rm 1 and Virtual</Room><Building>J.A.
+        Cherberg</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T10:30:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-12T13:25:37.58</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>Possible other business.
+
+
+        See https://app.leg.wa.gov/CSI/Senate for testimony options. To view committee
+        meetings or access the committee meeting documents, visit the Legislature''s
+        committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31646</AgendaId><Agency>Senate</Agency><Committees><Committee><Id>28241</Id><Name>Health
+        &amp; Long Term Care</Name><LongName>Senate Health &amp; Long Term Care</LongName><Agency>Senate</Agency><Acronym>HLTC</Acronym><Phone
+        /></Committee></Committees><Room>Senate Hearing Rm 4 and Virtual</Room><Building>J.A.
+        Cherberg Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T08:00:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-12T13:47:42.81</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>Possible other business.
+
+
+        See https://app.leg.wa.gov/CSI/Senate for testimony options. To view committee
+        meetings or access the committee meeting documents, visit the Legislature''s
+        committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31658</AgendaId><Agency>House</Agency><Committees><Committee><Id>31644</Id><Name>Health
+        Care &amp; Wellness</Name><LongName>House Health Care &amp; Wellness</LongName><Agency>House</Agency><Acronym>HCW</Acronym><Phone
+        /></Committee></Committees><Room>House Hearing Rm A and Virtual</Room><Building>John
+        L. O''Brien Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T13:30:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-15T10:06:24.843</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31623</AgendaId><Agency>Senate</Agency><Committees><Committee><Id>438</Id><Name>Transportation</Name><LongName>Senate
+        Transportation</LongName><Agency>Senate</Agency><Acronym>TRAN</Acronym><Phone
+        /></Committee></Committees><Room>Senate Hearing Rm 1 and Virtual</Room><Building>J.A.
+        Cherberg</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T16:00:00</Date><Cancelled>true</Cancelled><RevisedDate>2024-01-15T10:20:09.9</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes> To view committee meetings
+        or access the committee meeting documents, visit the Legislature''s committee
+        schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31649</AgendaId><Agency>House</Agency><Committees><Committee><Id>31632</Id><Name>Technology,
+        Economic Development, &amp; Veterans</Name><LongName>House Technology, Economic
+        Development, &amp; Veterans</LongName><Agency>House</Agency><Acronym>TEDV</Acronym><Phone
+        /></Committee></Committees><Room>House Hearing Rm C and Virtual</Room><Building>John
+        L. O''Brien Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T10:30:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-15T10:47:10.24</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes /></CommitteeMeeting><CommitteeMeeting><AgendaId>31608</AgendaId><Agency>House</Agency><Committees><Committee><Id>31643</Id><Name>Finance</Name><LongName>House
+        Finance</LongName><Agency>House</Agency><Acronym>FIN</Acronym><Phone /></Committee></Committees><Room>House
+        Hearing Rm B and Virtual</Room><Building>John L. O''Brien Building</Building><Address>Olympia,
+        WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T08:00:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-15T13:08:44.46</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31587</AgendaId><Agency>Senate</Agency><Committees><Committee><Id>17548</Id><Name>Law
+        &amp; Justice</Name><LongName>Senate Law &amp; Justice</LongName><Agency>Senate</Agency><Acronym>LAW</Acronym><Phone
+        /></Committee></Committees><Room>Senate Hearing Rm 4 and Virtual</Room><Building>J.A.
+        Cherberg Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T10:30:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-15T14:03:58.637</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>Possible executive session
+        on bills heard in committee. Possible other business.
+
+
+        See https://app.leg.wa.gov/CSI/Senate for testimony options. To view committee
+        meetings or access the committee meeting documents, visit the Legislature''s
+        committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31644</AgendaId><Agency>Senate</Agency><Committees><Committee><Id>29195</Id><Name>Business,
+        Financial Services, Gaming &amp; Trade</Name><LongName>Senate Business, Financial
+        Services, Gaming &amp; Trade</LongName><Agency>Senate</Agency><Acronym>BFGT</Acronym><Phone
+        /></Committee></Committees><Room>Senate Hearing Rm 2 and Virtual</Room><Building>J.A.
+        Cherberg</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T08:00:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-15T15:13:14.56</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>Possible other business.
+
+
+        See https://app.leg.wa.gov/CSI/Senate for testimony options. To view committee
+        meetings or access the committee meeting documents, visit the Legislature''s
+        committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31611</AgendaId><Agency>House</Agency><Committees><Committee><Id>31642</Id><Name>Environment
+        &amp; Energy</Name><LongName>House Environment &amp; Energy</LongName><Agency>House</Agency><Acronym>ENVI</Acronym><Phone
+        /></Committee></Committees><Room>House Hearing Rm C and Virtual</Room><Building>John
+        L. O''Brien Building</Building><Address>Olympia, WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T16:00:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-15T16:20:32.323</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting><CommitteeMeeting><AgendaId>31657</AgendaId><Agency>House</Agency><Committees><Committee><Id>31640</Id><Name>Consumer
+        Protection &amp; Business</Name><LongName>House Consumer Protection &amp;
+        Business</LongName><Agency>House</Agency><Acronym>CPB</Acronym><Phone /></Committee></Committees><Room>House
+        Hearing Rm C and Virtual</Room><Building>John L. O''Brien Building</Building><Address>Olympia,
+        WA</Address><City>Olympia</City><State>WA</State><ZipCode>0</ZipCode><Date>2024-01-16T13:30:00</Date><Cancelled>false</Cancelled><RevisedDate>2024-01-15T16:28:18.343</RevisedDate><ContactInformation
+        /><CommitteeType>Full Committee</CommitteeType><Notes>See https://app.leg.wa.gov/csi/house
+        for information about viewing and providing public testimony at committee
+        meetings.
+
+
+        To view committee meetings or access the committee meeting documents, visit
+        the Legislature''s committee schedules, agendas, and documents website:  https://app.leg.wa.gov/committeeschedules</Notes></CommitteeMeeting></GetCommitteeMeetingsResult></GetCommitteeMeetingsResponse></soap:Body></soap:Envelope>'
+    headers:
+      Cache-Control:
+      - private, max-age=0
+      Content-Length:
+      - '25115'
+      Content-Type:
+      - text/xml; charset=utf-8
+      Date:
+      - Tue, 30 Jun 2026 01:06:55 GMT
+      Server:
+      - Microsoft-IIS/10.0
+      Server-Timing:
+      - dtTrId;desc="8b0d53e86282312b003fd16b19e0ff88", dtSInfo;desc="0"
+      - dtRpid;desc="1560404876"
+      X-AspNet-Version:
+      - 4.0.30319
+      X-Powered-By:
+      - ASP.NET
+    status:
+      code: 200
+      message: OK
+version: 1

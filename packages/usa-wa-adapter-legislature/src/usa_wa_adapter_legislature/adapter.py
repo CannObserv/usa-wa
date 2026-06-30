@@ -68,7 +68,7 @@ class WALegislatureAdapter(BaseAdapter):
             content_type=fetched.content_type,
             body=fetched.wire,
             http_status=200,
-            parsed=fetched.committees,
+            parsed=fetched.records,
         )
 
     async def normalize(self, payload: FetchedPayload) -> NormalizedBatch:

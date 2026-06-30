@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from zeep import Client
@@ -29,14 +30,16 @@ WSL_BASE_URL = "https://wslwebservices.leg.wa.gov"
 class WireFetch:
     """An archival fetch result: the pristine wire bytes plus the derived parse.
 
-    ``wire`` is the raw SOAP-XML response body WSL actually sent — the
-    provenance source of truth that gets archived and hashed (#54). ``committees``
-    is the derived dict parse (zeep → ``serialize_object``), saved so the
-    normalizer doesn't re-parse the envelope. Treat ``committees`` as derivative:
-    if the two ever disagree, ``wire`` is authoritative.
+    ``wire`` is the raw SOAP-XML response body WSL actually sent — the provenance
+    source of truth that gets archived and hashed (#54). ``records`` is the derived
+    dict parse (zeep → ``serialize_object``) of whatever the operation returned —
+    committee rows for ``GetActiveCommittees``, committee-bearing meetings for
+    ``GetCommitteeMeetings`` — saved so the normalizer doesn't re-parse the
+    envelope. Treat ``records`` as derivative: if the two ever disagree, ``wire``
+    is authoritative.
     """
 
-    committees: list[dict[str, Any]]
+    records: list[dict[str, Any]]
     wire: bytes
     content_type: str
 
@@ -93,7 +96,17 @@ class WSLClient:
         serialized = serialize_object(result, dict)
         committees = list(serialized) if serialized is not None else []
         return WireFetch(
-            committees=committees,
+            records=committees,
+            wire=self._transport.last_wire or b"",
+            content_type=self._transport.last_content_type or "text/xml",
+        )
+
+    def _fetch_committee_meetings_sync(self, begin: datetime, end: datetime) -> WireFetch:
+        result = self._ensure_client().service.GetCommitteeMeetings(beginDate=begin, endDate=end)
+        serialized = serialize_object(result, dict)
+        records = list(serialized) if serialized is not None else []
+        return WireFetch(
+            records=records,
             wire=self._transport.last_wire or b"",
             content_type=self._transport.last_content_type or "text/xml",
         )
@@ -141,3 +154,23 @@ class WSLClient:
                 f"fetch_active_committees requires service='CommitteeService', got {self.service!r}"
             )
         return await asyncio.to_thread(self._fetch_active_committees_sync)
+
+    async def fetch_committee_meetings(self, begin: datetime, end: datetime) -> WireFetch:
+        """Archival pull of committee meetings in ``[begin, end]``, keeping the wire.
+
+        ``CommitteeMeetingService.GetCommitteeMeetings(beginDate, endDate)`` is the
+        **only** source of Joint/``Other`` committee orgs (#39): each meeting carries
+        a nested ``Committees.Committee[]`` list (``Id, Name, LongName, Agency,
+        Acronym, Phone``). Returns a :class:`WireFetch` — the derived meeting dicts on
+        ``records`` plus the raw response envelope bytes for archival + hashing (#54),
+        so ``RawPayload.body`` holds what WSL sent rather than our re-serialization.
+        Dedup/parenting of the committee refs is the normalizer's job; this method
+        only fetches and archives. ``begin``/``end`` are UTC-naive ``datetime``s
+        (WSDL ``s:dateTime``), wrapped in ``asyncio.to_thread`` like the sibling pulls.
+        """
+        if self.service != "CommitteeMeetingService":
+            raise ValueError(
+                "fetch_committee_meetings requires service='CommitteeMeetingService', "
+                f"got {self.service!r}"
+            )
+        return await asyncio.to_thread(self._fetch_committee_meetings_sync, begin, end)
