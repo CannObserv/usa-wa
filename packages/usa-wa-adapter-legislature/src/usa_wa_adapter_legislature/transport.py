@@ -44,6 +44,27 @@ class WireFetch:
     content_type: str
 
 
+class _StoredResponse:
+    """Minimal response shim for re-deserializing an **archived** SOAP envelope offline.
+
+    ``zeep``'s ``Binding.process_reply`` reads only ``content`` / ``status_code`` / ``headers``
+    off the response object — so a stored ``RawPayload.body`` can be replayed through the live
+    operation binding without a network round-trip (#56's cache path). Using the *same* binding
+    means the re-parse can't diverge from the live parse (a #54 provenance-fidelity concern),
+    and avoids depending on ``requests``-internal mutation.
+
+    This (and :meth:`WSLClient._parse_committee_meetings_sync`) leans on zeep internals
+    (``service._binding``, ``binding.get(...)``, ``process_reply``). The regression guard is
+    ``test_parse_committee_meetings_round_trips_archived_wire`` — **re-run the transport cassette
+    suite after any zeep bump**; a private-API change surfaces there, not in a typecheck."""
+
+    def __init__(self, content: bytes, *, content_type: str = "text/xml; charset=utf-8") -> None:
+        self.content = content
+        self.status_code = 200
+        self.headers = {"Content-Type": content_type}
+        self.encoding: str | None = None
+
+
 class _CapturingTransport(Transport):
     """zeep transport that stashes the last operation response's raw bytes.
 
@@ -111,6 +132,14 @@ class WSLClient:
             content_type=self._transport.last_content_type or "text/xml",
         )
 
+    def _parse_committee_meetings_sync(self, wire: bytes) -> list[dict[str, Any]]:
+        client = self._ensure_client()
+        binding = client.service._binding
+        operation = binding.get("GetCommitteeMeetings")
+        result = binding.process_reply(client, operation, _StoredResponse(wire))
+        serialized = serialize_object(result, dict)
+        return list(serialized) if serialized is not None else []
+
     def _get_committees_sync(self, biennium: str) -> list[dict[str, Any]]:
         result = self._ensure_client().service.GetCommittees(biennium)
         serialized = serialize_object(result, dict)
@@ -174,3 +203,20 @@ class WSLClient:
                 f"got {self.service!r}"
             )
         return await asyncio.to_thread(self._fetch_committee_meetings_sync, begin, end)
+
+    async def parse_committee_meetings(self, wire: bytes) -> list[dict[str, Any]]:
+        """Re-deserialize an **archived** ``GetCommitteeMeetings`` envelope offline (#56 cache).
+
+        Replays a stored ``RawPayload.body`` through the **same** operation binding the live
+        :meth:`fetch_committee_meetings` uses, yielding the identical derived meeting dicts —
+        so #56's rename detector can read a closed window's cohort from the archive the daily
+        refresh / #39 harvest already wrote, instead of re-pulling ~1.5 MB of immutable SOAP
+        every weekly run. The only network cost is the one-time WSDL load (to build the
+        binding's type info), not the data pull. Same ``asyncio.to_thread`` dispatch as the
+        live pulls; ``wire`` is the pristine bytes (``RawPayload.body``)."""
+        if self.service != "CommitteeMeetingService":
+            raise ValueError(
+                "parse_committee_meetings requires service='CommitteeMeetingService', "
+                f"got {self.service!r}"
+            )
+        return await asyncio.to_thread(self._parse_committee_meetings_sync, wire)

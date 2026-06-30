@@ -74,7 +74,7 @@ packages/
       adapter.py      — WALegislatureAdapter(BaseAdapter): discover/fetch_one/normalize; dispatches two resources — committees:<biennium> (CommitteeService) and committee-meetings:<begin>:<end> (CommitteeMeetingService, #39), normalize routes by service URL
       synthesis.py    — pure functions emitting canonical-row dicts for anchors WSL doesn't expose (legislature/chamber/biennium/regular)
       bootstrap.py    — bootstrap_synthetic_anchors: idempotent ON CONFLICT DO NOTHING upserts of the 6 anchor rows; returns BootstrapAnchors
-      transport.py    — WSLClient: per-service zeep wrapper with lazy WSDL load; SOAP calls via asyncio.to_thread. fetch_active_committees + fetch_committee_meetings return WireFetch (parsed records + pristine SOAP wire for archival, #54)
+      transport.py    — WSLClient: per-service zeep wrapper with lazy WSDL load; SOAP calls via asyncio.to_thread. fetch_active_committees + fetch_committee_meetings return WireFetch (parsed records + pristine SOAP wire for archival, #54). parse_committee_meetings re-deserializes an *archived* wire offline through the same operation binding (no data re-pull) — the #56 cache path; guarded by the transport cassette round-trip test
       meeting_windows.py — biennium → (begin, end) window + committee-meetings:<begin>:<end> resource-id keying (#39); once-per-window cache key for docket frugality
       normalize/      — per-resource normalizers. committees.py: WSL Committee → Organization (House/Senate → chamber, Joint → legislature; org_type='committee'). committee_meetings.py: meeting refs → Joint/`Other` Organizations (#39) — dedup by stable Id, name=LongName verbatim, short_name=Name, org_type='other', parent=legislature; House/Senate skipped (CommitteeService's domain). parent_for_agency shared (extended for 'Other'). Local `name` is the verbatim double-prefixed LongName *as produced* (the read mirror still adopts PM's curated canonical), while the PM-emitted name is the clean `short_name` for org_type='other' (`OrganizationDescriptor.observed_name`, #61). parent_for_agency + clean_field (normalize/fields.py) shared with committees.py
       committee_seed.py — frozen Joint/`Other` seed (de)serialization (deterministic bytes for stable hashing); DEFAULT_SEED_PATH = data/joint_other_committees_seed.json
@@ -93,7 +93,9 @@ packages/
       sidecar.py      — Sidecar: per-cycle tick (feed → reconcile → sweep → drain) + isolated run loop
       config.py       — SidecarSettings (POWERMAP_BASE_URL, POWERMAP_API_KEY)
       reconcile_committee_active.py — one-shot producer CLI (#44): diffs the produced committee cohort against `CommitteeService.GetCommittees(biennium)` and reconciles PM `active` both ways — `active=false` for committees the roster dropped, `active=true` for ones that reappear (reactivation self-heals a modest partial-pull false retirement on the next clean run). Guarded by an empty-pull check + cohort floor (denominator = active cohort); skips archived/deleted/unanchored; emit-only (PM stays authority for `active`, mirrors it back — no local write). Weekly timer (Sun 07:00 UTC, #48) + ad-hoc; out-of-band from routine sync (`to_observation` keeps `active` out, #43)
-      reconcile_committee_names.py — one-shot producer CLI (#46): the write-side sibling of #45's read mirror. Detects a WSL committee **rename** (stable `Id`, changed `LongName`) by diffing `GetCommittees(current)` vs `GetCommittees(prior)` on `normalize_name(LongName)` — WSL's own raw name, **not** the PM-resolved `Organization.name` scalar (which would false-fire on PM canonicalisation and miss round-tripped renames). Emits windowed dated-name evidence via `OrganizationDescriptor.to_names_observation` (prior name `effective_end` = biennium-start boundary; new name `effective_start` = same, open end). Guarded by empty-pull (either roster) + low-overlap (`--min-overlap-fraction`, default 0.5 — stable WSL Ids mean a healthy diff overlaps near-totally; a thin overlap = wrong-biennium pull, which would otherwise read as a hollow "renamed: 0") + rename-storm floor (`--max-rename-fraction`, default 0.34); skips unanchored + the live-cohort-absent (counted **hidden** = archived/deleted-but-produced vs **unproduced** = never-produced/other-source); emit-only (PM curates `is_canonical`, #45 read mirror brings windows back — no local write). Weekly timer (Sun 07:30 UTC, #53) + ad-hoc; `--dry-run` previews
+      committee_name_reconcile.py — shared rename-detection spine (#46 + #56): given a current/prior `{source_id: name}` cohort it diffs on the stable id, runs the guardrails (empty-pull / low-overlap / rename-storm, the storm fraction gated by `storm_floor_min_overlap` so a tiny overlap can't hair-trigger it), and emits the windowed dated-name evidence via `OrganizationDescriptor.to_names_observation`. The cohort name value is both **diffed and emitted**, so each caller controls which name reaches PM; cohort/`produced` queries are parametrized by `org_type`; emit-to-PM-only, no local write
+      reconcile_committee_names.py — one-shot producer CLI (#46): the write-side sibling of #45's read mirror. Detects a WSL committee **rename** (stable `Id`, changed `LongName`) by diffing `GetCommittees(current)` vs `GetCommittees(prior)` on `normalize_name(LongName)` — WSL's own raw name, **not** the PM-resolved `Organization.name` scalar (which would false-fire on PM canonicalisation and miss round-tripped renames). Builds `{Id: LongName}` maps and delegates to `committee_name_reconcile` (org_type='committee'). Guarded by empty-pull (either roster) + low-overlap (`--min-overlap-fraction`, default 0.5 — stable WSL Ids mean a healthy diff overlaps near-totally; a thin overlap = wrong-biennium pull, which would otherwise read as a hollow "renamed: 0") + rename-storm floor (`--max-rename-fraction`, default 0.34); skips unanchored + the live-cohort-absent (counted **hidden** = archived/deleted-but-produced vs **unproduced** = never-produced/other-source). Weekly timer (Sun 07:30 UTC, #53) + ad-hoc; `--dry-run` previews
+      reconcile_committee_meeting_names.py — one-shot producer CLI (#56): the meeting-derived sibling of #46, for the Joint/`Other` (`org_type='other'`) class `CommitteeService` can't see (#39; e.g. ESEC `Id 13945`). Diffs two bienniums' `GetCommitteeMeetings`-derived cohorts (`MeetingCohortProvider` — archive-first: re-parses the closed window's archived SOAP wire offline via the same zeep binding, so an immutable docket isn't re-pulled weekly; live fallback only for an un-archived window) on the stable `Id`; the cohort name is the **clean `Name`** (#61 `observed_name`), not the agency-double-prefixed `LongName` stored as `Organization.name`, so the double-prefix never reaches PM and a PM canonicalisation can't false-fire. Same windowed emit + shared spine as #46, but **re-tuned guards** for a dormancy-prone cohort: low-overlap **off by default** (`--min-overlap-fraction` 0.0 — a body absent from one window is dormancy, not a wrong-biennium signal) and the storm fraction only weighed past `--storm-floor-min-overlap` (default 5). Window-absence ≠ rename (the diff intersects ids present in **both** windows). Weekly timer (Sun 07:45 UTC) + ad-hoc; `--dry-run` previews. Backfill caveat: the detector diffs current-vs-prior biennium, so an older rename (ESEC = 2023) needs a targeted `--biennium`
       __main__.py     — daemon entrypoint (python -m usa_wa_sync_powermap)
 alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base
 docs/specs/           — Architecture specs (source of truth for design decisions)
@@ -114,6 +116,7 @@ deploy/               — Systemd unit + deployment config
 | WSL refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-wsl-refresh.timer` → `.service`; 06:00 UTC). Pulls committees **and** the current-biennium meeting window for additive Joint/`Other` discovery (#39) |
 | Committee active reconcile (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-active.timer` → `.service`; Sun 07:00 UTC) |
 | Committee rename detection (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-names.timer` → `.service`; Sun 07:30 UTC) |
+| Joint/Other rename detection (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-meeting-names.timer` → `.service`; Sun 07:45 UTC, #56) |
 | Provenance integrity sweep (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-integrity-sweep.timer` → `.service`; Sun 08:00 UTC) |
 | Failure alerts | templated oneshot | — | `OnFailure=` → `usa-wa-notify-failure@.service` |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
@@ -125,7 +128,8 @@ deploy/               — Systemd unit + deployment config
 The unattended oneshots fail silently on a headless box — a `failed` state in the
 journal nobody is watching. Each failable oneshot (`usa-wa-migrate`,
 `usa-wa-wsl-refresh`, `usa-wa-reconcile-committee-active`,
-`usa-wa-reconcile-committee-names`, `usa-wa-integrity-sweep`) carries
+`usa-wa-reconcile-committee-names`,
+`usa-wa-reconcile-committee-meeting-names`, `usa-wa-integrity-sweep`) carries
 `OnFailure=usa-wa-notify-failure@%n.service`, so systemd starts the templated
 handler on a non-zero exit **or** a `TimeoutStartSec=` hang. `%n` (the failing
 unit's full name) becomes the handler's instance.
@@ -168,6 +172,7 @@ entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
 `usa-wa-sync-powermap.service`, `usa-wa-wsl-refresh.service`,
 `usa-wa-reconcile-committee-active.service`,
 `usa-wa-reconcile-committee-names.service`,
+`usa-wa-reconcile-committee-meeting-names.service`,
 `usa-wa-integrity-sweep.service`, `scripts/migrate.sh`).
 `--no-sync` runs against the installed venv as-is; `--frozen` skips re-locking.
 So unit start never mutates the environment — the daily WSL refresh timer can't
@@ -202,12 +207,14 @@ requires a plain `uv sync`** — `--no-sync` units can't start against an absent
 | After editing `deploy/usa-wa-wsl-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-wsl-refresh.timer` |
 | After editing `deploy/usa-wa-reconcile-committee-active.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-active.timer` |
 | After editing `deploy/usa-wa-reconcile-committee-names.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-names.timer` |
+| After editing `deploy/usa-wa-reconcile-committee-meeting-names.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-meeting-names.timer` |
 | After editing `deploy/usa-wa-integrity-sweep.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-integrity-sweep.timer` |
 | After editing `deploy/usa-wa-notify-failure@.service` | `sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
 | After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
 | Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
 | Run the committee active reconcile now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-active.service` |
 | Run the committee rename detection now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-names.service` |
+| Run the Joint/Other rename detection now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-meeting-names.service` |
 | Run the provenance integrity sweep now (ad-hoc) | `sudo systemctl start usa-wa-integrity-sweep.service` |
 
 **Validating unit edits (#51).** A path-filtered pre-commit hook
@@ -357,6 +364,26 @@ python -m usa_wa_sync_powermap.reconcile_committee_active --biennium 2025-26
 # Exit codes: 0 clean; 1 some rows rejected/failed; 2 auth block; 3 guardrail abort.
 python -m usa_wa_sync_powermap.reconcile_committee_names --dry-run
 python -m usa_wa_sync_powermap.reconcile_committee_names --biennium 2025-26
+
+# Joint/Other rename detection (#56) — meeting-derived sibling of #46 for the org_type='other'
+# class CommitteeService can't see (#39; e.g. ESEC Id 13945). Diffs two bienniums'
+# GetCommitteeMeetings-derived cohorts (current + prior) on the stable `Id`; the cohort name
+# is the CLEAN `Name` (#61 observed_name), not the double-prefixed LongName stored as
+# Organization.name — so the "Joint Joint …" form never reaches PM. Same windowed emit +
+# shared spine as #46, but re-tuned guards for a dormancy-prone cohort: low-overlap OFF by
+# default (--min-overlap-fraction 0.0 — window-absence is dormancy, not a wrong-biennium
+# signal) and the storm fraction only weighed past --storm-floor-min-overlap (default 5).
+# Window-absence ≠ rename (intersects ids present in BOTH windows). Emit-only; idempotent; no
+# operator token. Archive-first + read-only: a closed window is re-parsed offline from the
+# RawPayload the daily refresh / #39 harvest already archived (no ~1.5MB re-pull); only an
+# un-archived window falls back to a live, un-archived pull. Prod runs this weekly (Sun 07:45
+# UTC) via usa-wa-reconcile-committee-meeting-names.timer, staggered 15 min off #46.
+# --dry-run previews. Biennium: --biennium, else USA_WA_BIENNIUM, else current date.
+# NOTE backfill: the detector diffs current-vs-PRIOR biennium, so an older rename (ESEC =
+# 2023) needs a targeted --biennium 2023-24 (diffs vs 2021-22) to surface.
+# Exit codes: 0 clean; 1 some rows rejected/failed; 2 auth block; 3 guardrail abort.
+python -m usa_wa_sync_powermap.reconcile_committee_meeting_names --dry-run
+python -m usa_wa_sync_powermap.reconcile_committee_meeting_names --biennium 2023-24
 
 # Provenance integrity sweep (#54) — re-hashes every stored RawPayload body against
 # its FetchEvent.content_hash baseline; a divergence is corruption/tamper at rest.

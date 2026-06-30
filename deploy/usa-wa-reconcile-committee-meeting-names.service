@@ -1,0 +1,47 @@
+[Unit]
+Description=usa-wa — Joint/Other (meeting-derived) committee rename detection (#56) one-shot
+# usa-wa-migrate.service: schema must be at head before the DML-read reconcile
+# runs. Ordering only — a failed/absent migrate must not wedge the timer on an
+# already-migrated box.
+After=network-online.target postgresql.service usa-wa-migrate.service
+Wants=network-online.target
+# Alert the operator on failure (#49). A guardrail abort (exit 3 — empty-pull or
+# the re-tuned storm floor) or a string of rejected rows (exit 1) on the weekly
+# timer would otherwise wait ≤7 days for the next fire to be seen. The handler
+# surfaces the exit code in its subject so the operator can triage. %n expands to
+# this unit's full name (the notify handler's instance).
+OnFailure=usa-wa-notify-failure@%n.service
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/usa-wa
+
+# Pin PATH so `uv` resolves regardless of the inherited systemd default.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# App role only. reconcile reads DATABASE_URL (DML — no DDL; emit-only to PM, no
+# local name write) plus POWERMAP_BASE_URL / POWERMAP_API_KEY. DATABASE_URL_OWNER
+# also lives in /etc/usa-wa/.env on this single VM but reconcile never reads it
+# (only alembic does). Later EnvironmentFiles override earlier ones.
+EnvironmentFile=/etc/usa-wa/.env
+EnvironmentFile=-/home/exedev/usa-wa/.env
+
+# --frozen --no-sync: run against the installed venv as-is; never re-lock or
+# sync at unit start (AGENTS.md § Server Lifecycle, #30).
+#
+# Guardrails (empty-pull abort + re-tuned storm floor; low-overlap off by default
+# for this dormancy-prone class) make autonomous runs safe; a partial /
+# wrong-biennium pull aborts with exit 3 (took no action) rather than emitting
+# bogus rename evidence.
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_sync_powermap.reconcile_committee_meeting_names
+
+# Bound the WSDL fetch + per-row PM submissions plus any live window pull so a
+# hung endpoint fails deterministically; the timer retries on the next fire.
+# Steady state is cheap: closed windows are re-parsed offline from the archive
+# the daily refresh / #39 harvest already wrote — only an un-archived window
+# triggers a live GetCommitteeMeetings pull (the larger, slower path), so the
+# generous bound covers the cold-cache case.
+TimeoutStartSec=600
+
+# This unit is started by usa-wa-reconcile-committee-meeting-names.timer; no [Install] WantedBy.

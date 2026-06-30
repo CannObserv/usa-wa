@@ -116,3 +116,28 @@ async def test_fetch_committee_meetings_wrong_service_raises():
     client = WSLClient("CommitteeService")
     with pytest.raises(ValueError, match="CommitteeMeetingService"):
         await client.fetch_committee_meetings(datetime(2024, 1, 1), datetime(2024, 1, 2))
+
+
+async def test_parse_committee_meetings_round_trips_archived_wire(wsl_vcr):
+    """Re-parsing the archived wire offline (the #56 cache path) recovers the **same** meeting
+    dicts as the live pull — it replays the stored bytes through the identical operation
+    binding, so the cache can't drift from ``fetch_committee_meetings``."""
+    cassette = "committee_meeting_service_get_committee_meetings_2024-01-16.yaml"
+    with wsl_vcr.use_cassette(cassette):
+        client = WSLClient("CommitteeMeetingService")
+        fetched = await client.fetch_committee_meetings(
+            datetime(2024, 1, 16), datetime(2024, 1, 16, 23, 59, 59)
+        )
+        reparsed = await client.parse_committee_meetings(fetched.wire)
+
+    live_refs = [c for m in fetched.records for c in _committee_refs(m)]
+    cached_refs = [c for m in reparsed for c in _committee_refs(m)]
+    assert cached_refs and len(cached_refs) == len(live_refs)
+    assert {c["Id"] for c in cached_refs} == {c["Id"] for c in live_refs}
+
+
+async def test_parse_committee_meetings_wrong_service_raises():
+    """Service-name dispatch guard mirrors the fetch method."""
+    client = WSLClient("CommitteeService")
+    with pytest.raises(ValueError, match="CommitteeMeetingService"):
+        await client.parse_committee_meetings(b"<x/>")

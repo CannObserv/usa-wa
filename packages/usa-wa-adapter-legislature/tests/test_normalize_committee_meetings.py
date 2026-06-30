@@ -12,6 +12,7 @@ from clearinghouse_core.adapter import FetchedPayload
 from clearinghouse_domain_legislative.identity import Organization
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors
 from usa_wa_adapter_legislature.normalize.committee_meetings import (
+    joint_other_refs,
     normalize_committee_meetings,
 )
 
@@ -156,6 +157,18 @@ async def test_blank_acronym_collapses_to_none(anchors, jurisdiction_id):
     )
     [org] = batch.entities
     assert org.acronym is None
+
+
+def test_joint_other_refs_dedup_is_structural_first_wins():
+    """Dedup keys on (Agency, Id) and keeps the FIRST ref for an Id verbatim — field
+    completeness is the consumer's guard, not this seam's. Pins the documented behavior so a
+    malformed-but-first ref claiming the slot is an intentional contract, not an accident.
+    (Never hit in WSL data: a body's refs carry identical attributes across its meetings.)"""
+    first = {"Id": -140, "Name": "First", "LongName": "Joint First", "Agency": "Joint"}
+    second = {"Id": -140, "Name": "Second", "LongName": "Joint Second", "Agency": "Joint"}
+    refs = joint_other_refs([_meeting("Joint", [first]), _meeting("Joint", [second])])
+    assert set(refs) == {"-140"}
+    assert refs["-140"]["Name"] == "First"  # first ref wins
 
 
 async def test_missing_longname_is_skipped_with_warning(anchors, jurisdiction_id, caplog):

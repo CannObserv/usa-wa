@@ -1,0 +1,20 @@
+[Unit]
+Description=usa-wa — weekly Joint/Other (meeting-derived) committee rename detection
+Documentation=https://github.com/CannObserv/usa-wa/issues/56
+
+[Timer]
+# Weekly, Sunday 07:45 UTC — staggered after the active-flag reconcile (07:00)
+# and the #46 committee-roster rename detection (07:30), before the integrity
+# sweep (08:00), so the WSL-SOAP-facing oneshots don't contend, and all land
+# after the 06:00 daily WSL refresh. Joint/Other renames only occur at biennium
+# boundaries (~2 yrs), so weekly is well above the freshness floor; it lands a
+# rollover within ≤7 days with no manual action. Reconcile is idempotent — a
+# no-diff run emits nothing — so a missed-then-caught run is safe.
+OnCalendar=Sun *-*-* 07:45:00 UTC
+# Run on next boot if the box was down at the scheduled time.
+Persistent=true
+# Jitter to avoid firing on the dot.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

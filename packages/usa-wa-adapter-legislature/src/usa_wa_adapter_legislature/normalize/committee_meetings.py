@@ -59,6 +59,39 @@ def _committee_refs(meeting: dict[str, Any]) -> list[dict[str, Any]]:
     return [coms] if isinstance(coms, dict) else list(coms)
 
 
+def joint_other_refs(meetings: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Deduped Joint/`Other` committee refs across a window's meetings, keyed by source_id.
+
+    Flattens every meeting's nested ``Committees.Committee[]``, keeps only the
+    Joint/`Other` class (the bodies ``CommitteeService`` can't see, #39), and dedups by
+    the stable WSL ``Id`` (``first ref wins`` — a body repeats once per meeting it held).
+    House/Senate refs ride along in the meeting data but are dropped: they are
+    ``CommitteeService``'s domain.
+
+    The shared parse seam for both consumers — :func:`normalize_committee_meetings` (the
+    canonical row producer) and the #56 rename detector's meeting-cohort builder — so the
+    dedup/filter rule lives in exactly one place. Returns raw refs (``Id, Name, LongName,
+    Agency, Acronym, Phone``); each consumer extracts and guards the fields it needs.
+
+    Dedup is **structural** (first ref for an ``Id`` wins, regardless of field completeness) —
+    field-presence is the consumer's concern, not this seam's. In WSL data a body's refs carry
+    identical attributes across the meetings it held, so first-wins is unambiguous; a malformed
+    first ref shadowing a later complete one is a theoretical edge that has never been observed
+    (every produced body carries a populated ``Name``/``LongName``)."""
+    by_id: dict[str, dict[str, Any]] = {}
+    for meeting in meetings:
+        for ref in _committee_refs(meeting):
+            if ref.get("Agency") not in _MEETING_DERIVED_AGENCIES:
+                continue  # House/Senate belong to CommitteeService — see module docstring
+            committee_id = ref.get("Id")
+            if committee_id is None:
+                continue
+            source_id = str(committee_id)
+            if source_id not in by_id:  # refs repeat once per meeting the body held; first wins
+                by_id[source_id] = ref
+    return by_id
+
+
 async def normalize_committee_meetings(
     payload: FetchedPayload,
     *,
@@ -75,38 +108,29 @@ async def normalize_committee_meetings(
         logger.warning("wsl_meetings_payload_unparsed", extra={"url": payload.url})
         return NormalizedBatch()
 
-    by_id: dict[str, Organization] = {}
-    for meeting in meetings:
-        for ref in _committee_refs(meeting):
-            agency = ref.get("Agency")
-            if agency not in _MEETING_DERIVED_AGENCIES:
-                continue  # House/Senate belong to CommitteeService — see module docstring
-            committee_id = ref.get("Id")
-            if committee_id is None:
-                continue
-            source_id = str(committee_id)
-            if source_id in by_id:
-                continue  # refs repeat once per meeting the body held; first wins
+    entities: list[Organization] = []
+    for source_id, ref in joint_other_refs(meetings).items():
+        long_name = ref.get("LongName")
+        if not long_name:
+            logger.warning(
+                "wsl_meeting_committee_missing_longname",
+                extra={"committee_id": ref.get("Id"), "agency": ref.get("Agency")},
+            )
+            continue
 
-            long_name = ref.get("LongName")
-            if not long_name:
-                logger.warning(
-                    "wsl_meeting_committee_missing_longname",
-                    extra={"committee_id": committee_id, "agency": agency},
-                )
-                continue
-
-            acronym = clean_field(ref.get("Acronym"))
-            by_id[source_id] = Organization(
+        acronym = clean_field(ref.get("Acronym"))
+        entities.append(
+            Organization(
                 source=_SOURCE,
                 source_id=source_id,
                 jurisdiction_id=jurisdiction_id,
                 name=long_name,
                 short_name=clean_field(ref.get("Name")),
                 org_type="other",
-                parent_organization_id=parent_for_agency(agency, anchors),
+                parent_organization_id=parent_for_agency(ref["Agency"], anchors),
                 acronym=acronym.upper() if acronym else None,
                 phone=clean_field(ref.get("Phone")),
             )
+        )
 
-    return NormalizedBatch(entities=list(by_id.values()))
+    return NormalizedBatch(entities=entities)
