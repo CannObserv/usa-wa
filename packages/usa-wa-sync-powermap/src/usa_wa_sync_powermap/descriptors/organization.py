@@ -97,9 +97,11 @@ def observed_name(row: Any) -> str:
     is the clean ``Name`` ("Joint Transportation Committee"), which is what PM should
     receive — the meeting serializer is deterministic (``LongName == f"{Agency} {Name}"``).
     Other classes keep ``name``: House/Senate ``short_name`` ("Finance") is too terse to be
-    the canonical. Falls back to ``name`` if ``short_name`` is unset. The raw SOAP wire and
-    the local ``Organization.name`` stay verbatim; this only shapes the PM-facing evidence
-    (PM still curates ``is_canonical``)."""
+    the canonical. Falls back to ``name`` if ``short_name`` is unset. The raw SOAP wire stays
+    verbatim (provenance), and local ``Organization.name`` is the verbatim LongName *as
+    produced* — though the read mirror still adopts PM's curated canonical into it
+    (``apply_record`` → ``upsert_from_pm``). This only shapes the PM-facing name *evidence*;
+    PM still curates ``is_canonical``."""
     if row.org_type == "other" and row.short_name:
         return row.short_name
     return row.name
