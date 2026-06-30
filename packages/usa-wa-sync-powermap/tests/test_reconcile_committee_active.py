@@ -441,3 +441,25 @@ async def test_auth_block_aborts_run(db_session, usa_wa):
             biennium="2025-26",
             max_absent_fraction=1.0,
         )
+
+
+async def test_other_class_is_excluded_from_active_reconcile(db_session, usa_wa):
+    """org_type='other' (the Joint/Other meeting-derived class, #39) is outside this
+    cohort: an anchored 'other' org absent from the roster is never retired."""
+    await _add_committee(db_session, source_id="100", anchor=ULID())  # present committee
+    other = await _add_committee(
+        db_session,
+        source_id="-140",
+        name="Joint Joint Transportation Committee",
+        anchor=ULID(),
+        org_type="other",  # absent from the roster, but excluded by org_type
+    )
+    wsl = _FakeWSL(_roster(100))
+    pm = _FakePM()
+
+    await reconcile_committee_active(
+        db_session, OrganizationDescriptor(), wsl, pm, biennium="2025-26", max_absent_fraction=1.0
+    )
+
+    assert pm.posted == []  # nothing retired — the 'other' row was never in the diff
+    assert other.active is True

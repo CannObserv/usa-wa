@@ -571,3 +571,29 @@ async def test_auth_block_aborts_run(db_session, usa_wa):
             biennium="2025-26",
             max_rename_fraction=1.0,
         )
+
+
+async def test_other_class_is_excluded_from_names_reconcile(db_session, usa_wa):
+    """A renamed Id in the org_type='other' class (#39) is not in the live committee
+    cohort, so no dated-name pair is emitted even when the rosters show a name change."""
+    await _add_committee(
+        db_session,
+        source_id="-140",
+        name="Joint Joint Transportation Committee",
+        anchor=ULID(),
+        org_type="other",
+    )
+    wsl = _FakeWSL(
+        _rosters(
+            prior=[_committee(-140, "Old Joint Name")], current=[_committee(-140, "New Joint Name")]
+        )
+    )
+    pm = _FakePM()
+
+    summary = await reconcile_committee_names(
+        db_session, OrganizationDescriptor(), wsl, pm, biennium="2025-26", max_rename_fraction=1.0
+    )
+
+    assert pm.posted == []  # excluded by org_type — never treated as a committee rename
+    assert summary["emitted"] == 0
+    assert summary["aborted"] is None  # proves exclusion, not a guardrail abort
