@@ -67,16 +67,12 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
-from clearinghouse_domain_legislative.identity import Organization
-from clearinghouse_domain_legislative.queries import live_only
-from clearinghouse_sync_powermap.client import DeliveryBlockedError, PayloadRejectedError
-from clearinghouse_sync_powermap.descriptors import EntityDescriptor, normalize_name
-from clearinghouse_sync_powermap.engine import TRANSIENT_EXCEPTIONS
+from clearinghouse_sync_powermap.client import DeliveryBlockedError
+from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 from usa_wa_adapter_legislature.refresh import (
     biennium_for_date,
@@ -84,21 +80,18 @@ from usa_wa_adapter_legislature.refresh import (
     previous_biennium,
 )
 from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_sync_powermap.committee_name_reconcile import (
+    DEFAULT_MAX_RENAME_FRACTION,
+    EXIT_ABORTED,
+    reconcile_names_from_maps,
+)
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
 
 logger = get_logger(__name__)
 
-#: Producer source for WSL committees — scopes the cohort so a future committee-bearing
-#: source isn't swept into the rename diff silently.
-_SOURCE = "usa_wa_legislature"
 #: Local ``org_type`` of the rows this diff governs.
 _ORG_TYPE = "committee"
-#: Rename-storm default: abort if more than this fraction of the overlapping cohort shows a
-#: changed name. Real biennium renames are a handful of ~34 committees; a third leaves
-#: headroom while still catching a wrong-biennium pull or a normalisation artifact.
-#: Operator-overridable (``--max-rename-fraction``).
-DEFAULT_MAX_RENAME_FRACTION = 0.34
 #: Low-overlap floor: abort if the two rosters share fewer than this fraction of the
 #: **smaller** roster's ``Id``s. WSL committee ``Id``s are **stable** across bienniums, so a
 #: healthy current-vs-prior diff overlaps near-totally; a thin overlap means a wrong
@@ -106,15 +99,9 @@ DEFAULT_MAX_RENAME_FRACTION = 0.34
 #: diff that would otherwise pass both other guards (``renamed=0`` can't trip the storm
 #: floor) and read as a clean "no renames". The smaller-roster denominator reads 1.0 under
 #: one-sided growth or drop, so only genuine divergence trips it. Half is generous headroom.
-#: Operator-overridable (``--min-overlap-fraction``).
+#: Operator-overridable (``--min-overlap-fraction``). (The Joint/`Other` meeting-derived
+#: sibling #56 relaxes this — dormancy-prone cohorts overlap thinly by nature.)
 DEFAULT_MIN_OVERLAP_FRACTION = 0.5
-#: Per-row delivery failures isolated so one bad row doesn't abort the run. As with #44,
-#: ``DeliveryBlockedError`` (401/403) is deliberately **not** here — a global credential
-#: failure aborts fast rather than failing every row.
-_DELIVERY_FAILURES = TRANSIENT_EXCEPTIONS
-#: Exit code for a guardrail abort (empty pull / rename storm) — distinct from a partial
-#: row failure (1) so an operator/cron can tell "took no action" from "acted, some failed".
-EXIT_ABORTED = 3
 
 
 def _roster_by_id(roster: list[dict], *, label: str) -> dict[str, str]:
@@ -137,90 +124,6 @@ def _roster_by_id(roster: list[dict], *, label: str) -> dict[str, str]:
     return by_id
 
 
-async def _live_committee_by_source_id(session: AsyncSession) -> dict[str, Organization]:
-    """The live (not archived / deleted) produced committees, keyed by ``source_id`` (the
-    WSL ``Id``) for the rename join."""
-    rows = (
-        (
-            await session.execute(
-                live_only(
-                    select(Organization).where(
-                        Organization.source == _SOURCE,
-                        Organization.org_type == _ORG_TYPE,
-                    ),
-                    Organization,
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return {row.source_id: row for row in rows}
-
-
-async def _produced_committee_source_ids(session: AsyncSession) -> set[str]:
-    """All WSL-produced committee ``source_id``s regardless of liveness — used to classify a
-    renamed Id absent from the live cohort as *hidden* (archived/deleted) vs genuinely
-    *unproduced* (never produced, or owned by another source)."""
-    rows = (
-        await session.execute(
-            select(Organization.source_id).where(
-                Organization.source == _SOURCE,
-                Organization.org_type == _ORG_TYPE,
-            )
-        )
-    ).all()
-    return {source_id for (source_id,) in rows}
-
-
-async def _emit_names(
-    descriptor: EntityDescriptor,
-    pm_client: Any,
-    row: Any,
-    *,
-    prior_name: str,
-    new_name: str,
-    boundary: Any,
-    summary: dict,
-) -> None:
-    """Emit one dated-name observation for a renamed ``row``, tallying into ``summary``.
-
-    Skips + counts an unanchored row (can't attach by id). Isolates a per-row PM rejection
-    (422) and transport blip; a global auth block and real bugs propagate. On success
-    increments ``emitted``."""
-    if descriptor.anchor_value(row) is None:
-        summary["skipped_unanchored"] += 1
-        logger.warning("reconcile_names_unanchored", extra={"source_id": row.source_id})
-        return
-    payload = descriptor.to_names_observation(
-        row, prior_name=prior_name, new_name=new_name, boundary=boundary
-    )
-    try:
-        result = await pm_client.post_observation(descriptor.observe_path, payload)
-    except PayloadRejectedError as exc:
-        summary["rejected"] += 1
-        logger.warning(
-            "reconcile_names_rejected", extra={"source_id": row.source_id, "error": str(exc)}
-        )
-        return
-    except _DELIVERY_FAILURES as exc:
-        summary["failed"] += 1
-        logger.warning(
-            "reconcile_names_failed", extra={"source_id": row.source_id, "error": repr(exc)}
-        )
-        return
-    if result.anchored:
-        summary["emitted"] += 1
-    elif result.rejected:
-        summary["rejected"] += 1
-    else:
-        summary["failed"] += 1
-    logger.info(
-        "reconcile_names_submitted",
-        extra={"source_id": row.source_id, "disposition": result.disposition},
-    )
-
-
 async def reconcile_committee_names(
     session: AsyncSession,
     descriptor: EntityDescriptor,
@@ -236,111 +139,33 @@ async def reconcile_committee_names(
     stable ``Id`` and emit windowed dated-name evidence for each committee whose
     (normalized) ``LongName`` changed.
 
-    Guardrails (see module docstring): either roster empty aborts (``empty_pull``); too thin
-    a shared-``Id`` overlap aborts (``low_overlap`` — a meaningless diff that would otherwise
-    read as a clean "no renames"); a renamed fraction over ``max_rename_fraction`` aborts
-    (``rename_storm``). All gate the whole run. A renamed committee absent from the live
-    cohort is counted-skipped, split into *hidden* (archived/deleted — still produced) vs
-    *unproduced* (never produced, or owned by another source); unanchored ones are counted
-    and skipped. Per-row transport blips and PM rejections are isolated; a global auth block
-    and real bugs propagate. ``dry_run`` runs the diff and guards but posts nothing.
+    Builds the current/prior ``{Id: LongName}`` maps from the rosters (the names diffed
+    *and* emitted are WSL's raw ``LongName`` — never the PM-resolved ``Organization.name``
+    scalar) and hands them to the shared
+    :func:`~usa_wa_sync_powermap.committee_name_reconcile.reconcile_names_from_maps` spine,
+    governing the ``org_type='committee'`` class. The Joint/`Other` meeting-derived sibling
+    (#56) shares that spine with a different source + relaxed overlap guard.
 
-    Emit-to-PM-only: PM resolves canonical and the #45 read mirror brings the windows back,
-    so no local column is mutated and the caller need not commit. Returns a JSON-able
-    summary. ``emitted`` counts observations accepted this run (idempotent re-emits
-    included), not strictly net-new renames.
+    Guardrails, per-row eligibility, and emit-to-PM-only semantics: see the spine. ``dry_run``
+    still fetches both rosters (so the diff/guards run) but posts nothing.
     """
     prior_label = previous_biennium(biennium)
     current = _roster_by_id(await wsl_client.get_committees(biennium), label=biennium)
     prior = _roster_by_id(await wsl_client.get_committees(prior_label), label=prior_label)
-    overlap = current.keys() & prior.keys()
-    renamed = sorted(
-        cid for cid in overlap if normalize_name(prior[cid]) != normalize_name(current[cid])
+    return await reconcile_names_from_maps(
+        session,
+        descriptor,
+        pm_client,
+        current=current,
+        prior=prior,
+        biennium=biennium,
+        prior_biennium=prior_label,
+        boundary=biennium_start_date(biennium),
+        org_type=_ORG_TYPE,
+        dry_run=dry_run,
+        max_rename_fraction=max_rename_fraction,
+        min_overlap_fraction=min_overlap_fraction,
     )
-    summary = {
-        "biennium": biennium,
-        "prior_biennium": prior_label,
-        "current": len(current),
-        "prior": len(prior),
-        "overlap": len(overlap),
-        "renamed": len(renamed),
-        "emitted": 0,
-        "skipped_unanchored": 0,
-        "skipped_hidden": 0,
-        "skipped_unproduced": 0,
-        "rejected": 0,
-        "failed": 0,
-        "dry_run": dry_run,
-        "aborted": None,
-    }
-    if not current or not prior:
-        # Either side empty ⇒ a failed pull, never a real diff (an empty current windows
-        # nothing; an empty prior makes every committee look brand-new and mis-windows).
-        summary["aborted"] = "empty_pull"
-        logger.warning(
-            "reconcile_names_aborted", extra={"reason": "empty_pull", "biennium": biennium}
-        )
-        return summary
-    # Denominator is the SMALLER roster: "of the smaller cohort, what fraction overlapped."
-    # That reads 1.0 whenever one roster contains the other (pure growth *or* pure drop) and
-    # only drops when the rosters genuinely diverge — the wrong-biennium case — so a
-    # legitimate high-growth biennium doesn't false-abort on a current-only denominator.
-    if len(overlap) / min(len(current), len(prior)) < min_overlap_fraction:
-        # Thin overlap ⇒ wrong-biennium pull / Id-scheme change, not a real diff. WSL Ids are
-        # stable, so a healthy diff overlaps near-totally; abort rather than report a hollow
-        # "renamed: 0". (Guards the storm floor too — a tiny overlap makes it hair-trigger.)
-        summary["aborted"] = "low_overlap"
-        logger.warning(
-            "reconcile_names_aborted",
-            extra={
-                "reason": "low_overlap",
-                "overlap": len(overlap),
-                "current": len(current),
-                "prior": len(prior),
-                "min_overlap_fraction": min_overlap_fraction,
-            },
-        )
-        return summary
-    if overlap and len(renamed) / len(overlap) > max_rename_fraction:
-        # Mass rename ⇒ suspect normalisation artifact / wrong-biennium pull.
-        summary["aborted"] = "rename_storm"
-        logger.warning(
-            "reconcile_names_aborted",
-            extra={
-                "reason": "rename_storm",
-                "renamed": len(renamed),
-                "overlap": len(overlap),
-                "max_rename_fraction": max_rename_fraction,
-            },
-        )
-        return summary
-    if dry_run:
-        return summary
-    boundary = biennium_start_date(biennium)
-    cohort = await _live_committee_by_source_id(session)
-    produced = await _produced_committee_source_ids(session)
-    for cid in renamed:
-        row = cohort.get(cid)
-        if row is None:
-            # Absent from the live cohort: hidden (archived/deleted but still produced) vs
-            # genuinely unproduced (never produced, or owned by another source).
-            if cid in produced:
-                summary["skipped_hidden"] += 1
-                logger.warning("reconcile_names_hidden", extra={"source_id": cid})
-            else:
-                summary["skipped_unproduced"] += 1
-                logger.warning("reconcile_names_unproduced", extra={"source_id": cid})
-            continue
-        await _emit_names(
-            descriptor,
-            pm_client,
-            row,
-            prior_name=prior[cid],
-            new_name=current[cid],
-            boundary=boundary,
-            summary=summary,
-        )
-    return summary
 
 
 def _build_parser() -> argparse.ArgumentParser:
