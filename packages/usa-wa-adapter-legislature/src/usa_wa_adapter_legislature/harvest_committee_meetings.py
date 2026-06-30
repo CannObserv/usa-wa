@@ -25,6 +25,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from ulid import ULID as _ULID
 
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.provenance import Citation, FetchEvent
@@ -76,7 +77,7 @@ def bienniums_in_range(from_biennium: str, to_biennium: str) -> list[str]:
 
 
 async def _other_class_cohort(
-    session: AsyncSession, source_id: object, window_resource_ids: list[str]
+    session: AsyncSession, source_id: _ULID, window_resource_ids: list[str]
 ) -> list[Organization]:
     """The org_type='other' cohort discovered **in this run's windows** — the seed content.
 

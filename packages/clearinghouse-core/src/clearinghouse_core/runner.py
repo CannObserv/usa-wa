@@ -168,7 +168,10 @@ class AdapterRunner:
         (refreshing the cache TTL and the content-hash ledger) but skip re-storing the
         identical payload, bounding RawPayload growth for unchanged windows. Scoped to
         ``(source, resource_id, content_hash)`` and excludes the just-written event, so
-        an identical hash under a *different* resource keeps its own archived copy."""
+        an identical hash under a *different* resource keeps its own archived copy.
+
+        One lookup per fetch; ``content_hash`` is unindexed today (#59 tracks a
+        supporting ``(source_id, resource_id, content_hash)`` index)."""
         stmt = (
             select(RawPayload.id)
             .join(FetchEvent, FetchEvent.id == RawPayload.fetch_event_id)

@@ -28,6 +28,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from ulid import ULID as _ULID
 
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
@@ -59,7 +60,7 @@ class IngestSummary:
 
 
 async def _seed_already_recorded(
-    session: AsyncSession, source_id: object, content_hash: bytes
+    session: AsyncSession, source_id: _ULID, content_hash: bytes
 ) -> bool:
     """True if a prior ingest already archived this exact seed (same bytes).
 

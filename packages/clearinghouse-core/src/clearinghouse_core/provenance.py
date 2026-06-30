@@ -148,6 +148,14 @@ class RawPayload(Base, CreatedAtMixin):
     GC'd after the source's ``cache_ttl_days``. The parent FetchEvent persists,
     so callers can still find the original URL and route to Archiver for
     long-term content.
+
+    **Not every FetchEvent has a RawPayload.** The runner dedups by content hash
+    (:meth:`~clearinghouse_core.runner.AdapterRunner._payload_already_archived`): a
+    re-fetch whose body is byte-identical to an earlier fetch of the same
+    ``(source, resource_id)`` records a fresh FetchEvent (cache TTL + hash ledger)
+    but **shares** the already-stored payload rather than duplicating the bytes. So a
+    payload-less FetchEvent is expected, not corruption — an integrity/audit tool must
+    not assume a 1:1 FetchEvent→RawPayload mapping.
     """
 
     __tablename__ = "raw_payloads"
