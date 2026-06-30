@@ -310,15 +310,18 @@ class OrganizationDescriptor(EntityDescriptor):
         calls this to emit the windowed name evidence. The boundary is half-open
         ``[effective_start, effective_end)``:
 
-        - **prior name** carries ``effective_end = boundary`` only — its true start may be
-          bienniums old and is left to PM (omitted, not nulled).
-        - **new name** carries ``effective_start = boundary`` and an open end (the current
-          name).
+        - **prior name** is typed ``former`` (#58) and carries ``effective_end = boundary``
+          only — its true start may be bienniums old and is left to PM (omitted, not nulled).
+        - **new name** is typed ``legal`` and carries ``effective_start = boundary`` with an
+          open end (the current name).
 
-        Both rows are asserted as ``legal`` *evidence* — PM curates ``is_canonical`` and
+        ``name_type`` is *observation*, not curation: a rename on a stable WSL ``Id`` is
+        direct evidence the prior name is ``former`` and the new one ``legal`` — PM's own
+        org-name vocabulary (``dba | former | legal``) models this, so we assert it rather
+        than leaving the closure implicit in the window alone (#58 reverses the earlier
+        window-only stance). We still never assert ``is_canonical`` — PM curates that and
         resolves the canonical scalar, the same hands-off stance as :meth:`to_observation`'s
-        ``names``. Temporality lives in the window, not in ``name_type`` (a name that *was*
-        legal stays ``legal`` within its window). Enrich-keyed by the PM anchor
+        ``names``. Enrich-keyed by the PM anchor
         (``pm_org_id``), like :meth:`to_active_observation`; PM applies dated-name evidence
         independently, so no other curated fields are re-ridden. Synchronous — no DB access.
 
@@ -329,7 +332,7 @@ class OrganizationDescriptor(EntityDescriptor):
             "identifier_type": self.enrich_identifier_type,
             "identifier_value": str(self.anchor_value(row)),
             "names": [
-                {"name": prior_name, "name_type": "legal", "effective_end": boundary.isoformat()},
+                {"name": prior_name, "name_type": "former", "effective_end": boundary.isoformat()},
                 {"name": new_name, "name_type": "legal", "effective_start": boundary.isoformat()},
             ],
         }

@@ -133,7 +133,9 @@ async def test_renamed_joint_committee_emits_clean_windowed_name_pair(db_session
     assert _ESEC_OLD in names
     assert _ESEC_NEW in names
     assert not any(n.startswith("Joint Joint") for n in names)
+    assert names[_ESEC_OLD]["name_type"] == "former"  # #58: prior name designated former
     assert names[_ESEC_OLD]["effective_end"] == BOUNDARY.isoformat()
+    assert names[_ESEC_NEW]["name_type"] == "legal"  # current name stays legal
     assert summary["renamed"] == 1
     assert summary["emitted"] == 1
     assert summary["aborted"] is None

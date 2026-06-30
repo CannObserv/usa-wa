@@ -120,8 +120,10 @@ async def test_renamed_committee_emits_windowed_name_pair(db_session, usa_wa):
     assert payload["identifier_type"] == "pm_org_id"
     assert payload["identifier_value"] == str(anchor)
     names = {n["name"]: n for n in payload["names"]}
+    assert names["Old Name"]["name_type"] == "former"  # #58: prior name designated former
     assert names["Old Name"]["effective_end"] == BOUNDARY.isoformat()
     assert "effective_start" not in names["Old Name"]  # prior start unknown
+    assert names["New Name"]["name_type"] == "legal"  # current name stays legal
     assert names["New Name"]["effective_start"] == BOUNDARY.isoformat()
     assert "effective_end" not in names["New Name"]  # current name is open
     assert summary["renamed"] == 1
