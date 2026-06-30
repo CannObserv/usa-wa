@@ -30,6 +30,7 @@ async def _add_org(
     source="usa_wa_legislature",
     source_id,
     name,
+    short_name=None,
     org_type="committee",
     anchor=None,
     jurisdiction_id=None,
@@ -41,6 +42,7 @@ async def _add_org(
         source=source,
         source_id=source_id,
         name=name,
+        short_name=short_name,
         org_type=org_type,
         pm_organization_id=anchor,
         jurisdiction_id=jurisdiction_id,
@@ -210,6 +212,60 @@ async def test_to_observation_committee_payload(db_session, descriptor, usa_wa):
         {"jurisdiction_id": str(usa_wa.pm_jurisdiction_id), "affiliation_type_slug": "governing"}
     ]
     assert obs["organization_parent_id"] == str(parent.pm_organization_id)
+
+
+async def test_to_observation_sends_clean_short_name_for_other_class(
+    db_session, descriptor, usa_wa
+):
+    """Meeting-derived Joint/`Other` orgs send the clean short_name, not the
+    agency-double-prefixed name, as the PM name evidence (#61)."""
+    row = await _add_org(
+        db_session,
+        source_id="-140",
+        name="Joint Joint Transportation Committee",  # WSL LongName, verbatim local
+        short_name="Joint Transportation Committee",  # clean Name
+        org_type="other",
+        jurisdiction_id=usa_wa.id,
+    )
+
+    obs = await descriptor.to_observation(db_session, row)
+
+    assert obs["names"] == [{"name": "Joint Transportation Committee", "name_type": "legal"}]
+
+
+async def test_to_observation_other_class_falls_back_to_name_without_short_name(
+    db_session, descriptor, usa_wa
+):
+    """An `other` org lacking short_name keeps `name` — no empty/None name emitted."""
+    row = await _add_org(
+        db_session,
+        source_id="-999",
+        name="Joint Some Body",
+        short_name=None,
+        org_type="other",
+        jurisdiction_id=usa_wa.id,
+    )
+
+    obs = await descriptor.to_observation(db_session, row)
+
+    assert obs["names"] == [{"name": "Joint Some Body", "name_type": "legal"}]
+
+
+async def test_to_observation_keeps_name_for_committee_class(db_session, descriptor, usa_wa):
+    """Non-`other` classes still send `name` even when a (terse) short_name exists —
+    e.g. House/Senate committees, whose short_name would lose chamber context."""
+    row = await _add_org(
+        db_session,
+        source_id="C-9",
+        name="House Finance",
+        short_name="Finance",
+        org_type="committee",
+        jurisdiction_id=usa_wa.id,
+    )
+
+    obs = await descriptor.to_observation(db_session, row)
+
+    assert obs["names"] == [{"name": "House Finance", "name_type": "legal"}]
 
 
 async def test_to_observation_emits_acronym_and_phone(db_session, descriptor, usa_wa):

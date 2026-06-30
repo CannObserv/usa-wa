@@ -89,6 +89,22 @@ def identifier_type_for(source: str, org_type: str | None) -> str | None:
     return None
 
 
+def observed_name(row: Any) -> str:
+    """The name to assert to PM as ``legal`` evidence.
+
+    The meeting-derived Joint/`Other` class (#39/#61) stores WSL's agency-double-prefixed
+    ``LongName`` ("Joint Joint Transportation Committee") as ``name``; its ``short_name``
+    is the clean ``Name`` ("Joint Transportation Committee"), which is what PM should
+    receive — the meeting serializer is deterministic (``LongName == f"{Agency} {Name}"``).
+    Other classes keep ``name``: House/Senate ``short_name`` ("Finance") is too terse to be
+    the canonical. Falls back to ``name`` if ``short_name`` is unset. The raw SOAP wire and
+    the local ``Organization.name`` stay verbatim; this only shapes the PM-facing evidence
+    (PM still curates ``is_canonical``)."""
+    if row.org_type == "other" and row.short_name:
+        return row.short_name
+    return row.name
+
+
 class OrganizationDescriptor(EntityDescriptor):
     """Binds ``clearinghouse_domain_legislative.identity.Organization`` to PM."""
 
@@ -227,7 +243,8 @@ class OrganizationDescriptor(EntityDescriptor):
             "identifier_type": id_type,
             "identifier_value": row.source_id,
             # Typed name *evidence* — PM curates ``is_canonical``; we never assert it.
-            "names": [{"name": row.name, "name_type": "legal"}],
+            # Joint/`Other` send the clean short_name, not the double-prefixed name (#61).
+            "names": [{"name": observed_name(row), "name_type": "legal"}],
         }
         # Single-value local columns → PM's list-shaped fields. Guard on truthiness
         # so an empty-string acronym never lands as ``org_acronyms: [{...}]``; phone is
