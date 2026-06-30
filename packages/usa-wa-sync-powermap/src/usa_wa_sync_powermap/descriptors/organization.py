@@ -168,15 +168,20 @@ class OrganizationDescriptor(EntityDescriptor):
 
         # 2. Name — PM FTS (word-token, folds &/punct/order; #199/#201) narrows;
         # normalize_name equality confirms. FTS subsumes the old ILIKE cohort-scan
-        # fallback, so a single query suffices.
-        target = normalize_name(row.name)
+        # fallback, so a single query suffices. Match on the *asserted* name
+        # (observed_name), so matching and observing use the same name — for the
+        # Joint/`Other` class that is the clean short_name, not the double-prefixed
+        # LongName (#61); searching by the prefixed form would false-miss a PM org a
+        # curator created under the clean name and duplicate it.
+        match_name = observed_name(row)
+        target = normalize_name(match_name)
         page = await client.search_entities(
-            SEARCH_PATH, q=row.name, jurisdiction=JURISDICTION_SLUG, limit=self.search_match_cap
+            SEARCH_PATH, q=match_name, jurisdiction=JURISDICTION_SLUG, limit=self.search_match_cap
         )
         named = [c for c in page.records if normalize_name(c.get("name") or "") == target]
         if len(named) == 1:
             logger.info(
-                "org_pm_match_name", extra={"entity_name": row.name, "pm_id": named[0].get("id")}
+                "org_pm_match_name", extra={"entity_name": match_name, "pm_id": named[0].get("id")}
             )
             return as_ulid(named[0]["id"])
 
@@ -188,12 +193,12 @@ class OrganizationDescriptor(EntityDescriptor):
                 if len(scoped) == 1:
                     logger.info(
                         "org_pm_match_hierarchy",
-                        extra={"entity_name": row.name, "pm_id": scoped[0].get("id")},
+                        extra={"entity_name": match_name, "pm_id": scoped[0].get("id")},
                     )
                     return as_ulid(scoped[0]["id"])
             logger.warning(
                 "org_pm_match_ambiguous",
-                extra={"entity_name": row.name, "candidates": [c.get("id") for c in named]},
+                extra={"entity_name": match_name, "candidates": [c.get("id") for c in named]},
             )
 
         return None  # genuinely new → observe-create

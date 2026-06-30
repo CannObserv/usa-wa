@@ -172,6 +172,37 @@ async def test_pm_match_disambiguates_by_parent_hierarchy(db_session, descriptor
     assert matched == winner
 
 
+async def test_pm_match_other_class_matches_on_clean_short_name(db_session, descriptor):
+    """For the Joint/`Other` class, the name-match searches by the clean short_name (the
+    name we assert), not the double-prefixed local name — so a PM org curated under the
+    clean name is matched, not duplicated (#61). With the prefixed name the normalize_name
+    target would not equal the PM org's clean name and the match would false-miss."""
+    pm_id = ULID()
+    row = await _add_org(
+        db_session,
+        source_id="-140",
+        name="Joint Joint Transportation Committee",  # WSL LongName (local, verbatim)
+        short_name="Joint Transportation Committee",  # clean Name — what we assert + match on
+        org_type="other",
+    )
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),  # identifier miss
+            EntityPage(  # PM holds the body under its clean (curator) name
+                records=[
+                    {"id": str(pm_id), "name": "Joint Transportation Committee", "parent_id": None}
+                ],
+                cursor=None,
+            ),
+        ]
+    )
+
+    matched = await descriptor.pm_match(client, db_session, row)
+
+    assert matched == pm_id
+    assert client.searched[1]["q"] == "Joint Transportation Committee"  # clean, not prefixed
+
+
 async def test_pm_match_returns_none_when_genuinely_new(db_session, descriptor):
     """No identifier, FTS returns no normalized-equal name → None → observe-create."""
     row = await _add_org(db_session, source_id="C-NEW", name="Brand New Select Committee")
