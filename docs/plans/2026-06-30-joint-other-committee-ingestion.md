@@ -52,10 +52,10 @@ Locked mappings (validated against live 2023-24 & 2025-26 data):
 6. Daily refresh: add a current-window docket pull (additive discovery only). Test asserting **window-absence does not retire**.
 7. Regression test: `org_type="other"` rows are excluded from the #44 active-reconcile and #46 rename-detect cohorts.
 
-## Open questions / risks
+## Open questions / risks (resolved)
 
-- **Backfill depth** — `GetCommitteeMeetings` floor is unknown (probe + log); how far back to seed is a deliberate knob, not free (request volume vs completeness).
-- **`Acronym` not universal** (e.g. Civic Health blank) — label only, never identity. Already handled by keying on `Id`.
-- **`Other` includes a JLARC subcommittee (I900)** — the single `"other"` bucket accepts this; revisit only if a consumer needs agency-vs-subcommittee.
-- **Seed home & loader unit** — lean: dedicated one-shot backfill CLI owns the frozen seed; daily refresh stays current-window-only (the source's `cache_ttl_days=1` would otherwise re-pull closed windows).
-- **Joint-committee renames** (ESEC's is visible in the data) — #46's rename detector is `GetCommittees`-based and blind to joints; defer a meeting-derived detector as an explicit follow-up, don't silently drop it.
+- **Backfill depth** — *Resolved:* validate against recent biennia (2023-24, 2025-26) only for now; full-depth backfill + floor-probe deferred to a later pass.
+- **`Acronym` not universal** (e.g. Civic Health blank) — label only, never identity; keying on `Id` already covers it.
+- **`Other` includes a JLARC subcommittee (I900)** — *Resolved:* the meeting payload carries **no parent field** (`Agency` is the only structural signal), so parent the whole `other` class to the legislature anchor and **defer subcommittee nesting (I900→JLARC) to PM curation** — PM is system-of-record for the org tree and `parent` is excluded from the org descriptor's enrich carry-fields. No name/acronym string-matching (not robust).
+- **Seed home & loader unit** — *Resolved:* dedicated one-shot backfill CLI owns the frozen seed; daily refresh stays current-window-only (the source's `cache_ttl_days=1` would otherwise re-pull closed windows).
+- **Joint-committee renames** — *Resolved:* filed as #56 (meeting-derived sibling of #46); reuse `reconcile_committee_names` machinery, only the source cohort differs. Out of scope here.
