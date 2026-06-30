@@ -1,0 +1,155 @@
+{
+  "bienniums": [
+    "2023-24",
+    "2025-26"
+  ],
+  "committees": [
+    {
+      "acronym": "LEAP",
+      "name": "Other Legislative Evaluation & Accountability Program",
+      "phone": null,
+      "short_name": "Legislative Evaluation & Accountability Program",
+      "source_id": "-12"
+    },
+    {
+      "acronym": "JARRC",
+      "name": "Joint Joint Administrative Rules Review Committee",
+      "phone": null,
+      "short_name": "Joint Administrative Rules Review Committee",
+      "source_id": "-14"
+    },
+    {
+      "acronym": "JTC",
+      "name": "Joint Joint Transportation Committee",
+      "phone": null,
+      "short_name": "Joint Transportation Committee",
+      "source_id": "-140"
+    },
+    {
+      "acronym": "SLC",
+      "name": "Other Statute Law Committee",
+      "phone": null,
+      "short_name": "Statute Law Committee",
+      "source_id": "-141"
+    },
+    {
+      "acronym": "VMA",
+      "name": "Joint Joint Committee on Veterans' & Military Affairs",
+      "phone": null,
+      "short_name": "Joint Committee on Veterans' & Military Affairs",
+      "source_id": "-27"
+    },
+    {
+      "acronym": "SCPP",
+      "name": "Joint Select Committee on Pension Policy",
+      "phone": null,
+      "short_name": "Select Committee on Pension Policy",
+      "source_id": "-4"
+    },
+    {
+      "acronym": "JLARC",
+      "name": "Joint JLARC - Joint Legislative Audit & Review Committee",
+      "phone": null,
+      "short_name": "JLARC - Joint Legislative Audit & Review Committee",
+      "source_id": "-5"
+    },
+    {
+      "acronym": "PFC",
+      "name": "Joint Pension Funding Council",
+      "phone": null,
+      "short_name": "Pension Funding Council",
+      "source_id": "-71"
+    },
+    {
+      "acronym": "LCEDIR",
+      "name": "Joint Legislative Committee on Economic Development & International Relations",
+      "phone": null,
+      "short_name": "Legislative Committee on Economic Development & International Relations",
+      "source_id": "-74"
+    },
+    {
+      "acronym": "ESEC",
+      "name": "Joint Joint Committee on Energy Supply, Energy Conservation, and Energy Resilience",
+      "phone": null,
+      "short_name": "Joint Committee on Energy Supply, Energy Conservation, and Energy Resilience",
+      "source_id": "13945"
+    },
+    {
+      "acronym": "WSDD",
+      "name": "Joint Joint Legislative Committee on Water Supply During Drought",
+      "phone": null,
+      "short_name": "Joint Legislative Committee on Water Supply During Drought",
+      "source_id": "15660"
+    },
+    {
+      "acronym": "HIEJC",
+      "name": "Joint Joint Higher Education Committee",
+      "phone": null,
+      "short_name": "Joint Higher Education Committee",
+      "source_id": "17159"
+    },
+    {
+      "acronym": "HCOJSC",
+      "name": "Joint Joint Select Committee on Health Care and Behavioral Health Oversight",
+      "phone": null,
+      "short_name": "Joint Select Committee on Health Care and Behavioral Health Oversight",
+      "source_id": "18046"
+    },
+    {
+      "acronym": "ADJLEC",
+      "name": "Joint Joint Legislative Executive Committee on Planning for Aging and Disability Issues",
+      "phone": null,
+      "short_name": "Joint Legislative Executive Committee on Planning for Aging and Disability Issues",
+      "source_id": "18048"
+    },
+    {
+      "acronym": "TAX",
+      "name": "Other Citizen Commission for Performance Measurement of Tax Preferences",
+      "phone": null,
+      "short_name": "Citizen Commission for Performance Measurement of Tax Preferences",
+      "source_id": "18059"
+    },
+    {
+      "acronym": "I900",
+      "name": "Other JLARC I-900 Subcommittee for SAO Performance Audits",
+      "phone": null,
+      "short_name": "JLARC I-900 Subcommittee for SAO Performance Audits",
+      "source_id": "21488"
+    },
+    {
+      "acronym": "LOHAC",
+      "name": "Joint Legislative Oral History Committee",
+      "phone": null,
+      "short_name": "Legislative Oral History Committee",
+      "source_id": "22601"
+    },
+    {
+      "acronym": "JCER",
+      "name": "Joint Joint Committee on Employment Relations",
+      "phone": null,
+      "short_name": "Joint Committee on Employment Relations",
+      "source_id": "27992"
+    },
+    {
+      "acronym": "OWLAC",
+      "name": "Joint Joint Oregon-Washington Legislative Action Committee",
+      "phone": null,
+      "short_name": "Joint Oregon-Washington Legislative Action Committee",
+      "source_id": "28113"
+    },
+    {
+      "acronym": "GFIE",
+      "name": "Joint Joint Select Committee on Governance and Funding for Institutional Education",
+      "phone": null,
+      "short_name": "Joint Select Committee on Governance and Funding for Institutional Education",
+      "source_id": "34724"
+    },
+    {
+      "acronym": null,
+      "name": "Joint Joint Select Committee on Civic Health",
+      "phone": null,
+      "short_name": "Joint Select Committee on Civic Health",
+      "source_id": "35341"
+    }
+  ]
+}
