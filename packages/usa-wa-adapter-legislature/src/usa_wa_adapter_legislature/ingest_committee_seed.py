@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -54,6 +55,28 @@ class IngestSummary:
     in_seed: int
     inserted: int
     seed_path: Path
+    provenance_recorded: bool
+
+
+async def _seed_already_recorded(
+    session: AsyncSession, source_id: object, content_hash: bytes
+) -> bool:
+    """True if a prior ingest already archived this exact seed (same bytes).
+
+    Seed ingest is append-only provenance with no cache TTL, so re-ingesting an
+    unchanged seed would duplicate the FetchEvent + RawPayload. Skip the provenance
+    write when this content_hash is already on record for the seed resource (the
+    fill-only org upsert still runs — it is idempotent)."""
+    stmt = (
+        select(FetchEvent.id)
+        .where(
+            FetchEvent.source_id == source_id,
+            FetchEvent.resource_id == SEED_RESOURCE_ID,
+            FetchEvent.content_hash == content_hash,
+        )
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none() is not None
 
 
 async def ingest_committee_seed(
@@ -62,6 +85,7 @@ async def ingest_committee_seed(
     seed_path: Path = DEFAULT_SEED_PATH,
 ) -> IngestSummary:
     """Verify + load the seed; fill-only upsert the Joint/`Other` cohort."""
+    seed_path = seed_path.resolve()  # as_uri() below requires an absolute path
     content = seed_path.read_bytes()
     content_hash = verified_digest(seed_path, content)  # raises SeedIntegrityError on mismatch
     committees = deserialize_seed(content)
@@ -75,27 +99,30 @@ async def ingest_committee_seed(
     )
 
     # Synthetic provenance: the seed is a fetch-equivalent, hashed under the same
-    # baseline as live SOAP (#54); its bytes are the archived RawPayload.
-    event = FetchEvent(
-        source_id=source.id,
-        resource_id=SEED_RESOURCE_ID,
-        resource_version_key=content_hash.hex(),
-        url=seed_path.as_uri(),
-        fetched_at=datetime.now(UTC),
-        http_status=None,
-        content_hash=content_hash,
-        status=FetchStatus.ok,
-    )
-    session.add(event)
-    await session.flush()
-    session.add(
-        RawPayload(
-            fetch_event_id=event.id,
-            content_type="application/json",
-            body=content,
-            size_bytes=len(content),
+    # baseline as live SOAP (#54); its bytes are the archived RawPayload. Skip the
+    # write when this exact seed was already ingested (append-only dedup).
+    provenance_recorded = not await _seed_already_recorded(session, source.id, content_hash)
+    if provenance_recorded:
+        event = FetchEvent(
+            source_id=source.id,
+            resource_id=SEED_RESOURCE_ID,
+            resource_version_key=content_hash.hex(),
+            url=seed_path.as_uri(),
+            fetched_at=datetime.now(UTC),
+            http_status=None,
+            content_hash=content_hash,
+            status=FetchStatus.ok,
         )
-    )
+        session.add(event)
+        await session.flush()
+        session.add(
+            RawPayload(
+                fetch_event_id=event.id,
+                content_type="application/json",
+                body=content,
+                size_bytes=len(content),
+            )
+        )
 
     inserted = 0
     for committee in committees:
@@ -120,9 +147,19 @@ async def ingest_committee_seed(
 
     logger.info(
         "wsl_committee_seed_ingested",
-        extra={"in_seed": len(committees), "inserted": inserted, "seed_path": str(seed_path)},
+        extra={
+            "in_seed": len(committees),
+            "inserted": inserted,
+            "provenance_recorded": provenance_recorded,
+            "seed_path": str(seed_path),
+        },
     )
-    return IngestSummary(in_seed=len(committees), inserted=inserted, seed_path=seed_path)
+    return IngestSummary(
+        in_seed=len(committees),
+        inserted=inserted,
+        seed_path=seed_path,
+        provenance_recorded=provenance_recorded,
+    )
 
 
 async def _main(argv: list[str] | None = None) -> int:
@@ -146,9 +183,10 @@ async def _main(argv: list[str] | None = None) -> int:
     finally:
         await engine.dispose()
 
+    provenance = "recorded" if summary.provenance_recorded else "deduped"
     print(
         f"Committee seed ingest: in_seed={summary.in_seed} inserted={summary.inserted} "
-        f"(existing left untouched) seed={summary.seed_path}"
+        f"(existing left untouched) provenance={provenance} seed={summary.seed_path}"
     )
     return 0
 

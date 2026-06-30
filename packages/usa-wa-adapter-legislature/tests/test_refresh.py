@@ -117,17 +117,19 @@ async def test_run_refresh_seeds_source_and_runs_adapter(db_session, usa_wa):
             return_value="2025-26",
         ),
     ):
-        summary = await run_refresh(
+        outcome = await run_refresh(
             db_session,
             biennium="2025-26",
             meeting_client=_FakeMeetingClient(_jtc_docket()),
         )
 
     # The committees summary is unchanged by the additive meeting pull.
-    assert summary.discovered == 1
-    assert summary.fetched == 1
-    assert summary.upserted_entities == 34
-    assert summary.errors == 0
+    assert outcome.committees.discovered == 1
+    assert outcome.committees.fetched == 1
+    assert outcome.committees.upserted_entities == 34
+    assert outcome.committees.errors == 0
+    # The additive meeting pull's upsert count is surfaced separately.
+    assert outcome.meetings_upserted == 1
 
     sources = (await db_session.execute(select(Source))).scalars().all()
     assert len(sources) == 1

@@ -38,6 +38,7 @@ from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Organization
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors
 from usa_wa_adapter_legislature.normalize.committees import parent_for_agency
+from usa_wa_adapter_legislature.normalize.fields import clean_field
 
 logger = get_logger(__name__)
 
@@ -56,16 +57,6 @@ def _committee_refs(meeting: dict[str, Any]) -> list[dict[str, Any]]:
     if coms is None:
         return []
     return [coms] if isinstance(coms, dict) else list(coms)
-
-
-def _clean(value: Any) -> str | None:
-    """Strip a WSL string field; empty / whitespace-only / non-str → ``None``.
-
-    Collapses ``""`` and ``"   "`` to ``None`` so readers never see two truth values
-    for "absent" (the blank-``Acronym`` case — e.g. the Civic Health committee)."""
-    if not isinstance(value, str):
-        return None
-    return value.strip() or None
 
 
 async def normalize_committee_meetings(
@@ -105,17 +96,17 @@ async def normalize_committee_meetings(
                 )
                 continue
 
-            acronym = _clean(ref.get("Acronym"))
+            acronym = clean_field(ref.get("Acronym"))
             by_id[source_id] = Organization(
                 source=_SOURCE,
                 source_id=source_id,
                 jurisdiction_id=jurisdiction_id,
                 name=long_name,
-                short_name=_clean(ref.get("Name")),
+                short_name=clean_field(ref.get("Name")),
                 org_type="other",
                 parent_organization_id=parent_for_agency(agency, anchors),
                 acronym=acronym.upper() if acronym else None,
-                phone=_clean(ref.get("Phone")),
+                phone=clean_field(ref.get("Phone")),
             )
 
     return NormalizedBatch(entities=list(by_id.values()))

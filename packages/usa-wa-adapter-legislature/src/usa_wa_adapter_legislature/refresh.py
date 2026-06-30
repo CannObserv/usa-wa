@@ -107,18 +107,28 @@ async def _get_or_create_source(session: AsyncSession, jurisdiction: Jurisdictio
     return row
 
 
+@dataclasses.dataclass(frozen=True)
+class RefreshOutcome:
+    """Result of one :func:`run_refresh`: the committees summary + the additive
+    meeting-discovery upsert count, so the operator sees both kinds of work."""
+
+    committees: RunSummary
+    meetings_upserted: int
+
+
 async def run_refresh(
     session: AsyncSession,
     *,
     biennium: str | None = None,
     meeting_client: WSLClient | None = None,
-) -> RunSummary:
+) -> RefreshOutcome:
     """Execute one WSL refresh cycle against the supplied session.
 
     Runs the committees discovery, then an **additive** current-biennium meeting-docket
-    pull for the Joint/`Other` class (#39). Returns the committees :class:`RunSummary`;
-    the meeting pull is logged separately and is best-effort — a meeting-service outage
-    must not fail the (primary) committees refresh.
+    pull for the Joint/`Other` class (#39). Returns a :class:`RefreshOutcome` carrying
+    the committees :class:`RunSummary` and the meeting-discovery upsert count; the meeting
+    pull is best-effort — a meeting-service outage must not fail the (primary) committees
+    refresh (its count is 0 on failure).
 
     ``meeting_client`` is injectable for tests; production defaults to a real
     ``CommitteeMeetingService`` client.
@@ -149,18 +159,21 @@ async def run_refresh(
         "wsl_refresh_summary",
         extra={"summary": dataclasses.asdict(summary), "biennium": biennium},
     )
-    await _discover_current_meeting_window(runner, biennium)
-    return summary
+    meetings_upserted = await _discover_current_meeting_window(runner, biennium)
+    return RefreshOutcome(committees=summary, meetings_upserted=meetings_upserted)
 
 
-async def _discover_current_meeting_window(runner: AdapterRunner, biennium: str) -> None:
+async def _discover_current_meeting_window(runner: AdapterRunner, biennium: str) -> int:
     """Additive Joint/`Other` discovery from the current biennium's meeting window.
 
     Cache-or-fetch keyed on the stable ``committee-meetings:<begin>:<end>`` id (the
-    source's ``cache_ttl_days`` bounds re-fetch). Absence of a previously-seen body
+    source's ``cache_ttl_days`` bounds re-fetch; the runner skips re-archiving an
+    unchanged-hash payload, and #57 tracks further window-archival optimizations).
+    Absence of a previously-seen body
     from the window is **not** retirement — the meeting normalizer only ever upserts
     the bodies present, never marks an absent one inactive (#39). Best-effort: a
-    failure is logged and swallowed so the committees refresh still succeeds."""
+    failure is logged and swallowed (returns 0) so the committees refresh still
+    succeeds. Returns the upsert count."""
     resource_id = meetings_resource_id(*biennium_window(biennium))
     try:
         upserted = await runner.fetch_and_normalize(resource_id)
@@ -168,8 +181,10 @@ async def _discover_current_meeting_window(runner: AdapterRunner, biennium: str)
             "wsl_meeting_discovery",
             extra={"biennium": biennium, "resource_id": resource_id, "upserted": upserted},
         )
+        return upserted
     except Exception:
         logger.exception("wsl_meeting_discovery_failed", extra={"resource_id": resource_id})
+        return 0
 
 
 async def _main() -> int:
@@ -182,21 +197,23 @@ async def _main() -> int:
     try:
         try:
             async with AsyncSession(engine) as session, session.begin():
-                summary = await run_refresh(session)
+                outcome = await run_refresh(session)
         except Exception:
             # Surface the failure cleanly so cron/journal gets a single
             # actionable line plus the traceback in logs, and the process
             # exits 1 (operator-style) instead of dumping a bare traceback.
             logger.exception("wsl_refresh_failed")
             return 1
+        committees = outcome.committees
         print(
-            f"WSL refresh: discovered={summary.discovered} "
-            f"fetched={summary.fetched} "
-            f"skipped={summary.skipped_cache_hit} "
-            f"upserted={summary.upserted_entities} "
-            f"errors={summary.errors}"
+            f"WSL refresh: committees(discovered={committees.discovered} "
+            f"fetched={committees.fetched} "
+            f"skipped={committees.skipped_cache_hit} "
+            f"upserted={committees.upserted_entities} "
+            f"errors={committees.errors}) "
+            f"meetings(upserted={outcome.meetings_upserted})"
         )
-        return 0 if summary.errors == 0 else 1
+        return 0 if committees.errors == 0 else 1
     finally:
         await engine.dispose()
 

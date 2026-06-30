@@ -245,6 +245,44 @@ async def test_adapter_supplied_content_hash_is_preserved(db_session):
     assert event.content_hash != hashlib.sha256(adapter.body).digest()
 
 
+async def test_identical_content_hash_skips_duplicate_raw_payload(db_session, setup):
+    """Re-fetching unchanged bytes records a new FetchEvent (cache TTL + hash ledger)
+    but does NOT re-archive the identical RawPayload — bounds archival growth (#39)."""
+    adapter = setup["adapter"]
+    runner = setup["runner"]
+    jur_id = setup["jurisdiction"].id
+
+    adapter._next_entities = [_widget(jur_id, "W-1", "v1")]
+    await runner.fetch_and_normalize("W-1")
+    adapter._next_entities = [_widget(jur_id, "W-1", "v1")]
+    await runner.fetch_and_normalize("W-1", force=True)  # identical body
+
+    events = (
+        (await db_session.execute(select(FetchEvent).where(FetchEvent.resource_id == "W-1")))
+        .scalars()
+        .all()
+    )
+    payloads = (await db_session.execute(select(RawPayload))).scalars().all()
+    assert len(events) == 2  # both fetches recorded
+    assert len(payloads) == 1  # bytes archived once
+
+
+async def test_changed_content_archives_a_new_raw_payload(db_session, setup):
+    """Changed bytes (a new content_hash) DO archive a fresh RawPayload."""
+    adapter = setup["adapter"]
+    runner = setup["runner"]
+    jur_id = setup["jurisdiction"].id
+
+    adapter._next_entities = [_widget(jur_id, "W-1", "v1")]
+    await runner.fetch_and_normalize("W-1")
+    adapter.body = b"<widget id='X' rev='2'/>"  # different wire
+    adapter._next_entities = [_widget(jur_id, "W-1", "v2")]
+    await runner.fetch_and_normalize("W-1", force=True)
+
+    payloads = (await db_session.execute(select(RawPayload))).scalars().all()
+    assert len(payloads) == 2
+
+
 async def test_cache_hit_short_circuits_within_ttl(db_session, setup):
     """A second call for the same resource within TTL skips the fetch."""
     adapter = setup["adapter"]

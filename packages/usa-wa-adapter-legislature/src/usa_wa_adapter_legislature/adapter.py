@@ -107,8 +107,12 @@ class WALegislatureAdapter(BaseAdapter):
         )
 
     async def normalize(self, payload: FetchedPayload) -> NormalizedBatch:
-        """Dispatch to the normalizer for the payload's service (keyed on its URL)."""
-        if "CommitteeMeetingService" in payload.url:
+        """Dispatch to the normalizer for the payload's service.
+
+        Keyed on an **exact** match of the URL this adapter's ``fetch_one`` stamped
+        (``_MEETINGS_URL`` / ``_COMMITTEES_URL``) — not a substring test — so a future
+        resource can't mis-route by coincidence."""
+        if payload.url == _MEETINGS_URL:
             return await normalize_committee_meetings(
                 payload,
                 anchors=self.anchors,

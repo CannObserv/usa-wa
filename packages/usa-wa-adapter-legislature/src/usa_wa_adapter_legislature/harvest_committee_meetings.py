@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.provenance import Citation, FetchEvent
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_core.seed_manifest import write_sidecars
 from clearinghouse_domain_legislative.identity import Organization
@@ -43,6 +44,7 @@ from usa_wa_adapter_legislature.refresh import (
     _get_or_create_source,
     _resolve_jurisdiction,
 )
+from usa_wa_adapter_legislature.transport import WSLClient
 
 logger = get_logger(__name__)
 
@@ -73,11 +75,30 @@ def bienniums_in_range(from_biennium: str, to_biennium: str) -> list[str]:
     return [f"{y}-{(y + 1) % 100:02d}" for y in range(start, end + 1, 2)]
 
 
-async def _other_class_cohort(session: AsyncSession) -> list[Organization]:
-    """The produced Joint/`Other` cohort (org_type='other') — the seed's content."""
+async def _other_class_cohort(
+    session: AsyncSession, source_id: object, window_resource_ids: list[str]
+) -> list[Organization]:
+    """The org_type='other' cohort discovered **in this run's windows** — the seed content.
+
+    Scoped via the citations linking each org to the FetchEvents of exactly these window
+    resource ids, so the frozen seed is a deterministic function of the swept windows'
+    WSL data rather than whatever else happens to sit in the DB (daily-refresh rows,
+    earlier harvests, prior ingests). Reproducible across DBs given the same upstream."""
+    fetch_event_ids = select(FetchEvent.id).where(
+        FetchEvent.source_id == source_id,
+        FetchEvent.resource_id.in_(window_resource_ids),
+    )
+    cited_org_ids = select(Citation.entity_id).where(
+        Citation.entity_type == "organization",
+        Citation.fetch_event_id.in_(fetch_event_ids),
+    )
     result = await session.execute(
         select(Organization)
-        .where(Organization.source == _SOURCE, Organization.org_type == _OTHER)
+        .where(
+            Organization.source == _SOURCE,
+            Organization.org_type == _OTHER,
+            Organization.id.in_(cited_org_ids),
+        )
         .order_by(Organization.source_id)
     )
     return list(result.scalars().all())
@@ -88,7 +109,7 @@ async def harvest_committee_meetings(
     *,
     bienniums: list[str],
     seed_path: Path = DEFAULT_SEED_PATH,
-    meeting_client: object | None = None,
+    meeting_client: WSLClient | None = None,
     dry_run: bool = False,
 ) -> HarvestSummary:
     """Archive + upsert each biennium window, then freeze the deduped cohort to the seed."""
@@ -103,7 +124,7 @@ async def harvest_committee_meetings(
         anchors=anchors,
         jurisdiction_id=jurisdiction.id,
         biennium=bienniums[0],
-        meeting_client=meeting_client,  # type: ignore[arg-type]
+        meeting_client=meeting_client,
     )
     runner = AdapterRunner(
         adapter,
@@ -114,14 +135,16 @@ async def harvest_committee_meetings(
     )
 
     upserted = 0
+    window_resource_ids: list[str] = []
     for biennium in bienniums:
         resource_id = meetings_resource_id(*biennium_window(biennium))
+        window_resource_ids.append(resource_id)
         # force=False: a closed window already archived is a free cache hit — never
         # re-pull immutable history.
         upserted += await runner.fetch_and_normalize(resource_id)
         logger.info("wsl_meeting_window_harvested", extra={"biennium": biennium})
 
-    cohort = await _other_class_cohort(session)
+    cohort = await _other_class_cohort(session, source.id, window_resource_ids)
     committees = [
         SeedCommittee(
             source_id=o.source_id,

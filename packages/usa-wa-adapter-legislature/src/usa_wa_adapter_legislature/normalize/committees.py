@@ -16,6 +16,7 @@ from clearinghouse_core.adapter import FetchedPayload, NormalizedBatch
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Organization
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors
+from usa_wa_adapter_legislature.normalize.fields import clean_field
 
 logger = get_logger(__name__)
 
@@ -82,14 +83,10 @@ async def normalize_committees(
                 },
             )
 
-        acronym = committee.get("Acronym")
-        phone_raw = committee.get("Phone")
-        phone = phone_raw.strip() if isinstance(phone_raw, str) else None
-        # Whitespace-only WSL Phone values collapse to ``""`` after strip; treat
-        # those as missing so downstream readers don't see two truth values
-        # ("" vs None) for "no phone."
-        if phone == "":
-            phone = None
+        # clean_field collapses ""/"   "/non-str to None, so a blank Acronym/Phone
+        # becomes a single "absent" value rather than "" (shared with the meeting
+        # normalizer — see normalize/fields.py).
+        acronym = clean_field(committee.get("Acronym"))
 
         entities.append(
             Organization(
@@ -97,11 +94,11 @@ async def normalize_committees(
                 source_id=str(committee["Id"]),
                 jurisdiction_id=jurisdiction_id,
                 name=long_name,
-                short_name=committee.get("Name"),
+                short_name=clean_field(committee.get("Name")),
                 org_type="committee",
                 parent_organization_id=parent_id,
-                acronym=acronym.upper() if isinstance(acronym, str) else None,
-                phone=phone,
+                acronym=acronym.upper() if acronym else None,
+                phone=clean_field(committee.get("Phone")),
             )
         )
 

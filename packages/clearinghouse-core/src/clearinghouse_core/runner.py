@@ -87,7 +87,8 @@ class AdapterRunner:
 
         payload = await self.adapter.fetch_one(resource_id)
         event = await self._record_fetch_event(resource_id, payload, status=FetchStatus.ok)
-        await self._record_raw_payload(event, payload)
+        if not await self._payload_already_archived(resource_id, event):
+            await self._record_raw_payload(event, payload)
         batch = await self.adapter.normalize(payload)
         return await self._persist_batch(event, batch)
 
@@ -157,6 +158,29 @@ class AdapterRunner:
         self.session.add(event)
         await self.session.flush()
         return event
+
+    async def _payload_already_archived(self, resource_id: str, event: FetchEvent) -> bool:
+        """True when this resource's ``content_hash`` already has a stored RawPayload.
+
+        An archival window (e.g. #39's daily current-window pull) re-fetches a *stable*
+        resource id every run; when the wire is byte-identical the bytes are already
+        archived under an earlier FetchEvent. We still record the new FetchEvent
+        (refreshing the cache TTL and the content-hash ledger) but skip re-storing the
+        identical payload, bounding RawPayload growth for unchanged windows. Scoped to
+        ``(source, resource_id, content_hash)`` and excludes the just-written event, so
+        an identical hash under a *different* resource keeps its own archived copy."""
+        stmt = (
+            select(RawPayload.id)
+            .join(FetchEvent, FetchEvent.id == RawPayload.fetch_event_id)
+            .where(
+                FetchEvent.source_id == self.source.id,
+                FetchEvent.resource_id == resource_id,
+                FetchEvent.content_hash == event.content_hash,
+                FetchEvent.id != event.id,
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none() is not None
 
     async def _record_raw_payload(self, event: FetchEvent, payload: FetchedPayload) -> RawPayload:
         raw = RawPayload(
