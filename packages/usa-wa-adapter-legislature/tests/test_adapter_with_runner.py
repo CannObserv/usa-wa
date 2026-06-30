@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -14,10 +15,27 @@ from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.identity import Organization
 from usa_wa_adapter_legislature import WALegislatureAdapter
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
+from usa_wa_adapter_legislature.transport import WireFetch, WSLClient
 
 CASSETTE_DIR = Path(__file__).parent / "cassettes"
 CASSETTE = "committee_service_get_active_committees_2025-26.yaml"
+
+
+class _FakeMeetingClient:
+    """Stand-in for ``WSLClient("CommitteeMeetingService")`` — returns a fixed docket.
+
+    Lets the meeting-window path be driven through the real AdapterRunner without a
+    cassette, so the test controls the Joint/Other/House mix precisely."""
+
+    def __init__(self, records: list[dict], *, wire: bytes) -> None:
+        self._records = records
+        self._wire = wire
+
+    async def fetch_committee_meetings(self, begin, end) -> WireFetch:  # noqa: ANN001
+        return WireFetch(
+            records=self._records, wire=self._wire, content_type="text/xml; charset=utf-8"
+        )
 
 
 @pytest.fixture
@@ -145,3 +163,78 @@ async def test_refresh_is_idempotent_via_cache_hit(db_session, usa_wa, wsl_sourc
         .all()
     )
     assert len(committees) == 34
+
+
+async def test_meeting_window_archives_wire_and_upserts_joint_other(db_session, usa_wa, wsl_source):
+    """A committee-meetings window archives the pristine wire (hashed) and upserts the
+    Joint/Other class only — the House ref in the same docket is skipped (#39)."""
+    anchors = await bootstrap_synthetic_anchors(
+        db_session, biennium="2023-24", jurisdiction_id=usa_wa.id
+    )
+    wire = b"<soap:Envelope>docket</soap:Envelope>"
+    records = [
+        {
+            "Agency": "Joint",
+            "Committees": {
+                "Committee": [
+                    {
+                        "Id": -140,
+                        "Name": "Joint Transportation Committee",
+                        "LongName": "Joint Joint Transportation Committee",
+                        "Agency": "Joint",
+                        "Acronym": "JTC",
+                        "Phone": None,
+                    }
+                ]
+            },
+        },
+        {
+            "Agency": "House",
+            "Committees": {
+                "Committee": [
+                    {
+                        "Id": 31649,
+                        "Name": "Finance",
+                        "LongName": "House Finance",
+                        "Agency": "House",
+                        "Acronym": "FIN",
+                        "Phone": None,
+                    }
+                ]
+            },
+        },
+    ]
+    adapter = WALegislatureAdapter(
+        anchors=anchors,
+        jurisdiction_id=usa_wa.id,
+        biennium="2023-24",
+        meeting_client=_FakeMeetingClient(records, wire=wire),
+    )
+    runner = AdapterRunner(
+        adapter,
+        db_session,
+        source=wsl_source,
+        jurisdiction=usa_wa,
+        natural_key=("source", "source_id"),
+    )
+
+    resource_id = meetings_resource_id(*biennium_window("2023-24"))
+    upserted = await runner.fetch_and_normalize(resource_id)
+    assert upserted == 1  # only the Joint body; the House ref is CommitteeService's
+
+    # Pristine wire archived verbatim, hashed as the integrity baseline (#54).
+    [raw] = (await db_session.execute(select(RawPayload))).scalars().all()
+    assert raw.body == wire
+    [event] = (await db_session.execute(select(FetchEvent))).scalars().all()
+    assert event.resource_id == resource_id
+    assert event.content_hash == hashlib.sha256(wire).digest()
+
+    # The Joint body landed as an org_type='other' row under the legislature anchor.
+    [org] = (
+        (await db_session.execute(select(Organization).where(Organization.org_type == "other")))
+        .scalars()
+        .all()
+    )
+    assert org.source_id == "-140"
+    assert org.name == "Joint Joint Transportation Committee"
+    assert org.parent_organization_id == anchors.legislature_id
