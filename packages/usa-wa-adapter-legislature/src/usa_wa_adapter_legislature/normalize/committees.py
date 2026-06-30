@@ -22,18 +22,22 @@ logger = get_logger(__name__)
 _SOURCE = "usa_wa_legislature"
 
 
-def _parent_for_agency(agency: str | None, anchors: BootstrapAnchors) -> _ULID | None:
+def parent_for_agency(agency: str | None, anchors: BootstrapAnchors) -> _ULID | None:
     """Resolve ``Agency`` to its parent Org id.
 
     'House'/'Senate' parent to the matching chamber. 'Joint' (cross-chamber bodies
-    like Joint Transportation) parents to the WA Legislature anchor — their natural
-    common ancestor — not to either chamber and not to NULL. Any other value is
-    genuinely unknown → ``None`` (caller warns)."""
+    like Joint Transportation) and 'Other' (legislative agencies — LEAP, Statute Law
+    Committee — surfaced only via the meeting docket, #39) parent to the WA Legislature
+    anchor — their natural common ancestor — not to either chamber and not to NULL. Any
+    other value is genuinely unknown → ``None`` (caller warns).
+
+    Shared with the meeting-derived normalizer (:mod:`normalize.committee_meetings`),
+    which only ever passes 'Joint'/'Other'."""
     if agency == "House":
         return anchors.house_id
     if agency == "Senate":
         return anchors.senate_id
-    if agency == "Joint":
+    if agency in ("Joint", "Other"):
         return anchors.legislature_id
     return None
 
@@ -68,7 +72,7 @@ async def normalize_committees(
             continue
 
         agency = committee.get("Agency")
-        parent_id = _parent_for_agency(agency, anchors)
+        parent_id = parent_for_agency(agency, anchors)
         if parent_id is None:
             logger.warning(
                 "wsl_committee_unknown_agency",
