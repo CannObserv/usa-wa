@@ -86,11 +86,11 @@ class AdapterRunner:
                 return 0
 
         payload = await self.adapter.fetch_one(resource_id)
-        event = await self.archive_payload(resource_id, payload)
+        event = await self._archive_payload(resource_id, payload)
         batch = await self.adapter.normalize(payload)
         return await self._persist_batch(event, batch)
 
-    async def archive_payload(
+    async def _archive_payload(
         self, resource_id: str, payload: FetchedPayload, *, status: FetchStatus = FetchStatus.ok
     ) -> FetchEvent:
         """Write ``FetchEvent`` (+ deduped ``RawPayload``) for a retrieved payload —
@@ -102,11 +102,13 @@ class AdapterRunner:
         archival phase; the dedup guard (``_payload_already_archived``) bounds RawPayload
         growth for byte-identical re-fetches exactly as before.
 
-        ``status`` defaults to ``ok`` but is exposed so a caller can archive the wire of a
-        fetch whose *normalization* failed (record the evidence, assert nothing).
+        ``status`` defaults to ``ok`` but is a parameter so a future caller can archive the
+        wire of a fetch whose *normalization* failed (record the evidence, assert nothing).
 
-        No production caller archives without normalizing yet — this exists so a future
-        read-mostly-live consumer can archive durably without reusing the upsert path.
+        Private until a real second caller lands: no production path archives without
+        normalizing yet, so the seam stays internal (it exists to let a future
+        read-mostly-live consumer archive durably without reusing the upsert path — promote
+        to public when that caller is written and its shape is known). See #62.
         """
         event = await self._record_fetch_event(resource_id, payload, status=status)
         if not await self._payload_already_archived(resource_id, event):

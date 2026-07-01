@@ -199,7 +199,7 @@ async def test_archive_payload_writes_provenance_only(db_session, setup):
     runner = setup["runner"]
 
     payload = await adapter.fetch_one("W-1")
-    event = await runner.archive_payload("W-1", payload)
+    event = await runner._archive_payload("W-1", payload)
 
     assert isinstance(event, FetchEvent)
     assert event.resource_id == "W-1"
@@ -225,9 +225,9 @@ async def test_archive_payload_dedups_identical_bytes(db_session, setup):
     runner = setup["runner"]
 
     payload = await adapter.fetch_one("W-1")
-    await runner.archive_payload("W-1", payload)
+    await runner._archive_payload("W-1", payload)
     payload2 = await adapter.fetch_one("W-1")  # identical body
-    await runner.archive_payload("W-1", payload2)
+    await runner._archive_payload("W-1", payload2)
 
     events = (
         (await db_session.execute(select(FetchEvent).where(FetchEvent.resource_id == "W-1")))
@@ -246,7 +246,7 @@ async def test_archive_payload_records_status(db_session, setup):
     runner = setup["runner"]
 
     payload = await adapter.fetch_one("W-1")
-    event = await runner.archive_payload("W-1", payload, status=FetchStatus.err)
+    event = await runner._archive_payload("W-1", payload, status=FetchStatus.err)
 
     assert event.status == FetchStatus.err
 
