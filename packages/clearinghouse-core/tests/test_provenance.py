@@ -91,6 +91,10 @@ def test_fetch_events_dedup_index_covers_archival_lookup():
     the exact predicate of ``AdapterRunner._payload_already_archived``."""
     by_cols = {tuple(c.name for c in idx.columns): idx for idx in FetchEvent.__table__.indexes}
     assert ("source_id", "resource_id", "content_hash") in by_cols
+    # The composite is a covering prefix for source_id-only lookups (and the
+    # (source_id, resource_id) fresh-fetch query), so the standalone source_id
+    # index is redundant and must not linger (#59 CR).
+    assert ("source_id",) not in by_cols
 
 
 async def test_source_retention_policy_defaults_to_operational_cache(db_session, seeded):

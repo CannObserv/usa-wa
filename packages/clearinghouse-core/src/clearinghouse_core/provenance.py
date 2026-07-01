@@ -134,7 +134,9 @@ class FetchEvent(Base, CreatedAtMixin):
         ULID(),
         ForeignKey(f"{SCHEMA}.sources.id", ondelete="RESTRICT"),
         nullable=False,
-        index=True,
+        # No standalone index: the composite ix_..._fetch_events_dedup leads with
+        # source_id, so it covers source_id-only and (source_id, resource_id)
+        # lookups. A separate single-column index would be redundant (#59 CR).
     )
     resource_id: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
     resource_version_key: Mapped[str | None] = mapped_column(String(256), nullable=True)
