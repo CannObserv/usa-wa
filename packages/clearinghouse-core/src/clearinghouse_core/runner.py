@@ -86,11 +86,32 @@ class AdapterRunner:
                 return 0
 
         payload = await self.adapter.fetch_one(resource_id)
-        event = await self._record_fetch_event(resource_id, payload, status=FetchStatus.ok)
-        if not await self._payload_already_archived(resource_id, event):
-            await self._record_raw_payload(event, payload)
+        event = await self.archive_payload(resource_id, payload)
         batch = await self.adapter.normalize(payload)
         return await self._persist_batch(event, batch)
+
+    async def archive_payload(
+        self, resource_id: str, payload: FetchedPayload, *, status: FetchStatus = FetchStatus.ok
+    ) -> FetchEvent:
+        """Write ``FetchEvent`` (+ deduped ``RawPayload``) for a retrieved payload —
+        provenance only, no normalize/upsert (#62).
+
+        The archive-only seam: keeps the #54 ``content_hash`` derivation on the single
+        chokepoint (``_record_fetch_event``) so no call site hand-rolls hashing, without
+        asserting any canonical entity. ``fetch_and_normalize`` delegates here for its
+        archival phase; the dedup guard (``_payload_already_archived``) bounds RawPayload
+        growth for byte-identical re-fetches exactly as before.
+
+        ``status`` defaults to ``ok`` but is exposed so a caller can archive the wire of a
+        fetch whose *normalization* failed (record the evidence, assert nothing).
+
+        No production caller archives without normalizing yet — this exists so a future
+        read-mostly-live consumer can archive durably without reusing the upsert path.
+        """
+        event = await self._record_fetch_event(resource_id, payload, status=status)
+        if not await self._payload_already_archived(resource_id, event):
+            await self._record_raw_payload(event, payload)
+        return event
 
     async def refresh(self, since: datetime | None = None) -> RunSummary:
         """Iterate ``adapter.discover(since)`` and process each ref."""

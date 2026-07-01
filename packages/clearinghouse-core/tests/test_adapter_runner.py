@@ -35,6 +35,7 @@ from clearinghouse_core.provenance import (
     SCHEMA,
     Citation,
     FetchEvent,
+    FetchStatus,
     RawPayload,
     Source,
 )
@@ -189,6 +190,65 @@ async def test_fetch_and_normalize_writes_provenance_chain(db_session, setup):
     assert citations[0].confidence == pytest.approx(0.9)
     # Integrity baseline (#54): every fetch carries sha256(body), never NULL.
     assert events[0].content_hash == hashlib.sha256(adapter.body).digest()
+
+
+async def test_archive_payload_writes_provenance_only(db_session, setup):
+    """The archive-only seam (#62) writes one FetchEvent + one RawPayload and
+    NO canonical rows — no normalize, no upsert, no citation."""
+    adapter = setup["adapter"]
+    runner = setup["runner"]
+
+    payload = await adapter.fetch_one("W-1")
+    event = await runner.archive_payload("W-1", payload)
+
+    assert isinstance(event, FetchEvent)
+    assert event.resource_id == "W-1"
+    # Provenance written...
+    events = (await db_session.execute(select(FetchEvent))).scalars().all()
+    payloads = (await db_session.execute(select(RawPayload))).scalars().all()
+    assert len(events) == 1
+    assert len(payloads) == 1
+    assert payloads[0].fetch_event_id == event.id
+    # Integrity baseline (#54) centralized: sha256(body), never NULL.
+    assert event.content_hash == hashlib.sha256(adapter.body).digest()
+    # ...but NO canonical rows or citations, and normalize never ran.
+    assert (await db_session.execute(select(FakeWidget))).scalars().all() == []
+    assert (await db_session.execute(select(Citation))).scalars().all() == []
+    assert adapter.normalize_calls == 0
+
+
+async def test_archive_payload_dedups_identical_bytes(db_session, setup):
+    """Re-archiving identical bytes records a 2nd FetchEvent (cache TTL + hash
+    ledger) but does NOT re-store the identical RawPayload — the dedup guard
+    survives the extraction (#62)."""
+    adapter = setup["adapter"]
+    runner = setup["runner"]
+
+    payload = await adapter.fetch_one("W-1")
+    await runner.archive_payload("W-1", payload)
+    payload2 = await adapter.fetch_one("W-1")  # identical body
+    await runner.archive_payload("W-1", payload2)
+
+    events = (
+        (await db_session.execute(select(FetchEvent).where(FetchEvent.resource_id == "W-1")))
+        .scalars()
+        .all()
+    )
+    payloads = (await db_session.execute(select(RawPayload))).scalars().all()
+    assert len(events) == 2  # both archives recorded
+    assert len(payloads) == 1  # bytes stored once
+
+
+async def test_archive_payload_records_status(db_session, setup):
+    """archive_payload defaults to ok but accepts a status (archive the wire of a
+    fetch whose normalization failed, without asserting the entity) (#62)."""
+    adapter = setup["adapter"]
+    runner = setup["runner"]
+
+    payload = await adapter.fetch_one("W-1")
+    event = await runner.archive_payload("W-1", payload, status=FetchStatus.err)
+
+    assert event.status == FetchStatus.err
 
 
 async def test_content_hash_derived_from_body_when_adapter_omits(db_session, setup):
