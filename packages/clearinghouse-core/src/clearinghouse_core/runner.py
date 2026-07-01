@@ -193,8 +193,9 @@ class AdapterRunner:
         ``(source, resource_id, content_hash)`` and excludes the just-written event, so
         an identical hash under a *different* resource keeps its own archived copy.
 
-        One lookup per fetch; ``content_hash`` is unindexed today (#59 tracks a
-        supporting ``(source_id, resource_id, content_hash)`` index)."""
+        One lookup per fetch, backed by the composite
+        ``ix_clearinghouse_core_fetch_events_dedup`` index on
+        ``(source_id, resource_id, content_hash)`` covering this exact predicate (#59)."""
         stmt = (
             select(RawPayload.id)
             .join(FetchEvent, FetchEvent.id == RawPayload.fetch_event_id)

@@ -84,6 +84,15 @@ async def test_full_provenance_chain_persists(seeded):
     assert s["payload"].size_bytes == 16
 
 
+def test_fetch_events_dedup_index_covers_archival_lookup():
+    """A composite ``(source_id, resource_id, content_hash)`` index backs the runner's
+    per-fetch archival dedup lookup (#59). The single-column ``source_id``/``resource_id``
+    indexes narrow the scan but leave ``content_hash`` seq-filtered; this composite covers
+    the exact predicate of ``AdapterRunner._payload_already_archived``."""
+    by_cols = {tuple(c.name for c in idx.columns): idx for idx in FetchEvent.__table__.indexes}
+    assert ("source_id", "resource_id", "content_hash") in by_cols
+
+
 async def test_source_retention_policy_defaults_to_operational_cache(db_session, seeded):
     """A Source defaults to the short-TTL operational-cache retention (#54).
 

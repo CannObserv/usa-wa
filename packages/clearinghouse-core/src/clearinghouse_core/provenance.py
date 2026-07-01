@@ -21,6 +21,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -114,7 +115,19 @@ class FetchEvent(Base, CreatedAtMixin):
     """
 
     __tablename__ = "fetch_events"
-    __table_args__ = ({"schema": SCHEMA},)
+    __table_args__ = (
+        # Backs AdapterRunner._payload_already_archived's per-fetch dedup lookup,
+        # which filters exactly (source_id, resource_id, content_hash) (#59). The
+        # single-column source_id/resource_id indexes only narrow the scan, leaving
+        # content_hash seq-filtered over a subset that grows with fetch history.
+        Index(
+            f"ix_{SCHEMA}_fetch_events_dedup",
+            "source_id",
+            "resource_id",
+            "content_hash",
+        ),
+        {"schema": SCHEMA},
+    )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
     source_id: Mapped[_ULID] = mapped_column(
