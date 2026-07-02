@@ -20,8 +20,11 @@ WorkingDirectory=/home/exedev/usa-wa
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
 # App role only. The sweep reads DATABASE_URL (SELECT on the provenance tables —
-# the #54 grant REVOKE removed only UPDATE/DELETE, not SELECT/INSERT). It never
-# writes, so no owner role. Later EnvironmentFiles override earlier ones.
+# the #54 grant REVOKE removed only UPDATE/DELETE on those tables, not
+# SELECT/INSERT). Its one write is the #55 rolling cursor upsert on
+# clearinghouse_core.integrity_sweep_state, covered by the app role's DML grant on
+# that (non-provenance) table — so still no owner role. Later EnvironmentFiles
+# override earlier ones.
 EnvironmentFile=/etc/usa-wa/.env
 EnvironmentFile=-/home/exedev/usa-wa/.env
 
@@ -29,8 +32,9 @@ EnvironmentFile=-/home/exedev/usa-wa/.env
 # at unit start (AGENTS.md § Server Lifecycle, #30).
 ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m clearinghouse_core.integrity
 
-# Bound the full re-hash so a pathological archive size or a stuck DB fails
-# deterministically rather than hanging the manager; the timer retries next fire.
+# Backstop the bounded rolling slice (#55) so a stuck DB or a pathological single
+# payload fails deterministically rather than hanging the manager; the timer
+# retries next fire. The per-run byte budget keeps a routine run far inside this.
 TimeoutStartSec=600
 
 # This unit is started by usa-wa-integrity-sweep.timer; no [Install] WantedBy.

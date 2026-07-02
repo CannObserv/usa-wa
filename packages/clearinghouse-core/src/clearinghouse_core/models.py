@@ -43,3 +43,4 @@ class TimestampMixin(CreatedAtMixin):
 # Jurisdictions is imported first because provenance.Source FKs into it.
 from clearinghouse_core import jurisdictions as _jurisdictions  # noqa: E402,F401
 from clearinghouse_core import provenance as _provenance  # noqa: E402,F401
+from clearinghouse_core import sweep_state as _sweep_state  # noqa: E402,F401

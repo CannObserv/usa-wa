@@ -45,6 +45,9 @@ EXPECTED: dict[str, dict[str, bool]] = {
     "citations": {"revoke_update": True, "revoke_delete": True},
     "notes": {"revoke_update": False, "revoke_delete": False},
     "document_identifiers": {"revoke_update": False, "revoke_delete": False},
+    # #55 rolling-sweep cursor: mutable by design — the sweep UPDATEs the
+    # watermark each run. Not a provenance ledger row, so neither revocation.
+    "integrity_sweep_state": {"revoke_update": False, "revoke_delete": False},
 }
 
 

@@ -47,7 +47,8 @@ packages/
       provenance.py   — Source, FetchEvent, RawPayload, Citation, Note, DocumentIdentifier (every canonical fact traces back to these)
       adapter.py      — BaseAdapter contract + FetchedPayload / NormalizedBatch / ResourceRef
       runner.py       — AdapterRunner: cache-or-fetch decision, idempotent upsert, provenance writing (derives FetchEvent.content_hash = sha256(RawPayload.body) — the #54 integrity baseline, single chokepoint)
-      integrity.py    — provenance integrity sweep (#54): `python -m clearinghouse_core.integrity` re-hashes RawPayload bodies vs FetchEvent.content_hash; exit 1 on mismatch (corruption/tamper); NULL baselines = unbaselined, skipped. Weekly timer + OnFailure alert
+      integrity.py    — provenance integrity sweep (#54): `python -m clearinghouse_core.integrity` re-hashes RawPayload bodies vs FetchEvent.content_hash; exit 1 on mismatch (corruption/tamper); NULL baselines = unbaselined, skipped. Weekly timer + OnFailure alert. Default run is a **rolling byte-slice** (#55): verifies `--byte-budget` (default 256 MiB) worth of payloads past a persisted ULID watermark (`sweep_state.py` / `clearinghouse_core.integrity_sweep_state`), wrapping at the archive tail — per-run cost flat as the #39 docket volume grows, whole corpus covered every ceil(bytes/budget) runs (so at-rest corruption is caught within one coverage cycle, not every run). `--full` = one whole-corpus pass ignoring the cursor; `--limit N` = row-capped partial (`limited`). The cursor upsert is the sweep's one write (app-role DML on a non-provenance table; #54 REVOKE forbids a `verified_at` on RawPayload itself). Re-alert cadence: the cursor advances past a mismatch too, so a given corruption emails once (#49 exit-1) then isn't re-reported until the next coverage cycle re-scans that slice — "no follow-up" = "not yet re-scanned," not "resolved"
+      sweep_state.py  — IntegritySweepState: single-row-per-scope rolling cursor for the integrity sweep (#55); `cursor` = highest verified RawPayload.id (ULID str) or NULL to start a fresh coverage cycle
       seed_manifest.py — frozen-seed tamper-evidence convention (#54): writes/verifies `.sha256` (sha256sum format) + `.meta.json` sidecars for checked-in seed files; `verified_digest()` is the ingest seam — verifies a seed then returns the raw digest a loader writes into FetchEvent.content_hash (git is the in-repo evidence; sidecars are for ingest outside git)
       db/             — ULID SQLAlchemy column type (see db/ulid.md for rationale)
       database.py     — Async engine + session factory
@@ -386,14 +387,21 @@ python -m usa_wa_sync_powermap.reconcile_committee_names --biennium 2025-26
 python -m usa_wa_sync_powermap.reconcile_committee_meeting_names --dry-run
 python -m usa_wa_sync_powermap.reconcile_committee_meeting_names --biennium 2023-24
 
-# Provenance integrity sweep (#54) — re-hashes every stored RawPayload body against
-# its FetchEvent.content_hash baseline; a divergence is corruption/tamper at rest.
-# Read-only (app role, SELECT only); NULL baselines (pre-#54 legacy) are counted as
-# "unbaselined", never a mismatch. Exit 0 clean / 1 mismatch (the non-zero the #49
-# OnFailure handler emails on). Prod runs this weekly (Sun 08:00 UTC) via
-# usa-wa-integrity-sweep.timer; --limit N caps the scan for a quick partial check.
-python -m clearinghouse_core.integrity
-python -m clearinghouse_core.integrity --limit 500
+# Provenance integrity sweep (#54/#55) — re-hashes stored RawPayload bodies against
+# their FetchEvent.content_hash baseline; a divergence is corruption/tamper at rest.
+# NULL baselines (pre-#54 legacy) are counted as "unbaselined", never a mismatch.
+# Exit 0 clean / 1 mismatch (the non-zero the #49 OnFailure handler emails on).
+# The default run is a ROLLING byte-slice (#55): it verifies --byte-budget (default
+# 256 MiB) worth of payloads past a persisted ULID watermark and wraps at the archive
+# tail, so per-run cost stays flat as the #39 docket volume grows (whole corpus
+# re-verified every ceil(bytes/budget) runs). Its one write is the cursor upsert on
+# clearinghouse_core.integrity_sweep_state (app-role DML; not the provenance tables).
+# --full forces a whole-corpus pass ignoring the cursor (post-incident audit);
+# --limit N is a row-capped partial (surfaced as limited). Prod runs this weekly
+# (Sun 08:00 UTC) via usa-wa-integrity-sweep.timer.
+python -m clearinghouse_core.integrity                # rolling slice (resumes + wraps)
+python -m clearinghouse_core.integrity --full         # whole corpus, ignore cursor
+python -m clearinghouse_core.integrity --limit 500    # row-capped partial
 ```
 
 Full reference: `docs/COMMANDS.md`
