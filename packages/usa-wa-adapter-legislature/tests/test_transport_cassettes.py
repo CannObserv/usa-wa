@@ -141,3 +141,24 @@ async def test_parse_committee_meetings_wrong_service_raises():
     client = WSLClient("CommitteeService")
     with pytest.raises(ValueError, match="CommitteeMeetingService"):
         await client.parse_committee_meetings(b"<x/>")
+
+
+async def test_parse_committees_round_trips_archived_wire(wsl_vcr):
+    """Re-parsing an archived GetCommittees roster offline (Phase B) recovers the **same**
+    Committee dicts as the live pull — replayed through the identical binding so the
+    offline parse can't drift from ``fetch_committees`` (#54 fidelity)."""
+    cassette = "committee_service_get_committees_2023-24.yaml"
+    with wsl_vcr.use_cassette(cassette):
+        client = WSLClient("CommitteeService")
+        fetched = await client.fetch_committees("2023-24")
+        reparsed = await client.parse_committees(fetched.wire)
+
+    assert reparsed and len(reparsed) == len(fetched.records)
+    assert {c["Id"] for c in reparsed} == {c["Id"] for c in fetched.records}
+    assert {c["LongName"] for c in reparsed} == {c["LongName"] for c in fetched.records}
+
+
+async def test_parse_committees_wrong_service_raises():
+    client = WSLClient("CommitteeMeetingService")
+    with pytest.raises(ValueError, match="CommitteeService"):
+        await client.parse_committees(b"<x/>")

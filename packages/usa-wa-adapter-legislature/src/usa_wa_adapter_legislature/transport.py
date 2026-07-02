@@ -140,6 +140,14 @@ class WSLClient:
         serialized = serialize_object(result, dict)
         return list(serialized) if serialized is not None else []
 
+    def _parse_committees_sync(self, wire: bytes) -> list[dict[str, Any]]:
+        client = self._ensure_client()
+        binding = client.service._binding
+        operation = binding.get("GetCommittees")
+        result = binding.process_reply(client, operation, _StoredResponse(wire))
+        serialized = serialize_object(result, dict)
+        return list(serialized) if serialized is not None else []
+
     def _get_committees_sync(self, biennium: str) -> list[dict[str, Any]]:
         result = self._ensure_client().service.GetCommittees(biennium)
         serialized = serialize_object(result, dict)
@@ -249,3 +257,20 @@ class WSLClient:
                 f"got {self.service!r}"
             )
         return await asyncio.to_thread(self._parse_committee_meetings_sync, wire)
+
+    async def parse_committees(self, wire: bytes) -> list[dict[str, Any]]:
+        """Re-deserialize an **archived** ``GetCommittees`` envelope offline (sub-project 3).
+
+        The committee-roster analog of :meth:`parse_committee_meetings`: replays a stored
+        ``committees-roster:<biennium>`` ``RawPayload.body`` through the **same**
+        ``GetCommittees`` binding :meth:`fetch_committees` uses, yielding the identical
+        derived ``Committee`` dicts — so Phase B's rename-chain can read each closed
+        biennium's roster from the archive the harvest already wrote, without re-pulling
+        WSL. Only network cost is the one-time WSDL load (binding type info), not data.
+        Guarded by the cassette round-trip test so the offline parse can't drift from the
+        live one (#54 fidelity)."""
+        if self.service != "CommitteeService":
+            raise ValueError(
+                f"parse_committees requires service='CommitteeService', got {self.service!r}"
+            )
+        return await asyncio.to_thread(self._parse_committees_sync, wire)
