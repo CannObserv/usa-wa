@@ -244,9 +244,14 @@ def classify_org(local: LocalOrg, pm: PMOrg | PMTombstone | None) -> OrgReport:
     if (local.name or "").strip() != (pm.name or "").strip():
         issues.append(ISSUE_NAME_DRIFT)
         detail["name"] = {"local": local.name, "pm": pm.name}
-    if (local.acronym or None) != (pm.canonical_acronym() or None):
+    # Scalar acronym drift only when PM *has* a canonical acronym that differs. When
+    # PM marks none ``is_canonical`` (its acronyms[] carries the produced value
+    # unflagged), local legitimately retains its produced scalar — there's nothing to
+    # adopt, so it isn't a divergence (#64/#65; the acronyms[] set is checked below).
+    pm_canonical_acronym = pm.canonical_acronym()
+    if pm_canonical_acronym is not None and (local.acronym or None) != pm_canonical_acronym:
         issues.append(ISSUE_ACRONYM_DRIFT)
-        detail["acronym"] = {"local": local.acronym, "pm": pm.canonical_acronym()}
+        detail["acronym"] = {"local": local.acronym, "pm": pm_canonical_acronym}
     if {w.key() for w in local.name_windows} != {w.key() for w in pm.names}:
         issues.append(ISSUE_NAMES_WINDOW_DRIFT)
         detail["names"] = {"local": len(local.name_windows), "pm": len(pm.names)}

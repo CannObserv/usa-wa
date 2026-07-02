@@ -120,6 +120,25 @@ def test_acronym_drift_when_canonical_differs():
     assert vc.ISSUE_ACRONYM_DRIFT in report.issues
 
 
+def test_no_acronym_drift_when_pm_has_no_canonical():
+    # PM carries the produced acronym but marks none is_canonical → nothing to adopt;
+    # local retains its produced scalar, not a divergence (#64/#65).
+    report = vc.classify_org(
+        _local(acronym="CS"),
+        _pm(acronyms=(_av(acronym="CS", is_canonical=False),)),
+    )
+    assert vc.ISSUE_ACRONYM_DRIFT not in report.issues
+
+
+def test_acronym_drift_when_local_missing_pm_canonical():
+    # Inverse: PM has a canonical, local scalar is empty → local should have adopted.
+    report = vc.classify_org(
+        _local(acronym=None),
+        _pm(acronyms=(_av(acronym="WA CS", is_canonical=True),)),
+    )
+    assert vc.ISSUE_ACRONYM_DRIFT in report.issues
+
+
 def test_names_window_drift_when_pm_window_unmirrored():
     # PM reports a former + legal window; local mirrored neither.
     report = vc.classify_org(
