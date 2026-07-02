@@ -102,9 +102,18 @@ chain, and emits windowed `former`/`legal` dated-name evidence to PM via the
 
 ## Open questions / risks
 
-- **Resource-id key.** Proposing `committees-roster:<biennium>` for the GetCommittees
-  archive, distinct from the daily `committees:<biennium>` (GetActiveCommittees).
-  Confirm the name before step 1 (it becomes durable provenance).
+- **Resource-id key — RESOLVED.** `committees-roster:<biennium>` for the
+  GetCommittees archive, distinct from the daily `committees:<biennium>`
+  (GetActiveCommittees). These are **two different SOAP operations** (full roster vs
+  active-only), so the wire genuinely differs — not duplicate data, two distinct
+  provenance records. **No-duplication guarantees to honor + document:** (a) within
+  `committees-roster:<biennium>`, the runner's `(source, resource_id, content_hash)`
+  dedup (`_payload_already_archived`) means re-harvesting a biennium whose wire is
+  byte-identical records a fresh FetchEvent but **shares** the archived RawPayload —
+  no duplicate bytes; (b) the two keys must never be mixed (Phase B reads only
+  `committees-roster:*`). Document both keys + this rationale in AGENTS.md so a future
+  reader understands why two committee archives coexist (step 9). A harvest test
+  asserts a re-run adds no RawPayload row for an unchanged biennium.
 - **Split into two plans?** This is one sub-project but ~10 steps across two phases.
   If Phase A review runs long, Phase B (steps 5–8) can spin off into its own plan
   once Phase A's archive exists. Default: keep as one, execute Phase A → Phase B.
