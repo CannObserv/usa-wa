@@ -153,6 +153,32 @@ async def test_run_refresh_seeds_source_and_runs_adapter(db_session, usa_wa):
     assert {o.source_id for o in others} == {"-140"}
 
 
+async def test_refresh_builds_a_fill_only_runner(db_session, usa_wa, monkeypatch):
+    """The refresh must run the AdapterRunner ``fill_only`` (#65): its discovery pull
+    inserts new committees but never overwrites PM-curated ``name``/``acronym`` on
+    existing rows (which would clobber curation + bump ``updated_at``, winning LWW)."""
+    captured: dict = {}
+    real_runner = refresh_module.AdapterRunner
+
+    def _spy(*args, **kwargs):
+        captured.update(kwargs)
+        return real_runner(*args, **kwargs)
+
+    monkeypatch.setattr(refresh_module, "AdapterRunner", _spy)
+    recorder = vcr.VCR(
+        cassette_library_dir=str(CASSETTE_DIR),
+        record_mode="none",
+        match_on=["method", "scheme", "host", "port", "path"],
+        decode_compressed_response=True,
+    )
+    with recorder.use_cassette(CASSETTE):
+        await run_refresh(
+            db_session, biennium="2025-26", meeting_client=_FakeMeetingClient(_jtc_docket())
+        )
+
+    assert captured.get("fill_only") is True
+
+
 async def test_run_refresh_is_idempotent_on_source_creation(db_session, usa_wa):
     """A second call reuses the existing Source (no duplicate slug violation)."""
     recorder = vcr.VCR(

@@ -390,6 +390,58 @@ async def test_idempotent_upsert_on_natural_key(db_session, setup):
     assert widgets[0].label == "second label"
 
 
+async def test_fill_only_upsert_does_not_overwrite_existing(db_session, setup):
+    """With ``fill_only=True`` a re-observed natural key is left untouched (#65).
+
+    Insert-new / never-update: the daily refresh must not clobber a PM-curated
+    field nor bump ``updated_at`` (which would win LWW against PM's curation)."""
+    adapter = setup["adapter"]
+    jur_id = setup["jurisdiction"].id
+    runner = AdapterRunner(
+        adapter,
+        db_session,
+        source=setup["source"],
+        jurisdiction=setup["jurisdiction"],
+        fill_only=True,
+    )
+
+    adapter._next_entities = [_widget(jur_id, "W-1", "first label")]
+    await runner.fetch_and_normalize("W-1")
+    first = (await db_session.execute(select(FakeWidget))).scalar_one()
+    original_updated_at = first.updated_at
+
+    adapter._next_entities = [_widget(jur_id, "W-1", "second label")]
+    await runner.fetch_and_normalize("W-1", force=True)
+
+    widgets = (await db_session.execute(select(FakeWidget))).scalars().all()
+    assert len(widgets) == 1
+    assert widgets[0].label == "first label"  # not overwritten
+    assert widgets[0].updated_at == original_updated_at  # no clock bump
+
+
+async def test_fill_only_still_inserts_new_rows(db_session, setup):
+    """``fill_only`` blocks updates, not inserts — a genuinely new key still lands."""
+    adapter = setup["adapter"]
+    jur_id = setup["jurisdiction"].id
+    runner = AdapterRunner(
+        adapter,
+        db_session,
+        source=setup["source"],
+        jurisdiction=setup["jurisdiction"],
+        fill_only=True,
+    )
+
+    adapter._next_entities = [_widget(jur_id, "W-1", "one")]
+    await runner.fetch_and_normalize("W-1")
+    adapter._next_entities = [_widget(jur_id, "W-2", "two")]
+    await runner.fetch_and_normalize("W-2")
+
+    source_ids = {
+        w.source_id for w in (await db_session.execute(select(FakeWidget))).scalars().all()
+    }
+    assert source_ids == {"W-1", "W-2"}
+
+
 async def test_cache_miss_after_ttl_expires(db_session, setup):
     """When the cached fetch is older than TTL, a refetch happens automatically."""
     adapter = setup["adapter"]

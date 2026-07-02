@@ -167,6 +167,11 @@ async def run_refresh(
         source=source,
         jurisdiction=jurisdiction,
         natural_key=("source", "source_id"),
+        # Additive discovery (#65): insert newly-appearing committees, but never
+        # overwrite an existing row. name/acronym are PM-curated and the read-mirror
+        # resolves them; re-writing here would clobber the curation and bump
+        # updated_at, winning LWW against PM (the daily ping-pong #65 diagnosed).
+        fill_only=True,
     )
     summary = await runner.refresh()
     logger.info(

@@ -67,12 +67,21 @@ class AdapterRunner:
         source: Source,
         jurisdiction: Jurisdiction,
         natural_key: tuple[str, ...] = NATURAL_KEY,
+        fill_only: bool = False,
     ) -> None:
         self.adapter = adapter
         self.session = session
         self.source = source
         self.jurisdiction = jurisdiction
         self.natural_key = natural_key
+        #: Insert-new / never-update on natural-key conflict (``ON CONFLICT DO
+        #: NOTHING``). For discovery/archival runs whose canonical fields are owned
+        #: downstream (e.g. the daily WSL refresh: PM curates ``name``/``acronym`` and
+        #: the read-mirror resolves them, so re-writing them here would clobber the
+        #: curation and bump ``updated_at`` — winning LWW against PM, #65). The seed
+        #: ingest takes the same "floor, not authority" stance (#39). Archival + the
+        #: per-fetch Citation are unaffected — they don't depend on the conflict policy.
+        self.fill_only = fill_only
 
     async def fetch_and_normalize(self, resource_id: str, *, force: bool = False) -> int:
         """Cache-or-fetch one resource, then upsert its normalized entities.
@@ -270,12 +279,16 @@ class AdapterRunner:
         cols = {k: v for k, v in cols.items() if v is not None or k in self.natural_key}
         stmt = insert(table).values(**cols)
         update_cols = {k: v for k, v in cols.items() if k not in self.natural_key and k != "id"}
-        if update_cols:
+        if update_cols and not self.fill_only:
             stmt = stmt.on_conflict_do_update(
                 index_elements=list(self.natural_key),
                 set_=update_cols,
             )
         else:
+            # fill_only (#65) forces DO NOTHING even when there are updatable columns:
+            # an existing row is left untouched so a downstream-owned field can't be
+            # clobbered and ``updated_at`` isn't bumped. The id read-back below still
+            # resolves the existing row's id for the Citation.
             stmt = stmt.on_conflict_do_nothing(index_elements=list(self.natural_key))
         await self.session.execute(stmt)
 
