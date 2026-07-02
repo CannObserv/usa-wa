@@ -20,10 +20,21 @@ from datetime import datetime
 from typing import Any
 
 from zeep import Client
+from zeep.exceptions import Fault
 from zeep.helpers import serialize_object
 from zeep.transports import Transport
 
 WSL_BASE_URL = "https://wslwebservices.leg.wa.gov"
+
+#: WSL committee data floors at 1991; ``GetCommittees`` for an earlier (or malformed)
+#: biennium raises a SOAP Fault rather than returning empty. Treating that as "no
+#: committees" lets the floor probe / harvest stop cleanly at the boundary instead of
+#: crashing. Matched narrowly on the message so an unrelated Fault still propagates.
+_BIENNIUM_OUT_OF_RANGE_MARKER = "valid biennium"
+
+
+def _is_biennium_out_of_range(exc: Fault) -> bool:
+    return _BIENNIUM_OUT_OF_RANGE_MARKER in str(exc).lower()
 
 
 @dataclass(frozen=True)
@@ -149,14 +160,24 @@ class WSLClient:
         return list(serialized) if serialized is not None else []
 
     def _get_committees_sync(self, biennium: str) -> list[dict[str, Any]]:
-        result = self._ensure_client().service.GetCommittees(biennium)
+        try:
+            result = self._ensure_client().service.GetCommittees(biennium)
+        except Fault as exc:
+            if _is_biennium_out_of_range(exc):
+                return []  # below WSL's 1991 floor — the walk's stop signal
+            raise
         serialized = serialize_object(result, dict)
         if serialized is None:
             return []
         return list(serialized)
 
     def _fetch_committees_sync(self, biennium: str) -> WireFetch:
-        result = self._ensure_client().service.GetCommittees(biennium)
+        try:
+            result = self._ensure_client().service.GetCommittees(biennium)
+        except Fault as exc:
+            if _is_biennium_out_of_range(exc):
+                return WireFetch(records=[], wire=b"", content_type="text/xml")
+            raise
         serialized = serialize_object(result, dict)
         committees = list(serialized) if serialized is not None else []
         return WireFetch(
