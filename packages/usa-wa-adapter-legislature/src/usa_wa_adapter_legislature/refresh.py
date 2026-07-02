@@ -9,8 +9,10 @@ lazily creates the ``usa_wa_legislature`` Source row, bootstraps the
 synthetic anchors (legislature, chambers, biennium + regular sessions),
 and runs one :class:`AdapterRunner.refresh` cycle.
 
-Designed to be invoked from cron or systemd; idempotent on re-run within
-the source's cache TTL (no live SOAP call, no new rows).
+Designed to be invoked from cron or systemd. The committees pull is idempotent
+on re-run within the source's cache TTL (no live SOAP call, no new rows); the
+meeting-window pull is deliberately forced past the TTL (#63) — one SOAP call
+per run — with archival growth still bounded by the unchanged-hash dedup guard.
 
 Biennium computation: WA bienniums begin on odd years. Even-year dates roll
 back to the prior odd year (``2026-06-18`` → ``2025-26``). Override via
@@ -166,9 +168,12 @@ async def run_refresh(
 async def _discover_current_meeting_window(runner: AdapterRunner, biennium: str) -> int:
     """Additive Joint/`Other` discovery from the current biennium's meeting window.
 
-    Cache-or-fetch keyed on the stable ``committee-meetings:<begin>:<end>`` id (the
-    source's ``cache_ttl_days`` bounds re-fetch; the runner skips re-archiving an
-    unchanged-hash payload, and #57 tracks further window-archival optimizations).
+    Forced fetch on the stable ``committee-meetings:<begin>:<end>`` id: this pull
+    exists for daily discovery, and the source's 24h TTL against the ~24h timer
+    cadence made fetch-vs-skip a jitter coin flip (#63), so ``force=True`` makes the
+    cadence deterministic while the committees path stays TTL-governed. Archival
+    stays bounded — the runner skips re-storing an unchanged-hash payload (#57/#59),
+    so a static docket costs one FetchEvent row per run, no RawPayload bytes.
     Absence of a previously-seen body
     from the window is **not** retirement — the meeting normalizer only ever upserts
     the bodies present, never marks an absent one inactive (#39). Best-effort: a
@@ -176,7 +181,7 @@ async def _discover_current_meeting_window(runner: AdapterRunner, biennium: str)
     succeeds. Returns the upsert count."""
     resource_id = meetings_resource_id(*biennium_window(biennium))
     try:
-        upserted = await runner.fetch_and_normalize(resource_id)
+        upserted = await runner.fetch_and_normalize(resource_id, force=True)
         logger.info(
             "wsl_meeting_discovery",
             extra={"biennium": biennium, "resource_id": resource_id, "upserted": upserted},

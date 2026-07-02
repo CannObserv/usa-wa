@@ -31,8 +31,10 @@ class _FakeMeetingClient:
 
     def __init__(self, records: list[dict]) -> None:
         self._records = records
+        self.calls = 0
 
     async def fetch_committee_meetings(self, begin, end) -> WireFetch:  # noqa: ANN001
+        self.calls += 1
         return WireFetch(records=self._records, wire=b"<docket/>", content_type="text/xml")
 
 
@@ -164,13 +166,43 @@ async def test_run_refresh_is_idempotent_on_source_creation(db_session, usa_wa):
             db_session, biennium="2025-26", meeting_client=_FakeMeetingClient(_jtc_docket())
         )
 
-    # Second invocation hits the cache (no new SOAP call); Source row is reused.
+    # Second invocation reuses the Source row; committees hit the cache (no new
+    # SOAP call) while the meeting pull re-fetches by design (#63) via the fake.
     await run_refresh(
         db_session, biennium="2025-26", meeting_client=_FakeMeetingClient(_jtc_docket())
     )
 
     sources = (await db_session.execute(select(Source))).scalars().all()
     assert len(sources) == 1
+
+
+async def test_meeting_pull_is_forced_while_committees_stay_ttl_governed(db_session, usa_wa):
+    """A second refresh inside the cache TTL still pulls the meeting window (#63).
+
+    The meeting pull exists for daily additive Joint/`Other` discovery (#39), but a
+    24h TTL against the ~24h timer cadence made fetch-vs-skip depend on second-level
+    jitter (effective cadence ~every other day). The pull is forced — deterministic
+    daily — while the committees path stays TTL-governed for request frugality.
+    """
+    recorder = vcr.VCR(
+        cassette_library_dir=str(CASSETTE_DIR),
+        record_mode="none",
+        match_on=["method", "scheme", "host", "port", "path"],
+        decode_compressed_response=True,
+    )
+    meeting_client = _FakeMeetingClient(_jtc_docket())
+    with recorder.use_cassette(CASSETTE):
+        first = await run_refresh(db_session, biennium="2025-26", meeting_client=meeting_client)
+
+    # No cassette here: a committees SOAP call would error, so passing proves the
+    # committees path cache-hit while the meeting pull re-fetched regardless.
+    second = await run_refresh(db_session, biennium="2025-26", meeting_client=meeting_client)
+
+    assert first.meetings_upserted == 1
+    assert meeting_client.calls == 2
+    assert second.meetings_upserted == 1
+    assert second.committees.skipped_cache_hit == 1
+    assert second.committees.fetched == 0
 
 
 async def test_run_refresh_raises_when_jurisdiction_missing(db_session):
