@@ -81,6 +81,41 @@ async def test_committee_only_biennium_is_not_empty():
     assert result["earliest_with_data"] == "2023-24"
 
 
+class _FloorCommitteeClient:
+    """Exposes get_committees(biennium) for the committee-only floor probe."""
+
+    def __init__(self, by_biennium):
+        self._by = by_biennium
+        self.calls = []
+
+    async def get_committees(self, biennium):
+        self.calls.append(biennium)
+        return self._by.get(biennium, [])
+
+
+async def test_committee_floor_walks_to_earliest_nonempty():
+    """Committee-only probe: GetCommittees goes far deeper than meetings, so the floor
+    is where GetCommittees itself returns nothing (no meeting calls involved)."""
+    client = _FloorCommitteeClient(
+        {"2025-26": [{"Id": 1}], "2023-24": [{"Id": 1}], "2021-22": [{"Id": 1}]}
+        # 2019-20, 2017-18 absent → empty
+    )
+    result = await probe.probe_committee_floor(client, start_biennium="2025-26", max_empty=2)
+    labels = [r["biennium"] for r in result["bienniums"]]
+    assert labels == ["2025-26", "2023-24", "2021-22", "2019-20", "2017-18"]
+    assert result["earliest_with_data"] == "2021-22"
+    assert result["stopped_after_empty"] == 2
+    assert result["totals"]["committee_count"] == 3
+
+
+async def test_committee_floor_makes_no_meeting_calls():
+    """It only touches get_committees — the whole point is to skip the slow docket pull."""
+    client = _FloorCommitteeClient({"2025-26": [{"Id": 1}]})
+    await probe.probe_committee_floor(client, start_biennium="2025-26", max_empty=2)
+    # _FloorCommitteeClient has no meeting method at all — a meeting call would AttributeError.
+    assert client.calls[0] == "2025-26"
+
+
 async def test_safety_bound_caps_the_walk():
     """A source that never goes empty is bounded so the probe can't loop forever."""
     meetings = _FakeMeetingClient({})

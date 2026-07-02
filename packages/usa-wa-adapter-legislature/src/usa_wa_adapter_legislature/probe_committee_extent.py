@@ -113,6 +113,49 @@ async def probe_extent(
     }
 
 
+async def probe_committee_floor(
+    committee_client: Any,
+    *,
+    start_biennium: str,
+    max_empty: int = DEFAULT_MAX_EMPTY,
+    max_bienniums: int = DEFAULT_MAX_BIENNIUMS,
+) -> dict:
+    """Committee-only backward walk to the earliest biennium ``GetCommittees`` returns
+    data (sub-project 3 Phase A). Unlike :func:`probe_extent` it makes **no meeting
+    calls** — ``CommitteeService`` reaches back toward statehood, far deeper than the
+    meeting docket, and the slow ~MB meeting pulls would dominate an already-long
+    sweep. Stops after ``max_empty`` consecutive empty bienniums (bounded by
+    ``max_bienniums``). Returns the floor + per-biennium committee counts to scope the
+    harvest range."""
+    rows: list[dict] = []
+    biennium = start_biennium
+    consecutive_empty = 0
+    earliest_with_data: str | None = None
+
+    for _ in range(max_bienniums):
+        committees = await committee_client.get_committees(biennium)
+        c_count = len(committees)
+        rows.append({"biennium": biennium, "committee_count": c_count})
+        if c_count == 0:
+            consecutive_empty += 1
+        else:
+            consecutive_empty = 0
+            earliest_with_data = biennium
+        logger.info("probe_committee_floor", extra={"biennium": biennium, "committees": c_count})
+        if consecutive_empty >= max_empty:
+            break
+        biennium = previous_biennium(biennium)
+
+    return {
+        "start_biennium": start_biennium,
+        "bienniums": rows,
+        "bienniums_probed": len(rows),
+        "earliest_with_data": earliest_with_data,
+        "stopped_after_empty": consecutive_empty if consecutive_empty >= max_empty else 0,
+        "totals": {"committee_count": sum(r["committee_count"] for r in rows)},
+    }
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m usa_wa_adapter_legislature.probe_committee_extent",
