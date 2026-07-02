@@ -82,6 +82,8 @@ packages/
       harvest_committee_meetings.py — backfill CLI (#39): sweep a biennium range through the runner (archive wire + upsert org_type='other'), then freeze the deduped cohort to the seed + seed_manifest sidecars. Closed windows = cache hits on re-run
       ingest_committee_seed.py — no-WSL seed loader (#39): verified_digest gates the bytes → synthetic FetchEvent.content_hash + archived RawPayload, fill-only upsert (seed is a floor, not an authority)
       refresh.py      — `python -m usa_wa_adapter_legislature.refresh` CLI entrypoint; biennium-from-date with USA_WA_BIENNIUM override. Daily run also pulls the current biennium's meeting window for additive Joint/`Other` discovery (best-effort; window-absence ≠ retirement, #39). The meeting pull is **forced** past the cache TTL (#63 — 24h TTL vs ~24h timer cadence was a fetch/skip jitter knife-edge): deterministic daily discovery, archival still dedup-bounded; committees stay TTL-governed. Force applies only to the date-current biennium — a `USA_WA_BIENNIUM` backfill of a closed window stays cache-governed (harvest owns closed-window re-pulls); non-current runs log `wsl_refresh_noncurrent_biennium` at warning (a stale env pin would otherwise silently redirect daily discovery)
+      probe_committee_extent.py — write-free discovery CLI (#64): walks bienniums backward from current calling `GetCommittees` + `GetCommitteeMeetings`, tallying committee/meeting counts + meeting wire bytes, stopping after N consecutive empty bienniums (`--max-empty`, default 2; bounded by `--max-bienniums`). Talks to `WSLClient` **directly, not the runner** — no `FetchEvent`/`RawPayload` written; answers "how much history exists" to scope the sub-project 3 backfill
+      cleanup_unbaselined_committees.py — one-off **owner-role** provenance cleanup CLI (#64): deletes the pre-#54 unbaselined (`content_hash` NULL, payload-less) `committees:2025-26` fetch events, first re-pointing their `Citation` rows (ondelete=RESTRICT) to the newest baselined survivor for the resource. Fails closed on no-survivor or a target unexpectedly carrying archived bytes; idempotent. Needs `DATABASE_URL_OWNER` — the app role is REVOKEd UPDATE/DELETE on the ledger (#54); `--dry-run` previews
   usa-wa-api/                         — Layer 4: WA deployment (FastAPI + MCP + REST)
     src/usa_wa_api/api/
       main.py         — App factory, lifespan, router registration
@@ -97,6 +99,7 @@ packages/
       committee_name_reconcile.py — shared rename-detection spine (#46 + #56): given a current/prior `{source_id: name}` cohort it diffs on the stable id, runs the guardrails (empty-pull / low-overlap / rename-storm, the storm fraction gated by `storm_floor_min_overlap` so a tiny overlap can't hair-trigger it), and emits the windowed dated-name evidence via `OrganizationDescriptor.to_names_observation` (prior name typed `former`, new name `legal`, #58 — name_type is observation, not curation). The cohort name value is both **diffed and emitted**, so each caller controls which name reaches PM; cohort/`produced` queries are parametrized by `org_type`; emit-to-PM-only, no local write
       reconcile_committee_names.py — one-shot producer CLI (#46): the write-side sibling of #45's read mirror. Detects a WSL committee **rename** (stable `Id`, changed `LongName`) by diffing `GetCommittees(current)` vs `GetCommittees(prior)` on `normalize_name(LongName)` — WSL's own raw name, **not** the PM-resolved `Organization.name` scalar (which would false-fire on PM canonicalisation and miss round-tripped renames). Builds `{Id: LongName}` maps and delegates to `committee_name_reconcile` (org_type='committee'). Guarded by empty-pull (either roster) + low-overlap (`--min-overlap-fraction`, default 0.5 — stable WSL Ids mean a healthy diff overlaps near-totally; a thin overlap = wrong-biennium pull, which would otherwise read as a hollow "renamed: 0") + rename-storm floor (`--max-rename-fraction`, default 0.34); skips unanchored + the live-cohort-absent (counted **hidden** = archived/deleted-but-produced vs **unproduced** = never-produced/other-source). Weekly timer (Sun 07:30 UTC, #53) + ad-hoc; `--dry-run` previews
       reconcile_committee_meeting_names.py — one-shot producer CLI (#56): the meeting-derived sibling of #46, for the Joint/`Other` (`org_type='other'`) class `CommitteeService` can't see (#39; e.g. ESEC `Id 13945`). Diffs two bienniums' `GetCommitteeMeetings`-derived cohorts (`MeetingCohortProvider` — archive-first: re-parses the closed window's archived SOAP wire offline via the same zeep binding, so an immutable docket isn't re-pulled weekly; live fallback only for an un-archived window) on the stable `Id`; the cohort name is the **clean `Name`** (#61 `observed_name`), not the agency-double-prefixed `LongName` stored as `Organization.name`, so the double-prefix never reaches PM and a PM canonicalisation can't false-fire. Same windowed emit + shared spine as #46, but **re-tuned guards** for a dormancy-prone cohort: low-overlap **off by default** (`--min-overlap-fraction` 0.0 — a body absent from one window is dormancy, not a wrong-biennium signal) and the storm fraction only weighed past `--storm-floor-min-overlap` (default 5). Window-absence ≠ rename (the diff intersects ids present in **both** windows). Weekly timer (Sun 07:45 UTC) + ad-hoc; `--dry-run` previews. Backfill caveat: the detector diffs current-vs-prior biennium, so an older rename (ESEC = 2023) needs a targeted `--biennium`
+      validate_committees.py — read-only local↔PM validation CLI (#64): for each PM-linked produced org, diffs local canonical state ↔ live `OrgDetail` (`get_entity`) and buckets discrepancies (unlinked / missing / merged / name / acronym / names-window / acronyms / parent drift), splitting `reconciled` (PM curation roundtripped — e.g. a mirrored `former` window) from `divergent` (mirror lag/break). Emit-nothing; sequential reads + bounded `RetryableClientError` backoff; reports the unbaselined-fetch-event count. Exit 0 clean / 1 divergent / 2 auth / 3 empty-cohort abort. `merged` is modeled but not live-detectable (PM's `get_entity` collapses a 404 without `merged_into`)
       __main__.py     — daemon entrypoint (python -m usa_wa_sync_powermap)
 alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base
 docs/specs/           — Architecture specs (source of truth for design decisions)
@@ -408,6 +411,29 @@ python -m usa_wa_sync_powermap.reconcile_committee_meeting_names --biennium 2023
 python -m clearinghouse_core.integrity                # rolling slice (resumes + wraps)
 python -m clearinghouse_core.integrity --full         # whole corpus, ignore cursor
 python -m clearinghouse_core.integrity --limit 500    # row-capped partial
+
+# Committee ↔ PM validation (#64) — read-only. For each PM-linked produced org, diff local
+# canonical state against PM's live OrgDetail and bucket discrepancies (name/acronym/window/
+# parent drift, unlinked/missing/merged), splitting reconciled (PM curation roundtripped)
+# from divergent. Emit-nothing; sequential reads + bounded backoff. No operator token.
+# Exit 0 clean / 1 divergent / 2 auth / 3 empty-cohort abort.
+python -m usa_wa_sync_powermap.validate_committees          # human table
+python -m usa_wa_sync_powermap.validate_committees --json   # machine-readable
+
+# Committee historical extent probe (#64) — write-free discovery. Walks bienniums backward
+# from current, tallying committee/meeting counts + meeting wire bytes, stopping after N
+# consecutive empty bienniums. Talks to WSL directly (NOT the runner) — no FetchEvent/
+# RawPayload written. Answers "how much history exists" to scope the sub-project 3 backfill.
+python -m usa_wa_adapter_legislature.probe_committee_extent
+python -m usa_wa_adapter_legislature.probe_committee_extent --start-biennium 2025-26 --max-empty 2
+
+# One-off provenance cleanup (#64) — OWNER ROLE. Deletes the pre-#54 unbaselined (NULL
+# content_hash, payload-less) committees:2025-26 fetch events, first re-pointing their
+# Citation FKs (ondelete=RESTRICT) to the newest baselined survivor. Fails closed on
+# no-survivor or a target carrying archived bytes; idempotent. Needs DATABASE_URL_OWNER
+# (the app role is REVOKEd UPDATE/DELETE on the ledger, #54). --dry-run previews.
+python -m usa_wa_adapter_legislature.cleanup_unbaselined_committees --dry-run
+python -m usa_wa_adapter_legislature.cleanup_unbaselined_committees
 ```
 
 Full reference: `docs/COMMANDS.md`
