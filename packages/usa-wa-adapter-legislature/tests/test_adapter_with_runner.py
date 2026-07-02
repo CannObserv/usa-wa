@@ -23,6 +23,75 @@ CASSETTE_DIR = Path(__file__).parent / "cassettes"
 CASSETTE = "committee_service_get_active_committees_2025-26.yaml"
 
 
+class _FakeCommitteeClient:
+    """Stand-in for ``WSLClient("CommitteeService")`` exposing ``fetch_committees``
+    (the archival GetCommittees roster pull) — lets the roster path run through the
+    real AdapterRunner without a cassette (sub-project 3)."""
+
+    def __init__(self, records: list[dict], *, wire: bytes) -> None:
+        self._records = records
+        self._wire = wire
+        self.calls: list[str] = []
+
+    async def fetch_committees(self, biennium: str) -> WireFetch:
+        self.calls.append(biennium)
+        return WireFetch(records=self._records, wire=self._wire, content_type="text/xml")
+
+
+async def test_roster_resource_archives_wire_and_materializes_committees(
+    db_session, usa_wa, wsl_source
+):
+    """`committees-roster:<biennium>` → GetCommittees archival pull → FetchEvent +
+    RawPayload under the roster resource id + Organization rows by stable Id."""
+    anchors = await bootstrap_synthetic_anchors(
+        db_session, biennium="2023-24", jurisdiction_id=usa_wa.id
+    )
+    records = [
+        {
+            "Id": 31635,
+            "Name": "Capital Budget",
+            "LongName": "House Capital Budget Committee",
+            "Agency": "House",
+            "Acronym": "CB",
+            "Phone": None,
+        },
+        {
+            "Id": 30000,
+            "Name": "Ways & Means",
+            "LongName": "Senate Ways & Means Committee",
+            "Agency": "Senate",
+            "Acronym": "WM",
+            "Phone": None,
+        },
+    ]
+    client = _FakeCommitteeClient(records, wire=b"<committees-roster/>")
+    adapter = WALegislatureAdapter(
+        anchors=anchors, jurisdiction_id=usa_wa.id, biennium="2023-24", client=client
+    )
+    runner = AdapterRunner(
+        adapter,
+        db_session,
+        source=wsl_source,
+        jurisdiction=usa_wa,
+        natural_key=("source", "source_id"),
+    )
+
+    n = await runner.fetch_and_normalize("committees-roster:2023-24")
+
+    assert client.calls == ["2023-24"]  # GetCommittees(biennium), not GetActiveCommittees
+    assert n == 2
+    event = (await db_session.execute(select(FetchEvent))).scalar_one()
+    assert event.resource_id == "committees-roster:2023-24"  # distinct from committees:<biennium>
+    payload = (await db_session.execute(select(RawPayload))).scalar_one()
+    assert payload.body == b"<committees-roster/>"
+    committees = (
+        (await db_session.execute(select(Organization).where(Organization.org_type == "committee")))
+        .scalars()
+        .all()
+    )
+    assert {c.source_id for c in committees} == {"31635", "30000"}
+
+
 class _FakeMeetingClient:
     """Stand-in for ``WSLClient("CommitteeMeetingService")`` — returns a fixed docket.
 

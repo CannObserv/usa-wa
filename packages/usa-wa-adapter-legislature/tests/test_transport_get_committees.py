@@ -53,3 +53,37 @@ async def test_get_committees_wrong_service_raises() -> None:
     client = WSLClient("LegislationService")
     with pytest.raises(ValueError, match="CommitteeService"):
         await client.get_committees("2025-26")
+
+
+# --- fetch_committees (archival GetCommittees, sub-project 3) ------------------
+
+
+async def test_fetch_committees_returns_records_and_wire() -> None:
+    """The archival sibling of get_committees: parsed rows + the pristine wire for
+    #54 hashing (the wire the harvest archives under committees-roster:<biennium>)."""
+    rows = [{"Id": 31635, "Name": "Capital Budget", "LongName": "House Capital Budget"}]
+    client = WSLClient("CommitteeService")
+    client._client = _FakeClient(rows)  # bypass lazy WSDL load
+    client._transport.last_wire = b"<committees/>"  # the capturing transport's stash
+    client._transport.last_content_type = "text/xml"
+
+    fetched = await client.fetch_committees("2023-24")
+
+    assert client._client.service.calls == ["2023-24"]
+    assert [r["Id"] for r in fetched.records] == [31635]
+    assert fetched.wire == b"<committees/>"
+    assert fetched.content_type == "text/xml"
+
+
+async def test_fetch_committees_empty_wire_defaults() -> None:
+    client = WSLClient("CommitteeService")
+    client._client = _FakeClient([])
+    fetched = await client.fetch_committees("2099-00")
+    assert fetched.records == []
+    assert fetched.wire == b""  # no captured wire → empty, never None
+
+
+async def test_fetch_committees_wrong_service_raises() -> None:
+    client = WSLClient("CommitteeMeetingService")
+    with pytest.raises(ValueError, match="CommitteeService"):
+        await client.fetch_committees("2025-26")

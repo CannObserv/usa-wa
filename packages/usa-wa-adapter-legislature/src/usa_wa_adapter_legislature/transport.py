@@ -147,6 +147,16 @@ class WSLClient:
             return []
         return list(serialized)
 
+    def _fetch_committees_sync(self, biennium: str) -> WireFetch:
+        result = self._ensure_client().service.GetCommittees(biennium)
+        serialized = serialize_object(result, dict)
+        committees = list(serialized) if serialized is not None else []
+        return WireFetch(
+            records=committees,
+            wire=self._transport.last_wire or b"",
+            content_type=self._transport.last_content_type or "text/xml",
+        )
+
     async def get_committees(self, biennium: str) -> list[dict[str, Any]]:
         """Call ``CommitteeService.GetCommittees(biennium)`` off the event loop.
 
@@ -165,6 +175,25 @@ class WSLClient:
                 f"get_committees requires service='CommitteeService', got {self.service!r}"
             )
         return await asyncio.to_thread(self._get_committees_sync, biennium)
+
+    async def fetch_committees(self, biennium: str) -> WireFetch:
+        """Archival pull of an explicit biennium's **full** committee roster.
+
+        The archival sibling of :meth:`get_committees` and the historical counterpart
+        of :meth:`fetch_active_committees`: calls ``GetCommittees(biennium)`` (the full
+        roster for a named biennium, not the implicit-current *active* set) and returns
+        a :class:`WireFetch` — the derived ``Committee`` dicts plus the pristine
+        response envelope bytes for archival + hashing (#54). This is the source the
+        sub-project-3 harvest archives under ``committees-roster:<biennium>`` (a
+        distinct resource id from the daily ``committees:<biennium>`` GetActiveCommittees
+        archive — a different operation, so the wire genuinely differs). Same
+        ``asyncio.to_thread`` dispatch as the sibling pulls.
+        """
+        if self.service != "CommitteeService":
+            raise ValueError(
+                f"fetch_committees requires service='CommitteeService', got {self.service!r}"
+            )
+        return await asyncio.to_thread(self._fetch_committees_sync, biennium)
 
     async def fetch_active_committees(self) -> WireFetch:
         """Archival pull of the *currently active* committees, keeping the wire.

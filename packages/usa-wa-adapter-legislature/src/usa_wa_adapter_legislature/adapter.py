@@ -39,8 +39,15 @@ from usa_wa_adapter_legislature.normalize.committees import normalize_committees
 from usa_wa_adapter_legislature.transport import WSL_BASE_URL, WSLClient
 
 COMMITTEES_RESOURCE_PREFIX = "committees:"
+#: Historical full-roster archive (sub-project 3), distinct from the daily
+#: ``committees:<biennium>`` GetActiveCommittees archive — a *different* SOAP
+#: operation (``GetCommittees(biennium)`` full roster vs GetActiveCommittees'
+#: implicit-current active set), so the wire genuinely differs and the two keys
+#: never collide. Phase B's rename-chain reads only this key.
+COMMITTEES_ROSTER_RESOURCE_PREFIX = "committees-roster:"
 
 _COMMITTEES_URL = f"{WSL_BASE_URL}/CommitteeService.asmx#GetActiveCommittees"
+_COMMITTEES_ROSTER_URL = f"{WSL_BASE_URL}/CommitteeService.asmx#GetCommittees"
 _MEETINGS_URL = f"{WSL_BASE_URL}/CommitteeMeetingService.asmx#GetCommitteeMeetings"
 
 
@@ -79,6 +86,12 @@ class WALegislatureAdapter(BaseAdapter):
         """Fetch one resource, archiving the pristine SOAP wire as ``body`` (#54)."""
         if resource_id.startswith(COMMITTEE_MEETINGS_RESOURCE_PREFIX):
             return await self._fetch_committee_meetings(resource_id)
+        # Roster before the plain committees check: the biennium comes from the
+        # resource id (so one adapter can sweep bienniums in the harvest), not
+        # self.biennium. The two prefixes don't overlap, but check roster first for
+        # clarity.
+        if resource_id.startswith(COMMITTEES_ROSTER_RESOURCE_PREFIX):
+            return await self._fetch_committees_roster(resource_id)
         if resource_id.startswith(COMMITTEES_RESOURCE_PREFIX):
             return await self._fetch_committees()
         raise ValueError(f"unknown resource_id: {resource_id!r}")
@@ -87,6 +100,24 @@ class WALegislatureAdapter(BaseAdapter):
         fetched = await self._committee_client.fetch_active_committees()
         return FetchedPayload(
             url=_COMMITTEES_URL,
+            fetched_at=datetime.now(UTC),
+            content_type=fetched.content_type,
+            body=fetched.wire,
+            http_status=200,
+            parsed=fetched.records,
+        )
+
+    async def _fetch_committees_roster(self, resource_id: str) -> FetchedPayload:
+        """Archive an explicit biennium's full GetCommittees roster (sub-project 3).
+
+        Biennium is parsed from ``committees-roster:<biennium>`` so the harvest sweeps
+        many bienniums through one adapter. Stamps ``_COMMITTEES_ROSTER_URL`` (a
+        committee normalize target — the ``normalize`` else-branch routes it to
+        ``normalize_committees``, the same Committee shape as GetActiveCommittees)."""
+        biennium = resource_id[len(COMMITTEES_ROSTER_RESOURCE_PREFIX) :]
+        fetched = await self._committee_client.fetch_committees(biennium)
+        return FetchedPayload(
+            url=_COMMITTEES_ROSTER_URL,
             fetched_at=datetime.now(UTC),
             content_type=fetched.content_type,
             body=fetched.wire,
