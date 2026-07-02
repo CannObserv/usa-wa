@@ -13,8 +13,9 @@ Designed to be invoked from cron or systemd. The committees pull is idempotent
 on re-run within the source's cache TTL (no live SOAP call, no new rows). The
 meeting-window pull is forced past the TTL (#63) — one SOAP call per run — but
 only for the date-current biennium; a pinned/backfill ``USA_WA_BIENNIUM`` names
-closed history and stays TTL-governed. Archival growth stays bounded either way
-by the unchanged-hash dedup guard.
+closed history and stays TTL-governed (logged at ``warning`` — routine daily runs
+are always current, so a warning means a manual backfill or a stale env pin).
+Archival growth stays bounded either way by the unchanged-hash dedup guard.
 
 Biennium computation: WA bienniums begin on odd years. Even-year dates roll
 back to the prior odd year (``2026-06-18`` → ``2025-26``). Override via
@@ -139,6 +140,15 @@ async def run_refresh(
     """
     if biennium is None:
         biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
+    current = biennium_for_date(datetime.now(UTC).date())
+    if biennium != current:
+        # Legitimate only for manual backfills / early-year pins — a stale
+        # USA_WA_BIENNIUM left in the timer's env would otherwise redirect the
+        # daily discovery to a closed window with no operator-visible signal.
+        logger.warning(
+            "wsl_refresh_noncurrent_biennium",
+            extra={"biennium": biennium, "current_biennium": current},
+        )
     jurisdiction = await _resolve_jurisdiction(session)
     source = await _get_or_create_source(session, jurisdiction)
     anchors = await bootstrap_synthetic_anchors(

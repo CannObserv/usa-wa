@@ -240,6 +240,45 @@ async def test_meeting_pull_stays_ttl_governed_for_noncurrent_biennium(db_sessio
     assert second.meetings_upserted == 0
 
 
+async def test_run_refresh_warns_exactly_when_biennium_not_current(db_session, usa_wa, caplog):
+    """A non-current biennium run warns; the routine current-biennium run stays quiet (#63).
+
+    Non-current runs are legitimate only for manual backfills / early-year pins. A
+    stale ``USA_WA_BIENNIUM`` left in the timer's env would silently redirect daily
+    discovery to a closed window — the warning is the operator's journal-greppable
+    signal. The current-biennium branch must NOT warn, or every daily run becomes
+    alert noise.
+    """
+    recorder = vcr.VCR(
+        cassette_library_dir=str(CASSETTE_DIR),
+        record_mode="none",
+        match_on=["method", "scheme", "host", "port", "path"],
+        decode_compressed_response=True,
+    )
+    # Wall clock says 2027-28 → the refreshed 2025-26 biennium is non-current.
+    with patch(
+        "usa_wa_adapter_legislature.refresh.biennium_for_date",
+        return_value="2027-28",
+    ):
+        with recorder.use_cassette(CASSETTE), caplog.at_level("WARNING"):
+            await run_refresh(
+                db_session, biennium="2025-26", meeting_client=_FakeMeetingClient(_jtc_docket())
+            )
+    assert "wsl_refresh_noncurrent_biennium" in caplog.text
+
+    caplog.clear()
+    # Wall clock agrees with the refreshed biennium → no warning.
+    with patch(
+        "usa_wa_adapter_legislature.refresh.biennium_for_date",
+        return_value="2025-26",
+    ):
+        with caplog.at_level("WARNING"):
+            await run_refresh(
+                db_session, biennium="2025-26", meeting_client=_FakeMeetingClient(_jtc_docket())
+            )
+    assert "wsl_refresh_noncurrent_biennium" not in caplog.text
+
+
 async def test_run_refresh_raises_when_jurisdiction_missing(db_session):
     """A clean DB without the usa-wa jurisdiction row → explicit error."""
     with pytest.raises(LookupError, match="usa-wa"):
