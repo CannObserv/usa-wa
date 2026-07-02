@@ -146,7 +146,10 @@ periodic re-validation.
   before the first live emit.
 - **Risk — WSL load.** Phase A is one POST per biennium (~68). Sequential, one-time;
   closed windows cache on re-run. Acceptable for a backfill; do not parallelize
-  against WSL.
+  against WSL. Add a small configurable **inter-request pause** (`--pause-seconds`,
+  default a second or two) between window fetches so a full-depth sweep drips rather
+  than bursts against WSL — a courtesy to a vital upstream, and headroom against any
+  unadvertised rate limit.
 - **Offline re-parse fidelity (#54).** `parse_committees` must re-deserialize the
   archived wire through the *same* CommitteeService binding so the re-parse can't
   diverge from the live parse — the cassette round-trip test is the guard.
