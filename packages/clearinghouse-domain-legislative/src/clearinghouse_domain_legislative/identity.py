@@ -139,7 +139,9 @@ class Organization(Base, TimestampMixin, LifecycleMixin):
 
     # Canonical acronym (e.g. "APP" for House Appropriations). PM Org observations
     # support a list of acronyms; this column tracks the single canonical/source-of-truth
-    # value. Added 2026-06-18 for WSL committees.
+    # value. Added 2026-06-18 for WSL committees. The org descriptor's read mirror adopts
+    # PM's ``is_canonical`` acronym into this scalar (#65), symmetric with ``name`` — so it
+    # is the PM-resolved current value, while ``organization_acronyms`` holds every variant.
     acronym: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Primary phone contact (E.164-ish source string; not normalized at write time).
     # PM Org observations accept this as a `phone` contact_method. Added 2026-06-18.
@@ -370,9 +372,11 @@ class OrganizationAcronym(Base, TimestampMixin):
 
     PM models acronyms as a list **separate** from ``names``
     (``acronyms: list[OrgAcronym]`` embedded in ``OrgDetail``). ``Organization.acronym``
-    stays the resolved **current** scalar (the hot-path live read); this child table is
-    the history/association surface — queried by acronym when historical WSL data
-    references a *former* committee acronym (usa-wa#47).
+    stays the resolved **current** scalar (the hot-path live read) — the org descriptor's
+    ``upsert_from_pm`` adopts PM's ``is_canonical`` entry into it (usa-wa#65), symmetric
+    with the ``name`` adoption; this child table is the history/association surface —
+    queried by acronym when historical WSL data references a *former* committee acronym
+    (usa-wa#47).
 
     Thinner than :class:`OrganizationName`: PM's ``OrgAcronym`` is
     ``{id, acronym, is_canonical}`` only — no ``name_type``, no dated window. So no

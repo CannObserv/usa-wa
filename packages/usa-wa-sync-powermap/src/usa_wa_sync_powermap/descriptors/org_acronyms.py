@@ -12,8 +12,10 @@ no dated window — so there is no date parsing or type vocab here.
 
 Only the **read/mirror** direction is wired: usa-wa does not produce org acronyms
 as a local writer (the rename producer, usa-wa#46, emits to PM and the mirror
-brings it back). ``Organization.acronym`` stays the resolved current scalar; this
-table is the history/association surface.
+brings it back). ``Organization.acronym`` stays the resolved current scalar — the
+org descriptor's ``upsert_from_pm`` adopts PM's ``is_canonical`` entry into it
+(usa-wa#65), symmetric with the ``name`` adoption; this table is the
+history/association surface holding every variant.
 
 PM contract (confirmed against the live API, usa-wa#47 CR): an org with **zero**
 acronyms serializes ``acronyms: []`` (the key is present, never omitted). So the

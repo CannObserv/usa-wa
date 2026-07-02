@@ -432,9 +432,21 @@ class OrganizationDescriptor(EntityDescriptor):
         if "names" in record:  # mirror the embedded dated-name variants (#45)
             await sync_org_names(session, organization_id=row.id, pm_names=record["names"] or [])
         if "acronyms" in record:  # mirror the embedded acronym variants (#47)
-            await sync_org_acronyms(
-                session, organization_id=row.id, pm_acronyms=record["acronyms"] or []
-            )
+            acronyms = record["acronyms"] or []
+            await sync_org_acronyms(session, organization_id=row.id, pm_acronyms=acronyms)
+            # Resolve the scalar to PM's canonical acronym — symmetric with ``name``
+            # adoption above (#65). PM curates ``is_canonical``; we adopt the entry it
+            # marks so ``Organization.acronym`` is the PM-resolved current scalar the #47
+            # docstring promises (the child mirror holds every variant). Like ``if name:``
+            # we never clobber the produced value with None: PM reporting no canonical
+            # (none ``is_canonical``, an empty list, or a search-shaped record with no
+            # ``acronyms`` key) leaves the local scalar as-is. Adoption rides the PM-wins
+            # branch of ``apply_record`` (this method is called with ``existing`` there),
+            # which stamps ``_adopt_remote_clock`` right after — so the next reconcile sees
+            # LWW parity, not a local ``now()``, and no spurious org write-back is enqueued.
+            canonical = next((a["acronym"] for a in acronyms if a.get("is_canonical")), None)
+            if canonical:
+                row.acronym = canonical
         return row
 
     async def _governing_local_jurisdiction(self, session: Any, record: dict) -> Any | None:

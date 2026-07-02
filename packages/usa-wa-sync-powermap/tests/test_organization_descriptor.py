@@ -383,6 +383,7 @@ def _pm_org(
     governing_jur=None,
     updated_at="2030-01-01T00:00:00Z",
     active=True,
+    acronyms=None,
 ):
     affiliations = []
     if governing_jur is not None:
@@ -396,7 +397,7 @@ def _pm_org(
                 },
             }
         )
-    return {
+    record = {
         "id": str(pm_id),
         "name": name,
         "parent_id": str(parent_id) if parent_id else None,
@@ -404,6 +405,19 @@ def _pm_org(
         "updated_at": updated_at,
         # power-map#240: detail payload carries ``active`` (required bool).
         "active": active,
+    }
+    if acronyms is not None:
+        # OrgDetail's embedded ``acronyms: list[OrgAcronym]`` ({id, acronym, is_canonical}).
+        record["acronyms"] = acronyms
+    return record
+
+
+def _pm_acronym(acronym, *, is_canonical=False, acr_id=None):
+    """A single PM ``OrgAcronym`` embedded-list entry ({id, acronym, is_canonical})."""
+    return {
+        "id": str(acr_id or ULID()),
+        "acronym": acronym,
+        "is_canonical": is_canonical,
     }
 
 
@@ -428,6 +442,67 @@ async def test_upsert_adopts_canonical_name_and_anchor(db_session, descriptor, u
     assert row.pm_organization_id == pm_id
     assert row.jurisdiction_id == usa_wa.id  # resolved governing affiliation → local jurisdiction
     assert row.archived_at is None  # a live (un-archived) record leaves the tombstone clear
+
+
+async def test_upsert_adopts_pm_canonical_acronym_into_scalar(db_session, descriptor):
+    """#65: symmetric with name adoption — the ``is_canonical=true`` acronym in PM's
+    embedded ``acronyms[]`` is resolved into ``Organization.acronym`` (the scalar), so a
+    curated canonical (``WA Senate HSG``) replaces the produced value (``HSG``). The
+    child-table mirror already lands both variants; this is the scalar the #47 docstring
+    promises to be PM-resolved."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-1", name="Housing", anchor=pm_id, acronym="HSG")
+
+    record = _pm_org(
+        pm_id,
+        name="Housing",
+        acronyms=[
+            _pm_acronym("HSG", is_canonical=False),
+            _pm_acronym("WA Senate HSG", is_canonical=True),
+        ],
+    )
+    result = await descriptor.upsert_from_pm(db_session, record, existing=row)
+
+    assert result is row
+    assert row.acronym == "WA Senate HSG"  # adopted PM's canonical, not the local produced
+
+
+async def test_upsert_keeps_local_acronym_when_pm_has_no_canonical(db_session, descriptor):
+    """When PM reports acronyms but none is ``is_canonical``, do NOT clobber the local
+    scalar with None — symmetric with name adoption's ``if name:`` guard (an absent
+    canonical never nulls the produced value)."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-2", name="X", anchor=pm_id, acronym="APP")
+
+    record = _pm_org(pm_id, name="X", acronyms=[_pm_acronym("APP", is_canonical=False)])
+    await descriptor.upsert_from_pm(db_session, record, existing=row)
+
+    assert row.acronym == "APP"  # untouched — no canonical to resolve
+
+
+async def test_upsert_keeps_local_acronym_when_record_omits_acronyms(db_session, descriptor):
+    """A search-shaped record (no embedded ``acronyms`` key) must not touch the scalar —
+    the same missing-key guard as ``active``/``names``. Only a detail payload resolves it."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-3", name="X", anchor=pm_id, acronym="APP")
+
+    record = _pm_org(pm_id, name="X")  # no acronyms key
+    assert "acronyms" not in record
+    await descriptor.upsert_from_pm(db_session, record, existing=row)
+
+    assert row.acronym == "APP"  # untouched
+
+
+async def test_upsert_keeps_local_acronym_when_pm_acronyms_empty(db_session, descriptor):
+    """PM reporting ``acronyms: []`` (an org with zero acronyms) prunes the child mirror
+    but must not null the scalar — no canonical present, so the produced value stands."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-4", name="X", anchor=pm_id, acronym="APP")
+
+    record = _pm_org(pm_id, name="X", acronyms=[])
+    await descriptor.upsert_from_pm(db_session, record, existing=row)
+
+    assert row.acronym == "APP"  # untouched
 
 
 async def test_upsert_update_only_skips_unknown_org(db_session, descriptor):
