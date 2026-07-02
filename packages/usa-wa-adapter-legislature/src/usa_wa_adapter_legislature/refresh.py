@@ -10,9 +10,11 @@ synthetic anchors (legislature, chambers, biennium + regular sessions),
 and runs one :class:`AdapterRunner.refresh` cycle.
 
 Designed to be invoked from cron or systemd. The committees pull is idempotent
-on re-run within the source's cache TTL (no live SOAP call, no new rows); the
-meeting-window pull is deliberately forced past the TTL (#63) — one SOAP call
-per run — with archival growth still bounded by the unchanged-hash dedup guard.
+on re-run within the source's cache TTL (no live SOAP call, no new rows). The
+meeting-window pull is forced past the TTL (#63) — one SOAP call per run — but
+only for the date-current biennium; a pinned/backfill ``USA_WA_BIENNIUM`` names
+closed history and stays TTL-governed. Archival growth stays bounded either way
+by the unchanged-hash dedup guard.
 
 Biennium computation: WA bienniums begin on odd years. Even-year dates roll
 back to the prior odd year (``2026-06-18`` → ``2025-26``). Override via
@@ -168,23 +170,35 @@ async def run_refresh(
 async def _discover_current_meeting_window(runner: AdapterRunner, biennium: str) -> int:
     """Additive Joint/`Other` discovery from the current biennium's meeting window.
 
-    Forced fetch on the stable ``committee-meetings:<begin>:<end>`` id: this pull
-    exists for daily discovery, and the source's 24h TTL against the ~24h timer
-    cadence made fetch-vs-skip a jitter coin flip (#63), so ``force=True`` makes the
-    cadence deterministic while the committees path stays TTL-governed. Archival
-    stays bounded — the runner skips re-storing an unchanged-hash payload (#57/#59),
-    so a static docket costs one FetchEvent row per run, no RawPayload bytes.
+    Forced fetch on the stable ``committee-meetings:<begin>:<end>`` id — for the
+    date-current biennium only. This pull exists for daily discovery, and the
+    source's 24h TTL against the ~24h timer cadence made fetch-vs-skip a jitter
+    coin flip (#63), so the live window forces while the committees path stays
+    TTL-governed. A non-current biennium (``USA_WA_BIENNIUM`` backfill) is
+    immutable history — cache-or-fetch applies, mirroring the harvest's
+    never-re-pull stance. Archival stays bounded — the runner skips re-storing an
+    unchanged-hash payload (#57/#59), so a static docket costs one FetchEvent row
+    per forced run, no RawPayload bytes.
     Absence of a previously-seen body
     from the window is **not** retirement — the meeting normalizer only ever upserts
     the bodies present, never marks an absent one inactive (#39). Best-effort: a
     failure is logged and swallowed (returns 0) so the committees refresh still
     succeeds. Returns the upsert count."""
     resource_id = meetings_resource_id(*biennium_window(biennium))
+    # Force only the date-current biennium: its docket is live, so discovery must be
+    # deterministic daily. A pinned/backfill biennium (USA_WA_BIENNIUM) is closed,
+    # immutable history — cache-or-fetch governs, mirroring the harvest's stance.
+    force = biennium == biennium_for_date(datetime.now(UTC).date())
     try:
-        upserted = await runner.fetch_and_normalize(resource_id, force=True)
+        upserted = await runner.fetch_and_normalize(resource_id, force=force)
         logger.info(
             "wsl_meeting_discovery",
-            extra={"biennium": biennium, "resource_id": resource_id, "upserted": upserted},
+            extra={
+                "biennium": biennium,
+                "resource_id": resource_id,
+                "upserted": upserted,
+                "forced": force,
+            },
         )
         return upserted
     except Exception:

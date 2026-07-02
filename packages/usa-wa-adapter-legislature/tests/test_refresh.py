@@ -167,7 +167,8 @@ async def test_run_refresh_is_idempotent_on_source_creation(db_session, usa_wa):
         )
 
     # Second invocation reuses the Source row; committees hit the cache (no new
-    # SOAP call) while the meeting pull re-fetches by design (#63) via the fake.
+    # SOAP call). The meeting pull is served by the injected fake either way —
+    # #63 forces it only while 2025-26 is the date-current biennium.
     await run_refresh(
         db_session, biennium="2025-26", meeting_client=_FakeMeetingClient(_jtc_docket())
     )
@@ -191,18 +192,52 @@ async def test_meeting_pull_is_forced_while_committees_stay_ttl_governed(db_sess
         decode_compressed_response=True,
     )
     meeting_client = _FakeMeetingClient(_jtc_docket())
-    with recorder.use_cassette(CASSETTE):
-        first = await run_refresh(db_session, biennium="2025-26", meeting_client=meeting_client)
+    # Pin the wall clock's biennium so 2025-26 stays "current" when this runs in 2027+.
+    with patch(
+        "usa_wa_adapter_legislature.refresh.biennium_for_date",
+        return_value="2025-26",
+    ):
+        with recorder.use_cassette(CASSETTE):
+            first = await run_refresh(db_session, biennium="2025-26", meeting_client=meeting_client)
 
-    # No cassette here: a committees SOAP call would error, so passing proves the
-    # committees path cache-hit while the meeting pull re-fetched regardless.
-    second = await run_refresh(db_session, biennium="2025-26", meeting_client=meeting_client)
+        # No cassette here: a committees SOAP call would error, so passing proves the
+        # committees path cache-hit while the meeting pull re-fetched regardless.
+        second = await run_refresh(db_session, biennium="2025-26", meeting_client=meeting_client)
 
     assert first.meetings_upserted == 1
     assert meeting_client.calls == 2
     assert second.meetings_upserted == 1
     assert second.committees.skipped_cache_hit == 1
     assert second.committees.fetched == 0
+
+
+async def test_meeting_pull_stays_ttl_governed_for_noncurrent_biennium(db_session, usa_wa):
+    """A refresh pinned to a non-current biennium must not force the meeting pull (#63).
+
+    ``USA_WA_BIENNIUM`` backfills point at closed windows — immutable history the
+    harvest deliberately never re-pulls. The force applies only when the refreshed
+    biennium is the date-current one; otherwise cache-or-fetch governs, so a
+    same-TTL re-run costs no live docket pull.
+    """
+    recorder = vcr.VCR(
+        cassette_library_dir=str(CASSETTE_DIR),
+        record_mode="none",
+        match_on=["method", "scheme", "host", "port", "path"],
+        decode_compressed_response=True,
+    )
+    meeting_client = _FakeMeetingClient(_jtc_docket())
+    # Wall clock says 2027-28, so the refreshed 2025-26 window is closed history.
+    with patch(
+        "usa_wa_adapter_legislature.refresh.biennium_for_date",
+        return_value="2027-28",
+    ):
+        with recorder.use_cassette(CASSETTE):
+            first = await run_refresh(db_session, biennium="2025-26", meeting_client=meeting_client)
+        second = await run_refresh(db_session, biennium="2025-26", meeting_client=meeting_client)
+
+    assert first.meetings_upserted == 1
+    assert meeting_client.calls == 1  # second run: TTL cache hit, no re-pull
+    assert second.meetings_upserted == 0
 
 
 async def test_run_refresh_raises_when_jurisdiction_missing(db_session):

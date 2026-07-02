@@ -5,8 +5,9 @@ Documentation=https://github.com/CannObserv/usa-wa/issues/24
 [Timer]
 # Daily at 06:00 UTC. Same-day re-runs are safe: the committees pull cache-hits
 # within the Source's cache_ttl_days=1 (no live SOAP call, no new rows); the
-# meeting-window pull always fetches (forced, #63 — TTL vs daily cadence was a
-# jitter knife-edge) but dedups archival, so an unchanged docket stores nothing.
+# current-biennium meeting-window pull always fetches (forced, #63 — TTL vs daily
+# cadence was a jitter knife-edge) but dedups archival, so an unchanged docket
+# stores nothing. A USA_WA_BIENNIUM backfill pull stays TTL-governed.
 OnCalendar=*-*-* 06:00:00 UTC
 # Run on next boot if the box was down at the scheduled time.
 Persistent=true

@@ -81,7 +81,7 @@ packages/
       committee_seed.py — frozen Joint/`Other` seed (de)serialization (deterministic bytes for stable hashing); DEFAULT_SEED_PATH = data/joint_other_committees_seed.json
       harvest_committee_meetings.py — backfill CLI (#39): sweep a biennium range through the runner (archive wire + upsert org_type='other'), then freeze the deduped cohort to the seed + seed_manifest sidecars. Closed windows = cache hits on re-run
       ingest_committee_seed.py — no-WSL seed loader (#39): verified_digest gates the bytes → synthetic FetchEvent.content_hash + archived RawPayload, fill-only upsert (seed is a floor, not an authority)
-      refresh.py      — `python -m usa_wa_adapter_legislature.refresh` CLI entrypoint; biennium-from-date with USA_WA_BIENNIUM override. Daily run also pulls the current biennium's meeting window for additive Joint/`Other` discovery (best-effort; window-absence ≠ retirement, #39). The meeting pull is **forced** past the cache TTL (#63 — 24h TTL vs ~24h timer cadence was a fetch/skip jitter knife-edge): deterministic daily discovery, archival still dedup-bounded; committees stay TTL-governed
+      refresh.py      — `python -m usa_wa_adapter_legislature.refresh` CLI entrypoint; biennium-from-date with USA_WA_BIENNIUM override. Daily run also pulls the current biennium's meeting window for additive Joint/`Other` discovery (best-effort; window-absence ≠ retirement, #39). The meeting pull is **forced** past the cache TTL (#63 — 24h TTL vs ~24h timer cadence was a fetch/skip jitter knife-edge): deterministic daily discovery, archival still dedup-bounded; committees stay TTL-governed. Force applies only to the date-current biennium — a `USA_WA_BIENNIUM` backfill of a closed window stays cache-governed (harvest owns closed-window re-pulls)
   usa-wa-api/                         — Layer 4: WA deployment (FastAPI + MCP + REST)
     src/usa_wa_api/api/
       main.py         — App factory, lifespan, router registration
@@ -198,6 +198,12 @@ If the venv is missing a locked dependency, units fail loudly at import — the
 intended signal to run `uv sync`. **First provision (or after a venv wipe)
 requires a plain `uv sync`** — `--no-sync` units can't start against an absent
 `.venv`.
+
+**Units are installed as copies, not symlinks.** Every `/etc/systemd/system/usa-wa*`
+unit is a root-owned copy of its `deploy/` counterpart, so after editing a unit file
+run `sudo cp deploy/<unit> /etc/systemd/system/` **before** the `daemon-reload` the
+rows below prescribe — `daemon-reload` alone re-reads the stale installed copy and
+silently deploys nothing.
 
 | Situation | Action |
 |---|---|
