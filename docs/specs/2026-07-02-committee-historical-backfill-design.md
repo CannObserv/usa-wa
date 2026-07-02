@@ -1,7 +1,11 @@
 # Committee Historical Backfill + Full Rename-Chain Emission
 
 **Date:** 2026-07-02
-**Status:** Approved (design)
+**Status:** SUPERSEDED by
+[2026-07-02-committee-historical-backfill-redesign.md](2026-07-02-committee-historical-backfill-redesign.md)
+— the stable-WSL-`Id` premise below was disproven operationally (WSL re-keys
+committees across eras). The redesign switches to identity = WSL Id (distinct org
+per Id). Kept for the record.
 **Scope:** Sub-project 3 of the committee validate/backfill effort. Follows
 sub-project 1 (validation + provenance, #64) and the #65 LWW-ping-pong fix.
 
