@@ -83,7 +83,7 @@ packages/
       ingest_committee_seed.py — no-WSL seed loader (#39): verified_digest gates the bytes → synthetic FetchEvent.content_hash + archived RawPayload, fill-only upsert (seed is a floor, not an authority)
       refresh.py      — `python -m usa_wa_adapter_legislature.refresh` CLI entrypoint; biennium-from-date with USA_WA_BIENNIUM override. Daily run also pulls the current biennium's meeting window for additive Joint/`Other` discovery (best-effort; window-absence ≠ retirement, #39). The meeting pull is **forced** past the cache TTL (#63 — 24h TTL vs ~24h timer cadence was a fetch/skip jitter knife-edge): deterministic daily discovery, archival still dedup-bounded; committees stay TTL-governed. Force applies only to the date-current biennium — a `USA_WA_BIENNIUM` backfill of a closed window stays cache-governed (harvest owns closed-window re-pulls); non-current runs log `wsl_refresh_noncurrent_biennium` at warning (a stale env pin would otherwise silently redirect daily discovery)
       probe_committee_extent.py — write-free discovery CLI (#64): walks bienniums backward from current calling `GetCommittees` + `GetCommitteeMeetings`, tallying committee/meeting counts + meeting wire bytes, stopping after N consecutive empty bienniums (`--max-empty`, default 2; bounded by `--max-bienniums`). Talks to `WSLClient` **directly, not the runner** — no `FetchEvent`/`RawPayload` written; answers "how much history exists" to scope the sub-project 3 backfill
-      cleanup_unbaselined_committees.py — one-off **owner-role** provenance cleanup CLI (#64): deletes the pre-#54 unbaselined (`content_hash` NULL, payload-less) `committees:2025-26` fetch events, first re-pointing their `Citation` rows (ondelete=RESTRICT) to the newest baselined survivor for the resource. Fails closed on no-survivor or a target unexpectedly carrying archived bytes; idempotent. Needs `DATABASE_URL_OWNER` — the app role is REVOKEd UPDATE/DELETE on the ledger (#54); `--dry-run` previews
+      baseline_unbaselined_committees.py — one-off **owner-role** provenance repair CLI (#64): the pre-#54 `committees:2025-26` fetch events carry NULL `content_hash` but DID archive their bodies, so this backfills `content_hash = sha256(RawPayload.body)` (the same digest the runner derives) — converting them from "unbaselined" to integrity-verified while keeping the fetch history + bytes (no deletion). A payload-less NULL-hash event is counted `skipped_no_payload` and left alone. Idempotent. Needs `DATABASE_URL_OWNER` — the app role is REVOKEd UPDATE on the ledger (#54); `--dry-run` previews
   usa-wa-api/                         — Layer 4: WA deployment (FastAPI + MCP + REST)
     src/usa_wa_api/api/
       main.py         — App factory, lifespan, router registration
@@ -427,13 +427,14 @@ python -m usa_wa_sync_powermap.validate_committees --json   # machine-readable
 python -m usa_wa_adapter_legislature.probe_committee_extent
 python -m usa_wa_adapter_legislature.probe_committee_extent --start-biennium 2025-26 --max-empty 2
 
-# One-off provenance cleanup (#64) — OWNER ROLE. Deletes the pre-#54 unbaselined (NULL
-# content_hash, payload-less) committees:2025-26 fetch events, first re-pointing their
-# Citation FKs (ondelete=RESTRICT) to the newest baselined survivor. Fails closed on
-# no-survivor or a target carrying archived bytes; idempotent. Needs DATABASE_URL_OWNER
-# (the app role is REVOKEd UPDATE/DELETE on the ledger, #54). --dry-run previews.
-python -m usa_wa_adapter_legislature.cleanup_unbaselined_committees --dry-run
-python -m usa_wa_adapter_legislature.cleanup_unbaselined_committees
+# One-off provenance repair (#64) — OWNER ROLE. The pre-#54 committees:2025-26 fetch
+# events have NULL content_hash but DID archive their bodies, so backfill
+# content_hash = sha256(RawPayload.body) — converting them to integrity-verified while
+# keeping the fetch history + bytes (no deletion). Payload-less NULL-hash events are
+# skipped+counted. Idempotent. Needs DATABASE_URL_OWNER (the app role is REVOKEd UPDATE
+# on the ledger, #54). --dry-run previews.
+python -m usa_wa_adapter_legislature.baseline_unbaselined_committees --dry-run
+python -m usa_wa_adapter_legislature.baseline_unbaselined_committees
 ```
 
 Full reference: `docs/COMMANDS.md`

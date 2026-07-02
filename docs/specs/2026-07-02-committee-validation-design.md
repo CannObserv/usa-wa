@@ -126,22 +126,23 @@ errors), not by `reconciled`.
 
 ## Component 2 — Provenance cleanup
 
-### 2a — Delete the 6 unbaselined fetch_events
+### 2a — Baseline the 6 unbaselined fetch_events (premise corrected 2026-07-02)
 
 The Jun 19–28 `committees:2025-26` daily pulls predate the #54 baseline: they
-carry NULL `content_hash` and have **no** RawPayload body (nothing to hash
-retroactively). They are superseded by the Jun 30+ archived+hashed pulls of the
-same resource.
+carry NULL `content_hash`. **Correction (discovered during the operational run):**
+they are **not** payload-less — each archived its ~5.7 KB body (a `RawPayload`
+exists). The original plan to *delete* them was premised on their being
+payload-less; that premise was false, and deletion would have destroyed 6
+archived committee payloads for no benefit.
 
-**Disposition: delete them** (owner-role DML — a migration or on-box owner-role
-script, since the app role has no DDL and this is a corpus cleanup).
-
-**Implementation caveat:** each daily pull normalized orgs and wrote `Citation`
-rows referencing that fetch_event as provenance. A blind DELETE would orphan or
-cascade those citations. The cleanup must **re-point** the affected citations to
-a surviving baselined fetch_event for the same resource (or otherwise preserve
-provenance integrity) before removing the 6 rows. Baselined fetch_events and
-their RawPayloads must survive untouched. This is verified by a test.
+**Disposition: retroactively baseline them** (owner-role, since the app role is
+REVOKEd `UPDATE` on `fetch_events`, #54). For each NULL-hash event that has a
+body, set `content_hash = sha256(RawPayload.body)` — exactly the digest the runner
+now derives (`AdapterRunner._record_fetch_event`). This converts them from
+"unbaselined" to integrity-verified while **keeping** both the fetch history and
+the archived bytes; no citation re-pointing or deletion needed. A NULL-hash event
+with no body (none exist for this resource) is counted `skipped_no_payload` and
+left alone — never treated as verified. Idempotent; verified by tests.
 
 ### 2b — First integrity-sweep pass + timer verification
 

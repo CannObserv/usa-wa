@@ -27,15 +27,22 @@ Three deliverables, each TDD. (1) A read-only `validate_committees` CLI in the
 org into a discrepancy bucket, distinguishing `reconciled` (local adopted PM's
 curated value) from `divergent` (mirror lag/break); exit `0`/`1`/`2`. Reads run
 **sequentially** (~58 calls, naturally staggered — no concurrent flooding), each
-`get_entity` wrapped in a bounded exponential backoff via
-`clearinghouse_sync_powermap.retry.backoff` honoring `RetryableClientError` (the
+`get_entity` wrapped in a bounded backoff honoring `RetryableClientError` (the
 client maps 429/5xx to it but does **not** retry itself — retry is the caller's
-job). (2) An owner-role cleanup: because `Citation.fetch_event_id` is `ondelete="RESTRICT"`,
-re-point the 6 targets' citations to a surviving baselined `committees:2025-26`
-fetch_event, then delete the 6; follow with a `--full` integrity pass and a timer
-check. (3) A write-free `probe_committee_extent` CLI walking bienniums backward
-from current, stopping after N consecutive empty responses, tallying rows + wire
-bytes per biennium — no runner, no archival, no DB writes.
+job). (2) **[PIVOTED 2026-07-02 — see below]** An owner-role provenance repair: the
+6 NULL-`content_hash` `committees:2025-26` events turned out to **have** archived
+bodies, so rather than delete them, backfill `content_hash = sha256(RawPayload.body)`
+to baseline them in place; follow with a `--full` integrity pass and a timer check.
+(3) A write-free `probe_committee_extent` CLI walking bienniums backward from
+current, stopping after N consecutive empty responses, tallying rows + wire bytes
+per biennium — no runner, no archival, no DB writes.
+
+**Pivot note (2026-07-02):** the operational dry-run revealed the 6 events are
+**not** payload-less (each has a ~5.7 KB `RawPayload`). Deletion was premised on
+their being payload-less; that was false. The cleanup was re-implemented as a
+retroactive **baseline** (`baseline_unbaselined_committees`, re-hash body →
+`content_hash`) — keeps history + bytes, closes the integrity gap. Steps 3–4 below
+describe the baseline form.
 
 ## Tradeoffs / alternatives
 
@@ -74,17 +81,16 @@ bytes per biennium — no runner, no archival, no DB writes.
    per-class summary + detail table, `--json` flag, exit on `divergent`. Green the
    step-1 tests (add a fixture where the fake client raises `RetryableClientError`
    once then succeeds, asserting the backoff-retry path).
-3. **Provenance cleanup — tests first.** Add a test (owner-role / integration-marked
-   as needed) that seeds 6 NULL-hash payload-less fetch_events for
-   `committees:2025-26` — each with a `Citation` — plus a surviving baselined
-   fetch_event, runs the cleanup, and asserts: the 6 citations re-point to the
-   survivor, the 6 fetch_events are gone, baselined fetch_events + their RawPayloads
-   are untouched, and a second run is a no-op (idempotent).
-4. **Provenance cleanup — implementation.** Add
-   `packages/.../scripts` or a `clearinghouse_core`/adapter module (Open question 1)
-   that, under the owner role, selects the NULL-hash `committees:2025-26`
-   fetch_events, re-points their citations to the newest baselined fetch_event for
-   the same `resource_id`, then deletes them. Green the step-3 test.
+3. **Provenance baseline — tests first.** Add
+   `test_baseline_unbaselined_committees.py` seeding NULL-hash `committees:2025-26`
+   events *with* bodies, and asserting: each gets `content_hash = sha256(its body)`;
+   a payload-less NULL-hash event is `skipped_no_payload` (not hashed); an
+   already-baselined event is untouched; a second run is a no-op (idempotent).
+4. **Provenance baseline — implementation.** Add
+   `usa_wa_adapter_legislature.baseline_unbaselined_committees` — under the owner
+   role, select NULL-`content_hash` events for `--resource-id` joined to their
+   `RawPayload`, set `content_hash = sha256(body)` for those with a body, count the
+   payload-less. `--dry-run` rolls back. Green the step-3 test.
 5. **Probe CLI — tests first.** Add
    `packages/usa-wa-adapter-legislature/tests/test_probe_committee_extent.py` with a
    fake WSL transport returning committees/meetings for a few bienniums then empties;
@@ -121,6 +127,8 @@ bytes per biennium — no runner, no archival, no DB writes.
 - **Risk — PM read volume / auth in tests.** All PM interaction in tests is via a
   fake client; the only live PM reads are the step-8a operational run (58
   `get_entity` calls, sequential — trivial).
-- **Risk — operational deletion is irreversible.** The 6 rows carry no payload and
-  are superseded, but the re-point + delete runs against prod under the owner role.
-  Step 3's idempotency + FK-integrity test is the guard; run once, verify counts.
+- **Risk — operational write against prod.** Baselining is an owner-role `UPDATE`
+  of `content_hash` on 6 rows. Low-risk (the hash is deterministically recomputable
+  from the archived body, and the sweep re-verifies it), but it's still a prod
+  ledger write. Dry-run previews; the idempotency test is the guard; run once,
+  then re-run `integrity --full` to confirm `unbaselined` drops to 0.
