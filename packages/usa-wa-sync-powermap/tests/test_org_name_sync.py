@@ -160,6 +160,31 @@ async def test_sync_prunes_names_absent_from_pm(db_session):
     assert {r.source_id for r in rows} == {keep}
 
 
+async def test_sync_skips_name_claimed_by_another_org(db_session, caplog):
+    """Defense-in-depth (redesign): a ``pm_org_name_id`` already present under a
+    *different* org — e.g. a future PM merge surfacing one OrgName under two orgs —
+    is skipped-and-logged, not inserted. The global ``(source, source_id)`` unique key
+    would otherwise raise and crash the whole sidecar cycle (the incident signature).
+    Org B's other names still mirror; org A keeps the claimed row."""
+    org_a = await _add_org(db_session, source_id="A-Id")
+    org_b = await _add_org(db_session, source_id="B-Id")
+    shared, own = str(ULID()), str(ULID())
+    await sync_org_names(db_session, organization_id=org_a.id, pm_names=[_pm_name(shared)])
+
+    with caplog.at_level("WARNING"):
+        await sync_org_names(
+            db_session,
+            organization_id=org_b.id,
+            pm_names=[_pm_name(shared), _pm_name(own, name="Org B Own Name")],
+        )
+
+    a_rows = await _names_for(db_session, org_a.id)
+    b_rows = await _names_for(db_session, org_b.id)
+    assert {r.source_id for r in a_rows} == {shared}  # A keeps its claimed row
+    assert {r.source_id for r in b_rows} == {own}  # B mirrors only its unclaimed name
+    assert any("org_name_mirror_skip_claimed" in r.message for r in caplog.records)
+
+
 # --- descriptor wiring -------------------------------------------------------
 
 

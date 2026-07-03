@@ -120,6 +120,30 @@ async def test_sync_prunes_acronyms_absent_from_pm(db_session):
     assert {r.source_id for r in rows} == {keep}
 
 
+async def test_sync_skips_acronym_claimed_by_another_org(db_session, caplog):
+    """Defense-in-depth (redesign): a ``pm_org_acronym_id`` already present under a
+    *different* org is skipped-and-logged, not inserted — the global ``(source,
+    source_id)`` unique key would otherwise raise and crash the sidecar cycle.
+    Sibling of the org-name guard."""
+    org_a = await _add_org(db_session, source_id="A-Id")
+    org_b = await _add_org(db_session, source_id="B-Id")
+    shared, own = str(ULID()), str(ULID())
+    await sync_org_acronyms(db_session, organization_id=org_a.id, pm_acronyms=[_pm_acronym(shared)])
+
+    with caplog.at_level("WARNING"):
+        await sync_org_acronyms(
+            db_session,
+            organization_id=org_b.id,
+            pm_acronyms=[_pm_acronym(shared), _pm_acronym(own, acronym="OWN")],
+        )
+
+    a_rows = await _acronyms_for(db_session, org_a.id)
+    b_rows = await _acronyms_for(db_session, org_b.id)
+    assert {r.source_id for r in a_rows} == {shared}
+    assert {r.source_id for r in b_rows} == {own}
+    assert any("org_acronym_mirror_skip_claimed" in r.message for r in caplog.records)
+
+
 async def test_sync_empty_list_prunes_all(db_session):
     """An org can legitimately reach **zero** acronyms — PM emits ``acronyms: []``
     (key present, confirmed live, #47 CR), so an empty sync must prune every row

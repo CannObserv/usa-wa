@@ -17,6 +17,12 @@ org descriptor's ``upsert_from_pm`` adopts PM's ``is_canonical`` entry into it
 (usa-wa#65), symmetric with the ``name`` adoption; this table is the
 history/association surface holding every variant.
 
+**Skip-and-log robustness** (committee-backfill redesign, model A): sibling of the
+org-name guard — the global ``(source, source_id)`` key means a ``pm_org_acronym_id``
+surfacing under two orgs would raise a UniqueViolation and crash the sidecar cycle,
+so :func:`sync_org_acronyms` skips-and-logs an acronym id already claimed by a
+different org rather than inserting it.
+
 PM contract (confirmed against the live API, usa-wa#47 CR): an org with **zero**
 acronyms serializes ``acronyms: []`` (the key is present, never omitted). So the
 org descriptor's ``if "acronyms" in record`` guard passes even for a zero-acronym
@@ -30,8 +36,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import OrganizationAcronym
 from clearinghouse_sync_powermap.descriptors import as_ulid
+
+logger = get_logger(__name__)
 
 #: ``source`` stamped on every PM-originated acronym row. The natural key is
 #: ``(source, source_id)``; ``source_id`` is PM's ``OrgAcronym`` id, so it equals
@@ -53,6 +62,22 @@ def map_pm_org_acronym(record: dict, *, organization_id: Any) -> dict:
         "is_canonical": bool(record.get("is_canonical")),
         "pm_org_acronym_id": as_ulid(record["id"]),
     }
+
+
+async def _claimed_by_other_org(session: AsyncSession, mapped: dict, organization_id: Any) -> bool:
+    """Whether the mapped acronym's natural key ``(source, source_id)`` already exists
+    under a *different* org — the global-uniqueness collision the mirror must not
+    crash on. Sibling of the org-name guard."""
+    other = (
+        await session.execute(
+            select(OrganizationAcronym.organization_id).where(
+                OrganizationAcronym.source == mapped["source"],
+                OrganizationAcronym.source_id == mapped["source_id"],
+                OrganizationAcronym.organization_id != organization_id,
+            )
+        )
+    ).first()
+    return other is not None
 
 
 async def sync_org_acronyms(
@@ -85,6 +110,19 @@ async def sync_org_acronyms(
         seen.add(anchor)
         row = by_anchor.get(anchor)
         if row is None:
+            # Defense-in-depth (redesign): the natural key ``(source, source_id)`` is
+            # global, so an ``OrgAcronym`` id already mirrored under a *different* org
+            # would raise a UniqueViolation on flush and crash the sidecar cycle. The
+            # guarded pm_match makes this not happen; here we make it non-fatal.
+            if await _claimed_by_other_org(session, mapped, organization_id):
+                logger.warning(
+                    "org_acronym_mirror_skip_claimed",
+                    extra={
+                        "pm_org_acronym_id": mapped["source_id"],
+                        "organization_id": str(organization_id),
+                    },
+                )
+                continue
             session.add(OrganizationAcronym(**mapped))
         else:
             for column, value in mapped.items():

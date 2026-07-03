@@ -15,7 +15,14 @@ over every un-anchored adapter row before the engine enqueues a CREATE:
    does word-token matching that folds punctuation, ``&``, and word order, then we
    confirm by :func:`normalize_name` equality (the precision gate). FTS subsumes the
    ``&``/punctuation cases that the earlier ILIKE cohort-scan fallback existed for,
-   so no enumeration fallback is needed.
+   so no enumeration fallback is needed. **Cross-Id re-key guard** (redesign, model
+   A): WSL re-keys committees across eras (same name, new ``Id``), so a normalized
+   name can match a PM org already *claimed* by a different committee. Each surviving
+   candidate is detail-fetched (PM search omits identifiers) and dropped if it carries
+   an identifier of our type — stage 1 already ran on our ``source_id`` and missed, so
+   such a candidate is another committee's, and we create a new org rather than glue
+   onto it (the over-match that crash-looped the sidecar). Only an identifier-less
+   same-name org (PM's pre-curated, unclaimed org) is adopted.
 3. **Hierarchy** — when the local parent is anchored, disambiguate same-name
    candidates by PM ``parent_id``.
 
@@ -181,6 +188,19 @@ class OrganizationDescriptor(EntityDescriptor):
             SEARCH_PATH, q=match_name, jurisdiction=JURISDICTION_SLUG, limit=self.search_match_cap
         )
         named = [c for c in page.records if normalize_name(c.get("name") or "") == target]
+        # Cross-Id re-key guard (redesign, model A): WSL re-keys committees across eras
+        # (same name, new Id), so a normalized-name match can land on a PM org already
+        # claimed by a *different* committee — the over-match that mirrored one OrgName
+        # onto two local rows and crash-looped the sidecar. PM's search payload omits
+        # identifiers, so detail-fetch each surviving candidate and drop any that already
+        # carries an identifier of *our* type: stage 1 (identifier) already ran on our
+        # source_id and missed, so any such candidate holds a *different* value — it's
+        # another committee's, and we must create a new org, not glue onto it. Only an
+        # identifier-less same-name org (PM's pre-curated, unclaimed org) is adopted.
+        # Fails open on a missing detail (get_entity → None → unclaimed). Scoped to
+        # id_type, so chamber/legislature/Joint-Other classes are unaffected.
+        if id_type is not None and named:
+            named = [c for c in named if not await self._candidate_claimed(client, c, id_type)]
         if len(named) == 1:
             logger.info(
                 "org_pm_match_name", extra={"entity_name": match_name, "pm_id": named[0].get("id")}
@@ -210,6 +230,23 @@ class OrganizationDescriptor(EntityDescriptor):
             return None
         parent = await session.get(Organization, row.parent_organization_id)
         return parent.pm_organization_id if parent is not None else None
+
+    async def _candidate_claimed(self, client: Any, candidate: dict, id_type: str) -> bool:
+        """Whether a name-match candidate PM org already carries an identifier of
+        ``id_type`` (i.e. is claimed by another committee — the re-key guard).
+
+        PM's search record omits ``identifiers``, so this fetches the candidate's
+        ``OrgDetail`` (``get_entity``) and scans it. A missing detail (404 → ``None``)
+        is treated as **unclaimed** (fail open): the guard exists to prevent gluing
+        onto a *known* other committee, not to reject on a transient fetch gap.
+        """
+        detail = await client.get_entity(self.read_path, candidate["id"])
+        if detail is None:
+            return False
+        for ident in detail.get("identifiers") or []:
+            if ident.get("type_slug") == id_type:
+                return True
+        return False
 
     async def rematch_anchor(self, client: Any, session: Any, row: Any) -> Any | None:
         """Re-resolve a dead anchor (PM merged the org away) to the surviving winner by

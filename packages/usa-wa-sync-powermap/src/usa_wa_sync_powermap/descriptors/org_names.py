@@ -10,6 +10,13 @@ Only the **read/mirror** direction is wired: usa-wa does not produce org names a
 a local writer (the rename producer, usa-wa#46, emits to PM and the mirror brings
 it back). ``Organization.name`` stays the resolved current scalar; this table is
 the history/association surface.
+
+**Skip-and-log robustness** (committee-backfill redesign, model A): the natural key
+``(source, source_id)`` is *global*, so a ``pm_org_name_id`` surfacing under two
+local orgs (a PM merge, or a cross-Id over-match) would raise a UniqueViolation on
+flush and crash the whole sidecar cycle. The guarded ``pm_match`` prevents that
+match; :func:`sync_org_names` makes it *non-fatal* too — a name id already claimed
+by a different org is skipped-and-logged, not inserted.
 """
 
 from datetime import date
@@ -18,8 +25,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import OrganizationName
 from clearinghouse_sync_powermap.descriptors import as_ulid
+
+logger = get_logger(__name__)
 
 #: ``source`` stamped on every PM-originated name row. The natural key is
 #: ``(source, source_id)``; ``source_id`` is PM's ``OrgName`` id, so it equals
@@ -58,6 +68,22 @@ def map_pm_org_name(record: dict, *, organization_id: Any) -> dict:
     }
 
 
+async def _claimed_by_other_org(session: AsyncSession, mapped: dict, organization_id: Any) -> bool:
+    """Whether the mapped name's natural key ``(source, source_id)`` already exists
+    under a *different* org — the global-uniqueness collision the mirror must not
+    crash on."""
+    other = (
+        await session.execute(
+            select(OrganizationName.organization_id).where(
+                OrganizationName.source == mapped["source"],
+                OrganizationName.source_id == mapped["source_id"],
+                OrganizationName.organization_id != organization_id,
+            )
+        )
+    ).first()
+    return other is not None
+
+
 async def sync_org_names(
     session: AsyncSession, *, organization_id: Any, pm_names: list[dict]
 ) -> None:
@@ -86,6 +112,20 @@ async def sync_org_names(
         seen.add(anchor)
         row = by_anchor.get(anchor)
         if row is None:
+            # Defense-in-depth (redesign): the natural key ``(source, source_id)`` is
+            # **global**, so an ``OrgName`` id already mirrored under a *different* org
+            # (e.g. a PM merge surfacing one name under two orgs) would raise a
+            # UniqueViolation on flush and crash the whole sidecar cycle. The guarded
+            # pm_match makes this not happen; here we make it non-fatal — skip-and-log.
+            if await _claimed_by_other_org(session, mapped, organization_id):
+                logger.warning(
+                    "org_name_mirror_skip_claimed",
+                    extra={
+                        "pm_org_name_id": mapped["source_id"],
+                        "organization_id": str(organization_id),
+                    },
+                )
+                continue
             session.add(OrganizationName(**mapped))
         else:
             for column, value in mapped.items():

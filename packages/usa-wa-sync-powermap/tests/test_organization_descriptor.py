@@ -217,6 +217,135 @@ async def test_pm_match_returns_none_when_genuinely_new(db_session, descriptor):
     assert len(client.searched) == 2  # identifier + one FTS query; no enumeration
 
 
+# --- pm_match guard: cross-Id re-key over-match (redesign, model A) ------------
+
+
+async def test_pm_match_name_skips_candidate_claimed_by_another_committee(db_session, descriptor):
+    """A normalized-name-equal PM org that already carries a committee identifier is
+    claimed by a *different* WSL Id (stage 1 already ran on ours and missed), so we
+    must create a new org — NOT glue onto the claimed one. Guards the re-key over-match
+    that crash-looped the sidecar (WSL re-keys committees across eras)."""
+    claimed_pm = ULID()
+    row = await _add_org(db_session, source_id="17366", name="Appropriations")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),  # identifier miss (our 17366 not in PM yet)
+            EntityPage(  # FTS surfaces the same-name org already claimed by Id 875
+                records=[{"id": str(claimed_pm), "name": "Appropriations", "parent_id": None}],
+                cursor=None,
+            ),
+        ],
+        entities={
+            str(claimed_pm): {
+                "id": str(claimed_pm),
+                "name": "Appropriations",
+                "identifiers": [{"type_slug": "org_wa_legislature_committee_id", "value": "875"}],
+            }
+        },
+    )
+
+    matched = await descriptor.pm_match(client, db_session, row)
+
+    assert matched is None  # claimed → create-new, no cross-Id glue
+    # The name candidate's detail was fetched to read its identifiers.
+    assert (descriptor.read_path, str(claimed_pm)) in client.fetched
+
+
+async def test_pm_match_name_adopts_unclaimed_same_name_org(db_session, descriptor):
+    """The legitimate adopt path survives the guard: a same-name PM org carrying **no**
+    committee identifier (PM's pre-curated, unclaimed org) is still matched + adopted."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-42", name="Health Committee")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),  # identifier miss
+            EntityPage(
+                records=[{"id": str(pm_id), "name": "Health Committee", "parent_id": None}],
+                cursor=None,
+            ),
+        ],
+        entities={
+            str(pm_id): {
+                "id": str(pm_id),
+                "name": "Health Committee",
+                "identifiers": [],  # unclaimed → adoptable
+            }
+        },
+    )
+
+    matched = await descriptor.pm_match(client, db_session, row)
+
+    assert matched == pm_id
+    assert (descriptor.read_path, str(pm_id)) in client.fetched
+
+
+async def test_pm_match_name_adopts_when_candidate_detail_absent(db_session, descriptor):
+    """A candidate whose detail fetch 404s (get_entity → None) is treated as unclaimed
+    and still adopted — the guard fails open on a missing detail, not closed."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-77", name="Rules Committee")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),  # identifier miss
+            EntityPage(
+                records=[{"id": str(pm_id), "name": "Rules Committee", "parent_id": None}],
+                cursor=None,
+            ),
+        ],
+        # No entities preset → get_entity returns None for this candidate.
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) == pm_id
+
+
+async def test_pm_match_identifier_hit_skips_detail_fetch(db_session, descriptor):
+    """The guard's detail fetch is on the name path only: a stage-1 identifier hit
+    short-circuits before any get_entity (no wasted detail fetch on the happy path)."""
+    pm_id = ULID()
+    row = await _add_org(db_session, source_id="C-1", name="House Approps")
+    client = FakeClient(search_pages=[EntityPage(records=[{"id": str(pm_id)}], cursor=None)])
+
+    matched = await descriptor.pm_match(client, db_session, row)
+
+    assert matched == pm_id
+    assert client.fetched == []  # no detail fetch on the identifier happy path
+
+
+async def test_pm_match_guard_drops_claimed_then_adopts_survivor(db_session, descriptor):
+    """The guard runs before hierarchy: two same-name candidates, one claimed by another
+    committee Id and one unclaimed → the claimed one is dropped, leaving a single
+    survivor that is adopted directly (no parent needed to disambiguate)."""
+    claimed_pm = ULID()
+    survivor_pm = ULID()
+    row = await _add_org(db_session, source_id="C-DUP", name="Local Government")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),  # identifier miss
+            EntityPage(
+                records=[
+                    {"id": str(claimed_pm), "name": "Local Government", "parent_id": None},
+                    {"id": str(survivor_pm), "name": "Local Government", "parent_id": None},
+                ],
+                cursor=None,
+            ),
+        ],
+        entities={
+            str(claimed_pm): {
+                "id": str(claimed_pm),
+                "name": "Local Government",
+                "identifiers": [{"type_slug": "org_wa_legislature_committee_id", "value": "OTHER"}],
+            },
+            str(survivor_pm): {
+                "id": str(survivor_pm),
+                "name": "Local Government",
+                "identifiers": [],
+            },
+        },
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) == survivor_pm
+
+
 # --- to_observation -----------------------------------------------------------
 
 
