@@ -128,3 +128,46 @@ async def test_harvest_re_run_is_cache_hit(db_session, usa_wa, wsl_source):
     assert client.calls == ["2023-24"]
     payloads = (await db_session.execute(select(func.count()).select_from(RawPayload))).scalar_one()
     assert payloads == 1
+
+
+async def test_harvest_force_re_materializes_despite_fresh_cache(db_session, usa_wa, wsl_source):
+    """``force=True`` re-fetches + re-materializes even on a fresh cache hit — the
+    re-materialization path after the incident rollback (the org rows were rolled back
+    but the roster stayed archived, so a plain cache-hit re-run inserts nothing).
+    The byte-identical wire still dedups to one RawPayload (revalidation, not re-store)."""
+    client = _FakeCommitteeClient({"2023-24": ([_committee(31635, "X")], b"<b/>")})
+    await harvest_committees(db_session, bienniums=["2023-24"], committee_client=client)
+
+    # Simulate the incident rollback: roster stays archived, the org row is gone.
+    org = (
+        await db_session.execute(select(Organization).where(Organization.source_id == "31635"))
+    ).scalar_one()
+    await db_session.delete(org)
+    await db_session.flush()
+
+    async def _count() -> int:
+        return (
+            await db_session.execute(
+                select(func.count())
+                .select_from(Organization)
+                .where(Organization.source_id == "31635")
+            )
+        ).scalar_one()
+
+    # A plain re-run is a cache hit → re-materializes nothing (the plan's wrong premise).
+    cache_run = await harvest_committees(db_session, bienniums=["2023-24"], committee_client=client)
+    assert cache_run.upserted == 0
+    assert await _count() == 0
+
+    # force=True re-fetches and re-inserts the rolled-back row despite the fresh cache.
+    forced = await harvest_committees(
+        db_session, bienniums=["2023-24"], committee_client=client, force=True
+    )
+    assert forced.upserted == 1
+    assert await _count() == 1
+
+    # Re-fetched on the forced run only (cache-hit run didn't touch WSL); byte-identical
+    # wire → still one archived payload (dedup guard).
+    assert client.calls == ["2023-24", "2023-24"]
+    payloads = (await db_session.execute(select(func.count()).select_from(RawPayload))).scalar_one()
+    assert payloads == 1

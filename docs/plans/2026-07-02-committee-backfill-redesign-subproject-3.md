@@ -79,7 +79,14 @@ for the absence of the crash signature; finally re-emit the rename chain.
    described.
 6. **Operational — deploy + re-materialize (guarded).** (a) Restart the sidecar on
    the fixes. (b) Re-run `harvest_committees --from-biennium 1991-92 --to-biennium
-   2025-26` (cache-fast — rosters already archived) to re-insert the 152 local rows.
+   2025-26 --force` to re-insert the 152 local rows. **Revision (mechanics):** a plain
+   re-run does *not* re-materialize — the rosters are archived within the 1-day TTL, so
+   the runner's cache-or-fetch short-circuits (`upserted=0`, no re-normalize/upsert).
+   The rolled-back org rows only come back if the runner actually re-normalizes, so
+   `harvest_committees` gained a `--force` flag (TDD'd) that re-fetches + re-normalizes
+   past the cache; the byte-identical wire still dedups to the existing RawPayload
+   (revalidation, not re-store), and fill-only leaves unaffected committees untouched.
+   Same 18-paced-`GetCommittees` WSL profile the original harvest used.
    (c) **Monitor anchoring**: confirm the `UniqueViolationError` crash signature is
    absent, the ~100 orphans adopt by identifier, and the remaining Ids create
    distinct orgs (spot-check two same-name/different-Id committees → two PM orgs).

@@ -73,12 +73,21 @@ async def harvest_committees(
     pause_seconds: float = 0.0,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     dry_run: bool = False,
+    force: bool = False,
 ) -> HarvestSummary:
     """Archive + fill-only-materialize each biennium's committee roster.
 
     Operates in the caller's transaction (the CLI commits, or rolls back on
     ``dry_run``). ``sleep`` is injectable so tests don't wait. Pauses **between**
-    windows only (not after the last)."""
+    windows only (not after the last).
+
+    ``force`` bypasses the runner's freshness cache: a closed roster is re-fetched
+    and re-normalized even when its FetchEvent is within TTL. This is how the
+    post-incident **re-materialization** re-inserts committee rows that were rolled
+    back while their rosters stayed archived — a plain cache-hit re-run upserts
+    nothing (see the runner's cache-or-fetch). The byte-identical wire still dedups
+    to the existing RawPayload (revalidation, not re-store), and fill-only means an
+    unaffected existing committee is never clobbered."""
     jurisdiction = await _resolve_jurisdiction(session)
     source = await _get_or_create_source(session, jurisdiction)
     anchors = await bootstrap_synthetic_anchors(
@@ -104,8 +113,9 @@ async def harvest_committees(
     upserted = 0
     for i, biennium in enumerate(bienniums):
         resource_id = f"{COMMITTEES_ROSTER_RESOURCE_PREFIX}{biennium}"
-        # force=False: a closed roster already archived is a free cache hit.
-        upserted += await runner.fetch_and_normalize(resource_id)
+        # force=False: a closed roster already archived is a free cache hit. force=True
+        # re-fetches + re-normalizes to re-materialize rolled-back rows (revalidation).
+        upserted += await runner.fetch_and_normalize(resource_id, force=force)
         logger.info("wsl_committee_roster_harvested", extra={"biennium": biennium})
         if pause_seconds and i < len(bienniums) - 1:
             await sleep(pause_seconds)
@@ -138,6 +148,12 @@ async def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--to-biennium", default=None, help="default: current from date")
     parser.add_argument("--pause-seconds", type=float, default=DEFAULT_PAUSE_SECONDS)
     parser.add_argument("--dry-run", action="store_true", help="harvest but roll back (preview)")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="re-fetch + re-materialize even on a fresh cache hit (post-incident "
+        "re-materialization / retrospective-change revalidation)",
+    )
     args = parser.parse_args(argv)
 
     database_url = os.environ.get("DATABASE_URL")
@@ -162,6 +178,7 @@ async def _main(argv: list[str] | None = None) -> int:
                 committee_client=committee_client,
                 pause_seconds=args.pause_seconds,
                 dry_run=args.dry_run,
+                force=args.force,
             )
             if args.dry_run:
                 await session.rollback()
