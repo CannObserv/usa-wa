@@ -55,6 +55,37 @@ def test_natural_key_values(fake_descriptor):
     assert fake_descriptor.natural_key_values(row) == ("wsl", "42")
 
 
+@pytest.mark.parametrize(
+    ("identifiers", "expected"),
+    [
+        ([{"type_slug": "org_wa_legislature_committee_id", "value": "875"}], True),
+        ([{"type_slug": "org_wa_legislature_committee_id", "value": "anything-else"}], True),
+        ([{"type_slug": "org_wa_pdc", "value": "875"}], False),  # different type
+        ([], False),  # present but empty
+        (None, False),  # identifiers key absent
+    ],
+)
+def test_record_has_identifier_type_is_value_agnostic(identifiers, expected):
+    """``record_has_identifier_type`` matches ANY identifier of the type regardless of
+    value (the org name-match re-key guard's claim check), unlike
+    ``record_has_identifier`` which is (type, value)-exact."""
+    record = {} if identifiers is None else {"identifiers": identifiers}
+    assert (
+        EntityDescriptor.record_has_identifier_type(record, "org_wa_legislature_committee_id")
+        is expected
+    )
+
+
+def test_record_has_identifier_type_vs_value_exact():
+    """Contrast the two helpers: a candidate carrying our type under a *different*
+    value is claimed (type-match True) but not a (type, value)-exact match."""
+    record = {"identifiers": [{"type_slug": "org_wa_legislature_committee_id", "value": "875"}]}
+    assert EntityDescriptor.record_has_identifier_type(record, "org_wa_legislature_committee_id")
+    assert not EntityDescriptor.record_has_identifier(
+        record, "org_wa_legislature_committee_id", "17366"
+    )
+
+
 async def test_to_observation_shape(db_session, fake_descriptor):
     row = FakeEntity(source="wsl", source_id="42", name="Widget")
     assert await fake_descriptor.to_observation(db_session, row) == {

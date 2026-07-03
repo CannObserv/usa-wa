@@ -109,7 +109,9 @@ the deferred model-B enhancement.
 ## Operational sequencing (guarded, incremental)
 
 1. Land + deploy the `pm_match` + mirror fixes; restart the sidecar.
-2. Re-run `harvest_committees` (cache-fast) to re-materialize the 152 local rows.
+2. Re-run `harvest_committees --force` to re-insert the 152 local rows (a plain
+   cache-hit re-run re-materializes nothing — the runner returns 0 without
+   re-normalizing; `--force` re-fetches + re-normalizes past the freshness cache).
 3. **Monitor anchoring:** confirm the `UniqueViolation` crash signature is *gone*,
    the ~100 orphans adopt by identifier, and the rest create distinct orgs. Do not
    proceed until anchoring is proven clean.
