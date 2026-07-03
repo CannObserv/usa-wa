@@ -91,9 +91,15 @@ for the absence of the crash signature; finally re-emit the rename chain.
    absent, the ~100 orphans adopt by identifier, and the remaining Ids create
    distinct orgs (spot-check two same-name/different-Id committees → two PM orgs).
    Do not proceed until anchoring is clean and stable.
-7. **Operational — validate + emit.** `validate_committees` stays clean →
-   `reconcile_committee_name_chain --dry-run` → review the transitions →
-   emit. Confirm no divergence introduced and the sidecar stays healthy.
+7. **Operational — heal LWW-lock, then validate + emit.** A force re-materialization
+   *creates* committees whose local `updated_at` (creation) is ≥ PM's org clock, so
+   `apply_record` skips the PM-wins branch and their name/acronym windows never
+   mirror — `validate_committees` shows them as divergent with empty child tables
+   (bit us: 43 committees, cleared only by the heal). Run
+   `heal_committee_curation` (force-adopt PM's OrgDetail past LWW, #65 Part 2) so the
+   created cohort mirrors its names/acronyms. Then `validate_committees` → clean →
+   `reconcile_committee_name_chain --dry-run` → review → emit. Confirm no divergence
+   introduced and the sidecar stays healthy.
 
 ## Open questions / risks
 

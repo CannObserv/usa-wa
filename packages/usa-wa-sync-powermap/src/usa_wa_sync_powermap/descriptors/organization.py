@@ -200,6 +200,14 @@ class OrganizationDescriptor(EntityDescriptor):
         # Fails open on a missing detail (get_entity → None → unclaimed). Scoped to
         # id_type, so chamber/legislature/Joint-Other classes are unaffected.
         if id_type is not None and named:
+            if len(named) > 1:
+                # One detail-fetch per surviving candidate — normally 0–1. Log an
+                # unexpected fan-out so a same-name cluster (multiplied round-trips)
+                # is observable rather than silent.
+                logger.info(
+                    "org_pm_match_name_candidate_fanout",
+                    extra={"entity_name": match_name, "candidates": len(named)},
+                )
             named = [c for c in named if not await self._candidate_claimed(client, c, id_type)]
         if len(named) == 1:
             logger.info(
@@ -236,17 +244,15 @@ class OrganizationDescriptor(EntityDescriptor):
         ``id_type`` (i.e. is claimed by another committee — the re-key guard).
 
         PM's search record omits ``identifiers``, so this fetches the candidate's
-        ``OrgDetail`` (``get_entity``) and scans it. A missing detail (404 → ``None``)
-        is treated as **unclaimed** (fail open): the guard exists to prevent gluing
-        onto a *known* other committee, not to reject on a transient fetch gap.
+        ``OrgDetail`` (``get_entity``) and scans it via
+        :meth:`record_has_identifier_type`. A missing detail (404 → ``None``) is
+        treated as **unclaimed** (fail open): the guard exists to prevent gluing onto
+        a *known* other committee, not to reject on a transient fetch gap.
         """
         detail = await client.get_entity(self.read_path, candidate["id"])
         if detail is None:
             return False
-        for ident in detail.get("identifiers") or []:
-            if ident.get("type_slug") == id_type:
-                return True
-        return False
+        return self.record_has_identifier_type(detail, id_type)
 
     async def rematch_anchor(self, client: Any, session: Any, row: Any) -> Any | None:
         """Re-resolve a dead anchor (PM merged the org away) to the surviving winner by

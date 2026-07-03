@@ -113,7 +113,11 @@ the deferred model-B enhancement.
 3. **Monitor anchoring:** confirm the `UniqueViolation` crash signature is *gone*,
    the ~100 orphans adopt by identifier, and the rest create distinct orgs. Do not
    proceed until anchoring is proven clean.
-4. `validate_committees` stays clean → `reconcile_committee_name_chain --dry-run`
+4. **Heal the LWW-lock:** the *created* committees carry a local `updated_at` at
+   creation ≥ PM's org clock, so the read mirror won't adopt their name/acronym
+   windows (they show as `validate_committees` divergent with empty child tables).
+   Run `heal_committee_curation` (force-adopt past LWW, #65 Part 2) to mirror them.
+5. `validate_committees` clean → `reconcile_committee_name_chain --dry-run`
    → review → emit.
 
 ## Non-goals

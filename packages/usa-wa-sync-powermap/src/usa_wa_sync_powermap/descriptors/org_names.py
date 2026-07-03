@@ -109,23 +109,24 @@ async def sync_org_names(
     for record in pm_names:
         mapped = map_pm_org_name(record, organization_id=organization_id)
         anchor = mapped["pm_org_name_id"]
-        seen.add(anchor)
         row = by_anchor.get(anchor)
-        if row is None:
+        if row is None and await _claimed_by_other_org(session, mapped, organization_id):
             # Defense-in-depth (redesign): the natural key ``(source, source_id)`` is
             # **global**, so an ``OrgName`` id already mirrored under a *different* org
             # (e.g. a PM merge surfacing one name under two orgs) would raise a
             # UniqueViolation on flush and crash the whole sidecar cycle. The guarded
             # pm_match makes this not happen; here we make it non-fatal — skip-and-log.
-            if await _claimed_by_other_org(session, mapped, organization_id):
-                logger.warning(
-                    "org_name_mirror_skip_claimed",
-                    extra={
-                        "pm_org_name_id": mapped["source_id"],
-                        "organization_id": str(organization_id),
-                    },
-                )
-                continue
+            # Skipped before ``seen`` so the row we never touched isn't marked seen.
+            logger.warning(
+                "org_name_mirror_skip_claimed",
+                extra={
+                    "pm_org_name_id": mapped["source_id"],
+                    "organization_id": str(organization_id),
+                },
+            )
+            continue
+        seen.add(anchor)
+        if row is None:
             session.add(OrganizationName(**mapped))
         else:
             for column, value in mapped.items():

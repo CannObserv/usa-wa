@@ -371,6 +371,21 @@ class EntityDescriptor(ABC):
                 return True
         return False
 
+    @staticmethod
+    def record_has_identifier_type(record: dict, id_type: str) -> bool:
+        """Whether a PM record's ``identifiers[]`` holds **any** identifier of
+        ``id_type`` (value-agnostic sibling of :meth:`record_has_identifier`).
+
+        Used by the org name-match guard: a same-name candidate carrying *any*
+        identifier of our type is claimed by a different entity of our class, so we
+        must not adopt it. Keeps the ``identifiers[].type_slug`` payload shape in one
+        place.
+        """
+        for ident in record.get("identifiers") or []:
+            if ident.get("type_slug") == id_type:
+                return True
+        return False
+
     async def to_enrich_observation(self, session: Any, row: Any) -> dict:
         """Build the enrich observation for an already-matched, anchored row.
 

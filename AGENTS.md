@@ -449,9 +449,14 @@ python -m usa_wa_adapter_legislature.probe_committee_extent --start-biennium 202
 # 1-day TTL is a cache hit that upserts NOTHING) — the post-incident re-materialization of
 # rolled-back rows, and the retrospective-change revalidation of closed rosters; byte-identical
 # wire dedups to the existing RawPayload, fill-only leaves unaffected committees untouched.
+# FOLLOW-UP after a --force run that CREATES committees: the freshly-created rows are
+# LWW-locked (local updated_at ≥ PM's org clock), so the sidecar mirror won't adopt their
+# PM name/acronym windows until PM's clock advances — run `heal_committee_curation` to
+# force-adopt them (else validate_committees shows them divergent with empty child tables).
 python -m usa_wa_adapter_legislature.harvest_committees --from-biennium 2011-12 --pause-seconds 2
 python -m usa_wa_adapter_legislature.harvest_committees --dry-run   # auto-probe floor, roll back
 python -m usa_wa_adapter_legislature.harvest_committees --from-biennium 1991-92 --force  # re-materialize
+# then: python -m usa_wa_sync_powermap.heal_committee_curation   # mirror the created cohort's windows
 
 # Full committee rename-chain emission (sub-project 3, Phase B) — the deep-history sibling
 # of #46. Reads every archived committees-roster:<biennium> offline (archive-first, no WSL

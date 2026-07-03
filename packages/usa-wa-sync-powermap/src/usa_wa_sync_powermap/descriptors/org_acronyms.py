@@ -107,22 +107,23 @@ async def sync_org_acronyms(
     for record in pm_acronyms:
         mapped = map_pm_org_acronym(record, organization_id=organization_id)
         anchor = mapped["pm_org_acronym_id"]
-        seen.add(anchor)
         row = by_anchor.get(anchor)
-        if row is None:
+        if row is None and await _claimed_by_other_org(session, mapped, organization_id):
             # Defense-in-depth (redesign): the natural key ``(source, source_id)`` is
             # global, so an ``OrgAcronym`` id already mirrored under a *different* org
             # would raise a UniqueViolation on flush and crash the sidecar cycle. The
             # guarded pm_match makes this not happen; here we make it non-fatal.
-            if await _claimed_by_other_org(session, mapped, organization_id):
-                logger.warning(
-                    "org_acronym_mirror_skip_claimed",
-                    extra={
-                        "pm_org_acronym_id": mapped["source_id"],
-                        "organization_id": str(organization_id),
-                    },
-                )
-                continue
+            # Skipped before ``seen`` so the row we never touched isn't marked seen.
+            logger.warning(
+                "org_acronym_mirror_skip_claimed",
+                extra={
+                    "pm_org_acronym_id": mapped["source_id"],
+                    "organization_id": str(organization_id),
+                },
+            )
+            continue
+        seen.add(anchor)
+        if row is None:
             session.add(OrganizationAcronym(**mapped))
         else:
             for column, value in mapped.items():
