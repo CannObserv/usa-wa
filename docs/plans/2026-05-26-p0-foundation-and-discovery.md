@@ -1,7 +1,7 @@
 ---
 title: P0 — workspace + Postgres + adapter contract + discovery tracks
 date: 2026-05-26
-status: draft
+status: complete
 ---
 
 # P0 — foundation + discovery tracks
