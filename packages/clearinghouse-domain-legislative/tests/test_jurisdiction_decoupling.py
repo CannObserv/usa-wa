@@ -23,11 +23,23 @@ from clearinghouse_domain_legislative.votes import PersonVote, VoteEvent
 
 @pytest.mark.parametrize(
     "model",
-    [Person, Role, Assignment, EntityEvent, VoteEvent, PersonVote],
+    [Person, Assignment, EntityEvent, VoteEvent, PersonVote],
 )
 def test_decoupled_models_drop_jurisdiction_id(model):
-    """Decoupled entities no longer carry a ``jurisdiction_id`` column."""
+    """Decoupled entities no longer carry a ``jurisdiction_id`` column.
+
+    ``Role`` is intentionally excluded: it regained a ``jurisdiction_id`` for
+    the seat model (power-map#261/usa-wa#68), but with different semantics — the
+    seat's *enduring district identity*, not the org-level binding root dropped
+    here. See :func:`test_role_seat_jurisdiction_is_district_not_binding_root`.
+    """
     assert "jurisdiction_id" not in inspect(model).columns
+
+
+def test_role_seat_jurisdiction_is_district_not_binding_root():
+    """Role's ``jurisdiction_id`` is back as the seat's district (nullable)."""
+    col = inspect(Role).columns["jurisdiction_id"]
+    assert col.nullable is True
 
 
 def test_organization_keeps_nullable_jurisdiction():
@@ -93,7 +105,9 @@ async def test_legislative_session_requires_organization(db_session, usa_wa):
 
 
 async def test_role_jurisdiction_reachable_via_org(db_session, usa_wa):
-    """Role has no jurisdiction column; it's reached by joining to its org."""
+    """A non-seat role has NULL seat jurisdiction; its governing jurisdiction is
+    still reached by joining to its org (the seat ``jurisdiction_id`` on Role is
+    the district, only set for districted legislator seats — power-map#261)."""
     org = Organization(
         source="usa_wa_legislature",
         source_id="o-house",

@@ -18,6 +18,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -174,11 +175,32 @@ class Role(Base, TimestampMixin, LifecycleMixin):
     __tablename__ = "roles"
     __table_args__ = (
         UniqueConstraint("source", "source_id", name="uq_roles_natural_key"),
-        # Semantic uniqueness — a named slot within an Organization is one Role
-        # ("Representative" under the House chamber). District context (LD-21)
-        # lives on the Assignment/Person, not the Role. Jurisdiction is derived
-        # via the org (decoupling 2026-06-09).
-        UniqueConstraint("organization_id", "name", name="uq_roles_org_name"),
+        # Seat identity mirrors Power Map's split (power-map#261, usa-wa#68). A
+        # legislative seat is a durable Role keyed on its structural tuple
+        # (org, role_type, jurisdiction, qualifier) — House = 2 seats/LD
+        # (qualifier "Position 1"/"Position 2"), Senate = 1 seat/LD (qualifier
+        # NULL). NULLS NOT DISTINCT so a NULL qualifier is still one-per-district.
+        # Partial: only districted rows (jurisdiction_id NOT NULL) are seats.
+        Index(
+            "uq_roles_seat",
+            "organization_id",
+            "role_type",
+            "jurisdiction_id",
+            "qualifier",
+            unique=True,
+            postgresql_where=text("jurisdiction_id IS NOT NULL"),
+            postgresql_nulls_not_distinct=True,
+        ),
+        # Non-districted roles (committee/leadership/etc.) keep title identity —
+        # a named slot within an Organization is one Role ("Chair" under a
+        # committee). Partial complement of the seat index above.
+        Index(
+            "uq_roles_org_name",
+            "organization_id",
+            "name",
+            unique=True,
+            postgresql_where=text("jurisdiction_id IS NULL"),
+        ),
         {"schema": SCHEMA},
     )
 
@@ -196,6 +218,21 @@ class Role(Base, TimestampMixin, LifecycleMixin):
     role_type: Mapped[str] = mapped_column(String(32), nullable=False)
     # role_type vocab: elected_member | leadership | committee_member
     #                | committee_leadership | staff | party_member | other
+
+    # Seat geography (power-map#261/usa-wa#68). NULL for non-districted roles
+    # (committee/leadership/staff); set to the seat's LD jurisdiction for elected
+    # legislator seats. This is the seat's *enduring district identity* — distinct
+    # from the org-level "binding root" jurisdiction dropped in the 2026-06-09
+    # decoupling; a role's governing jurisdiction is still derived via its org.
+    jurisdiction_id: Mapped[_ULID | None] = mapped_column(
+        ULID(),
+        ForeignKey("clearinghouse_core.jurisdictions.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    # Seat disambiguator (PM ``qualifier``): "Position 1"/"Position 2" for the two
+    # WA House seats sharing an LD; NULL for a Senate seat (1/LD) and non-seat roles.
+    qualifier: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # PM anchor (sidecar sync). Write path dormant until power-map#176 ships
     # the roles observation endpoint.
