@@ -30,16 +30,30 @@ Seat attachment rides the #68 machinery: a seat Role carries `(org, role_type, j
 qualifier)` and the sidecar attaches it to PM's seeded seats; the role-type catalog mirror already
 confirms `state_representative` / `state_senator` as seat types in prod.
 
-**Scope of this cut (Senate-first):**
+**Scope of this cut:**
 - ✅ Person + identifier for **all** current members (House and Senate).
 - ✅ Party Assignments for all members (party Orgs exist in PM — verified).
-- ✅ **Senate** chamber seat Assignments (1 seat/LD, `qualifier` NULL — fully resolvable from WSL).
+- ✅ **Senate** chamber **seat** Assignments (1 seat/LD, `qualifier` NULL — fully resolvable from WSL).
+- ✅ **House** chamber **membership** Assignments — a non-seat `membership` Role on the House org
+  (see PM dependency below). This captures "X is a member of the WA House this biennium" **now**; the
+  precise districted **seat** (Position 1/2) is layered in later by #69. We do **not** emit a
+  position-less House *seat*: PM's create path **mints** an unseeded seat tuple (confirmed
+  power-map#267 — a NULL-qualifier House tuple synthesizes a title and creates a spurious third seat),
+  so a title-keyed membership Role is the clean way to capture House chamber affiliation without
+  polluting PM's seat graph. House members therefore get Person + party + committee memberships +
+  chamber membership this cut; only their exact district-seat waits on #69.
 - ✅ Committee membership Assignments (membership-only; no chair/vice — no WSL source).
-- ⛔ **House** chamber seat Assignments — **deferred to #69** (WA PDC adapter). WSL exposes a member's
-  `District` but not their **Position** (1/2), and PM's House seats are per-position; creating a
-  NULL-qualifier House seat would mint a duplicate (it matches neither seeded seat). House members
-  still get Person + party this cut, just not a chamber-seat Assignment or district binding until #69.
+- ⛔ **House** chamber **seat** (district + Position) Assignments — **deferred to #69** (WA PDC adapter
+  supplies Position). This is the only House data that waits.
 - ⛔ Leadership / committee position, bills (P1c), special sessions.
+
+**PM dependencies (both filed; both degrade gracefully so P1b is not blocked):**
+- **power-map#269** — a generic non-seat `membership` role_type. Committee + House-chamber membership
+  Roles adopt `role_type="membership"` once it ships; **until then** they degrade to a title-keyed
+  non-seat Role (`title="Member"` / `"State Representative"` on the org), which the existing `(org,
+  title)` observation path already handles. No blocker — just a semantic upgrade when it lands.
+- **power-map#270** — an `org_wa_party` identifier type. Party Orgs attach by that identifier once it
+  ships; **until then** they attach by the org **name-match** cascade (PM's party orgs exist).
 
 ## Tradeoffs / alternatives
 
@@ -94,10 +108,11 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
 
 3. **Org descriptor: party identity (TDD).** `identifier_type_for` currently maps any non-chamber/
    non-legislature `usa_wa_legislature` org to `org_wa_legislature_committee_id` — wrong for a party.
-   Return `None` for `org_type="party"` so the match cascade falls to the **name** stage, attaching
-   our Party Org to PM's existing `Washington State {Republican,Democratic} Party` (verified present).
-   **Verifiable when:** a party-org descriptor test asserts no committee identifier is emitted and the
-   name-match path is taken; existing org-descriptor tests stay green.
+   For `org_type="party"`: emit `identifier_type="org_wa_party"` **once power-map#270 ships**; until
+   then return `None` so the cascade falls to the **name** stage, attaching our Party Org to PM's
+   existing `Washington State {Republican,Democratic} Party` (verified present). **Verifiable when:** a
+   party-org descriptor test asserts the party path (identifier when #270 is live, else name-match) and
+   no `org_wa_legislature_committee_id` is emitted; existing org-descriptor tests stay green.
 
 4. **Person normalizer (TDD).** `normalize/sponsors.py`: `normalize_sponsors(payload, anchors,
    jurisdiction_id) -> NormalizedBatch` emitting, per member: a **Person** (`source_id=Id`,
@@ -109,24 +124,32 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
    when:** `test_normalize_sponsors` covers R/D/independent, name recomposition, identifier emission,
    and party-Assignment wiring against the cassette.
 
-5. **Senate seat Roles + chamber Assignments (TDD).** In the sponsor normalizer, for members whose
-   `Agency`=`Senate`: resolve `District` → `usa-wa-ld-{n}` → jurisdiction id; **get-or-create** the
-   Senate seat `Role` (`org=Senate anchor`, `role_type="state_senator"`, `jurisdiction_id=LD`,
-   `qualifier=NULL`, `name="State Senator"`); emit a chamber **Assignment** (`Person → seat Role`,
-   session-scoped, `valid_from=biennium start`, `is_active=true`). **House members: Person + party
-   only, no seat Role / chamber Assignment (deferred to #69) — log `wsl_house_seat_deferred` at info.**
-   **Verifiable when:** `test_normalize_sponsors` asserts a Senate member yields a `state_senator`
-   seat Role keyed on its LD + a chamber Assignment; a House member yields Person + party but **no**
-   seat Role; seat Role reuse (two bienniums, same LD) doesn't duplicate.
+5. **Chamber Assignments — Senate seats + House membership (TDD).** In the sponsor normalizer,
+   branch on `Agency`:
+   - **Senate:** resolve `District` → `usa-wa-ld-{n}` → jurisdiction id; **get-or-create** the Senate
+     seat `Role` (`org=Senate anchor`, `role_type="state_senator"`, `jurisdiction_id=LD`,
+     `qualifier=NULL`, `name="State Senator"`); emit a **seat** Assignment (`Person → seat Role`,
+     session-scoped, `valid_from=biennium start`, `is_active=true`).
+   - **House:** get-or-create a **non-seat chamber membership** `Role` on the House anchor
+     (`role_type="membership"` when power-map#269 is live, else the title-keyed degrade; `name="State
+     Representative"`; **no** `jurisdiction_id`/`qualifier` — so it stays out of the seat index and is
+     never a seat observation); emit a **membership** Assignment. Log `wsl_house_seat_deferred_to_69`
+     at info (the precise district-seat comes with #69). Do **not** synthesize a NULL-qualifier House
+     seat Role.
+   **Verifiable when:** `test_normalize_sponsors` asserts a Senate member yields a `state_senator` seat
+   Role keyed on its LD + a seat Assignment; a House member yields a non-seat House-membership Role +
+   membership Assignment and **no** districted seat Role; Senate seat reuse (two bienniums, same LD)
+   doesn't duplicate; the House membership Role is one-per-chamber (not per-member).
 
 6. **Committee-member normalizer (TDD).** `normalize/committee_members.py`:
    `normalize_committee_members(payload, anchors, committee_org_id, jurisdiction_id) ->
    NormalizedBatch` — per member: get-or-create Person (same `source_id` rule as step 0/4), a committee
-   membership **Assignment** (`Person → Role("Member") on the committee Org`,
-   `role_type="committee_member"`, session-scoped, `valid_from=biennium start`). No position/leadership
-   (no WSL source). Party here is cross-checkable but the sponsor pull is authority. **Verifiable
-   when:** `test_normalize_committee_members` asserts membership Assignments against a committee
-   cassette, dedupes a member already created by the sponsor pull, and skips no-position gracefully.
+   membership **Assignment** (`Person → Role("Member") on the committee Org`, non-seat
+   `role_type="membership"` when power-map#269 is live else the title-keyed degrade, session-scoped,
+   `valid_from=biennium start`). No position/leadership (no WSL source). Party here is cross-checkable
+   but the sponsor pull is authority. **Verifiable when:** `test_normalize_committee_members` asserts
+   membership Assignments against a committee cassette, dedupes a member already created by the sponsor
+   pull, and skips no-position gracefully.
 
 7. **Adapter dispatch + fan-out (TDD).** Extend `WALegislatureAdapter`: `discover` yields
    `sponsors:<biennium>` and, per roster committee, `committee-members:<agency>:<committeeName>`;
@@ -155,8 +178,10 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
 
 - **Member `Id` cross-endpoint / cross-biennium stability** — resolved by step 0 before any ingest;
   the committee normalizer's Person-keying strategy depends on the finding.
-- **House district gap.** House members carry no district until #69 (seat Role deferred). Acceptable
-  for this cut; call it out in the spec so a consumer doesn't read "no district" as "no data."
+- **House district gap (narrowed).** House members get Person + party + committee memberships + a
+  chamber **membership** Assignment this cut; only their **district-seat** (LD + Position) waits on #69,
+  since district lives on the seat `Role.jurisdiction_id`. So "no district yet" ≠ "no House data" —
+  call the distinction out in the spec so a consumer doesn't misread it.
 - **Party `Id`-less match.** Party Orgs attach to PM by **name** (no identifier) — a PM rename of a
   party org would break the match; low risk (party names are stable), and the #45 dated-name mirror
   brings PM's canonical back. Independent (`party-i`) may have no PM counterpart → creates new (fine).

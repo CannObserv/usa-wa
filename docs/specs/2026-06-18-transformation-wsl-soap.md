@@ -234,10 +234,13 @@ External-ID schemes (`wa_legislature_member_id`, `wa_legislature_long_id`) flow 
 
 ### `canonical.assignments` (P1b)
 
-**Resolved 2026-07-05** (plan: [`docs/plans/2026-07-05-wsl-soap-adapter-p1b.md`](../plans/2026-07-05-wsl-soap-adapter-p1b.md)). Three assignment kinds, all session-scoped to the **biennium** session row (`valid_from` = biennium start):
-- **Chamber seat** — `Person → seat Role` where the seat is `(chamber org, role_type, jurisdiction=LD, qualifier)` per the #68 seat model. **Senate** (`state_senator`, 1/LD, `qualifier` NULL) ships this cut; **House** (`state_representative`, `qualifier` Position 1/2) is **deferred to #69** — WSL has no Position source and a NULL-qualifier House seat would mint a PM duplicate.
-- **Party** — `Person → Role("Member")` on a synthesized Party Org. PM's `Washington State {Republican,Democratic} Party` orgs **exist** (verified 2026-07-05), so the org name-match cascade attaches ours; Independent may create-new. `Party` canonicalized across endpoints (`"R"`/`"Republican"` → `party-r`, `"D"`/`"Democrat"` → `party-d`, else `party-i`).
-- **Committee membership** — `Person → Role("Member")` on the committee Org (membership-only; chair/vice has no WSL source).
+**Resolved 2026-07-05** (plan: [`docs/plans/2026-07-05-wsl-soap-adapter-p1b.md`](../plans/2026-07-05-wsl-soap-adapter-p1b.md)). Assignment kinds, all session-scoped to the **biennium** session row (`valid_from` = biennium start):
+- **Chamber (Senate) seat** — `Person → seat Role` where the seat is `(Senate org, state_senator, jurisdiction=LD, qualifier=NULL)` per the #68 seat model (1/LD, fully resolvable from WSL).
+- **Chamber (House) membership** — `Person → non-seat membership Role` on the House org (captures chamber affiliation this cut). The precise **House seat** (`state_representative`, `qualifier` Position 1/2) is **deferred to #69** — WSL has no Position source, and PM's create path mints an unseeded seat tuple, so a NULL-qualifier House seat would create a spurious PM seat. District (on the seat) therefore arrives with #69; chamber + party + committee membership are captured now.
+- **Party** — `Person → Role("Member")` on a synthesized Party Org. PM's `Washington State {Republican,Democratic} Party` orgs **exist** (verified 2026-07-05); attaches by the `org_wa_party` identifier once [power-map#270](https://github.com/CannObserv/power-map/issues/270) ships, else by name-match. `Party` canonicalized across endpoints (`"R"`/`"Republican"` → `party-r`, `"D"`/`"Democrat"` → `party-d`, else `party-i`).
+- **Committee membership** — `Person → membership Role` on the committee Org (membership-only; chair/vice has no WSL source).
+
+House-chamber and committee membership Roles adopt the generic `membership` `role_type` once [power-map#269](https://github.com/CannObserv/power-map/issues/269) ships (title-keyed non-seat degrade until then). Neither PM dependency blocks P1b.
 
 WSL surfaces these in three places (signatures confirmed against live WSL 2026-06-24):
 
