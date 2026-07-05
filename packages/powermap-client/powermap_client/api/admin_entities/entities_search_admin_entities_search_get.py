@@ -1,39 +1,34 @@
 from http import HTTPStatus
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.body_org_merge_with_admin_orgs_winner_id_merge_with_loser_id_post import (
-    BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost,
-)
 from ...models.http_validation_error import HTTPValidationError
 from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
-    winner_id: str,
-    loser_id: str,
     *,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    q: str | Unset = "",
+    linked_entity_type: str | Unset = "",
 ) -> dict[str, Any]:
-    headers: dict[str, Any] = {}
+
+    params: dict[str, Any] = {}
+
+    params["q"] = q
+
+    params["linked_entity_type"] = linked_entity_type
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
-        "method": "post",
-        "url": "/admin/orgs/{winner_id}/merge-with/{loser_id}/".format(
-            winner_id=quote(str(winner_id), safe=""),
-            loser_id=quote(str(loser_id), safe=""),
-        ),
+        "method": "get",
+        "url": "/admin/entities/search/",
+        "params": params,
     }
 
-    if not isinstance(body, Unset):
-        _kwargs["data"] = body.to_dict()
-    headers["Content-Type"] = "application/x-www-form-urlencoded"
-
-    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -67,24 +62,22 @@ def _build_response(
 
 
 def sync_detailed(
-    winner_id: str,
-    loser_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    q: str | Unset = "",
+    linked_entity_type: str | Unset = "",
 ) -> Response[Any | HTTPValidationError]:
-    r"""Org Merge With
+    """Entities Search
 
-     Merge loser into winner from a preview modal.
+     Typeahead search scoped by entity type — returns an HTML option fragment.
 
-    `return_to=\"list\"` (modal opened from the orgs list, #255) re-renders the orgs
-    list region in place; otherwise (detail / duplicates screens) HX-Redirects to
-    the winner detail page.
+    Backs the linked-entity field on the admin event form: ``linked_entity_type``
+    selects which table (people or organizations) is searched. Unsupported types
+    and blank queries yield an empty fragment.
 
     Args:
-        winner_id (str):
-        loser_id (str):
-        body (BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset):
+        q (str | Unset):  Default: ''.
+        linked_entity_type (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -95,9 +88,8 @@ def sync_detailed(
     """
 
     kwargs = _get_kwargs(
-        winner_id=winner_id,
-        loser_id=loser_id,
-        body=body,
+        q=q,
+        linked_entity_type=linked_entity_type,
     )
 
     response = client.get_httpx_client().request(
@@ -108,24 +100,22 @@ def sync_detailed(
 
 
 def sync(
-    winner_id: str,
-    loser_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    q: str | Unset = "",
+    linked_entity_type: str | Unset = "",
 ) -> Any | HTTPValidationError | None:
-    r"""Org Merge With
+    """Entities Search
 
-     Merge loser into winner from a preview modal.
+     Typeahead search scoped by entity type — returns an HTML option fragment.
 
-    `return_to=\"list\"` (modal opened from the orgs list, #255) re-renders the orgs
-    list region in place; otherwise (detail / duplicates screens) HX-Redirects to
-    the winner detail page.
+    Backs the linked-entity field on the admin event form: ``linked_entity_type``
+    selects which table (people or organizations) is searched. Unsupported types
+    and blank queries yield an empty fragment.
 
     Args:
-        winner_id (str):
-        loser_id (str):
-        body (BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset):
+        q (str | Unset):  Default: ''.
+        linked_entity_type (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -136,32 +126,29 @@ def sync(
     """
 
     return sync_detailed(
-        winner_id=winner_id,
-        loser_id=loser_id,
         client=client,
-        body=body,
+        q=q,
+        linked_entity_type=linked_entity_type,
     ).parsed
 
 
 async def asyncio_detailed(
-    winner_id: str,
-    loser_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    q: str | Unset = "",
+    linked_entity_type: str | Unset = "",
 ) -> Response[Any | HTTPValidationError]:
-    r"""Org Merge With
+    """Entities Search
 
-     Merge loser into winner from a preview modal.
+     Typeahead search scoped by entity type — returns an HTML option fragment.
 
-    `return_to=\"list\"` (modal opened from the orgs list, #255) re-renders the orgs
-    list region in place; otherwise (detail / duplicates screens) HX-Redirects to
-    the winner detail page.
+    Backs the linked-entity field on the admin event form: ``linked_entity_type``
+    selects which table (people or organizations) is searched. Unsupported types
+    and blank queries yield an empty fragment.
 
     Args:
-        winner_id (str):
-        loser_id (str):
-        body (BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset):
+        q (str | Unset):  Default: ''.
+        linked_entity_type (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -172,9 +159,8 @@ async def asyncio_detailed(
     """
 
     kwargs = _get_kwargs(
-        winner_id=winner_id,
-        loser_id=loser_id,
-        body=body,
+        q=q,
+        linked_entity_type=linked_entity_type,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -183,24 +169,22 @@ async def asyncio_detailed(
 
 
 async def asyncio(
-    winner_id: str,
-    loser_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    q: str | Unset = "",
+    linked_entity_type: str | Unset = "",
 ) -> Any | HTTPValidationError | None:
-    r"""Org Merge With
+    """Entities Search
 
-     Merge loser into winner from a preview modal.
+     Typeahead search scoped by entity type — returns an HTML option fragment.
 
-    `return_to=\"list\"` (modal opened from the orgs list, #255) re-renders the orgs
-    list region in place; otherwise (detail / duplicates screens) HX-Redirects to
-    the winner detail page.
+    Backs the linked-entity field on the admin event form: ``linked_entity_type``
+    selects which table (people or organizations) is searched. Unsupported types
+    and blank queries yield an empty fragment.
 
     Args:
-        winner_id (str):
-        loser_id (str):
-        body (BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset):
+        q (str | Unset):  Default: ''.
+        linked_entity_type (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -212,9 +196,8 @@ async def asyncio(
 
     return (
         await asyncio_detailed(
-            winner_id=winner_id,
-            loser_id=loser_id,
             client=client,
-            body=body,
+            q=q,
+            linked_entity_type=linked_entity_type,
         )
     ).parsed

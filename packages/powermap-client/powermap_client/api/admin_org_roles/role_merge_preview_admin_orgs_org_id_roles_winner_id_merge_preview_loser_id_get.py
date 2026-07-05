@@ -6,34 +6,34 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.body_org_merge_with_admin_orgs_winner_id_merge_with_loser_id_post import (
-    BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost,
-)
 from ...models.http_validation_error import HTTPValidationError
 from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
+    org_id: str,
     winner_id: str,
     loser_id: str,
     *,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    ctx: str | Unset = "",
 ) -> dict[str, Any]:
-    headers: dict[str, Any] = {}
+
+    params: dict[str, Any] = {}
+
+    params["ctx"] = ctx
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
-        "method": "post",
-        "url": "/admin/orgs/{winner_id}/merge-with/{loser_id}/".format(
+        "method": "get",
+        "url": "/admin/orgs/{org_id}/roles/{winner_id}/merge-preview/{loser_id}/".format(
+            org_id=quote(str(org_id), safe=""),
             winner_id=quote(str(winner_id), safe=""),
             loser_id=quote(str(loser_id), safe=""),
         ),
+        "params": params,
     }
 
-    if not isinstance(body, Unset):
-        _kwargs["data"] = body.to_dict()
-    headers["Content-Type"] = "application/x-www-form-urlencoded"
-
-    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -67,24 +67,30 @@ def _build_response(
 
 
 def sync_detailed(
+    org_id: str,
     winner_id: str,
     loser_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    ctx: str | Unset = "",
 ) -> Response[Any | HTTPValidationError]:
-    r"""Org Merge With
+    """Role Merge Preview
 
-     Merge loser into winner from a preview modal.
+     Return the role merge-preview modal (#255).
 
-    `return_to=\"list\"` (modal opened from the orgs list, #255) re-renders the orgs
-    list region in place; otherwise (detail / duplicates screens) HX-Redirects to
-    the winner detail page.
+    Roles have no names/acronyms, so this is confirmation-style: it surfaces how many
+    assignments reassign vs. drop as (person, start_date) conflicts, and whether the
+    loser's notes will be appended. Unlike Orgs/People — which need a curated
+    `merge-with` endpoint to honour keep/drop name selections — there is nothing to
+    curate here, so the modal simply posts to the existing `role_merge` (`/merge/`)
+    route, targeting the roles list region. `ctx` is accepted for symmetry with the
+    other entity previews; the role merge is only ever opened from the list.
 
     Args:
+        org_id (str):
         winner_id (str):
         loser_id (str):
-        body (BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset):
+        ctx (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -95,9 +101,10 @@ def sync_detailed(
     """
 
     kwargs = _get_kwargs(
+        org_id=org_id,
         winner_id=winner_id,
         loser_id=loser_id,
-        body=body,
+        ctx=ctx,
     )
 
     response = client.get_httpx_client().request(
@@ -108,24 +115,30 @@ def sync_detailed(
 
 
 def sync(
+    org_id: str,
     winner_id: str,
     loser_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    ctx: str | Unset = "",
 ) -> Any | HTTPValidationError | None:
-    r"""Org Merge With
+    """Role Merge Preview
 
-     Merge loser into winner from a preview modal.
+     Return the role merge-preview modal (#255).
 
-    `return_to=\"list\"` (modal opened from the orgs list, #255) re-renders the orgs
-    list region in place; otherwise (detail / duplicates screens) HX-Redirects to
-    the winner detail page.
+    Roles have no names/acronyms, so this is confirmation-style: it surfaces how many
+    assignments reassign vs. drop as (person, start_date) conflicts, and whether the
+    loser's notes will be appended. Unlike Orgs/People — which need a curated
+    `merge-with` endpoint to honour keep/drop name selections — there is nothing to
+    curate here, so the modal simply posts to the existing `role_merge` (`/merge/`)
+    route, targeting the roles list region. `ctx` is accepted for symmetry with the
+    other entity previews; the role merge is only ever opened from the list.
 
     Args:
+        org_id (str):
         winner_id (str):
         loser_id (str):
-        body (BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset):
+        ctx (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -136,32 +149,39 @@ def sync(
     """
 
     return sync_detailed(
+        org_id=org_id,
         winner_id=winner_id,
         loser_id=loser_id,
         client=client,
-        body=body,
+        ctx=ctx,
     ).parsed
 
 
 async def asyncio_detailed(
+    org_id: str,
     winner_id: str,
     loser_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    ctx: str | Unset = "",
 ) -> Response[Any | HTTPValidationError]:
-    r"""Org Merge With
+    """Role Merge Preview
 
-     Merge loser into winner from a preview modal.
+     Return the role merge-preview modal (#255).
 
-    `return_to=\"list\"` (modal opened from the orgs list, #255) re-renders the orgs
-    list region in place; otherwise (detail / duplicates screens) HX-Redirects to
-    the winner detail page.
+    Roles have no names/acronyms, so this is confirmation-style: it surfaces how many
+    assignments reassign vs. drop as (person, start_date) conflicts, and whether the
+    loser's notes will be appended. Unlike Orgs/People — which need a curated
+    `merge-with` endpoint to honour keep/drop name selections — there is nothing to
+    curate here, so the modal simply posts to the existing `role_merge` (`/merge/`)
+    route, targeting the roles list region. `ctx` is accepted for symmetry with the
+    other entity previews; the role merge is only ever opened from the list.
 
     Args:
+        org_id (str):
         winner_id (str):
         loser_id (str):
-        body (BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset):
+        ctx (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -172,9 +192,10 @@ async def asyncio_detailed(
     """
 
     kwargs = _get_kwargs(
+        org_id=org_id,
         winner_id=winner_id,
         loser_id=loser_id,
-        body=body,
+        ctx=ctx,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -183,24 +204,30 @@ async def asyncio_detailed(
 
 
 async def asyncio(
+    org_id: str,
     winner_id: str,
     loser_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    ctx: str | Unset = "",
 ) -> Any | HTTPValidationError | None:
-    r"""Org Merge With
+    """Role Merge Preview
 
-     Merge loser into winner from a preview modal.
+     Return the role merge-preview modal (#255).
 
-    `return_to=\"list\"` (modal opened from the orgs list, #255) re-renders the orgs
-    list region in place; otherwise (detail / duplicates screens) HX-Redirects to
-    the winner detail page.
+    Roles have no names/acronyms, so this is confirmation-style: it surfaces how many
+    assignments reassign vs. drop as (person, start_date) conflicts, and whether the
+    loser's notes will be appended. Unlike Orgs/People — which need a curated
+    `merge-with` endpoint to honour keep/drop name selections — there is nothing to
+    curate here, so the modal simply posts to the existing `role_merge` (`/merge/`)
+    route, targeting the roles list region. `ctx` is accepted for symmetry with the
+    other entity previews; the role merge is only ever opened from the list.
 
     Args:
+        org_id (str):
         winner_id (str):
         loser_id (str):
-        body (BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset):
+        ctx (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -212,9 +239,10 @@ async def asyncio(
 
     return (
         await asyncio_detailed(
+            org_id=org_id,
             winner_id=winner_id,
             loser_id=loser_id,
             client=client,
-            body=body,
+            ctx=ctx,
         )
     ).parsed

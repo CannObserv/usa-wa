@@ -74,6 +74,14 @@ def sync_detailed(
 
      Toggle org active flag; return updated active-toggle partial.
 
+    Shares the archived + no-op guards with the public observation path via
+    ``set_org_active`` (#241): the toggle is rejected with 409 on an archived org
+    (the UI already disables the checkbox, so this only guards out-of-band POSTs)
+    and a redundant re-assertion is a true no-op (no entity_changes event). The
+    transaction holds the helper's ``FOR UPDATE`` lock until commit, keeping the
+    archived check atomic against a concurrent archive. ``set_org_active`` is the
+    single existence gate: a missing org raises OrgNotFound → 404.
+
     Args:
         org_id (str):
         body (BodyOrgInlineActivePostAdminOrgsOrgIdInlineActivePost | Unset):
@@ -108,6 +116,14 @@ def sync(
 
      Toggle org active flag; return updated active-toggle partial.
 
+    Shares the archived + no-op guards with the public observation path via
+    ``set_org_active`` (#241): the toggle is rejected with 409 on an archived org
+    (the UI already disables the checkbox, so this only guards out-of-band POSTs)
+    and a redundant re-assertion is a true no-op (no entity_changes event). The
+    transaction holds the helper's ``FOR UPDATE`` lock until commit, keeping the
+    archived check atomic against a concurrent archive. ``set_org_active`` is the
+    single existence gate: a missing org raises OrgNotFound → 404.
+
     Args:
         org_id (str):
         body (BodyOrgInlineActivePostAdminOrgsOrgIdInlineActivePost | Unset):
@@ -136,6 +152,14 @@ async def asyncio_detailed(
     """Org Inline Active Post
 
      Toggle org active flag; return updated active-toggle partial.
+
+    Shares the archived + no-op guards with the public observation path via
+    ``set_org_active`` (#241): the toggle is rejected with 409 on an archived org
+    (the UI already disables the checkbox, so this only guards out-of-band POSTs)
+    and a redundant re-assertion is a true no-op (no entity_changes event). The
+    transaction holds the helper's ``FOR UPDATE`` lock until commit, keeping the
+    archived check atomic against a concurrent archive. ``set_org_active`` is the
+    single existence gate: a missing org raises OrgNotFound → 404.
 
     Args:
         org_id (str):
@@ -168,6 +192,14 @@ async def asyncio(
     """Org Inline Active Post
 
      Toggle org active flag; return updated active-toggle partial.
+
+    Shares the archived + no-op guards with the public observation path via
+    ``set_org_active`` (#241): the toggle is rejected with 409 on an archived org
+    (the UI already disables the checkbox, so this only guards out-of-band POSTs)
+    and a redundant re-assertion is a true no-op (no entity_changes event). The
+    transaction holds the helper's ``FOR UPDATE`` lock until commit, keeping the
+    archived check atomic against a concurrent archive. ``set_org_active`` is the
+    single existence gate: a missing org raises OrgNotFound → 404.
 
     Args:
         org_id (str):

@@ -65,6 +65,12 @@ def sync_detailed(
 
      Merge loser into winner: reassign all references, hard-delete loser.
 
+    Bulk (non-curated) path — `_execute_merge` with `keep_name_ids=None`, which is
+    now non-lossy (demote+transfer, #255). Since #255 the list UI no longer enters
+    here; it opens the preview modal and posts to `org_merge_with` with
+    `return_to=list`. This route remains for the duplicates-review fallback,
+    programmatic/script callers, and as the defense-in-depth non-lossy bulk merge.
+
     Args:
         winner_id (str):
         loser_id (str):
@@ -99,6 +105,12 @@ def sync(
 
      Merge loser into winner: reassign all references, hard-delete loser.
 
+    Bulk (non-curated) path — `_execute_merge` with `keep_name_ids=None`, which is
+    now non-lossy (demote+transfer, #255). Since #255 the list UI no longer enters
+    here; it opens the preview modal and posts to `org_merge_with` with
+    `return_to=list`. This route remains for the duplicates-review fallback,
+    programmatic/script callers, and as the defense-in-depth non-lossy bulk merge.
+
     Args:
         winner_id (str):
         loser_id (str):
@@ -127,6 +139,12 @@ async def asyncio_detailed(
     """Org Merge
 
      Merge loser into winner: reassign all references, hard-delete loser.
+
+    Bulk (non-curated) path — `_execute_merge` with `keep_name_ids=None`, which is
+    now non-lossy (demote+transfer, #255). Since #255 the list UI no longer enters
+    here; it opens the preview modal and posts to `org_merge_with` with
+    `return_to=list`. This route remains for the duplicates-review fallback,
+    programmatic/script callers, and as the defense-in-depth non-lossy bulk merge.
 
     Args:
         winner_id (str):
@@ -159,6 +177,12 @@ async def asyncio(
     """Org Merge
 
      Merge loser into winner: reassign all references, hard-delete loser.
+
+    Bulk (non-curated) path — `_execute_merge` with `keep_name_ids=None`, which is
+    now non-lossy (demote+transfer, #255). Since #255 the list UI no longer enters
+    here; it opens the preview modal and posts to `org_merge_with` with
+    `return_to=list`. This route remains for the duplicates-review fallback,
+    programmatic/script callers, and as the defense-in-depth non-lossy bulk merge.
 
     Args:
         winner_id (str):

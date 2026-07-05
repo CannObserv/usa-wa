@@ -8,22 +8,18 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
-T = TypeVar("T", bound="BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost")
+T = TypeVar("T", bound="BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost")
 
 
 @_attrs_define
-class BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost:
+class BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost:
     """
     Attributes:
         keep_name_ids (list[str] | Unset):
-        keep_acronym_ids (list[str] | Unset):
-        merge_role_pairs (list[str] | Unset):
         return_to (str | Unset):  Default: 'detail'.
     """
 
     keep_name_ids: list[str] | Unset = UNSET
-    keep_acronym_ids: list[str] | Unset = UNSET
-    merge_role_pairs: list[str] | Unset = UNSET
     return_to: str | Unset = "detail"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -32,14 +28,6 @@ class BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost:
         if not isinstance(self.keep_name_ids, Unset):
             keep_name_ids = self.keep_name_ids
 
-        keep_acronym_ids: list[str] | Unset = UNSET
-        if not isinstance(self.keep_acronym_ids, Unset):
-            keep_acronym_ids = self.keep_acronym_ids
-
-        merge_role_pairs: list[str] | Unset = UNSET
-        if not isinstance(self.merge_role_pairs, Unset):
-            merge_role_pairs = self.merge_role_pairs
-
         return_to = self.return_to
 
         field_dict: dict[str, Any] = {}
@@ -47,10 +35,6 @@ class BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost:
         field_dict.update({})
         if keep_name_ids is not UNSET:
             field_dict["keep_name_ids"] = keep_name_ids
-        if keep_acronym_ids is not UNSET:
-            field_dict["keep_acronym_ids"] = keep_acronym_ids
-        if merge_role_pairs is not UNSET:
-            field_dict["merge_role_pairs"] = merge_role_pairs
         if return_to is not UNSET:
             field_dict["return_to"] = return_to
 
@@ -61,21 +45,15 @@ class BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost:
         d = dict(src_dict)
         keep_name_ids = cast(list[str], d.pop("keep_name_ids", UNSET))
 
-        keep_acronym_ids = cast(list[str], d.pop("keep_acronym_ids", UNSET))
-
-        merge_role_pairs = cast(list[str], d.pop("merge_role_pairs", UNSET))
-
         return_to = d.pop("return_to", UNSET)
 
-        body_org_merge_with_admin_orgs_winner_id_merge_with_loser_id_post = cls(
+        body_person_merge_with_admin_people_winner_id_merge_with_loser_id_post = cls(
             keep_name_ids=keep_name_ids,
-            keep_acronym_ids=keep_acronym_ids,
-            merge_role_pairs=merge_role_pairs,
             return_to=return_to,
         )
 
-        body_org_merge_with_admin_orgs_winner_id_merge_with_loser_id_post.additional_properties = d
-        return body_org_merge_with_admin_orgs_winner_id_merge_with_loser_id_post
+        body_person_merge_with_admin_people_winner_id_merge_with_loser_id_post.additional_properties = d
+        return body_person_merge_with_admin_people_winner_id_merge_with_loser_id_post
 
     @property
     def additional_keys(self) -> list[str]:

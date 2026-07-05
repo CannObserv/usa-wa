@@ -14,11 +14,29 @@ def _get_kwargs(
     person_id: str,
     *,
     country: str | Unset = "US",
+    address_line_1: str | Unset = "",
+    address_line_2: str | Unset = "",
+    city: str | Unset = "",
+    region: str | Unset = "",
+    postal_code: str | Unset = "",
+    addr_id: str | Unset = "",
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
 
     params["country"] = country
+
+    params["address_line_1"] = address_line_1
+
+    params["address_line_2"] = address_line_2
+
+    params["city"] = city
+
+    params["region"] = region
+
+    params["postal_code"] = postal_code
+
+    params["addr_id"] = addr_id
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -67,14 +85,29 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     country: str | Unset = "US",
+    address_line_1: str | Unset = "",
+    address_line_2: str | Unset = "",
+    city: str | Unset = "",
+    region: str | Unset = "",
+    postal_code: str | Unset = "",
+    addr_id: str | Unset = "",
 ) -> Response[Any | HTTPValidationError]:
-    """Address Country Format
+    r"""Address Country Format
 
      Return HTMX partial of structured address fields for the given country code.
+
+    Echoes the caller's in-progress field values (sent via hx-include=\"closest form\")
+    so a country change re-labels the fields without blanking them (#258).
 
     Args:
         person_id (str):
         country (str | Unset):  Default: 'US'.
+        address_line_1 (str | Unset):  Default: ''.
+        address_line_2 (str | Unset):  Default: ''.
+        city (str | Unset):  Default: ''.
+        region (str | Unset):  Default: ''.
+        postal_code (str | Unset):  Default: ''.
+        addr_id (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -87,6 +120,12 @@ def sync_detailed(
     kwargs = _get_kwargs(
         person_id=person_id,
         country=country,
+        address_line_1=address_line_1,
+        address_line_2=address_line_2,
+        city=city,
+        region=region,
+        postal_code=postal_code,
+        addr_id=addr_id,
     )
 
     response = client.get_httpx_client().request(
@@ -101,14 +140,29 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     country: str | Unset = "US",
+    address_line_1: str | Unset = "",
+    address_line_2: str | Unset = "",
+    city: str | Unset = "",
+    region: str | Unset = "",
+    postal_code: str | Unset = "",
+    addr_id: str | Unset = "",
 ) -> Any | HTTPValidationError | None:
-    """Address Country Format
+    r"""Address Country Format
 
      Return HTMX partial of structured address fields for the given country code.
+
+    Echoes the caller's in-progress field values (sent via hx-include=\"closest form\")
+    so a country change re-labels the fields without blanking them (#258).
 
     Args:
         person_id (str):
         country (str | Unset):  Default: 'US'.
+        address_line_1 (str | Unset):  Default: ''.
+        address_line_2 (str | Unset):  Default: ''.
+        city (str | Unset):  Default: ''.
+        region (str | Unset):  Default: ''.
+        postal_code (str | Unset):  Default: ''.
+        addr_id (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -122,6 +176,12 @@ def sync(
         person_id=person_id,
         client=client,
         country=country,
+        address_line_1=address_line_1,
+        address_line_2=address_line_2,
+        city=city,
+        region=region,
+        postal_code=postal_code,
+        addr_id=addr_id,
     ).parsed
 
 
@@ -130,14 +190,29 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     country: str | Unset = "US",
+    address_line_1: str | Unset = "",
+    address_line_2: str | Unset = "",
+    city: str | Unset = "",
+    region: str | Unset = "",
+    postal_code: str | Unset = "",
+    addr_id: str | Unset = "",
 ) -> Response[Any | HTTPValidationError]:
-    """Address Country Format
+    r"""Address Country Format
 
      Return HTMX partial of structured address fields for the given country code.
+
+    Echoes the caller's in-progress field values (sent via hx-include=\"closest form\")
+    so a country change re-labels the fields without blanking them (#258).
 
     Args:
         person_id (str):
         country (str | Unset):  Default: 'US'.
+        address_line_1 (str | Unset):  Default: ''.
+        address_line_2 (str | Unset):  Default: ''.
+        city (str | Unset):  Default: ''.
+        region (str | Unset):  Default: ''.
+        postal_code (str | Unset):  Default: ''.
+        addr_id (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -150,6 +225,12 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         person_id=person_id,
         country=country,
+        address_line_1=address_line_1,
+        address_line_2=address_line_2,
+        city=city,
+        region=region,
+        postal_code=postal_code,
+        addr_id=addr_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -162,14 +243,29 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     country: str | Unset = "US",
+    address_line_1: str | Unset = "",
+    address_line_2: str | Unset = "",
+    city: str | Unset = "",
+    region: str | Unset = "",
+    postal_code: str | Unset = "",
+    addr_id: str | Unset = "",
 ) -> Any | HTTPValidationError | None:
-    """Address Country Format
+    r"""Address Country Format
 
      Return HTMX partial of structured address fields for the given country code.
+
+    Echoes the caller's in-progress field values (sent via hx-include=\"closest form\")
+    so a country change re-labels the fields without blanking them (#258).
 
     Args:
         person_id (str):
         country (str | Unset):  Default: 'US'.
+        address_line_1 (str | Unset):  Default: ''.
+        address_line_2 (str | Unset):  Default: ''.
+        city (str | Unset):  Default: ''.
+        region (str | Unset):  Default: ''.
+        postal_code (str | Unset):  Default: ''.
+        addr_id (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -184,5 +280,11 @@ async def asyncio(
             person_id=person_id,
             client=client,
             country=country,
+            address_line_1=address_line_1,
+            address_line_2=address_line_2,
+            city=city,
+            region=region,
+            postal_code=postal_code,
+            addr_id=addr_id,
         )
     ).parsed

@@ -35,6 +35,9 @@ class RoleObservationRequest:
             notes (None | str | Unset):
             established_on (datetime.date | None | Unset):
             abolished_on (datetime.date | None | Unset):
+            role_type (None | str | Unset):
+            jurisdiction_id (None | str | Unset):
+            qualifier (None | str | Unset):
             links (list[ObservationLink] | Unset):
             contact_methods (list[ObservationContactMethod] | Unset):
             addresses (list[ObservationAddress] | Unset):
@@ -47,6 +50,9 @@ class RoleObservationRequest:
     notes: None | str | Unset = UNSET
     established_on: datetime.date | None | Unset = UNSET
     abolished_on: datetime.date | None | Unset = UNSET
+    role_type: None | str | Unset = UNSET
+    jurisdiction_id: None | str | Unset = UNSET
+    qualifier: None | str | Unset = UNSET
     links: list[ObservationLink] | Unset = UNSET
     contact_methods: list[ObservationContactMethod] | Unset = UNSET
     addresses: list[ObservationAddress] | Unset = UNSET
@@ -99,6 +105,24 @@ class RoleObservationRequest:
         else:
             abolished_on = self.abolished_on
 
+        role_type: None | str | Unset
+        if isinstance(self.role_type, Unset):
+            role_type = UNSET
+        else:
+            role_type = self.role_type
+
+        jurisdiction_id: None | str | Unset
+        if isinstance(self.jurisdiction_id, Unset):
+            jurisdiction_id = UNSET
+        else:
+            jurisdiction_id = self.jurisdiction_id
+
+        qualifier: None | str | Unset
+        if isinstance(self.qualifier, Unset):
+            qualifier = UNSET
+        else:
+            qualifier = self.qualifier
+
         links: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.links, Unset):
             links = []
@@ -137,6 +161,12 @@ class RoleObservationRequest:
             field_dict["established_on"] = established_on
         if abolished_on is not UNSET:
             field_dict["abolished_on"] = abolished_on
+        if role_type is not UNSET:
+            field_dict["role_type"] = role_type
+        if jurisdiction_id is not UNSET:
+            field_dict["jurisdiction_id"] = jurisdiction_id
+        if qualifier is not UNSET:
+            field_dict["qualifier"] = qualifier
         if links is not UNSET:
             field_dict["links"] = links
         if contact_methods is not UNSET:
@@ -233,6 +263,33 @@ class RoleObservationRequest:
 
         abolished_on = _parse_abolished_on(d.pop("abolished_on", UNSET))
 
+        def _parse_role_type(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        role_type = _parse_role_type(d.pop("role_type", UNSET))
+
+        def _parse_jurisdiction_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        jurisdiction_id = _parse_jurisdiction_id(d.pop("jurisdiction_id", UNSET))
+
+        def _parse_qualifier(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        qualifier = _parse_qualifier(d.pop("qualifier", UNSET))
+
         _links = d.pop("links", UNSET)
         links: list[ObservationLink] | Unset = UNSET
         if _links is not UNSET:
@@ -268,6 +325,9 @@ class RoleObservationRequest:
             notes=notes,
             established_on=established_on,
             abolished_on=abolished_on,
+            role_type=role_type,
+            jurisdiction_id=jurisdiction_id,
+            qualifier=qualifier,
             links=links,
             contact_methods=contact_methods,
             addresses=addresses,

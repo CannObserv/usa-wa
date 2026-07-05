@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 from collections.abc import Mapping
 from typing import Any, TypeVar, cast
 
@@ -20,11 +21,15 @@ class ObservationAddress:
         raw_input (str):
         address_type (ObservationAddressAddressType | Unset):  Default: ObservationAddressAddressType.OTHER.
         display_name (None | str | Unset):
+        valid_from (datetime.date | None | Unset):
+        valid_until (datetime.date | None | Unset):
     """
 
     raw_input: str
     address_type: ObservationAddressAddressType | Unset = ObservationAddressAddressType.OTHER
     display_name: None | str | Unset = UNSET
+    valid_from: datetime.date | None | Unset = UNSET
+    valid_until: datetime.date | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -40,6 +45,22 @@ class ObservationAddress:
         else:
             display_name = self.display_name
 
+        valid_from: None | str | Unset
+        if isinstance(self.valid_from, Unset):
+            valid_from = UNSET
+        elif isinstance(self.valid_from, datetime.date):
+            valid_from = self.valid_from.isoformat()
+        else:
+            valid_from = self.valid_from
+
+        valid_until: None | str | Unset
+        if isinstance(self.valid_until, Unset):
+            valid_until = UNSET
+        elif isinstance(self.valid_until, datetime.date):
+            valid_until = self.valid_until.isoformat()
+        else:
+            valid_until = self.valid_until
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -51,6 +72,10 @@ class ObservationAddress:
             field_dict["address_type"] = address_type
         if display_name is not UNSET:
             field_dict["display_name"] = display_name
+        if valid_from is not UNSET:
+            field_dict["valid_from"] = valid_from
+        if valid_until is not UNSET:
+            field_dict["valid_until"] = valid_until
 
         return field_dict
 
@@ -75,10 +100,46 @@ class ObservationAddress:
 
         display_name = _parse_display_name(d.pop("display_name", UNSET))
 
+        def _parse_valid_from(data: object) -> datetime.date | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                valid_from_type_0 = datetime.date.fromisoformat(data)
+
+                return valid_from_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.date | None | Unset, data)
+
+        valid_from = _parse_valid_from(d.pop("valid_from", UNSET))
+
+        def _parse_valid_until(data: object) -> datetime.date | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                valid_until_type_0 = datetime.date.fromisoformat(data)
+
+                return valid_until_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(datetime.date | None | Unset, data)
+
+        valid_until = _parse_valid_until(d.pop("valid_until", UNSET))
+
         observation_address = cls(
             raw_input=raw_input,
             address_type=address_type,
             display_name=display_name,
+            valid_from=valid_from,
+            valid_until=valid_until,
         )
 
         observation_address.additional_properties = d

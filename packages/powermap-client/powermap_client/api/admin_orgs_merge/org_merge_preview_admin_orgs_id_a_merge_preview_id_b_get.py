@@ -15,6 +15,7 @@ def _get_kwargs(
     id_b: str,
     *,
     winner: None | str | Unset = UNSET,
+    ctx: str | Unset = "",
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -25,6 +26,8 @@ def _get_kwargs(
     else:
         json_winner = winner
     params["winner"] = json_winner
+
+    params["ctx"] = ctx
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -75,15 +78,20 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     winner: None | str | Unset = UNSET,
+    ctx: str | Unset = "",
 ) -> Response[Any | HTTPValidationError]:
-    """Org Merge Preview
+    r"""Org Merge Preview
 
      Return preview modal: impact of merging id_b into id_a (or flipped via ?winner=).
+
+    `ctx=\"list\"` (modal opened from the orgs list, #255) makes the modal form submit
+    back to the list region (`return_to=list`) instead of redirecting to detail.
 
     Args:
         id_a (str):
         id_b (str):
         winner (None | str | Unset):
+        ctx (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -97,6 +105,7 @@ def sync_detailed(
         id_a=id_a,
         id_b=id_b,
         winner=winner,
+        ctx=ctx,
     )
 
     response = client.get_httpx_client().request(
@@ -112,15 +121,20 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     winner: None | str | Unset = UNSET,
+    ctx: str | Unset = "",
 ) -> Any | HTTPValidationError | None:
-    """Org Merge Preview
+    r"""Org Merge Preview
 
      Return preview modal: impact of merging id_b into id_a (or flipped via ?winner=).
+
+    `ctx=\"list\"` (modal opened from the orgs list, #255) makes the modal form submit
+    back to the list region (`return_to=list`) instead of redirecting to detail.
 
     Args:
         id_a (str):
         id_b (str):
         winner (None | str | Unset):
+        ctx (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -135,6 +149,7 @@ def sync(
         id_b=id_b,
         client=client,
         winner=winner,
+        ctx=ctx,
     ).parsed
 
 
@@ -144,15 +159,20 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     winner: None | str | Unset = UNSET,
+    ctx: str | Unset = "",
 ) -> Response[Any | HTTPValidationError]:
-    """Org Merge Preview
+    r"""Org Merge Preview
 
      Return preview modal: impact of merging id_b into id_a (or flipped via ?winner=).
+
+    `ctx=\"list\"` (modal opened from the orgs list, #255) makes the modal form submit
+    back to the list region (`return_to=list`) instead of redirecting to detail.
 
     Args:
         id_a (str):
         id_b (str):
         winner (None | str | Unset):
+        ctx (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -166,6 +186,7 @@ async def asyncio_detailed(
         id_a=id_a,
         id_b=id_b,
         winner=winner,
+        ctx=ctx,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -179,15 +200,20 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     winner: None | str | Unset = UNSET,
+    ctx: str | Unset = "",
 ) -> Any | HTTPValidationError | None:
-    """Org Merge Preview
+    r"""Org Merge Preview
 
      Return preview modal: impact of merging id_b into id_a (or flipped via ?winner=).
+
+    `ctx=\"list\"` (modal opened from the orgs list, #255) makes the modal form submit
+    back to the list region (`return_to=list`) instead of redirecting to detail.
 
     Args:
         id_a (str):
         id_b (str):
         winner (None | str | Unset):
+        ctx (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -203,5 +229,6 @@ async def asyncio(
             id_b=id_b,
             client=client,
             winner=winner,
+            ctx=ctx,
         )
     ).parsed

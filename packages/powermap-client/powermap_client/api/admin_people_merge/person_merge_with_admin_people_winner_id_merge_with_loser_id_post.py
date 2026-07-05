@@ -6,8 +6,8 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.body_org_merge_with_admin_orgs_winner_id_merge_with_loser_id_post import (
-    BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost,
+from ...models.body_person_merge_with_admin_people_winner_id_merge_with_loser_id_post import (
+    BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost,
 )
 from ...models.http_validation_error import HTTPValidationError
 from ...types import UNSET, Response, Unset
@@ -17,13 +17,13 @@ def _get_kwargs(
     winner_id: str,
     loser_id: str,
     *,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    body: BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
-        "url": "/admin/orgs/{winner_id}/merge-with/{loser_id}/".format(
+        "url": "/admin/people/{winner_id}/merge-with/{loser_id}/".format(
             winner_id=quote(str(winner_id), safe=""),
             loser_id=quote(str(loser_id), safe=""),
         ),
@@ -71,20 +71,20 @@ def sync_detailed(
     loser_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    body: BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost | Unset = UNSET,
 ) -> Response[Any | HTTPValidationError]:
-    r"""Org Merge With
+    r"""Person Merge With
 
-     Merge loser into winner from a preview modal.
+     Curated person merge from the preview modal (#255).
 
-    `return_to=\"list\"` (modal opened from the orgs list, #255) re-renders the orgs
-    list region in place; otherwise (detail / duplicates screens) HX-Redirects to
-    the winner detail page.
+    `keep_name_ids` is authoritative — only the checked loser names transfer (the
+    rest are dropped). `return_to=\"list\"` re-renders the people list region in place;
+    otherwise HX-Redirect to the winner detail page.
 
     Args:
         winner_id (str):
         loser_id (str):
-        body (BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset):
+        body (BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -112,20 +112,20 @@ def sync(
     loser_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    body: BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost | Unset = UNSET,
 ) -> Any | HTTPValidationError | None:
-    r"""Org Merge With
+    r"""Person Merge With
 
-     Merge loser into winner from a preview modal.
+     Curated person merge from the preview modal (#255).
 
-    `return_to=\"list\"` (modal opened from the orgs list, #255) re-renders the orgs
-    list region in place; otherwise (detail / duplicates screens) HX-Redirects to
-    the winner detail page.
+    `keep_name_ids` is authoritative — only the checked loser names transfer (the
+    rest are dropped). `return_to=\"list\"` re-renders the people list region in place;
+    otherwise HX-Redirect to the winner detail page.
 
     Args:
         winner_id (str):
         loser_id (str):
-        body (BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset):
+        body (BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -148,20 +148,20 @@ async def asyncio_detailed(
     loser_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    body: BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost | Unset = UNSET,
 ) -> Response[Any | HTTPValidationError]:
-    r"""Org Merge With
+    r"""Person Merge With
 
-     Merge loser into winner from a preview modal.
+     Curated person merge from the preview modal (#255).
 
-    `return_to=\"list\"` (modal opened from the orgs list, #255) re-renders the orgs
-    list region in place; otherwise (detail / duplicates screens) HX-Redirects to
-    the winner detail page.
+    `keep_name_ids` is authoritative — only the checked loser names transfer (the
+    rest are dropped). `return_to=\"list\"` re-renders the people list region in place;
+    otherwise HX-Redirect to the winner detail page.
 
     Args:
         winner_id (str):
         loser_id (str):
-        body (BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset):
+        body (BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -187,20 +187,20 @@ async def asyncio(
     loser_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset = UNSET,
+    body: BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost | Unset = UNSET,
 ) -> Any | HTTPValidationError | None:
-    r"""Org Merge With
+    r"""Person Merge With
 
-     Merge loser into winner from a preview modal.
+     Curated person merge from the preview modal (#255).
 
-    `return_to=\"list\"` (modal opened from the orgs list, #255) re-renders the orgs
-    list region in place; otherwise (detail / duplicates screens) HX-Redirects to
-    the winner detail page.
+    `keep_name_ids` is authoritative — only the checked loser names transfer (the
+    rest are dropped). `return_to=\"list\"` re-renders the people list region in place;
+    otherwise HX-Redirect to the winner detail page.
 
     Args:
         winner_id (str):
         loser_id (str):
-        body (BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost | Unset):
+        body (BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

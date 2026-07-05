@@ -124,6 +124,9 @@ from .body_org_merge_with_admin_orgs_winner_id_merge_with_loser_id_post import (
     BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost,
 )
 from .body_person_create_admin_people_new_post import BodyPersonCreateAdminPeopleNewPost
+from .body_person_merge_with_admin_people_winner_id_merge_with_loser_id_post import (
+    BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost,
+)
 from .body_person_notes_save_admin_people_person_id_inline_notes_post import (
     BodyPersonNotesSaveAdminPeoplePersonIdInlineNotesPost,
 )
@@ -249,6 +252,8 @@ from .role_link import RoleLink
 from .role_list_item import RoleListItem
 from .role_list_response import RoleListResponse
 from .role_observation_request import RoleObservationRequest
+from .role_type import RoleType
+from .role_types_response import RoleTypesResponse
 from .search_meta import SearchMeta
 from .subscription_bulk_delete_request import SubscriptionBulkDeleteRequest
 from .subscription_item import SubscriptionItem
@@ -317,6 +322,7 @@ __all__ = (
     "BodyOrgInlineParentPostAdminOrgsOrgIdInlineParentPost",
     "BodyOrgMergeWithAdminOrgsWinnerIdMergeWithLoserIdPost",
     "BodyPersonCreateAdminPeopleNewPost",
+    "BodyPersonMergeWithAdminPeopleWinnerIdMergeWithLoserIdPost",
     "BodyPersonNotesSaveAdminPeoplePersonIdInlineNotesPost",
     "BodyPersonPronounsSaveAdminPeoplePersonIdInlinePronounsPost",
     "BodyRaCreateAdminRoleAssignmentsNewPost",
@@ -420,6 +426,8 @@ __all__ = (
     "RoleListItem",
     "RoleListResponse",
     "RoleObservationRequest",
+    "RoleType",
+    "RoleTypesResponse",
     "SearchMeta",
     "SubscriptionBulkDeleteRequest",
     "SubscriptionItem",

@@ -22,6 +22,8 @@ class BodyAddressCreateAdminOrgsOrgIdAddressesPost:
         postal_code (str | Unset):  Default: ''.
         address_type (str | Unset):  Default: 'mailing'.
         display_name (str | Unset):  Default: ''.
+        valid_from (str | Unset):  Default: ''.
+        valid_until (str | Unset):  Default: ''.
         mode (str | Unset):  Default: 'confirm'.
         standardized (str | Unset):  Default: ''.
         latitude (str | Unset):  Default: ''.
@@ -37,6 +39,8 @@ class BodyAddressCreateAdminOrgsOrgIdAddressesPost:
     postal_code: str | Unset = ""
     address_type: str | Unset = "mailing"
     display_name: str | Unset = ""
+    valid_from: str | Unset = ""
+    valid_until: str | Unset = ""
     mode: str | Unset = "confirm"
     standardized: str | Unset = ""
     latitude: str | Unset = ""
@@ -59,6 +63,10 @@ class BodyAddressCreateAdminOrgsOrgIdAddressesPost:
         address_type = self.address_type
 
         display_name = self.display_name
+
+        valid_from = self.valid_from
+
+        valid_until = self.valid_until
 
         mode = self.mode
 
@@ -89,6 +97,10 @@ class BodyAddressCreateAdminOrgsOrgIdAddressesPost:
             field_dict["address_type"] = address_type
         if display_name is not UNSET:
             field_dict["display_name"] = display_name
+        if valid_from is not UNSET:
+            field_dict["valid_from"] = valid_from
+        if valid_until is not UNSET:
+            field_dict["valid_until"] = valid_until
         if mode is not UNSET:
             field_dict["mode"] = mode
         if standardized is not UNSET:
@@ -121,6 +133,10 @@ class BodyAddressCreateAdminOrgsOrgIdAddressesPost:
 
         display_name = d.pop("display_name", UNSET)
 
+        valid_from = d.pop("valid_from", UNSET)
+
+        valid_until = d.pop("valid_until", UNSET)
+
         mode = d.pop("mode", UNSET)
 
         standardized = d.pop("standardized", UNSET)
@@ -141,6 +157,8 @@ class BodyAddressCreateAdminOrgsOrgIdAddressesPost:
             postal_code=postal_code,
             address_type=address_type,
             display_name=display_name,
+            valid_from=valid_from,
+            valid_until=valid_until,
             mode=mode,
             standardized=standardized,
             latitude=latitude,

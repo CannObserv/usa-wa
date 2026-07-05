@@ -31,6 +31,10 @@ class RoleDetail:
         notes (None | str | Unset):
         established_on (datetime.date | None | Unset):
         abolished_on (datetime.date | None | Unset):
+        role_type_id (None | str | Unset):
+        role_type_slug (None | str | Unset):
+        jurisdiction_id (None | str | Unset):
+        qualifier (None | str | Unset):
         archived_at (None | str | Unset):
         links (list[RoleLink] | Unset):
         contact_methods (list[RoleContactMethod] | Unset):
@@ -45,6 +49,10 @@ class RoleDetail:
     notes: None | str | Unset = UNSET
     established_on: datetime.date | None | Unset = UNSET
     abolished_on: datetime.date | None | Unset = UNSET
+    role_type_id: None | str | Unset = UNSET
+    role_type_slug: None | str | Unset = UNSET
+    jurisdiction_id: None | str | Unset = UNSET
+    qualifier: None | str | Unset = UNSET
     archived_at: None | str | Unset = UNSET
     links: list[RoleLink] | Unset = UNSET
     contact_methods: list[RoleContactMethod] | Unset = UNSET
@@ -85,6 +93,30 @@ class RoleDetail:
             abolished_on = self.abolished_on.isoformat()
         else:
             abolished_on = self.abolished_on
+
+        role_type_id: None | str | Unset
+        if isinstance(self.role_type_id, Unset):
+            role_type_id = UNSET
+        else:
+            role_type_id = self.role_type_id
+
+        role_type_slug: None | str | Unset
+        if isinstance(self.role_type_slug, Unset):
+            role_type_slug = UNSET
+        else:
+            role_type_slug = self.role_type_slug
+
+        jurisdiction_id: None | str | Unset
+        if isinstance(self.jurisdiction_id, Unset):
+            jurisdiction_id = UNSET
+        else:
+            jurisdiction_id = self.jurisdiction_id
+
+        qualifier: None | str | Unset
+        if isinstance(self.qualifier, Unset):
+            qualifier = UNSET
+        else:
+            qualifier = self.qualifier
 
         archived_at: None | str | Unset
         if isinstance(self.archived_at, Unset):
@@ -130,6 +162,14 @@ class RoleDetail:
             field_dict["established_on"] = established_on
         if abolished_on is not UNSET:
             field_dict["abolished_on"] = abolished_on
+        if role_type_id is not UNSET:
+            field_dict["role_type_id"] = role_type_id
+        if role_type_slug is not UNSET:
+            field_dict["role_type_slug"] = role_type_slug
+        if jurisdiction_id is not UNSET:
+            field_dict["jurisdiction_id"] = jurisdiction_id
+        if qualifier is not UNSET:
+            field_dict["qualifier"] = qualifier
         if archived_at is not UNSET:
             field_dict["archived_at"] = archived_at
         if links is not UNSET:
@@ -211,6 +251,42 @@ class RoleDetail:
 
         abolished_on = _parse_abolished_on(d.pop("abolished_on", UNSET))
 
+        def _parse_role_type_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        role_type_id = _parse_role_type_id(d.pop("role_type_id", UNSET))
+
+        def _parse_role_type_slug(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        role_type_slug = _parse_role_type_slug(d.pop("role_type_slug", UNSET))
+
+        def _parse_jurisdiction_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        jurisdiction_id = _parse_jurisdiction_id(d.pop("jurisdiction_id", UNSET))
+
+        def _parse_qualifier(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        qualifier = _parse_qualifier(d.pop("qualifier", UNSET))
+
         def _parse_archived_at(data: object) -> None | str | Unset:
             if data is None:
                 return data
@@ -256,6 +332,10 @@ class RoleDetail:
             notes=notes,
             established_on=established_on,
             abolished_on=abolished_on,
+            role_type_id=role_type_id,
+            role_type_slug=role_type_slug,
+            jurisdiction_id=jurisdiction_id,
+            qualifier=qualifier,
             archived_at=archived_at,
             links=links,
             contact_methods=contact_methods,
