@@ -13,6 +13,7 @@ from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 from clearinghouse_sync_powermap.subscriptions import SubscriptionReconciler
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.registry import build_descriptors, build_discovery_spec
+from usa_wa_sync_powermap.role_type_catalog import sync_role_type_catalog
 from usa_wa_sync_powermap.sidecar import Sidecar
 
 logger = get_logger(__name__)
@@ -39,6 +40,7 @@ async def _amain() -> None:
         reconciler=reconciler,
         subscription_backstop_cadence=settings.subscription_backstop_cadence,
         outbox_commit_chunk_size=settings.outbox_commit_chunk_size,
+        catalog_sync=lambda session: sync_role_type_catalog(session, client),
     )
     try:
         await sidecar.run_forever()

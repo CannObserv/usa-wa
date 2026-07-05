@@ -254,6 +254,59 @@ async def test_run_cycle_isolates_and_rolls_back_on_error():
     assert session.rolled_back and not session.committed
 
 
+async def test_catalog_sync_runs_first_cycle_then_gated_by_cadence():
+    """The role-type catalog sync (power-map#268) runs on the first cycle so seats can
+    flow after startup, then is skipped until ``catalog_sync_cadence`` elapses."""
+    calls: list[datetime] = []
+
+    async def _catalog(session):
+        calls.append(NOW)
+
+    t0 = datetime(2026, 7, 5, tzinfo=UTC)
+    times = iter([t0, t0 + timedelta(minutes=10), t0 + timedelta(hours=2)])
+    sidecar = Sidecar(
+        engine=None,
+        descriptors=[],
+        session_factory=lambda: _FakeSession(),
+        catalog_sync=_catalog,
+        catalog_sync_cadence=timedelta(hours=1),
+        clock=lambda: next(times),
+    )
+    sidecar.tick = lambda s, *, now, commit: _noop()
+
+    await sidecar.run_cycle()  # t0 → runs (first)
+    await sidecar.run_cycle()  # +10m → within cadence, skipped
+    await sidecar.run_cycle()  # +2h → cadence elapsed, runs
+    assert len(calls) == 2
+
+
+async def test_catalog_sync_failure_is_isolated_and_retries():
+    """A catalog-fetch failure is swallowed (never crashes the cycle) and leaves the
+    cadence unstamped so the next cycle retries."""
+    attempts = {"n": 0}
+
+    async def _catalog(session):
+        attempts["n"] += 1
+        raise RuntimeError("PM down")
+
+    sidecar = Sidecar(
+        engine=None,
+        descriptors=[],
+        session_factory=lambda: _FakeSession(),
+        catalog_sync=_catalog,
+        clock=lambda: NOW,
+    )
+    sidecar.tick = lambda s, *, now, commit: _noop()
+
+    await sidecar.run_cycle()  # must NOT raise
+    await sidecar.run_cycle()
+    assert attempts["n"] == 2  # unstamped after failure → retried
+
+
+async def _noop() -> None:
+    return None
+
+
 async def test_jurisdiction_reconcile_skipped(db_session):
     """usa-wa#10/#13: jurisdictions have ``reconcile_mode="none"`` — the WA subtree is
     driven by the subscription-filtered feed + discovery, not any reconcile. So the

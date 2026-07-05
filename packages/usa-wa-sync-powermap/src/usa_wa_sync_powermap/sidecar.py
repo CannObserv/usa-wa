@@ -25,6 +25,7 @@ work (and any sub-chunk drain remainder).
 import asyncio
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -58,6 +59,8 @@ class Sidecar:
         reconciler: SubscriptionReconciler | None = None,
         subscription_backstop_cadence: timedelta = timedelta(hours=1),
         outbox_commit_chunk_size: int = 1,
+        catalog_sync: Callable[[AsyncSession], Awaitable[Any]] | None = None,
+        catalog_sync_cadence: timedelta = timedelta(hours=1),
         clock: Callable[[], datetime] = _utcnow,
     ) -> None:
         self._engine = engine
@@ -67,6 +70,13 @@ class Sidecar:
         self._reconciler = reconciler
         self._subscription_backstop_cadence = subscription_backstop_cadence
         self._outbox_commit_chunk_size = outbox_commit_chunk_size
+        # Role-type catalog refresh (power-map#268): keeps the local RoleType mirror the
+        # RoleDescriptor reads current. Runs on the first cycle (so seats can flow after
+        # startup) then on ``catalog_sync_cadence``. In-memory cadence — a restart
+        # re-syncs, which is the freshness we want.
+        self._catalog_sync = catalog_sync
+        self._catalog_sync_cadence = catalog_sync_cadence
+        self._last_catalog_sync: datetime | None = None
         self._clock = clock
 
     async def tick(
@@ -116,6 +126,7 @@ class Sidecar:
         drain) still runs against already-registered subscriptions.
         """
         now = self._clock()
+        await self._run_catalog_sync(now)
         await self._run_backstop(now)
         async with self._session_factory() as session:
             try:
@@ -126,6 +137,29 @@ class Sidecar:
             except Exception:
                 await session.rollback()
                 logger.exception("sidecar_cycle_failed")
+
+    async def _run_catalog_sync(self, now: datetime) -> None:
+        """Refresh the role-type catalog mirror in its own session + error boundary.
+
+        Runs on the first cycle and thereafter on ``catalog_sync_cadence`` (in-memory).
+        Isolated like :meth:`_run_backstop` so a catalog-fetch/PM failure can't roll back
+        or starve the main tick; a failure leaves the cadence unstamped so the next cycle
+        retries promptly. The mirror gates seat observations (:class:`RoleDescriptor`), so
+        a stale-but-present mirror is safe — seats simply keep flowing on the last catalog."""
+        if self._catalog_sync is None:
+            return
+        if (
+            self._last_catalog_sync is not None
+            and now - self._last_catalog_sync < self._catalog_sync_cadence
+        ):
+            return
+        try:
+            async with self._session_factory() as session:
+                await self._catalog_sync(session)
+                await session.commit()
+            self._last_catalog_sync = now
+        except Exception:
+            logger.exception("role_type_catalog_sync_failed")
 
     async def _run_backstop(self, now: datetime) -> None:
         """Run the due re-discovery backstop in its own session + error boundary.

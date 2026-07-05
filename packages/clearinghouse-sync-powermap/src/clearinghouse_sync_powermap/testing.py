@@ -120,6 +120,7 @@ class FakeClient:
         discovered: list[DiscoveredEntity] | None = None,
         subscribed: list[Any] | None = None,
         events: dict[Any, list[dict]] | None = None,
+        role_types: list[dict] | None = None,
     ) -> None:
         self._changes_pages = list(changes_pages or [])
         self._entity_pages = list(entity_pages or [])
@@ -127,6 +128,8 @@ class FakeClient:
         self._observation_result = observation_result
         self._search_pages = list(search_pages or [])
         self._discovered = list(discovered or [])
+        #: Preset role_types catalog rows for list_role_types (power-map#268).
+        self._role_types = list(role_types or [])
         #: Preset per-parent events (keyed by pm_id) for list_entity_events.
         self._events = events or {}
         #: Mutable subscription set (ULIDs). Preset to model already-registered subs.
@@ -183,6 +186,9 @@ class FakeClient:
     async def get_entity(self, read_path: str, pm_id: Any) -> dict | None:
         self.fetched.append((read_path, pm_id))
         return self._entities.get(pm_id) or self._entities.get(str(pm_id))
+
+    async def list_role_types(self) -> list[dict]:
+        return list(self._role_types)
 
     async def list_entity_events(self, read_path: str, pm_id: Any) -> list[dict]:
         self.events_fetched.append((read_path, pm_id))

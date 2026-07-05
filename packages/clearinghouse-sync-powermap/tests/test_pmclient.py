@@ -109,6 +109,37 @@ async def test_get_changes_maps_merged_into_on_delete(client):
 
 
 @respx.mock
+async def test_list_role_types_maps_catalog(client):
+    """The role_types catalog (power-map#268) comes back as raw dicts."""
+    respx.get(f"{BASE}/api/v1/role-types").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": "01REP",
+                        "slug": "state_representative",
+                        "display_name": "State Representative",
+                        "is_seat": True,
+                    },
+                    {
+                        "id": "01OWN",
+                        "slug": "owner",
+                        "display_name": "Owner",
+                        "is_seat": False,
+                    },
+                ]
+            },
+        )
+    )
+
+    rows = await client.list_role_types()
+
+    assert [r["slug"] for r in rows] == ["state_representative", "owner"]
+    assert rows[0]["is_seat"] is True and rows[1]["is_seat"] is False
+
+
+@respx.mock
 async def test_list_entities_advances_cursor_when_more(client):
     respx.get(f"{BASE}/api/v1/jurisdictions").mock(
         return_value=httpx.Response(

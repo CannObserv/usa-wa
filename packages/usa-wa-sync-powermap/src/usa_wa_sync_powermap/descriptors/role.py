@@ -1,22 +1,30 @@
-"""Role descriptor — named slots within an Organization, observed by (org, title).
+"""Role descriptor — named slots within an Organization.
 
-Unlike organizations, PM matches a role observation on its **structural key**
-``(organization_id, title)`` — exactly the pair we send — so an observation
-auto-attaches to PM's backfilled roles natively; there is no identifier-less-
-backfill gap to bridge with a name cascade. What roles *do* require is **ordering**:
-the observation carries the org's *PM* id, so the org must be anchored first. The
-:meth:`dependencies_ready` gate defers delivery (no crash, no duplicate) until it
-is, and the engine retries on later cycles.
+PM matches a role observation on a **structural key**, so observations auto-attach
+to PM's backfilled roles natively; there is no identifier-less-backfill gap to
+bridge with a name cascade. There are two role shapes with two match keys:
 
-Title-variance caveat: PM's ``(org_id, title)`` match is exact, so a title that
-differs from PM's curated form (e.g. "Vice Chair" vs "Vice-Chair") would create a
-new role rather than attach. Role titles are a short controlled vocabulary, so the
-risk is low; an org-scoped normalized-title cascade (``list_roles?organization_id``
-is available) is the refinement if duplicates appear.
+- **Seat roles** (power-map#261/#263, usa-wa#68) — legislative seats keyed on the
+  tuple ``(organization_id, role_type, jurisdiction_id, qualifier)``. usa-wa's local
+  ``Role`` carries ``jurisdiction_id`` + ``qualifier`` so a produced seat attaches to
+  one of PM's pre-seeded seats. Title is **not** in PM's seat match key — PM discards
+  the incoming title on a match and auto-generates it on a create — so a seat
+  observation omits title entirely (:meth:`to_observation`). Whether a ``role_type`` is
+  a seat is read from the local :class:`RoleType` catalog mirror (``is_seat``, synced
+  from PM's ``GET /api/v1/role-types`` per power-map#268) — no hardcoded slug list.
+- **Non-seat roles** (committee/leadership/staff/…) — keyed on ``(organization_id,
+  title)``, the pair we send. Title-variance caveat: PM's match is exact, so a title
+  differing from PM's curated form ("Vice Chair" vs "Vice-Chair") would create a new
+  role; role titles are a short controlled vocabulary, so the risk is low.
 
-Read strategy mirrors the org descriptor: ``feed`` but update-only — feed changes
-to an already-anchored role are applied (adopt PM's title); roles we never produced
-are skipped, not mirrored (``local_match`` keys on the anchor).
+What both require is **ordering**: the observation carries the org's *PM* id (and, for
+a seat, the district's PM id); a seat additionally requires its ``role_type`` to be
+present in the synced catalog. The :meth:`dependencies_ready` gate defers delivery (no
+crash, no duplicate) until all hold, and the engine retries on later cycles.
+
+Read strategy mirrors the org descriptor: ``feed`` but update-only — feed changes to
+an already-anchored role are applied (adopt PM's title + seat structure); roles we
+never produced are skipped, not mirrored (``local_match`` keys on the anchor).
 """
 
 from datetime import datetime
@@ -24,8 +32,10 @@ from typing import Any
 
 from sqlalchemy import select
 
+from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Organization, Role
+from clearinghouse_domain_legislative.role_types import RoleType
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid, parse_pm_timestamp
 
 logger = get_logger(__name__)
@@ -50,17 +60,68 @@ class RoleDescriptor(EntityDescriptor):
     write_enabled = True
 
     async def dependencies_ready(self, session: Any, row: Any) -> bool:
-        """The role's org must be anchored — its PM id is the observation's key."""
-        return await self._org_pm_id(session, row) is not None
+        """The role's org must be anchored — its PM id is the observation's key.
+
+        A **seat** role (one carrying a district) additionally needs (a) its district
+        anchored — ``jurisdiction_id`` is part of the seat match tuple, so without the
+        PM jurisdiction id the observation could not attach and would mint a duplicate —
+        and (b) its ``role_type`` present in the synced :class:`RoleType` catalog as a
+        seat type, so we emit a seat-shaped observation only once we can confirm PM
+        regards the type as a seat. Defer (retry next cycle) rather than mis-shape the
+        observation; the catalog sync + jurisdiction feed fill the gaps."""
+        if await self._org_pm_id(session, row) is None:
+            return False
+        if row.jurisdiction_id is not None:  # a districted row is an intended seat
+            if await self._jurisdiction_pm_id(session, row) is None:
+                return False
+            return await self._is_seat_role_type(session, row.role_type)
+        return True
 
     async def _org_pm_id(self, session: Any, row: Any) -> Any | None:
         org = await session.get(Organization, row.organization_id)
         return org.pm_organization_id if org is not None else None
 
+    async def _jurisdiction_pm_id(self, session: Any, row: Any) -> Any | None:
+        if row.jurisdiction_id is None:
+            return None
+        jur = await session.get(Jurisdiction, row.jurisdiction_id)
+        return jur.pm_jurisdiction_id if jur is not None else None
+
+    async def _is_seat_role_type(self, session: Any, slug: str | None) -> bool:
+        """True iff ``slug`` is a known **seat** type in the local role_type catalog
+        mirror (``is_seat``, synced from PM's ``/role-types`` per power-map#268). An
+        empty/unsynced catalog yields False — seats defer until the sync runs, rather
+        than fall through to a title-shaped observation."""
+        if not slug:
+            return False
+        found = await session.execute(
+            select(RoleType.id).where(RoleType.slug == slug, RoleType.is_seat.is_(True))
+        )
+        return found.scalar_one_or_none() is not None
+
     async def to_observation(self, session: Any, row: Any) -> dict:
-        # dependencies_ready guarantees the org is anchored before delivery.
+        # dependencies_ready guarantees the org (and, for a seat, its district +
+        # catalog-confirmed role_type) is ready before delivery.
         org_pm_id = await self._org_pm_id(session, row)
-        return {"organization_id": str(org_pm_id), "title": row.name}
+        obs: dict = {"organization_id": str(org_pm_id)}
+        if row.jurisdiction_id is not None and await self._is_seat_role_type(
+            session, row.role_type
+        ):
+            # PM matches a seat on the structural tuple (org, role_type, jurisdiction,
+            # qualifier) — title is NOT in the match key. On a match PM discards the
+            # incoming title (returns the pre-seeded seat id); it is consumed only on
+            # the create path for an unseeded tuple, where PM auto-generates the seat
+            # title (power-map#267). So we omit title entirely and let PM own it. Local
+            # ``role_type`` is PM's slug verbatim (the catalog mirror is the vocab).
+            # qualifier stays explicit (None for a Senate seat, matching PM's
+            # NULL-qualifier seat under NULLS NOT DISTINCT).
+            jur_pm_id = await self._jurisdiction_pm_id(session, row)
+            obs["role_type"] = row.role_type
+            obs["jurisdiction_id"] = str(jur_pm_id)
+            obs["qualifier"] = row.qualifier
+        else:
+            obs["title"] = row.name  # non-seat roles match on (org, title)
+        return obs
 
     async def local_match(self, session: Any, record: dict) -> Any | None:
         """Map a PM role to its local row by **anchor** (``pm_role_id``).
@@ -82,11 +143,55 @@ class RoleDescriptor(EntityDescriptor):
         title = record.get("title")
         if title:
             row.name = title  # adopt PM's curated title
+        await self._mirror_seat_fields(session, row, record)
         if record.get("id") is not None:
             row.pm_role_id = as_ulid(record["id"])
         self.mirror_archival(row, record)  # PM archived_at → local archived_at mirror (#41/#42)
         await session.flush()
         return row
+
+    async def _mirror_seat_fields(self, session: Any, row: Any, record: dict) -> None:
+        """Adopt PM's seat structure (``role_type_slug``/``jurisdiction_id``/``qualifier``)
+        onto the local row (power-map#261/usa-wa#68). PM curates the seat; the mirror
+        keeps the local cache temporally uniform. Non-seat roles carry NULL seat fields
+        in PM, so nothing is overwritten spuriously.
+
+        ``role_type`` adoption is restricted to slugs the synced :class:`RoleType`
+        catalog marks as seat types (``is_seat``, power-map#268). PM types
+        ``role_type_slug`` as a free ``string | null`` with no OpenAPI enum, so an
+        unrecognized slug — a role type not yet in the catalog, or one on a non-seat
+        role — must not silently overwrite our local ``role_type``; the catalog is the
+        vocab, extended by the sync as PM grows it.
+
+        The mirror is **atomic**: if PM references a district we haven't mirrored yet,
+        the whole seat update is deferred — we never persist a seat ``role_type`` +
+        ``qualifier`` against a NULL/stale ``jurisdiction_id`` (an internally
+        inconsistent seat row that would fall in the title index and read as a
+        non-seat). The jurisdiction feed fills the district in; the next cycle
+        re-applies the seat as a unit."""
+        pm_jur = record.get("jurisdiction_id")
+        local_jur_id = None
+        if pm_jur:
+            local = (
+                await session.execute(
+                    select(Jurisdiction).where(Jurisdiction.pm_jurisdiction_id == as_ulid(pm_jur))
+                )
+            ).scalar_one_or_none()
+            if local is None:
+                logger.warning(
+                    "role_seat_jurisdiction_unmirrored",
+                    extra={"pm_role_id": record.get("id"), "pm_jurisdiction_id": pm_jur},
+                )
+                return  # defer the whole seat update until the district is mirrored
+            local_jur_id = local.id
+
+        slug = record.get("role_type_slug")
+        if await self._is_seat_role_type(session, slug):
+            row.role_type = slug
+        if "qualifier" in record:
+            row.qualifier = record.get("qualifier")
+        if local_jur_id is not None:
+            row.jurisdiction_id = local_jur_id
 
     def last_updated(self, obj: Any) -> datetime | None:
         if isinstance(obj, Role):

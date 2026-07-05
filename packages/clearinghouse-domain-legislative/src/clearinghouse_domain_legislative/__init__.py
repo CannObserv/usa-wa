@@ -10,9 +10,10 @@ from clearinghouse_domain_legislative import (  # noqa: F401
     bills,
     identity,
     pdc,
+    role_types,
     sessions,
     statutes,
     votes,
 )
 
-__all__ = ["identity", "sessions", "bills", "votes", "statutes", "pdc"]
+__all__ = ["identity", "sessions", "bills", "votes", "statutes", "pdc", "role_types"]

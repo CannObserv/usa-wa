@@ -1,0 +1,53 @@
+"""Role-type catalog mirror — local-side copy of Power Map's role_types catalog.
+
+Power Map is the system of record for the ``role_types`` classifier (power-map#261
+seeds ``state_representative`` / ``state_senator``; power-map#268 exposes the catalog
+at ``GET /api/v1/role-types``). usa-wa mirrors ``{slug, display_name, is_seat}`` locally
+so the :class:`RoleDescriptor` can decide a Role observation's **shape at runtime** —
+seat-mode (structural tuple) vs title-mode — from PM's own catalog rather than a
+hardcoded slug map (retires the usa-wa#68 ``SEAT_ROLE_TYPE_SLUGS`` constant).
+
+The mirror is refreshed by the sidecar's catalog sync
+(:func:`usa_wa_sync_powermap.role_type_catalog.sync_role_type_catalog`). ``is_seat`` is
+PM's advisory hint that the office is normally a districted seat (PM does not *enforce*
+it on ``resolve_role``), which is exactly the signal usa-wa needs to pick the seat
+observation shape.
+"""
+
+from sqlalchemy import Boolean, String, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
+from ulid import ULID as _ULID
+
+from clearinghouse_core.db.ulid import ULID
+from clearinghouse_core.models import Base, TimestampMixin
+
+SCHEMA = "canonical"
+
+
+def _new_ulid() -> _ULID:
+    return _ULID()
+
+
+class RoleType(Base, TimestampMixin):
+    """Local mirror of one PM ``role_types`` row (power-map#268).
+
+    Natural key is ``slug`` (the stable value a producer sends as
+    ``RoleObservationRequest.role_type`` and reads back on ``RoleDetail.role_type_slug``).
+    ``pm_role_type_id`` anchors the PM row; ``is_seat`` drives the seat-vs-title
+    observation decision in the sync descriptor.
+    """
+
+    __tablename__ = "role_types"
+    __table_args__ = (
+        UniqueConstraint("slug", name="uq_role_types_slug"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    # PM anchor (populated by the catalog sync). Null = not yet synced from PM.
+    pm_role_type_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
+    slug: Mapped[str] = mapped_column(String(64), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    # PM's advisory hint that this role type is normally a districted seat — the
+    # signal usa-wa uses to emit a seat-mode observation (structural tuple, no title).
+    is_seat: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

@@ -29,6 +29,7 @@ from powermap_client.api.public_api import (
     list_jurisdictions,
     list_org_events,
     list_person_events,
+    list_role_types,
     list_roles,
     list_subscriptions,
     register_subscriptions,
@@ -349,6 +350,14 @@ class GeneratedPowerMapClient:
         records = [item.to_dict() for item in body.data]
         next_cursor = str(offset + limit) if body.meta.has_more else None
         return EntityPage(records=records, cursor=next_cursor)
+
+    async def list_role_types(self) -> list[dict]:
+        """The public role_types catalog (power-map#268) as raw dicts.
+
+        Unpaginated ``{"data": [...]}`` (a tiny classifier set); each row is
+        ``{id, slug, display_name, is_seat}``. Drives the usa-wa role-type mirror."""
+        body = await self._send(list_role_types.asyncio_detailed(client=self._client))
+        return [rt.to_dict() for rt in body.data]
 
     async def get_entity(self, read_path: str, pm_id: Any) -> dict | None:
         try:
