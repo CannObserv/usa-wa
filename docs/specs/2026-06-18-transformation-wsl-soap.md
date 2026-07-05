@@ -213,9 +213,11 @@ All sessions in the first cut are synthesized. WSL has no first-class session en
 
 **Natural-key UNIQUE:** `(source, source_id)` (post-jurisdiction-decoupling shape — see [`docs/specs/2026-06-09-canonical-jurisdiction-decoupling-design.md`](2026-06-09-canonical-jurisdiction-decoupling-design.md)).
 
-### `canonical.persons` (P1b — sketched)
+### `canonical.persons` (P1b)
 
-`SponsorService.GetSponsors(biennium)` and `LegislationService.GetSponsors(bill_id, biennium)` return WSL sponsor records. Detailed mapping deferred to the P1b implementation; sketch:
+**Resolved 2026-07-05** (plan: [`docs/plans/2026-07-05-wsl-soap-adapter-p1b.md`](../plans/2026-07-05-wsl-soap-adapter-p1b.md); precursor #68 shipped). Person `source_id` = the WSL member `Id` from `GetSponsors` (cross-endpoint/cross-biennium stability verified in plan step 0 before ingest). Every current member gets a Person + a `person_wa_legislature_member_id` identifier; the sidecar attaches to PM's identifier-less backfilled legislators by name, then pushes the member-id identifier back to stabilize future matches. District no longer lives on Person — it resolves to the **seat** `Role.jurisdiction_id` (see `canonical.assignments`), so a House member (seat deferred to #69) carries no district this cut.
+
+`SponsorService.GetSponsors(biennium)` and `LegislationService.GetSponsors(bill_id, biennium)` return WSL sponsor records:
 
 | usa-wa column | WSL field (`SponsorService.GetSponsors`) | Notes |
 |---|---|---|
@@ -230,9 +232,14 @@ All sessions in the first cut are synthesized. WSL has no first-class session en
 
 External-ID schemes (`wa_legislature_member_id`, `wa_legislature_long_id`) flow to `canonical.person_identifiers` per the v1.4 hybrid IA shape.
 
-### `canonical.assignments` (P1b — sketched)
+### `canonical.assignments` (P1b)
 
-Chamber + party + committee memberships. WSL surfaces these in three places (signatures confirmed against live WSL 2026-06-24):
+**Resolved 2026-07-05** (plan: [`docs/plans/2026-07-05-wsl-soap-adapter-p1b.md`](../plans/2026-07-05-wsl-soap-adapter-p1b.md)). Three assignment kinds, all session-scoped to the **biennium** session row (`valid_from` = biennium start):
+- **Chamber seat** — `Person → seat Role` where the seat is `(chamber org, role_type, jurisdiction=LD, qualifier)` per the #68 seat model. **Senate** (`state_senator`, 1/LD, `qualifier` NULL) ships this cut; **House** (`state_representative`, `qualifier` Position 1/2) is **deferred to #69** — WSL has no Position source and a NULL-qualifier House seat would mint a PM duplicate.
+- **Party** — `Person → Role("Member")` on a synthesized Party Org. PM's `Washington State {Republican,Democratic} Party` orgs **exist** (verified 2026-07-05), so the org name-match cascade attaches ours; Independent may create-new. `Party` canonicalized across endpoints (`"R"`/`"Republican"` → `party-r`, `"D"`/`"Democrat"` → `party-d`, else `party-i`).
+- **Committee membership** — `Person → Role("Member")` on the committee Org (membership-only; chair/vice has no WSL source).
+
+WSL surfaces these in three places (signatures confirmed against live WSL 2026-06-24):
 
 - `SponsorService.GetSponsors(biennium)` returns chamber + party for current members (`Party` as `"R"`/`"D"`).
 - `CommitteeService.GetActiveCommitteeMembers(agency, committeeName)` returns *current* committee membership (no biennium arg; keyed by `agency` + committee **`Name`**, not acronym; `Party` as full word `"Democrat"`/`"Republican"`).
