@@ -295,3 +295,31 @@ Captured per the writing-plans skill (Phase 4 small-revision policy).
   `get_active_committee_members`), the parsed-dict siblings the probe calls — mirroring
   `get_committees`. Step 1 still adds the **archival** `fetch_sponsors` / `fetch_committee_members`
   (wire + `#54`) and the offline re-parsers + cassettes.
+
+- **2026-07-06 — Steps 2–8 shipped** (commits `d65b83d`, `18949bd`, `f2ffe7b`). Three design
+  decisions the plan under-specified, resolved during execution:
+  1. **Session-aware member normalizers (intra-batch FK resolution).** The `AdapterRunner` upserts
+     each entity by natural key independently and reads its id back — it **cannot** resolve an
+     intra-batch FK, so an `Assignment` needs a *real* `person_id`/`role_id` before it is written
+     (no existing normalizer had this — committees/meetings emit only Orgs). Resolution:
+     `normalize/members.py` `get_or_create_person` / `get_or_create_role` **SELECT-or-INSERT against
+     the session** (flushing a new row for its id); the normalizers build Assignments with those ids;
+     the runner then re-upserts each returned entity idempotently (ON CONFLICT) and writes its
+     Citation. The adapter therefore carries the runner's `session` (a `_require_session()` guard),
+     a deliberate departure from the pure-`normalize(payload)` contract, scoped to the member
+     normalizers. Leaf rows (`PersonIdentifier`/`Assignment`) are keyed deterministically and just
+     built.
+  2. **Explicit-drive, not `discover`, for the member resources** (mirrors the #39 meeting window).
+     `discover` still yields only `committees:<biennium>`; `refresh._discover_members` drives
+     `sponsors:<biennium>` + the committee-members fan-out **forced past the TTL for the date-current
+     biennium** (#63) — so the daily pull is deterministic, matching how the meeting window is driven.
+  3. **DB-enumerated fan-out roster.** The committee-members fan-out enumerates the
+     `org_type='committee'` rows keyed to a House/Senate chamber **from the DB** (materialized by the
+     committees phase) rather than a second `GetActiveCommittees` pull — no extra SOAP call, correct
+     on a committees cache-hit, and the meeting-derived Joint/`Other` class (chamber = legislature) is
+     excluded (GetActiveCommitteeMembers only covers House/Senate committees).
+  Also confirmed: a local `PersonIdentifier` row (scheme `wa_legislature_member_id`) **is** created
+  per the spec (2026-06-18), alongside `Person.source_id` = the member `Id` (the person descriptor
+  emits `person_wa_legislature_member_id` to PM from `source_id`; the child row is the queryable
+  N-scheme graph P1c bill sponsorships join on). Both derive from one WSL field in one pass, so they
+  can't drift.
