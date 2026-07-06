@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterable
 from datetime import UTC, datetime
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID as _ULID
 
 from clearinghouse_core.adapter import (
@@ -35,7 +36,9 @@ from usa_wa_adapter_legislature.meeting_windows import (
 from usa_wa_adapter_legislature.normalize.committee_meetings import (
     normalize_committee_meetings,
 )
+from usa_wa_adapter_legislature.normalize.committee_members import normalize_committee_members
 from usa_wa_adapter_legislature.normalize.committees import normalize_committees
+from usa_wa_adapter_legislature.normalize.sponsors import normalize_sponsors
 from usa_wa_adapter_legislature.transport import WSL_BASE_URL, WSLClient
 
 COMMITTEES_RESOURCE_PREFIX = "committees:"
@@ -45,10 +48,38 @@ COMMITTEES_RESOURCE_PREFIX = "committees:"
 #: implicit-current active set), so the wire genuinely differs and the two keys
 #: never collide. Phase B's rename-chain reads only this key.
 COMMITTEES_ROSTER_RESOURCE_PREFIX = "committees-roster:"
+#: The member cluster (P1b). ``sponsors:<biennium>`` drives GetSponsors;
+#: ``committee-members:<committee_id>:<agency>:<name>`` drives one committee's
+#: GetActiveCommitteeMembers roster (the committee id rides the resource id so the
+#: normalizer can resolve the committee Org — the members payload doesn't carry it).
+SPONSORS_RESOURCE_PREFIX = "sponsors:"
+COMMITTEE_MEMBERS_RESOURCE_PREFIX = "committee-members:"
 
 _COMMITTEES_URL = f"{WSL_BASE_URL}/CommitteeService.asmx#GetActiveCommittees"
 _COMMITTEES_ROSTER_URL = f"{WSL_BASE_URL}/CommitteeService.asmx#GetCommittees"
 _MEETINGS_URL = f"{WSL_BASE_URL}/CommitteeMeetingService.asmx#GetCommitteeMeetings"
+_SPONSORS_URL = f"{WSL_BASE_URL}/SponsorService.asmx#GetSponsors"
+_COMMITTEE_MEMBERS_URL = f"{WSL_BASE_URL}/CommitteeService.asmx#GetActiveCommitteeMembers"
+
+
+def committee_members_resource_id(
+    committee_source_id: str, agency: str, committee_name: str
+) -> str:
+    """Build the ``committee-members:<committee_id>:<agency>:<name>`` resource id.
+
+    The committee's WSL ``Id`` is carried so the normalizer can resolve the committee
+    Org (``GetActiveCommitteeMembers`` returns members, not the committee id)."""
+    return f"{COMMITTEE_MEMBERS_RESOURCE_PREFIX}{committee_source_id}:{agency}:{committee_name}"
+
+
+def parse_committee_members_resource_id(resource_id: str) -> tuple[str, str, str]:
+    """Parse ``committee-members:<committee_id>:<agency>:<name>`` → (id, agency, name).
+
+    Splits on the first two colons only, so a committee ``Name`` containing a colon
+    (none do today) would still round-trip in the trailing segment."""
+    rest = resource_id[len(COMMITTEE_MEMBERS_RESOURCE_PREFIX) :]
+    committee_source_id, agency, committee_name = rest.split(":", 2)
+    return committee_source_id, agency, committee_name
 
 
 class WALegislatureAdapter(BaseAdapter):
@@ -66,12 +97,32 @@ class WALegislatureAdapter(BaseAdapter):
         biennium: str,
         client: WSLClient | None = None,
         meeting_client: WSLClient | None = None,
+        sponsor_client: WSLClient | None = None,
+        member_client: WSLClient | None = None,
+        session: AsyncSession | None = None,
     ) -> None:
         self.anchors = anchors
         self.jurisdiction_id = jurisdiction_id
         self.biennium = biennium
         self._committee_client = client or WSLClient("CommitteeService")
         self._meeting_client = meeting_client or WSLClient("CommitteeMeetingService")
+        self._sponsor_client = sponsor_client or WSLClient("SponsorService")
+        # GetActiveCommitteeMembers is a CommitteeService op; it defaults to the same
+        # client as the committees pull, but is a distinct injection point so tests can
+        # fake the member fan-out without disturbing the (cassette-backed) committees pull.
+        self._member_client = member_client or self._committee_client
+        # The member normalizers (sponsors / committee-members) resolve Person/Role ids
+        # against the DB to wire Assignments, so they need the runner's session. The
+        # committee/meeting normalizers don't — session stays optional for them.
+        self._session = session
+
+    def _require_session(self) -> AsyncSession:
+        if self._session is None:
+            raise RuntimeError(
+                "member normalization requires a session; construct "
+                "WALegislatureAdapter(session=...)"
+            )
+        return self._session
 
     async def discover(self, since: datetime | None) -> AsyncIterable[ResourceRef]:
         """Yield the committees resource (the meeting docket is driven explicitly).
@@ -86,6 +137,10 @@ class WALegislatureAdapter(BaseAdapter):
         """Fetch one resource, archiving the pristine SOAP wire as ``body`` (#54)."""
         if resource_id.startswith(COMMITTEE_MEETINGS_RESOURCE_PREFIX):
             return await self._fetch_committee_meetings(resource_id)
+        if resource_id.startswith(COMMITTEE_MEMBERS_RESOURCE_PREFIX):
+            return await self._fetch_committee_members(resource_id)
+        if resource_id.startswith(SPONSORS_RESOURCE_PREFIX):
+            return await self._fetch_sponsors(resource_id)
         # Roster before the plain committees check: the biennium comes from the
         # resource id (so one adapter can sweep bienniums in the harvest), not
         # self.biennium. The two prefixes don't overlap, but check roster first for
@@ -125,6 +180,35 @@ class WALegislatureAdapter(BaseAdapter):
             parsed=fetched.records,
         )
 
+    async def _fetch_sponsors(self, resource_id: str) -> FetchedPayload:
+        """Archive a biennium's GetSponsors roster (P1b). Biennium from the resource id."""
+        biennium = resource_id[len(SPONSORS_RESOURCE_PREFIX) :]
+        fetched = await self._sponsor_client.fetch_sponsors(biennium)
+        return FetchedPayload(
+            url=_SPONSORS_URL,
+            fetched_at=datetime.now(UTC),
+            content_type=fetched.content_type,
+            body=fetched.wire,
+            http_status=200,
+            parsed=fetched.records,
+        )
+
+    async def _fetch_committee_members(self, resource_id: str) -> FetchedPayload:
+        """Archive one committee's GetActiveCommitteeMembers roster (P1b).
+
+        The committee's WSL ``Id`` is encoded on the stamped ``url`` so ``normalize`` can
+        resolve the committee Org (the payload itself carries only members)."""
+        committee_source_id, agency, name = parse_committee_members_resource_id(resource_id)
+        fetched = await self._member_client.fetch_committee_members(agency, name)
+        return FetchedPayload(
+            url=f"{_COMMITTEE_MEMBERS_URL}?committee_id={committee_source_id}",
+            fetched_at=datetime.now(UTC),
+            content_type=fetched.content_type,
+            body=fetched.wire,
+            http_status=200,
+            parsed=fetched.records,
+        )
+
     async def _fetch_committee_meetings(self, resource_id: str) -> FetchedPayload:
         begin, end = parse_meetings_resource_id(resource_id)
         fetched = await self._meeting_client.fetch_committee_meetings(begin, end)
@@ -148,6 +232,23 @@ class WALegislatureAdapter(BaseAdapter):
                 payload,
                 anchors=self.anchors,
                 jurisdiction_id=self.jurisdiction_id,
+            )
+        if payload.url == _SPONSORS_URL:
+            return await normalize_sponsors(
+                payload,
+                session=self._require_session(),
+                anchors=self.anchors,
+                jurisdiction_id=self.jurisdiction_id,
+                biennium=self.biennium,
+            )
+        if payload.url.startswith(_COMMITTEE_MEMBERS_URL):
+            # committee id rides the url query (stamped by _fetch_committee_members).
+            committee_source_id = payload.url.split("committee_id=", 1)[1]
+            return await normalize_committee_members(
+                payload,
+                session=self._require_session(),
+                committee_source_id=committee_source_id,
+                biennium=self.biennium,
             )
         return await normalize_committees(
             payload,

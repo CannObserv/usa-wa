@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import os
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import vcr
 from sqlalchemy import select
+from ulid import ULID as _ULID
 
+from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Source
-from clearinghouse_domain_legislative.identity import Organization
+from clearinghouse_domain_legislative.identity import Assignment, Organization, Person
 from usa_wa_adapter_legislature import refresh as refresh_module
 from usa_wa_adapter_legislature.refresh import (
     biennium_for_date,
@@ -36,6 +38,30 @@ class _FakeMeetingClient:
     async def fetch_committee_meetings(self, begin, end) -> WireFetch:  # noqa: ANN001
         self.calls += 1
         return WireFetch(records=self._records, wire=b"<docket/>", content_type="text/xml")
+
+
+class _FakeSponsorClient:
+    """Injectable SponsorService stand-in (no network) — empty roster by default."""
+
+    def __init__(self, records: list[dict] | None = None) -> None:
+        self._records = records or []
+        self.calls: list[str] = []
+
+    async def fetch_sponsors(self, biennium) -> WireFetch:  # noqa: ANN001
+        self.calls.append(biennium)
+        return WireFetch(records=self._records, wire=b"<sponsors/>", content_type="text/xml")
+
+
+class _FakeMembersClient:
+    """Injectable GetActiveCommitteeMembers stand-in (no network) — empty roster."""
+
+    def __init__(self, records: list[dict] | None = None) -> None:
+        self._records = records or []
+        self.calls: list[tuple[str, str]] = []
+
+    async def fetch_committee_members(self, agency, name) -> WireFetch:  # noqa: ANN001
+        self.calls.append((agency, name))
+        return WireFetch(records=self._records, wire=b"<members/>", content_type="text/xml")
 
 
 def _jtc_docket() -> list[dict]:
@@ -123,6 +149,8 @@ async def test_run_refresh_seeds_source_and_runs_adapter(db_session, usa_wa):
             db_session,
             biennium="2025-26",
             meeting_client=_FakeMeetingClient(_jtc_docket()),
+            sponsor_client=_FakeSponsorClient(),
+            member_client=_FakeMembersClient(),
         )
 
     # The committees summary is unchanged by the additive meeting pull.
@@ -173,7 +201,11 @@ async def test_refresh_builds_a_fill_only_runner(db_session, usa_wa, monkeypatch
     )
     with recorder.use_cassette(CASSETTE):
         await run_refresh(
-            db_session, biennium="2025-26", meeting_client=_FakeMeetingClient(_jtc_docket())
+            db_session,
+            biennium="2025-26",
+            meeting_client=_FakeMeetingClient(_jtc_docket()),
+            sponsor_client=_FakeSponsorClient(),
+            member_client=_FakeMembersClient(),
         )
 
     assert captured.get("fill_only") is True
@@ -189,14 +221,22 @@ async def test_run_refresh_is_idempotent_on_source_creation(db_session, usa_wa):
     )
     with recorder.use_cassette(CASSETTE):
         await run_refresh(
-            db_session, biennium="2025-26", meeting_client=_FakeMeetingClient(_jtc_docket())
+            db_session,
+            biennium="2025-26",
+            meeting_client=_FakeMeetingClient(_jtc_docket()),
+            sponsor_client=_FakeSponsorClient(),
+            member_client=_FakeMembersClient(),
         )
 
     # Second invocation reuses the Source row; committees hit the cache (no new
     # SOAP call). The meeting pull is served by the injected fake either way —
     # #63 forces it only while 2025-26 is the date-current biennium.
     await run_refresh(
-        db_session, biennium="2025-26", meeting_client=_FakeMeetingClient(_jtc_docket())
+        db_session,
+        biennium="2025-26",
+        meeting_client=_FakeMeetingClient(_jtc_docket()),
+        sponsor_client=_FakeSponsorClient(),
+        member_client=_FakeMembersClient(),
     )
 
     sources = (await db_session.execute(select(Source))).scalars().all()
@@ -224,11 +264,23 @@ async def test_meeting_pull_is_forced_while_committees_stay_ttl_governed(db_sess
         return_value="2025-26",
     ):
         with recorder.use_cassette(CASSETTE):
-            first = await run_refresh(db_session, biennium="2025-26", meeting_client=meeting_client)
+            first = await run_refresh(
+                db_session,
+                biennium="2025-26",
+                meeting_client=meeting_client,
+                sponsor_client=_FakeSponsorClient(),
+                member_client=_FakeMembersClient(),
+            )
 
         # No cassette here: a committees SOAP call would error, so passing proves the
         # committees path cache-hit while the meeting pull re-fetched regardless.
-        second = await run_refresh(db_session, biennium="2025-26", meeting_client=meeting_client)
+        second = await run_refresh(
+            db_session,
+            biennium="2025-26",
+            meeting_client=meeting_client,
+            sponsor_client=_FakeSponsorClient(),
+            member_client=_FakeMembersClient(),
+        )
 
     assert first.meetings_upserted == 1
     assert meeting_client.calls == 2
@@ -258,12 +310,91 @@ async def test_meeting_pull_stays_ttl_governed_for_noncurrent_biennium(db_sessio
         return_value="2027-28",
     ):
         with recorder.use_cassette(CASSETTE):
-            first = await run_refresh(db_session, biennium="2025-26", meeting_client=meeting_client)
-        second = await run_refresh(db_session, biennium="2025-26", meeting_client=meeting_client)
+            first = await run_refresh(
+                db_session,
+                biennium="2025-26",
+                meeting_client=meeting_client,
+                sponsor_client=_FakeSponsorClient(),
+                member_client=_FakeMembersClient(),
+            )
+        second = await run_refresh(
+            db_session,
+            biennium="2025-26",
+            meeting_client=meeting_client,
+            sponsor_client=_FakeSponsorClient(),
+            member_client=_FakeMembersClient(),
+        )
 
     assert first.meetings_upserted == 1
     assert meeting_client.calls == 1  # second run: TTL cache hit, no re-pull
     assert second.meetings_upserted == 0
+
+
+def _sponsor(id_, first, last, *, agency, party, district):
+    return {
+        "Id": id_,
+        "Name": f"{first} {last}",
+        "LongName": f"{'Senator' if agency == 'Senate' else 'Representative'} {last}",
+        "Agency": agency,
+        "Party": party,
+        "District": district,
+        "FirstName": first,
+        "LastName": last,
+    }
+
+
+async def test_run_refresh_materializes_member_cluster(db_session, usa_wa):
+    """The daily refresh, after committees, pulls sponsors + fans out committee members —
+    materializing Persons + Assignments alongside the committee rows."""
+    # Seed LD 18 so the senator's seat resolves.
+    db_session.add(
+        Jurisdiction(
+            slug="usa-wa-ld-18",
+            name="WA LD 18",
+            type_id=usa_wa.type_id,
+            pm_jurisdiction_id=_ULID(),
+            recorded_at=datetime.now(UTC),
+        )
+    )
+    await db_session.flush()
+
+    recorder = vcr.VCR(
+        cassette_library_dir=str(CASSETTE_DIR),
+        record_mode="none",
+        match_on=["method", "scheme", "host", "port", "path"],
+        decode_compressed_response=True,
+    )
+    with (
+        recorder.use_cassette(CASSETTE),
+        patch("usa_wa_adapter_legislature.refresh.biennium_for_date", return_value="2025-26"),
+    ):
+        outcome = await run_refresh(
+            db_session,
+            biennium="2025-26",
+            meeting_client=_FakeMeetingClient([]),  # empty docket
+            sponsor_client=_FakeSponsorClient(
+                [_sponsor(101, "Ann", "Rivers", agency="Senate", party="R", district="18")]
+            ),
+            member_client=_FakeMembersClient(
+                [
+                    _sponsor(
+                        301, "Kristine", "Reeves", agency="House", party="Democrat", district="30"
+                    )
+                ]
+            ),
+        )
+
+    assert outcome.members_upserted > 0
+    persons = {p.source_id for p in (await db_session.execute(select(Person))).scalars().all()}
+    assert "101" in persons  # from the sponsor pull
+    assert "301" in persons  # from the committee-member fan-out
+    # the senator got a seat Assignment; the committee member got membership Assignment(s)
+    dims = {
+        a.source_id.split(":")[1]
+        for a in (await db_session.execute(select(Assignment))).scalars().all()
+    }
+    assert "chamber-senate" in dims
+    assert "committee" in dims
 
 
 async def test_run_refresh_warns_exactly_when_biennium_not_current(db_session, usa_wa, caplog):
@@ -288,7 +419,11 @@ async def test_run_refresh_warns_exactly_when_biennium_not_current(db_session, u
     ):
         with recorder.use_cassette(CASSETTE), caplog.at_level("WARNING"):
             await run_refresh(
-                db_session, biennium="2025-26", meeting_client=_FakeMeetingClient(_jtc_docket())
+                db_session,
+                biennium="2025-26",
+                meeting_client=_FakeMeetingClient(_jtc_docket()),
+                sponsor_client=_FakeSponsorClient(),
+                member_client=_FakeMembersClient(),
             )
     assert "wsl_refresh_noncurrent_biennium" in caplog.text
 
@@ -300,7 +435,11 @@ async def test_run_refresh_warns_exactly_when_biennium_not_current(db_session, u
     ):
         with caplog.at_level("WARNING"):
             await run_refresh(
-                db_session, biennium="2025-26", meeting_client=_FakeMeetingClient(_jtc_docket())
+                db_session,
+                biennium="2025-26",
+                meeting_client=_FakeMeetingClient(_jtc_docket()),
+                sponsor_client=_FakeSponsorClient(),
+                member_client=_FakeMembersClient(),
             )
     assert "wsl_refresh_noncurrent_biennium" not in caplog.text
 

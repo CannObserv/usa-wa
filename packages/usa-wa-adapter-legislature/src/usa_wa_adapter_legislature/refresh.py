@@ -37,8 +37,13 @@ from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.provenance import RetentionPolicy, Source
 from clearinghouse_core.runner import AdapterRunner, RunSummary
-from usa_wa_adapter_legislature.adapter import WALegislatureAdapter
-from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
+from clearinghouse_domain_legislative.identity import Organization
+from usa_wa_adapter_legislature.adapter import (
+    SPONSORS_RESOURCE_PREFIX,
+    WALegislatureAdapter,
+    committee_members_resource_id,
+)
+from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors, bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.transport import WSL_BASE_URL, WSLClient
 
@@ -115,28 +120,36 @@ async def _get_or_create_source(session: AsyncSession, jurisdiction: Jurisdictio
 @dataclasses.dataclass(frozen=True)
 class RefreshOutcome:
     """Result of one :func:`run_refresh`: the committees summary + the additive
-    meeting-discovery upsert count, so the operator sees both kinds of work."""
+    meeting-discovery and member-cluster upsert counts, so the operator sees each kind
+    of work."""
 
     committees: RunSummary
     meetings_upserted: int
+    members_upserted: int = 0
 
 
 async def run_refresh(
     session: AsyncSession,
     *,
     biennium: str | None = None,
+    committee_client: WSLClient | None = None,
     meeting_client: WSLClient | None = None,
+    sponsor_client: WSLClient | None = None,
+    member_client: WSLClient | None = None,
 ) -> RefreshOutcome:
     """Execute one WSL refresh cycle against the supplied session.
 
     Runs the committees discovery, then an **additive** current-biennium meeting-docket
-    pull for the Joint/`Other` class (#39). Returns a :class:`RefreshOutcome` carrying
-    the committees :class:`RunSummary` and the meeting-discovery upsert count; the meeting
-    pull is best-effort — a meeting-service outage must not fail the (primary) committees
-    refresh (its count is 0 on failure).
+    pull for the Joint/`Other` class (#39), then the **member cluster** (P1b): the
+    ``GetSponsors`` roster (Person + party + Senate seat) and a fan-out of
+    ``GetActiveCommitteeMembers`` over the current active committees. Returns a
+    :class:`RefreshOutcome` with the committees :class:`RunSummary` and the meeting +
+    member upsert counts; both the meeting and member phases are **best-effort** — a
+    member/meeting-service outage must not fail the (primary) committees refresh (their
+    counts are 0 on failure).
 
-    ``meeting_client`` is injectable for tests; production defaults to a real
-    ``CommitteeMeetingService`` client.
+    ``committee_client`` / ``meeting_client`` / ``sponsor_client`` are injectable for
+    tests; production defaults to real per-service clients.
     """
     if biennium is None:
         biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
@@ -154,12 +167,16 @@ async def run_refresh(
     anchors = await bootstrap_synthetic_anchors(
         session, biennium=biennium, jurisdiction_id=jurisdiction.id
     )
+    committee_client = committee_client or WSLClient("CommitteeService")
     adapter = WALegislatureAdapter(
         anchors=anchors,
         jurisdiction_id=jurisdiction.id,
         biennium=biennium,
-        client=WSLClient("CommitteeService"),
+        client=committee_client,
         meeting_client=meeting_client,
+        sponsor_client=sponsor_client,
+        member_client=member_client,
+        session=session,
     )
     runner = AdapterRunner(
         adapter,
@@ -179,7 +196,79 @@ async def run_refresh(
         extra={"summary": dataclasses.asdict(summary), "biennium": biennium},
     )
     meetings_upserted = await _discover_current_meeting_window(runner, biennium)
-    return RefreshOutcome(committees=summary, meetings_upserted=meetings_upserted)
+    members_upserted = await _discover_members(runner, session, biennium, anchors)
+    return RefreshOutcome(
+        committees=summary,
+        meetings_upserted=meetings_upserted,
+        members_upserted=members_upserted,
+    )
+
+
+async def _discover_members(
+    runner: AdapterRunner,
+    session: AsyncSession,
+    biennium: str,
+    anchors: BootstrapAnchors,
+) -> int:
+    """Additive member-cluster discovery: the GetSponsors roster + a per-committee
+    GetActiveCommitteeMembers fan-out.
+
+    Forced past the cache TTL for the **date-current** biennium (like the meeting window,
+    #63) so daily discovery is deterministic; a pinned/backfill ``USA_WA_BIENNIUM`` names
+    closed history and stays cache-governed. Each pull is **best-effort** and isolated — the
+    sponsor pull and every committee fan-out are wrapped so one committee's failure (or a
+    whole-service outage) can't abort the rest or fail the (primary) committees refresh. The
+    fan-out is **sequential** (do-not-parallelize-against-WSL). Archival stays bounded by the
+    runner's unchanged-hash dedup. Returns the upsert count.
+
+    The fan-out roster is enumerated from the **DB** (the ``org_type='committee'`` rows the
+    committees phase just materialized, keyed to a House/Senate chamber) rather than a fresh
+    GetActiveCommittees pull — no extra SOAP call, and it stays correct on a committees
+    cache-hit. GetActiveCommitteeMembers is a CommitteeService op scoped to House/Senate
+    committees, so the meeting-derived Joint/``Other`` class (chamber = legislature) is
+    excluded."""
+    force = biennium == biennium_for_date(datetime.now(UTC).date())
+    total = 0
+
+    try:
+        total += await runner.fetch_and_normalize(
+            f"{SPONSORS_RESOURCE_PREFIX}{biennium}", force=force
+        )
+    except Exception:
+        logger.exception("wsl_sponsors_discovery_failed", extra={"biennium": biennium})
+
+    agency_by_chamber_id = {
+        anchors.house_id: "House",
+        anchors.senate_id: "Senate",
+    }
+    committees = (
+        (
+            await session.execute(
+                select(Organization).where(
+                    Organization.source == "usa_wa_legislature",
+                    Organization.org_type == "committee",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for committee in committees:
+        agency = agency_by_chamber_id.get(committee.parent_organization_id)
+        name = committee.short_name
+        if agency is None or not name:
+            continue  # not a House/Senate standing committee, or no roster key
+        resource_id = committee_members_resource_id(committee.source_id, agency, name)
+        try:
+            total += await runner.fetch_and_normalize(resource_id, force=force)
+        except Exception:
+            logger.exception(
+                "wsl_committee_members_discovery_failed",
+                extra={"resource_id": resource_id},
+            )
+
+    logger.info("wsl_member_discovery", extra={"biennium": biennium, "upserted": total})
+    return total
 
 
 async def _discover_current_meeting_window(runner: AdapterRunner, biennium: str) -> int:
@@ -245,7 +334,8 @@ async def _main() -> int:
             f"skipped={committees.skipped_cache_hit} "
             f"upserted={committees.upserted_entities} "
             f"errors={committees.errors}) "
-            f"meetings(upserted={outcome.meetings_upserted})"
+            f"meetings(upserted={outcome.meetings_upserted}) "
+            f"members(upserted={outcome.members_upserted})"
         )
         return 0 if committees.errors == 0 else 1
     finally:
