@@ -158,10 +158,17 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
      `jurisdiction_id`/`qualifier` — so it stays out of `uq_roles_seat` and is never a seat
      observation); emit a **membership** Assignment. Log `wsl_house_seat_deferred_to_69` at info (the
      precise district-seat comes with #69). Do **not** synthesize a NULL-qualifier House seat Role.
+
+     **The House chamber Assignment is UPGRADED in place by #69, never duplicated** (see
+     § "#69 hand-off" below): its `source_id` is **role-independent** —
+     `f"{member_id}:chamber-house:{biennium}"` — so #69 re-points the *same* row's `role_id` from this
+     `member` Role to the resolved `state_representative` seat Role (an `UPDATE`), rather than minting a
+     second Assignment. Never encode the role in a chamber Assignment's `source_id`.
    **Verifiable when:** `test_normalize_sponsors` asserts a Senate member yields a `state_senator` seat
    Role keyed on its LD + a seat Assignment; a House member yields a non-seat House-membership Role +
-   membership Assignment and **no** districted seat Role; Senate seat reuse (two bienniums, same LD)
-   doesn't duplicate; the House membership Role is one-per-chamber (not per-member).
+   membership Assignment with a role-independent `source_id` and **no** districted seat Role; Senate
+   seat reuse (two bienniums, same LD) doesn't duplicate; the House membership Role is one-per-chamber
+   (not per-member).
 
 6. **Committee-member normalizer (TDD).** `normalize/committee_members.py`:
    `normalize_committee_members(payload, anchors, committee_org_id, jurisdiction_id) ->
@@ -215,8 +222,24 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
 - **`legislative_session_id` = biennium session.** Assignments scope to the biennium session row (P1a
   synthesized), not a regular/special child — consistent with the spec's "Assignment carries the
   per-biennium dimension." Confirm the biennium session id is on `BootstrapAnchors` (add if absent).
-- **Assignment natural key.** `source_id` must be deterministic + stable — proposed
-  `f"{member_id}:{role_source_id}:{biennium}"`; pin in step 4 to survive re-runs (LWW).
+- **Assignment natural key — role-independent for upgradeable Assignments.** `source_id` must be
+  deterministic + stable. **Do not** encode the role in it for the House chamber Assignment (the earlier
+  `{member_id}:{role_source_id}:{biennium}` sketch would break the #69 in-place upgrade). Use
+  `f"{member_id}:{dimension}:{biennium}"` where `dimension` ∈ {`chamber-house`, `chamber-senate`,
+  `party`, `committee:{committee_source_id}`} — the role is a *value* of the Assignment, not part of its
+  identity, so #69 can re-point `role_id` on the same row. Pin in step 4/5.
+
+- **#69 hand-off contract (House membership → seat: MODIFY, never duplicate).** When the WA PDC adapter
+  resolves a House member's Position, it **upgrades the existing** `chamber-house` Assignment in place —
+  `UPDATE role_id` from the coarse `member` Role to the specific `state_representative` seat Role (same
+  row, same `source_id`) — so usa-wa holds exactly one chamber Assignment throughout, honoring the
+  most-specific-data-plus-aggregation principle (no coarse/specific duplication that can drift). **PM
+  projection:** PM keys assignments on `(person_id, role_id)`, so the role change can't be a pure
+  in-place PM update — #69 must **retire the coarse PM member-assignment as the seat one is created**
+  (re-anchor `pm_assignment_id`), leaving PM with one assignment too. To confirm when #69 is built:
+  whether PM offers an assignment-role re-point / supersede primitive, or the retire-and-recreate is
+  driven entirely producer-side. Track as a #69 deliverable; nothing here blocks on it (P1b just sets
+  the role-independent `source_id` that makes the upgrade a single-row `UPDATE`).
 - **Intra-biennium churn is snapshot-lossy** (spec Lossy ← item 3) — membership captured per refresh;
   `valid_to` only records changes as repeated refreshes observe them. Not changing the shape.
 
