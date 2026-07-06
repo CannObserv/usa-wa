@@ -34,27 +34,29 @@ confirms `state_representative` / `state_senator` as seat types in prod.
 - ✅ Person + identifier for **all** current members (House and Senate).
 - ✅ Party Assignments for all members (party Orgs exist in PM — verified).
 - ✅ **Senate** chamber **seat** Assignments (1 seat/LD, `qualifier` NULL — fully resolvable from WSL).
-- ✅ **House** chamber **membership** Assignments — a non-jurisdictional `member` Role on the House org
-  (`role_type="member"`, power-map#269). This captures "X is a member of the WA House this biennium"
-  **now**; the precise districted **seat** (Position 1/2) is layered in later by #69. We do **not** emit
-  a position-less House *seat*: PM's create path **mints** an unseeded structural tuple (confirmed
-  power-map#267 — a NULL-qualifier House tuple synthesizes a title and creates a spurious third seat),
-  so a `member` Role is the clean way to capture House chamber affiliation without polluting PM's role
-  graph. House members therefore get Person + party + committee memberships + chamber membership this
-  cut; only their exact district-seat waits on #69.
-- ✅ Committee membership Assignments (membership-only; no chair/vice — no WSL source).
-- ⛔ **House** chamber **seat** (district + Position) Assignments — **deferred to #69** (WA PDC adapter
-  supplies Position). This is the only House data that waits.
+- ✅ Committee membership Assignments for **all** members incl. House (membership-only; no chair/vice —
+  no WSL source). This is the bulk of the House member cluster.
+- ⛔ **House** chamber Assignment — **deferred whole to #69** (WA PDC adapter supplies Position), created
+  **fresh** there, not upgraded. We do **not** create a coarse interim House chamber Assignment: a
+  position-less House *seat* can't be emitted (PM's create path **mints** an unseeded structural tuple —
+  power-map#267 — spawning a spurious seat), and a coarse non-jurisdictional `member` chamber Assignment
+  **can't be cleanly retired** when the real seat lands — PM has no producer-facing assignment
+  delete/supersede (only `is_current` soft-close), and the sync engine can't re-point an *anchored*
+  assignment's `role_id` (the structural match key), so a member→seat "upgrade" would orphan the coarse
+  PM assignment as `is_current=true`. Per the most-specific-data-plus-aggregation principle, the clean
+  answer is **one** House chamber Assignment, created once by #69. House members still get Person + party
+  + committee memberships now; their chamber affiliation is meanwhile derivable from those House committee
+  memberships. (Decision + analysis: #27 thread 2026-07-06.)
 - ⛔ Leadership / committee position, bills (P1c), special sessions.
 
 **PM dependencies (both accepted + implemented — power-map#269/#270; confirm live in the catalog/API
 before relying, but no graceful-degrade path is needed):**
 - **power-map#269** — the generic classifier role_type shipped as slug **`member`** (display "Member",
-  `expects_jurisdiction=false`), auto-exposed by `GET /api/v1/role-types`. Committee + House-chamber
-  membership Roles set `role_type="member"`. PM matches these on `(organization_id, lower(title))` —
-  `member` is a pure **classifier**, not a match key — so the emitter must send `role_type` (persisted
-  on create so "all memberships" aggregates) **alongside** the title (see Step 3b). The mirror
-  (usa-wa#68) picks `member` up on its next catalog sync.
+  `expects_jurisdiction=false`), auto-exposed by `GET /api/v1/role-types`. Committee membership + party
+  Roles set `role_type="member"`. PM matches these on `(organization_id, lower(title))` — `member` is a
+  pure **classifier**, not a match key — so the emitter must send `role_type` (persisted on create so
+  "all memberships" aggregates) **alongside** the title (see Step 3b). The mirror (usa-wa#68) picks
+  `member` up on its next catalog sync.
 - **power-map#270** — the `org_wa_party` identifier type shipped. **Value convention: bare lowercase
   party slug — `democratic` / `republican`** (no `wa-` prefix). PM's two party Orgs are backfilled with
   it, so our first party-Org observation AUTO_ATTACHES. **No Independent Org:** PM confirmed a party is
@@ -71,17 +73,21 @@ uses "seat" in that local sense.
 ## Tradeoffs / alternatives
 
 - **Senate-first vs all-or-nothing.** Shipping Senate seats + all Persons + party + committees now
-  (House chamber seats deferred) delivers most of the value immediately and isolates the one true
+  (House chamber Assignment deferred) delivers most of the value immediately and isolates the one true
   blocker (#69). Alternative — hold all chamber Assignments until #69 — needlessly delays 49 Senate
   seats that are fully resolvable today.
-- **District on the seat Role, not the Person.** Per the v1.4 IA, `District` resolves to
-  `Role.jurisdiction_id` (the seat), not a Person column. Consequence: a House member with no seat
-  Role (deferred) carries **no district** until #69. Accepted — the alternative (a temporary Person
-  district column) reintroduces the denormalization the decoupling removed.
+- **No coarse House chamber Assignment (upgrade-in-place is not achievable).** We considered creating a
+  coarse `member` House chamber Assignment now and upgrading it to the positioned seat at #69. Rejected
+  after tracing the sync: PM has no producer-facing assignment delete/supersede (only `is_current`), and
+  the engine can't re-point an *anchored* assignment's `role_id`, so the coarse PM row would strand as
+  `is_current=true`. One Assignment, created once by #69, is the faithful reading of most-specific +
+  no-duplication. Consequence: a House member carries **no district** (it lives on the seat) until #69 —
+  accepted; district is not put on the Person (that reintroduces the denormalization the decoupling
+  removed).
 - **Party as a separate Assignment to a Party Org** (not a Person column) — matches PM + LegiScan
-  spec; party Orgs already exist in PM so the org name-match cascade attaches them.
-- **Committee + House membership = `member` role_type** (power-map#269), matched on `(org, title)` —
-  not a jurisdictional seat. PM has no committee-member seat type; the classifier makes memberships
+  spec; party Orgs exist in PM and attach by the `org_wa_party` identifier.
+- **Committee membership = `member` role_type** (power-map#269), matched on `(org, title)` — not a
+  jurisdictional seat. PM has no committee-member seat type; the classifier makes memberships
   aggregatable without inventing a title vocabulary.
 
 ## Common gates (every code-touching step)
@@ -147,28 +153,18 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
    **Verifiable when:** `test_normalize_sponsors` covers R/D + an independent (no party Assignment),
    name recomposition, identifier emission, and party-Assignment wiring against the cassette.
 
-5. **Chamber Assignments — Senate seats + House membership (TDD).** In the sponsor normalizer,
-   branch on `Agency`:
+5. **Senate seat Assignments (TDD).** In the sponsor normalizer, branch on `Agency`:
    - **Senate:** resolve `District` → `usa-wa-ld-{n}` → jurisdiction id; **get-or-create** the Senate
      seat `Role` (`org=Senate anchor`, `role_type="state_senator"`, `jurisdiction_id=LD`,
      `qualifier=NULL`, `name="State Senator"`); emit a **seat** Assignment (`Person → seat Role`,
      session-scoped, `valid_from=biennium start`, `is_active=true`).
-   - **House:** get-or-create a **non-jurisdictional chamber membership** `Role` on the House anchor
-     (`role_type="member"` (power-map#269), `name="State Representative"`; **no**
-     `jurisdiction_id`/`qualifier` — so it stays out of `uq_roles_seat` and is never a seat
-     observation); emit a **membership** Assignment. Log `wsl_house_seat_deferred_to_69` at info (the
-     precise district-seat comes with #69). Do **not** synthesize a NULL-qualifier House seat Role.
-
-     **The House chamber Assignment is UPGRADED in place by #69, never duplicated** (see
-     § "#69 hand-off" below): its `source_id` is **role-independent** —
-     `f"{member_id}:chamber-house:{biennium}"` — so #69 re-points the *same* row's `role_id` from this
-     `member` Role to the resolved `state_representative` seat Role (an `UPDATE`), rather than minting a
-     second Assignment. Never encode the role in a chamber Assignment's `source_id`.
+   - **House:** emit **no chamber Assignment or chamber Role** — the House chamber Assignment is #69's
+     alone (created fresh; see § "#69 hand-off"). Log `wsl_house_chamber_deferred_to_69` at info. House
+     members still get Person + party (Step 4) + committee memberships (Step 6). Do **not** synthesize a
+     NULL-qualifier House seat Role, and do **not** create a coarse `member` House chamber Role.
    **Verifiable when:** `test_normalize_sponsors` asserts a Senate member yields a `state_senator` seat
-   Role keyed on its LD + a seat Assignment; a House member yields a non-seat House-membership Role +
-   membership Assignment with a role-independent `source_id` and **no** districted seat Role; Senate
-   seat reuse (two bienniums, same LD) doesn't duplicate; the House membership Role is one-per-chamber
-   (not per-member).
+   Role keyed on its LD + a seat Assignment; a **House member yields Person + party but no chamber Role
+   or chamber Assignment**; Senate seat reuse (two bienniums, same LD) doesn't duplicate.
 
 6. **Committee-member normalizer (TDD).** `normalize/committee_members.py`:
    `normalize_committee_members(payload, anchors, committee_org_id, jurisdiction_id) ->
@@ -207,39 +203,33 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
 
 - **Member `Id` cross-endpoint / cross-biennium stability** — resolved by step 0 before any ingest;
   the committee normalizer's Person-keying strategy depends on the finding.
-- **House district gap (narrowed).** House members get Person + party + committee memberships + a
-  chamber **membership** Assignment this cut; only their **district-seat** (LD + Position) waits on #69,
-  since district lives on the seat `Role.jurisdiction_id`. So "no district yet" ≠ "no House data" —
-  call the distinction out in the spec so a consumer doesn't misread it.
+- **House chamber gap.** House members get Person + party + committee memberships this cut; the whole
+  **chamber Assignment** (the seat, which carries district + Position) is #69's, created fresh — no
+  interim coarse Assignment (see Tradeoffs for why upgrade-in-place isn't achievable). So "no chamber
+  Assignment yet" ≠ "no House data" (party + committees are here); a consumer needing chamber affiliation
+  before #69 derives it from the member's WA House committee memberships. Call this out in the spec.
 - **Party attach — now identifier-based** (power-map#270). Party Orgs attach by the `org_wa_party`
   identifier (`republican` / `democratic`), which PM backfilled onto its two party Orgs — deterministic
   AUTO_ATTACH, no name-match fragility. Independent is modeled as the *absence* of a party Assignment
   (no Org), so there is no independent-Org attach to worry about.
 - **Positionless-seat guard is coming (power-map#269 follow-up).** PM will add `requires_qualifier`
   (`state_representative`=TRUE, `state_senator`=FALSE) and reject a jurisdictional create missing
-  `qualifier` → `qualifier_required`. This *confirms* our approach — we already never emit a
-  positionless House seat (House uses a `member` Role); when the guard lands it becomes belt-and-braces.
+  `qualifier` → `qualifier_required`. Confirms our approach — we never emit a positionless House seat
+  (P1b emits no House chamber Role at all); when the guard lands it's belt-and-braces for #69.
 - **`legislative_session_id` = biennium session.** Assignments scope to the biennium session row (P1a
   synthesized), not a regular/special child — consistent with the spec's "Assignment carries the
   per-biennium dimension." Confirm the biennium session id is on `BootstrapAnchors` (add if absent).
-- **Assignment natural key — role-independent for upgradeable Assignments.** `source_id` must be
-  deterministic + stable. **Do not** encode the role in it for the House chamber Assignment (the earlier
-  `{member_id}:{role_source_id}:{biennium}` sketch would break the #69 in-place upgrade). Use
-  `f"{member_id}:{dimension}:{biennium}"` where `dimension` ∈ {`chamber-house`, `chamber-senate`,
-  `party`, `committee:{committee_source_id}`} — the role is a *value* of the Assignment, not part of its
-  identity, so #69 can re-point `role_id` on the same row. Pin in step 4/5.
+- **Assignment natural key.** `source_id` must be deterministic + stable —
+  `f"{member_id}:{dimension}:{biennium}"` where `dimension` ∈ {`chamber-senate`, `party`,
+  `committee:{committee_source_id}`}. Keep the role a *value* of the Assignment, not part of the key
+  (general hygiene — an Assignment's role can be corrected without a new row). Pin in step 4/5.
 
-- **#69 hand-off contract (House membership → seat: MODIFY, never duplicate).** When the WA PDC adapter
-  resolves a House member's Position, it **upgrades the existing** `chamber-house` Assignment in place —
-  `UPDATE role_id` from the coarse `member` Role to the specific `state_representative` seat Role (same
-  row, same `source_id`) — so usa-wa holds exactly one chamber Assignment throughout, honoring the
-  most-specific-data-plus-aggregation principle (no coarse/specific duplication that can drift). **PM
-  projection:** PM keys assignments on `(person_id, role_id)`, so the role change can't be a pure
-  in-place PM update — #69 must **retire the coarse PM member-assignment as the seat one is created**
-  (re-anchor `pm_assignment_id`), leaving PM with one assignment too. To confirm when #69 is built:
-  whether PM offers an assignment-role re-point / supersede primitive, or the retire-and-recreate is
-  driven entirely producer-side. Track as a #69 deliverable; nothing here blocks on it (P1b just sets
-  the role-independent `source_id` that makes the upgrade a single-row `UPDATE`).
+- **#69 hand-off: House chamber Assignment is created FRESH, not upgraded.** P1b deliberately produces
+  **no** House chamber Assignment (see Tradeoffs). #69 creates the seat Assignment from scratch: a new
+  unanchored row → `sweep_unanchored` → CREATE on PM. There is nothing to retire, no orphan, no anchored
+  `role_id` re-point (which the sync engine cannot do anyway). This is *why* P1b holds off — a coarse
+  interim Assignment could not be cleanly retired via the producer API. #69 resolves District + Position
+  → the `state_representative` seat Role + Assignment, exactly as Senate does here.
 - **Intra-biennium churn is snapshot-lossy** (spec Lossy ← item 3) — membership captured per refresh;
   `valid_to` only records changes as repeated refreshes observe them. Not changing the shape.
 
