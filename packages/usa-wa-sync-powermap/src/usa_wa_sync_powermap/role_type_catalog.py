@@ -7,11 +7,13 @@ decide a Role observation's shape (seat vs title) at runtime — this is what le
 retire the hardcoded seat-slug map and track PM's catalog as it grows.
 
 PM is read-only source of truth; usa-wa never writes role_types back. Idempotent:
-an existing slug is updated in place (display_name / expects_jurisdiction / anchor),
-never duplicated. A slug PM no longer lists is **demoted** (``expects_jurisdiction=False``)
-rather than deleted, so a retired or reclassified type stops driving seat-mode
-observations — a flag flip is not inert. The row itself is kept (there is no FK from
-``roles.role_type``; the slug is historical) and re-promoted if PM lists it again.
+an existing slug is updated in place (display_name / expects_jurisdiction /
+requires_qualifier / anchor), never duplicated. A slug PM no longer lists is **demoted**
+(both ``expects_jurisdiction`` and ``requires_qualifier`` reset to ``False``, power-map#273)
+rather than deleted, so a retired or reclassified type stops driving seat-mode observations
+and stops enforcing a qualifier PM no longer declares — a flag flip is not inert. The row
+itself is kept (there is no FK from ``roles.role_type``; the slug is historical) and
+re-promoted if PM lists it again.
 
 PM 0.7.0 renamed the catalog field ``is_seat`` → ``expects_jurisdiction`` (power-map#271).
 The read tolerates the legacy key as a fallback for raw-dict / legacy-payload callers;

@@ -17,7 +17,7 @@ it on ``resolve_role``), which is exactly the signal usa-wa needs to pick the se
 observation shape.
 """
 
-from sqlalchemy import Boolean, String, UniqueConstraint
+from sqlalchemy import Boolean, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 from ulid import ULID as _ULID
 
@@ -61,4 +61,9 @@ class RoleType(Base, TimestampMixin):
     # ``state_senator`` = False (one senator/LD, NULL qualifier valid). usa-wa mirrors it so
     # the descriptor can refuse a positionless requires_qualifier seat pre-flight (#71).
     # Unlike ``expects_jurisdiction`` (advisory), this is a hard PM constraint.
-    requires_qualifier: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # ``server_default`` matches the #71 migration so the ORM-created (test) schema and the
+    # migrated (prod) schema are identical — a DB-level default on both, not just the ORM
+    # ``default`` (parity with ``Organization.active``).
+    requires_qualifier: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
