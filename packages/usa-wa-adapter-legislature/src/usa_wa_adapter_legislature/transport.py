@@ -171,6 +171,20 @@ class WSLClient:
             return []
         return list(serialized)
 
+    def _get_sponsors_sync(self, biennium: str) -> list[dict[str, Any]]:
+        result = self._ensure_client().service.GetSponsors(biennium)
+        serialized = serialize_object(result, dict)
+        return list(serialized) if serialized is not None else []
+
+    def _get_active_committee_members_sync(
+        self, agency: str, committee_name: str
+    ) -> list[dict[str, Any]]:
+        result = self._ensure_client().service.GetActiveCommitteeMembers(
+            agency=agency, committeeName=committee_name
+        )
+        serialized = serialize_object(result, dict)
+        return list(serialized) if serialized is not None else []
+
     def _fetch_committees_sync(self, biennium: str) -> WireFetch:
         try:
             result = self._ensure_client().service.GetCommittees(biennium)
@@ -223,6 +237,47 @@ class WSLClient:
                 f"fetch_committees requires service='CommitteeService', got {self.service!r}"
             )
         return await asyncio.to_thread(self._fetch_committees_sync, biennium)
+
+    async def get_sponsors(self, biennium: str) -> list[dict[str, Any]]:
+        """Call ``SponsorService.GetSponsors(biennium)`` off the event loop.
+
+        The non-archival parsed-dict pull of a biennium's **sponsors** — every entity
+        WSL lets sponsor legislation, which is a superset of legislators: it also
+        includes institutional/committee sponsors that carry a blank ``Name``, no
+        ``District`` and no ``Party`` (the Person normalizer filters those out). Each
+        row is a serialized ``Member`` (``Id, Name, LongName, Agency, Acronym, Party,
+        District, Phone, Email, FirstName, LastName``). This is the write-free sibling
+        the member-identity probe (P1b step 0) uses; the archival ``fetch_sponsors``
+        (step 1) keeps the wire. Same ``asyncio.to_thread`` dispatch as
+        :meth:`get_committees`.
+        """
+        if self.service != "SponsorService":
+            raise ValueError(
+                f"get_sponsors requires service='SponsorService', got {self.service!r}"
+            )
+        return await asyncio.to_thread(self._get_sponsors_sync, biennium)
+
+    async def get_active_committee_members(
+        self, agency: str, committee_name: str
+    ) -> list[dict[str, Any]]:
+        """Call ``CommitteeService.GetActiveCommitteeMembers(agency, committeeName)``.
+
+        The non-archival parsed-dict roster of one active committee's members;
+        ``committee_name`` is the committee's short ``Name`` (e.g. ``"Rules"``), not
+        the ``LongName``. Each row is a serialized ``Member`` — same shape as
+        :meth:`get_sponsors`, but the committee endpoint spells party in full
+        (``"Democrat"``/``"Republican"``) where the sponsor endpoint uses ``"D"``/``"R"``.
+        The write-free sibling the member-identity probe (P1b step 0) fans out over the
+        roster cohort; the archival ``fetch_committee_members`` (step 1) keeps the wire.
+        """
+        if self.service != "CommitteeService":
+            raise ValueError(
+                "get_active_committee_members requires service='CommitteeService', "
+                f"got {self.service!r}"
+            )
+        return await asyncio.to_thread(
+            self._get_active_committee_members_sync, agency, committee_name
+        )
 
     async def fetch_active_committees(self) -> WireFetch:
         """Archival pull of the *currently active* committees, keeping the wire.

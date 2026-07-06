@@ -97,15 +97,14 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
 
 ## Steps
 
-0. **Identity-stability verification (write-free spike).** Before ingesting, confirm the member
-   `Id` is a stable `Person.source_id`: (a) `GetSponsors(2025-26)` `Id` vs the `Id` returned by
-   `GetActiveCommitteeMembers` for the same person on a committee, and (b) `Id` across `2023-24` →
-   `2025-26` for a known re-elected member. A `probe_member_identity` CLI (talks to `WSLClient`
-   directly, no runner — mirrors `probe_committee_extent`) tallies overlap. **Verifiable when:** the
-   probe reports whether `Id` is stable cross-endpoint and cross-biennium; the finding is recorded in
-   this plan's Revisions and picks the canonical `source_id` (default: `GetSponsors.Id`). If `Id`
-   diverges cross-endpoint, the committee normalizer keys Person on `(FirstName, LastName, District)`
-   name-match against the sponsor cohort instead of `Id`.
+0. **Identity-stability verification (write-free spike). ✅ DONE 2026-07-06 — `Id` is stable.**
+   Confirmed the member `Id` is a stable `Person.source_id`: (a) `GetSponsors(2025-26)` `Id` vs the
+   `Id` returned by `GetActiveCommitteeMembers` for the same person on a committee, and (b) `Id`
+   across `2023-24` → `2025-26` for re-elected members. The `probe_member_identity` CLI (talks to
+   `WSLClient` directly, no runner — mirrors `probe_committee_extent`) tallied overlap: **cross-endpoint
+   94/94 same `Id`, cross-biennium 125/125 same `Id`, 0 divergences either way** (see Revisions).
+   **Canonical `source_id` = `GetSponsors.Id`**; the committee normalizer keys Person on `Id` directly
+   (the `(FirstName, LastName, District)` name-match fallback is not needed — dropped).
 
 1. **Transport: sponsor + member operations (TDD + cassettes).** `transport.py` gains
    `fetch_sponsors(biennium) -> WireFetch` (SponsorService.GetSponsors) and
@@ -150,8 +149,12 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
    `legislative_session_id=biennium session`, `valid_from=biennium start`) — **only when the member has
    a major-party affiliation**. Party canonicalization maps `"R"`/`"Republican"` → `party-republican`,
    `"D"`/`"Democrat"` → `party-democratic`, else (independent / blank) → **no party Assignment**.
+   **Filter to persons first** (`FirstName` and `LastName` both present) — `GetSponsors` mixes in ~5
+   institutional / committee sponsors (blank `Name`, null district/party) that are not legislators
+   (step 0 finding; reuse the probe's `is_person`).
    **Verifiable when:** `test_normalize_sponsors` covers R/D + an independent (no party Assignment),
-   name recomposition, identifier emission, and party-Assignment wiring against the cassette.
+   an institutional non-person row (skipped), name recomposition, identifier emission, and
+   party-Assignment wiring against the cassette.
 
 5. **Senate seat Assignments (TDD).** In the sponsor normalizer, branch on `Agency`:
    - **Senate:** resolve `District` → `usa-wa-ld-{n}` → jurisdiction id; **get-or-create** the Senate
@@ -168,7 +171,8 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
 
 6. **Committee-member normalizer (TDD).** `normalize/committee_members.py`:
    `normalize_committee_members(payload, anchors, committee_org_id, jurisdiction_id) ->
-   NormalizedBatch` — per member: get-or-create Person (same `source_id` rule as step 0/4), a committee
+   NormalizedBatch` — per member: get-or-create Person keyed on `Id` (`source_id=Id`, stable
+   cross-endpoint per step 0 — no name-match), a committee
    membership **Assignment** (`Person → Role("Member", role_type="member") on the committee Org`,
    power-map#269, session-scoped, `valid_from=biennium start`). No position/leadership (no WSL source).
    Party here is cross-checkable
@@ -201,8 +205,9 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
 
 ## Open questions / risks
 
-- **Member `Id` cross-endpoint / cross-biennium stability** — resolved by step 0 before any ingest;
-  the committee normalizer's Person-keying strategy depends on the finding.
+- **Member `Id` cross-endpoint / cross-biennium stability** — ✅ **resolved by step 0 (2026-07-06):
+  `Id` is stable on both axes** (94/94 cross-endpoint, 125/125 cross-biennium, 0 divergences). The
+  committee normalizer keys Person on `GetSponsors.Id` directly; no name-match fallback.
 - **House chamber gap.** House members get Person + party + committee memberships this cut; the whole
   **chamber Assignment** (the seat, which carries district + Position) is #69's, created fresh — no
   interim coarse Assignment (see Tradeoffs for why upgrade-in-place isn't achievable). So "no chamber
@@ -235,4 +240,32 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
 
 ## Revisions during execution
 
-Captured per the writing-plans skill (Phase 4 small-revision policy). None yet.
+Captured per the writing-plans skill (Phase 4 small-revision policy).
+
+- **2026-07-06 — Step 0 finding: member `Id` is a stable `Person.source_id` (both axes).**
+  Ran the write-free `probe_member_identity` CLI against live WSL (`2025-26` vs `2023-24`,
+  12 active committees sampled):
+  - **Cross-endpoint** (`GetSponsors` vs `GetActiveCommitteeMembers`): 94 matched by name,
+    **94 same `Id`, 0 divergent, 0 committee members absent from the sponsor cohort**.
+  - **Cross-biennium** (`GetSponsors(2025-26)` vs `GetSponsors(2023-24)`): 125 matched, **125
+    same `Id`, 0 divergent** (26 only-2025 / 25 only-2023 = ordinary election churn).
+  → **Canonical `source_id` = `GetSponsors.Id`** (the int as a string). The committee
+  normalizer (Step 6) keys `Person` on `Id` **directly** — the `(FirstName, LastName,
+  District)` name-match fallback in Step 0 is **not needed** and is dropped. Resolves the
+  first open question.
+- **2026-07-06 — Two data-shape findings that adjust later steps (from the same probe run):**
+  1. **`GetSponsors` returns a superset of legislators.** 5 of 158 rows in `2025-26` are
+     institutional / committee sponsors — blank `Name` (`" "`), null `FirstName` / `LastName`
+     / `District` / `Party`. The Person normalizer (Step 4) **must filter to actual persons**
+     (both `FirstName` and `LastName` present); the probe's `is_person` predicate is the
+     reference. So "persons" = 153, not the raw 158.
+  2. **Party is spelled differently per endpoint.** `GetSponsors` uses single letters
+     `"R"` / `"D"`; `GetActiveCommitteeMembers` uses full words `"Republican"` / `"Democrat"`.
+     Party canonicalization (Step 4) must accept **both** forms → `party-republican` /
+     `party-democratic` (the plan already mapped both; this confirms the full-word form is
+     load-bearing, not defensive). A null/blank party (independent, or an institutional row)
+     yields **no party Assignment**.
+- **2026-07-06 — Transport gained the two non-archival member pulls now** (`get_sponsors`,
+  `get_active_committee_members`), the parsed-dict siblings the probe calls — mirroring
+  `get_committees`. Step 1 still adds the **archival** `fetch_sponsors` / `fetch_committee_members`
+  (wire + `#54`) and the offline re-parsers + cassettes.
