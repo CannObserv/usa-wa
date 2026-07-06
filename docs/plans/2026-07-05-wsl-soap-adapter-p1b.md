@@ -106,17 +106,19 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
    **Canonical `source_id` = `GetSponsors.Id`**; the committee normalizer keys Person on `Id` directly
    (the `(FirstName, LastName, District)` name-match fallback is not needed — dropped).
 
-1. **Transport: sponsor + member operations (TDD + cassettes).** `transport.py` gains
-   `fetch_sponsors(biennium) -> WireFetch` (SponsorService.GetSponsors) and
+1. **Transport: sponsor + member operations (TDD + cassettes). ✅ DONE 2026-07-06.** `transport.py`
+   gained `fetch_sponsors(biennium) -> WireFetch` (SponsorService.GetSponsors) and
    `fetch_committee_members(agency, committee_name) -> WireFetch`
    (CommitteeService.GetActiveCommitteeMembers), each returning parsed records + pristine SOAP wire
    (the #54 archival contract), plus offline re-parsers (`parse_sponsors` / `parse_committee_members`)
-   through the same binding (the #56 cache path). Record cassettes:
-   `sponsor_service_get_sponsors_2025-26.yaml` and
-   `committee_service_get_active_committee_members_<agency>_<committeeName>.yaml` (a couple of
-   representative committees). **Verifiable when:** transport cassette round-trip tests pass; the
-   parsed shape pins the live field names (`Party` encoding, `FirstName`/`LastName`/`LongName`,
-   `District`); wire re-parse matches live parse.
+   through the same binding (the #56 cache path). Also added the non-archival parsed-dict siblings
+   `get_sponsors` / `get_active_committee_members` in step 0 (the probe's pulls). Recorded cassettes:
+   `sponsor_service_get_sponsors_2025-26.yaml` (158 rows), plus one House + one Senate committee —
+   `committee_service_get_active_committee_members_house_appropriations.yaml` (31),
+   `committee_service_get_active_committee_members_senate_ways_and_means.yaml` (24). **Verified:**
+   12 cassette round-trip tests pass on pure replay; they pin the live field names and the
+   per-endpoint `Party` split (sponsor `R`/`D` vs committee `Democrat`/`Republican`), the
+   153-named/5-blanked sponsor split, and prove each offline re-parse recovers the live parse.
 
 2. **Party Org bootstrap (TDD).** Extend `synthesis.py` + `bootstrap.py`: synthesize **two** Party Orgs
    — `Washington State Republican Party` / `Washington State Democratic Party` — as `org_type="party"`,

@@ -185,6 +185,44 @@ class WSLClient:
         serialized = serialize_object(result, dict)
         return list(serialized) if serialized is not None else []
 
+    def _fetch_sponsors_sync(self, biennium: str) -> WireFetch:
+        result = self._ensure_client().service.GetSponsors(biennium)
+        serialized = serialize_object(result, dict)
+        records = list(serialized) if serialized is not None else []
+        return WireFetch(
+            records=records,
+            wire=self._transport.last_wire or b"",
+            content_type=self._transport.last_content_type or "text/xml",
+        )
+
+    def _parse_sponsors_sync(self, wire: bytes) -> list[dict[str, Any]]:
+        client = self._ensure_client()
+        binding = client.service._binding
+        operation = binding.get("GetSponsors")
+        result = binding.process_reply(client, operation, _StoredResponse(wire))
+        serialized = serialize_object(result, dict)
+        return list(serialized) if serialized is not None else []
+
+    def _fetch_committee_members_sync(self, agency: str, committee_name: str) -> WireFetch:
+        result = self._ensure_client().service.GetActiveCommitteeMembers(
+            agency=agency, committeeName=committee_name
+        )
+        serialized = serialize_object(result, dict)
+        records = list(serialized) if serialized is not None else []
+        return WireFetch(
+            records=records,
+            wire=self._transport.last_wire or b"",
+            content_type=self._transport.last_content_type or "text/xml",
+        )
+
+    def _parse_committee_members_sync(self, wire: bytes) -> list[dict[str, Any]]:
+        client = self._ensure_client()
+        binding = client.service._binding
+        operation = binding.get("GetActiveCommitteeMembers")
+        result = binding.process_reply(client, operation, _StoredResponse(wire))
+        serialized = serialize_object(result, dict)
+        return list(serialized) if serialized is not None else []
+
     def _fetch_committees_sync(self, biennium: str) -> WireFetch:
         try:
             result = self._ensure_client().service.GetCommittees(biennium)
@@ -257,6 +295,38 @@ class WSLClient:
             )
         return await asyncio.to_thread(self._get_sponsors_sync, biennium)
 
+    async def fetch_sponsors(self, biennium: str) -> WireFetch:
+        """Archival pull of a biennium's sponsors, keeping the pristine wire (#54).
+
+        The archival sibling of :meth:`get_sponsors`: calls ``SponsorService.GetSponsors``
+        and returns a :class:`WireFetch` — the derived ``Member`` dicts on ``records``
+        plus the raw SOAP response envelope bytes for archival + hashing, so
+        ``RawPayload.body`` holds what WSL sent rather than our re-serialization. The
+        archive the sponsor normalizer (P1b step 4) reads. Same ``asyncio.to_thread``
+        dispatch as the sibling pulls.
+        """
+        if self.service != "SponsorService":
+            raise ValueError(
+                f"fetch_sponsors requires service='SponsorService', got {self.service!r}"
+            )
+        return await asyncio.to_thread(self._fetch_sponsors_sync, biennium)
+
+    async def parse_sponsors(self, wire: bytes) -> list[dict[str, Any]]:
+        """Re-deserialize an **archived** ``GetSponsors`` envelope offline (#56 cache path).
+
+        The sponsor analog of :meth:`parse_committees`: replays a stored
+        ``RawPayload.body`` through the **same** ``GetSponsors`` binding
+        :meth:`fetch_sponsors` uses, yielding the identical derived ``Member`` dicts — so
+        a re-parse can't drift from the live parse (#54 fidelity). Only network cost is
+        the one-time WSDL load (binding type info), not the data pull. Guarded by the
+        cassette round-trip test.
+        """
+        if self.service != "SponsorService":
+            raise ValueError(
+                f"parse_sponsors requires service='SponsorService', got {self.service!r}"
+            )
+        return await asyncio.to_thread(self._parse_sponsors_sync, wire)
+
     async def get_active_committee_members(
         self, agency: str, committee_name: str
     ) -> list[dict[str, Any]]:
@@ -278,6 +348,37 @@ class WSLClient:
         return await asyncio.to_thread(
             self._get_active_committee_members_sync, agency, committee_name
         )
+
+    async def fetch_committee_members(self, agency: str, committee_name: str) -> WireFetch:
+        """Archival pull of one active committee's members, keeping the wire (#54).
+
+        The archival sibling of :meth:`get_active_committee_members`: calls
+        ``CommitteeService.GetActiveCommitteeMembers(agency, committeeName)`` and returns
+        a :class:`WireFetch` — the derived ``Member`` dicts plus the raw SOAP envelope
+        bytes for archival + hashing. ``committee_name`` is the committee's short ``Name``
+        (not ``LongName``). One archive per committee, keyed
+        ``committee-members:<agency>:<committeeName>`` by the adapter's fan-out (step 7).
+        """
+        if self.service != "CommitteeService":
+            raise ValueError(
+                f"fetch_committee_members requires service='CommitteeService', got {self.service!r}"
+            )
+        return await asyncio.to_thread(self._fetch_committee_members_sync, agency, committee_name)
+
+    async def parse_committee_members(self, wire: bytes) -> list[dict[str, Any]]:
+        """Re-deserialize an **archived** ``GetActiveCommitteeMembers`` envelope offline.
+
+        The member analog of :meth:`parse_committees` (#56 cache path): replays a stored
+        ``RawPayload.body`` through the **same** ``GetActiveCommitteeMembers`` binding
+        :meth:`fetch_committee_members` uses, so the offline parse can't drift from the
+        live one (#54 fidelity). Only network cost is the one-time WSDL load. Guarded by
+        the cassette round-trip test.
+        """
+        if self.service != "CommitteeService":
+            raise ValueError(
+                f"parse_committee_members requires service='CommitteeService', got {self.service!r}"
+            )
+        return await asyncio.to_thread(self._parse_committee_members_sync, wire)
 
     async def fetch_active_committees(self) -> WireFetch:
         """Archival pull of the *currently active* committees, keeping the wire.

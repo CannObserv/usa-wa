@@ -1,0 +1,660 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - Zeep/4.3.2 (www.python-zeep.org)
+    method: GET
+    uri: https://wslwebservices.leg.wa.gov/SponsorService.asmx?wsdl
+  response:
+    body:
+      string: "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<wsdl:definitions xmlns:s=\"http://www.w3.org/2001/XMLSchema\"
+        xmlns:soap12=\"http://schemas.xmlsoap.org/wsdl/soap12/\" xmlns:http=\"http://schemas.xmlsoap.org/wsdl/http/\"
+        xmlns:mime=\"http://schemas.xmlsoap.org/wsdl/mime/\" xmlns:tns=\"http://WSLWebServices.leg.wa.gov/\"
+        xmlns:soap=\"http://schemas.xmlsoap.org/wsdl/soap/\" xmlns:tm=\"http://microsoft.com/wsdl/mime/textMatching/\"
+        xmlns:soapenc=\"http://schemas.xmlsoap.org/soap/encoding/\" targetNamespace=\"http://WSLWebServices.leg.wa.gov/\"
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">\r\n  <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Information on sponsors of
+        legislation in the Washington State Legislature.</wsdl:documentation>\r\n
+        \ <wsdl:types>\r\n    <s:schema elementFormDefault=\"qualified\" targetNamespace=\"http://WSLWebServices.leg.wa.gov/\">\r\n
+        \     <s:element name=\"GetSponsors\">\r\n        <s:complexType>\r\n          <s:sequence>\r\n
+        \           <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"biennium\" type=\"s:string\"
+        />\r\n          </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:element name=\"GetSponsorsResponse\">\r\n        <s:complexType>\r\n
+        \         <s:sequence>\r\n            <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"GetSponsorsResult\" type=\"tns:ArrayOfMember\" />\r\n          </s:sequence>\r\n
+        \       </s:complexType>\r\n      </s:element>\r\n      <s:complexType name=\"ArrayOfMember\">\r\n
+        \       <s:sequence>\r\n          <s:element minOccurs=\"0\" maxOccurs=\"unbounded\"
+        name=\"Member\" nillable=\"true\" type=\"tns:Member\" />\r\n        </s:sequence>\r\n
+        \     </s:complexType>\r\n      <s:complexType name=\"Member\">\r\n        <s:complexContent
+        mixed=\"false\">\r\n          <s:extension base=\"tns:LegislativeEntity\">\r\n
+        \           <s:sequence>\r\n              <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"Party\" type=\"s:string\" />\r\n              <s:element minOccurs=\"0\"
+        maxOccurs=\"1\" name=\"District\" type=\"s:string\" />\r\n              <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"Phone\" type=\"s:string\" />\r\n              <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"Email\" type=\"s:string\" />\r\n              <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"FirstName\" type=\"s:string\" />\r\n
+        \             <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"LastName\"
+        type=\"s:string\" />\r\n            </s:sequence>\r\n          </s:extension>\r\n
+        \       </s:complexContent>\r\n      </s:complexType>\r\n      <s:complexType
+        name=\"LegislativeEntity\">\r\n        <s:sequence>\r\n          <s:element
+        minOccurs=\"1\" maxOccurs=\"1\" name=\"Id\" type=\"s:int\" />\r\n          <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"Name\" type=\"s:string\" />\r\n          <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"LongName\" type=\"s:string\" />\r\n
+        \         <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"Agency\" type=\"s:string\"
+        />\r\n          <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"Acronym\"
+        type=\"s:string\" />\r\n        </s:sequence>\r\n      </s:complexType>\r\n
+        \     <s:element name=\"GetHouseSponsors\">\r\n        <s:complexType>\r\n
+        \         <s:sequence>\r\n            <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"biennium\" type=\"s:string\" />\r\n          </s:sequence>\r\n        </s:complexType>\r\n
+        \     </s:element>\r\n      <s:element name=\"GetHouseSponsorsResponse\">\r\n
+        \       <s:complexType>\r\n          <s:sequence>\r\n            <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"GetHouseSponsorsResult\" type=\"tns:ArrayOfMember\"
+        />\r\n          </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:element name=\"GetSenateSponsors\">\r\n        <s:complexType>\r\n
+        \         <s:sequence>\r\n            <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"biennium\" type=\"s:string\" />\r\n          </s:sequence>\r\n        </s:complexType>\r\n
+        \     </s:element>\r\n      <s:element name=\"GetSenateSponsorsResponse\">\r\n
+        \       <s:complexType>\r\n          <s:sequence>\r\n            <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"GetSenateSponsorsResult\" type=\"tns:ArrayOfMember\"
+        />\r\n          </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:element name=\"GetRequesters\">\r\n        <s:complexType>\r\n          <s:sequence>\r\n
+        \           <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"biennium\" type=\"s:string\"
+        />\r\n          </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:element name=\"GetRequestersResponse\">\r\n        <s:complexType>\r\n
+        \         <s:sequence>\r\n            <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"GetRequestersResult\" type=\"tns:ArrayOfLegislativeEntity\" />\r\n
+        \         </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:complexType name=\"ArrayOfLegislativeEntity\">\r\n        <s:sequence>\r\n
+        \         <s:element minOccurs=\"0\" maxOccurs=\"unbounded\" name=\"LegislativeEntity\"
+        nillable=\"true\" type=\"tns:LegislativeEntity\" />\r\n        </s:sequence>\r\n
+        \     </s:complexType>\r\n      <s:element name=\"ArrayOfMember\" nillable=\"true\"
+        type=\"tns:ArrayOfMember\" />\r\n      <s:element name=\"ArrayOfLegislativeEntity\"
+        nillable=\"true\" type=\"tns:ArrayOfLegislativeEntity\" />\r\n    </s:schema>\r\n
+        \ </wsdl:types>\r\n  <wsdl:message name=\"GetSponsorsSoapIn\">\r\n    <wsdl:part
+        name=\"parameters\" element=\"tns:GetSponsors\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetSponsorsSoapOut\">\r\n    <wsdl:part name=\"parameters\"
+        element=\"tns:GetSponsorsResponse\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetHouseSponsorsSoapIn\">\r\n    <wsdl:part name=\"parameters\" element=\"tns:GetHouseSponsors\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetHouseSponsorsSoapOut\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetHouseSponsorsResponse\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetSenateSponsorsSoapIn\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetSenateSponsors\" />\r\n
+        \ </wsdl:message>\r\n  <wsdl:message name=\"GetSenateSponsorsSoapOut\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetSenateSponsorsResponse\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetRequestersSoapIn\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetRequesters\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetRequestersSoapOut\">\r\n    <wsdl:part name=\"parameters\"
+        element=\"tns:GetRequestersResponse\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetSponsorsHttpGetIn\">\r\n    <wsdl:part name=\"biennium\" type=\"s:string\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetSponsorsHttpGetOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfMember\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetHouseSponsorsHttpGetIn\">\r\n    <wsdl:part name=\"biennium\"
+        type=\"s:string\" />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetHouseSponsorsHttpGetOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfMember\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetSenateSponsorsHttpGetIn\">\r\n    <wsdl:part name=\"biennium\"
+        type=\"s:string\" />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetSenateSponsorsHttpGetOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfMember\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetRequestersHttpGetIn\">\r\n    <wsdl:part name=\"biennium\"
+        type=\"s:string\" />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetRequestersHttpGetOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfLegislativeEntity\" />\r\n
+        \ </wsdl:message>\r\n  <wsdl:message name=\"GetSponsorsHttpPostIn\">\r\n    <wsdl:part
+        name=\"biennium\" type=\"s:string\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetSponsorsHttpPostOut\">\r\n    <wsdl:part name=\"Body\" element=\"tns:ArrayOfMember\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetHouseSponsorsHttpPostIn\">\r\n
+        \   <wsdl:part name=\"biennium\" type=\"s:string\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetHouseSponsorsHttpPostOut\">\r\n    <wsdl:part name=\"Body\"
+        element=\"tns:ArrayOfMember\" />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetSenateSponsorsHttpPostIn\">\r\n
+        \   <wsdl:part name=\"biennium\" type=\"s:string\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetSenateSponsorsHttpPostOut\">\r\n    <wsdl:part name=\"Body\"
+        element=\"tns:ArrayOfMember\" />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetRequestersHttpPostIn\">\r\n
+        \   <wsdl:part name=\"biennium\" type=\"s:string\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetRequestersHttpPostOut\">\r\n    <wsdl:part name=\"Body\"
+        element=\"tns:ArrayOfLegislativeEntity\" />\r\n  </wsdl:message>\r\n  <wsdl:portType
+        name=\"SponsorServiceSoap\">\r\n    <wsdl:operation name=\"GetSponsors\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        Representatives and Senators that have served during the given biennium. &lt;BR&gt;Exception
+        thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format:
+        2005-06</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetSponsorsSoapIn\"
+        />\r\n      <wsdl:output message=\"tns:GetSponsorsSoapOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetHouseSponsors\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All Representatives that have
+        served during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium.
+        &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetHouseSponsorsSoapIn\" />\r\n      <wsdl:output
+        message=\"tns:GetHouseSponsorsSoapOut\" />\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetSenateSponsors\">\r\n      <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        Senators that have served during the given biennium. &lt;BR&gt;Exception thrown
+        for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetSenateSponsorsSoapIn\" />\r\n      <wsdl:output
+        message=\"tns:GetSenateSponsorsSoapOut\" />\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetRequesters\">\r\n      <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        entities that can request legislation for the given biennium. &lt;BR&gt;Exception
+        thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format:
+        2005-06</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetRequestersSoapIn\"
+        />\r\n      <wsdl:output message=\"tns:GetRequestersSoapOut\" />\r\n    </wsdl:operation>\r\n
+        \ </wsdl:portType>\r\n  <wsdl:portType name=\"SponsorServiceHttpGet\">\r\n
+        \   <wsdl:operation name=\"GetSponsors\">\r\n      <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        Representatives and Senators that have served during the given biennium. &lt;BR&gt;Exception
+        thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format:
+        2005-06</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetSponsorsHttpGetIn\"
+        />\r\n      <wsdl:output message=\"tns:GetSponsorsHttpGetOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetHouseSponsors\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All Representatives that have
+        served during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium.
+        &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetHouseSponsorsHttpGetIn\" />\r\n      <wsdl:output
+        message=\"tns:GetHouseSponsorsHttpGetOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetSenateSponsors\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All Senators that have served
+        during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium.
+        &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetSenateSponsorsHttpGetIn\" />\r\n      <wsdl:output
+        message=\"tns:GetSenateSponsorsHttpGetOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetRequesters\">\r\n      <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        entities that can request legislation for the given biennium. &lt;BR&gt;Exception
+        thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format:
+        2005-06</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetRequestersHttpGetIn\"
+        />\r\n      <wsdl:output message=\"tns:GetRequestersHttpGetOut\" />\r\n    </wsdl:operation>\r\n
+        \ </wsdl:portType>\r\n  <wsdl:portType name=\"SponsorServiceHttpPost\">\r\n
+        \   <wsdl:operation name=\"GetSponsors\">\r\n      <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        Representatives and Senators that have served during the given biennium. &lt;BR&gt;Exception
+        thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format:
+        2005-06</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetSponsorsHttpPostIn\"
+        />\r\n      <wsdl:output message=\"tns:GetSponsorsHttpPostOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetHouseSponsors\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All Representatives that have
+        served during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium.
+        &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetHouseSponsorsHttpPostIn\" />\r\n      <wsdl:output
+        message=\"tns:GetHouseSponsorsHttpPostOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetSenateSponsors\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All Senators that have served
+        during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium.
+        &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetSenateSponsorsHttpPostIn\" />\r\n      <wsdl:output
+        message=\"tns:GetSenateSponsorsHttpPostOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetRequesters\">\r\n      <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        entities that can request legislation for the given biennium. &lt;BR&gt;Exception
+        thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format:
+        2005-06</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetRequestersHttpPostIn\"
+        />\r\n      <wsdl:output message=\"tns:GetRequestersHttpPostOut\" />\r\n    </wsdl:operation>\r\n
+        \ </wsdl:portType>\r\n  <wsdl:binding name=\"SponsorServiceSoap\" type=\"tns:SponsorServiceSoap\">\r\n
+        \   <soap:binding transport=\"http://schemas.xmlsoap.org/soap/http\" />\r\n
+        \   <wsdl:operation name=\"GetSponsors\">\r\n      <soap:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetSponsors\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetHouseSponsors\">\r\n      <soap:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetHouseSponsors\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetSenateSponsors\">\r\n      <soap:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetSenateSponsors\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetRequesters\">\r\n      <soap:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetRequesters\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n  </wsdl:binding>\r\n
+        \ <wsdl:binding name=\"SponsorServiceSoap12\" type=\"tns:SponsorServiceSoap\">\r\n
+        \   <soap12:binding transport=\"http://schemas.xmlsoap.org/soap/http\" />\r\n
+        \   <wsdl:operation name=\"GetSponsors\">\r\n      <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetSponsors\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetHouseSponsors\">\r\n      <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetHouseSponsors\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetSenateSponsors\">\r\n      <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetSenateSponsors\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetRequesters\">\r\n      <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetRequesters\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n  </wsdl:binding>\r\n
+        \ <wsdl:binding name=\"SponsorServiceHttpGet\" type=\"tns:SponsorServiceHttpGet\">\r\n
+        \   <http:binding verb=\"GET\" />\r\n    <wsdl:operation name=\"GetSponsors\">\r\n
+        \     <http:operation location=\"/GetSponsors\" />\r\n      <wsdl:input>\r\n
+        \       <http:urlEncoded />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n
+        \       <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetHouseSponsors\">\r\n      <http:operation location=\"/GetHouseSponsors\"
+        />\r\n      <wsdl:input>\r\n        <http:urlEncoded />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetSenateSponsors\">\r\n
+        \     <http:operation location=\"/GetSenateSponsors\" />\r\n      <wsdl:input>\r\n
+        \       <http:urlEncoded />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n
+        \       <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetRequesters\">\r\n      <http:operation location=\"/GetRequesters\"
+        />\r\n      <wsdl:input>\r\n        <http:urlEncoded />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n  </wsdl:binding>\r\n  <wsdl:binding name=\"SponsorServiceHttpPost\"
+        type=\"tns:SponsorServiceHttpPost\">\r\n    <http:binding verb=\"POST\" />\r\n
+        \   <wsdl:operation name=\"GetSponsors\">\r\n      <http:operation location=\"/GetSponsors\"
+        />\r\n      <wsdl:input>\r\n        <mime:content type=\"application/x-www-form-urlencoded\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <mime:mimeXml
+        part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetHouseSponsors\">\r\n      <http:operation location=\"/GetHouseSponsors\"
+        />\r\n      <wsdl:input>\r\n        <mime:content type=\"application/x-www-form-urlencoded\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <mime:mimeXml
+        part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetSenateSponsors\">\r\n      <http:operation location=\"/GetSenateSponsors\"
+        />\r\n      <wsdl:input>\r\n        <mime:content type=\"application/x-www-form-urlencoded\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <mime:mimeXml
+        part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetRequesters\">\r\n      <http:operation location=\"/GetRequesters\"
+        />\r\n      <wsdl:input>\r\n        <mime:content type=\"application/x-www-form-urlencoded\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <mime:mimeXml
+        part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n  </wsdl:binding>\r\n
+        \ <wsdl:service name=\"SponsorService\">\r\n    <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Information
+        on sponsors of legislation in the Washington State Legislature.</wsdl:documentation>\r\n
+        \   <wsdl:port name=\"SponsorServiceSoap\" binding=\"tns:SponsorServiceSoap\">\r\n
+        \     <soap:address location=\"https://wslwebservices.leg.wa.gov/SponsorService.asmx\"
+        />\r\n    </wsdl:port>\r\n    <wsdl:port name=\"SponsorServiceSoap12\" binding=\"tns:SponsorServiceSoap12\">\r\n
+        \     <soap12:address location=\"https://wslwebservices.leg.wa.gov/SponsorService.asmx\"
+        />\r\n    </wsdl:port>\r\n    <wsdl:port name=\"SponsorServiceHttpGet\" binding=\"tns:SponsorServiceHttpGet\">\r\n
+        \     <http:address location=\"https://wslwebservices.leg.wa.gov/SponsorService.asmx\"
+        />\r\n    </wsdl:port>\r\n    <wsdl:port name=\"SponsorServiceHttpPost\" binding=\"tns:SponsorServiceHttpPost\">\r\n
+        \     <http:address location=\"https://wslwebservices.leg.wa.gov/SponsorService.asmx\"
+        />\r\n    </wsdl:port>\r\n  </wsdl:service>\r\n</wsdl:definitions>"
+    headers:
+      Cache-Control:
+      - private, max-age=0
+      Content-Length:
+      - '20302'
+      Content-Type:
+      - text/xml; charset=utf-8
+      Date:
+      - Mon, 06 Jul 2026 18:02:02 GMT
+      Server:
+      - Microsoft-IIS/10.0
+      Server-Timing:
+      - dtTrId;desc="ed95b0fdec1509e9a055297650d4513e", dtSInfo;desc="0"
+      - dtRpid;desc="-1977500031"
+      Set-Cookie:
+      - dtCookie=v_4_srv_3_sn_9D9A47D775DF9ECBAE6E2949A3481349_perc_100000_ol_0_mul_1_app-3A58b9dc846cbd8ccb_1_rcs-3Acss_0;
+        Path=/; Domain=.wa.gov
+      X-AspNet-Version:
+      - 4.0.30319
+      X-Powered-By:
+      - ASP.NET
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '<?xml version=''1.0'' encoding=''utf-8''?>
+
+      <soap-env:Envelope xmlns:soap-env="http://schemas.xmlsoap.org/soap/envelope/"><soap-env:Body><ns0:GetSponsors
+      xmlns:ns0="http://WSLWebServices.leg.wa.gov/"><ns0:biennium>2025-26</ns0:biennium></ns0:GetSponsors></soap-env:Body></soap-env:Envelope>'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '285'
+      Content-Type:
+      - text/xml; charset=utf-8
+      Cookie:
+      - dtCookie=v_4_srv_3_sn_9D9A47D775DF9ECBAE6E2949A3481349_perc_100000_ol_0_mul_1_app-3A58b9dc846cbd8ccb_1_rcs-3Acss_0
+      SOAPAction:
+      - '"http://WSLWebServices.leg.wa.gov/GetSponsors"'
+      User-Agent:
+      - Zeep/4.3.2 (www.python-zeep.org)
+    method: POST
+    uri: https://wslwebservices.leg.wa.gov/SponsorService.asmx
+  response:
+    body:
+      string: "<?xml version=\"1.0\" encoding=\"utf-8\"?><soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\"
+        xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\"><soap:Body><GetSponsorsResponse
+        xmlns=\"http://WSLWebServices.leg.wa.gov/\"><GetSponsorsResult><Member><Id>31526</Id><Name>Peter
+        Abbarno</Name><LongName>Representative Abbarno</LongName><Agency>House</Agency><Acronym>ABBA</Acronym><Party>R</Party><District>20</District><Phone>(360)
+        786-7896</Phone><Email>Peter.Abbarno@leg.wa.gov</Email><FirstName>Peter</FirstName><LastName>Abbarno</LastName></Member><Member><Id>35407</Id><Name>Hunter
+        Abell</Name><LongName>Representative Abell</LongName><Agency>House</Agency><Acronym>ABEL</Acronym><Party>R</Party><District>7</District><Phone>(360)
+        786-7988</Phone><Email>Hunter.Abell@leg.wa.gov</Email><FirstName>Hunter</FirstName><LastName>Abell</LastName></Member><Member><Id>34024</Id><Name>Emily
+        Alvarado</Name><LongName>Representative Alvarado</LongName><Agency>House</Agency><Acronym>ALVA</Acronym><Party>D</Party><District>34</District><Phone>(360)
+        786-7978</Phone><Email>Emily.Alvarado@leg.wa.gov</Email><FirstName>Emily</FirstName><LastName>Alvarado</LastName></Member><Member><Id>24075</Id><Name>Andrew
+        Barkis</Name><LongName>Representative Barkis</LongName><Agency>House</Agency><Acronym>BARK</Acronym><Party>R</Party><District>2</District><Phone>(360)
+        786-7824</Phone><Email>andrew.barkis@leg.wa.gov</Email><FirstName>Andrew</FirstName><LastName>Barkis</LastName></Member><Member><Id>34025</Id><Name>Stephanie
+        Barnard</Name><LongName>Representative Barnard</LongName><Agency>House</Agency><Acronym>BARN</Acronym><Party>R</Party><District>8</District><Phone>(360)
+        786-7986</Phone><Email>Stephanie.Barnard@leg.wa.gov</Email><FirstName>Stephanie</FirstName><LastName>Barnard</LastName></Member><Member><Id>31534</Id><Name>April
+        Berg</Name><LongName>Representative Berg</LongName><Agency>House</Agency><Acronym>BER</Acronym><Party>D</Party><District>44</District><Phone>(360)
+        786-7892</Phone><Email>April.Berg@leg.wa.gov</Email><FirstName>April</FirstName><LastName>Berg</LastName></Member><Member><Id>17227</Id><Name>Steve
+        Bergquist</Name><LongName>Representative Bergquist</LongName><Agency>House</Agency><Acronym>BERG</Acronym><Party>D</Party><District>11</District><Phone>(360)
+        786-7862</Phone><Email>steve.bergquist@leg.wa.gov</Email><FirstName>Steve</FirstName><LastName>Bergquist</LastName></Member><Member><Id>34240</Id><Name>Adam
+        Bernbaum</Name><LongName>Representative Bernbaum</LongName><Agency>House</Agency><Acronym>BERN</Acronym><Party>D</Party><District>24</District><Phone>(360)
+        786-7916</Phone><Email>BERNBAUM_AD@leg.wa.gov</Email><FirstName>Adam</FirstName><LastName>Bernbaum</LastName></Member><Member><Id>31531</Id><Name>Liz
+        Berry</Name><LongName>Representative Berry</LongName><Agency>House</Agency><Acronym>BERR</Acronym><Party>D</Party><District>36</District><Phone>(360)
+        786-7860</Phone><Email>Liz.Berry@leg.wa.gov</Email><FirstName>Liz</FirstName><LastName>Berry</LastName></Member><Member><Id>31529</Id><Name>Dan
+        Bronoske</Name><LongName>Representative Bronoske</LongName><Agency>House</Agency><Acronym>BRON</Acronym><Party>D</Party><District>28</District><Phone>(360)
+        786-7958</Phone><Email>Dan.Bronoske@leg.wa.gov</Email><FirstName>Dan</FirstName><LastName>Bronoske</LastName></Member><Member><Id>35408</Id><Name>Brian
+        Burnett</Name><LongName>Representative Burnett</LongName><Agency>House</Agency><Acronym>BURN</Acronym><Party>R</Party><District>12</District><Phone>(360)
+        786-7954</Phone><Email>Brian.Burnett@leg.wa.gov</Email><FirstName>Brian</FirstName><LastName>Burnett</LastName></Member><Member><Id>29092</Id><Name>Lisa
+        Callan</Name><LongName>Representative Callan</LongName><Agency>House</Agency><Acronym>CALL</Acronym><Party>D</Party><District>5</District><Phone>(360)
+        786-7876</Phone><Email>lisa.callan@leg.wa.gov</Email><FirstName>Lisa</FirstName><LastName>Callan</LastName></Member><Member><Id>31521</Id><Name>Rob
+        Chase</Name><LongName>Representative Chase</LongName><Agency>House</Agency><Acronym>CHAS</Acronym><Party>R</Party><District>4</District><Phone>(360)
+        786-7984</Phone><Email>Rob.Chase@leg.wa.gov</Email><FirstName>Rob</FirstName><LastName>Chase</LastName></Member><Member><Id>34027</Id><Name>April
+        Connors</Name><LongName>Representative Connors</LongName><Agency>House</Agency><Acronym>CONN</Acronym><Party>R</Party><District>8</District><Phone>(360)
+        786-7882</Phone><Email>April.Connors@leg.wa.gov</Email><FirstName>April</FirstName><LastName>Connors</LastName></Member><Member><Id>29097</Id><Name>Chris
+        Corry</Name><LongName>Representative Corry</LongName><Agency>House</Agency><Acronym>CORR</Acronym><Party>R</Party><District>15</District><Phone>(360)
+        786-7810</Phone><Email>chris.corry@leg.wa.gov</Email><FirstName>Chris</FirstName><LastName>Corry</LastName></Member><Member><Id>34028</Id><Name>Julio
+        Cortes</Name><LongName>Representative Cortes</LongName><Agency>House</Agency><Acronym>CORT</Acronym><Party>D</Party><District>38</District><Phone>(360)
+        786-7840</Phone><Email>Julio.Cortes@leg.wa.gov</Email><FirstName>Julio</FirstName><LastName>Cortes</LastName></Member><Member><Id>34029</Id><Name>Travis
+        Couture</Name><LongName>Representative Couture</LongName><Agency>House</Agency><Acronym>COUT</Acronym><Party>R</Party><District>35</District><Phone>(360)
+        786-7902</Phone><Email>Travis.Couture@leg.wa.gov</Email><FirstName>Travis</FirstName><LastName>Couture</LastName></Member><Member><Id>29104</Id><Name>Lauren
+        Davis</Name><LongName>Representative Davis</LongName><Agency>House</Agency><Acronym>DAVI</Acronym><Party>D</Party><District>32</District><Phone>(360)
+        786-7910</Phone><Email>lauren.davis@leg.wa.gov</Email><FirstName>Lauren</FirstName><LastName>Davis</LastName></Member><Member><Id>20761</Id><Name>Tom
+        Dent</Name><LongName>Representative Dent</LongName><Agency>House</Agency><Acronym>DENT</Acronym><Party>R</Party><District>13</District><Phone>(360)
+        786-7932</Phone><Email>tom.dent@leg.wa.gov</Email><FirstName>Tom</FirstName><LastName>Dent</LastName></Member><Member><Id>26175</Id><Name>Beth
+        Doglio</Name><LongName>Representative Doglio</LongName><Agency>House</Agency><Acronym>DOGL</Acronym><Party>D</Party><District>22</District><Phone>(360)
+        786-7940</Phone><Email>beth.doglio@leg.wa.gov</Email><FirstName>Beth</FirstName><LastName>Doglio</LastName></Member><Member><Id>33818</Id><Name>Brandy
+        Donaghy</Name><LongName>Representative Donaghy</LongName><Agency>House</Agency><Acronym>DONA</Acronym><Party>D</Party><District>44</District><Phone>(360)
+        786-7804</Phone><Email>Brandy.Donaghy@leg.wa.gov</Email><FirstName>Brandy</FirstName><LastName>Donaghy</LastName></Member><Member><Id>29877</Id><Name>Davina
+        Duerr</Name><LongName>Representative Duerr</LongName><Agency>House</Agency><Acronym>DUER</Acronym><Party>D</Party><District>1</District><Phone>(360)
+        786-7928</Phone><Email>davina.duerr@leg.wa.gov</Email><FirstName>Davina</FirstName><LastName>Duerr</LastName></Member><Member><Id>29098</Id><Name>Jeremie
+        Dufault</Name><LongName>Representative Dufault</LongName><Agency>House</Agency><Acronym>DUFA</Acronym><Party>R</Party><District>15</District><Phone>(360)
+        786-7874</Phone><Email>DUFAULT_JE@leg.wa.gov</Email><FirstName>Jeremie</FirstName><LastName>Dufault</LastName></Member><Member><Id>21490</Id><Name>Mary
+        Dye</Name><LongName>Representative Dye</LongName><Agency>House</Agency><Acronym>DYEM</Acronym><Party>R</Party><District>9</District><Phone>(360)
+        786-7942</Phone><Email>mary.dye@leg.wa.gov</Email><FirstName>Mary</FirstName><LastName>Dye</LastName></Member><Member><Id>35409</Id><Name>Andrew
+        Engell</Name><LongName>Representative Engell</LongName><Agency>House</Agency><Acronym>ENGE</Acronym><Party>R</Party><District>7</District><Phone>(360)
+        786-7908</Phone><Email>Andrew.Engell@leg.wa.gov</Email><FirstName>Andrew</FirstName><LastName>Engell</LastName></Member><Member><Id>11403</Id><Name>Debra
+        Entenman</Name><LongName>Representative Entenman</LongName><Agency>House</Agency><Acronym>ENTE</Acronym><Party>D</Party><District>47</District><Phone>(360)
+        786-7918</Phone><Email>debra.entenman@leg.wa.gov</Email><FirstName>Debra</FirstName><LastName>Entenman</LastName></Member><Member><Id>27988</Id><Name>Carolyn
+        Eslick</Name><LongName>Representative Eslick</LongName><Agency>House</Agency><Acronym>ESLI</Acronym><Party>R</Party><District>39</District><Phone>(360)
+        786-7816</Phone><Email>carolyn.eslick@leg.wa.gov</Email><FirstName>Carolyn</FirstName><LastName>Eslick</LastName></Member><Member><Id>34030</Id><Name>Darya
+        Farivar</Name><LongName>Representative Farivar</LongName><Agency>House</Agency><Acronym>FARI</Acronym><Party>D</Party><District>46</District><Phone>(360)
+        786-7818</Phone><Email>Darya.Farivar@leg.wa.gov</Email><FirstName>Darya</FirstName><LastName>Farivar</LastName></Member><Member><Id>17241</Id><Name>Jake
+        Fey</Name><LongName>Representative Fey</LongName><Agency>House</Agency><Acronym>FEYJ</Acronym><Party>D</Party><District>27</District><Phone>(360)
+        786-7974</Phone><Email>jake.fey@leg.wa.gov</Email><FirstName>Jake</FirstName><LastName>Fey</LastName></Member><Member><Id>13198</Id><Name>Joe
+        Fitzgibbon</Name><LongName>Representative Fitzgibbon</LongName><Agency>House</Agency><Acronym>FITZ</Acronym><Party>D</Party><District>34</District><Phone>(360)
+        786-7952</Phone><Email>joe.fitzgibbon@leg.wa.gov</Email><FirstName>Joe</FirstName><LastName>Fitzgibbon</LastName></Member><Member><Id>31542</Id><Name>Mary
+        Fosse</Name><LongName>Representative Fosse</LongName><Agency>House</Agency><Acronym>FOSS</Acronym><Party>D</Party><District>38</District><Phone>(360)
+        786-7864</Phone><Email>Mary.Fosse@leg.wa.gov</Email><FirstName>Mary</FirstName><LastName>Fosse</LastName></Member><Member><Id>11999</Id><Name>Roger
+        Goodman</Name><LongName>Representative Goodman</LongName><Agency>House</Agency><Acronym>GOOD</Acronym><Party>D</Party><District>45</District><Phone>(360)
+        786-7878</Phone><Email>roger.goodman@leg.wa.gov</Email><FirstName>Roger</FirstName><LastName>Goodman</LastName></Member><Member><Id>29093</Id><Name>Jenny
+        Graham</Name><LongName>Representative Graham</LongName><Agency>House</Agency><Acronym>GRAH</Acronym><Party>R</Party><District>6</District><Phone>(360)
+        786-7962</Phone><Email>jenny.graham@leg.wa.gov</Email><FirstName>Jenny</FirstName><LastName>Graham</LastName></Member><Member><Id>18264</Id><Name>Mia
+        Gregerson</Name><LongName>Representative Gregerson</LongName><Agency>House</Agency><Acronym>GREG</Acronym><Party>D</Party><District>33</District><Phone>(360)
+        786-7868</Phone><Email>mia.gregerson@leg.wa.gov</Email><FirstName>Mia</FirstName><LastName>Gregerson</LastName></Member><Member><Id>20752</Id><Name>Dan
+        Griffey</Name><LongName>Representative Griffey</LongName><Agency>House</Agency><Acronym>GRIF</Acronym><Party>R</Party><District>35</District><Phone>(360)
+        786-7966</Phone><Email>dan.griffey@leg.wa.gov</Email><FirstName>Dan</FirstName><LastName>Griffey</LastName></Member><Member><Id>31523</Id><Name>David
+        Hackney</Name><LongName>Representative Hackney</LongName><Agency>House</Agency><Acronym>HACK</Acronym><Party>D</Party><District>11</District><Phone>(360)
+        786-7956</Phone><Email>David.Hackney@leg.wa.gov</Email><FirstName>David</FirstName><LastName>Hackney</LastName></Member><Member><Id>27391</Id><Name>Zach
+        Hall</Name><LongName>Representative Hall</LongName><Agency>House</Agency><Acronym>HALL</Acronym><Party>D</Party><District>5</District><Phone>(360)
+        786-7852</Phone><Email>HALL_ZA@leg.wa.gov</Email><FirstName>Zach</FirstName><LastName>Hall</LastName></Member><Member><Id>35429</Id><Name>Natasha
+        Hill</Name><LongName>Representative Hill</LongName><Agency>House</Agency><Acronym>HILL</Acronym><Party>D</Party><District>3</District><Phone>(360)
+        786-7888</Phone><Email>Natasha.Hill@leg.wa.gov</Email><FirstName>Natasha</FirstName><LastName>Hill</LastName></Member><Member><Id>35410</Id><Name>Victoria
+        Hunt</Name><LongName>Representative Hunt</LongName><Agency>House</Agency><Acronym>HUNV</Acronym><Party>D</Party><District>5</District><Phone>(360)
+        786-7852</Phone><Email>Victoria.Hunt@leg.wa.gov</Email><FirstName>Victoria</FirstName><LastName>Hunt</LastName></Member><Member><Id>31528</Id><Name>Cyndy
+        Jacobsen</Name><LongName>Representative Jacobsen</LongName><Agency>House</Agency><Acronym>JACO</Acronym><Party>R</Party><District>25</District><Phone>(360)
+        786-7968</Phone><Email>Cyndy.Jacobsen@leg.wa.gov</Email><FirstName>Cyndy</FirstName><LastName>Jacobsen</LastName></Member><Member><Id>15817</Id><Name>Laurie
+        Jinkins</Name><LongName>Representative Jinkins</LongName><Agency>House</Agency><Acronym>JINK</Acronym><Party>D</Party><District>27</District><Phone>(360)
+        786-7930</Phone><Email>laurie.jinkins@leg.wa.gov</Email><FirstName>Laurie</FirstName><LastName>Jinkins</LastName></Member><Member><Id>35411</Id><Name>Michael
+        Keaton</Name><LongName>Representative Keaton</LongName><Agency>House</Agency><Acronym>KEAT</Acronym><Party>R</Party><District>25</District><Phone>(360)
+        786-7948</Phone><Email>Michael.Keaton@leg.wa.gov</Email><FirstName>Michael</FirstName><LastName>Keaton</LastName></Member><Member><Id>20753</Id><Name>Chris
+        Kilduff</Name><LongName>Representative Kilduff</LongName><Agency>House</Agency><Acronym>KILD</Acronym><Party>D</Party><District>28</District><Phone>(360)
+        786-7174</Phone><Email>KILDUFF_CH@leg.wa.gov</Email><FirstName>Chris</FirstName><LastName>Kilduff</LastName></Member><Member><Id>31524</Id><Name>Mark
+        Klicker</Name><LongName>Representative Klicker</LongName><Agency>House</Agency><Acronym>KLIC</Acronym><Party>R</Party><District>16</District><Phone>(360)
+        786-7836</Phone><Email>Mark.Klicker@leg.wa.gov</Email><FirstName>Mark</FirstName><LastName>Klicker</LastName></Member><Member><Id>26168</Id><Name>Shelley
+        Kloba</Name><LongName>Representative Kloba</LongName><Agency>House</Agency><Acronym>KLOB</Acronym><Party>D</Party><District>1</District><Phone>(360)
+        786-7900</Phone><Email>shelley.kloba@leg.wa.gov</Email><FirstName>Shelley</FirstName><LastName>Kloba</LastName></Member><Member><Id>29102</Id><Name>Mari
+        Leavitt</Name><LongName>Representative Leavitt</LongName><Agency>House</Agency><Acronym>LEAV</Acronym><Party>D</Party><District>28</District><Phone>(360)
+        786-7890</Phone><Email>mari.leavitt@leg.wa.gov</Email><FirstName>Mari</FirstName><LastName>Leavitt</LastName></Member><Member><Id>29106</Id><Name>Debra
+        Lekanoff</Name><LongName>Representative Lekanoff</LongName><Agency>House</Agency><Acronym>LEKA</Acronym><Party>D</Party><District>40</District><Phone>(360)
+        786-7800</Phone><Email>debra.lekanoff@leg.wa.gov</Email><FirstName>Debra</FirstName><LastName>Lekanoff</LastName></Member><Member><Id>35422</Id><Name>John
+        Ley</Name><LongName>Representative Ley</LongName><Agency>House</Agency><Acronym>LEYJ</Acronym><Party>R</Party><District>18</District><Phone>(360)
+        786-7812</Phone><Email>John.Ley@leg.wa.gov</Email><FirstName>John</FirstName><LastName>Ley</LastName></Member><Member><Id>34031</Id><Name>Sam
+        Low</Name><LongName>Representative Low</LongName><Agency>House</Agency><Acronym>LOW</Acronym><Party>R</Party><District>39</District><Phone>(360)
+        786-7967</Phone><Email>Sam.Low@leg.wa.gov</Email><FirstName>Sam</FirstName><LastName>Low</LastName></Member><Member><Id>26178</Id><Name>Nicole
+        Macri</Name><LongName>Representative Macri</LongName><Agency>House</Agency><Acronym>MACR</Acronym><Party>D</Party><District>43</District><Phone>(360)
+        786-7826</Phone><Email>nicole.macri@leg.wa.gov</Email><FirstName>Nicole</FirstName><LastName>Macri</LastName></Member><Member><Id>35412</Id><Name>Deb
+        Manjarrez</Name><LongName>Representative Manjarrez</LongName><Agency>House</Agency><Acronym>MANJ</Acronym><Party>R</Party><District>14</District><Phone>(360)
+        786-7856</Phone><Email>Deb.Manjarrez@leg.wa.gov</Email><FirstName>Deb</FirstName><LastName>Manjarrez</LastName></Member><Member><Id>35413</Id><Name>Matt
+        Marshall</Name><LongName>Representative Marshall</LongName><Agency>House</Agency><Acronym>MARS</Acronym><Party>R</Party><District>2</District><Phone>(360)
+        786-7912</Phone><Email>Matt.Marshall@leg.wa.gov</Email><FirstName>Matt</FirstName><LastName>Marshall</LastName></Member><Member><Id>34032</Id><Name>Stephanie
+        McClintock</Name><LongName>Representative McClintock</LongName><Agency>House</Agency><Acronym>MCCL</Acronym><Party>R</Party><District>18</District><Phone>(360)
+        786-7850</Phone><Email>Stephanie.McClintock@leg.wa.gov</Email><FirstName>Stephanie</FirstName><LastName>McClintock</LastName></Member><Member><Id>31525</Id><Name>Joel
+        McEntire</Name><LongName>Representative McEntire</LongName><Agency>House</Agency><Acronym>MCEN</Acronym><Party>R</Party><District>19</District><Phone>(360)
+        786-7870</Phone><Email>Joel.McEntire@leg.wa.gov</Email><FirstName>Joel</FirstName><LastName>McEntire</LastName></Member><Member><Id>27494</Id><Name>Sharlett
+        Mena</Name><LongName>Representative Mena</LongName><Agency>House</Agency><Acronym>MENA</Acronym><Party>D</Party><District>29</District><Phone>(360)
+        786-7996</Phone><Email>sharlett.mena@leg.wa.gov</Email><FirstName>Sharlett</FirstName><LastName>Mena</LastName></Member><Member><Id>35414</Id><Name>Gloria
+        Mendoza</Name><LongName>Representative Mendoza</LongName><Agency>House</Agency><Acronym>MEND</Acronym><Party>R</Party><District>14</District><Phone>(360)
+        786-7960</Phone><Email>Gloria.Mendoza@leg.wa.gov</Email><FirstName>Gloria</FirstName><LastName>Mendoza</LastName></Member><Member><Id>29103</Id><Name>Melanie
+        Morgan</Name><LongName>Representative Morgan</LongName><Agency>House</Agency><Acronym>MORG</Acronym><Party>D</Party><District>29</District><Phone>(360)
+        786-7906</Phone><Email>melanie.morgan@leg.wa.gov</Email><FirstName>Melanie</FirstName><LastName>Morgan</LastName></Member><Member><Id>34760</Id><Name>Greg
+        Nance</Name><LongName>Representative Nance</LongName><Agency>House</Agency><Acronym>NANC</Acronym><Party>D</Party><District>23</District><Phone>(360)
+        786-7842</Phone><Email>Greg.Nance@leg.wa.gov</Email><FirstName>Greg</FirstName><LastName>Nance</LastName></Member><Member><Id>35464</Id><Name>Edwin
+        Obras</Name><LongName>Representative Obras</LongName><Agency>House</Agency><Acronym>OBRA</Acronym><Party>D</Party><District>33</District><Phone>(360)
+        786-7834</Phone><Email>Edwin.Obras@leg.wa.gov</Email><FirstName>Edwin</FirstName><LastName>Obras</LastName></Member><Member><Id>7635</Id><Name>Ed
+        Orcutt</Name><LongName>Representative Orcutt</LongName><Agency>House</Agency><Acronym>ORCU</Acronym><Party>R</Party><District>20</District><Phone>(360)
+        786-7990</Phone><Email>ed.orcutt@leg.wa.gov</Email><FirstName>Ed</FirstName><LastName>Orcutt</LastName></Member><Member><Id>9207</Id><Name>Timm
+        Ormsby</Name><LongName>Representative Ormsby</LongName><Agency>House</Agency><Acronym>ORMS</Acronym><Party>D</Party><District>3</District><Phone>(360)
+        786-7946</Phone><Email>timm.ormsby@leg.wa.gov</Email><FirstName>Timm</FirstName><LastName>Ormsby</LastName></Member><Member><Id>18546</Id><Name>Lillian
+        Ortiz-Self</Name><LongName>Representative Ortiz-Self</LongName><Agency>House</Agency><Acronym>ORTI</Acronym><Party>D</Party><District>21</District><Phone>(360)
+        786-7972</Phone><Email>lillian.ortiz-self@leg.wa.gov</Email><FirstName>Lillian</FirstName><LastName>Ortiz-Self</LastName></Member><Member><Id>14205</Id><Name>
+        </Name><LongName>Representative </LongName><Agency>House</Agency><Acronym
+        /><Party /><District /><Phone /><Email /><FirstName /><LastName /></Member><Member><Id>35415</Id><Name>Lisa
+        Parshley</Name><LongName>Representative Parshley</LongName><Agency>House</Agency><Acronym>PARS</Acronym><Party>D</Party><District>22</District><Phone>(360)
+        786-7992</Phone><Email>Lisa.Parshley@leg.wa.gov</Email><FirstName>Lisa</FirstName><LastName>Parshley</LastName></Member><Member><Id>29095</Id><Name>Dave
+        Paul</Name><LongName>Representative Paul</LongName><Agency>House</Agency><Acronym>PAUL</Acronym><Party>D</Party><District>10</District><Phone>(360)
+        786-7914</Phone><Email>dave.paul@leg.wa.gov</Email><FirstName>Dave</FirstName><LastName>Paul</LastName></Member><Member><Id>35416</Id><Name>Joshua
+        Penner</Name><LongName>Representative Penner</LongName><Agency>House</Agency><Acronym>PENN</Acronym><Party>R</Party><District>31</District><Phone>(360)
+        786-7866</Phone><Email>Joshua.Penner@leg.wa.gov</Email><FirstName>Joshua</FirstName><LastName>Penner</LastName></Member><Member><Id>20755</Id><Name>Strom
+        Peterson</Name><LongName>Representative Peterson</LongName><Agency>House</Agency><Acronym>PETE</Acronym><Party>D</Party><District>21</District><Phone>(360)
+        786-7950</Phone><Email>strom.peterson@leg.wa.gov</Email><FirstName>Strom</FirstName><LastName>Peterson</LastName></Member><Member><Id>16596</Id><Name>Gerry
+        Pollet</Name><LongName>Representative Pollet</LongName><Agency>House</Agency><Acronym>POLL</Acronym><Party>D</Party><District>46</District><Phone>(360)
+        786-7886</Phone><Email>gerry.pollet@leg.wa.gov</Email><FirstName>Gerry</FirstName><LastName>Pollet</LastName></Member><Member><Id>30127</Id><Name>Alex
+        Ramel</Name><LongName>Representative Ramel</LongName><Agency>House</Agency><Acronym>RAME</Acronym><Party>D</Party><District>40</District><Phone>(360)
+        786-7970</Phone><Email>alex.ramel@leg.wa.gov</Email><FirstName>Alex</FirstName><LastName>Ramel</LastName></Member><Member><Id>34033</Id><Name>Julia
+        Reed</Name><LongName>Representative Reed</LongName><Agency>House</Agency><Acronym>REED</Acronym><Party>D</Party><District>36</District><Phone>(360)
+        786-7814</Phone><Email>Julia.Reed@leg.wa.gov</Email><FirstName>Julia</FirstName><LastName>Reed</LastName></Member><Member><Id>27182</Id><Name>Kristine
+        Reeves</Name><LongName>Representative Reeves</LongName><Agency>House</Agency><Acronym>REEV</Acronym><Party>D</Party><District>30</District><Phone>(360)
+        786-7830</Phone><Email>kristine.reeves@leg.wa.gov</Email><FirstName>Kristine</FirstName><LastName>Reeves</LastName></Member><Member><Id>20893</Id><Name>Adison
+        Richards</Name><LongName>Representative Richards</LongName><Agency>House</Agency><Acronym>RICH</Acronym><Party>D</Party><District>26</District><Phone>(360)
+        786-7964</Phone><Email>RICHARDS_AD@leg.wa.gov</Email><FirstName>Adison</FirstName><LastName>Richards</LastName></Member><Member><Id>20837</Id><Name>Skyler
+        Rude</Name><LongName>Representative Rude</LongName><Agency>House</Agency><Acronym>RUDE</Acronym><Party>R</Party><District>16</District><Phone>(360)
+        786-7828</Phone><Email>skyler.rude@leg.wa.gov</Email><FirstName>Skyler</FirstName><LastName>Rude</LastName></Member><Member><Id>31533</Id><Name>Alicia
+        Rule</Name><LongName>Representative Rule</LongName><Agency>House</Agency><Acronym>RULE</Acronym><Party>D</Party><District>42</District><Phone>(360)
+        786-7980</Phone><Email>Alicia.Rule@leg.wa.gov</Email><FirstName>Alicia</FirstName><LastName>Rule</LastName></Member><Member><Id>15736</Id><Name>Cindy
+        Ryu</Name><LongName>Representative Ryu</LongName><Agency>House</Agency><Acronym>RYUC</Acronym><Party>D</Party><District>32</District><Phone>(360)
+        786-7880</Phone><Email>cindy.ryu@leg.wa.gov</Email><FirstName>Cindy</FirstName><LastName>Ryu</LastName></Member><Member><Id>35655</Id><Name>Osman
+        Salahuddin</Name><LongName>Representative Salahuddin</LongName><Agency>House</Agency><Acronym>SALA</Acronym><Party>D</Party><District>48</District><Phone>(360)
+        786-7936</Phone><Email>Osman.Salahuddin@leg.wa.gov</Email><FirstName>Osman</FirstName><LastName>Salahuddin</LastName></Member><Member><Id>3483</Id><Name>Sharon
+        Tomiko Santos</Name><LongName>Representative Santos</LongName><Agency>House</Agency><Acronym>SANT</Acronym><Party>D</Party><District>37</District><Phone>(360)
+        786-7944</Phone><Email>sharontomiko.santos@leg.wa.gov</Email><FirstName>Sharon
+        Tomiko</FirstName><LastName>Santos</LastName></Member><Member><Id>13209</Id><Name>Joe
+        Schmick</Name><LongName>Representative Schmick</LongName><Agency>House</Agency><Acronym>SHMK</Acronym><Party>R</Party><District>9</District><Phone>(360)
+        786-7844</Phone><Email>joe.schmick@leg.wa.gov</Email><FirstName>Joe</FirstName><LastName>Schmick</LastName></Member><Member><Id>34035</Id><Name>Suzanne
+        Schmidt</Name><LongName>Representative Schmidt</LongName><Agency>House</Agency><Acronym>SCHM</Acronym><Party>R</Party><District>4</District><Phone>(360)
+        786-7820</Phone><Email>Suzanne.Schmidt@leg.wa.gov</Email><FirstName>Suzanne</FirstName><LastName>Schmidt</LastName></Member><Member><Id>35430</Id><Name>Shaun
+        Scott</Name><LongName>Representative Scott</LongName><Agency>House</Agency><Acronym>SCOT</Acronym><Party>D</Party><District>43</District><Phone>(360)
+        786-7920</Phone><Email>Shaun.Scott@leg.wa.gov</Email><FirstName>Shaun</FirstName><LastName>Scott</LastName></Member><Member><Id>18057</Id><Name>Tana
+        Senn</Name><LongName>Representative Senn</LongName><Agency>House</Agency><Acronym>SENN</Acronym><Party>D</Party><District>41</District><Phone>(360)
+        786-7894</Phone><Email>tana.senn@leg.wa.gov</Email><FirstName>Tana</FirstName><LastName>Senn</LastName></Member><Member><Id>34050</Id><Name>Clyde
+        Shavers</Name><LongName>Representative Shavers</LongName><Agency>House</Agency><Acronym>SHAV</Acronym><Party>D</Party><District>10</District><Phone>(360)
+        786-7884</Phone><Email>Clyde.Shavers@leg.wa.gov</Email><FirstName>Clyde</FirstName><LastName>Shavers</LastName></Member><Member><Id>31527</Id><Name>Tarra
+        Simmons</Name><LongName>Representative Simmons</LongName><Agency>House</Agency><Acronym>SIMM</Acronym><Party>D</Party><District>23</District><Phone>(360)
+        786-7934</Phone><Email>Tarra.Simmons@leg.wa.gov</Email><FirstName>Tarra</FirstName><LastName>Simmons</LastName></Member><Member><Id>27504</Id><Name>
+        </Name><LongName>Representative </LongName><Agency>House</Agency><Acronym
+        /><Party /><District /><Phone /><Email /><FirstName /><LastName /></Member><Member><Id>10039</Id><Name>Larry
+        Springer</Name><LongName>Representative Springer</LongName><Agency>House</Agency><Acronym>SPRI</Acronym><Party>D</Party><District>45</District><Phone>(360)
+        786-7822</Phone><Email>larry.springer@leg.wa.gov</Email><FirstName>Larry</FirstName><LastName>Springer</LastName></Member><Member><Id>34023</Id><Name>Chris
+        Stearns</Name><LongName>Representative Stearns</LongName><Agency>House</Agency><Acronym>STEA</Acronym><Party>D</Party><District>47</District><Phone>(360)
+        786-7858</Phone><Email>Chris.Stearns@leg.wa.gov</Email><FirstName>Chris</FirstName><LastName>Stearns</LastName></Member><Member><Id>10546</Id><Name>Mike
+        Steele</Name><LongName>Representative Steele</LongName><Agency>House</Agency><Acronym>STEE</Acronym><Party>R</Party><District>12</District><Phone>(360)
+        786-7832</Phone><Email>mike.steele@leg.wa.gov</Email><FirstName>Mike</FirstName><LastName>Steele</LastName></Member><Member><Id>20756</Id><Name>Drew
+        Stokesbary</Name><LongName>Representative Stokesbary</LongName><Agency>House</Agency><Acronym>STOK</Acronym><Party>R</Party><District>31</District><Phone>(360)
+        786-7846</Phone><Email>drew.stokesbary@leg.wa.gov</Email><FirstName>Drew</FirstName><LastName>Stokesbary</LastName></Member><Member><Id>17279</Id><Name>Monica
+        Jurado Stonier</Name><LongName>Representative Stonier</LongName><Agency>House</Agency><Acronym>STON</Acronym><Party>D</Party><District>49</District><Phone>(360)
+        786-7872</Phone><Email>monica.stonier@leg.wa.gov</Email><FirstName>Monica
+        Jurado</FirstName><LastName>Stonier</LastName></Member><Member><Id>34036</Id><Name>Chipalo
+        Street</Name><LongName>Representative Street</LongName><Agency>House</Agency><Acronym>STRE</Acronym><Party>D</Party><District>37</District><Phone>(360)
+        786-7838</Phone><Email>Chipalo.Street@leg.wa.gov</Email><FirstName>Chipalo</FirstName><LastName>Street</LastName></Member><Member><Id>35431</Id><Name>David
+        Stuebe</Name><LongName>Representative Stuebe</LongName><Agency>House</Agency><Acronym>STUE</Acronym><Party>R</Party><District>17</District><Phone>(360)
+        786-7976</Phone><Email>David.Stuebe@leg.wa.gov</Email><FirstName>David</FirstName><LastName>Stuebe</LastName></Member><Member><Id>31530</Id><Name>Jamila
+        Taylor</Name><LongName>Representative Taylor</LongName><Agency>House</Agency><Acronym>TAYL</Acronym><Party>D</Party><District>30</District><Phone>(360)
+        786-7898</Phone><Email>Jamila.Taylor@leg.wa.gov</Email><FirstName>Jamila</FirstName><LastName>Taylor</LastName></Member><Member><Id>29107</Id><Name>My-Linh
+        Thai</Name><LongName>Representative Thai</LongName><Agency>House</Agency><Acronym>THAI</Acronym><Party>D</Party><District>41</District><Phone>(360)
+        786-7926</Phone><Email>my-linh.thai@leg.wa.gov</Email><FirstName>My-Linh</FirstName><LastName>Thai</LastName></Member><Member><Id>15816</Id><Name>Steve
+        Tharinger</Name><LongName>Representative Tharinger</LongName><Agency>House</Agency><Acronym>THAR</Acronym><Party>D</Party><District>24</District><Phone>(360)
+        786-7904</Phone><Email>steve.tharinger@leg.wa.gov</Email><FirstName>Steve</FirstName><LastName>Tharinger</LastName></Member><Member><Id>15410</Id><Name>Brianna
+        Thomas</Name><LongName>Representative Thomas</LongName><Agency>House</Agency><Acronym>THOM</Acronym><Party>D</Party><District>34</District><Phone>(360)
+        786-7978</Phone><Email>THOMAS_BR@leg.wa.gov</Email><FirstName>Brianna</FirstName><LastName>Thomas</LastName></Member><Member><Id>34037</Id><Name>Joe
+        Timmons</Name><LongName>Representative Timmons</LongName><Agency>House</Agency><Acronym>TIMM</Acronym><Party>D</Party><District>42</District><Phone>(360)
+        786-7854</Phone><Email>Joe.Timmons@leg.wa.gov</Email><FirstName>Joe</FirstName><LastName>Timmons</LastName></Member><Member><Id>20760</Id><Name>Michelle
+        Valdez</Name><LongName>Representative Valdez</LongName><Agency>House</Agency><Acronym>VALM</Acronym><Party>R</Party><District>26</District><Phone>(360)
+        786-7802</Phone><Email>Michelle.Valdez@leg.wa.gov</Email><FirstName>Michelle</FirstName><LastName>Valdez</LastName></Member><Member><Id>26170</Id><Name>Mike
+        Volz</Name><LongName>Representative Volz</LongName><Agency>House</Agency><Acronym>VOLZ</Acronym><Party>R</Party><District>6</District><Phone>(360)
+        786-7922</Phone><Email>mike.volz@leg.wa.gov</Email><FirstName>Mike</FirstName><LastName>Volz</LastName></Member><Member><Id>29109</Id><Name>Amy
+        Walen</Name><LongName>Representative Walen</LongName><Agency>House</Agency><Acronym>WALE</Acronym><Party>D</Party><District>48</District><Phone>(360)
+        786-7848</Phone><Email>amy.walen@leg.wa.gov</Email><FirstName>Amy</FirstName><LastName>Walen</LastName></Member><Member><Id>27181</Id><Name>Jim
+        Walsh</Name><LongName>Representative Walsh</LongName><Agency>House</Agency><Acronym>WALJ</Acronym><Party>R</Party><District>19</District><Phone>(360)
+        786-7806</Phone><Email>jim.walsh@leg.wa.gov</Email><FirstName>Jim</FirstName><LastName>Walsh</LastName></Member><Member><Id>34038</Id><Name>Kevin
+        Waters</Name><LongName>Representative Waters</LongName><Agency>House</Agency><Acronym>WATE</Acronym><Party>R</Party><District>17</District><Phone>(360)
+        786-7994</Phone><Email>Kevin.Waters@leg.wa.gov</Email><FirstName>Kevin</FirstName><LastName>Waters</LastName></Member><Member><Id>16462</Id><Name>Sharon
+        Wylie</Name><LongName>Representative Wylie</LongName><Agency>House</Agency><Acronym>WYLI</Acronym><Party>D</Party><District>49</District><Phone>(360)
+        786-7924</Phone><Email>sharon.wylie@leg.wa.gov</Email><FirstName>Sharon</FirstName><LastName>Wylie</LastName></Member><Member><Id>29318</Id><Name>Alex
+        Ybarra</Name><LongName>Representative Ybarra</LongName><Agency>House</Agency><Acronym>YBAR</Acronym><Party>R</Party><District>13</District><Phone>(360)
+        786-7808</Phone><Email>alex.ybarra@leg.wa.gov</Email><FirstName>Alex</FirstName><LastName>Ybarra</LastName></Member><Member><Id>35736</Id><Name>Janice
+        Zahn</Name><LongName>Representative Zahn</LongName><Agency>House</Agency><Acronym>ZAHN</Acronym><Party>D</Party><District>41</District><Phone>(360)
+        786-7894</Phone><Email>Janice.Zahn@leg.wa.gov</Email><FirstName>Janice</FirstName><LastName>Zahn</LastName></Member><Member><Id>34024</Id><Name>Emily
+        Alvarado</Name><LongName>Senator Alvarado</LongName><Agency>Senate</Agency><Acronym>ALVA</Acronym><Party>D</Party><District>34</District><Phone>(360)
+        786-7667</Phone><Email>Emily.Alvarado@leg.wa.gov</Email><FirstName>Emily</FirstName><LastName>Alvarado</LastName></Member><Member><Id>17117</Id><Name>Jessica
+        Bateman</Name><LongName>Senator Bateman</LongName><Agency>Senate</Agency><Acronym>BATE</Acronym><Party>D</Party><District>22</District><Phone>(360)
+        786-7642</Phone><Email>jessica.bateman@leg.wa.gov</Email><FirstName>Jessica</FirstName><LastName>Bateman</LastName></Member><Member><Id>29094</Id><Name>Matt
+        Boehnke</Name><LongName>Senator Boehnke</LongName><Agency>Senate</Agency><Acronym>BOEH</Acronym><Party>R</Party><District>8</District><Phone>(360)
+        786-7614</Phone><Email>matt.boehnke@leg.wa.gov</Email><FirstName>Matt</FirstName><LastName>Boehnke</LastName></Member><Member><Id>17289</Id><Name>John
+        Braun</Name><LongName>Senator Braun</LongName><Agency>Senate</Agency><Acronym>BRAU</Acronym><Party>R</Party><District>20</District><Phone>(360)
+        786-7638</Phone><Email>John.Braun@leg.wa.gov</Email><FirstName>John</FirstName><LastName>Braun</LastName></Member><Member><Id>29090</Id><Name>Claire
+        Wilson</Name><LongName>Senator Wilson</LongName><Agency>Senate</Agency><Acronym>WICL</Acronym><Party>D</Party><District>30</District><Phone>(360)
+        786-7658</Phone><Email>claire.wilson@leg.wa.gov</Email><FirstName>Claire</FirstName><LastName>Wilson</LastName></Member><Member><Id>26176</Id><Name>Mike
+        Chapman</Name><LongName>Senator Chapman</LongName><Agency>Senate</Agency><Acronym>CHAP</Acronym><Party>D</Party><District>24</District><Phone>(360)
+        786-7646</Phone><Email>mike.chapman@leg.wa.gov</Email><FirstName>Mike</FirstName><LastName>Chapman</LastName></Member><Member><Id>18458</Id><Name>Leonard
+        Christian</Name><LongName>Senator Christian</LongName><Agency>Senate</Agency><Acronym>CHRI</Acronym><Party>R</Party><District>4</District><Phone>(360)
+        786-7606</Phone><Email>leonard.christian@leg.wa.gov</Email><FirstName>Leonard</FirstName><LastName>Christian</LastName></Member><Member><Id>17294</Id><Name>Annette
+        Cleveland</Name><LongName>Senator Cleveland</LongName><Agency>Senate</Agency><Acronym>CLEV</Acronym><Party>D</Party><District>49</District><Phone>(360)
+        786-7696</Phone><Email>Annette.Cleveland@leg.wa.gov</Email><FirstName>Annette</FirstName><LastName>Cleveland</LastName></Member><Member><Id>972</Id><Name>Steve
+        Conway</Name><LongName>Senator Conway</LongName><Agency>Senate</Agency><Acronym>CONW</Acronym><Party>D</Party><District>29</District><Phone>(360)
+        786-7656</Phone><Email>steve.conway@leg.wa.gov</Email><FirstName>Steve</FirstName><LastName>Conway</LastName></Member><Member><Id>35473</Id><Name>Adrian
+        Cortes</Name><LongName>Senator Cortes</LongName><Agency>Senate</Agency><Acronym>CORA</Acronym><Party>D</Party><District>18</District><Phone>(360)
+        786-7634</Phone><Email>Adrian.Cortes@leg.wa.gov</Email><FirstName>Adrian</FirstName><LastName>Cortes</LastName></Member><Member><Id>28022</Id><Name>Manka
+        Dhingra</Name><LongName>Senator Dhingra</LongName><Agency>Senate</Agency><Acronym>DHIN</Acronym><Party>D</Party><District>45</District><Phone>(360)
+        786-7672</Phone><Email>manka.dhingra@leg.wa.gov</Email><FirstName>Manka</FirstName><LastName>Dhingra</LastName></Member><Member><Id>31535</Id><Name>Perry
+        Dozier</Name><LongName>Senator Dozier</LongName><Agency>Senate</Agency><Acronym>DOZI</Acronym><Party>R</Party><District>16</District><Phone>(360)
+        786-7630</Phone><Email>Perry.Dozier@leg.wa.gov</Email><FirstName>Perry</FirstName><LastName>Dozier</LastName></Member><Member><Id>3474</Id><Name>Phil
+        Fortunato</Name><LongName>Senator Fortunato</LongName><Agency>Senate</Agency><Acronym>FORT</Acronym><Party>R</Party><District>31</District><Phone>(360)
+        786-7660</Phone><Email>phil.fortunato@leg.wa.gov</Email><FirstName>Phil</FirstName><LastName>Fortunato</LastName></Member><Member><Id>23902</Id><Name>Noel
+        Frame</Name><LongName>Senator Frame</LongName><Agency>Senate</Agency><Acronym>FRAM</Acronym><Party>D</Party><District>36</District><Phone>(360)
+        786-7670</Phone><Email>noel.frame@leg.wa.gov</Email><FirstName>Noel</FirstName><LastName>Frame</LastName></Member><Member><Id>29101</Id><Name>Chris
+        Gildon</Name><LongName>Senator Gildon</LongName><Agency>Senate</Agency><Acronym>GILD</Acronym><Party>R</Party><District>25</District><Phone>(360)
+        786-7648</Phone><Email>chris.gildon@leg.wa.gov</Email><FirstName>Chris</FirstName><LastName>Gildon</LastName></Member><Member><Id>29096</Id><Name>Keith
+        Goehner</Name><LongName>Senator Goehner</LongName><Agency>Senate</Agency><Acronym>GOEH</Acronym><Party>R</Party><District>12</District><Phone>(360)
+        786-7622</Phone><Email>keith.goehner@leg.wa.gov</Email><FirstName>Keith</FirstName><LastName>Goehner</LastName></Member><Member><Id>16499</Id><Name>Drew
+        Hansen</Name><LongName>Senator Hansen</LongName><Agency>Senate</Agency><Acronym>HANS</Acronym><Party>D</Party><District>23</District><Phone>(360)
+        786-7644</Phone><Email>drew.hansen@leg.wa.gov</Email><FirstName>Drew</FirstName><LastName>Hansen</LastName></Member><Member><Id>15813</Id><Name>Paul
+        Harris</Name><LongName>Senator Harris</LongName><Agency>Senate</Agency><Acronym>HARR</Acronym><Party>R</Party><District>17</District><Phone>(360)
+        786-7632</Phone><Email>paul.harris@leg.wa.gov</Email><FirstName>Paul</FirstName><LastName>Harris</LastName></Member><Member><Id>10030</Id><Name>Bob
+        Hasegawa</Name><LongName>Senator Hasegawa</LongName><Agency>Senate</Agency><Acronym>HASE</Acronym><Party>D</Party><District>11</District><Phone>(360)
+        786-7616</Phone><Email>bob.hasegawa@leg.wa.gov</Email><FirstName>Bob</FirstName><LastName>Hasegawa</LastName></Member><Member><Id>2006</Id><Name>
+        </Name><LongName>Senator </LongName><Agency>Senate</Agency><Acronym /><Party
+        /><District /><Phone /><Email /><FirstName /><LastName /></Member><Member><Id>17223</Id><Name>Jeff
+        Holy</Name><LongName>Senator Holy</LongName><Agency>Senate</Agency><Acronym>HOLY</Acronym><Party>R</Party><District>6</District><Phone>(360)
+        786-7610</Phone><Email>jeff.holy@leg.wa.gov</Email><FirstName>Jeff</FirstName><LastName>Holy</LastName></Member><Member><Id>5155</Id><Name>
+        </Name><LongName>Senator </LongName><Agency>Senate</Agency><Acronym /><Party
+        /><District /><Phone /><Email /><FirstName /><LastName /></Member><Member><Id>35410</Id><Name>Victoria
+        Hunt</Name><LongName>Senator Hunt</LongName><Agency>Senate</Agency><Acronym>HUNV</Acronym><Party>D</Party><District>5</District><Phone>(360)
+        786-7608</Phone><Email>Victoria.Hunt@leg.wa.gov</Email><FirstName>Victoria</FirstName><LastName>Hunt</LastName></Member><Member><Id>31537</Id><Name>Jeff
+        Wilson</Name><LongName>Senator Wilson</LongName><Agency>Senate</Agency><Acronym>WILJ</Acronym><Party>R</Party><District>19</District><Phone>(360)
+        786-7636</Phone><Email>Jeff.Wilson@leg.wa.gov</Email><FirstName>Jeff</FirstName><LastName>Wilson</LastName></Member><Member><Id>12073</Id><Name>Claudia
+        Kauffman</Name><LongName>Senator Kauffman</LongName><Agency>Senate</Agency><Acronym>KAUF</Acronym><Party>D</Party><District>47</District><Phone>(360)
+        786-7692</Phone><Email>claudia.kauffman@leg.wa.gov</Email><FirstName>Claudia</FirstName><LastName>Kauffman</LastName></Member><Member><Id>13199</Id><Name>Curtis
+        King</Name><LongName>Senator King</LongName><Agency>Senate</Agency><Acronym>KING</Acronym><Party>R</Party><District>14</District><Phone>(360)
+        786-7626</Phone><Email>curtis.king@leg.wa.gov</Email><FirstName>Curtis</FirstName><LastName>King</LastName></Member><Member><Id>35470</Id><Name>Deborah
+        Krishnadasan</Name><LongName>Senator Krishnadasan</LongName><Agency>Senate</Agency><Acronym>KRIS</Acronym><Party>D</Party><District>26</District><Phone>(360)
+        786-7650</Phone><Email>Deborah.Krishnadasan@leg.wa.gov</Email><FirstName>Deborah</FirstName><LastName>Krishnadasan</LastName></Member><Member><Id>13546</Id><Name>Marko
+        Liias</Name><LongName>Senator Liias</LongName><Agency>Senate</Agency><Acronym>LIIA</Acronym><Party>D</Party><District>21</District><Phone>(360)
+        786-7640</Phone><Email>marko.liias@leg.wa.gov</Email><FirstName>Marko</FirstName><LastName>Liias</LastName></Member><Member><Id>29548</Id><Name>Liz
+        Lovelett</Name><LongName>Senator Lovelett</LongName><Agency>Senate</Agency><Acronym>LOVE</Acronym><Party>D</Party><District>40</District><Phone>(360)
+        786-7678</Phone><Email>liz.lovelett@leg.wa.gov</Email><FirstName>Liz</FirstName><LastName>Lovelett</LastName></Member><Member><Id>3476</Id><Name>John
+        Lovick</Name><LongName>Senator Lovick</LongName><Agency>Senate</Agency><Acronym>LOVI</Acronym><Party>D</Party><District>44</District><Phone>(360)
+        786-7686</Phone><Email>john.lovick@leg.wa.gov</Email><FirstName>John</FirstName><LastName>Lovick</LastName></Member><Member><Id>17221</Id><Name>Drew
+        MacEwen</Name><LongName>Senator MacEwen</LongName><Agency>Senate</Agency><Acronym>MACE</Acronym><Party>R</Party><District>35</District><Phone>(360)
+        786-7668</Phone><Email>drew.macewen@leg.wa.gov</Email><FirstName>Drew</FirstName><LastName>MacEwen</LastName></Member><Member><Id>2584</Id><Name>Jim
+        McCune</Name><LongName>Senator McCune</LongName><Agency>Senate</Agency><Acronym>MCCU</Acronym><Party>R</Party><District>2</District><Phone>(360)
+        786-7602</Phone><Email>jim.mccune@leg.wa.gov</Email><FirstName>Jim</FirstName><LastName>McCune</LastName></Member><Member><Id>29908</Id><Name>Ron
+        Muzzall</Name><LongName>Senator Muzzall</LongName><Agency>Senate</Agency><Acronym>MUZZ</Acronym><Party>R</Party><District>10</District><Phone>(360)
+        786-7618</Phone><Email>ron.muzzall@leg.wa.gov</Email><FirstName>Ron</FirstName><LastName>Muzzall</LastName></Member><Member><Id>29088</Id><Name>Joe
+        Nguyen</Name><LongName>Senator Nguyen</LongName><Agency>Senate</Agency><Acronym>NGUY</Acronym><Party>D</Party><District>34</District><Phone>(360)
+        786-7667</Phone><Email>joe.nguyen@leg.wa.gov</Email><FirstName>Joe</FirstName><LastName>Nguyen</LastName></Member><Member><Id>31536</Id><Name>T'wina
+        Nobles</Name><LongName>Senator Nobles</LongName><Agency>Senate</Agency><Acronym>NOBL</Acronym><Party>D</Party><District>28</District><Phone>(360)
+        786-7654</Phone><Email>T'wina.Nobles@leg.wa.gov</Email><FirstName>T'wina</FirstName><LastName>Nobles</LastName></Member><Member><Id>14205</Id><Name>Tina
+        Orwall</Name><LongName>Senator Orwall</LongName><Agency>Senate</Agency><Acronym>ORWA</Acronym><Party>D</Party><District>33</District><Phone>(360)
+        786-7664</Phone><Email>tina.orwall@leg.wa.gov</Email><FirstName>Tina</FirstName><LastName>Orwall</LastName></Member><Member><Id>12002</Id><Name>Jamie
+        Pedersen</Name><LongName>Senator Pedersen</LongName><Agency>Senate</Agency><Acronym>PEDE</Acronym><Party>D</Party><District>43</District><Phone>(360)
+        786-7628</Phone><Email>jamie.pedersen@leg.wa.gov</Email><FirstName>Jamie</FirstName><LastName>Pedersen</LastName></Member><Member><Id>29091</Id><Name>Bill
+        Ramos</Name><LongName>Senator Ramos</LongName><Agency>Senate</Agency><Acronym>RAMO</Acronym><Party>D</Party><District>5</District><Phone>(360)
+        786-7608</Phone><Email>bill.ramos@leg.wa.gov</Email><FirstName>Bill</FirstName><LastName>Ramos</LastName></Member><Member><Id>15706</Id><Name>Marcus
+        Riccelli</Name><LongName>Senator Riccelli</LongName><Agency>Senate</Agency><Acronym>RICC</Acronym><Party>D</Party><District>3</District><Phone>(360)
+        786-7604</Phone><Email>marcus.riccelli@leg.wa.gov</Email><FirstName>Marcus</FirstName><LastName>Riccelli</LastName></Member><Member><Id>15814</Id><Name>
+        </Name><LongName>Senator </LongName><Agency>Senate</Agency><Acronym /><Party
+        /><District /><Phone /><Email /><FirstName /><LastName /></Member><Member><Id>18265</Id><Name>June
+        Robinson</Name><LongName>Senator Robinson</LongName><Agency>Senate</Agency><Acronym>ROBI</Acronym><Party>D</Party><District>38</District><Phone>(360)
+        786-7674</Phone><Email>june.robinson@leg.wa.gov</Email><FirstName>June</FirstName><LastName>Robinson</LastName></Member><Member><Id>27290</Id><Name>Rebecca
+        Salda\xF1a</Name><LongName>Senator Salda\xF1a</LongName><Agency>Senate</Agency><Acronym>SALD</Acronym><Party>D</Party><District>37</District><Phone>(360)
+        786-7688</Phone><Email>rebecca.saldana@leg.wa.gov</Email><FirstName>Rebecca</FirstName><LastName>Salda\xF1a</LastName></Member><Member><Id>29089</Id><Name>Jesse
+        Salomon</Name><LongName>Senator Salomon</LongName><Agency>Senate</Agency><Acronym>SALO</Acronym><Party>D</Party><District>32</District><Phone>(360)
+        786-7662</Phone><Email>jesse.salomon@leg.wa.gov</Email><FirstName>Jesse</FirstName><LastName>Salomon</LastName></Member><Member><Id>652</Id><Name>Mark
+        Schoesler</Name><LongName>Senator Schoesler</LongName><Agency>Senate</Agency><Acronym>SCHO</Acronym><Party>R</Party><District>9</District><Phone>(360)
+        786-7620</Phone><Email>mark.schoesler@leg.wa.gov</Email><FirstName>Mark</FirstName><LastName>Schoesler</LastName></Member><Member><Id>29108</Id><Name>Sharon
+        Shewmake</Name><LongName>Senator Shewmake</LongName><Agency>Senate</Agency><Acronym>SHEW</Acronym><Party>D</Party><District>42</District><Phone>(360)
+        786-7682</Phone><Email>sharon.shewmake@leg.wa.gov</Email><FirstName>Sharon</FirstName><LastName>Shewmake</LastName></Member><Member><Id>11952</Id><Name>Shelly
+        Short</Name><LongName>Senator Short</LongName><Agency>Senate</Agency><Acronym>SHOR</Acronym><Party>R</Party><District>7</District><Phone>(360)
+        786-7612</Phone><Email>shelly.short@leg.wa.gov</Email><FirstName>Shelly</FirstName><LastName>Short</LastName></Member><Member><Id>27504</Id><Name>Vandana
+        Slatter</Name><LongName>Senator Slatter</LongName><Agency>Senate</Agency><Acronym>SLAT</Acronym><Party>D</Party><District>48</District><Phone>(360)
+        786-7694</Phone><Email>vandana.slatter@leg.wa.gov</Email><FirstName>Vandana</FirstName><LastName>Slatter</LastName></Member><Member><Id>15809</Id><Name>Derek
+        Stanford</Name><LongName>Senator Stanford</LongName><Agency>Senate</Agency><Acronym>STAN</Acronym><Party>D</Party><District>1</District><Phone>(360)
+        786-7600</Phone><Email>derek.stanford@leg.wa.gov</Email><FirstName>Derek</FirstName><LastName>Stanford</LastName></Member><Member><Id>34047</Id><Name>Nikki
+        Torres</Name><LongName>Senator Torres</LongName><Agency>Senate</Agency><Acronym>TORR</Acronym><Party>R</Party><District>15</District><Phone>(360)
+        786-7684</Phone><Email>Nikki.Torres@leg.wa.gov</Email><FirstName>Nikki</FirstName><LastName>Torres</LastName></Member><Member><Id>20732</Id><Name>Yasmin
+        Trudeau</Name><LongName>Senator Trudeau</LongName><Agency>Senate</Agency><Acronym>TRUD</Acronym><Party>D</Party><District>27</District><Phone>(360)
+        786-7652</Phone><Email>yasmin.trudeau@leg.wa.gov</Email><FirstName>Yasmin</FirstName><LastName>Trudeau</LastName></Member><Member><Id>27975</Id><Name>Javier
+        Valdez</Name><LongName>Senator Valdez</LongName><Agency>Senate</Agency><Acronym>VALD</Acronym><Party>D</Party><District>46</District><Phone>(360)
+        786-7690</Phone><Email>javier.valdez@leg.wa.gov</Email><FirstName>Javier</FirstName><LastName>Valdez</LastName></Member><Member><Id>28317</Id><Name>Keith
+        Wagoner</Name><LongName>Senator Wagoner</LongName><Agency>Senate</Agency><Acronym>WAGO</Acronym><Party>R</Party><District>39</District><Phone>(360)
+        786-7676</Phone><Email>keith.wagoner@leg.wa.gov</Email><FirstName>Keith</FirstName><LastName>Wagoner</LastName></Member><Member><Id>12084</Id><Name>Judy
+        Warnick</Name><LongName>Senator Warnick</LongName><Agency>Senate</Agency><Acronym>WARN</Acronym><Party>R</Party><District>13</District><Phone>(360)
+        786-7624</Phone><Email>judith.warnick@leg.wa.gov</Email><FirstName>Judy</FirstName><LastName>Warnick</LastName></Member><Member><Id>27211</Id><Name>Lisa
+        Wellman</Name><LongName>Senator Wellman</LongName><Agency>Senate</Agency><Acronym>WELL</Acronym><Party>D</Party><District>41</District><Phone>(360)
+        786-7641</Phone><Email>lisa.wellman@leg.wa.gov</Email><FirstName>Lisa</FirstName><LastName>Wellman</LastName></Member></GetSponsorsResult></GetSponsorsResponse></soap:Body></soap:Envelope>"
+    headers:
+      Cache-Control:
+      - private, max-age=0
+      Content-Length:
+      - '47686'
+      Content-Type:
+      - text/xml; charset=utf-8
+      Date:
+      - Mon, 06 Jul 2026 18:02:03 GMT
+      Server:
+      - Microsoft-IIS/10.0
+      Server-Timing:
+      - dtTrId;desc="469081ec607c58b3e77aa9224484e24b", dtSInfo;desc="0"
+      - dtRpid;desc="-826549990"
+      X-AspNet-Version:
+      - 4.0.30319
+      X-Powered-By:
+      - ASP.NET
+    status:
+      code: 200
+      message: OK
+version: 1
