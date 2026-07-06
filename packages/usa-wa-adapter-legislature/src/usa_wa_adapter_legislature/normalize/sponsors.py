@@ -77,7 +77,8 @@ async def normalize_sponsors(
 
     for member in members:
         if not is_person(member):
-            logger.info(
+            # Expected per run (name-blanked departed/superseded tenure stubs) — debug.
+            logger.debug(
                 "wsl_sponsor_skip_non_person",
                 extra={"member_id": member.get("Id"), "agency": member.get("Agency")},
             )
@@ -170,4 +171,5 @@ async def _emit_chamber(
         )
     elif agency == "House":
         # House chamber Assignment is #69's alone (needs Position; created fresh there).
-        logger.info("wsl_house_chamber_deferred_to_69", extra={"member_id": member.get("Id")})
+        # Fires for every House member every run — debug, not INFO.
+        logger.debug("wsl_house_chamber_deferred_to_69", extra={"member_id": member.get("Id")})

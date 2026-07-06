@@ -4,14 +4,26 @@ Resources today:
 
 - ``committees:<biennium>`` — the House/Senate standing committees from
   ``CommitteeService.GetActiveCommittees`` (P1a).
+- ``committees-roster:<biennium>`` — the full historical roster from
+  ``CommitteeService.GetCommittees(biennium)``, the sub-project-3 backfill archive
+  (a distinct SOAP op from GetActiveCommittees). Normalizes through the same
+  Committee shape.
 - ``committee-meetings:<begin>:<end>`` — the meeting docket window from
   ``CommitteeMeetingService.GetCommitteeMeetings``, the only source of the
   Joint/`Other` committee class (#39). Driven per date window by the backfill CLI
   and (current window) the daily refresh.
+- ``sponsors:<biennium>`` — the member roster from ``SponsorService.GetSponsors``
+  (P1b): Person + party + Senate seat.
+- ``committee-members:<committee_id>:<agency>:<name>`` — one committee's current
+  roster from ``CommitteeService.GetActiveCommitteeMembers`` (P1b): membership
+  Assignments. The committee id rides the resource id (the payload carries only
+  members) so ``normalize`` can resolve the committee Org.
 
-Both archive the pristine SOAP wire as ``RawPayload.body`` (#54) and carry the
+All archive the pristine SOAP wire as ``RawPayload.body`` (#54) and carry the
 zeep-derived dicts on ``FetchedPayload.parsed`` so the normalizer skips a re-parse.
-Bills, member rosters, vote events, etc. remain stubbed for later cuts.
+The sponsor/committee-member normalizers additionally need the runner's session
+(intra-batch FK resolution); pass ``WALegislatureAdapter(session=...)``. Bills, vote
+events, etc. remain stubbed for later cuts.
 """
 
 from __future__ import annotations
@@ -55,11 +67,17 @@ COMMITTEES_ROSTER_RESOURCE_PREFIX = "committees-roster:"
 SPONSORS_RESOURCE_PREFIX = "sponsors:"
 COMMITTEE_MEMBERS_RESOURCE_PREFIX = "committee-members:"
 
-_COMMITTEES_URL = f"{WSL_BASE_URL}/CommitteeService.asmx#GetActiveCommittees"
-_COMMITTEES_ROSTER_URL = f"{WSL_BASE_URL}/CommitteeService.asmx#GetCommittees"
+_COMMITTEE_SERVICE_URL = f"{WSL_BASE_URL}/CommitteeService.asmx"
+_COMMITTEES_URL = f"{_COMMITTEE_SERVICE_URL}#GetActiveCommittees"
+_COMMITTEES_ROSTER_URL = f"{_COMMITTEE_SERVICE_URL}#GetCommittees"
 _MEETINGS_URL = f"{WSL_BASE_URL}/CommitteeMeetingService.asmx#GetCommitteeMeetings"
 _SPONSORS_URL = f"{WSL_BASE_URL}/SponsorService.asmx#GetSponsors"
-_COMMITTEE_MEMBERS_URL = f"{WSL_BASE_URL}/CommitteeService.asmx#GetActiveCommitteeMembers"
+#: The GetActiveCommitteeMembers fragment. The committee id rides a ``?committee_id=``
+#: query stamped **before** the fragment (``…asmx?committee_id=<id>#GetActive…``) so the
+#: stamped url stays well-formed (query precedes fragment); ``normalize`` dispatches on
+#: this fragment suffix and reads the id back from the query.
+_COMMITTEE_MEMBERS_FRAGMENT = "#GetActiveCommitteeMembers"
+_COMMITTEE_MEMBERS_URL = f"{_COMMITTEE_SERVICE_URL}{_COMMITTEE_MEMBERS_FRAGMENT}"
 
 
 def committee_members_resource_id(
@@ -201,7 +219,9 @@ class WALegislatureAdapter(BaseAdapter):
         committee_source_id, agency, name = parse_committee_members_resource_id(resource_id)
         fetched = await self._member_client.fetch_committee_members(agency, name)
         return FetchedPayload(
-            url=f"{_COMMITTEE_MEMBERS_URL}?committee_id={committee_source_id}",
+            # Query before fragment so the archived url is well-formed (#5).
+            url=f"{_COMMITTEE_SERVICE_URL}?committee_id={committee_source_id}"
+            f"{_COMMITTEE_MEMBERS_FRAGMENT}",
             fetched_at=datetime.now(UTC),
             content_type=fetched.content_type,
             body=fetched.wire,
@@ -240,9 +260,10 @@ class WALegislatureAdapter(BaseAdapter):
                 anchors=self.anchors,
                 biennium=self.biennium,
             )
-        if payload.url.startswith(_COMMITTEE_MEMBERS_URL):
-            # committee id rides the url query (stamped by _fetch_committee_members).
-            committee_source_id = payload.url.split("committee_id=", 1)[1]
+        if payload.url.endswith(_COMMITTEE_MEMBERS_FRAGMENT):
+            # committee id rides the url query, before the fragment (stamped by
+            # _fetch_committee_members): …asmx?committee_id=<id>#GetActiveCommitteeMembers.
+            committee_source_id = payload.url.split("committee_id=", 1)[1].split("#", 1)[0]
             return await normalize_committee_members(
                 payload,
                 session=self._require_session(),

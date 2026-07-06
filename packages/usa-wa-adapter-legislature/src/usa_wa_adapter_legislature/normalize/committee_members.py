@@ -80,7 +80,8 @@ async def normalize_committee_members(
 
     for member in members:
         if not is_person(member):
-            logger.info(
+            # Expected per run (name-blanked stubs) — debug, not INFO.
+            logger.debug(
                 "wsl_committee_member_skip_non_person",
                 extra={
                     "member_id": member.get("Id"),

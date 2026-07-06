@@ -148,8 +148,8 @@ async def run_refresh(
     member/meeting-service outage must not fail the (primary) committees refresh (their
     counts are 0 on failure).
 
-    ``committee_client`` / ``meeting_client`` / ``sponsor_client`` are injectable for
-    tests; production defaults to real per-service clients.
+    ``committee_client`` / ``meeting_client`` / ``sponsor_client`` / ``member_client``
+    are injectable for tests; production defaults to real per-service clients.
     """
     if biennium is None:
         biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
@@ -215,11 +215,14 @@ async def _discover_members(
 
     Forced past the cache TTL for the **date-current** biennium (like the meeting window,
     #63) so daily discovery is deterministic; a pinned/backfill ``USA_WA_BIENNIUM`` names
-    closed history and stays cache-governed. Each pull is **best-effort** and isolated — the
-    sponsor pull and every committee fan-out are wrapped so one committee's failure (or a
-    whole-service outage) can't abort the rest or fail the (primary) committees refresh. The
-    fan-out is **sequential** (do-not-parallelize-against-WSL). Archival stays bounded by the
-    runner's unchanged-hash dedup. Returns the upsert count.
+    closed history and stays cache-governed. Each pull is **best-effort** and isolated: the
+    sponsor pull and every committee fan-out run inside their own ``begin_nested()``
+    SAVEPOINT, so a failure — whether a pre-flush transport error **or** a DB-layer error
+    during persist (which would otherwise leave the shared transaction in pending-rollback)
+    — rolls back only that pull and the loop continues; neither can abort the rest or fail
+    the (primary) committees refresh. The fan-out is **sequential**
+    (do-not-parallelize-against-WSL). Archival stays bounded by the runner's unchanged-hash
+    dedup. Returns the upsert count.
 
     The fan-out roster is enumerated from the **DB** (the ``org_type='committee'`` rows the
     committees phase just materialized, keyed to a House/Senate chamber) rather than a fresh
@@ -231,9 +234,13 @@ async def _discover_members(
     total = 0
 
     try:
-        total += await runner.fetch_and_normalize(
-            f"{SPONSORS_RESOURCE_PREFIX}{biennium}", force=force, skip_unchanged=True
-        )
+        # SAVEPOINT per pull (#1): a DB-layer failure rolls back only this pull, leaving
+        # the shared transaction usable for the fan-out below and the committees/meetings
+        # work — not just transport errors are contained.
+        async with session.begin_nested():
+            total += await runner.fetch_and_normalize(
+                f"{SPONSORS_RESOURCE_PREFIX}{biennium}", force=force, skip_unchanged=True
+            )
     except Exception:
         logger.exception("wsl_sponsors_discovery_failed", extra={"biennium": biennium})
 
@@ -275,7 +282,12 @@ async def _discover_members(
             continue
         resource_id = committee_members_resource_id(committee.source_id, agency, name)
         try:
-            total += await runner.fetch_and_normalize(resource_id, force=force, skip_unchanged=True)
+            # SAVEPOINT per committee (#1): contains a DB-layer persist failure to this
+            # one committee so the rest of the fan-out still commits.
+            async with session.begin_nested():
+                total += await runner.fetch_and_normalize(
+                    resource_id, force=force, skip_unchanged=True
+                )
         except Exception:
             logger.exception(
                 "wsl_committee_members_discovery_failed",
@@ -312,7 +324,12 @@ async def _discover_current_meeting_window(runner: AdapterRunner, biennium: str)
         # skip_unchanged: a forced re-pull of a byte-identical docket re-records the
         # FetchEvent (TTL/ledger) but doesn't re-normalize — no duplicate Citation set
         # each daily run. A changed docket still re-normalizes (new Joint/`Other` bodies).
-        upserted = await runner.fetch_and_normalize(resource_id, force=force, skip_unchanged=True)
+        # SAVEPOINT (#1): a DB-layer persist failure rolls back only this pull, so the
+        # committees refresh (same transaction) still commits.
+        async with runner.session.begin_nested():
+            upserted = await runner.fetch_and_normalize(
+                resource_id, force=force, skip_unchanged=True
+            )
         logger.info(
             "wsl_meeting_discovery",
             extra={

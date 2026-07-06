@@ -9,14 +9,20 @@ from unittest.mock import patch
 
 import pytest
 import vcr
-from sqlalchemy import select
+from sqlalchemy import select, text
 from ulid import ULID as _ULID
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Source
+from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person
 from usa_wa_adapter_legislature import refresh as refresh_module
+from usa_wa_adapter_legislature.adapter import WALegislatureAdapter
+from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.refresh import (
+    _discover_members,
+    _get_or_create_source,
+    _resolve_jurisdiction,
     biennium_for_date,
     biennium_start_date,
     previous_biennium,
@@ -399,6 +405,87 @@ async def test_run_refresh_materializes_member_cluster(db_session, usa_wa):
     }
     assert "chamber-senate" in dims
     assert "committee" in dims
+
+
+class _PoisonNormalizeAdapter(WALegislatureAdapter):
+    """Adapter whose committee-member ``normalize`` runs a **failing SQL** for one
+    poison committee id — a genuine DB-layer error that leaves the connection in an
+    aborted state (as a real IntegrityError/DataError during persist would). Absent the
+    per-pull SAVEPOINT the shared transaction would be poisoned and every later pull +
+    the final commit would raise ``PendingRollbackError`` (#1)."""
+
+    def __init__(self, *, poison_committee_id: str, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._poison_committee_id = poison_committee_id
+
+    async def normalize(self, payload):  # noqa: ANN001, ANN201
+        if payload.url.endswith("#GetActiveCommitteeMembers"):
+            committee_source_id = payload.url.split("committee_id=", 1)[1].split("#", 1)[0]
+            if committee_source_id == self._poison_committee_id:
+                await self._require_session().execute(text("SELECT 1 / 0"))  # aborts the tx
+        return await super().normalize(payload)
+
+
+async def test_member_fanout_db_error_is_isolated_by_savepoint(db_session, usa_wa):
+    """A DB-layer failure in one committee's fan-out must not poison the shared
+    transaction: the sponsor Persons and the surviving committee's memberships still
+    commit (#1 — savepoint isolation, not just transport-error isolation)."""
+    anchors = await bootstrap_synthetic_anchors(
+        db_session, biennium="2025-26", jurisdiction_id=usa_wa.id
+    )
+    # Two House standing committees; one poisons its own normalize.
+    for cid, short in (("100", "Good"), ("200", "Poison")):
+        db_session.add(
+            Organization(
+                source="usa_wa_legislature",
+                source_id=cid,
+                jurisdiction_id=usa_wa.id,
+                name=f"House {short}",
+                short_name=short,
+                org_type="committee",
+                parent_organization_id=anchors.house_id,
+                active=True,
+            )
+        )
+    await db_session.flush()
+
+    jurisdiction = await _resolve_jurisdiction(db_session)
+    source = await _get_or_create_source(db_session, jurisdiction)
+    adapter = _PoisonNormalizeAdapter(
+        anchors=anchors,
+        jurisdiction_id=usa_wa.id,
+        biennium="2025-26",
+        sponsor_client=_FakeSponsorClient(
+            [_sponsor(101, "Ann", "Rivers", agency="House", party="R", district="18")]
+        ),
+        member_client=_FakeMembersClient(
+            [_sponsor(301, "Kristine", "Reeves", agency="House", party="Democrat", district="30")]
+        ),
+        session=db_session,
+        poison_committee_id="200",
+    )
+    runner = AdapterRunner(
+        adapter,
+        db_session,
+        source=source,
+        jurisdiction=jurisdiction,
+        natural_key=("source", "source_id"),
+        fill_only=True,
+    )
+
+    with patch("usa_wa_adapter_legislature.refresh.biennium_for_date", return_value="2025-26"):
+        total = await _discover_members(runner, db_session, "2025-26", anchors)
+
+    assert total > 0  # the good committee still upserted despite the poison one
+    # Session survived (a query would raise PendingRollbackError if the tx were poisoned).
+    persons = {p.source_id for p in (await db_session.execute(select(Person))).scalars().all()}
+    assert "101" in persons  # sponsor pull committed
+    assert "301" in persons  # good committee's member committed
+    dims = {
+        a.source_id.split(":")[1]
+        for a in (await db_session.execute(select(Assignment))).scalars().all()
+    }
+    assert "committee" in dims  # the surviving committee's membership Assignment landed
 
 
 async def test_run_refresh_warns_exactly_when_biennium_not_current(db_session, usa_wa, caplog):
