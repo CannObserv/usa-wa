@@ -24,7 +24,6 @@ import json
 from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from ulid import ULID as _ULID
 
 from clearinghouse_core.adapter import FetchedPayload, NormalizedBatch
 from clearinghouse_core.logging import get_logger
@@ -35,6 +34,7 @@ from usa_wa_adapter_legislature.normalize.members import (
     build_assignment,
     build_person_identifier,
     canonicalize_party,
+    district_number,
     get_or_create_person,
     get_or_create_role,
     is_person,
@@ -57,14 +57,15 @@ async def normalize_sponsors(
     *,
     session: AsyncSession,
     anchors: BootstrapAnchors,
-    jurisdiction_id: _ULID,
     biennium: str,
 ) -> NormalizedBatch:
     """Parse a sponsors payload and emit the member cluster (Person/identifier/party/seat).
 
     ``session`` is the runner's session (same transaction); the get-or-create helpers
     resolve Person/Role ids so the Assignments carry real FKs. Assignments scope to the
-    biennium (``valid_from`` = Jan 1 of the odd start year)."""
+    biennium (``valid_from`` = Jan 1 of the odd start year). Persons/assignments carry no
+    jurisdiction of their own — a seat's LD lives on the seat Role — so no jurisdiction
+    parameter is threaded here."""
     if payload.parsed is not None:
         members = payload.parsed
     else:
@@ -135,14 +136,20 @@ async def _emit_chamber(
     """Senate → seat Role + seat Assignment; House → nothing (deferred whole to #69)."""
     agency = member.get("Agency")
     if agency == "Senate":
-        jurisdiction = await resolve_ld_jurisdiction(session, member.get("District"))
+        ld_number = district_number(member.get("District"))
+        if ld_number is None:
+            logger.warning(
+                "wsl_sponsor_senate_seat_no_district",
+                extra={"member_id": member.get("Id"), "district": member.get("District")},
+            )
+            return
+        jurisdiction = await resolve_ld_jurisdiction(session, ld_number)
         if jurisdiction is None:
             logger.warning(
                 "wsl_sponsor_senate_seat_unresolved_ld",
                 extra={"member_id": member.get("Id"), "district": member.get("District")},
             )
             return
-        ld_number = int(member["District"].strip())
         seat_role = await get_or_create_role(
             session,
             source_id=senate_seat_role_source_id(ld_number),

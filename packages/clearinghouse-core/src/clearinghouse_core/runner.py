@@ -83,11 +83,23 @@ class AdapterRunner:
         #: per-fetch Citation are unaffected — they don't depend on the conflict policy.
         self.fill_only = fill_only
 
-    async def fetch_and_normalize(self, resource_id: str, *, force: bool = False) -> int:
+    async def fetch_and_normalize(
+        self, resource_id: str, *, force: bool = False, skip_unchanged: bool = False
+    ) -> int:
         """Cache-or-fetch one resource, then upsert its normalized entities.
 
-        Returns the number of canonical entities upserted (0 on cache hit when
-        not ``force``).
+        Returns the number of canonical entities upserted (0 on cache hit when not
+        ``force``, or on an unchanged-wire skip when ``skip_unchanged``).
+
+        ``skip_unchanged`` (opt-in): when a **forced** re-pull returns a byte-identical
+        wire (already archived under a prior FetchEvent), skip normalize+persist — the
+        entities and their Citations are already materialized from that prior identical
+        fetch, so a forced *discovery* pull (the daily sponsors/members/meeting sweeps,
+        which force past the TTL for cadence determinism, #63) doesn't accrue a duplicate
+        Citation set every run. The FetchEvent is still written (it refreshes the TTL and
+        the #55 content-hash ledger). **Left False for ``--force`` re-materialization**
+        (the committee harvest): there the point is to re-normalize an identical wire so
+        rolled-back rows are re-created, which requires the normalize+persist to run.
         """
         if not force:
             cached = await self._find_fresh_fetch_event(resource_id)
@@ -95,15 +107,21 @@ class AdapterRunner:
                 return 0
 
         payload = await self.adapter.fetch_one(resource_id)
-        event = await self._archive_payload(resource_id, payload)
+        event, stored_new = await self._archive_payload(resource_id, payload)
+        if skip_unchanged and not stored_new:
+            return 0
         batch = await self.adapter.normalize(payload)
         return await self._persist_batch(event, batch)
 
     async def _archive_payload(
         self, resource_id: str, payload: FetchedPayload, *, status: FetchStatus = FetchStatus.ok
-    ) -> FetchEvent:
+    ) -> tuple[FetchEvent, bool]:
         """Write ``FetchEvent`` (+ deduped ``RawPayload``) for a retrieved payload —
-        provenance only, no normalize/upsert (#62).
+        provenance only, no normalize/upsert (#62). Returns ``(event, stored_new)`` where
+        ``stored_new`` is True iff this payload's bytes were newly archived (i.e. the wire
+        changed / is first-seen); False means a byte-identical payload was already stored
+        under a prior event (the dedup path), which ``fetch_and_normalize`` uses to honour
+        ``skip_unchanged``.
 
         The archive-only seam: keeps the #54 ``content_hash`` derivation on the single
         chokepoint (``_record_fetch_event``) so no call site hand-rolls hashing, without
@@ -120,9 +138,10 @@ class AdapterRunner:
         to public when that caller is written and its shape is known). See #62.
         """
         event = await self._record_fetch_event(resource_id, payload, status=status)
-        if not await self._payload_already_archived(resource_id, event):
+        stored_new = not await self._payload_already_archived(resource_id, event)
+        if stored_new:
             await self._record_raw_payload(event, payload)
-        return event
+        return event, stored_new
 
     async def refresh(self, since: datetime | None = None) -> RunSummary:
         """Iterate ``adapter.discover(since)`` and process each ref."""

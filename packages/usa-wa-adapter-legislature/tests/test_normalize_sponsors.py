@@ -86,7 +86,6 @@ async def _run(session, usa_wa, anchors, members):
         _payload(members),
         session=session,
         anchors=anchors,
-        jurisdiction_id=usa_wa.id,
         biennium=BIENNIUM,
     )
 

@@ -103,19 +103,26 @@ def member_source_id(member: dict[str, Any]) -> str:
     return str(member["Id"])
 
 
-def ld_slug(district: str | None) -> str | None:
-    """WSL ``District`` (e.g. ``"33"``, ``"5"``) → the local LD jurisdiction slug
-    ``usa-wa-ld-<n>`` (unpadded, matching the synced PM jurisdictions). ``None``/blank →
-    ``None`` (no district → no seat)."""
+def district_number(district: str | None) -> int | None:
+    """Parse a WSL ``District`` (e.g. ``"33"``, ``" 5 "``) to its LD number, or ``None``
+    for a blank/malformed value (no district → no seat). The single parse site — both the
+    LD slug and the Senate seat's ``source_id`` derive from this."""
     if district is None:
         return None
     text = district.strip()
     if not text:
         return None
     try:
-        return f"usa-wa-ld-{int(text)}"
+        return int(text)
     except ValueError:
         return None
+
+
+def ld_slug(district: str | None) -> str | None:
+    """WSL ``District`` → the local LD jurisdiction slug ``usa-wa-ld-<n>`` (unpadded,
+    matching the synced PM jurisdictions), or ``None`` for a blank/malformed district."""
+    number = district_number(district)
+    return f"usa-wa-ld-{number}" if number is not None else None
 
 
 def party_role_source_id(slug: str) -> str:
@@ -231,17 +238,15 @@ async def get_or_create_role(
     return role
 
 
-async def resolve_ld_jurisdiction(
-    session: AsyncSession, district: str | None
-) -> Jurisdiction | None:
-    """Resolve a WSL ``District`` to its local LD :class:`Jurisdiction` (or ``None`` if the
-    district is blank/malformed or the LD isn't synced locally — a seat then can't be
-    keyed and is skipped, the Person/party still land)."""
-    slug = ld_slug(district)
-    if slug is None:
-        return None
+async def resolve_ld_jurisdiction(session: AsyncSession, ld_number: int) -> Jurisdiction | None:
+    """Resolve an LD number to its local LD :class:`Jurisdiction` (or ``None`` if that LD
+    isn't synced locally — a seat then can't be keyed and is skipped, the Person/party
+    still land). Takes the pre-parsed number (see :func:`district_number`) so the caller
+    parses the WSL ``District`` once."""
     return (
-        await session.execute(select(Jurisdiction).where(Jurisdiction.slug == slug))
+        await session.execute(
+            select(Jurisdiction).where(Jurisdiction.slug == f"usa-wa-ld-{ld_number}")
+        )
     ).scalar_one_or_none()
 
 

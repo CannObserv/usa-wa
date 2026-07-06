@@ -34,25 +34,20 @@ from datetime import UTC, datetime
 from typing import Any
 
 from clearinghouse_core.logging import configure_logging, get_logger
+from usa_wa_adapter_legislature.normalize.members import is_person
 from usa_wa_adapter_legislature.refresh import biennium_for_date, previous_biennium
 from usa_wa_adapter_legislature.transport import WSLClient
 
 logger = get_logger(__name__)
 
+# ``is_person`` (imported from normalize.members, the single source of truth) filters the
+# name-blanked stubs GetSponsors returns for a superseded/departed (member, chamber-tenure)
+# — the same predicate the real Person normalizer skips on.
+
 #: Default number of active committees to sample for the cross-endpoint check. A dozen
 #: rosters cover ~100 distinct members — plenty to detect an Id re-key without pulling
 #: every committee.
 DEFAULT_COMMITTEE_SAMPLE = 12
-
-
-def is_person(member: dict[str, Any]) -> bool:
-    """True when a ``Member`` row is a named legislator (has both first + last name).
-
-    Filters the **name-blanked stubs** ``GetSponsors`` returns for a superseded or departed
-    (member, chamber-tenure) — a real ``Id`` but blank ``Name`` and null ``FirstName`` /
-    ``LastName`` / ``District`` / ``Party``.
-    """
-    return bool((member.get("FirstName") or "").strip() and (member.get("LastName") or "").strip())
 
 
 def name_key(member: dict[str, Any]) -> tuple[str, str]:

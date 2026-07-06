@@ -126,7 +126,6 @@ async def test_person_deduped_against_sponsor_pull(db_session, usa_wa, committee
         sponsor_payload,
         session=db_session,
         anchors=anchors,
-        jurisdiction_id=usa_wa.id,
         biennium=BIENNIUM,
     )
     sponsor_person_id = next(p.id for p in sponsor_batch.entities if isinstance(p, Person))

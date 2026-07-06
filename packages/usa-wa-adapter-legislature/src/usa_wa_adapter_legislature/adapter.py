@@ -238,7 +238,6 @@ class WALegislatureAdapter(BaseAdapter):
                 payload,
                 session=self._require_session(),
                 anchors=self.anchors,
-                jurisdiction_id=self.jurisdiction_id,
                 biennium=self.biennium,
             )
         if payload.url.startswith(_COMMITTEE_MEMBERS_URL):

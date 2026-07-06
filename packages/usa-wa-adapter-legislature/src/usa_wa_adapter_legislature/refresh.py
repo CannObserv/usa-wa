@@ -232,7 +232,7 @@ async def _discover_members(
 
     try:
         total += await runner.fetch_and_normalize(
-            f"{SPONSORS_RESOURCE_PREFIX}{biennium}", force=force
+            f"{SPONSORS_RESOURCE_PREFIX}{biennium}", force=force, skip_unchanged=True
         )
     except Exception:
         logger.exception("wsl_sponsors_discovery_failed", extra={"biennium": biennium})
@@ -241,12 +241,19 @@ async def _discover_members(
         anchors.house_id: "House",
         anchors.senate_id: "Senate",
     }
+    # Scope to **operationally-live** committees: PM's ``active`` domain flag (mirrored;
+    # the weekly reconcile sets it from the current roster) + not archived/deleted. This
+    # keeps the fan-out to committees that plausibly have a current roster and, once the
+    # sub-project-3 historical backfill lands, excludes the defunct-era committees it
+    # materializes (which would otherwise cost a wasted GetActiveCommitteeMembers each).
     committees = (
         (
             await session.execute(
                 select(Organization).where(
                     Organization.source == "usa_wa_legislature",
                     Organization.org_type == "committee",
+                    Organization.active.is_(True),
+                    Organization.is_live(),
                 )
             )
         )
@@ -255,12 +262,20 @@ async def _discover_members(
     )
     for committee in committees:
         agency = agency_by_chamber_id.get(committee.parent_organization_id)
+        if agency is None:
+            continue  # not a House/Senate standing committee (GetActiveCommitteeMembers scope)
         name = committee.short_name
-        if agency is None or not name:
-            continue  # not a House/Senate standing committee, or no roster key
+        if not name:
+            # A House/Senate committee with no short_name can't be keyed for the members
+            # pull — surface it rather than skip silently (the roster key is the WSL Name).
+            logger.warning(
+                "wsl_committee_members_missing_name",
+                extra={"committee_source_id": committee.source_id, "agency": agency},
+            )
+            continue
         resource_id = committee_members_resource_id(committee.source_id, agency, name)
         try:
-            total += await runner.fetch_and_normalize(resource_id, force=force)
+            total += await runner.fetch_and_normalize(resource_id, force=force, skip_unchanged=True)
         except Exception:
             logger.exception(
                 "wsl_committee_members_discovery_failed",
@@ -294,7 +309,10 @@ async def _discover_current_meeting_window(runner: AdapterRunner, biennium: str)
     # immutable history — cache-or-fetch governs, mirroring the harvest's stance.
     force = biennium == biennium_for_date(datetime.now(UTC).date())
     try:
-        upserted = await runner.fetch_and_normalize(resource_id, force=force)
+        # skip_unchanged: a forced re-pull of a byte-identical docket re-records the
+        # FetchEvent (TTL/ledger) but doesn't re-normalize — no duplicate Citation set
+        # each daily run. A changed docket still re-normalizes (new Joint/`Other` bodies).
+        upserted = await runner.fetch_and_normalize(resource_id, force=force, skip_unchanged=True)
         logger.info(
             "wsl_meeting_discovery",
             extra={

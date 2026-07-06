@@ -283,8 +283,12 @@ async def test_meeting_pull_is_forced_while_committees_stay_ttl_governed(db_sess
         )
 
     assert first.meetings_upserted == 1
+    # The meeting pull re-fetched past the TTL (forced) — proven by the 2nd SOAP call...
     assert meeting_client.calls == 2
-    assert second.meetings_upserted == 1
+    # ...but the docket is byte-identical, so skip_unchanged skips the re-normalize (no
+    # duplicate Citation set); the FetchEvent ledger still advanced. Forcedness is proven
+    # by calls==2, not by a re-upsert.
+    assert second.meetings_upserted == 0
     assert second.committees.skipped_cache_hit == 1
     assert second.committees.fetched == 0
 

@@ -75,6 +75,15 @@ class RoleDescriptor(EntityDescriptor):
             if await self._jurisdiction_pm_id(session, row) is None:
                 return False
             return await self._is_seat_role_type(session, row.role_type)
+        # Non-seat role: if it carries a ``role_type`` classifier (e.g. ``member``,
+        # power-map#269) that the synced catalog doesn't know yet, **defer** rather than
+        # emit a title-only observation that lands with a NULL role_type_id — the enrich
+        # path doesn't re-propagate role_type, so the classifier would be lost until the
+        # role next changes. The catalog sync (first cycle + hourly) fills it; the next
+        # cycle then emits the classifier. A role with no role_type is a plain title role
+        # and is ready immediately.
+        if row.role_type and not await self._is_catalog_role_type(session, row.role_type):
+            return False
         return True
 
     async def _org_pm_id(self, session: Any, row: Any) -> Any | None:

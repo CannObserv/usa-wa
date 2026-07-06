@@ -199,9 +199,10 @@ async def test_archive_payload_writes_provenance_only(db_session, setup):
     runner = setup["runner"]
 
     payload = await adapter.fetch_one("W-1")
-    event = await runner._archive_payload("W-1", payload)
+    event, stored_new = await runner._archive_payload("W-1", payload)
 
     assert isinstance(event, FetchEvent)
+    assert stored_new is True  # first-seen bytes → newly archived
     assert event.resource_id == "W-1"
     # Provenance written...
     events = (await db_session.execute(select(FetchEvent))).scalars().all()
@@ -225,9 +226,12 @@ async def test_archive_payload_dedups_identical_bytes(db_session, setup):
     runner = setup["runner"]
 
     payload = await adapter.fetch_one("W-1")
-    await runner._archive_payload("W-1", payload)
+    _, first_new = await runner._archive_payload("W-1", payload)
     payload2 = await adapter.fetch_one("W-1")  # identical body
-    await runner._archive_payload("W-1", payload2)
+    _, second_new = await runner._archive_payload("W-1", payload2)
+
+    assert first_new is True  # first archive stored the bytes
+    assert second_new is False  # identical re-archive deduped → the skip_unchanged signal
 
     events = (
         (await db_session.execute(select(FetchEvent).where(FetchEvent.resource_id == "W-1")))
@@ -246,9 +250,47 @@ async def test_archive_payload_records_status(db_session, setup):
     runner = setup["runner"]
 
     payload = await adapter.fetch_one("W-1")
-    event = await runner._archive_payload("W-1", payload, status=FetchStatus.err)
+    event, _ = await runner._archive_payload("W-1", payload, status=FetchStatus.err)
 
     assert event.status == FetchStatus.err
+
+
+async def test_skip_unchanged_skips_renormalize_on_identical_forced_repull(db_session, setup):
+    """A forced re-pull of a byte-identical wire with ``skip_unchanged=True`` re-records the
+    FetchEvent (TTL/ledger) but does NOT re-normalize — so a forced daily discovery pull
+    doesn't accrue a duplicate Citation set every run."""
+    adapter = setup["adapter"]
+    runner = setup["runner"]
+    jur_id = setup["jurisdiction"].id
+
+    adapter._next_entities = [_widget(jur_id, "W-1", "first")]
+    first = await runner.fetch_and_normalize("W-1", force=True, skip_unchanged=True)
+    assert first > 0
+    assert adapter.normalize_calls == 1
+    citations_first = len((await db_session.execute(select(Citation))).scalars().all())
+
+    second = await runner.fetch_and_normalize("W-1", force=True, skip_unchanged=True)
+
+    assert second == 0  # unchanged wire → skipped
+    assert adapter.normalize_calls == 1  # normalize did not run again
+    citations_second = len((await db_session.execute(select(Citation))).scalars().all())
+    assert citations_second == citations_first  # no duplicate citations
+    # But the FetchEvent ledger still advanced (TTL / content-hash record).
+    events = (await db_session.execute(select(FetchEvent))).scalars().all()
+    assert len(events) == 2
+
+
+async def test_force_without_skip_unchanged_renormalizes_identical_wire(db_session, setup):
+    """``--force`` re-materialization: a forced re-pull of identical bytes WITHOUT
+    ``skip_unchanged`` re-normalizes (re-creating rolled-back rows) — the harvest recovery
+    path stays intact."""
+    adapter = setup["adapter"]
+    runner = setup["runner"]
+
+    await runner.fetch_and_normalize("W-1", force=True)
+    await runner.fetch_and_normalize("W-1", force=True)  # identical wire, no skip_unchanged
+
+    assert adapter.normalize_calls == 2  # re-normalized both times
 
 
 async def test_content_hash_derived_from_body_when_adapter_omits(db_session, setup):

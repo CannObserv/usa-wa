@@ -337,6 +337,9 @@ async def test_seat_observation_round_trips_through_pm_request(
 
 
 async def test_dependencies_ready_requires_anchored_org(db_session, descriptor):
+    # A non-seat role's role_type must also be catalog-known (see the classifier-deferral
+    # test below); seed it so this test isolates the org-anchoring requirement.
+    await _seed_role_type(db_session, slug="committee_leadership", expects_jurisdiction=False)
     unanchored = await _add_org(db_session, anchor=None)
     role = await _add_role(db_session, org=unanchored)
     assert await descriptor.dependencies_ready(db_session, role) is False
@@ -344,6 +347,23 @@ async def test_dependencies_ready_requires_anchored_org(db_session, descriptor):
     anchored = await _add_org(db_session, source_id="SENATE", name="Senate", anchor=ULID())
     role2 = await _add_role(db_session, org=anchored, source_id="R-2")
     assert await descriptor.dependencies_ready(db_session, role2) is True
+
+
+async def test_dependencies_ready_non_seat_defers_until_classifier_in_catalog(
+    db_session, descriptor
+):
+    """A non-seat role carrying a role_type classifier defers until the catalog knows it —
+    so we never emit a title-only observation that drops the classifier (power-map#269).
+    Mirrors the seat deferral in shape."""
+    org = await _add_org(db_session, anchor=ULID())
+    role = await _add_role(db_session, org=org, name="Member", role_type="member")
+
+    # Catalog empty → member not yet known → defer.
+    assert await descriptor.dependencies_ready(db_session, role) is False
+
+    # Once the catalog carries `member` (non-seat), it's ready.
+    await _seed_role_type(db_session, slug="member", expects_jurisdiction=False)
+    assert await descriptor.dependencies_ready(db_session, role) is True
 
 
 async def test_to_observation_keys_on_org_pm_id_and_title(db_session, descriptor):
