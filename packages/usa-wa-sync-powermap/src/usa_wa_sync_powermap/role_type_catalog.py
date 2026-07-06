@@ -7,11 +7,17 @@ decide a Role observation's shape (seat vs title) at runtime — this is what le
 retire the hardcoded seat-slug map and track PM's catalog as it grows.
 
 PM is read-only source of truth; usa-wa never writes role_types back. Idempotent:
-an existing slug is updated in place (display_name / is_seat / anchor), never duplicated.
-A slug PM no longer lists is **demoted** (``is_seat=False``) rather than deleted, so a
-retired or reclassified type stops driving seat-mode observations — an ``is_seat`` flip
-is not inert. The row itself is kept (there is no FK from ``roles.role_type``; the slug is
-historical) and re-promoted if PM lists it again.
+an existing slug is updated in place (display_name / expects_jurisdiction / anchor),
+never duplicated. A slug PM no longer lists is **demoted** (``expects_jurisdiction=False``)
+rather than deleted, so a retired or reclassified type stops driving seat-mode
+observations — a flag flip is not inert. The row itself is kept (there is no FK from
+``roles.role_type``; the slug is historical) and re-promoted if PM lists it again.
+
+PM 0.7.0 renamed the catalog field ``is_seat`` → ``expects_jurisdiction`` (power-map#271).
+The read tolerates the legacy key as a fallback for raw-dict / legacy-payload callers;
+note this does NOT rescue a client pinned to the old PM schema (the generated
+``RoleType.from_dict`` would raise on the now-required ``expects_jurisdiction`` before this
+sync sees the row), only callers that hand us untyped dicts.
 """
 
 from typing import Any, Protocol
@@ -37,7 +43,8 @@ async def sync_role_type_catalog(session: AsyncSession, client: _CatalogClient) 
 
     Keyed on ``slug`` (PM's stable match value). A row present locally is updated in
     place; a new slug is inserted; a slug PM no longer lists is demoted to
-    ``is_seat=False`` so the descriptor stops treating a retired type as a seat."""
+    ``expects_jurisdiction=False`` so the descriptor stops treating a retired type as a
+    seat."""
     rows: list[dict[str, Any]] = await client.list_role_types()
     existing = {r.slug: r for r in (await session.execute(select(RoleType))).scalars().all()}
     seen: set[str] = set()
@@ -53,14 +60,18 @@ async def sync_role_type_catalog(session: AsyncSession, client: _CatalogClient) 
             target = RoleType(slug=slug)
             session.add(target)
         target.display_name = row.get("display_name") or slug
-        target.is_seat = bool(row.get("is_seat"))
+        # power-map#271 renamed this field; tolerate the legacy key for raw-dict callers.
+        expects_jurisdiction = row.get("expects_jurisdiction")
+        if expects_jurisdiction is None:
+            expects_jurisdiction = row.get("is_seat")
+        target.expects_jurisdiction = bool(expects_jurisdiction)
         if pm_id is not None:
             target.pm_role_type_id = as_ulid(pm_id)
     # Reconcile rows PM no longer lists: demote (never delete — no FK, historical slug)
     # so a retired/reclassified type stops driving seat-mode observations.
     for slug, target in existing.items():
-        if slug not in seen and target.is_seat:
+        if slug not in seen and target.expects_jurisdiction:
             logger.info("role_type_catalog_demoted_absent_slug", extra={"slug": slug})
-            target.is_seat = False
+            target.expects_jurisdiction = False
     await session.flush()
     return len(rows)

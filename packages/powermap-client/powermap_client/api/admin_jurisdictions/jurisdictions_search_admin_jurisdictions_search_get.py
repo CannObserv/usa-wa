@@ -5,25 +5,41 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.role_types_response import RoleTypesResponse
-from ...types import Response
+from ...models.http_validation_error import HTTPValidationError
+from ...types import UNSET, Response, Unset
 
 
-def _get_kwargs() -> dict[str, Any]:
+def _get_kwargs(
+    *,
+    q: str | Unset = "",
+) -> dict[str, Any]:
+
+    params: dict[str, Any] = {}
+
+    params["q"] = q
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "get",
-        "url": "/api/v1/role-types",
+        "url": "/admin/jurisdictions/search/",
+        "params": params,
     }
 
     return _kwargs
 
 
-def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> RoleTypesResponse | None:
+def _parse_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> Any | HTTPValidationError | None:
     if response.status_code == 200:
-        response_200 = RoleTypesResponse.from_dict(response.json())
-
+        response_200 = response.json()
         return response_200
+
+    if response.status_code == 422:
+        response_422 = HTTPValidationError.from_dict(response.json())
+
+        return response_422
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -31,7 +47,9 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
         return None
 
 
-def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Response) -> Response[RoleTypesResponse]:
+def _build_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> Response[Any | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -42,21 +60,27 @@ def _build_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 
 def sync_detailed(
     *,
-    client: AuthenticatedClient,
-) -> Response[RoleTypesResponse]:
-    """List Role Types
+    client: AuthenticatedClient | Client,
+    q: str | Unset = "",
+) -> Response[Any | HTTPValidationError]:
+    """Jurisdictions Search
 
-     Return all role types (the structural-match vocabulary).
+     Typeahead search — returns an HTML fragment of matching jurisdictions.
+
+    Args:
+        q (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[RoleTypesResponse]
+        Response[Any | HTTPValidationError]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        q=q,
+    )
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -67,42 +91,53 @@ def sync_detailed(
 
 def sync(
     *,
-    client: AuthenticatedClient,
-) -> RoleTypesResponse | None:
-    """List Role Types
+    client: AuthenticatedClient | Client,
+    q: str | Unset = "",
+) -> Any | HTTPValidationError | None:
+    """Jurisdictions Search
 
-     Return all role types (the structural-match vocabulary).
+     Typeahead search — returns an HTML fragment of matching jurisdictions.
+
+    Args:
+        q (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        RoleTypesResponse
+        Any | HTTPValidationError
     """
 
     return sync_detailed(
         client=client,
+        q=q,
     ).parsed
 
 
 async def asyncio_detailed(
     *,
-    client: AuthenticatedClient,
-) -> Response[RoleTypesResponse]:
-    """List Role Types
+    client: AuthenticatedClient | Client,
+    q: str | Unset = "",
+) -> Response[Any | HTTPValidationError]:
+    """Jurisdictions Search
 
-     Return all role types (the structural-match vocabulary).
+     Typeahead search — returns an HTML fragment of matching jurisdictions.
+
+    Args:
+        q (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[RoleTypesResponse]
+        Response[Any | HTTPValidationError]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        q=q,
+    )
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -111,22 +146,27 @@ async def asyncio_detailed(
 
 async def asyncio(
     *,
-    client: AuthenticatedClient,
-) -> RoleTypesResponse | None:
-    """List Role Types
+    client: AuthenticatedClient | Client,
+    q: str | Unset = "",
+) -> Any | HTTPValidationError | None:
+    """Jurisdictions Search
 
-     Return all role types (the structural-match vocabulary).
+     Typeahead search — returns an HTML fragment of matching jurisdictions.
+
+    Args:
+        q (str | Unset):  Default: ''.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        RoleTypesResponse
+        Any | HTTPValidationError
     """
 
     return (
         await asyncio_detailed(
             client=client,
+            q=q,
         )
     ).parsed

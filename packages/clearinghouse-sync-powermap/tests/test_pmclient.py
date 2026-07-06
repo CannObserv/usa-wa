@@ -120,13 +120,13 @@ async def test_list_role_types_maps_catalog(client):
                         "id": "01REP",
                         "slug": "state_representative",
                         "display_name": "State Representative",
-                        "is_seat": True,
+                        "expects_jurisdiction": True,
                     },
                     {
                         "id": "01OWN",
                         "slug": "owner",
                         "display_name": "Owner",
-                        "is_seat": False,
+                        "expects_jurisdiction": False,
                     },
                 ]
             },
@@ -136,7 +136,7 @@ async def test_list_role_types_maps_catalog(client):
     rows = await client.list_role_types()
 
     assert [r["slug"] for r in rows] == ["state_representative", "owner"]
-    assert rows[0]["is_seat"] is True and rows[1]["is_seat"] is False
+    assert rows[0]["expects_jurisdiction"] is True and rows[1]["expects_jurisdiction"] is False
 
 
 @respx.mock

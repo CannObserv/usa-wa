@@ -10,8 +10,8 @@ bridge with a name cascade. There are two role shapes with two match keys:
   one of PM's pre-seeded seats. Title is **not** in PM's seat match key — PM discards
   the incoming title on a match and auto-generates it on a create — so a seat
   observation omits title entirely (:meth:`to_observation`). Whether a ``role_type`` is
-  a seat is read from the local :class:`RoleType` catalog mirror (``is_seat``, synced
-  from PM's ``GET /api/v1/role-types`` per power-map#268) — no hardcoded slug list.
+  a seat is read from the local :class:`RoleType` catalog mirror (``expects_jurisdiction``,
+  synced from PM's ``GET /api/v1/role-types`` per power-map#268/#271) — no hardcoded slug list.
 - **Non-seat roles** (committee/leadership/staff/…) — keyed on ``(organization_id,
   title)``, the pair we send. Title-variance caveat: PM's match is exact, so a title
   differing from PM's curated form ("Vice Chair" vs "Vice-Chair") would create a new
@@ -89,13 +89,15 @@ class RoleDescriptor(EntityDescriptor):
 
     async def _is_seat_role_type(self, session: Any, slug: str | None) -> bool:
         """True iff ``slug`` is a known **seat** type in the local role_type catalog
-        mirror (``is_seat``, synced from PM's ``/role-types`` per power-map#268). An
-        empty/unsynced catalog yields False — seats defer until the sync runs, rather
-        than fall through to a title-shaped observation."""
+        mirror (``expects_jurisdiction``, synced from PM's ``/role-types`` per
+        power-map#268/#271). An empty/unsynced catalog yields False — seats defer until
+        the sync runs, rather than fall through to a title-shaped observation."""
         if not slug:
             return False
         found = await session.execute(
-            select(RoleType.id).where(RoleType.slug == slug, RoleType.is_seat.is_(True))
+            select(RoleType.id).where(
+                RoleType.slug == slug, RoleType.expects_jurisdiction.is_(True)
+            )
         )
         return found.scalar_one_or_none() is not None
 
@@ -157,7 +159,7 @@ class RoleDescriptor(EntityDescriptor):
         in PM, so nothing is overwritten spuriously.
 
         ``role_type`` adoption is restricted to slugs the synced :class:`RoleType`
-        catalog marks as seat types (``is_seat``, power-map#268). PM types
+        catalog marks as seat types (``expects_jurisdiction``, power-map#268/#271). PM types
         ``role_type_slug`` as a free ``string | null`` with no OpenAPI enum, so an
         unrecognized slug — a role type not yet in the catalog, or one on a non-seat
         role — must not silently overwrite our local ``role_type``; the catalog is the

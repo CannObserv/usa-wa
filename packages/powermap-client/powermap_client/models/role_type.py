@@ -11,24 +11,25 @@ T = TypeVar("T", bound="RoleType")
 
 @_attrs_define
 class RoleType:
-    """A role-type classifier (office) — the seat-match vocabulary (#268).
+    """A role-type classifier (office) — the structural-match vocabulary (#268).
 
     ``slug`` is the stable value a producer sends as ``RoleObservationRequest.
-    role_type`` and reads back on ``RoleDetail.role_type_slug``. ``is_seat`` is
-    an advisory hint that this office is normally a districted seat (attach with
-    a jurisdiction); it is not enforced by ``resolve_role``.
+    role_type`` and reads back on ``RoleDetail.role_type_slug``.
+    ``expects_jurisdiction`` is an advisory hint that this office is normally
+    attached with a jurisdiction (structural-tuple match); it is not enforced by
+    ``resolve_role``.
 
         Attributes:
             id (str):
             slug (str):
             display_name (str):
-            is_seat (bool):
+            expects_jurisdiction (bool):
     """
 
     id: str
     slug: str
     display_name: str
-    is_seat: bool
+    expects_jurisdiction: bool
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -38,7 +39,7 @@ class RoleType:
 
         display_name = self.display_name
 
-        is_seat = self.is_seat
+        expects_jurisdiction = self.expects_jurisdiction
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -47,7 +48,7 @@ class RoleType:
                 "id": id,
                 "slug": slug,
                 "display_name": display_name,
-                "is_seat": is_seat,
+                "expects_jurisdiction": expects_jurisdiction,
             }
         )
 
@@ -62,13 +63,13 @@ class RoleType:
 
         display_name = d.pop("display_name")
 
-        is_seat = d.pop("is_seat")
+        expects_jurisdiction = d.pop("expects_jurisdiction")
 
         role_type = cls(
             id=id,
             slug=slug,
             display_name=display_name,
-            is_seat=is_seat,
+            expects_jurisdiction=expects_jurisdiction,
         )
 
         role_type.additional_properties = d

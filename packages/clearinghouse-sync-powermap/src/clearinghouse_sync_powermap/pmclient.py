@@ -355,7 +355,7 @@ class GeneratedPowerMapClient:
         """The public role_types catalog (power-map#268) as raw dicts.
 
         Unpaginated ``{"data": [...]}`` (a tiny classifier set); each row is
-        ``{id, slug, display_name, is_seat}``. Drives the usa-wa role-type mirror."""
+        ``{id, slug, display_name, expects_jurisdiction}``. Drives the usa-wa role-type mirror."""
         body = await self._send(list_role_types.asyncio_detailed(client=self._client))
         return [rt.to_dict() for rt in body.data]
 

@@ -192,7 +192,7 @@ class PowerMapClient(Protocol):
 
     async def list_role_types(self) -> list[dict]:
         """The public role_types catalog (power-map#268) as raw dicts —
-        ``{id, slug, display_name, is_seat}``. Small, unpaginated classifier set."""
+        ``{id, slug, display_name, expects_jurisdiction}``. Small, unpaginated classifier set."""
         ...
 
     async def list_entity_events(self, read_path: str, pm_id: ULID) -> list[dict]:

@@ -2,14 +2,15 @@
 
 Power Map is the system of record for the ``role_types`` classifier (power-map#261
 seeds ``state_representative`` / ``state_senator``; power-map#268 exposes the catalog
-at ``GET /api/v1/role-types``). usa-wa mirrors ``{slug, display_name, is_seat}`` locally
-so the :class:`RoleDescriptor` can decide a Role observation's **shape at runtime** —
+at ``GET /api/v1/role-types``). usa-wa mirrors ``{slug, display_name, expects_jurisdiction}``
+locally so the :class:`RoleDescriptor` can decide a Role observation's **shape at runtime** —
 seat-mode (structural tuple) vs title-mode — from PM's own catalog rather than a
 hardcoded slug map (retires the usa-wa#68 ``SEAT_ROLE_TYPE_SLUGS`` constant).
 
 The mirror is refreshed by the sidecar's catalog sync
-(:func:`usa_wa_sync_powermap.role_type_catalog.sync_role_type_catalog`). ``is_seat`` is
-PM's advisory hint that the office is normally a districted seat (PM does not *enforce*
+(:func:`usa_wa_sync_powermap.role_type_catalog.sync_role_type_catalog`).
+``expects_jurisdiction`` is PM's advisory hint that the office is normally attached with
+a jurisdiction (power-map#271 renamed this field from ``is_seat``; PM does not *enforce*
 it on ``resolve_role``), which is exactly the signal usa-wa needs to pick the seat
 observation shape.
 """
@@ -33,8 +34,8 @@ class RoleType(Base, TimestampMixin):
 
     Natural key is ``slug`` (the stable value a producer sends as
     ``RoleObservationRequest.role_type`` and reads back on ``RoleDetail.role_type_slug``).
-    ``pm_role_type_id`` anchors the PM row; ``is_seat`` drives the seat-vs-title
-    observation decision in the sync descriptor.
+    ``pm_role_type_id`` anchors the PM row; ``expects_jurisdiction`` drives the
+    seat-vs-title observation decision in the sync descriptor.
     """
 
     __tablename__ = "role_types"
@@ -48,6 +49,7 @@ class RoleType(Base, TimestampMixin):
     pm_role_type_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
     slug: Mapped[str] = mapped_column(String(64), nullable=False)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    # PM's advisory hint that this role type is normally a districted seat — the
-    # signal usa-wa uses to emit a seat-mode observation (structural tuple, no title).
-    is_seat: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # PM's advisory hint that this role type is normally attached with a jurisdiction
+    # (power-map#271 rename of ``is_seat``) — the signal usa-wa uses to emit a seat-mode
+    # observation (structural tuple, no title).
+    expects_jurisdiction: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

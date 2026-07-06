@@ -8,88 +8,59 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
-T = TypeVar("T", bound="BodyRoleCreateAdminRolesNewPost")
+T = TypeVar("T", bound="BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost")
 
 
 @_attrs_define
-class BodyRoleCreateAdminRolesNewPost:
+class BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost:
     """
     Attributes:
-        organization_id (str):
-        title (str | Unset):  Default: ''.
         role_type_id (str | Unset):  Default: ''.
         jurisdiction_id (str | Unset):  Default: ''.
         qualifier (str | Unset):  Default: ''.
-        notes (str | Unset):  Default: ''.
     """
 
-    organization_id: str
-    title: str | Unset = ""
     role_type_id: str | Unset = ""
     jurisdiction_id: str | Unset = ""
     qualifier: str | Unset = ""
-    notes: str | Unset = ""
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        organization_id = self.organization_id
-
-        title = self.title
-
         role_type_id = self.role_type_id
 
         jurisdiction_id = self.jurisdiction_id
 
         qualifier = self.qualifier
 
-        notes = self.notes
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update(
-            {
-                "organization_id": organization_id,
-            }
-        )
-        if title is not UNSET:
-            field_dict["title"] = title
+        field_dict.update({})
         if role_type_id is not UNSET:
             field_dict["role_type_id"] = role_type_id
         if jurisdiction_id is not UNSET:
             field_dict["jurisdiction_id"] = jurisdiction_id
         if qualifier is not UNSET:
             field_dict["qualifier"] = qualifier
-        if notes is not UNSET:
-            field_dict["notes"] = notes
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        organization_id = d.pop("organization_id")
-
-        title = d.pop("title", UNSET)
-
         role_type_id = d.pop("role_type_id", UNSET)
 
         jurisdiction_id = d.pop("jurisdiction_id", UNSET)
 
         qualifier = d.pop("qualifier", UNSET)
 
-        notes = d.pop("notes", UNSET)
-
-        body_role_create_admin_roles_new_post = cls(
-            organization_id=organization_id,
-            title=title,
+        body_role_inline_structural_post_admin_roles_role_id_inline_structural_post = cls(
             role_type_id=role_type_id,
             jurisdiction_id=jurisdiction_id,
             qualifier=qualifier,
-            notes=notes,
         )
 
-        body_role_create_admin_roles_new_post.additional_properties = d
-        return body_role_create_admin_roles_new_post
+        body_role_inline_structural_post_admin_roles_role_id_inline_structural_post.additional_properties = d
+        return body_role_inline_structural_post_admin_roles_role_id_inline_structural_post
 
     @property
     def additional_keys(self) -> list[str]:

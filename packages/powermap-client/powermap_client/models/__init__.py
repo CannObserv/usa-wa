@@ -154,6 +154,9 @@ from .body_role_inline_notes_post_admin_roles_role_id_inline_notes_post import (
 from .body_role_inline_org_post_admin_roles_role_id_inline_org_post import (
     BodyRoleInlineOrgPostAdminRolesRoleIdInlineOrgPost,
 )
+from .body_role_inline_structural_post_admin_roles_role_id_inline_structural_post import (
+    BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost,
+)
 from .body_role_inline_title_post_admin_roles_role_id_inline_title_post import (
     BodyRoleInlineTitlePostAdminRolesRoleIdInlineTitlePost,
 )
@@ -334,6 +337,7 @@ __all__ = (
     "BodyRoleInlineDatesPostAdminRolesRoleIdInlineDatesPost",
     "BodyRoleInlineNotesPostAdminRolesRoleIdInlineNotesPost",
     "BodyRoleInlineOrgPostAdminRolesRoleIdInlineOrgPost",
+    "BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost",
     "BodyRoleInlineTitlePostAdminRolesRoleIdInlineTitlePost",
     "ChangeFeedResponse",
     "ChangeItem",

@@ -101,13 +101,15 @@ async def _add_seat(
     return role
 
 
-async def _seed_role_type(session, *, slug="state_representative", is_seat=True, anchor=None):
+async def _seed_role_type(
+    session, *, slug="state_representative", expects_jurisdiction=True, anchor=None
+):
     """Seed the local role_type catalog mirror (power-map#268) — the descriptor reads
-    ``is_seat`` from it to decide the observation shape."""
+    ``expects_jurisdiction`` from it to decide the observation shape."""
     rt = RoleType(
         slug=slug,
         display_name=slug.replace("_", " ").title(),
-        is_seat=is_seat,
+        expects_jurisdiction=expects_jurisdiction,
         pm_role_type_id=anchor,
     )
     session.add(rt)
@@ -119,8 +121,8 @@ async def _seed_role_type(session, *, slug="state_representative", is_seat=True,
 
 
 async def test_is_seat_role_type_reads_catalog(db_session, descriptor):
-    await _seed_role_type(db_session, slug="state_senator", is_seat=True)
-    await _seed_role_type(db_session, slug="committee_leadership", is_seat=False)
+    await _seed_role_type(db_session, slug="state_senator", expects_jurisdiction=True)
+    await _seed_role_type(db_session, slug="committee_leadership", expects_jurisdiction=False)
     assert await descriptor._is_seat_role_type(db_session, "state_senator") is True
     assert await descriptor._is_seat_role_type(db_session, "committee_leadership") is False
     assert await descriptor._is_seat_role_type(db_session, "not_in_catalog") is False
@@ -131,7 +133,7 @@ async def test_to_observation_seat_emits_structural_tuple(db_session, descriptor
     org_pm, jur_pm = ULID(), ULID()
     org = await _add_org(db_session, anchor=org_pm)
     jur = await _add_district(db_session, anchor=jur_pm)
-    await _seed_role_type(db_session, slug="state_representative", is_seat=True)
+    await _seed_role_type(db_session, slug="state_representative", expects_jurisdiction=True)
     seat = await _add_seat(db_session, org=org, jurisdiction=jur, qualifier="Position 1")
 
     obs = await descriptor.to_observation(db_session, seat)
@@ -157,7 +159,7 @@ async def test_to_observation_non_seat_stays_title_only(db_session, descriptor):
 
 
 async def test_dependencies_ready_seat_requires_anchored_jurisdiction(db_session, descriptor):
-    await _seed_role_type(db_session, slug="state_representative", is_seat=True)
+    await _seed_role_type(db_session, slug="state_representative", expects_jurisdiction=True)
     org = await _add_org(db_session, anchor=ULID())
     unanchored_jur = await _add_district(db_session, slug="usa-wa-ld-05", anchor=None)
     seat = await _add_seat(db_session, org=org, jurisdiction=unanchored_jur, source_id="S-A")
@@ -179,14 +181,15 @@ async def test_dependencies_ready_seat_defers_until_catalog_synced(db_session, d
     assert await descriptor.dependencies_ready(db_session, seat) is False
 
     # Once the catalog knows the seat type → ready.
-    await _seed_role_type(db_session, slug="state_representative", is_seat=True)
+    await _seed_role_type(db_session, slug="state_representative", expects_jurisdiction=True)
     assert await descriptor.dependencies_ready(db_session, seat) is True
 
 
 async def test_dependencies_ready_seat_defers_when_role_type_not_a_seat(db_session, descriptor):
-    """A districted row whose role_type is in the catalog but marked is_seat=False defers
-    — we emit a seat observation only for a catalog-confirmed seat type (usa-wa#68 CR)."""
-    await _seed_role_type(db_session, slug="state_representative", is_seat=False)
+    """A districted row whose role_type is in the catalog but marked
+    expects_jurisdiction=False defers — we emit a seat observation only for a
+    catalog-confirmed seat type (usa-wa#68 CR)."""
+    await _seed_role_type(db_session, slug="state_representative", expects_jurisdiction=False)
     org = await _add_org(db_session, anchor=ULID())
     jur = await _add_district(db_session, anchor=ULID())
     seat = await _add_seat(db_session, org=org, jurisdiction=jur)
@@ -195,7 +198,7 @@ async def test_dependencies_ready_seat_defers_when_role_type_not_a_seat(db_sessi
 
 
 async def test_upsert_mirrors_seat_fields_from_pm(db_session, descriptor):
-    await _seed_role_type(db_session, slug="state_representative", is_seat=True)
+    await _seed_role_type(db_session, slug="state_representative", expects_jurisdiction=True)
     org = await _add_org(db_session, anchor=ULID())
     jur_pm = ULID()
     jur = await _add_district(db_session, anchor=jur_pm)
@@ -239,8 +242,8 @@ async def test_upsert_ignores_role_type_slug_not_a_seat_in_catalog(db_session, d
     """PM types role_type_slug as a free string with no OpenAPI enum; a slug the synced
     catalog doesn't mark as a seat (a not-yet-synced type, or one on a non-seat role)
     must not overwrite the local ``role_type`` — the catalog is the vocab (usa-wa#68)."""
-    await _seed_role_type(db_session, slug="state_representative", is_seat=True)
-    await _seed_role_type(db_session, slug="committee_leadership", is_seat=False)
+    await _seed_role_type(db_session, slug="state_representative", expects_jurisdiction=True)
+    await _seed_role_type(db_session, slug="committee_leadership", expects_jurisdiction=False)
     org = await _add_org(db_session, anchor=ULID())
     pm_id = ULID()
     role = await _add_role(db_session, org=org, anchor=pm_id)  # role_type=committee_leadership
@@ -296,7 +299,7 @@ async def test_seat_observation_round_trips_through_pm_request(
     org_pm, jur_pm = ULID(), ULID()
     org = await _add_org(db_session, anchor=org_pm)
     jur = await _add_district(db_session, anchor=jur_pm)
-    await _seed_role_type(db_session, slug=role_type, is_seat=True)
+    await _seed_role_type(db_session, slug=role_type, expects_jurisdiction=True)
     seat = await _add_seat(
         db_session, org=org, jurisdiction=jur, role_type=role_type, qualifier=qualifier
     )

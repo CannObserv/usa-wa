@@ -12,8 +12,9 @@ from clearinghouse_domain_legislative.role_types import RoleType
 
 def test_role_type_columns():
     cols = inspect(RoleType).columns
-    assert {"id", "pm_role_type_id", "slug", "display_name", "is_seat"} <= set(cols.keys())
-    assert cols["is_seat"].nullable is False
+    expected = {"id", "pm_role_type_id", "slug", "display_name", "expects_jurisdiction"}
+    assert expected <= set(cols.keys())
+    assert cols["expects_jurisdiction"].nullable is False
     assert cols["pm_role_type_id"].nullable is True
 
 
@@ -23,7 +24,7 @@ async def test_role_type_persists(db_session):
         pm_role_type_id=pm_id,
         slug="state_senator",
         display_name="State Senator",
-        is_seat=True,
+        expects_jurisdiction=True,
     )
     db_session.add(rt)
     await db_session.flush()
@@ -31,13 +32,13 @@ async def test_role_type_persists(db_session):
     fetched = (
         await db_session.execute(select(RoleType).where(RoleType.slug == "state_senator"))
     ).scalar_one()
-    assert fetched.is_seat is True
+    assert fetched.expects_jurisdiction is True
     assert fetched.pm_role_type_id == pm_id
 
 
 async def test_role_type_slug_unique(db_session):
-    db_session.add(RoleType(slug="state_senator", display_name="A", is_seat=True))
+    db_session.add(RoleType(slug="state_senator", display_name="A", expects_jurisdiction=True))
     await db_session.flush()
-    db_session.add(RoleType(slug="state_senator", display_name="B", is_seat=True))
+    db_session.add(RoleType(slug="state_senator", display_name="B", expects_jurisdiction=True))
     with pytest.raises(IntegrityError):
         await db_session.flush()

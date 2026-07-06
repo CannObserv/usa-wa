@@ -1,27 +1,34 @@
 from http import HTTPStatus
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.body_role_create_admin_roles_new_post import BodyRoleCreateAdminRolesNewPost
+from ...models.body_role_inline_structural_post_admin_roles_role_id_inline_structural_post import (
+    BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost,
+)
 from ...models.http_validation_error import HTTPValidationError
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
+    role_id: str,
     *,
-    body: BodyRoleCreateAdminRolesNewPost,
+    body: BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
-        "url": "/admin/roles/new/",
+        "url": "/admin/roles/{role_id}/inline/structural/".format(
+            role_id=quote(str(role_id), safe=""),
+        ),
     }
 
-    _kwargs["data"] = body.to_dict()
+    if not isinstance(body, Unset):
+        _kwargs["data"] = body.to_dict()
     headers["Content-Type"] = "application/x-www-form-urlencoded"
 
     _kwargs["headers"] = headers
@@ -58,20 +65,18 @@ def _build_response(
 
 
 def sync_detailed(
+    role_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyRoleCreateAdminRolesNewPost,
+    body: BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost | Unset = UNSET,
 ) -> Response[Any | HTTPValidationError]:
-    """Role Create
+    """Role Inline Structural Post
 
-     Create a new role — plain or with a role type + jurisdiction (+ qualifier).
-
-    Validates the two DB check-constraints up front with clear errors, and, for a
-    role with a jurisdiction, synthesizes the canonical WA title (#267) — falling
-    back to requiring a manual title when synthesis is unavailable.
+     Save the structural tuple; re-synthesize the curated title when possible (#267).
 
     Args:
-        body (BodyRoleCreateAdminRolesNewPost):
+        role_id (str):
+        body (BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -82,6 +87,7 @@ def sync_detailed(
     """
 
     kwargs = _get_kwargs(
+        role_id=role_id,
         body=body,
     )
 
@@ -93,20 +99,18 @@ def sync_detailed(
 
 
 def sync(
+    role_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyRoleCreateAdminRolesNewPost,
+    body: BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost | Unset = UNSET,
 ) -> Any | HTTPValidationError | None:
-    """Role Create
+    """Role Inline Structural Post
 
-     Create a new role — plain or with a role type + jurisdiction (+ qualifier).
-
-    Validates the two DB check-constraints up front with clear errors, and, for a
-    role with a jurisdiction, synthesizes the canonical WA title (#267) — falling
-    back to requiring a manual title when synthesis is unavailable.
+     Save the structural tuple; re-synthesize the curated title when possible (#267).
 
     Args:
-        body (BodyRoleCreateAdminRolesNewPost):
+        role_id (str):
+        body (BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -117,26 +121,25 @@ def sync(
     """
 
     return sync_detailed(
+        role_id=role_id,
         client=client,
         body=body,
     ).parsed
 
 
 async def asyncio_detailed(
+    role_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyRoleCreateAdminRolesNewPost,
+    body: BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost | Unset = UNSET,
 ) -> Response[Any | HTTPValidationError]:
-    """Role Create
+    """Role Inline Structural Post
 
-     Create a new role — plain or with a role type + jurisdiction (+ qualifier).
-
-    Validates the two DB check-constraints up front with clear errors, and, for a
-    role with a jurisdiction, synthesizes the canonical WA title (#267) — falling
-    back to requiring a manual title when synthesis is unavailable.
+     Save the structural tuple; re-synthesize the curated title when possible (#267).
 
     Args:
-        body (BodyRoleCreateAdminRolesNewPost):
+        role_id (str):
+        body (BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -147,6 +150,7 @@ async def asyncio_detailed(
     """
 
     kwargs = _get_kwargs(
+        role_id=role_id,
         body=body,
     )
 
@@ -156,20 +160,18 @@ async def asyncio_detailed(
 
 
 async def asyncio(
+    role_id: str,
     *,
     client: AuthenticatedClient | Client,
-    body: BodyRoleCreateAdminRolesNewPost,
+    body: BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost | Unset = UNSET,
 ) -> Any | HTTPValidationError | None:
-    """Role Create
+    """Role Inline Structural Post
 
-     Create a new role — plain or with a role type + jurisdiction (+ qualifier).
-
-    Validates the two DB check-constraints up front with clear errors, and, for a
-    role with a jurisdiction, synthesizes the canonical WA title (#267) — falling
-    back to requiring a manual title when synthesis is unavailable.
+     Save the structural tuple; re-synthesize the curated title when possible (#267).
 
     Args:
-        body (BodyRoleCreateAdminRolesNewPost):
+        role_id (str):
+        body (BodyRoleInlineStructuralPostAdminRolesRoleIdInlineStructuralPost | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -181,6 +183,7 @@ async def asyncio(
 
     return (
         await asyncio_detailed(
+            role_id=role_id,
             client=client,
             body=body,
         )
