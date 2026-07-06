@@ -13,7 +13,7 @@ from sqlalchemy import select, text
 from ulid import ULID as _ULID
 
 from clearinghouse_core.jurisdictions import Jurisdiction
-from clearinghouse_core.provenance import Source
+from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person
 from usa_wa_adapter_legislature import refresh as refresh_module
@@ -407,6 +407,101 @@ async def test_run_refresh_materializes_member_cluster(db_session, usa_wa):
     assert "committee" in dims
 
 
+async def _cite_committees(session, *, source, committees, resource_id):
+    """Attach a ``resource_id`` citation to each committee via one shared FetchEvent —
+    mirrors how a real GetActiveCommittees (``committees:<biennium>``) or roster
+    (``committees-roster:<biennium>``) pull cites the orgs it produced. The #72 member
+    fan-out scopes on the ``committees:<biennium>`` citation."""
+    event = FetchEvent(
+        source_id=source.id,
+        resource_id=resource_id,
+        url="https://wslwebservices.leg.wa.gov/CommitteeService.asmx#GetActiveCommittees",
+        fetched_at=datetime.now(UTC),
+        content_hash=b"\x00" * 32,
+        status=FetchStatus.ok,
+    )
+    session.add(event)
+    await session.flush()
+    for committee in committees:
+        session.add(
+            Citation(
+                entity_type="organization",
+                entity_id=committee.id,
+                fetch_event_id=event.id,
+                field_path=None,
+                confidence=1.0,
+                asserted_at=event.fetched_at,
+            )
+        )
+    await session.flush()
+
+
+async def test_member_fanout_scoped_to_current_biennium_provenance(db_session, usa_wa):
+    """The fan-out pulls only committees with a ``committees:<biennium>`` GetActiveCommittees
+    citation — a historical backfill committee (``active=True`` but only
+    ``committees-roster:*`` provenance) is excluded, so its members aren't mis-attributed and
+    no wasted GetActiveCommitteeMembers Fault fires (#72)."""
+    anchors = await bootstrap_synthetic_anchors(
+        db_session, biennium="2025-26", jurisdiction_id=usa_wa.id
+    )
+    jurisdiction = await _resolve_jurisdiction(db_session)
+    source = await _get_or_create_source(db_session, jurisdiction)
+    current = Organization(
+        source="usa_wa_legislature",
+        source_id="CUR",
+        jurisdiction_id=usa_wa.id,
+        name="House Current",
+        short_name="Current",
+        org_type="committee",
+        parent_organization_id=anchors.house_id,
+        active=True,
+    )
+    historical = Organization(
+        source="usa_wa_legislature",
+        source_id="HIST",
+        jurisdiction_id=usa_wa.id,
+        name="House Historical",
+        short_name="Historical",
+        org_type="committee",
+        parent_organization_id=anchors.house_id,
+        active=True,  # backfill default — the old broken scope would have fanned this out
+    )
+    db_session.add_all([current, historical])
+    await db_session.flush()
+    await _cite_committees(
+        db_session, source=source, committees=[current], resource_id="committees:2025-26"
+    )
+    await _cite_committees(
+        db_session, source=source, committees=[historical], resource_id="committees-roster:2011-12"
+    )
+
+    member_client = _FakeMembersClient(
+        [_sponsor(301, "Kristine", "Reeves", agency="House", party="Democrat", district="30")]
+    )
+    adapter = WALegislatureAdapter(
+        anchors=anchors,
+        jurisdiction_id=usa_wa.id,
+        biennium="2025-26",
+        sponsor_client=_FakeSponsorClient(),
+        member_client=member_client,
+        session=db_session,
+    )
+    runner = AdapterRunner(
+        adapter,
+        db_session,
+        source=source,
+        jurisdiction=jurisdiction,
+        natural_key=("source", "source_id"),
+        fill_only=True,
+    )
+
+    with patch("usa_wa_adapter_legislature.refresh.biennium_for_date", return_value="2025-26"):
+        await _discover_members(runner, db_session, "2025-26", anchors)
+
+    # Only the current-provenance committee was fanned out; the historical one was skipped.
+    assert member_client.calls == [("House", "Current")]
+
+
 class _PoisonNormalizeAdapter(WALegislatureAdapter):
     """Adapter whose committee-member ``normalize`` runs a **failing SQL** for one
     poison committee id — a genuine DB-layer error that leaves the connection in an
@@ -434,23 +529,28 @@ async def test_member_fanout_db_error_is_isolated_by_savepoint(db_session, usa_w
         db_session, biennium="2025-26", jurisdiction_id=usa_wa.id
     )
     # Two House standing committees; one poisons its own normalize.
-    for cid, short in (("100", "Good"), ("200", "Poison")):
-        db_session.add(
-            Organization(
-                source="usa_wa_legislature",
-                source_id=cid,
-                jurisdiction_id=usa_wa.id,
-                name=f"House {short}",
-                short_name=short,
-                org_type="committee",
-                parent_organization_id=anchors.house_id,
-                active=True,
-            )
+    committees = [
+        Organization(
+            source="usa_wa_legislature",
+            source_id=cid,
+            jurisdiction_id=usa_wa.id,
+            name=f"House {short}",
+            short_name=short,
+            org_type="committee",
+            parent_organization_id=anchors.house_id,
+            active=True,
         )
+        for cid, short in (("100", "Good"), ("200", "Poison"))
+    ]
+    db_session.add_all(committees)
     await db_session.flush()
 
     jurisdiction = await _resolve_jurisdiction(db_session)
     source = await _get_or_create_source(db_session, jurisdiction)
+    # Both need current-biennium GetActiveCommittees provenance to be in the fan-out scope (#72).
+    await _cite_committees(
+        db_session, source=source, committees=committees, resource_id="committees:2025-26"
+    )
     adapter = _PoisonNormalizeAdapter(
         anchors=anchors,
         jurisdiction_id=usa_wa.id,

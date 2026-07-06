@@ -35,10 +35,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import configure_logging, get_logger
-from clearinghouse_core.provenance import RetentionPolicy, Source
+from clearinghouse_core.provenance import Citation, FetchEvent, RetentionPolicy, Source
 from clearinghouse_core.runner import AdapterRunner, RunSummary
 from clearinghouse_domain_legislative.identity import Organization
 from usa_wa_adapter_legislature.adapter import (
+    COMMITTEES_RESOURCE_PREFIX,
     SPONSORS_RESOURCE_PREFIX,
     WALegislatureAdapter,
     committee_members_resource_id,
@@ -224,12 +225,20 @@ async def _discover_members(
     (do-not-parallelize-against-WSL). Archival stays bounded by the runner's unchanged-hash
     dedup. Returns the upsert count.
 
-    The fan-out roster is enumerated from the **DB** (the ``org_type='committee'`` rows the
-    committees phase just materialized, keyed to a House/Senate chamber) rather than a fresh
-    GetActiveCommittees pull — no extra SOAP call, and it stays correct on a committees
-    cache-hit. GetActiveCommitteeMembers is a CommitteeService op scoped to House/Senate
+    The fan-out roster is enumerated from the **DB** — the ``org_type='committee'`` rows
+    carrying a ``committees:<biennium>`` GetActiveCommittees citation (the committees phase
+    just wrote them), keyed to a House/Senate chamber — rather than a fresh GetActiveCommittees
+    pull: no extra SOAP call, and it stays correct on a committees cache-hit (citations
+    persist). GetActiveCommitteeMembers is a CommitteeService op scoped to House/Senate
     committees, so the meeting-derived Joint/``Other`` class (chamber = legislature) is
-    excluded."""
+    excluded. Provenance — not ``active`` — is the current-biennium scope (#72): the
+    sub-project-3 historical backfill materializes long-dissolved committees as
+    ``active=True`` (its default; the reconcile can't demote them past its cohort-floor), so
+    an ``active`` scope fanned out over every era — 132 ``No committee was found`` Faults/run
+    **and** current members mis-attributed to a historical Id whose name still matches a live
+    committee. A ``committees:<biennium>`` citation is the precise "WSL returned this as
+    active this biennium" signal; backfill Ids carry only ``committees-roster:*`` provenance
+    and are structurally excluded."""
     force = biennium == biennium_for_date(datetime.now(UTC).date())
     total = 0
 
@@ -248,19 +257,27 @@ async def _discover_members(
         anchors.house_id: "House",
         anchors.senate_id: "Senate",
     }
-    # Scope to **operationally-live** committees: PM's ``active`` domain flag (mirrored;
-    # the weekly reconcile sets it from the current roster) + not archived/deleted. This
-    # keeps the fan-out to committees that plausibly have a current roster and, once the
-    # sub-project-3 historical backfill lands, excludes the defunct-era committees it
-    # materializes (which would otherwise cost a wasted GetActiveCommitteeMembers each).
+    # Scope to committees WSL returned as active THIS biennium — those carrying a
+    # ``committees:<biennium>`` GetActiveCommittees citation (#72) — and still live (not
+    # archived/deleted). Provenance is the precise current signal: the prior ``active=True``
+    # proxy fanned out over the historical backfill's dissolved committees (all active=True),
+    # wasting SOAP calls and mis-attributing current members to same-named historical Ids.
+    current_committee_ids = (
+        select(Citation.entity_id)
+        .join(FetchEvent, FetchEvent.id == Citation.fetch_event_id)
+        .where(
+            Citation.entity_type == "organization",
+            FetchEvent.resource_id == f"{COMMITTEES_RESOURCE_PREFIX}{biennium}",
+        )
+    )
     committees = (
         (
             await session.execute(
                 select(Organization).where(
                     Organization.source == "usa_wa_legislature",
                     Organization.org_type == "committee",
-                    Organization.active.is_(True),
                     Organization.is_live(),
+                    Organization.id.in_(current_committee_ids),
                 )
             )
         )
