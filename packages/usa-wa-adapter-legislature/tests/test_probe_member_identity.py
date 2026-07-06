@@ -34,7 +34,7 @@ def _m(id_, first, last, district="1", party="D", name=None):
 
 def test_is_person_requires_first_and_last() -> None:
     assert is_person(_m(1, "Peter", "Abbarno"))
-    # institutional/committee sponsors: blank Name, no first/last/district/party
+    # name-blanked stub of a superseded/departed tenure: real Id, blank name/district/party
     assert not is_person({"Id": 2006, "Name": " ", "FirstName": None, "LastName": None})
     assert not is_person({"Id": 3, "FirstName": "", "LastName": ""})
 
@@ -106,10 +106,10 @@ class _FakeCommitteeClient:
 
 async def test_probe_reports_stable_id_source() -> None:
     rivers, nguyen = _m(10, "Ann", "Rivers"), _m(20, "Joe", "Nguyen")
-    institutional = {"Id": 2006, "Name": " ", "FirstName": None, "LastName": None}
+    blanked_stub = {"Id": 2006, "Name": " ", "FirstName": None, "LastName": None}
     sponsor = _FakeSponsorClient(
         {
-            "2025-26": [rivers, nguyen, institutional],
+            "2025-26": [rivers, nguyen, blanked_stub],
             "2023-24": [_m(10, "Ann", "Rivers"), _m(20, "Joe", "Nguyen"), _m(40, "Gone", "Member")],
         }
     )

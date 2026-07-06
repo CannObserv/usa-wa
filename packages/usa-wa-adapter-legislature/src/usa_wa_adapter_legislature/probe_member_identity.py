@@ -15,10 +15,12 @@ members against the sponsor cohort.
 matching is by name (``LastName``, ``FirstName``) so it can *detect* an ``Id`` mismatch
 independently of the very ``Id`` under test.
 
-``GetSponsors`` returns a superset of legislators: it also lists institutional /
-committee sponsors that carry a blank ``Name``, no ``District`` and no ``Party``.
-:func:`is_person` filters those so they don't pollute the overlap tally (and flags the
-count the real Person normalizer will likewise skip).
+``GetSponsors`` returns **one row per (member, chamber-tenure)**, so a member appears
+once per tenure under a stable ``Id``. Superseded / departed tenures come back as a
+**name-blanked stub** — a real ``Id`` with a chamber-typed ``LongName`` (``"Senator "``)
+but the name, ``District`` and ``Party`` stripped. :func:`is_person` filters those stubs
+so they don't pollute the overlap tally (and flags the count the real Person normalizer
+will likewise skip, deduping the surviving named rows by ``Id``).
 
     python -m usa_wa_adapter_legislature.probe_member_identity
     python -m usa_wa_adapter_legislature.probe_member_identity --biennium 2025-26 --json
@@ -44,10 +46,11 @@ DEFAULT_COMMITTEE_SAMPLE = 12
 
 
 def is_person(member: dict[str, Any]) -> bool:
-    """True when a ``Member`` row is an actual legislator (has both first + last name).
+    """True when a ``Member`` row is a named legislator (has both first + last name).
 
-    Filters the institutional / committee sponsors ``GetSponsors`` mixes in — they carry
-    a blank ``Name`` and null ``FirstName`` / ``LastName`` / ``District`` / ``Party``.
+    Filters the **name-blanked stubs** ``GetSponsors`` returns for a superseded or departed
+    (member, chamber-tenure) — a real ``Id`` but blank ``Name`` and null ``FirstName`` /
+    ``LastName`` / ``District`` / ``Party``.
     """
     return bool((member.get("FirstName") or "").strip() and (member.get("LastName") or "").strip())
 

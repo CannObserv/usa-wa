@@ -149,14 +149,18 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
    `legislative_session_id=biennium session`, `valid_from=biennium start`) — **only when the member has
    a major-party affiliation**. Party canonicalization maps `"R"`/`"Republican"` → `party-republican`,
    `"D"`/`"Democrat"` → `party-democratic`, else (independent / blank) → **no party Assignment**.
-   **Filter to persons first** (`FirstName` and `LastName` both present) — `GetSponsors` mixes in ~5
-   institutional / committee sponsors (blank `Name`, null district/party) that are not legislators
-   (step 0 finding; reuse the probe's `is_person`).
+   **Iterate rows, not members, and filter to persons first** (`FirstName` and `LastName` both
+   present, reuse the probe's `is_person`): `GetSponsors` returns **one row per (member,
+   chamber-tenure)** and mixes in name-blanked stubs (departed members + superseded prior-chamber
+   tenures — step 0 finding). Then **dedup Person by `Id`** — a mid-biennium chamber mover (e.g. Emily
+   Alvarado `34024`) has **two named rows** sharing the `Id`; key Person on `Id` so they collapse to
+   one human (attributes identical). `Id` is stable across the chamber change.
    **Verifiable when:** `test_normalize_sponsors` covers R/D + an independent (no party Assignment),
-   an institutional non-person row (skipped), name recomposition, identifier emission, and
-   party-Assignment wiring against the cassette.
+   a name-blanked stub (skipped), a two-named-row mover (one Person, deduped by `Id`), name
+   recomposition, identifier emission, and party-Assignment wiring against the cassette.
 
-5. **Senate seat Assignments (TDD).** In the sponsor normalizer, branch on `Agency`:
+5. **Senate seat Assignments (TDD).** In the sponsor normalizer, branch on `Agency` **per row** (a
+   mid-biennium chamber mover contributes a House row *and* a Senate row under one `Id` — Step 4):
    - **Senate:** resolve `District` → `usa-wa-ld-{n}` → jurisdiction id; **get-or-create** the Senate
      seat `Role` (`org=Senate anchor`, `role_type="state_senator"`, `jurisdiction_id=LD`,
      `qualifier=NULL`, `name="State Senator"`); emit a **seat** Assignment (`Person → seat Role`,
@@ -167,7 +171,8 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
      NULL-qualifier House seat Role, and do **not** create a coarse `member` House chamber Role.
    **Verifiable when:** `test_normalize_sponsors` asserts a Senate member yields a `state_senator` seat
    Role keyed on its LD + a seat Assignment; a **House member yields Person + party but no chamber Role
-   or chamber Assignment**; Senate seat reuse (two bienniums, same LD) doesn't duplicate.
+   or chamber Assignment**; a mid-biennium mover (House + Senate rows, one `Id`) yields one Person + a
+   Senate seat Assignment (House row → none); Senate seat reuse (two bienniums, same LD) doesn't duplicate.
 
 6. **Committee-member normalizer (TDD).** `normalize/committee_members.py`:
    `normalize_committee_members(payload, anchors, committee_org_id, jurisdiction_id) ->
@@ -253,18 +258,37 @@ Captured per the writing-plans skill (Phase 4 small-revision policy).
   normalizer (Step 6) keys `Person` on `Id` **directly** — the `(FirstName, LastName,
   District)` name-match fallback in Step 0 is **not needed** and is dropped. Resolves the
   first open question.
-- **2026-07-06 — Two data-shape findings that adjust later steps (from the same probe run):**
-  1. **`GetSponsors` returns a superset of legislators.** 5 of 158 rows in `2025-26` are
-     institutional / committee sponsors — blank `Name` (`" "`), null `FirstName` / `LastName`
-     / `District` / `Party`. The Person normalizer (Step 4) **must filter to actual persons**
-     (both `FirstName` and `LastName` present); the probe's `is_person` predicate is the
-     reference. So "persons" = 153, not the raw 158.
-  2. **Party is spelled differently per endpoint.** `GetSponsors` uses single letters
-     `"R"` / `"D"`; `GetActiveCommitteeMembers` uses full words `"Republican"` / `"Democrat"`.
-     Party canonicalization (Step 4) must accept **both** forms → `party-republican` /
-     `party-democratic` (the plan already mapped both; this confirms the full-word form is
-     load-bearing, not defensive). A null/blank party (independent, or an institutional row)
-     yields **no party Assignment**.
+- **2026-07-06 — `GetSponsors` returns one row per (member, chamber-tenure), not per member
+  (investigated the 5 "non-person" rows).** The blanked rows are **not** institutional/committee
+  sponsors (earlier mislabel) — every one carries a real, stable member `Id` and a chamber-typed
+  `LongName` with the **name stripped** (`"Representative "` / `"Senator "`). Resolving the 5 Ids in
+  `2023-24` showed two mechanisms:
+  - **Prior-chamber stubs of still-serving members** (Orwall `14205` House→Senate, Slatter `27504`) —
+    the same `Id` **also** appears as a *named* current Senate row; the House stub is the superseded
+    tenure, name-blanked.
+  - **Departed members** (Hawkins `2006`, Sam Hunt `5155`, Rivers `15814`) — the blanked stub is the
+    **only** 2025-26 row (no named counterpart); they left but still hold biennium sponsorships.
+
+  And the multi-row-per-`Id` shape extends to **named** rows: `Id` `34024` (Emily Alvarado) and
+  `35410` (Victoria Hunt) each appear **twice, both named** (House + Senate, same District/Party) —
+  mid-biennium House→Senate movers whose *both* tenures fall inside 2025-26. So 153 named rows =
+  **151 distinct members**. **`Id` is stable across a chamber change** (Orwall/Slatter/Alvarado/Hunt
+  all keep their `Id`), reinforcing the source_id verdict on a third axis. Consequences for Step 4/5:
+  1. **Iterate rows, not members**; **filter `is_person`** (drops the 5 blanked stubs → the 3 departed
+     yield no Person, correct; the 2 boundary-movers survive via their named Senate row).
+  2. **Dedup Person by `Id`** — a mid-biennium mover has 2 named rows sharing the `Id`; keying Person on
+     `Id` collapses them to one human (attributes identical, no conflict).
+  3. **Seat Assignment is per-row (per chamber tenure)** — a mover's Senate row → a Senate seat
+     Assignment; their House row → nothing (House deferred to #69). Falls out of the `Agency` branch
+     *provided* the loop is over rows.
+  4. **`GetSponsors` = "sponsored a bill this biennium" ⊇ currently-seated members** (151 > 147 seats,
+     from mid-biennium replacements). Acceptable for the identity graph; the snapshot-lossy `valid_to`
+     caveat covers the tenure imprecision.
+- **2026-07-06 — Party is spelled differently per endpoint.** `GetSponsors` uses single letters
+  `"R"` / `"D"`; `GetActiveCommitteeMembers` uses full words `"Republican"` / `"Democrat"`. Party
+  canonicalization (Step 4) must accept **both** forms → `party-republican` / `party-democratic` (the
+  plan already mapped both; this confirms the full-word form is load-bearing, not defensive). A
+  null/blank party (independent, or a blanked stub) yields **no party Assignment**.
 - **2026-07-06 — Transport gained the two non-archival member pulls now** (`get_sponsors`,
   `get_active_committee_members`), the parsed-dict siblings the probe calls — mirroring
   `get_committees`. Step 1 still adds the **archival** `fetch_sponsors` / `fetch_committee_members`
