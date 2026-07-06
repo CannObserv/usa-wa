@@ -7,8 +7,22 @@ from usa_wa_adapter_legislature.synthesis import (
     chamber_orgs,
     legislature_org,
     parse_biennium,
+    party_orgs,
     regular_sessions,
 )
+
+
+def test_party_orgs_emits_two_major_parties():
+    """Republican + Democratic party orgs, keyed party-<slug>, no Independent."""
+    jur = _ulid()
+    rows = party_orgs(jur)
+    assert {r["source_id"] for r in rows} == {"party-republican", "party-democratic"}
+    assert all(r["org_type"] == "party" for r in rows)
+    assert all(r["parent_organization_id"] is None for r in rows)
+    assert all(r["jurisdiction_id"] == jur for r in rows)
+    by_id = {r["source_id"]: r for r in rows}
+    assert by_id["party-republican"]["name"] == "Washington State Republican Party"
+    assert by_id["party-democratic"]["name"] == "Washington State Democratic Party"
 
 
 def _ulid() -> _ULID:

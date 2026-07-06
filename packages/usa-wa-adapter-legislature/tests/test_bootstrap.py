@@ -21,9 +21,9 @@ async def anchors(db_session, usa_wa) -> BootstrapAnchors:
 
 
 async def test_bootstrap_writes_one_legislature_two_chambers(db_session, anchors):
-    """Legislature + 2 chambers = 3 Organizations after one call."""
+    """Legislature + 2 chambers + 2 party orgs = 5 Organizations after one call."""
     orgs = (await db_session.execute(select(Organization))).scalars().all()
-    assert len(orgs) == 3
+    assert len(orgs) == 5
     by_type = {o.org_type: o for o in orgs} | {
         ("chamber", o.short_name): o for o in orgs if o.org_type == "chamber"
     }
@@ -35,6 +35,27 @@ async def test_bootstrap_writes_one_legislature_two_chambers(db_session, anchors
     assert all(c.parent_organization_id == legislature.id for c in chambers)
     assert by_type[("chamber", "House")].id == anchors.house_id
     assert by_type[("chamber", "Senate")].id == anchors.senate_id
+
+
+async def test_bootstrap_writes_two_party_orgs(db_session, anchors):
+    """Two ``org_type='party'`` orgs — Republican + Democratic — parented to nothing."""
+    parties = (
+        (await db_session.execute(select(Organization).where(Organization.org_type == "party")))
+        .scalars()
+        .all()
+    )
+    assert len(parties) == 2
+    by_source_id = {p.source_id: p for p in parties}
+    assert set(by_source_id) == {"party-republican", "party-democratic"}
+    assert by_source_id["party-republican"].name == "Washington State Republican Party"
+    assert by_source_id["party-democratic"].name == "Washington State Democratic Party"
+    assert all(p.parent_organization_id is None for p in parties)
+    assert all(p.jurisdiction_id is not None for p in parties)
+    # anchors expose the party ids keyed by canonical slug
+    assert anchors.party_ids["republican"] == by_source_id["party-republican"].id
+    assert anchors.party_ids["democratic"] == by_source_id["party-democratic"].id
+    # No Independent party (independent = absence of a party Assignment).
+    assert "independent" not in anchors.party_ids
 
 
 async def test_bootstrap_writes_biennium_and_two_regular_sessions(db_session, anchors):
@@ -67,7 +88,7 @@ async def test_bootstrap_is_idempotent(db_session, usa_wa):
     assert first == second
     org_count = len((await db_session.execute(select(Organization))).scalars().all())
     sess_count = len((await db_session.execute(select(LegislativeSession))).scalars().all())
-    assert org_count == 3
+    assert org_count == 5
     assert sess_count == 3
 
 

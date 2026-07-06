@@ -26,6 +26,7 @@ from usa_wa_adapter_legislature.synthesis import (
     biennium_session,
     chamber_orgs,
     legislature_org,
+    party_orgs,
     regular_sessions,
 )
 
@@ -39,6 +40,9 @@ class BootstrapAnchors:
     senate_id: _ULID
     biennium_session_id: _ULID
     regular_session_ids: dict[int, _ULID] = field(default_factory=dict)
+    #: Party Org ids keyed by canonical party slug (``republican`` / ``democratic``),
+    #: for the sponsor normalizer's party Assignments (P1b). Absent = pre-P1b anchors.
+    party_ids: dict[str, _ULID] = field(default_factory=dict)
 
 
 async def _upsert_org(session: AsyncSession, row: dict[str, Any]) -> _ULID:
@@ -93,6 +97,12 @@ async def bootstrap_synthetic_anchors(
     house_id = await _upsert_org(session, chambers[0])
     senate_id = await _upsert_org(session, chambers[1])
 
+    party_ids: dict[str, _ULID] = {}
+    for party_row in party_orgs(jurisdiction_id):
+        # ``source_id`` is ``party-<slug>``; the slug is the dispatch key.
+        slug = party_row["source_id"].removeprefix("party-")
+        party_ids[slug] = await _upsert_org(session, party_row)
+
     biennium_row = biennium_session(legislature_id, biennium)
     biennium_session_id = await _upsert_session(session, biennium_row)
 
@@ -113,4 +123,5 @@ async def bootstrap_synthetic_anchors(
         senate_id=senate_id,
         biennium_session_id=biennium_session_id,
         regular_session_ids=regular_ids,
+        party_ids=party_ids,
     )

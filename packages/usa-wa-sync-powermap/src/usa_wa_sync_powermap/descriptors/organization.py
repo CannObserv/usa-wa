@@ -90,10 +90,25 @@ def identifier_type_for(source: str, org_type: str | None) -> str | None:
             return "org_wa_legislature_chamber"
         if org_type == "legislature":
             return "org_wa_legislature"
+        if org_type == "party":
+            return "org_wa_party"
         return "org_wa_legislature_committee_id"
     if source == "usa_wa_pdc":
         return "org_wa_pdc"
     return None
+
+
+def identifier_value_for(source: str, org_type: str | None, source_id: str) -> str:
+    """The identifier **value** to send/match for a local org.
+
+    Normally the org's ``source_id`` (WSL committee ``Id``, etc.). For a **party**
+    (power-map#270) the value is the bare party slug — ``republican`` / ``democratic`` —
+    which the bootstrap stores as ``source_id='party-<slug>'``, so we strip the
+    ``party-`` prefix. PM backfilled its two party Orgs with exactly this bare-slug
+    ``org_wa_party`` value, so an identifier match auto-attaches ours (no name fuzz)."""
+    if source == "usa_wa_legislature" and org_type == "party":
+        return source_id.removeprefix("party-")
+    return source_id
 
 
 def observed_name(row: Any) -> str:
@@ -149,9 +164,8 @@ class OrganizationDescriptor(EntityDescriptor):
     async def needs_enrich(self, record: dict, row: Any) -> bool:
         """Enrich when PM's matched org lacks the identifier we hold for it."""
         id_type = identifier_type_for(row.source, row.org_type)
-        return id_type is not None and not self.record_has_identifier(
-            record, id_type, row.source_id
-        )
+        id_value = identifier_value_for(row.source, row.org_type, row.source_id)
+        return id_type is not None and not self.record_has_identifier(record, id_type, id_value)
 
     # --- match cascade (PM-first) --------------------------------------------
 
@@ -161,11 +175,12 @@ class OrganizationDescriptor(EntityDescriptor):
         # unique in PM, and scoping it would false-miss an org that holds our id
         # but isn't yet affiliated to usa-wa → a spurious duplicate.
         id_type = identifier_type_for(row.source, row.org_type)
+        id_value = identifier_value_for(row.source, row.org_type, row.source_id)
         if id_type is not None:
             page = await client.search_entities(
                 SEARCH_PATH,
                 identifier_type=id_type,
-                identifier_value=row.source_id,
+                identifier_value=id_value,
                 limit=1,
             )
             for rec in page.records:
@@ -267,7 +282,7 @@ class OrganizationDescriptor(EntityDescriptor):
         page = await client.search_entities(
             SEARCH_PATH,
             identifier_type=id_type,
-            identifier_value=row.source_id,
+            identifier_value=identifier_value_for(row.source, row.org_type, row.source_id),
             limit=1,
         )
         for rec in page.records:
@@ -291,7 +306,7 @@ class OrganizationDescriptor(EntityDescriptor):
             )
         payload: dict[str, Any] = {
             "identifier_type": id_type,
-            "identifier_value": row.source_id,
+            "identifier_value": identifier_value_for(row.source, row.org_type, row.source_id),
             # Typed name *evidence* — PM curates ``is_canonical``; we never assert it.
             # Joint/`Other` send the clean short_name, not the double-prefixed name (#61).
             "names": [{"name": observed_name(row), "name_type": "legal"}],

@@ -41,13 +41,15 @@ async def _add_org(session, *, source_id="HOUSE", name="House", anchor=None):
     return org
 
 
-async def _add_role(session, *, org, source_id="R-1", name="Chair", anchor=None):
+async def _add_role(
+    session, *, org, source_id="R-1", name="Chair", role_type="committee_leadership", anchor=None
+):
     role = Role(
         source="usa_wa_legislature",
         source_id=source_id,
         organization_id=org.id,
         name=name,
-        role_type="committee_leadership",
+        role_type=role_type,
         pm_role_id=anchor,
     )
     session.add(role)
@@ -155,7 +157,24 @@ async def test_to_observation_non_seat_stays_title_only(db_session, descriptor):
 
     obs = await descriptor.to_observation(db_session, role)
 
+    # role_type "committee_leadership" is not seeded in the catalog here → omitted.
     assert obs == {"organization_id": str(org.pm_organization_id), "title": "Vice Chair"}
+
+
+async def test_to_observation_non_seat_emits_role_type_when_catalog_known(db_session, descriptor):
+    """A catalog-known non-seat classifier (``member``, power-map#269) rides alongside the
+    title so PM persists it — the classifier isn't dropped to a NULL role_type_id."""
+    org = await _add_org(db_session, anchor=ULID())
+    await _seed_role_type(db_session, slug="member", expects_jurisdiction=False)
+    role = await _add_role(db_session, org=org, name="Member", role_type="member")
+
+    obs = await descriptor.to_observation(db_session, role)
+
+    assert obs == {
+        "organization_id": str(org.pm_organization_id),
+        "title": "Member",
+        "role_type": "member",
+    }
 
 
 async def test_dependencies_ready_seat_requires_anchored_jurisdiction(db_session, descriptor):

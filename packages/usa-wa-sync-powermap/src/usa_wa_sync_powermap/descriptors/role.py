@@ -101,6 +101,19 @@ class RoleDescriptor(EntityDescriptor):
         )
         return found.scalar_one_or_none() is not None
 
+    async def _is_catalog_role_type(self, session: Any, slug: str | None) -> bool:
+        """True iff ``slug`` is present in the local role_type catalog mirror **at all**
+        (regardless of ``expects_jurisdiction``). Distinct from :meth:`_is_seat_role_type`:
+        a non-seat classifier like ``member`` (power-map#269) is catalog-known but not a
+        seat, and a title-shaped observation must still carry its ``role_type`` so PM
+        persists the classifier (else the role lands with a NULL ``role_type_id`` and
+        "all memberships" can't aggregate). An unsynced/unknown slug yields False — we
+        omit ``role_type`` rather than assert one PM's catalog doesn't recognise."""
+        if not slug:
+            return False
+        found = await session.execute(select(RoleType.id).where(RoleType.slug == slug))
+        return found.scalar_one_or_none() is not None
+
     async def to_observation(self, session: Any, row: Any) -> dict:
         # dependencies_ready guarantees the org (and, for a seat, its district +
         # catalog-confirmed role_type) is ready before delivery.
@@ -123,6 +136,12 @@ class RoleDescriptor(EntityDescriptor):
             obs["qualifier"] = row.qualifier
         else:
             obs["title"] = row.name  # non-seat roles match on (org, title)
+            # Carry the classifier when the catalog knows the slug (e.g. ``member``,
+            # power-map#269). PM matches on (org, title) and *persists* role_type, so
+            # sending it alongside the title makes "all memberships" aggregatable
+            # without inventing a title vocabulary. A non-catalog slug is omitted.
+            if await self._is_catalog_role_type(session, row.role_type):
+                obs["role_type"] = row.role_type
         return obs
 
     async def local_match(self, session: Any, record: dict) -> Any | None:

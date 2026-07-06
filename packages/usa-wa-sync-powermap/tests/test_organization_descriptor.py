@@ -16,7 +16,10 @@ from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_sync_powermap.client import EntityPage
 from clearinghouse_sync_powermap.testing import FakeClient
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
-from usa_wa_sync_powermap.descriptors.organization import identifier_type_for
+from usa_wa_sync_powermap.descriptors.organization import (
+    identifier_type_for,
+    identifier_value_for,
+)
 
 
 @pytest.fixture
@@ -70,8 +73,50 @@ def test_identifier_type_for_maps_source_and_org_type():
         identifier_type_for("usa_wa_legislature", "subcommittee")
         == "org_wa_legislature_committee_id"
     )
+    assert identifier_type_for("usa_wa_legislature", "party") == "org_wa_party"
     assert identifier_type_for("usa_wa_pdc", "pac") == "org_wa_pdc"
     assert identifier_type_for("some_other_source", "committee") is None
+
+
+def test_identifier_value_for_strips_party_prefix():
+    """A party's identifier value is the bare slug (power-map#270), not the source_id."""
+    # committee/other: value == source_id verbatim
+    assert identifier_value_for("usa_wa_legislature", "committee", "C-1") == "C-1"
+    # party: 'party-republican' → 'republican'
+    assert identifier_value_for("usa_wa_legislature", "party", "party-republican") == "republican"
+    assert identifier_value_for("usa_wa_legislature", "party", "party-democratic") == "democratic"
+
+
+async def test_party_pm_match_uses_bare_slug_value(db_session, descriptor):
+    """A party org matches PM on org_wa_party with the bare-slug value, not source_id."""
+    pm_id = ULID()
+    row = await _add_org(
+        db_session,
+        source_id="party-republican",
+        name="Washington State Republican Party",
+        org_type="party",
+    )
+    client = FakeClient(search_pages=[EntityPage(records=[{"id": str(pm_id)}], cursor=None)])
+
+    matched = await descriptor.pm_match(client, db_session, row)
+
+    assert matched == pm_id
+    assert client.searched[0]["identifier_type"] == "org_wa_party"
+    assert client.searched[0]["identifier_value"] == "republican"
+
+
+async def test_party_to_observation_emits_org_wa_party(db_session, descriptor, usa_wa):
+    """A party observation carries org_wa_party + the bare slug (not the committee type)."""
+    row = await _add_org(
+        db_session,
+        source_id="party-democratic",
+        name="Washington State Democratic Party",
+        org_type="party",
+        jurisdiction_id=usa_wa.id,
+    )
+    obs = await descriptor.to_observation(db_session, row)
+    assert obs["identifier_type"] == "org_wa_party"
+    assert obs["identifier_value"] == "democratic"
 
 
 # --- pm_match cascade ---------------------------------------------------------
