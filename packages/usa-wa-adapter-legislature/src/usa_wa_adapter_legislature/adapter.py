@@ -77,7 +77,6 @@ _SPONSORS_URL = f"{WSL_BASE_URL}/SponsorService.asmx#GetSponsors"
 #: stamped url stays well-formed (query precedes fragment); ``normalize`` dispatches on
 #: this fragment suffix and reads the id back from the query.
 _COMMITTEE_MEMBERS_FRAGMENT = "#GetActiveCommitteeMembers"
-_COMMITTEE_MEMBERS_URL = f"{_COMMITTEE_SERVICE_URL}{_COMMITTEE_MEMBERS_FRAGMENT}"
 
 
 def committee_members_resource_id(
