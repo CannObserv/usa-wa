@@ -67,14 +67,33 @@ class RoleDescriptor(EntityDescriptor):
         PM jurisdiction id the observation could not attach and would mint a duplicate —
         and (b) its ``role_type`` present in the synced :class:`RoleType` catalog as a
         seat type, so we emit a seat-shaped observation only once we can confirm PM
-        regards the type as a seat. Defer (retry next cycle) rather than mis-shape the
-        observation; the catalog sync + jurisdiction feed fill the gaps."""
+        regards the type as a seat, and (c) — if the type is ``requires_qualifier``
+        (power-map#273, e.g. ``state_representative``) — a non-NULL ``qualifier``, since PM
+        REJECTS a positionless districted seat of such a type. Defer (retry next cycle)
+        rather than mis-shape the observation; the catalog sync + jurisdiction feed fill the
+        gaps. A missing qualifier on a ``requires_qualifier`` seat is a data defect that
+        never resolves — the engine surfaces the perma-deferral as a throttled stuck
+        WARNING (#15) rather than shipping an observation PM dead-letters."""
         if await self._org_pm_id(session, row) is None:
             return False
         if row.jurisdiction_id is not None:  # a districted row is an intended seat
             if await self._jurisdiction_pm_id(session, row) is None:
                 return False
-            return await self._is_seat_role_type(session, row.role_type)
+            if not await self._is_seat_role_type(session, row.role_type):
+                return False
+            # power-map#273 mirror: PM REJECTS a districted seat of a requires_qualifier
+            # type (e.g. state_representative — per-position) arriving without a qualifier,
+            # minting nothing. Catch it pre-flight — defer rather than ship an observation
+            # PM dead-letters as REJECTED. A well-formed House seat carries its Position
+            # qualifier (#68/#69), so this only fires on a data defect; the engine surfaces
+            # a permanently-deferred entry as a throttled stuck WARNING (#15).
+            if row.qualifier is None and await self._requires_qualifier(session, row.role_type):
+                logger.debug(
+                    "role_seat_qualifier_required_missing",
+                    extra={"source_id": row.source_id, "role_type": row.role_type},
+                )
+                return False
+            return True
         # Non-seat role: if it carries a ``role_type`` classifier (e.g. ``member``,
         # power-map#269) that the synced catalog doesn't know yet, **defer** rather than
         # emit a title-only observation that lands with a NULL role_type_id — the enrich
@@ -107,6 +126,18 @@ class RoleDescriptor(EntityDescriptor):
             select(RoleType.id).where(
                 RoleType.slug == slug, RoleType.expects_jurisdiction.is_(True)
             )
+        )
+        return found.scalar_one_or_none() is not None
+
+    async def _requires_qualifier(self, session: Any, slug: str | None) -> bool:
+        """True iff ``slug`` is a role type PM enforces a qualifier on (power-map#273 —
+        ``requires_qualifier``, e.g. ``state_representative``). An absent/unknown slug or an
+        unsynced catalog yields False (unconstrained) — the guard only refuses a seat when
+        PM has positively declared the type qualifier-enforced."""
+        if not slug:
+            return False
+        found = await session.execute(
+            select(RoleType.id).where(RoleType.slug == slug, RoleType.requires_qualifier.is_(True))
         )
         return found.scalar_one_or_none() is not None
 

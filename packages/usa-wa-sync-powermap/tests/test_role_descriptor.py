@@ -104,14 +104,21 @@ async def _add_seat(
 
 
 async def _seed_role_type(
-    session, *, slug="state_representative", expects_jurisdiction=True, anchor=None
+    session,
+    *,
+    slug="state_representative",
+    expects_jurisdiction=True,
+    requires_qualifier=False,
+    anchor=None,
 ):
     """Seed the local role_type catalog mirror (power-map#268) — the descriptor reads
-    ``expects_jurisdiction`` from it to decide the observation shape."""
+    ``expects_jurisdiction`` (shape) and ``requires_qualifier`` (power-map#273 guard) from
+    it."""
     rt = RoleType(
         slug=slug,
         display_name=slug.replace("_", " ").title(),
         expects_jurisdiction=expects_jurisdiction,
+        requires_qualifier=requires_qualifier,
         pm_role_type_id=anchor,
     )
     session.add(rt)
@@ -201,6 +208,60 @@ async def test_dependencies_ready_seat_defers_until_catalog_synced(db_session, d
 
     # Once the catalog knows the seat type → ready.
     await _seed_role_type(db_session, slug="state_representative", expects_jurisdiction=True)
+    assert await descriptor.dependencies_ready(db_session, seat) is True
+
+
+async def test_requires_qualifier_reads_catalog(db_session, descriptor):
+    await _seed_role_type(
+        db_session, slug="state_representative", expects_jurisdiction=True, requires_qualifier=True
+    )
+    await _seed_role_type(
+        db_session, slug="state_senator", expects_jurisdiction=True, requires_qualifier=False
+    )
+    assert await descriptor._requires_qualifier(db_session, "state_representative") is True
+    assert await descriptor._requires_qualifier(db_session, "state_senator") is False
+    assert await descriptor._requires_qualifier(db_session, "not_in_catalog") is False
+    assert await descriptor._requires_qualifier(db_session, None) is False
+
+
+async def test_dependencies_ready_defers_requires_qualifier_seat_without_qualifier(
+    db_session, descriptor
+):
+    """A districted seat of a requires_qualifier type (power-map#273) arriving with a NULL
+    qualifier defers — PM would REJECT it, so we never ship it (usa-wa#71)."""
+    await _seed_role_type(
+        db_session, slug="state_representative", expects_jurisdiction=True, requires_qualifier=True
+    )
+    org = await _add_org(db_session, anchor=ULID())
+    jur = await _add_district(db_session, anchor=ULID())
+    seat = await _add_seat(
+        db_session, org=org, jurisdiction=jur, role_type="state_representative", qualifier=None
+    )
+    assert await descriptor.dependencies_ready(db_session, seat) is False
+
+    # Same seat with its Position qualifier present → ready (the well-formed #68/#69 shape).
+    seat_ok = await _add_seat(
+        db_session,
+        org=org,
+        jurisdiction=jur,
+        role_type="state_representative",
+        qualifier="Position 1",
+        source_id="SEAT-OK",
+    )
+    assert await descriptor.dependencies_ready(db_session, seat_ok) is True
+
+
+async def test_dependencies_ready_senate_seat_ok_with_null_qualifier(db_session, descriptor):
+    """A Senate seat (state_senator, requires_qualifier=False) with NULL qualifier is valid —
+    the guard only fires for requires_qualifier types. Mirrors our actual emission."""
+    await _seed_role_type(
+        db_session, slug="state_senator", expects_jurisdiction=True, requires_qualifier=False
+    )
+    org = await _add_org(db_session, anchor=ULID())
+    jur = await _add_district(db_session, anchor=ULID())
+    seat = await _add_seat(
+        db_session, org=org, jurisdiction=jur, role_type="state_senator", qualifier=None
+    )
     assert await descriptor.dependencies_ready(db_session, seat) is True
 
 

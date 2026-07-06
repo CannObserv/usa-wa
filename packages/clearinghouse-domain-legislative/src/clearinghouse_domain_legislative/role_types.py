@@ -2,10 +2,12 @@
 
 Power Map is the system of record for the ``role_types`` classifier (power-map#261
 seeds ``state_representative`` / ``state_senator``; power-map#268 exposes the catalog
-at ``GET /api/v1/role-types``). usa-wa mirrors ``{slug, display_name, expects_jurisdiction}``
-locally so the :class:`RoleDescriptor` can decide a Role observation's **shape at runtime** —
+at ``GET /api/v1/role-types``). usa-wa mirrors
+``{slug, display_name, expects_jurisdiction, requires_qualifier}`` locally so the
+:class:`RoleDescriptor` can decide a Role observation's **shape at runtime** —
 seat-mode (structural tuple) vs title-mode — from PM's own catalog rather than a
-hardcoded slug map (retires the usa-wa#68 ``SEAT_ROLE_TYPE_SLUGS`` constant).
+hardcoded slug map (retires the usa-wa#68 ``SEAT_ROLE_TYPE_SLUGS`` constant), and refuse a
+positionless ``requires_qualifier`` seat (power-map#273) pre-flight.
 
 The mirror is refreshed by the sidecar's catalog sync
 (:func:`usa_wa_sync_powermap.role_type_catalog.sync_role_type_catalog`).
@@ -53,3 +55,10 @@ class RoleType(Base, TimestampMixin):
     # (power-map#271 rename of ``is_seat``) — the signal usa-wa uses to emit a seat-mode
     # observation (structural tuple, no title).
     expects_jurisdiction: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # PM's ENFORCED constraint (power-map#273): a districted-seat observation of this type
+    # that arrives without a ``qualifier`` is REJECTED("qualifier_required") rather than
+    # minting a positionless seat (#267). ``state_representative`` = True (per-position),
+    # ``state_senator`` = False (one senator/LD, NULL qualifier valid). usa-wa mirrors it so
+    # the descriptor can refuse a positionless requires_qualifier seat pre-flight (#71).
+    # Unlike ``expects_jurisdiction`` (advisory), this is a hard PM constraint.
+    requires_qualifier: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

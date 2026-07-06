@@ -17,19 +17,23 @@ class RoleType:
     role_type`` and reads back on ``RoleDetail.role_type_slug``.
     ``expects_jurisdiction`` is an advisory hint that this office is normally
     attached with a jurisdiction (structural-tuple match); it is not enforced by
-    ``resolve_role``.
+    ``resolve_role``. ``requires_qualifier`` (#273) IS enforced: a jurisdictional
+    observation of such an office without a ``qualifier`` is rejected
+    (``qualifier_required``) rather than minting a positionless seat.
 
         Attributes:
             id (str):
             slug (str):
             display_name (str):
             expects_jurisdiction (bool):
+            requires_qualifier (bool):
     """
 
     id: str
     slug: str
     display_name: str
     expects_jurisdiction: bool
+    requires_qualifier: bool
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -41,6 +45,8 @@ class RoleType:
 
         expects_jurisdiction = self.expects_jurisdiction
 
+        requires_qualifier = self.requires_qualifier
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -49,6 +55,7 @@ class RoleType:
                 "slug": slug,
                 "display_name": display_name,
                 "expects_jurisdiction": expects_jurisdiction,
+                "requires_qualifier": requires_qualifier,
             }
         )
 
@@ -65,11 +72,14 @@ class RoleType:
 
         expects_jurisdiction = d.pop("expects_jurisdiction")
 
+        requires_qualifier = d.pop("requires_qualifier")
+
         role_type = cls(
             id=id,
             slug=slug,
             display_name=display_name,
             expects_jurisdiction=expects_jurisdiction,
+            requires_qualifier=requires_qualifier,
         )
 
         role_type.additional_properties = d

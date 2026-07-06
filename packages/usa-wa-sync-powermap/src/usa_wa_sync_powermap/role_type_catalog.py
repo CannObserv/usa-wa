@@ -65,13 +65,18 @@ async def sync_role_type_catalog(session: AsyncSession, client: _CatalogClient) 
         if expects_jurisdiction is None:
             expects_jurisdiction = row.get("is_seat")
         target.expects_jurisdiction = bool(expects_jurisdiction)
+        # power-map#273: PM's enforced qualifier constraint. Absent (older PM / raw-dict
+        # caller) → False (unconstrained), the safe default.
+        target.requires_qualifier = bool(row.get("requires_qualifier"))
         if pm_id is not None:
             target.pm_role_type_id = as_ulid(pm_id)
     # Reconcile rows PM no longer lists: demote (never delete — no FK, historical slug)
-    # so a retired/reclassified type stops driving seat-mode observations.
+    # so a retired/reclassified type stops driving seat-mode observations and stops
+    # enforcing a qualifier requirement PM no longer declares.
     for slug, target in existing.items():
-        if slug not in seen and target.expects_jurisdiction:
+        if slug not in seen and (target.expects_jurisdiction or target.requires_qualifier):
             logger.info("role_type_catalog_demoted_absent_slug", extra={"slug": slug})
             target.expects_jurisdiction = False
+            target.requires_qualifier = False
     await session.flush()
     return len(rows)

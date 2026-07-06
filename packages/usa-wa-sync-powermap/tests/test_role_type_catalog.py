@@ -25,12 +25,14 @@ async def test_sync_inserts_catalog_rows(db_session):
                 "slug": "state_representative",
                 "display_name": "State Representative",
                 "expects_jurisdiction": True,
+                "requires_qualifier": True,
             },
             {
                 "id": sen_id,
                 "slug": "state_senator",
                 "display_name": "State Senator",
                 "expects_jurisdiction": True,
+                "requires_qualifier": False,
             },
         ]
     )
@@ -42,6 +44,62 @@ async def test_sync_inserts_catalog_rows(db_session):
     assert [r.slug for r in rows] == ["state_representative", "state_senator"]
     assert all(r.expects_jurisdiction for r in rows)
     assert str(rows[1].pm_role_type_id) == sen_id
+    # power-map#273: the enforced flag is mirrored per-slug.
+    by_slug = {r.slug: r for r in rows}
+    assert by_slug["state_representative"].requires_qualifier is True
+    assert by_slug["state_senator"].requires_qualifier is False
+
+
+async def test_sync_defaults_requires_qualifier_false_when_absent(db_session):
+    """A pre-#273 PM (no requires_qualifier key) → False (unconstrained), the safe default."""
+    client = _FakeClient(
+        [
+            {
+                "id": str(ULID()),
+                "slug": "member",
+                "display_name": "Member",
+                "expects_jurisdiction": False,
+            }
+        ]
+    )
+    await sync_role_type_catalog(db_session, client)
+
+    row = (await db_session.execute(select(RoleType).where(RoleType.slug == "member"))).scalar_one()
+    assert row.requires_qualifier is False
+
+
+async def test_sync_demotes_requires_qualifier_for_absent_slug(db_session):
+    """A qualifier-enforced type PM no longer lists stops enforcing (requires_qualifier=False),
+    not deleted (power-map#273 / usa-wa#71)."""
+    db_session.add(
+        RoleType(
+            slug="retired_rep",
+            display_name="Retired Rep",
+            expects_jurisdiction=True,
+            requires_qualifier=True,
+        )
+    )
+    await db_session.flush()
+
+    client = _FakeClient(
+        [
+            {
+                "id": str(ULID()),
+                "slug": "state_senator",
+                "display_name": "State Senator",
+                "expects_jurisdiction": True,
+                "requires_qualifier": False,
+            }
+        ]
+    )
+    await sync_role_type_catalog(db_session, client)
+
+    retired = (
+        await db_session.execute(select(RoleType).where(RoleType.slug == "retired_rep"))
+    ).scalar_one()
+    assert retired.requires_qualifier is False  # demoted
+    assert retired.expects_jurisdiction is False  # demoted
+    assert retired.slug == "retired_rep"  # still present
 
 
 async def test_sync_updates_existing_row_by_slug(db_session):

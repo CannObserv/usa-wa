@@ -121,12 +121,14 @@ async def test_list_role_types_maps_catalog(client):
                         "slug": "state_representative",
                         "display_name": "State Representative",
                         "expects_jurisdiction": True,
+                        "requires_qualifier": True,
                     },
                     {
                         "id": "01OWN",
                         "slug": "owner",
                         "display_name": "Owner",
                         "expects_jurisdiction": False,
+                        "requires_qualifier": False,
                     },
                 ]
             },
@@ -137,6 +139,8 @@ async def test_list_role_types_maps_catalog(client):
 
     assert [r["slug"] for r in rows] == ["state_representative", "owner"]
     assert rows[0]["expects_jurisdiction"] is True and rows[1]["expects_jurisdiction"] is False
+    # power-map#273 enforced flag flows through the catalog read (first-class after regen).
+    assert rows[0]["requires_qualifier"] is True and rows[1]["requires_qualifier"] is False
 
 
 @respx.mock
