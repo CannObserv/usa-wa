@@ -1,0 +1,184 @@
+"""PDCAdapter tests — dispatch shape + end-to-end through the AdapterRunner."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+import pytest
+from sqlalchemy import select
+from ulid import ULID as _ULID
+from usa_wa_adapter_pdc.adapter import PDCAdapter, election_year_for_biennium
+from usa_wa_adapter_pdc.normalize.house_positions import build_house_roster
+from usa_wa_adapter_pdc.transport import WireFetch
+
+from clearinghouse_core.jurisdictions import Jurisdiction
+from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
+from clearinghouse_core.runner import AdapterRunner
+from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier, Role
+from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
+
+BIENNIUM = "2025-26"
+
+
+class FakePDCClient:
+    """Duck-typed PDCClient returning a fixed winner cohort as a JSON WireFetch."""
+
+    def __init__(self, winners: list[dict]) -> None:
+        import json
+
+        self._winners = winners
+        self._wire = json.dumps(winners).encode("utf-8")
+        self.calls: list[int] = []
+
+    async def fetch_house_winners(self, election_year: int) -> WireFetch:
+        self.calls.append(election_year)
+        return WireFetch(records=self._winners, wire=self._wire, content_type="application/json")
+
+
+def _winner(person_id, filer_name, *, position, ld, party_code="D"):
+    return {
+        "person_id": person_id,
+        "filer_name": filer_name,
+        "position": position,
+        "legislative_district": ld,
+        "party_code": party_code,
+    }
+
+
+def test_election_year_for_biennium() -> None:
+    assert election_year_for_biennium("2025-26") == 2024
+    assert election_year_for_biennium("2023-24") == 2022
+
+
+def test_adapter_class_vars() -> None:
+    assert PDCAdapter.source_slug == "usa_wa_pdc"
+    assert PDCAdapter.schema_name == "usa_wa_pdc"
+    assert PDCAdapter.jurisdiction_slug == "usa-wa"
+
+
+async def test_discover_yields_house_winners_resource(db_session, usa_wa) -> None:
+    anchors = await bootstrap_synthetic_anchors(
+        db_session, biennium=BIENNIUM, jurisdiction_id=usa_wa.id
+    )
+    adapter = PDCAdapter(
+        anchors=anchors, biennium=BIENNIUM, house_roster={}, client=FakePDCClient([])
+    )
+    refs = [ref async for ref in adapter.discover(None)]
+    assert [r.resource_id for r in refs] == ["house-winners:2024"]
+
+
+async def test_fetch_one_archives_wire(db_session, usa_wa) -> None:
+    anchors = await bootstrap_synthetic_anchors(
+        db_session, biennium=BIENNIUM, jurisdiction_id=usa_wa.id
+    )
+    client = FakePDCClient([_winner("900", "Alicia Rule", position="1", ld="42")])
+    adapter = PDCAdapter(anchors=anchors, biennium=BIENNIUM, house_roster={}, client=client)
+    payload = await adapter.fetch_one("house-winners:2024")
+    assert client.calls == [2024]
+    assert payload.body == client._wire  # pristine JSON archived
+    assert payload.parsed[0]["person_id"] == "900"
+    # FetchEvent.url must identify the real SODA source (#54 provenance), not a module path.
+    assert payload.url == "https://data.wa.gov/resource/3h9x-7bvm.json"
+
+
+async def test_fetch_one_unknown_resource_raises() -> None:
+    adapter = PDCAdapter(anchors=None, biennium=BIENNIUM, house_roster={}, client=FakePDCClient([]))
+    with pytest.raises(ValueError, match="unknown resource_id"):
+        await adapter.fetch_one("bogus:2024")
+
+
+async def test_normalize_requires_session() -> None:
+    adapter = PDCAdapter(anchors=None, biennium=BIENNIUM, house_roster={}, client=FakePDCClient([]))
+    payload = await adapter.fetch_one("house-winners:2024")
+    with pytest.raises(RuntimeError, match="requires a session"):
+        await adapter.normalize(payload)
+
+
+@pytest.fixture
+async def pdc_source(db_session, usa_wa) -> Source:
+    row = Source(
+        jurisdiction_id=usa_wa.id,
+        name="WA Public Disclosure Commission",
+        slug="usa_wa_pdc",
+        kind="rest",
+        base_url="https://data.wa.gov",
+        reliability=1.0,
+        cache_ttl_days=1,
+    )
+    db_session.add(row)
+    await db_session.flush()
+    return row
+
+
+async def _add_ld(session, usa_wa, n):
+    row = Jurisdiction(
+        slug=f"usa-wa-ld-{n}",
+        name=f"LD {n}",
+        type_id=usa_wa.type_id,
+        pm_jurisdiction_id=_ULID(),
+        recorded_at=datetime.now(UTC),
+    )
+    session.add(row)
+    await session.flush()
+
+
+async def test_runner_end_to_end_materializes_seat(db_session, usa_wa, pdc_source) -> None:
+    anchors = await bootstrap_synthetic_anchors(
+        db_session, biennium=BIENNIUM, jurisdiction_id=usa_wa.id
+    )
+    await _add_ld(db_session, usa_wa, 42)
+    person = Person(source="usa_wa_legislature", source_id="100", name_full="Alicia Rule")
+    db_session.add(person)
+    await db_session.flush()
+
+    sponsors = [
+        {
+            "Id": "100",
+            "Agency": "House",
+            "Party": "D",
+            "District": "42",
+            "FirstName": "Alicia",
+            "LastName": "Rule",
+        }
+    ]
+    client = FakePDCClient([_winner("900", "Alicia Rule", position="1", ld="42")])
+    adapter = PDCAdapter(
+        anchors=anchors,
+        biennium=BIENNIUM,
+        house_roster=build_house_roster(sponsors),
+        client=client,
+        session=db_session,
+    )
+    runner = AdapterRunner(
+        adapter,
+        db_session,
+        source=pdc_source,
+        jurisdiction=usa_wa,
+        natural_key=("source", "source_id"),
+    )
+
+    summary = await runner.refresh()
+    assert summary.fetched == 1
+    assert summary.errors == 0
+
+    assert len((await db_session.execute(select(FetchEvent))).scalars().all()) == 1
+    assert len((await db_session.execute(select(RawPayload))).scalars().all()) == 1
+    ident = (
+        await db_session.execute(
+            select(PersonIdentifier).where(PersonIdentifier.scheme == "wa_pdc")
+        )
+    ).scalar_one()
+    assert ident.value == "900"
+    assert ident.person_id == person.id
+    role = (
+        await db_session.execute(select(Role).where(Role.role_type == "state_representative"))
+    ).scalar_one()
+    assert role.qualifier == "Position 1"
+    assign = (
+        await db_session.execute(select(Assignment).where(Assignment.source == "usa_wa_pdc"))
+    ).scalar_one()
+    assert assign.role_id == role.id
+
+    # Re-run inside the TTL is a cache hit (no second FetchEvent).
+    summary2 = await runner.refresh()
+    assert summary2.skipped_cache_hit == 1

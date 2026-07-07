@@ -9,6 +9,7 @@ dev = [
     "clearinghouse-sync-powermap",
     "powermap-client",
     "usa-wa-adapter-legislature",
+    "usa-wa-adapter-pdc",
     "usa-wa-api",
     "usa-wa-sync-powermap",
     # Tools
@@ -30,6 +31,7 @@ clearinghouse-domain-legislative = { workspace = true }
 clearinghouse-sync-powermap = { workspace = true }
 powermap-client = { workspace = true }
 usa-wa-adapter-legislature = { workspace = true }
+usa-wa-adapter-pdc = { workspace = true }
 usa-wa-api = { workspace = true }
 usa-wa-sync-powermap = { workspace = true }
 
