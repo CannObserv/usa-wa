@@ -14,6 +14,7 @@ import pytest
 from ulid import ULID as _ULID
 from usa_wa_adapter_pdc.normalize.house_positions import (
     build_house_roster,
+    build_senate_surnames,
     normalize_house_positions,
 )
 
@@ -86,12 +87,15 @@ async def anchors(db_session, usa_wa):
 
 
 async def _run(session, anchors, winners, sponsors):
+    # Both roster views derive from the one sponsors list (as the refresh does): all-House
+    # sponsors → empty senate map → no #74 inference; add Senate rows to enable it.
     return await normalize_house_positions(
         _payload(winners),
         house_roster=build_house_roster(sponsors),
         anchors=anchors,
         session=session,
         biennium=BIENNIUM,
+        senate_surnames=build_senate_surnames(sponsors),
     )
 
 
@@ -312,3 +316,112 @@ async def test_seat_role_reused_when_present(db_session, usa_wa, anchors):
     )
     role = next(e for e in batch.entities if isinstance(e, Role))
     assert role.id == existing.id
+
+
+def test_build_senate_surnames_groups_by_ld_and_skips_blanks() -> None:
+    out = build_senate_surnames(
+        [
+            _sponsor("27504", "Vandana", "Slatter", party="D", district="48", agency="Senate"),
+            _sponsor("100", "Amy", "Walen", party="D", district="48"),  # House, ignored
+            {"Id": "9", "Agency": "Senate", "District": "5", "LastName": None},  # blank surname
+            {"Id": "8", "Agency": "Senate", "District": "", "LastName": "Nobody"},  # blank district
+        ]
+    )
+    assert out == {48: {"slatter"}}
+
+
+# --- #74: mid-biennium replacement inference by within-LD elimination -----------------
+
+
+async def test_infers_replacement_seat_for_house_to_senate_mover(db_session, usa_wa, anchors):
+    """The verified LD 48 case: Slatter won Pos 1 in 2024 then moved to the Senate, so her
+    PDC winner defers; Walen matched Pos 2; the leftover roster member Salahuddin is
+    inferred into the vacated Pos 1 (no PDC id, reduced-confidence citation)."""
+    await _add_ld(db_session, usa_wa, 48)
+    salahuddin = await _add_wsl_person(db_session, "35655", "Osman Salahuddin")
+    walen = await _add_wsl_person(db_session, "29109", "Amy Walen")
+    sponsors = [
+        _sponsor("35655", "Osman", "Salahuddin", party="D", district="48"),  # replacement
+        _sponsor("29109", "Amy", "Walen", party="D", district="48"),
+        _sponsor("27504", "Vandana", "Slatter", party="D", district="48", agency="Senate"),
+    ]
+    winners = [
+        _winner("800", "Amy Walen", position="2", ld="48"),
+        _winner("801", "Vandana Slatter", position="1", ld="48"),  # moved to Senate → deferred
+    ]
+
+    batch = await _run(db_session, anchors, winners, sponsors)
+
+    assigns = {a.source_id: a for a in batch.entities if isinstance(a, Assignment)}
+    assert set(assigns) == {"29109:chamber-house:2025-26", "35655:chamber-house:2025-26"}
+    assert assigns["35655:chamber-house:2025-26"].person_id == salahuddin.id
+
+    # The inferred replacement carries NO person_wa_pdc identifier (no PDC winner row);
+    # only the directly-matched Walen does.
+    idents = [e for e in batch.entities if isinstance(e, PersonIdentifier)]
+    assert len(idents) == 1
+    assert idents[0].person_id == walen.id and idents[0].value == "800"
+
+    # Inferred seat → reduced-confidence FactCitation on the assignment's role binding.
+    inferred = assigns["35655:chamber-house:2025-26"]
+    cites = [c for c in batch.citations if c.entity is inferred]
+    assert len(cites) == 1 and cites[0].confidence < 1.0
+
+    role = next(r for r in batch.entities if isinstance(r, Role) and r.id == inferred.role_id)
+    assert role.qualifier == "Position 1"
+
+
+async def test_both_reps_moved_same_biennium_no_inference(db_session, usa_wa, anchors):
+    """Edge case: both LD reps moved to the Senate the same biennium → two deferrals + two
+    unmatched members → ambiguous → no inference (conservative guard)."""
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_wsl_person(db_session, "600", "Ann Alpha")
+    await _add_wsl_person(db_session, "601", "Ben Beta")
+    sponsors = [
+        _sponsor("600", "Ann", "Alpha", party="D", district="5"),
+        _sponsor("601", "Ben", "Beta", party="D", district="5"),
+        _sponsor("700", "Old", "Xavier", party="D", district="5", agency="Senate"),
+        _sponsor("701", "Old", "Yolanda", party="D", district="5", agency="Senate"),
+    ]
+    winners = [
+        _winner("900", "Old Xavier", position="1", ld="5"),
+        _winner("901", "Old Yolanda", position="2", ld="5"),
+    ]
+
+    batch = await _run(db_session, anchors, winners, sponsors)
+    assert [e for e in batch.entities if isinstance(e, Assignment)] == []
+
+
+async def test_unmatched_without_mover_signal_is_not_inferred(db_session, usa_wa, anchors):
+    """Masking guard: a single unmatched winner + single unmatched member but NO
+    same-LD Senator signal (the surname matches a senator in a *different* LD) → could be a
+    name-match miss, so we don't infer."""
+    await _add_ld(db_session, usa_wa, 7)
+    await _add_wsl_person(db_session, "500", "Real Member")
+    sponsors = [
+        _sponsor("500", "Real", "Member", party="D", district="7"),
+        _sponsor("800", "Ghost", "Winner", party="D", district="8", agency="Senate"),  # LD 8, not 7
+    ]
+    winners = [_winner("900", "Ghost Winner", position="1", ld="7")]
+
+    batch = await _run(db_session, anchors, winners, sponsors)
+    assert [e for e in batch.entities if isinstance(e, Assignment)] == []
+
+
+async def test_inferred_seat_needs_replacement_person(db_session, usa_wa, anchors):
+    """The elimination fires but the replacement's WSL Person isn't ingested yet → no rows."""
+    await _add_ld(db_session, usa_wa, 48)
+    await _add_wsl_person(db_session, "29109", "Amy Walen")  # Salahuddin NOT seeded
+    sponsors = [
+        _sponsor("35655", "Osman", "Salahuddin", party="D", district="48"),
+        _sponsor("29109", "Amy", "Walen", party="D", district="48"),
+        _sponsor("27504", "Vandana", "Slatter", party="D", district="48", agency="Senate"),
+    ]
+    winners = [
+        _winner("800", "Amy Walen", position="2", ld="48"),
+        _winner("801", "Vandana Slatter", position="1", ld="48"),
+    ]
+
+    batch = await _run(db_session, anchors, winners, sponsors)
+    assigns = [a for a in batch.entities if isinstance(a, Assignment)]
+    assert {a.source_id for a in assigns} == {"29109:chamber-house:2025-26"}

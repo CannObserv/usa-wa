@@ -59,6 +59,7 @@ class PDCAdapter(BaseAdapter):
         anchors: Any,
         biennium: str,
         house_roster: dict[int, list[HouseRosterEntry]],
+        senate_surnames: dict[int, set[str]] | None = None,
         client: Any | None = None,
         session: AsyncSession | None = None,
     ) -> None:
@@ -66,6 +67,9 @@ class PDCAdapter(BaseAdapter):
         self.biennium = biennium
         self.election_year = election_year_for_biennium(biennium)
         self.house_roster = house_roster
+        # Senate-surname map (from GetSponsors) — the confirming signal for the #74
+        # mid-biennium replacement inference; empty → no inference.
+        self.senate_surnames = senate_surnames or {}
         self._client = client or PDCClient()
         # The House-position normalizer resolves Person/Role ids against the DB to wire
         # Assignments, so it needs the runner's session (mirrors the WSL member adapter).
@@ -105,4 +109,5 @@ class PDCAdapter(BaseAdapter):
             anchors=self.anchors,
             session=self._require_session(),
             biennium=self.biennium,
+            senate_surnames=self.senate_surnames,
         )

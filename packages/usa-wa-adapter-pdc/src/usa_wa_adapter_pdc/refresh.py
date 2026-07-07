@@ -30,7 +30,7 @@ from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.refresh import biennium_for_date
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_adapter_pdc.adapter import PDCAdapter, election_year_for_biennium
-from usa_wa_adapter_pdc.normalize.house_positions import build_house_roster
+from usa_wa_adapter_pdc.normalize.house_positions import build_house_roster, build_senate_surnames
 from usa_wa_adapter_pdc.transport import PDC_BASE_URL, PDCClient
 
 logger = get_logger(__name__)
@@ -93,11 +93,13 @@ async def run_refresh(
     sponsor_client = sponsor_client or WSLClient("SponsorService")
     sponsor_members = await sponsor_client.get_sponsors(biennium)
     house_roster = build_house_roster(sponsor_members)
+    senate_surnames = build_senate_surnames(sponsor_members)
 
     adapter = PDCAdapter(
         anchors=anchors,
         biennium=biennium,
         house_roster=house_roster,
+        senate_surnames=senate_surnames,
         client=pdc_client or PDCClient(app_token=os.environ.get("USA_WA_PDC_APP_TOKEN")),
         session=session,
     )
