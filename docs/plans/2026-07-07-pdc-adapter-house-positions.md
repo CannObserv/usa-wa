@@ -209,3 +209,9 @@ new tests mirror source layout; TDD red→green per step; no inline imports; UTC
 - **2026-07-07 — Steps 1–7 shipped, TDD, all green** (39 new package tests; full suite 957 passed, 97%
   coverage). New `usa-wa-pdc-refresh.{service,timer}` (06:30 UTC, ordered after WSL refresh); unit-ordering
   test (#52) + AGENTS.md/COMMANDS.md updated.
+- **2026-07-07 — Follow-up [#74](https://github.com/CannObserv/usa-wa/issues/74): mid-biennium replacement
+  inference.** The first prod run left 2/98 House seats unresolved — winners (Slatter LD48, Orwall LD33)
+  who moved to the Senate mid-biennium. `house_positions` gained a second reconciliation pass: within-LD
+  elimination assigns the leftover roster member (the appointed replacement) to the leftover position when
+  the deferred winner reappears as that LD's Senator (the confirming signal). The mover's PDC identity is
+  also cross-linked onto their current (Senate) Person. Design + verification: the #74 issue thread.

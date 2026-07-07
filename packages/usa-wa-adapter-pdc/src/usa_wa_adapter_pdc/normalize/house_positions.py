@@ -27,12 +27,16 @@ PDC-declared — it carries no `person_wa_pdc` identifier and a reduced-confiden
 :class:`FactCitation`, and logs `pdc_house_seat_inferred`. Ambiguous cases (both LD reps
 moved the same biennium → two deferrals) fall through to `pdc_house_unresolved`.
 
+The mover's own PDC winner identity is theirs even though they left the House, so it is
+**cross-linked** onto their current (Senate) Person as a `person_wa_pdc` identifier — the
+same cross-link a directly-seated winner gets — independent of whether the replacement's
+seat could be inferred.
+
 **Session-aware** (like the WSL member normalizers): it SELECTs the existing Person and
 get-or-creates the shared seat Role, flushing for the real ids the leaf rows' FKs need
-(the runner cannot resolve an intra-batch FK). The WSL House roster + Senate-surname map
-are built from a `GetSponsors` pull (House members' districts aren't stored locally
-post-decoupling); the caller supplies them via :func:`build_house_roster` /
-:func:`build_senate_surnames`.
+(the runner cannot resolve an intra-batch FK). The WSL House + Senate rosters are built
+from a `GetSponsors` pull (House members' districts aren't stored locally post-decoupling);
+the caller supplies them via :func:`build_house_roster` / :func:`build_senate_roster`.
 """
 
 from __future__ import annotations
@@ -92,12 +96,24 @@ class HouseRosterEntry:
 
 
 @dataclass(frozen=True)
+class SenateEntry:
+    """One WSL Senator for the #74 confirming signal — the stable member id (to cross-link
+    a mover's PDC id onto their current Person) + the folded surname (to match a deferred
+    House winner who moved to this LD's Senate seat)."""
+
+    member_id: str
+    folded_last: str
+
+
+@dataclass(frozen=True)
 class _Deferred:
     """A PDC winner that matched no House roster member — a mid-biennium replacement
-    inference candidate (#74)."""
+    inference candidate (#74). Carries the PDC ``person_id`` so a confirmed mover's identity
+    can be cross-linked onto their current (Senate) Person."""
 
     qualifier: str
     filer_name: str
+    pdc_person_id: str
 
 
 def build_house_roster(sponsor_members: list[dict[str, Any]]) -> dict[int, list[HouseRosterEntry]]:
@@ -123,11 +139,12 @@ def build_house_roster(sponsor_members: list[dict[str, Any]]) -> dict[int, list[
     return roster
 
 
-def build_senate_surnames(sponsor_members: list[dict[str, Any]]) -> dict[int, set[str]]:
-    """``{LD: {folded senator surnames}}`` — the confirming signal for the #74 replacement
-    inference. A deferred House winner who reappears as their LD's sitting Senator is a
-    genuine mid-biennium House→Senate mover, which *explains* the vacated House seat."""
-    out: dict[int, set[str]] = {}
+def build_senate_roster(sponsor_members: list[dict[str, Any]]) -> dict[int, list[SenateEntry]]:
+    """``{LD: [SenateEntry]}`` — the confirming signal for the #74 replacement inference. A
+    deferred House winner who reappears as their LD's sitting Senator is a genuine
+    mid-biennium House→Senate mover, which *explains* the vacated House seat; the entry's
+    member id lets us cross-link the mover's PDC identity onto their current Person."""
+    out: dict[int, list[SenateEntry]] = {}
     for member in sponsor_members:
         if member.get("Agency") != "Senate":
             continue
@@ -135,7 +152,9 @@ def build_senate_surnames(sponsor_members: list[dict[str, Any]]) -> dict[int, se
         ld = district_number(member.get("District"))
         if not last or ld is None:
             continue
-        out.setdefault(ld, set()).add(fold_token(last))
+        out.setdefault(ld, []).append(
+            SenateEntry(member_id=str(member["Id"]), folded_last=fold_token(last))
+        )
     return out
 
 
@@ -158,12 +177,27 @@ def _match_member(
     return None
 
 
-def _is_chamber_mover(filer_name: str, ld: int, senate_surnames: dict[int, set[str]]) -> bool:
-    """True when a deferred House winner reappears as their LD's sitting Senator — a
-    genuine mid-biennium House→Senate move that explains the vacant House seat (#74).
-    Without this signal an unmatched winner could be a name-match miss, so we don't infer."""
+def _find_confirming_senator(
+    filer_name: str, ld: int, senate_roster: dict[int, list[SenateEntry]]
+) -> SenateEntry | None:
+    """The LD's Senator whose folded surname matches a deferred House winner — the genuine
+    mid-biennium House→Senate mover that explains the vacant House seat (#74). Without this
+    signal an unmatched winner could be a name-match miss, so we don't infer. Returns the
+    single matching Senator (so their id can carry the mover's PDC cross-link), or ``None``
+    when there is no unique match."""
     keys = surname_match_set(filer_name)
-    return any(surname in keys for surname in senate_surnames.get(ld, set()))
+    matches = [s for s in senate_roster.get(ld, []) if s.folded_last in keys]
+    return matches[0] if len(matches) == 1 else None
+
+
+async def _resolve_wsl_person(session: AsyncSession, member_id: str) -> Person | None:
+    """SELECT the WSL :class:`Person` by ``(source, member id)`` (or ``None`` if not yet
+    ingested — its WSL refresh hasn't run)."""
+    return (
+        await session.execute(
+            select(Person).where(Person.source == _WSL_SOURCE, Person.source_id == member_id)
+        )
+    ).scalar_one_or_none()
 
 
 async def normalize_house_positions(
@@ -173,22 +207,30 @@ async def normalize_house_positions(
     anchors: Any,
     session: AsyncSession,
     biennium: str,
-    senate_surnames: dict[int, set[str]] | None = None,
+    senate_roster: dict[int, list[SenateEntry]] | None = None,
 ) -> NormalizedBatch:
     """Emit `person_wa_pdc` identifiers + House seat Assignments for the PDC winner cohort.
 
     ``anchors`` is the WSL :class:`~usa_wa_adapter_legislature.bootstrap.BootstrapAnchors`
     (the House org id is the seat Role's organization); ``biennium`` scopes the Assignment
-    (``valid_from`` = Jan 1 of the odd start year). ``senate_surnames`` (``{LD: surnames}``,
-    from :func:`build_senate_surnames`) enables the #74 mid-biennium replacement inference;
-    omitted → no inference (a deferred winner just logs `pdc_house_unresolved`)."""
+    (``valid_from`` = Jan 1 of the odd start year). ``senate_roster`` (``{LD: [SenateEntry]}``,
+    from :func:`build_senate_roster`) enables the #74 mid-biennium replacement inference +
+    mover cross-link; omitted → no inference (a deferred winner just logs
+    `pdc_house_unresolved`).
+
+    **Inferred-seat provenance (#74).** The runner still writes its default full-confidence
+    whole-entity Citation for an inferred Assignment; the *inference* is signalled only at
+    field level — a reduced-confidence :class:`FactCitation` on the assignment's ``role_id``
+    plus a `pdc_house_seat_inferred` log — not in the whole-entity confidence."""
     winners = payload.parsed or []
-    senate_surnames = senate_surnames or {}
+    senate_roster = senate_roster or {}
     start_year, _ = parse_biennium(biennium)
     valid_from = date(start_year, 1, 1)
     collector = EntityCollector()
     citations: list[FactCitation] = []
     seen_members: set[str] = set()
+    #: LD → resolved Jurisdiction, or ``None`` sentinel for an unsynced LD (cached so an
+    #: unsynced LD is resolved + logged once, not once per winner).
     resolved_ld: dict[int, Any] = {}
     deferred: dict[int, list[_Deferred]] = {}
 
@@ -204,13 +246,13 @@ async def normalize_house_positions(
             )
             continue
 
-        jurisdiction = resolved_ld.get(ld)
+        if ld not in resolved_ld:
+            resolved_ld[ld] = await resolve_ld_jurisdiction(session, ld)
+            if resolved_ld[ld] is None:
+                logger.warning("pdc_house_unresolved_ld", extra={"ld": ld})
+        jurisdiction = resolved_ld[ld]
         if jurisdiction is None:
-            jurisdiction = await resolve_ld_jurisdiction(session, ld)
-            if jurisdiction is None:
-                logger.warning("pdc_house_unresolved_ld", extra={"person_id": pdc_id, "ld": ld})
-                continue
-            resolved_ld[ld] = jurisdiction
+            continue
 
         match = _match_member(
             house_roster,
@@ -221,7 +263,11 @@ async def normalize_house_positions(
         if match is None:
             # No roster member — a mid-biennium replacement inference candidate (#74).
             deferred.setdefault(ld, []).append(
-                _Deferred(qualifier=qualifier, filer_name=row.get("filer_name") or "")
+                _Deferred(
+                    qualifier=qualifier,
+                    filer_name=row.get("filer_name") or "",
+                    pdc_person_id=pdc_id,
+                )
             )
             continue
         if match.member_id in seen_members:
@@ -256,13 +302,27 @@ async def normalize_house_positions(
     # Phase 2 — reconcile mid-biennium replacements by within-LD elimination (#74).
     for ld, deferrals in deferred.items():
         unmatched = [m for m in house_roster.get(ld, []) if m.member_id not in seen_members]
-        reconciled = False
-        if (
-            len(deferrals) == 1
-            and len(unmatched) == 1
-            and _is_chamber_mover(deferrals[0].filer_name, ld, senate_surnames)
-        ):
-            emitted = await _emit_seat_rows(
+
+        # Cross-link each confirmed mover's PDC identity onto their current (Senate) Person —
+        # their PDC winner row is theirs even though they no longer hold the House seat.
+        movers = [
+            (d, senator)
+            for d in deferrals
+            if (senator := _find_confirming_senator(d.filer_name, ld, senate_roster)) is not None
+        ]
+        for deferral, senator in movers:
+            await _link_pdc_identifier(
+                collector, session, senator.member_id, deferral.pdc_person_id
+            )
+
+        # Seat inference: exactly one deferred position + one unmatched member, and that
+        # deferral is a confirmed mover (so the vacancy is explained). Attempting the
+        # reconcile suppresses the generic unresolved log — a person-absent replacement is
+        # surfaced by `pdc_house_person_absent`, not a second line.
+        attempted = len(deferrals) == 1 and len(unmatched) == 1 and len(movers) == 1
+        seated = False
+        if attempted:
+            seated = await _emit_seat_rows(
                 collector,
                 citations,
                 session,
@@ -276,10 +336,9 @@ async def normalize_house_positions(
                 pdc_person_id=None,
                 inferred=True,
             )
-            if emitted:
+            if seated:
                 seen_members.add(unmatched[0].member_id)
-                reconciled = True
-        if not reconciled:
+        if not attempted:
             for deferral in deferrals:
                 logger.info(
                     "pdc_house_unresolved",
@@ -291,6 +350,29 @@ async def normalize_house_positions(
                 )
 
     return NormalizedBatch(entities=collector.entities, citations=citations)
+
+
+async def _link_pdc_identifier(
+    collector: EntityCollector, session: AsyncSession, member_id: str, pdc_person_id: str
+) -> None:
+    """Attach a `person_wa_pdc` child identifier (value = ``pdc_person_id``) to the WSL
+    :class:`Person` ``member_id`` — the mover cross-link (#74): a House→Senate mover's PDC
+    winner identity is theirs even though they no longer hold the House seat, so it rides
+    their current Person the same way a directly-seated winner's does. No-op if the Person
+    isn't ingested yet."""
+    person = await _resolve_wsl_person(session, member_id)
+    if person is None:
+        logger.warning("pdc_mover_person_absent", extra={"member_id": member_id})
+        return
+    collector.add(
+        PersonIdentifier(
+            source=_SOURCE,
+            source_id=pdc_person_identifier_source_id(pdc_person_id),
+            person_id=person.id,
+            scheme=PDC_PERSON_ID_SCHEME,
+            value=pdc_person_id,
+        )
+    )
 
 
 async def _emit_seat_rows(
@@ -312,11 +394,7 @@ async def _emit_seat_rows(
     chamber seat Assignment for ``member_id``. Returns ``False`` (no rows) when the WSL
     Person isn't ingested yet. An ``inferred`` seat (#74) carries no PDC identifier
     (``pdc_person_id`` is ``None``) and a reduced-confidence :class:`FactCitation`."""
-    person = (
-        await session.execute(
-            select(Person).where(Person.source == _WSL_SOURCE, Person.source_id == member_id)
-        )
-    ).scalar_one_or_none()
+    person = await _resolve_wsl_person(session, member_id)
     if person is None:
         logger.warning(
             "pdc_house_person_absent",

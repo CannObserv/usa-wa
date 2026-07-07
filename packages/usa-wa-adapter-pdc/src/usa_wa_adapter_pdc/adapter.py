@@ -23,6 +23,7 @@ from clearinghouse_core.adapter import BaseAdapter, FetchedPayload, NormalizedBa
 from usa_wa_adapter_legislature.synthesis import parse_biennium
 from usa_wa_adapter_pdc.normalize.house_positions import (
     HouseRosterEntry,
+    SenateEntry,
     normalize_house_positions,
 )
 from usa_wa_adapter_pdc.transport import (
@@ -59,7 +60,7 @@ class PDCAdapter(BaseAdapter):
         anchors: Any,
         biennium: str,
         house_roster: dict[int, list[HouseRosterEntry]],
-        senate_surnames: dict[int, set[str]] | None = None,
+        senate_roster: dict[int, list[SenateEntry]] | None = None,
         client: Any | None = None,
         session: AsyncSession | None = None,
     ) -> None:
@@ -67,9 +68,9 @@ class PDCAdapter(BaseAdapter):
         self.biennium = biennium
         self.election_year = election_year_for_biennium(biennium)
         self.house_roster = house_roster
-        # Senate-surname map (from GetSponsors) — the confirming signal for the #74
-        # mid-biennium replacement inference; empty → no inference.
-        self.senate_surnames = senate_surnames or {}
+        # Senate roster (from GetSponsors) — the confirming signal + mover cross-link for
+        # the #74 mid-biennium replacement inference; empty → no inference.
+        self.senate_roster = senate_roster or {}
         self._client = client or PDCClient()
         # The House-position normalizer resolves Person/Role ids against the DB to wire
         # Assignments, so it needs the runner's session (mirrors the WSL member adapter).
@@ -109,5 +110,5 @@ class PDCAdapter(BaseAdapter):
             anchors=self.anchors,
             session=self._require_session(),
             biennium=self.biennium,
-            senate_surnames=self.senate_surnames,
+            senate_roster=self.senate_roster,
         )

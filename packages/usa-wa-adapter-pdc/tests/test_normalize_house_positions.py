@@ -14,7 +14,7 @@ import pytest
 from ulid import ULID as _ULID
 from usa_wa_adapter_pdc.normalize.house_positions import (
     build_house_roster,
-    build_senate_surnames,
+    build_senate_roster,
     normalize_house_positions,
 )
 
@@ -95,7 +95,7 @@ async def _run(session, anchors, winners, sponsors):
         anchors=anchors,
         session=session,
         biennium=BIENNIUM,
-        senate_surnames=build_senate_surnames(sponsors),
+        senate_roster=build_senate_roster(sponsors),
     )
 
 
@@ -318,8 +318,8 @@ async def test_seat_role_reused_when_present(db_session, usa_wa, anchors):
     assert role.id == existing.id
 
 
-def test_build_senate_surnames_groups_by_ld_and_skips_blanks() -> None:
-    out = build_senate_surnames(
+def test_build_senate_roster_groups_by_ld_and_skips_blanks() -> None:
+    out = build_senate_roster(
         [
             _sponsor("27504", "Vandana", "Slatter", party="D", district="48", agency="Senate"),
             _sponsor("100", "Amy", "Walen", party="D", district="48"),  # House, ignored
@@ -327,7 +327,8 @@ def test_build_senate_surnames_groups_by_ld_and_skips_blanks() -> None:
             {"Id": "8", "Agency": "Senate", "District": "", "LastName": "Nobody"},  # blank district
         ]
     )
-    assert out == {48: {"slatter"}}
+    assert set(out) == {48}
+    assert [(e.member_id, e.folded_last) for e in out[48]] == [("27504", "slatter")]
 
 
 # --- #74: mid-biennium replacement inference by within-LD elimination -----------------
@@ -336,10 +337,12 @@ def test_build_senate_surnames_groups_by_ld_and_skips_blanks() -> None:
 async def test_infers_replacement_seat_for_house_to_senate_mover(db_session, usa_wa, anchors):
     """The verified LD 48 case: Slatter won Pos 1 in 2024 then moved to the Senate, so her
     PDC winner defers; Walen matched Pos 2; the leftover roster member Salahuddin is
-    inferred into the vacated Pos 1 (no PDC id, reduced-confidence citation)."""
+    inferred into the vacated Pos 1 (no PDC id, reduced-confidence citation); Slatter's PDC
+    identity is cross-linked onto her current (Senate) Person."""
     await _add_ld(db_session, usa_wa, 48)
     salahuddin = await _add_wsl_person(db_session, "35655", "Osman Salahuddin")
     walen = await _add_wsl_person(db_session, "29109", "Amy Walen")
+    slatter = await _add_wsl_person(db_session, "27504", "Vandana Slatter")  # now a Senator
     sponsors = [
         _sponsor("35655", "Osman", "Salahuddin", party="D", district="48"),  # replacement
         _sponsor("29109", "Amy", "Walen", party="D", district="48"),
@@ -356,11 +359,11 @@ async def test_infers_replacement_seat_for_house_to_senate_mover(db_session, usa
     assert set(assigns) == {"29109:chamber-house:2025-26", "35655:chamber-house:2025-26"}
     assert assigns["35655:chamber-house:2025-26"].person_id == salahuddin.id
 
-    # The inferred replacement carries NO person_wa_pdc identifier (no PDC winner row);
-    # only the directly-matched Walen does.
-    idents = [e for e in batch.entities if isinstance(e, PersonIdentifier)]
-    assert len(idents) == 1
-    assert idents[0].person_id == walen.id and idents[0].value == "800"
+    # Identifiers: Walen's (direct) + Slatter's mover cross-link onto her Senate Person.
+    # The inferred replacement Salahuddin carries NO person_wa_pdc (no PDC winner row).
+    idents = {i.person_id: i.value for i in batch.entities if isinstance(i, PersonIdentifier)}
+    assert idents == {walen.id: "800", slatter.id: "801"}
+    assert salahuddin.id not in idents
 
     # Inferred seat → reduced-confidence FactCitation on the assignment's role binding.
     inferred = assigns["35655:chamber-house:2025-26"]
@@ -373,10 +376,13 @@ async def test_infers_replacement_seat_for_house_to_senate_mover(db_session, usa
 
 async def test_both_reps_moved_same_biennium_no_inference(db_session, usa_wa, anchors):
     """Edge case: both LD reps moved to the Senate the same biennium → two deferrals + two
-    unmatched members → ambiguous → no inference (conservative guard)."""
+    unmatched members → ambiguous → no seat inference (conservative guard). But each mover's
+    PDC identity is still cross-linked onto their current (Senate) Person."""
     await _add_ld(db_session, usa_wa, 5)
     await _add_wsl_person(db_session, "600", "Ann Alpha")
     await _add_wsl_person(db_session, "601", "Ben Beta")
+    xavier = await _add_wsl_person(db_session, "700", "Old Xavier")  # now Senators
+    yolanda = await _add_wsl_person(db_session, "701", "Old Yolanda")
     sponsors = [
         _sponsor("600", "Ann", "Alpha", party="D", district="5"),
         _sponsor("601", "Ben", "Beta", party="D", district="5"),
@@ -389,7 +395,10 @@ async def test_both_reps_moved_same_biennium_no_inference(db_session, usa_wa, an
     ]
 
     batch = await _run(db_session, anchors, winners, sponsors)
-    assert [e for e in batch.entities if isinstance(e, Assignment)] == []
+    assert [e for e in batch.entities if isinstance(e, Assignment)] == []  # no seat inferred
+    # Both movers cross-linked despite the ambiguous (un-inferrable) seats.
+    idents = {i.person_id: i.value for i in batch.entities if isinstance(i, PersonIdentifier)}
+    assert idents == {xavier.id: "900", yolanda.id: "901"}
 
 
 async def test_unmatched_without_mover_signal_is_not_inferred(db_session, usa_wa, anchors):
@@ -425,3 +434,70 @@ async def test_inferred_seat_needs_replacement_person(db_session, usa_wa, anchor
     batch = await _run(db_session, anchors, winners, sponsors)
     assigns = [a for a in batch.entities if isinstance(a, Assignment)]
     assert {a.source_id for a in assigns} == {"29109:chamber-house:2025-26"}
+
+
+async def test_reconcile_attempted_person_absent_suppresses_unresolved_log(
+    db_session, usa_wa, anchors, caplog
+):
+    """When the reconcile fires but the replacement Person is absent, only
+    `pdc_house_person_absent` is logged — not a redundant `pdc_house_unresolved`."""
+    await _add_ld(db_session, usa_wa, 48)
+    await _add_wsl_person(db_session, "29109", "Amy Walen")  # replacement Salahuddin NOT seeded
+    sponsors = [
+        _sponsor("35655", "Osman", "Salahuddin", party="D", district="48"),
+        _sponsor("29109", "Amy", "Walen", party="D", district="48"),
+        _sponsor("27504", "Vandana", "Slatter", party="D", district="48", agency="Senate"),
+    ]
+    winners = [
+        _winner("800", "Amy Walen", position="2", ld="48"),
+        _winner("801", "Vandana Slatter", position="1", ld="48"),
+    ]
+
+    with caplog.at_level(logging.INFO):
+        await _run(db_session, anchors, winners, sponsors)
+
+    messages = [r.message for r in caplog.records]
+    assert "pdc_house_person_absent" in messages
+    assert "pdc_house_unresolved" not in messages
+
+
+async def test_mover_person_absent_still_infers_replacement_seat(db_session, usa_wa, anchors):
+    """The mover cross-link no-ops when the mover's Person isn't ingested, but the
+    replacement's seat inference is independent and still fires."""
+    await _add_ld(db_session, usa_wa, 48)
+    salahuddin = await _add_wsl_person(db_session, "35655", "Osman Salahuddin")
+    await _add_wsl_person(db_session, "29109", "Amy Walen")  # Slatter (mover) NOT seeded
+    sponsors = [
+        _sponsor("35655", "Osman", "Salahuddin", party="D", district="48"),
+        _sponsor("29109", "Amy", "Walen", party="D", district="48"),
+        _sponsor("27504", "Vandana", "Slatter", party="D", district="48", agency="Senate"),
+    ]
+    winners = [
+        _winner("800", "Amy Walen", position="2", ld="48"),
+        _winner("801", "Vandana Slatter", position="1", ld="48"),
+    ]
+
+    batch = await _run(db_session, anchors, winners, sponsors)
+    assigns = {a.source_id for a in batch.entities if isinstance(a, Assignment)}
+    assert "35655:chamber-house:2025-26" in assigns  # replacement still seated
+    # No mover identifier (Slatter's Person absent); only Walen's direct one.
+    idents = [i for i in batch.entities if isinstance(i, PersonIdentifier)]
+    assert {i.value for i in idents} == {"800"} and salahuddin.id not in {
+        i.person_id for i in idents
+    }
+
+
+async def test_unsynced_ld_logged_once_across_multiple_winners(db_session, usa_wa, anchors, caplog):
+    """An unsynced LD is resolved + logged once, not once per winner (cached sentinel)."""
+    # LD 99 never seeded as a Jurisdiction; two winners in it.
+    sponsors = [_sponsor("100", "A", "One", party="D", district="99")]
+    winners = [
+        _winner("900", "A One", position="1", ld="99"),
+        _winner("901", "B Two", position="2", ld="99"),
+    ]
+
+    with caplog.at_level(logging.WARNING):
+        batch = await _run(db_session, anchors, winners, sponsors)
+
+    assert batch.entities == []
+    assert [r.message for r in caplog.records].count("pdc_house_unresolved_ld") == 1
