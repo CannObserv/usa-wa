@@ -71,6 +71,9 @@ def test_configured_reconcile_cadence_flows_to_anchored_cohort_descriptors():
     by_type = {d.entity_type: d for d in build_descriptors(settings)}
     for entity_type in ("organization", "role", "role_assignment", "person"):
         assert by_type[entity_type].reconcile_cadence == timedelta(hours=8)
+    # Jurisdiction runs no backstop (reconcile_enabled False) — the selector must leave it
+    # at the base default, never retune it (exclusion side of the reconcile_enabled gate).
+    assert by_type["jurisdiction"].reconcile_cadence == timedelta(hours=1)
 
 
 def test_build_descriptors_without_settings_keeps_base_cadence():

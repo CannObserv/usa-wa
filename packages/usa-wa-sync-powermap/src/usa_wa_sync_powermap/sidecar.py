@@ -57,6 +57,9 @@ class Sidecar:
         *,
         feed_poll_seconds: float = 60.0,
         reconciler: SubscriptionReconciler | None = None,
+        # Library default; the deployment value lives in SidecarSettings (6h, #73 Axis 2)
+        # and is always passed explicitly by __main__ — this 1h only applies to a bare
+        # Sidecar() (tests, which override it anyway).
         subscription_backstop_cadence: timedelta = timedelta(hours=1),
         outbox_commit_chunk_size: int = 1,
         catalog_sync: Callable[[AsyncSession], Awaitable[Any]] | None = None,

@@ -290,8 +290,35 @@ Keep the existing `cursor: String(256)` column; store `str(after)`. `process_fee
 ## Out of Scope
 
 - **Pruning / unsubscribe** — additive-only by decision; revisit as a follow-up if stale
-  memberships ever matter.
+  memberships ever matter. *(Superseded by #73 — see amendment below.)*
 - **Cache eviction** of entities that leave the WA subtree.
 - **Acting on `deleted` tombstones** from the feed (still skipped at MVP).
 - **Saved-search / auto-enroll** — PM-side v2; the client re-runs discovery instead.
 - **Write path** — sweep/observe/outbox unchanged.
+
+---
+
+## Amendment (#73, 2026-07-07) — mirror-set subscription scope
+
+The original design followed the **whole WA subtree**
+(`follow = [lineage, affiliated_orgs, org_children, roles, assignments, people]`), which
+over-subscribed ~2,284 entities — ~1,000 of them PM-only rows usa-wa never produced, and
+so fetched-then-skipped by the update-only producer descriptors. #73 reconciles the
+subscription scope with the mirror scope. Full design:
+[`docs/plans/2026-07-07-scope-sidecar-subscriptions-to-mirror-set.md`](../plans/2026-07-07-scope-sidecar-subscriptions-to-mirror-set.md).
+
+- **Discovery narrowed to `follow = [lineage]`** — PM discovery now covers only the
+  mirror-only, PM-authoritative jurisdiction cache usa-wa does not produce.
+- **Producers subscribed from the local anchored cohort** — `SubscriptionReconciler`
+  gains `include_local_cohort` (wired on by `build_reconciler`): our produced
+  org/role/person/assignment rows are enumerated from the local cache (anchored,
+  non-tombstoned) and subscribed by anchor id, so the feed still delivers PM's edits to
+  rows we produced without walking the subtree into strangers.
+- **Pruning implemented** (reverses the "Out of Scope" item above) —
+  `SubscriptionReconciler.prune_subscriptions` + the one-shot
+  `python -m usa_wa_sync_powermap.prune_subscriptions` CLI diff PM's registered set
+  against the mirror set and unsubscribe the difference, guarded by an empty-desired-set
+  abort + a `--max-prune-fraction` floor. Cache eviction remains out of scope (strangers
+  hold no local row).
+- **Cadence retuned (#73 Axis 2)** — the anchored-cohort reconcile backstop 1h→12h and
+  the re-discovery backstop 1h→6h; the feed stays the real-time path.
