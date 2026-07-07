@@ -408,10 +408,14 @@ class EntityDescriptor(ABC):
             "identifier_type": self.enrich_identifier_type,
             "identifier_value": str(self.anchor_value(row)),
         }
+        # Preserve any cross-source additional identifiers ``to_observation`` emitted
+        # (e.g. a person's child identifier schemes) and append the demoted real
+        # primary — both attach to the anchored PM entity. Append-only, idempotent.
+        additional = list(base.pop("additional_identifiers", None) or [])
         if real_type and real_value:
-            payload["additional_identifiers"] = [
-                {"identifier_type_slug": real_type, "identifier_value": real_value}
-            ]
+            additional.append({"identifier_type_slug": real_type, "identifier_value": real_value})
+        if additional:
+            payload["additional_identifiers"] = additional
         for field in self.enrich_carry_fields:
             if base.get(field):
                 payload[field] = base[field]

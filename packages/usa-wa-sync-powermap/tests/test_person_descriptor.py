@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 from ulid import ULID
 
-from clearinghouse_domain_legislative.identity import Person
+from clearinghouse_domain_legislative.identity import Person, PersonIdentifier
 from clearinghouse_sync_powermap.client import EntityPage
 from clearinghouse_sync_powermap.testing import FakeClient
 from usa_wa_sync_powermap.descriptors import PersonDescriptor
@@ -135,6 +135,68 @@ async def test_to_observation_keys_on_identifier_and_name(db_session, descriptor
     assert obs["identifier_type"] == "person_wa_legislature_member_id"
     assert obs["identifier_value"] == "M-3"
     assert obs["names"] == [{"name": "Jane Doe", "name_type": "legal"}]
+    assert "additional_identifiers" not in obs  # no child rows → key omitted
+
+
+async def _add_identifier(session, person, *, scheme, value, source="usa_wa_pdc"):
+    ident = PersonIdentifier(
+        source=source,
+        source_id=f"{value}:{scheme}",
+        person_id=person.id,
+        scheme=scheme,
+        value=value,
+    )
+    session.add(ident)
+    await session.flush()
+    return ident
+
+
+async def test_to_observation_emits_child_identifiers_as_additional(db_session, descriptor):
+    """A cross-source child identifier (e.g. PDC's ``wa_pdc``) rides the WSL Person's
+    observation as an ``additional_identifier`` so PM attaches it to the same person the
+    primary (``person_wa_legislature_member_id``) resolves — the #69 cross-link."""
+    row = await _add_person(db_session, source_id="M-3", name="Jane Doe")
+    await _add_identifier(db_session, row, scheme="wa_pdc", value="159")
+
+    obs = await descriptor.to_observation(db_session, row)
+
+    assert obs["identifier_type"] == "person_wa_legislature_member_id"  # primary unchanged
+    assert obs["identifier_value"] == "M-3"
+    assert obs["additional_identifiers"] == [
+        {"identifier_type_slug": "person_wa_pdc", "identifier_value": "159"}
+    ]
+
+
+async def test_to_observation_omits_child_that_duplicates_primary(db_session, descriptor):
+    """A child row whose scheme maps to the primary slug isn't re-sent as additional."""
+    row = await _add_person(db_session, source_id="M-3", name="Jane Doe")
+    await _add_identifier(
+        db_session, row, scheme="wa_legislature_member_id", value="M-3", source="usa_wa_legislature"
+    )
+
+    obs = await descriptor.to_observation(db_session, row)
+
+    assert "additional_identifiers" not in obs
+
+
+async def test_to_enrich_observation_merges_child_identifiers(db_session, descriptor):
+    """Enrich re-keys to the PM anchor and carries BOTH the demoted primary AND the
+    child identifiers as additional_identifiers (so the cross-link survives enrich)."""
+    pm = ULID()
+    row = await _add_person(db_session, source_id="M-1", name="Jay Inslee", anchor=pm)
+    await _add_identifier(db_session, row, scheme="wa_pdc", value="159")
+
+    obs = await descriptor.to_enrich_observation(db_session, row)
+
+    assert obs["identifier_type"] == "pm_person_id"
+    assert obs["identifier_value"] == str(pm)
+    assert {"identifier_type_slug": "person_wa_pdc", "identifier_value": "159"} in obs[
+        "additional_identifiers"
+    ]
+    assert {
+        "identifier_type_slug": "person_wa_legislature_member_id",
+        "identifier_value": "M-1",
+    } in obs["additional_identifiers"]
 
 
 async def test_local_match_by_anchor(db_session, descriptor):

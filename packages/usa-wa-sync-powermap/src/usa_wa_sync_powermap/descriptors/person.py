@@ -23,7 +23,7 @@ from typing import Any
 from sqlalchemy import select
 
 from clearinghouse_core.logging import get_logger
-from clearinghouse_domain_legislative.identity import Person
+from clearinghouse_domain_legislative.identity import Person, PersonIdentifier
 from clearinghouse_sync_powermap.descriptors import (
     EntityDescriptor,
     as_ulid,
@@ -48,6 +48,17 @@ def identifier_type_for(source: str) -> str | None:
     if source == "usa_wa_pdc":
         return "person_wa_pdc"
     return None
+
+
+#: Local ``PersonIdentifier.scheme`` → PM ``identifier_type`` slug. Maps the child
+#: identifier rows (the queryable N-scheme graph P1b built) to PM slugs so a cross-source
+#: identifier — e.g. PDC's ``wa_pdc`` on a WSL-sourced Person (#69) — rides the person's
+#: observation as an ``additional_identifier`` and attaches to the same PM person the
+#: primary resolves. Schemes not here (or equal to the primary slug) are not emitted.
+SCHEME_TO_IDENTIFIER_TYPE = {
+    "wa_legislature_member_id": "person_wa_legislature_member_id",
+    "wa_pdc": "person_wa_pdc",
+}
 
 
 class PersonDescriptor(EntityDescriptor):
@@ -122,12 +133,45 @@ class PersonDescriptor(EntityDescriptor):
             # Unknown source → no PM identifier_type; PM will reject. Surface it
             # (the outbox would otherwise read as a silent failure).
             logger.warning("person_identifier_type_unresolved", extra={"source": row.source})
-        return {
+        obs: dict[str, Any] = {
             "identifier_type": id_type,
             "identifier_value": row.source_id,
             # Typed name evidence — PM curates is_canonical; we never assert it.
             "names": [{"name": row.name_full, "name_type": "legal"}],
         }
+        additional = await self._additional_identifiers(session, row, primary_slug=id_type)
+        if additional:
+            obs["additional_identifiers"] = additional
+        return obs
+
+    async def _additional_identifiers(
+        self, session: Any, row: Any, *, primary_slug: str | None
+    ) -> list[dict[str, str]]:
+        """The person's child ``PersonIdentifier`` rows mapped to PM ``additional_identifiers``.
+
+        Carries cross-source identifiers (e.g. PDC's ``wa_pdc`` on a WSL Person, #69) onto
+        the same PM person the primary resolves. Skips a child whose scheme maps to the
+        primary slug (already the top-level identifier) and any unmapped scheme.
+        """
+        rows = (
+            await session.execute(
+                select(PersonIdentifier)
+                .where(PersonIdentifier.person_id == row.id)
+                .order_by(PersonIdentifier.scheme)  # deterministic output order
+            )
+        ).scalars()
+        seen: set[tuple[str, str]] = set()
+        additional: list[dict[str, str]] = []
+        for ident in rows:
+            slug = SCHEME_TO_IDENTIFIER_TYPE.get(ident.scheme)
+            if slug is None or slug == primary_slug:
+                continue
+            key = (slug, ident.value)
+            if key in seen:
+                continue
+            seen.add(key)
+            additional.append({"identifier_type_slug": slug, "identifier_value": ident.value})
+        return additional
 
     async def local_match(self, session: Any, record: dict) -> Any | None:
         """Map a PM person to its local row by **anchor** (``pm_person_id``)."""
