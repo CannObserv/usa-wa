@@ -1,9 +1,8 @@
 # Scope sidecar subscriptions to the mirror set (#73 Axis 1)
 
-Status: **steps 1–5 implemented** ("stop the bleed" — new syncs no longer subscribe
-strangers). Step 6 (prune existing ~1,000 inert strangers) deferred as a separate guarded
-CLI per the open question. Axis 2 (cadence) shipped earlier: commit `#73 feat: retune
-sidecar reconcile + re-discovery cadence`.
+Status: **steps 1–6 implemented.** Steps 1–5 stop the bleed (new syncs no longer subscribe
+strangers); step 6 (`prune_subscriptions` CLI) reclaims the existing inert strangers. Axis 2
+(cadence) shipped earlier: commit `#73 feat: retune sidecar reconcile + re-discovery cadence`.
 
 ## Implemented (steps 1–5)
 
@@ -19,9 +18,14 @@ sidecar reconcile + re-discovery cadence`.
   `backfill_skipped`; with the mirror-set scope `discovered` ≈ the mirror set and
   `backfill_skipped` trends to ~0 (strangers no longer surfaced).
 
-**Not yet done:** the ~1,000 strangers already subscribed stay subscribed-but-inert (the
-reconciler is additive — never unsubscribes). New drift is prevented; reclaiming the
-existing subscriptions needs step 6.
+**Step 6 (reclaim) implemented** — `SubscriptionReconciler.prune_subscriptions` diffs PM's
+registered set against the freshly-discovered mirror set and `remove_subscriptions` the
+difference, guarded by an empty-desired-set abort + a `--max-prune-fraction` floor (default
+0.9, permissive because the first run legitimately removes ~half). Surfaced as the one-shot
+`python -m usa_wa_sync_powermap.prune_subscriptions` CLI (`--dry-run`; exit 0/2/3; no operator
+token). Idempotent — a second run finds nothing stale. **Run once** after this lands to
+reclaim the ~1,000 existing strangers; not a timer (the narrowed discovery keeps the set
+clean going forward).
 
 ## Original plan follows
 
@@ -110,9 +114,9 @@ Optionally further scope the producer cohort to live + active (exclude archived/
 
 ## Open questions
 
-- **Prune or leave inert?** Leaving them inert stops the bleed (no new strangers) with zero
-  removal risk; pruning reclaims the existing waste but is a mass-mutation needing guardrails.
-  Recommend: land steps 1–5 (stop the bleed) first, prune (step 6) as a separate guarded CLI.
+- **Prune or leave inert?** ~~open~~ **Resolved:** both — steps 1–5 stop the bleed, step 6's
+  guarded `prune_subscriptions` CLI reclaims the existing waste (empty-desired + max-fraction
+  aborts against a discovery collapse). Prune is a run-once manual CLI, not a timer.
 - **live+active cohort scope** — worth it now, or after the historical backfill lands and the
   stranger count is measured? Recommend gating on the observability from step 5.
 - Any planned descriptor that mirrors a **PM-authored** (non-produced) org? If so it needs a

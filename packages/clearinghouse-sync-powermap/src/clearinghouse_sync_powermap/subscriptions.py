@@ -29,6 +29,12 @@ logger = get_logger(__name__)
 #: the engine's reconcile paging so a large cohort never materialises all at once.
 _LOCAL_COHORT_PAGE_SIZE = 500
 
+#: Default prune floor (#73 Axis 1 step 6): abort a prune whose stale fraction of the
+#: registered set exceeds this — a near-total wipe signals a discovery collapse, not a
+#: real cleanup. Deliberately permissive (0.9): the FIRST prune legitimately removes the
+#: large stranger backlog (~half the set), so only a wipe-almost-everything run aborts.
+DEFAULT_MAX_PRUNE_FRACTION = 0.9
+
 
 @dataclass(frozen=True)
 class DiscoverySpec:
@@ -95,16 +101,7 @@ class SubscriptionReconciler:
         A re-run with no graph drift discovers the same set, finds it all already
         registered, registers nothing, and backfills nothing — a no-op.
         """
-        candidates = list(
-            await self._client.discover(
-                root_type=self._spec.root_type,
-                root_id=self._spec.root_id,
-                follow=self._spec.follow,
-            )
-        )
-        if self.include_local_cohort:
-            candidates.extend(await self._discover_local_cohort(session))
-        discovered = _dedupe_by_entity_id(candidates)
+        discovered = await self._discover_mirror_set(session)
         registered = set(await self._client.list_subscriptions())
         new = [d for d in discovered if d.entity_id not in registered]
 
@@ -171,6 +168,81 @@ class SubscriptionReconciler:
             },
         )
         return report
+
+    async def prune_subscriptions(
+        self,
+        session: AsyncSession,
+        *,
+        max_prune_fraction: float = DEFAULT_MAX_PRUNE_FRACTION,
+        dry_run: bool = False,
+    ) -> dict:
+        """Unsubscribe entities no longer in the desired mirror set (#73 Axis 1 step 6).
+
+        The additive :meth:`sync_subscriptions` never removes, so narrowing the discovery
+        scope leaves the previously-subscribed strangers registered-but-inert (the feed
+        still delivers + the reconciler still skips them). This is the deliberate,
+        guarded reclaim: diff PM's registered set against the freshly-discovered mirror
+        set and :meth:`PowerMapClient.remove_subscriptions` the difference.
+
+        Guardrails against a discovery collapse mass-unsubscribing everything: an **empty**
+        desired set aborts (``empty_desired``); a stale fraction over ``max_prune_fraction``
+        aborts (``prune_floor``). ``dry_run`` computes the diff + guards but removes nothing.
+        Idempotent — a re-run once aligned finds nothing stale. Returns a JSON-able summary.
+        """
+        desired = await self._discover_mirror_set(session)
+        desired_ids = {d.entity_id for d in desired}
+        registered = list(await self._client.list_subscriptions())
+        stale = [entity_id for entity_id in registered if entity_id not in desired_ids]
+        summary = {
+            "registered": len(registered),
+            "desired": len(desired_ids),
+            "stale": len(stale),
+            "removed": 0,
+            "dry_run": dry_run,
+            "aborted": None,
+        }
+        if not desired_ids:
+            # A discovery failure would make every subscription look stale — never nuke
+            # the whole set on an empty desired set.
+            summary["aborted"] = "empty_desired"
+            logger.warning("subscription_prune_aborted", extra={"reason": "empty_desired"})
+            return summary
+        if registered and len(stale) / len(registered) > max_prune_fraction:
+            summary["aborted"] = "prune_floor"
+            logger.warning(
+                "subscription_prune_aborted",
+                extra={
+                    "reason": "prune_floor",
+                    "stale": len(stale),
+                    "registered": len(registered),
+                    "max_prune_fraction": max_prune_fraction,
+                },
+            )
+            return summary
+        if dry_run or not stale:
+            return summary
+        removed = await self._client.remove_subscriptions(stale)
+        summary["removed"] = removed
+        logger.info("subscription_prune", extra={"removed": removed, "stale": len(stale)})
+        return summary
+
+    async def _discover_mirror_set(self, session: AsyncSession) -> list[DiscoveredEntity]:
+        """The desired subscription set: PM discovery ∪ the local cohort, deduped.
+
+        Shared by :meth:`sync_subscriptions` (what to register) and
+        :meth:`prune_subscriptions` (what to keep). ``include_local_cohort`` gates whether
+        our produced rows are folded in (see the class docstring).
+        """
+        candidates = list(
+            await self._client.discover(
+                root_type=self._spec.root_type,
+                root_id=self._spec.root_id,
+                follow=self._spec.follow,
+            )
+        )
+        if self.include_local_cohort:
+            candidates.extend(await self._discover_local_cohort(session))
+        return _dedupe_by_entity_id(candidates)
 
     async def _discover_local_cohort(self, session: AsyncSession) -> list[DiscoveredEntity]:
         """Enumerate OUR anchored rows as subscription candidates (#73 Axis 1).

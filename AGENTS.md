@@ -107,6 +107,7 @@ packages/
       committee_name_chain.py — pure full-timeline rename-chain builder (sub-project 3, Phase B): given `{biennium: {source_id: LongName}}` across all archived bienniums, walks each stable id's **consecutive appearances** and emits every `normalize_name` transition as a windowed `former`→`legal` hop (effective bounds = boundary biennium start, #58). Deep-history guardrails: normalize-before-compare (formatting churn ≠ rename), dormancy-aware (absence gap spanned), per-boundary rename-storm floor (systematic reformat dropped, recorded in `storm_skipped`). No DB/PM
       reconcile_committee_name_chain.py — Phase B emit CLI (sub-project 3): the deep-history counterpart of #46 — reads every archived roster via `CommitteeRosterCohortProvider`, builds the full chain (`committee_name_chain`), and emits each `former`/`legal` transition through the #46/#56 spine's per-row `_emit_names`. Classifies an absent id (hidden vs unproduced), reports storm-skipped boundaries, empty-archive abort. Emit-only (PM curates `is_canonical`; the #45 mirror brings windows back, now sticking via #65 fill-only). `--dry-run`; exit 0/1/2/3. Backfill-once (not a timer) — the daily/weekly #46/#56 detectors carry renames forward
       heal_committee_curation.py — one-shot force-adopt heal CLI (#65 Part 2): for the whole anchored produced cohort, re-fetch each PM `OrgDetail` and force-apply it via `OrganizationDescriptor.upsert_from_pm` + a clock-parity stamp — the PM-wins branch of `apply_record` run **unconditionally**, bypassing LWW. Unsticks committees the pre-fill-only refresh left LWW-locked (local clock ahead of PM), so PM's curation (name/acronym/windows) is finally adopted; idempotent (no-op at parity). Local `canonical` write (app role); read-only PM; no operator token; `--dry-run` previews. Exit 0/2/3
+      prune_subscriptions.py — one-shot reclaim CLI (#73 Axis 1 step 6): the counterpart to `build_reconciler`'s mirror-set scoping. `sync_subscriptions` is additive (never unsubscribes), so the ~1,000 PM-only strangers the old whole-subtree walk registered stay subscribed-but-inert (feed delivers, reconciler fetch-then-skips). This diffs PM's `list_subscriptions` against the freshly-discovered mirror set (`SubscriptionReconciler.prune_subscriptions`) and `remove_subscriptions` the difference. Guarded against a discovery collapse: empty desired-set aborts (`empty_desired`), stale fraction over `--max-prune-fraction` aborts (`prune_floor`, default 0.9 — permissive since the first run legitimately removes ~half). Strangers have no local row, so nothing is evicted locally; idempotent (second run finds nothing stale). **Run-once** after the mirror-set scoping lands, not a timer; no operator token; `--dry-run` previews. Exit 0 clean / 2 auth / 3 aborted
       __main__.py     — daemon entrypoint (python -m usa_wa_sync_powermap)
 alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base
 docs/specs/           — Architecture specs (source of truth for design decisions)
@@ -433,6 +434,18 @@ python -m usa_wa_sync_powermap.validate_committees --json   # machine-readable
 # out of PM's curation. Idempotent (no-op at parity). App-role local write; no token.
 python -m usa_wa_sync_powermap.heal_committee_curation --dry-run
 python -m usa_wa_sync_powermap.heal_committee_curation
+
+# Subscription prune (#73 Axis 1 step 6) — one-shot reclaim. build_reconciler narrowed the
+# subscription set to the mirror set (jurisdiction lineage ∪ OUR anchored producer rows), but
+# sync_subscriptions is additive, so the ~1,000 PM-only strangers the old whole-subtree walk
+# registered stay subscribed-but-inert (feed delivers, reconciler fetch-then-skips them). This
+# diffs PM's list_subscriptions against the freshly-discovered mirror set and unsubscribes the
+# difference. Guarded: empty desired-set aborts (empty_desired), stale fraction over
+# --max-prune-fraction aborts (prune_floor, default 0.9 — permissive since the first run removes
+# ~half). Strangers have no local row (nothing evicted); idempotent. Run-once, not a timer; no
+# operator token. --dry-run previews. Exit 0 clean / 2 auth / 3 aborted.
+python -m usa_wa_sync_powermap.prune_subscriptions --dry-run
+python -m usa_wa_sync_powermap.prune_subscriptions
 
 # Committee historical extent probe (#64) — write-free discovery. Walks bienniums backward
 # from current, tallying committee/meeting counts + meeting wire bytes, stopping after N

@@ -258,3 +258,78 @@ async def test_include_local_cohort_false_keeps_pm_discovery_only(db_session, fa
 
     assert client.added == []
     assert report.newly_subscribed == 0
+
+
+async def test_prune_removes_subscriptions_outside_the_mirror_set(db_session, fake_descriptor):
+    """#73 Axis 1 step 6: a subscription not in the desired mirror set (a stranger left
+    over from the old broad subtree walk) is unsubscribed; our anchored row is kept."""
+    ours, stranger = ULID(), ULID()
+    await _seed(db_session, source_id="1", name="Ours", anchor=ours)
+    client = FakeClient(discovered=[], subscribed=[ours, stranger])
+    reconciler = _local_reconciler(client, [fake_descriptor])
+
+    summary = await reconciler.prune_subscriptions(db_session)
+
+    assert client.removed == [[stranger]]
+    assert client.subscribed == [ours]
+    assert summary["removed"] == 1
+    assert summary["stale"] == 1
+    assert summary["aborted"] is None
+
+
+async def test_prune_aborts_when_desired_set_is_empty(db_session, fake_descriptor):
+    """A discovery collapse (empty desired set) must not mass-unsubscribe everything —
+    an empty mirror set aborts, removing nothing."""
+    a, b = ULID(), ULID()
+    client = FakeClient(discovered=[], subscribed=[a, b])  # no PM discovery, no local rows
+    reconciler = _local_reconciler(client, [fake_descriptor])
+
+    summary = await reconciler.prune_subscriptions(db_session)
+
+    assert summary["aborted"] == "empty_desired"
+    assert client.removed == []
+    assert client.subscribed == [a, b]
+
+
+async def test_prune_floor_aborts_on_excessive_fraction(db_session, fake_descriptor):
+    """The prune floor guards against a partial discovery: if the stale fraction exceeds
+    ``max_prune_fraction`` the run aborts (a legitimate large cleanup raises the floor)."""
+    ours, s1, s2, s3 = ULID(), ULID(), ULID(), ULID()
+    await _seed(db_session, source_id="1", name="Ours", anchor=ours)
+    client = FakeClient(discovered=[], subscribed=[ours, s1, s2, s3])
+    reconciler = _local_reconciler(client, [fake_descriptor])
+
+    # 3 of 4 stale = 0.75 > 0.5 floor → abort.
+    summary = await reconciler.prune_subscriptions(db_session, max_prune_fraction=0.5)
+
+    assert summary["aborted"] == "prune_floor"
+    assert client.removed == []
+
+
+async def test_prune_dry_run_removes_nothing(db_session, fake_descriptor):
+    """--dry-run computes the diff + guards but unsubscribes nothing."""
+    ours, stranger = ULID(), ULID()
+    await _seed(db_session, source_id="1", name="Ours", anchor=ours)
+    client = FakeClient(discovered=[], subscribed=[ours, stranger])
+    reconciler = _local_reconciler(client, [fake_descriptor])
+
+    summary = await reconciler.prune_subscriptions(db_session, dry_run=True)
+
+    assert summary["stale"] == 1
+    assert summary["removed"] == 0
+    assert client.removed == []
+    assert client.subscribed == [ours, stranger]
+
+
+async def test_prune_is_noop_when_already_aligned(db_session, fake_descriptor):
+    """Registered == desired: nothing stale, nothing removed (idempotent second run)."""
+    ours = ULID()
+    await _seed(db_session, source_id="1", name="Ours", anchor=ours)
+    client = FakeClient(discovered=[], subscribed=[ours])
+    reconciler = _local_reconciler(client, [fake_descriptor])
+
+    summary = await reconciler.prune_subscriptions(db_session)
+
+    assert summary["stale"] == 0
+    assert summary["removed"] == 0
+    assert client.removed == []
