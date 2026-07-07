@@ -625,6 +625,38 @@ async def test_add_subscriptions_chunks_over_batch_limit(client):
 
 
 @respx.mock
+async def test_remove_subscriptions_reports_requested_count(client):
+    """Bulk DELETE returns 204 (no body); the wrapper reports the requested count."""
+    respx.delete(f"{BASE}/api/v1/subscriptions").mock(return_value=httpx.Response(204))
+
+    removed = await client.remove_subscriptions([ULID(), ULID(), ULID()])
+
+    assert removed == 3
+
+
+@respx.mock
+async def test_remove_subscriptions_chunks_over_batch_limit(client):
+    """PM caps DELETE /subscriptions at 500 ids (a prune can target thousands, #73);
+    remove_subscriptions chunks larger sets and sums the per-batch counts — else PM
+    422s the whole call ('List should have at most 500 items')."""
+    import json
+
+    ids = [ULID() for _ in range(1001)]
+    seen_sizes = []
+
+    def _handler(request):
+        seen_sizes.append(len(json.loads(request.content)["entity_ids"]))
+        return httpx.Response(204)
+
+    respx.delete(f"{BASE}/api/v1/subscriptions").mock(side_effect=_handler)
+
+    removed = await client.remove_subscriptions(ids)
+
+    assert seen_sizes == [500, 500, 1]  # chunked at the 500-item cap
+    assert removed == 1001  # aggregated across batches
+
+
+@respx.mock
 async def test_add_subscriptions_403_raises_blocked(client):
     """Missing ``subscriptions:write`` scope → DeliveryBlockedError (operator grants
     the scope), surfaced through the same mapping as the write path."""

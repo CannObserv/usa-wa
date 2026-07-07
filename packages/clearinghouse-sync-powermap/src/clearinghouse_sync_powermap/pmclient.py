@@ -333,13 +333,16 @@ class GeneratedPowerMapClient:
 
     async def remove_subscriptions(self, entity_ids: Sequence[ULID]) -> int:
         # Bulk DELETE returns 204 (no count); report the requested count on success.
-        # Unused today (pruning deferred), wired for surface completeness.
+        # Chunk at PM's 500-id cap (a prune can target thousands, #73), mirroring
+        # add_subscriptions — an unchunked call 422s ("at most 500 items").
         ids = [str(i) for i in entity_ids]
-        await self._send(
-            delete_subscriptions_bulk.asyncio_detailed(
-                client=self._client, body=SubscriptionBulkDeleteRequest(entity_ids=ids)
+        for start in range(0, len(ids), _SUBSCRIBE_BATCH):
+            chunk = ids[start : start + _SUBSCRIBE_BATCH]
+            await self._send(
+                delete_subscriptions_bulk.asyncio_detailed(
+                    client=self._client, body=SubscriptionBulkDeleteRequest(entity_ids=chunk)
+                )
             )
-        )
         return len(ids)
 
     async def list_entities(self, read_path: str, params: dict | None = None) -> EntityPage:
