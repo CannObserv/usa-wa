@@ -5,8 +5,10 @@ The full identity cluster: jurisdictions + the four producer entities
 are a person/org sub-resource.
 """
 
+from clearinghouse_sync_powermap.client import PowerMapClient
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
-from clearinghouse_sync_powermap.subscriptions import DiscoverySpec
+from clearinghouse_sync_powermap.engine import SyncEngine
+from clearinghouse_sync_powermap.subscriptions import DiscoverySpec, SubscriptionReconciler
 from usa_wa_sync_powermap.config import SidecarSettings
 from usa_wa_sync_powermap.descriptors import (
     AssignmentDescriptor,
@@ -52,14 +54,31 @@ def build_descriptors(settings: SidecarSettings | None = None) -> list[EntityDes
 
 
 def build_discovery_spec(settings: SidecarSettings) -> DiscoverySpec:
-    """The WA-subtree discovery spec the reconciler traverses (PM #203).
+    """The PM-discovery spec the reconciler traverses (PM #203).
 
-    Rooted at the ``usa-wa`` jurisdiction, following lineage → governing orgs → org
-    tree → roles → assignments → people, so the subscription set is exactly the WA
-    identity cluster.
+    Rooted at the ``usa-wa`` jurisdiction, following its ``lineage`` only (#73 Axis 1) —
+    the mirror-only, PM-authoritative jurisdiction cache usa-wa does not produce. The
+    produced identity cluster (orgs/roles/persons/assignments) is subscribed from the
+    local anchored cohort via ``build_reconciler``'s ``include_local_cohort``, not this
+    subtree walk, so discovery no longer drags in PM-only strangers.
     """
     return DiscoverySpec(
         root_type=settings.powermap_discovery_root_type,
         root_id=settings.powermap_discovery_root_id,
         follow=settings.powermap_discovery_follow,
+    )
+
+
+def build_reconciler(
+    client: PowerMapClient, engine: SyncEngine, settings: SidecarSettings
+) -> SubscriptionReconciler:
+    """The usa-wa subscription reconciler (#73 Axis 1).
+
+    Wires ``include_local_cohort=True`` so the subscription set is (jurisdiction lineage
+    via PM discovery) ∪ (OUR locally-anchored producer rows) — the mirror set — rather
+    than the whole PM WA subtree. Shared by the bootstrap one-shot and the sidecar daemon
+    so both agree on the membership policy.
+    """
+    return SubscriptionReconciler(
+        client, engine, build_discovery_spec(settings), include_local_cohort=True
     )

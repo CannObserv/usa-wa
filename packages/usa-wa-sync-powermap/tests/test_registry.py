@@ -4,9 +4,15 @@ from datetime import timedelta
 
 import pytest
 
+from clearinghouse_sync_powermap.engine import SyncEngine
+from clearinghouse_sync_powermap.testing import FakeClient
 from usa_wa_sync_powermap import bootstrap
 from usa_wa_sync_powermap.config import SidecarSettings
-from usa_wa_sync_powermap.registry import build_descriptors, build_discovery_spec
+from usa_wa_sync_powermap.registry import (
+    build_descriptors,
+    build_discovery_spec,
+    build_reconciler,
+)
 
 
 def test_build_descriptors_covers_identity_cluster():
@@ -78,14 +84,28 @@ def test_build_discovery_spec_roots_at_wa_subtree():
     spec = build_discovery_spec(SidecarSettings(powermap_api_key="x"))
     assert spec.root_type == "jurisdiction"
     assert spec.root_id == "usa-wa"
-    assert spec.follow == [
-        "lineage",
-        "affiliated_orgs",
-        "org_children",
-        "roles",
-        "assignments",
-        "people",
-    ]
+    # #73 Axis 1: PM discovery is narrowed to the jurisdiction lineage (the mirror-only,
+    # PM-authoritative cache). The producer subtree edges (affiliated_orgs/org_children/
+    # roles/assignments/people) are dropped — our produced rows are subscribed from the
+    # local anchored cohort instead, so PM discovery no longer drags in strangers.
+    assert spec.follow == ["lineage"]
+
+
+def test_discovery_follow_defaults_to_lineage_only():
+    # #73 Axis 1: the default follow set is jurisdiction lineage only; env can override.
+    assert SidecarSettings(powermap_api_key="x").powermap_discovery_follow == ["lineage"]
+
+
+def test_build_reconciler_enables_local_cohort():
+    # #73 Axis 1: the usa-wa reconciler subscribes our locally-anchored producer rows
+    # (not the whole PM subtree), so include_local_cohort must be wired on.
+    settings = SidecarSettings(powermap_api_key="x")
+    descriptors = build_descriptors(settings)
+    client = FakeClient(discovered=[], subscribed=[])
+    engine = SyncEngine(descriptors, client)
+    reconciler = build_reconciler(client, engine, settings)
+    assert reconciler.include_local_cohort is True
+    assert reconciler._spec.follow == ["lineage"]
 
 
 def test_bootstrap_entrypoint_is_callable():

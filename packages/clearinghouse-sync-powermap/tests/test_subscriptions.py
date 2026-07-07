@@ -5,6 +5,8 @@ behind the subscription-filtered feed (PM #203): it must register only the entit
 not already subscribed and backfill their current state by id, additively.
 """
 
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from ulid import ULID
 
@@ -34,6 +36,21 @@ def _record(pm_id, source_id, name):
 
 def _reconciler(client, descriptors):
     return SubscriptionReconciler(client, SyncEngine(descriptors, client), SPEC)
+
+
+def _local_reconciler(client, descriptors):
+    return SubscriptionReconciler(
+        client, SyncEngine(descriptors, client), SPEC, include_local_cohort=True
+    )
+
+
+async def _seed(session, *, source_id, name, anchor=None, deleted_at=None):
+    row = FakeEntity(
+        source="wsl", source_id=source_id, name=name, pm_fake_id=anchor, deleted_at=deleted_at
+    )
+    session.add(row)
+    await session.flush()
+    return row
 
 
 async def test_bootstrap_registers_all_and_backfills(db_session, fake_descriptor):
@@ -172,3 +189,72 @@ async def test_discover_called_with_spec(db_session, fake_descriptor):
     assert client.discover_calls == [
         {"root_type": "jurisdiction", "root_id": "usa-wa", "follow": ["lineage", "roles"]}
     ]
+
+
+async def test_local_cohort_anchored_rows_are_subscribed(db_session, fake_descriptor):
+    """#73 Axis 1: with include_local_cohort, OUR anchored rows are discovered from the
+    local cache (not a PM subtree walk) and subscribed — so the feed delivers PM's edits
+    to rows we produced, without following the subtree into strangers we never mirror.
+    An unanchored row (not yet pushed to PM) is not subscribable, so it is skipped."""
+    anchored = ULID()
+    await _seed(db_session, source_id="1", name="Ours", anchor=anchored)
+    await _seed(db_session, source_id="2", name="NotYetPushed", anchor=None)
+    client = FakeClient(discovered=[], subscribed=[])
+    reconciler = _local_reconciler(client, [fake_descriptor])
+
+    report = await reconciler.sync_subscriptions(db_session)
+
+    assert client.added == [[anchored]]  # only the anchored row
+    assert anchored in client.subscribed
+    assert report.newly_subscribed == 1
+
+
+async def test_local_cohort_skips_deleted_rows(db_session, fake_descriptor):
+    """A tombstoned anchored row is never re-subscribed — mirrors the anchored-cohort
+    reconcile, which excludes terminally-deleted ids from its re-fetch cohort."""
+    live, dead = ULID(), ULID()
+    await _seed(db_session, source_id="1", name="Live", anchor=live)
+    await _seed(
+        db_session,
+        source_id="2",
+        name="Dead",
+        anchor=dead,
+        deleted_at=datetime(2050, 1, 1, tzinfo=UTC),
+    )
+    client = FakeClient(discovered=[], subscribed=[])
+    reconciler = _local_reconciler(client, [fake_descriptor])
+
+    await reconciler.sync_subscriptions(db_session)
+
+    assert client.added == [[live]]
+
+
+async def test_local_cohort_deduped_with_pm_discovery(db_session, fake_descriptor):
+    """An id in BOTH the PM discovery result and the local cohort is registered once."""
+    shared = ULID()
+    await _seed(db_session, source_id="1", name="Ours", anchor=shared)
+    client = FakeClient(
+        discovered=[_disc(shared)],
+        subscribed=[],
+        entities={shared: _record(shared, "1", "Ours")},
+    )
+    reconciler = _local_reconciler(client, [fake_descriptor])
+
+    report = await reconciler.sync_subscriptions(db_session)
+
+    assert client.added == [[shared]]
+    assert report.newly_subscribed == 1
+
+
+async def test_include_local_cohort_false_keeps_pm_discovery_only(db_session, fake_descriptor):
+    """Default flag (False): a local anchored row is NOT auto-subscribed — the portable
+    default stays PM-subtree-only, so sibling deployments are unaffected."""
+    anchored = ULID()
+    await _seed(db_session, source_id="1", name="Ours", anchor=anchored)
+    client = FakeClient(discovered=[], subscribed=[])
+    reconciler = _reconciler(client, [fake_descriptor])  # no flag
+
+    report = await reconciler.sync_subscriptions(db_session)
+
+    assert client.added == []
+    assert report.newly_subscribed == 0

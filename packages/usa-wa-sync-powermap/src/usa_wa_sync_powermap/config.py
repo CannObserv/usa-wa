@@ -28,14 +28,12 @@ class SidecarSettings(BaseSettings):
     #: which edges it follows. The default mirrors the design's usa-wa setup.
     powermap_discovery_root_type: str = "jurisdiction"
     powermap_discovery_root_id: str = "usa-wa"
-    powermap_discovery_follow: list[str] = [
-        "lineage",
-        "affiliated_orgs",
-        "org_children",
-        "roles",
-        "assignments",
-        "people",
-    ]
+    #: #73 Axis 1: PM discovery follows only the jurisdiction lineage — the mirror-only,
+    #: PM-authoritative cache usa-wa does not produce. The producer subtree edges
+    #: (affiliated_orgs/org_children/roles/assignments/people) are dropped: those rows
+    #: are subscribed from OUR local anchored cohort (``include_local_cohort``) instead,
+    #: so discovery stops dragging in ~1,000 PM-only strangers we never mirror.
+    powermap_discovery_follow: list[str] = ["lineage"]
     #: How often the in-loop re-discovery backstop re-runs (catches graph drift —
     #: e.g. a newly-added WA committee). Bootstrap covers the initial population.
     #: Six-hourly (#73 Axis 2): graph drift is slow — new committees enter via the

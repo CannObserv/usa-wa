@@ -16,22 +16,28 @@ just the first run, when the registered set is empty and everything is backfille
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.logging import get_logger
-from clearinghouse_sync_powermap.client import PowerMapClient
+from clearinghouse_sync_powermap.client import DiscoveredEntity, PowerMapClient
 from clearinghouse_sync_powermap.engine import APPLY_INSERTED, APPLY_UPDATED, SyncEngine
 
 logger = get_logger(__name__)
+
+#: Keyset page size for the local anchored-cohort enumeration (#73 Axis 1) — mirrors
+#: the engine's reconcile paging so a large cohort never materialises all at once.
+_LOCAL_COHORT_PAGE_SIZE = 500
 
 
 @dataclass(frozen=True)
 class DiscoverySpec:
     """Where discovery starts and which edges it follows (deployment-specific).
 
-    ``follow`` is the ordered set of PM edge types to traverse — for usa-wa:
-    ``lineage``, ``affiliated_orgs``, ``org_children``, ``roles``, ``assignments``,
-    ``people`` rooted at the ``usa-wa`` jurisdiction.
+    ``follow`` is the ordered set of PM edge types to traverse from ``root_id`` (e.g.
+    ``lineage``, ``org_children``, ``roles``). A deployment that subscribes its produced
+    rows from the local cohort (:attr:`SubscriptionReconciler.include_local_cohort`)
+    narrows this to just the mirror-only edges it does not produce.
     """
 
     root_type: str
@@ -61,12 +67,27 @@ class SubscriptionSyncReport:
 
 
 class SubscriptionReconciler:
-    """Keeps the PM subscription set aligned to a :class:`DiscoverySpec` (additive)."""
+    """Keeps the PM subscription set aligned to a :class:`DiscoverySpec` (additive).
 
-    def __init__(self, client: PowerMapClient, engine: SyncEngine, spec: DiscoverySpec) -> None:
+    ``include_local_cohort`` (#73 Axis 1): when True, the candidate set is augmented
+    with OUR locally-anchored producer rows (see :meth:`_discover_local_cohort`), so the
+    feed is subscribed to PM's edits of entities usa-wa *produced* without following the
+    PM subtree into PM-only rows we never mirror (the ~1,000-stranger over-subscription).
+    Default False keeps the portable, PM-subtree-only behaviour for sibling deployments.
+    """
+
+    def __init__(
+        self,
+        client: PowerMapClient,
+        engine: SyncEngine,
+        spec: DiscoverySpec,
+        *,
+        include_local_cohort: bool = False,
+    ) -> None:
         self._client = client
         self._engine = engine
         self._spec = spec
+        self.include_local_cohort = include_local_cohort
 
     async def sync_subscriptions(self, session: AsyncSession) -> SubscriptionSyncReport:
         """Discover → register new → backfill new. Additive-only; idempotent.
@@ -74,11 +95,16 @@ class SubscriptionReconciler:
         A re-run with no graph drift discovers the same set, finds it all already
         registered, registers nothing, and backfills nothing — a no-op.
         """
-        discovered = await self._client.discover(
-            root_type=self._spec.root_type,
-            root_id=self._spec.root_id,
-            follow=self._spec.follow,
+        candidates = list(
+            await self._client.discover(
+                root_type=self._spec.root_type,
+                root_id=self._spec.root_id,
+                follow=self._spec.follow,
+            )
         )
+        if self.include_local_cohort:
+            candidates.extend(await self._discover_local_cohort(session))
+        discovered = _dedupe_by_entity_id(candidates)
         registered = set(await self._client.list_subscriptions())
         new = [d for d in discovered if d.entity_id not in registered]
 
@@ -145,3 +171,66 @@ class SubscriptionReconciler:
             },
         )
         return report
+
+    async def _discover_local_cohort(self, session: AsyncSession) -> list[DiscoveredEntity]:
+        """Enumerate OUR anchored rows as subscription candidates (#73 Axis 1).
+
+        For each descriptor that runs a reconcile backstop (``reconcile_enabled`` — the
+        producer entities whose anchored rows usa-wa maintains; PM-authoritative types
+        like jurisdictions have no backstop and are excluded, staying PM-discovered),
+        keyset-page the rows carrying a live anchor and emit each as a
+        :class:`DiscoveredEntity` keyed on its PM anchor id. This subscribes the feed to
+        PM's edits of rows WE produced without walking the PM subtree into strangers we
+        never mirror.
+
+        Tombstoned rows (``deleted_column`` set) are skipped — never re-subscribed —
+        mirroring the anchored-cohort reconcile. An *archived* row keeps a live anchor
+        and IS included, so a dropped un-archive event still self-heals via the feed.
+        """
+        discovered: list[DiscoveredEntity] = []
+        for descriptor in self._engine.descriptors:
+            if not descriptor.reconcile_enabled:
+                continue
+            anchor_col = descriptor.anchor_column_expr()
+            pk_col = descriptor.model.id
+            last_id = None
+            while True:
+                stmt = select(descriptor.model).where(anchor_col.is_not(None))
+                if descriptor.deleted_column is not None:
+                    stmt = stmt.where(descriptor.deleted_column_expr().is_(None))
+                if last_id is not None:
+                    stmt = stmt.where(pk_col > last_id)
+                stmt = stmt.order_by(pk_col).limit(_LOCAL_COHORT_PAGE_SIZE)
+                rows = (await session.execute(stmt)).scalars().all()
+                if not rows:
+                    break
+                for row in rows:
+                    last_id = row.id
+                    discovered.append(
+                        DiscoveredEntity(
+                            entity_type=descriptor.entity_type,
+                            entity_id=descriptor.anchor_value(row),
+                            display_name=None,
+                            hops_from_root=0,
+                        )
+                    )
+                if len(rows) < _LOCAL_COHORT_PAGE_SIZE:
+                    break
+        return discovered
+
+
+def _dedupe_by_entity_id(candidates: list[DiscoveredEntity]) -> list[DiscoveredEntity]:
+    """Order-preserving dedup by ``entity_id`` (first occurrence wins).
+
+    PM discovery and the local cohort can surface the same id (an org we produced is
+    both in the WA subtree and our anchored cohort); registering it once keeps the
+    additive diff honest and ``add_subscriptions`` idempotent.
+    """
+    seen: set = set()
+    unique: list[DiscoveredEntity] = []
+    for candidate in candidates:
+        if candidate.entity_id in seen:
+            continue
+        seen.add(candidate.entity_id)
+        unique.append(candidate)
+    return unique

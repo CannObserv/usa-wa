@@ -1,6 +1,29 @@
 # Scope sidecar subscriptions to the mirror set (#73 Axis 1)
 
-Status: proposed (Axis 2 — cadence — already shipped: commit `#73 feat: retune sidecar reconcile + re-discovery cadence`).
+Status: **steps 1–5 implemented** ("stop the bleed" — new syncs no longer subscribe
+strangers). Step 6 (prune existing ~1,000 inert strangers) deferred as a separate guarded
+CLI per the open question. Axis 2 (cadence) shipped earlier: commit `#73 feat: retune
+sidecar reconcile + re-discovery cadence`.
+
+## Implemented (steps 1–5)
+
+- `SubscriptionReconciler(..., include_local_cohort=True)` — a new `_discover_local_cohort`
+  enumerates OUR anchored producer rows (any `reconcile_enabled` descriptor; keyset-paged,
+  skips tombstoned rows, keeps archived) as `DiscoveredEntity` candidates, deduped against
+  PM discovery by `entity_id`. Portable + off-by-default (siblings unaffected).
+- `SyncEngine.descriptors` read-only accessor so the reconciler can enumerate the entity set.
+- `powermap_discovery_follow` default narrowed to `["lineage"]` (jurisdiction cache only).
+- `registry.build_reconciler(client, engine, settings)` wires the flag on; bootstrap +
+  `__main__` both route through it so they agree on membership policy.
+- Observability: the existing `subscription_sync` log already emits `discovered` +
+  `backfill_skipped`; with the mirror-set scope `discovered` ≈ the mirror set and
+  `backfill_skipped` trends to ~0 (strangers no longer surfaced).
+
+**Not yet done:** the ~1,000 strangers already subscribed stay subscribed-but-inert (the
+reconciler is additive — never unsubscribes). New drift is prevented; reclaiming the
+existing subscriptions needs step 6.
+
+## Original plan follows
 
 ## Problem
 

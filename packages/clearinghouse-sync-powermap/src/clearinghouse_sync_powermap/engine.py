@@ -265,6 +265,12 @@ class SyncEngine:
     def descriptor_for(self, entity_type: str) -> EntityDescriptor | None:
         return self._by_type.get(entity_type)
 
+    @property
+    def descriptors(self) -> tuple[EntityDescriptor, ...]:
+        """All registered descriptors (read-only). Lets membership managers (e.g. the
+        subscription reconciler's local-cohort discovery) enumerate the entity set."""
+        return tuple(self._by_type.values())
+
     # --- enqueue helpers ------------------------------------------------------
 
     async def _has_blocking_entry(self, session: AsyncSession, entity_type: str, local_id) -> bool:

@@ -16,9 +16,8 @@ from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.engine import SyncEngine
 from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
-from clearinghouse_sync_powermap.subscriptions import SubscriptionReconciler
 from usa_wa_sync_powermap.config import get_sidecar_settings
-from usa_wa_sync_powermap.registry import build_descriptors, build_discovery_spec
+from usa_wa_sync_powermap.registry import build_descriptors, build_reconciler
 
 logger = get_logger(__name__)
 
@@ -31,7 +30,7 @@ async def _amain() -> None:
     descriptors = build_descriptors(settings)
     client = GeneratedPowerMapClient(settings.powermap_base_url, settings.powermap_api_key)
     engine = SyncEngine(descriptors, client)
-    reconciler = SubscriptionReconciler(client, engine, build_discovery_spec(settings))
+    reconciler = build_reconciler(client, engine, settings)
     factory = get_session_factory()
     try:
         async with factory() as session:
