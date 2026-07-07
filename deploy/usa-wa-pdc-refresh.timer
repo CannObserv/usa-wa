@@ -1,0 +1,17 @@
+[Unit]
+Description=usa-wa — daily PDC SODA refresh (House District + Position)
+Documentation=https://github.com/CannObserv/usa-wa/issues/69
+
+[Timer]
+# Daily at 06:30 UTC — 30 min after the WSL refresh (06:00) so the WSL House
+# Persons this binds Position onto already exist. Same-day re-runs are safe: the
+# House-winners pull cache-hits within the Source's cache_ttl_days=1 (no live GET,
+# no new rows).
+OnCalendar=*-*-* 06:30:00 UTC
+# Run on next boot if the box was down at the scheduled time.
+Persistent=true
+# Jitter to avoid hammering data.wa.gov on the dot.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

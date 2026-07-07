@@ -80,6 +80,19 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
+    # PDC refresh (#69) binds Position onto the WSL House Persons, so it additionally
+    # orders After the WSL refresh (best-effort; a missing predecessor just leaves an
+    # unmatched winner logged, not wedged).
+    "usa-wa-pdc-refresh.service": {
+        "After": {
+            "network-online.target",
+            "postgresql.service",
+            "usa-wa-migrate.service",
+            "usa-wa-wsl-refresh.service",
+        },
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
     # DB-only sweep (#54) — re-hashes RawPayload vs content_hash. No WSL/PM
     # egress, so plain network.target (not network-online). Fails (exit 1) on a
     # mismatch → notify handler, since it IS the at-rest tamper detector.
@@ -108,6 +121,7 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "OnFailure": set(),
     },
     "usa-wa-wsl-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
+    "usa-wa-pdc-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-integrity-sweep.timer": {"After": set(), "Before": set(), "OnFailure": set()},
 }
 
