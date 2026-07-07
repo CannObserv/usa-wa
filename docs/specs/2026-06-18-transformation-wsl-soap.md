@@ -215,26 +215,68 @@ All sessions in the first cut are synthesized. WSL has no first-class session en
 
 ### `canonical.persons` (P1b)
 
-**Resolved 2026-07-05** (plan: [`docs/plans/2026-07-05-wsl-soap-adapter-p1b.md`](../plans/2026-07-05-wsl-soap-adapter-p1b.md); precursor #68 shipped). Person `source_id` = the WSL member `Id` from `GetSponsors` (cross-endpoint/cross-biennium stability verified in plan step 0 before ingest). Every current member gets a Person + a `person_wa_legislature_member_id` identifier; the sidecar attaches to PM's identifier-less backfilled legislators by name, then pushes the member-id identifier back to stabilize future matches. District no longer lives on Person — it resolves to the **seat** `Role.jurisdiction_id` (see `canonical.assignments`), so a House member (seat deferred to #69) carries no district this cut.
+**Implemented 2026-07-06** (#27; plan: [`docs/plans/2026-07-05-wsl-soap-adapter-p1b.md`](../plans/2026-07-05-wsl-soap-adapter-p1b.md); precursor #68 shipped). Live-validated: one refresh produced the full current legislature (152 Persons + 152 identifiers). Builder: [`normalize/members.py`](../../packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/normalize/members.py) `build_person`; emitted by [`normalize/sponsors.py`](../../packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/normalize/sponsors.py) (roster) and [`normalize/committee_members.py`](../../packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/normalize/committee_members.py) (dedup by `Id`).
 
-`SponsorService.GetSponsors(biennium)` and `LegislationService.GetSponsors(bill_id, biennium)` return WSL sponsor records:
+`Person.source_id` = the WSL member `Id` from `GetSponsors` — **verified stable across endpoint / biennium / chamber** (plan step 0: 94/94 + 125/125, 0 divergences; [`probe_member_identity.py`](../../packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/probe_member_identity.py)), so no name-match fallback. `GetSponsors` returns **one row per (member, chamber-tenure)**; name-blanked stubs for a superseded/departed tenure are filtered by `is_person` (both first + last present). The sidecar attaches to PM's identifier-less backfilled legislators by name, then pushes the member-id identifier back to stabilise future matches. District does **not** live on Person — it resolves to the **seat** `Role.jurisdiction_id` (see `canonical.roles`), so a House member (seat deferred to #69) carries no district this cut.
 
-| usa-wa column | WSL field (`SponsorService.GetSponsors`) | Notes |
+`SponsorService.GetSponsors(biennium)` `Member` shape → Person:
+
+| usa-wa column | WSL field (`Member`) | Rule |
 |---|---|---|
-| `source_id` | `Id` (numeric `MemberId`) | WSL-stable per biennium; `Id` is reused across bienniums for re-elected members (verify in P1b). |
-| `name_full` | `LongName` + `FirstName` | WSL splits these; we recompose. |
-| `name_first` | `FirstName` | direct |
-| `name_last` | `LastName` | direct |
-| `name_used` | `LongName` if differs from `LastName` | E.g., LongName = `Riccelli`. |
-| `gender` | (not in source) | Lossy ←. |
-| `current_district` (legacy) | `District` | Now lives on `Role.jurisdiction_id` via the v1.4 IA refactor. P1b adapter resolves District → district jurisdiction slug → `Role.jurisdiction_id`. |
-| `powermap_person_id` | (set by sidecar) | After sidecar match. |
+| `source` | — | constant `"usa_wa_legislature"` |
+| `source_id` | `Id` | `str(Id)` — the stable member id (numeric `MemberId` as text) |
+| `name_full` | `FirstName` + `LastName` | recomposed `f"{FirstName} {LastName}"` (WSL splits them) |
+| `name_first` | `FirstName` | direct (`None` if blank) |
+| `name_last` | `LastName` | direct (`None` if blank) |
+| `name_used` | `LongName` | the honorific display form ("Senator Rivers"); kept only when it **differs** from `name_full`, else `NULL`. Low-stakes local hint — PM curates `display_name` on match |
+| `gender` | (not in source) | Lossy ← |
+| `pm_person_id` | (set by sidecar) | populated on PM match; `NULL` until then |
 
-External-ID schemes (`wa_legislature_member_id`, `wa_legislature_long_id`) flow to `canonical.person_identifiers` per the v1.4 hybrid IA shape.
+### `canonical.person_identifiers` (P1b)
+
+**Implemented 2026-07-06** (#27). One identifier per Person (builder: `build_person_identifier`), the queryable N-scheme graph P1c bill-sponsorship joins on. The **local** scheme is `wa_legislature_member_id`; the sidecar's person descriptor separately emits the sibling PM identifier_type `person_wa_legislature_member_id` from `Person.source_id`, converting the fragile name-only attach into a shared stable identifier.
+
+| usa-wa column | value | Rule |
+|---|---|---|
+| `source` | constant | `"usa_wa_legislature"` |
+| `source_id` | `f"{Id}:wa_legislature_member_id"` | deterministic leaf key (runner upserts idempotently) |
+| `person_id` | FK → `persons.id` | resolved intra-batch (get-or-create flush) |
+| `scheme` | constant | `"wa_legislature_member_id"` (`MEMBER_ID_SCHEME`) |
+| `value` | `str(Id)` | the WSL member id |
+
+> `wa_legislature_long_id` (the honorific `LongName`) is **not** minted this cut — deferred until a consumer needs it.
+
+### `canonical.roles` (P1b — seat-aware)
+
+**Implemented 2026-07-06** (#27). Three role shapes, each keyed on a deterministic `source_id` so it aligns 1:1 with PM's seat/title match key (the get-or-create SELECT finds the existing row before an INSERT could collide with the `#68` partial-unique seat/title indexes). PM matches a **seat** on the structural tuple `(org, role_type, jurisdiction, qualifier)` (title omitted — PM owns it); a **title** role on `(org, title)`. The seat vs title shape is read at runtime from the `RoleType` catalog mirror's `expects_jurisdiction` (power-map#271), never a hardcoded slug list.
+
+| role | `source_id` | `organization_id` | `name` | `role_type` | `jurisdiction_id` | `qualifier` | PM match key |
+|---|---|---|---|---|---|---|---|
+| **Senate seat** | `seat:senate:ld-<n>` | Senate chamber | `"State Senator"` | `state_senator` | LD `<n>` jurisdiction | `NULL` (1 senator/LD) | seat tuple |
+| **Party membership** | `party-role:<slug>` | Party Org (`republican`/`democratic`) | `"Member"` | `member` | `NULL` | `NULL` | `(org, title)` |
+| **Committee membership** | `committee-member-role:<committee_source_id>` | the committee Org | `"Member"` | `member` | `NULL` | `NULL` | `(org, title)` |
+
+- **House seats emit no Role this cut** — deferred whole to #69 (no WSL `Position` source; a positionless `state_representative` seat would be rejected by PM as `qualifier_required`, power-map#273/usa-wa#71). House members still get Person + party + committee memberships.
+- Committee/party memberships share the generic `member` `role_type` (power-map#269, `expects_jurisdiction=false`) — one shared Role per Org, deduped by the `EntityCollector`, so a roster of N members yields 1 Role + N Assignments.
+- `member` roles are only ever produced on committees carrying a `committees:<biennium>` GetActiveCommittees citation — the current-biennium scope (usa-wa#72); historical-backfill committee Ids are excluded.
 
 ### `canonical.assignments` (P1b)
 
-**Resolved 2026-07-05** (plan: [`docs/plans/2026-07-05-wsl-soap-adapter-p1b.md`](../plans/2026-07-05-wsl-soap-adapter-p1b.md)). Assignment kinds, all session-scoped to the **biennium** session row (`valid_from` = biennium start):
+**Implemented 2026-07-06** (#27; builder [`normalize/members.py`](../../packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/normalize/members.py) `build_assignment`). An Assignment is a leaf row (resolved FK ids, no get-or-create) — the runner upserts it idempotently on `(source, source_id)`:
+
+| usa-wa column | value | Rule |
+|---|---|---|
+| `source` | constant | `"usa_wa_legislature"` |
+| `source_id` | `f"{member_id}:{dimension}:{biennium}"` | **role-independent** key — the role is a *value* of the assignment, not part of its key, so a role correction needs no new row. `dimension` ∈ {`chamber-senate`, `party`, `committee:<committee_source_id>`} |
+| `person_id` | FK → `persons.id` | resolved intra-batch (get-or-create flush) |
+| `role_id` | FK → `roles.id` | the seat / party / committee-member Role (get-or-create) |
+| `valid_from` | `date(biennium_start_year, 1, 1)` | Jan 1 of the biennium's odd start year — the session-scoped effective start |
+| `valid_to` | `NULL` | open; intra-biennium departures are snapshot-lossy (Lossy ← item 3) |
+| `is_active` | `True` | every produced membership is asserted current |
+
+> The biennium is carried in `source_id` + `valid_from`, **not** a `legislative_session_id` FK on the Assignment — biennium/session correlates with the effective date range (imprecisely for multi-session stable ids), avoiding a denormalized FK (#27 CR decision 2026-07-06).
+
+Assignment kinds, all scoped to the biennium (`valid_from` = biennium start):
 - **Chamber (Senate) seat** — `Person → seat Role` where the seat is `(Senate org, state_senator, jurisdiction=LD, qualifier=NULL)` per the #68 seat model (1/LD, fully resolvable from WSL).
 - **Chamber (House)** — **no chamber Assignment this cut; deferred whole to #69**, created fresh there. WSL has no Position source, so a positioned House seat can't be emitted (PM mints an unseeded tuple → spurious seat); and a coarse interim `member` chamber Assignment **can't be cleanly retired** on upgrade — PM has no producer-facing assignment delete/supersede (only `is_current`), and the sync engine can't re-point an *anchored* assignment's `role_id`, so it would orphan on PM. Per most-specific + no-duplication, #69 creates the one House chamber Assignment from scratch (like Senate). House members still get Person + party + committee memberships now; chamber affiliation is meanwhile derivable from their House committee memberships. (Decision: #27 thread 2026-07-06.)
 - **Party** — `Person → Role("Member", role_type="member")` on a Party Org. PM's `Washington State {Republican,Democratic} Party` orgs exist and are backfilled with the `org_wa_party` identifier ([power-map#270](https://github.com/CannObserv/power-map/issues/270)), so ours attach by identifier (`republican` / `democratic`). `Party` canonicalized (`"R"`/`"Republican"` → `republican`, `"D"`/`"Democrat"` → `democratic`); **independent = no party Assignment** (no "Independent" Org — read absence as unaffiliated, not error).
@@ -256,7 +298,7 @@ Known limits (don't change the shape):
 - **No `position`/role field** in `GetActiveCommitteeMembers` — chair / vice-chair / ranking-member is *not* in SOAP; the committee-`Role` dimension needs another source (web scrape or manual curation).
 - **Intra-biennium churn is snapshot-lossy** (Lossy ← item 3) — biennium membership sets are captured; `valid_from`/`valid_to` record changes only as repeated refreshes observe them.
 - **`Party` encoding differs across endpoints** (`"R"`/`"D"` vs `"Democrat"`/`"Republican"`) — the normalizer must canonicalize.
-- **Person `Id` may differ across endpoints** (`GetActiveCommitteeMembers` vs `GetSponsors`) — confirm the stable `Person.source_id` before ingesting either (P1b step zero).
+- **Person `Id` stability — resolved** (P1b step 0, 2026-07-06): the WSL `Id` is stable across endpoint (`GetSponsors` vs `GetActiveCommitteeMembers`), biennium, **and** chamber change (94/94 + 125/125, 0 divergences), so `Person.source_id = str(Id)` with no name-match fallback. `GetActiveCommitteeMembers` members dedup against the `GetSponsors`-created Person by `Id`.
 
 ### `canonical.bills` and related entities (P1c — sketched)
 
