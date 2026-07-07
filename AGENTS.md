@@ -442,10 +442,13 @@ python -m usa_wa_sync_powermap.heal_committee_curation
 # diffs PM's list_subscriptions against the freshly-discovered mirror set and unsubscribes the
 # difference. Guarded: empty desired-set aborts (empty_desired), stale fraction over
 # --max-prune-fraction aborts (prune_floor, default 0.9 — permissive since the first run removes
-# ~half). Strangers have no local row (nothing evicted); idempotent. Run-once, not a timer; no
-# operator token. --dry-run previews. Exit 0 clean / 2 auth / 3 aborted.
+# ~half). Strangers have no local row (nothing evicted); no operator token. --dry-run previews.
+# Exit 0 clean / 2 auth / 3 aborted. RE-RUN TO CONVERGENCE: PM auto-subscribes the producer on
+# observation write, so a concurrently-draining outbox regenerates a shrinking residual — the
+# first pass over a busy system removes the bulk, then re-run until a --dry-run shows stale=0
+# (best run when the outbox is quiescent). Observed 2026-07-07: 1226 → 303 → 31 → 0.
 python -m usa_wa_sync_powermap.prune_subscriptions --dry-run
-python -m usa_wa_sync_powermap.prune_subscriptions
+python -m usa_wa_sync_powermap.prune_subscriptions   # re-run until dry-run shows stale=0
 
 # Committee historical extent probe (#64) — write-free discovery. Walks bienniums backward
 # from current, tallying committee/meeting counts + meeting wire bytes, stopping after N
