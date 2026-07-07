@@ -5,12 +5,18 @@ follows) is a distinct concern from per-row sync. Under PM #203 the changes feed
 subscription-filtered, so the sidecar must register the WA-relevant entities before
 the feed will deliver anything for them.
 
-Additive-only by design (see CannObserv/usa-wa#10): :meth:`sync_subscriptions`
-discovers the current WA subtree, registers the entities not already subscribed, and
-backfills their current state by id (the feed is forward-only, so new subscriptions
-see only future changes). It never unsubscribes and never evicts cache rows — pruning
-is deferred. Bootstrap and the periodic backstop are the *same* call: bootstrap is
-just the first run, when the registered set is empty and everything is backfilled.
+Additive by design (see CannObserv/usa-wa#10): :meth:`sync_subscriptions` discovers the
+desired mirror set (PM discovery ∪ the local anchored cohort — see
+:meth:`SubscriptionReconciler._discover_mirror_set`), registers the entities not already
+subscribed, and backfills their current state by id (the feed is forward-only, so new
+subscriptions see only future changes). It never unsubscribes and never evicts cache
+rows. Bootstrap and the periodic backstop are the *same* call: bootstrap is just the
+first run, when the registered set is empty and everything is backfilled.
+
+Unsubscribing is a *separate*, deliberate path: :meth:`prune_subscriptions` (#73 Axis 1)
+diffs PM's registered set against the freshly-discovered mirror set and removes the
+difference under guardrails — the guarded reclaim for strangers a prior, broader
+discovery scope left subscribed. It still never evicts a local cache row.
 """
 
 from collections.abc import Sequence
@@ -224,6 +230,13 @@ class SubscriptionReconciler:
         removed = await self._client.remove_subscriptions(stale)
         summary["removed"] = removed
         logger.info("subscription_prune", extra={"removed": removed, "stale": len(stale)})
+        if removed < len(stale):
+            # A bulk remove that dropped fewer than requested — a partial PM-side failure.
+            # Surface it (the summary carries both counts); a re-run retries the remainder.
+            logger.warning(
+                "subscription_prune_partial",
+                extra={"removed": removed, "stale": len(stale)},
+            )
         return summary
 
     async def _discover_mirror_set(self, session: AsyncSession) -> list[DiscoveredEntity]:

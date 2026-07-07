@@ -321,6 +321,27 @@ async def test_prune_dry_run_removes_nothing(db_session, fake_descriptor):
     assert client.subscribed == [ours, stranger]
 
 
+async def test_prune_partial_removal_reports_actual_count(db_session, fake_descriptor):
+    """A bulk remove that drops fewer than requested (partial PM-side failure) reports the
+    real removed count, not len(stale) — a re-run retries the remainder."""
+    ours, s1, s2 = ULID(), ULID(), ULID()
+    await _seed(db_session, source_id="1", name="Ours", anchor=ours)
+
+    class PartialRemoveClient(FakeClient):
+        async def remove_subscriptions(self, entity_ids):
+            ids = list(entity_ids)
+            self.removed.append(ids)
+            return 1  # claims only one of the stale ids was actually removed
+
+    client = PartialRemoveClient(discovered=[], subscribed=[ours, s1, s2])
+    reconciler = _local_reconciler(client, [fake_descriptor])
+
+    summary = await reconciler.prune_subscriptions(db_session)
+
+    assert summary["stale"] == 2
+    assert summary["removed"] == 1  # reports the actual count, not the request size
+
+
 async def test_prune_is_noop_when_already_aligned(db_session, fake_descriptor):
     """Registered == desired: nothing stale, nothing removed (idempotent second run)."""
     ours = ULID()

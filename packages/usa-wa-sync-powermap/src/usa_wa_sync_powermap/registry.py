@@ -34,8 +34,11 @@ def build_descriptors(settings: SidecarSettings | None = None) -> list[EntityDes
     cap) keeps each descriptor's historical per-entity default — non-breaking.
 
     ``settings.reconcile_cadence`` (#73 Axis 2): when ``settings`` is provided, the
-    anchored-cohort backstop cadence is retuned on the producers that run it (jurisdictions
-    are inert — ``reconcile_mode == "none"``). ``None`` settings keeps the base 1h default
+    reconcile-backstop cadence is retuned on every producer that runs a backstop
+    (``reconcile_enabled`` — jurisdictions are inert, ``reconcile_mode == "none"``). The
+    ``reconcile_enabled`` predicate matches the one the subscription reconciler uses to
+    pick the local-cohort producers, so the two features stay in lockstep if a future
+    producer runs a different backstop mode. ``None`` settings keeps the base 1h default
     so a bare ``build_descriptors()`` call stays non-breaking (mirrors the search-cap contract).
     """
     match_cap = settings.powermap_search_match_cap if settings is not None else None
@@ -48,7 +51,7 @@ def build_descriptors(settings: SidecarSettings | None = None) -> list[EntityDes
     ]
     if settings is not None:
         for descriptor in descriptors:
-            if descriptor.reconcile_mode == "anchored_cohort":
+            if descriptor.reconcile_enabled:
                 descriptor.reconcile_cadence = settings.reconcile_cadence
     return descriptors
 
