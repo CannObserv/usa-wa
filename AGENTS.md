@@ -289,7 +289,7 @@ Currently defined:
 - `USA_WA_BIENNIUM` — optional override for the auto-computed WA biennium label (e.g. `2025-26`) used by the WSL refresh. Without it, `refresh.py` derives the biennium from the current UTC date (WA bienniums start on odd years). Useful for backfills and early-year edge cases.
 - `USA_WA_ALERT_EMAIL` — recipient for oneshot failure alerts (#49). Consumed by `scripts/notify-failure.sh` (the `usa-wa-notify-failure@.service` `OnFailure=` handler). Must be **you / an exe.dev team member** (gateway recipient allow-list). The script **fails closed** if unset, so set it in `/etc/usa-wa/.env` to arm alerting. See § Failure alerting.
 
-PM sidecar tunables (`SidecarSettings`, env-overridable): `OUTBOX_COMMIT_CHUNK_SIZE` (delivered entries per DB commit during a drain; default 1 = per-entry) and `POWERMAP_SEARCH_MATCH_CAP` (max candidate window the org/person name-match cascade pages; default unset = per-entity default).
+PM sidecar tunables (`SidecarSettings`, env-overridable): `OUTBOX_COMMIT_CHUNK_SIZE` (delivered entries per DB commit during a drain; default 1 = per-entry), `POWERMAP_SEARCH_MATCH_CAP` (max candidate window the org/person name-match cascade pages; default unset = per-entity default), `SUBSCRIPTION_BACKSTOP_CADENCE` (how often the full-subtree re-discovery walk re-runs; default 6h — #73 Axis 2, graph drift is slow) and `RECONCILE_CADENCE` (anchored-cohort backstop re-fetch of OUR whole cohort by id, each person also pulling `/events`; default 12h — #73 Axis 2, a dropped-feed-event safety net for a low-churn dataset, applied to the producer descriptors in `build_descriptors`; the feed is the real-time path).
 
 ## Common Commands
 

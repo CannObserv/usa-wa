@@ -1,5 +1,7 @@
 """Registry tests — the descriptor set and the discovery spec the sidecar uses."""
 
+from datetime import timedelta
+
 import pytest
 
 from usa_wa_sync_powermap import bootstrap
@@ -39,6 +41,37 @@ def test_build_descriptors_plumbs_configured_search_cap():
     by_type = {d.entity_type: d for d in build_descriptors(settings)}
     assert by_type["organization"].search_match_cap == 200
     assert by_type["person"].search_match_cap == 200
+
+
+def test_reconcile_cadence_setting_defaults_to_twelve_hours():
+    # #73 Axis 2: the anchored-cohort backstop is a dropped-feed-event safety net for a
+    # low-churn dataset, not the primary path — a twice-daily re-fetch of OUR cohort
+    # (each person also pulling /events) is ample. Longer than the 1h base default.
+    assert SidecarSettings(powermap_api_key="x").reconcile_cadence == timedelta(hours=12)
+
+
+def test_subscription_backstop_cadence_defaults_to_six_hours():
+    # #73 Axis 2: graph drift is slow (new WA committees enter via the daily WSL
+    # refresh), so the hourly full-subtree re-discovery walk is wasteful. Six-hourly
+    # still catches a newly-added committee several times a day.
+    assert SidecarSettings(powermap_api_key="x").subscription_backstop_cadence == timedelta(hours=6)
+
+
+def test_configured_reconcile_cadence_flows_to_anchored_cohort_descriptors():
+    # #73 Axis 2: SidecarSettings.reconcile_cadence overrides the per-descriptor
+    # backstop cadence on the producers that run it, so an operator can retune the
+    # people-call volume without a code change. Jurisdictions (mode "none") are inert.
+    settings = SidecarSettings(powermap_api_key="x", reconcile_cadence=timedelta(hours=8))
+    by_type = {d.entity_type: d for d in build_descriptors(settings)}
+    for entity_type in ("organization", "role", "role_assignment", "person"):
+        assert by_type[entity_type].reconcile_cadence == timedelta(hours=8)
+
+
+def test_build_descriptors_without_settings_keeps_base_cadence():
+    # Mirrors the search-cap contract: no settings → each descriptor's historical
+    # base default (1h), so a bare build_descriptors() call is non-breaking.
+    by_type = {d.entity_type: d for d in build_descriptors()}
+    assert by_type["organization"].reconcile_cadence == timedelta(hours=1)
 
 
 def test_build_discovery_spec_roots_at_wa_subtree():

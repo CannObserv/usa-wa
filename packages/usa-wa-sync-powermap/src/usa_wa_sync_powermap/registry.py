@@ -30,15 +30,25 @@ def build_descriptors(settings: SidecarSettings | None = None) -> list[EntityDes
     ``settings`` (#12): when provided and ``powermap_search_match_cap`` is set, the
     org/person match-cascade name-search cap is overridden; ``None`` (or an unset
     cap) keeps each descriptor's historical per-entity default — non-breaking.
+
+    ``settings.reconcile_cadence`` (#73 Axis 2): when ``settings`` is provided, the
+    anchored-cohort backstop cadence is retuned on the producers that run it (jurisdictions
+    are inert — ``reconcile_mode == "none"``). ``None`` settings keeps the base 1h default
+    so a bare ``build_descriptors()`` call stays non-breaking (mirrors the search-cap contract).
     """
     match_cap = settings.powermap_search_match_cap if settings is not None else None
-    return [
+    descriptors: list[EntityDescriptor] = [
         JurisdictionDescriptor(),
         OrganizationDescriptor(search_match_cap=match_cap),
         RoleDescriptor(),
         PersonDescriptor(search_match_cap=match_cap),
         AssignmentDescriptor(),
     ]
+    if settings is not None:
+        for descriptor in descriptors:
+            if descriptor.reconcile_mode == "anchored_cohort":
+                descriptor.reconcile_cadence = settings.reconcile_cadence
+    return descriptors
 
 
 def build_discovery_spec(settings: SidecarSettings) -> DiscoverySpec:

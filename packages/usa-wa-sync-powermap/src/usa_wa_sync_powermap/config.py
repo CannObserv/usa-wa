@@ -38,7 +38,16 @@ class SidecarSettings(BaseSettings):
     ]
     #: How often the in-loop re-discovery backstop re-runs (catches graph drift —
     #: e.g. a newly-added WA committee). Bootstrap covers the initial population.
-    subscription_backstop_cadence: timedelta = timedelta(hours=1)
+    #: Six-hourly (#73 Axis 2): graph drift is slow — new committees enter via the
+    #: daily WSL refresh, so an hourly full-subtree re-discovery walk was wasteful.
+    subscription_backstop_cadence: timedelta = timedelta(hours=6)
+    #: Anchored-cohort reconcile cadence (#73 Axis 2): overrides each producer
+    #: descriptor's per-entity ``reconcile_cadence`` (org/role/assignment/person) in
+    #: :func:`build_descriptors`. The backstop re-fetches OUR whole anchored cohort by
+    #: id (each person also pulling ``/events``) — a dropped-feed-event safety net, not
+    #: the primary path — so a twice-daily sweep of a low-churn dataset is ample and
+    #: cuts the steady-state ``people`` read volume the feed already covers in real time.
+    reconcile_cadence: timedelta = timedelta(hours=12)
     #: PM-first match-cascade name-search cap (#12): the max candidate window the
     #: org/person descriptors page-and-confirm during a name match (passed as the
     #: search ``limit``). The exact match must rank within it, so widen this if PM's
