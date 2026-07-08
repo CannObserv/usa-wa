@@ -223,6 +223,7 @@ async def normalize_house_positions(
     resolved_ld: dict[int, Any] = {}
     deferred: dict[int, list[_Deferred]] = {}
     direct_seated = inferred_seated = movers_linked = unresolved = 0
+    incomplete = unresolved_ld = 0
 
     # Phase 1 — direct match of each winner to a House roster member.
     for row in winners:
@@ -230,6 +231,7 @@ async def normalize_house_positions(
         qualifier = canonical_position(row.get("position"))
         ld = district_number(row.get("legislative_district"))
         if not pdc_id or qualifier is None or ld is None:
+            incomplete += 1
             logger.warning(
                 "pdc_house_row_incomplete",
                 extra={"person_id": pdc_id, "position": row.get("position"), "ld": ld},
@@ -242,6 +244,7 @@ async def normalize_house_positions(
                 logger.warning("pdc_house_unresolved_ld", extra={"ld": ld})
         jurisdiction = resolved_ld[ld]
         if jurisdiction is None:
+            unresolved_ld += 1
             continue
 
         match = _match_member(
@@ -351,6 +354,8 @@ async def normalize_house_positions(
             "inferred_seated": inferred_seated,
             "movers_linked": movers_linked,
             "unresolved": unresolved,
+            "unresolved_ld": unresolved_ld,
+            "incomplete": incomplete,
         },
     )
     return NormalizedBatch(entities=collector.entities, citations=citations)

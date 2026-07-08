@@ -334,7 +334,9 @@ def test_build_senate_roster_groups_by_ld_and_skips_blanks() -> None:
 # --- #74: mid-biennium replacement inference by within-LD elimination -----------------
 
 
-async def test_infers_replacement_seat_for_house_to_senate_mover(db_session, usa_wa, anchors):
+async def test_infers_replacement_seat_for_house_to_senate_mover(
+    db_session, usa_wa, anchors, caplog
+):
     """The verified LD 48 case: Slatter won Pos 1 in 2024 then moved to the Senate, so her
     PDC winner defers; Walen matched Pos 2; the leftover roster member Salahuddin is
     inferred into the vacated Pos 1 (no PDC id, reduced-confidence citation); Slatter's PDC
@@ -353,7 +355,14 @@ async def test_infers_replacement_seat_for_house_to_senate_mover(db_session, usa
         _winner("801", "Vandana Slatter", position="1", ld="48"),  # moved to Senate → deferred
     ]
 
-    batch = await _run(db_session, anchors, winners, sponsors)
+    with caplog.at_level(logging.INFO):
+        batch = await _run(db_session, anchors, winners, sponsors)
+
+    # Run-level tally: 1 direct seat (Walen), 1 inferred (Salahuddin), 1 mover linked
+    # (Slatter), nothing unresolved.
+    summary = next(r for r in caplog.records if r.message == "pdc_house_summary")
+    assert (summary.winners, summary.direct_seated, summary.inferred_seated) == (2, 1, 1)
+    assert (summary.movers_linked, summary.unresolved) == (1, 0)
 
     assigns = {a.source_id: a for a in batch.entities if isinstance(a, Assignment)}
     assert set(assigns) == {"29109:chamber-house:2025-26", "35655:chamber-house:2025-26"}
