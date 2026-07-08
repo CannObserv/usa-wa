@@ -15,6 +15,10 @@ network via vcrpy cassettes.
 from __future__ import annotations
 
 import asyncio
+import os
+import threading
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -25,6 +29,59 @@ from zeep.helpers import serialize_object
 from zeep.transports import Transport
 
 WSL_BASE_URL = "https://wslwebservices.leg.wa.gov"
+
+#: Courtesy floor between **any two** WSL SOAP operation calls, across all `WSLClient`
+#: instances/services (WSL is a single upstream host). A global min-interval gate so no
+#: caller — daily refresh, reconcilers, the historical harvests (#77/#82) — can burst
+#: against a vital upstream. Env-tunable; a harvest's `--pause-seconds` overrides it via
+#: :func:`configure_wsl_rate_limit`. Default 0.5s (≤2 req/s); set 0 to disable.
+DEFAULT_WSL_MIN_REQUEST_INTERVAL = 0.5
+
+
+class _RateLimiter:
+    """Thread-safe global min-interval gate. `acquire()` reserves the next evenly-spaced
+    slot under a lock, then sleeps (outside the lock) until it — so concurrent callers from
+    different `asyncio.to_thread` threads are spaced by `min_interval` without one holding
+    the lock while sleeping. `monotonic`/`sleep` are injectable for deterministic tests."""
+
+    def __init__(
+        self,
+        min_interval: float,
+        *,
+        monotonic: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self._min = max(0.0, min_interval)
+        self._monotonic = monotonic
+        self._sleep = sleep
+        self._lock = threading.Lock()
+        self._next = 0.0
+
+    def set_interval(self, min_interval: float) -> None:
+        self._min = max(0.0, min_interval)
+
+    def acquire(self) -> None:
+        if self._min <= 0:
+            return
+        with self._lock:
+            slot = max(self._monotonic(), self._next)
+            self._next = slot + self._min
+        delay = slot - self._monotonic()
+        if delay > 0:
+            self._sleep(delay)
+
+
+#: The one shared limiter every WSL SOAP POST passes through (see `_CapturingTransport`).
+_WSL_LIMITER = _RateLimiter(
+    float(os.environ.get("USA_WA_WSL_MIN_REQUEST_INTERVAL", DEFAULT_WSL_MIN_REQUEST_INTERVAL))
+)
+
+
+def configure_wsl_rate_limit(min_interval: float) -> None:
+    """Override the global WSL request min-interval (seconds). Harvest CLIs call this to
+    map their `--pause-seconds` onto the central limiter rather than pacing themselves."""
+    _WSL_LIMITER.set_interval(min_interval)
+
 
 #: WSL committee data floors at 1991; ``GetCommittees`` for an earlier (or malformed)
 #: biennium raises a SOAP Fault rather than returning empty. Treating that as "no
@@ -93,6 +150,7 @@ class _CapturingTransport(Transport):
         self.last_content_type: str | None = None
 
     def post(self, address: str, message: Any, headers: dict[str, str]) -> Any:
+        _WSL_LIMITER.acquire()  # central courtesy gate — every SOAP operation POST passes here
         response = super().post(address, message, headers)
         self.last_wire = response.content
         self.last_content_type = response.headers.get("Content-Type")
