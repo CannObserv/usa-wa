@@ -7,10 +7,15 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import select
 from ulid import ULID as _ULID
-from usa_wa_adapter_pdc.adapter import PDCAdapter, election_year_for_biennium
+from usa_wa_adapter_pdc.adapter import (
+    PDCAdapter,
+    election_year_for_biennium,
+    senate_election_years_for_biennium,
+)
 from usa_wa_adapter_pdc.normalize.house_positions import build_house_roster, build_senate_roster
 from usa_wa_adapter_pdc.transport import WireFetch
 
+from clearinghouse_core.adapter import FetchedPayload
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, RawPayload, Source
 from clearinghouse_core.runner import AdapterRunner
@@ -21,18 +26,35 @@ BIENNIUM = "2025-26"
 
 
 class FakePDCClient:
-    """Duck-typed PDCClient returning a fixed winner cohort as a JSON WireFetch."""
+    """Duck-typed PDCClient returning a fixed winner cohort as a JSON WireFetch.
 
-    def __init__(self, winners: list[dict]) -> None:
+    ``senate_winners`` (per election year) defaults to empty; ``senate_calls`` records the
+    election years the Senate fetch was asked for (#75)."""
+
+    def __init__(
+        self, winners: list[dict], senate_winners: dict[int, list[dict]] | None = None
+    ) -> None:
         import json
 
         self._winners = winners
         self._wire = json.dumps(winners).encode("utf-8")
+        self._senate = senate_winners or {}
+        self._json = json
         self.calls: list[int] = []
+        self.senate_calls: list[int] = []
 
     async def fetch_house_winners(self, election_year: int) -> WireFetch:
         self.calls.append(election_year)
         return WireFetch(records=self._winners, wire=self._wire, content_type="application/json")
+
+    async def fetch_senate_winners(self, election_year: int) -> WireFetch:
+        self.senate_calls.append(election_year)
+        rows = self._senate.get(election_year, [])
+        return WireFetch(
+            records=rows,
+            wire=self._json.dumps(rows).encode("utf-8"),
+            content_type="application/json",
+        )
 
 
 def _winner(person_id, filer_name, *, position, ld, party_code="D"):
@@ -45,9 +67,25 @@ def _winner(person_id, filer_name, *, position, ld, party_code="D"):
     }
 
 
+def _senate_winner(person_id, filer_name, *, ld, party_code="D"):
+    # Senate SODA rows carry no ballot position (single seat per LD).
+    return {
+        "person_id": person_id,
+        "filer_name": filer_name,
+        "legislative_district": ld,
+        "party_code": party_code,
+    }
+
+
 def test_election_year_for_biennium() -> None:
     assert election_year_for_biennium("2025-26") == 2024
     assert election_year_for_biennium("2023-24") == 2022
+
+
+def test_senate_election_years_for_biennium() -> None:
+    # Staggered 4-yr terms → the two most-recent even years (start-1, start-3).
+    assert senate_election_years_for_biennium("2025-26") == (2024, 2022)
+    assert senate_election_years_for_biennium("2023-24") == (2022, 2020)
 
 
 def test_adapter_class_vars() -> None:
@@ -77,8 +115,64 @@ async def test_fetch_one_archives_wire(db_session, usa_wa) -> None:
     assert client.calls == [2024]
     assert payload.body == client._wire  # pristine JSON archived
     assert payload.parsed[0]["person_id"] == "900"
-    # FetchEvent.url must identify the real SODA source (#54 provenance), not a module path.
-    assert payload.url == "https://data.wa.gov/resource/3h9x-7bvm.json"
+    # FetchEvent.url must identify the real SODA source (#54 provenance), not a module path;
+    # the resource id rides as a fragment so normalize can route on it (#75).
+    assert payload.url == "https://data.wa.gov/resource/3h9x-7bvm.json#house-winners:2024"
+
+
+async def test_discover_yields_senate_cohorts_when_roster_present(db_session, usa_wa) -> None:
+    # A Senate roster opts the adapter into Senate discovery: House + both staggered
+    # Senate cohorts (start-1, start-3) for the biennium (#75).
+    anchors = await bootstrap_synthetic_anchors(
+        db_session, biennium=BIENNIUM, jurisdiction_id=usa_wa.id
+    )
+    senate_roster = build_senate_roster(
+        [
+            {
+                "Id": "897",
+                "Agency": "Senate",
+                "Party": "D",
+                "District": "1",
+                "FirstName": "Derek",
+                "LastName": "Stanford",
+            }
+        ]
+    )
+    adapter = PDCAdapter(
+        anchors=anchors,
+        biennium=BIENNIUM,
+        house_roster={},
+        senate_roster=senate_roster,
+        client=FakePDCClient([]),
+    )
+    refs = [r.resource_id async for r in adapter.discover(None)]
+    assert refs == ["house-winners:2024", "senate-winners:2024", "senate-winners:2022"]
+
+
+async def test_discover_house_only_without_senate_roster(db_session, usa_wa) -> None:
+    anchors = await bootstrap_synthetic_anchors(
+        db_session, biennium=BIENNIUM, jurisdiction_id=usa_wa.id
+    )
+    adapter = PDCAdapter(
+        anchors=anchors, biennium=BIENNIUM, house_roster={}, client=FakePDCClient([])
+    )
+    refs = [r.resource_id async for r in adapter.discover(None)]
+    assert refs == ["house-winners:2024"]
+
+
+async def test_fetch_one_senate_routes_and_stamps_url(db_session, usa_wa) -> None:
+    anchors = await bootstrap_synthetic_anchors(
+        db_session, biennium=BIENNIUM, jurisdiction_id=usa_wa.id
+    )
+    client = FakePDCClient(
+        [], senate_winners={2022: [_senate_winner("897", "Derek Stanford", ld="1")]}
+    )
+    adapter = PDCAdapter(
+        anchors=anchors, biennium=BIENNIUM, house_roster={}, client=client, session=db_session
+    )
+    payload = await adapter.fetch_one("senate-winners:2022")
+    assert client.senate_calls == [2022]
+    assert payload.url == "https://data.wa.gov/resource/3h9x-7bvm.json#senate-winners:2022"
 
 
 async def test_fetch_one_unknown_resource_raises() -> None:
@@ -91,6 +185,21 @@ async def test_normalize_requires_session() -> None:
     adapter = PDCAdapter(anchors=None, biennium=BIENNIUM, house_roster={}, client=FakePDCClient([]))
     payload = await adapter.fetch_one("house-winners:2024")
     with pytest.raises(RuntimeError, match="requires a session"):
+        await adapter.normalize(payload)
+
+
+async def test_normalize_unroutable_fragment_raises() -> None:
+    # No silent House default: a payload whose stamped fragment matches neither chamber
+    # is a routing error, symmetric with fetch_one's unknown-resource guard.
+    adapter = PDCAdapter(anchors=None, biennium=BIENNIUM, house_roster={}, client=FakePDCClient([]))
+    payload = FetchedPayload(
+        url="https://data.wa.gov/resource/3h9x-7bvm.json#bogus:2024",
+        fetched_at=datetime.now(UTC),
+        content_type="application/json",
+        body=b"[]",
+        parsed=[],
+    )
+    with pytest.raises(ValueError, match="cannot route payload"):
         await adapter.normalize(payload)
 
 
@@ -182,6 +291,70 @@ async def test_runner_end_to_end_materializes_seat(db_session, usa_wa, pdc_sourc
     # Re-run inside the TTL is a cache hit (no second FetchEvent).
     summary2 = await runner.refresh()
     assert summary2.skipped_cache_hit == 1
+
+
+async def test_runner_end_to_end_materializes_senate_identifier(
+    db_session, usa_wa, pdc_source
+) -> None:
+    """The #75 Senate path persists through the runner: the seated Senator's WSL Person
+    gains a `person_wa_pdc` identifier, and no Assignment is minted (identifier-only —
+    WSL already owns the Senate seat)."""
+    anchors = await bootstrap_synthetic_anchors(
+        db_session, biennium=BIENNIUM, jurisdiction_id=usa_wa.id
+    )
+    await _add_ld(db_session, usa_wa, 1)
+    senator = Person(source="usa_wa_legislature", source_id="897", name_full="Derek Stanford")
+    db_session.add(senator)
+    await db_session.flush()
+
+    sponsors = [
+        {
+            "Id": "897",
+            "Agency": "Senate",
+            "Party": "D",
+            "District": "1",
+            "FirstName": "Derek",
+            "LastName": "Stanford",
+        }
+    ]
+    client = FakePDCClient(
+        [],  # no House winners this fixture
+        senate_winners={2024: [_senate_winner("897", "Derek Stanford", ld="1")]},
+    )
+    adapter = PDCAdapter(
+        anchors=anchors,
+        biennium=BIENNIUM,
+        house_roster={},
+        senate_roster=build_senate_roster(sponsors),
+        client=client,
+        session=db_session,
+    )
+    runner = AdapterRunner(
+        adapter,
+        db_session,
+        source=pdc_source,
+        jurisdiction=usa_wa,
+        natural_key=("source", "source_id"),
+    )
+
+    summary = await runner.refresh()
+    assert summary.errors == 0
+    # Both staggered Senate cohorts + the House cohort were fetched.
+    assert client.senate_calls == [2024, 2022]
+
+    ident = (
+        await db_session.execute(
+            select(PersonIdentifier).where(PersonIdentifier.scheme == "wa_pdc")
+        )
+    ).scalar_one()
+    assert ident.value == "897"
+    assert ident.person_id == senator.id
+    # Identifier-only — no PDC-sourced Assignment for the Senate.
+    assert (
+        not (await db_session.execute(select(Assignment).where(Assignment.source == "usa_wa_pdc")))
+        .scalars()
+        .all()
+    )
 
 
 async def test_runner_end_to_end_mover_cross_link_and_inferred_seat(

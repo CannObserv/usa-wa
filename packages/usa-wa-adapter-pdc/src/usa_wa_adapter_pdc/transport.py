@@ -34,6 +34,9 @@ CAMPAIGN_FINANCE_SUMMARY_RESOURCE = "3h9x-7bvm"
 #: SODA ``office`` value for a WA House seat.
 OFFICE_STATE_REPRESENTATIVE = "STATE REPRESENTATIVE"
 
+#: SODA ``office`` value for a WA Senate seat (#75).
+OFFICE_STATE_SENATOR = "STATE SENATOR"
+
 #: SODA ``general_election_status`` value marking the seated winner — the filter that
 #: collapses the many-candidates-per-race rows to the one person per ``(LD, position)``.
 WON_IN_GENERAL = "Won in general"
@@ -53,16 +56,26 @@ class WireFetch:
     content_type: str
 
 
-def parse_house_winners(wire: bytes) -> list[dict[str, Any]]:
-    """Decode an **archived** SODA response body offline back into row dicts.
+def _parse_winner_rows(wire: bytes) -> list[dict[str, Any]]:
+    """Decode a SODA response body (a top-level JSON array of row objects) offline.
 
-    The #56 cache path: re-derive the parse from stored ``RawPayload`` bytes without a
-    re-pull. SODA returns a top-level JSON array of row objects.
+    The #56 cache path, shared by the House and Senate re-parsers: re-derive the parse
+    from stored ``RawPayload`` bytes without a re-pull.
     """
     decoded = json.loads(wire.decode("utf-8"))
     if not isinstance(decoded, list):
         raise ValueError(f"expected a JSON array of rows, got {type(decoded).__name__}")
     return decoded
+
+
+def parse_house_winners(wire: bytes) -> list[dict[str, Any]]:
+    """Decode an **archived** seated-House SODA response body offline back into rows."""
+    return _parse_winner_rows(wire)
+
+
+def parse_senate_winners(wire: bytes) -> list[dict[str, Any]]:
+    """Decode an **archived** seated-Senate SODA response body offline back into rows (#75)."""
+    return _parse_winner_rows(wire)
 
 
 class PDCClient:
@@ -85,42 +98,47 @@ class PDCClient:
             headers["X-App-Token"] = self._app_token
         return headers
 
-    def house_winners_url(self) -> str:
-        """The SODA resource URL for the campaign-finance dataset (JSON)."""
+    def winners_url(self) -> str:
+        """The SODA resource URL for the campaign-finance dataset (JSON) — office-agnostic
+        (the chamber is a query filter, not a path)."""
         return f"{self._base_url}/resource/{CAMPAIGN_FINANCE_SUMMARY_RESOURCE}.json"
 
     @staticmethod
-    def house_winners_params(election_year: int) -> dict[str, str]:
-        """SoQL query params selecting the seated House winners for one election year.
-
-        Filters to ``office = STATE REPRESENTATIVE`` and
-        ``general_election_status = 'Won in general'`` so each returned row is exactly
-        one seated representative per ``(LD, position)``.
-        """
+    def _winners_params(office: str, election_year: int) -> dict[str, str]:
+        """SoQL query params selecting the seated winners of one ``office`` for one election
+        year — ``general_election_status = 'Won in general'`` collapses the
+        many-candidates-per-race rows to the one seated winner per seat."""
         return {
-            "office": OFFICE_STATE_REPRESENTATIVE,
+            "office": office,
             "election_year": str(election_year),
             "$where": f"general_election_status='{WON_IN_GENERAL}'",
             "$limit": "5000",
         }
 
-    async def fetch_house_winners(self, election_year: int) -> WireFetch:
-        """GET the seated House winner cohort for ``election_year``.
+    @staticmethod
+    def house_winners_params(election_year: int) -> dict[str, str]:
+        """SoQL params selecting the seated House winners (one per ``(LD, position)``)."""
+        return PDCClient._winners_params(OFFICE_STATE_REPRESENTATIVE, election_year)
 
-        Returns the pristine JSON body (archived + hashed by the runner) plus the decoded
-        rows. Raises ``httpx.HTTPStatusError`` on a non-2xx response.
-        """
+    @staticmethod
+    def senate_winners_params(election_year: int) -> dict[str, str]:
+        """SoQL params selecting the seated Senate winners (one per LD) for the year (#75)."""
+        return PDCClient._winners_params(OFFICE_STATE_SENATOR, election_year)
+
+    async def _fetch_winners(self, params: dict[str, str]) -> WireFetch:
+        """GET a seated-winner cohort for the given SoQL ``params``, archiving the pristine
+        JSON body (#54). Raises ``httpx.HTTPStatusError`` on a non-2xx response."""
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.get(
-                self.house_winners_url(),
-                params=self.house_winners_params(election_year),
-                headers=self._headers(),
-            )
+            response = await client.get(self.winners_url(), params=params, headers=self._headers())
             response.raise_for_status()
             wire = response.content
             content_type = response.headers.get("content-type", "application/json")
-        return WireFetch(
-            records=parse_house_winners(wire),
-            wire=wire,
-            content_type=content_type,
-        )
+        return WireFetch(records=_parse_winner_rows(wire), wire=wire, content_type=content_type)
+
+    async def fetch_house_winners(self, election_year: int) -> WireFetch:
+        """GET the seated House winner cohort for ``election_year`` (archived + hashed)."""
+        return await self._fetch_winners(self.house_winners_params(election_year))
+
+    async def fetch_senate_winners(self, election_year: int) -> WireFetch:
+        """GET the seated Senate winner cohort for ``election_year`` (archived + hashed, #75)."""
+        return await self._fetch_winners(self.senate_winners_params(election_year))

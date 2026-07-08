@@ -45,12 +45,11 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.adapter import FactCitation, FetchedPayload, NormalizedBatch
 from clearinghouse_core.logging import get_logger
-from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier
+from clearinghouse_domain_legislative.identity import Assignment, PersonIdentifier
 from usa_wa_adapter_legislature.normalize.members import (
     EntityCollector,
     canonicalize_party,
@@ -59,8 +58,10 @@ from usa_wa_adapter_legislature.normalize.members import (
     resolve_ld_jurisdiction,
 )
 from usa_wa_adapter_legislature.synthesis import parse_biennium
+from usa_wa_adapter_pdc.normalize.persons import resolve_wsl_person
 from usa_wa_adapter_pdc.normalize.positions import (
     PDC_PERSON_ID_SCHEME,
+    PDC_SOURCE,
     canonical_position,
     fold_token,
     house_seat_assignment_source_id,
@@ -71,11 +72,9 @@ from usa_wa_adapter_pdc.normalize.positions import (
 
 logger = get_logger(__name__)
 
-#: PDC-provenance rows (identifier + assignment) carry the PDC source; the structural
-#: seat Role stays ``usa_wa_legislature`` (via ``get_or_create_role``), symmetric with the
-#: Senate seat Role and matching PM's structural seat.
-_SOURCE = "usa_wa_pdc"
-_WSL_SOURCE = "usa_wa_legislature"
+#: PDC-provenance rows (identifier + assignment) carry ``PDC_SOURCE``; the structural seat
+#: Role stays ``usa_wa_legislature`` (via ``get_or_create_role``), symmetric with the Senate
+#: seat Role and matching PM's structural seat.
 _HOUSE_SEAT_ROLE_TYPE = "state_representative"
 _HOUSE_SEAT_ROLE_NAME = "State Representative"
 
@@ -188,16 +187,6 @@ def _find_confirming_senator(
     keys = surname_match_set(filer_name)
     matches = [s for s in senate_roster.get(ld, []) if s.folded_last in keys]
     return matches[0] if len(matches) == 1 else None
-
-
-async def _resolve_wsl_person(session: AsyncSession, member_id: str) -> Person | None:
-    """SELECT the WSL :class:`Person` by ``(source, member id)`` (or ``None`` if not yet
-    ingested — its WSL refresh hasn't run)."""
-    return (
-        await session.execute(
-            select(Person).where(Person.source == _WSL_SOURCE, Person.source_id == member_id)
-        )
-    ).scalar_one_or_none()
 
 
 async def normalize_house_positions(
@@ -360,13 +349,13 @@ async def _link_pdc_identifier(
     winner identity is theirs even though they no longer hold the House seat, so it rides
     their current Person the same way a directly-seated winner's does. No-op if the Person
     isn't ingested yet."""
-    person = await _resolve_wsl_person(session, member_id)
+    person = await resolve_wsl_person(session, member_id)
     if person is None:
         logger.warning("pdc_mover_person_absent", extra={"member_id": member_id})
         return
     collector.add(
         PersonIdentifier(
-            source=_SOURCE,
+            source=PDC_SOURCE,
             source_id=pdc_person_identifier_source_id(pdc_person_id),
             person_id=person.id,
             scheme=PDC_PERSON_ID_SCHEME,
@@ -394,7 +383,7 @@ async def _emit_seat_rows(
     chamber seat Assignment for ``member_id``. Returns ``False`` (no rows) when the WSL
     Person isn't ingested yet. An ``inferred`` seat (#74) carries no PDC identifier
     (``pdc_person_id`` is ``None``) and a reduced-confidence :class:`FactCitation`."""
-    person = await _resolve_wsl_person(session, member_id)
+    person = await resolve_wsl_person(session, member_id)
     if person is None:
         logger.warning(
             "pdc_house_person_absent",
@@ -415,7 +404,7 @@ async def _emit_seat_rows(
     if pdc_person_id:
         collector.add(
             PersonIdentifier(
-                source=_SOURCE,
+                source=PDC_SOURCE,
                 source_id=pdc_person_identifier_source_id(pdc_person_id),
                 person_id=person.id,
                 scheme=PDC_PERSON_ID_SCHEME,
@@ -423,7 +412,7 @@ async def _emit_seat_rows(
             )
         )
     assignment = Assignment(
-        source=_SOURCE,
+        source=PDC_SOURCE,
         source_id=house_seat_assignment_source_id(member_id, biennium),
         person_id=person.id,
         role_id=seat_role.id,

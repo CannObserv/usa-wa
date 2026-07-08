@@ -13,7 +13,7 @@ from usa_wa_adapter_pdc.transport import WireFetch
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Source
-from clearinghouse_domain_legislative.identity import Assignment, Person, Role
+from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier, Role
 from usa_wa_adapter_legislature.refresh import biennium_for_date
 
 
@@ -28,12 +28,19 @@ class FakeSponsorClient:
 
 
 class FakePDCClient:
-    def __init__(self, winners):
+    def __init__(self, winners, senate_winners=None):
         self._winners = winners
         self._wire = json.dumps(winners).encode("utf-8")
+        self._senate = senate_winners or {}
 
     async def fetch_house_winners(self, election_year):
         return WireFetch(records=self._winners, wire=self._wire, content_type="application/json")
+
+    async def fetch_senate_winners(self, election_year):
+        rows = self._senate.get(election_year, [])
+        return WireFetch(
+            records=rows, wire=json.dumps(rows).encode("utf-8"), content_type="application/json"
+        )
 
 
 async def _add_ld(session, usa_wa, n):
@@ -102,6 +109,60 @@ async def test_run_refresh_materializes_house_seat(db_session, usa_wa):
         await db_session.execute(select(Source).where(Source.slug == "usa_wa_pdc"))
     ).scalar_one()
     assert source.kind == "rest"
+
+
+async def test_run_refresh_materializes_senate_identifier(db_session, usa_wa):
+    # The one GetSponsors pull builds both rosters; a Senate winner cross-links its
+    # person_wa_pdc onto the sitting WSL Senator (#75) — identifier-only, no Assignment.
+    await _add_ld(db_session, usa_wa, 1)
+    senator = Person(source="usa_wa_legislature", source_id="897", name_full="Derek Stanford")
+    db_session.add(senator)
+    await db_session.flush()
+
+    sponsor_client = FakeSponsorClient(
+        [
+            {
+                "Id": "897",
+                "Agency": "Senate",
+                "Party": "D",
+                "District": "1",
+                "FirstName": "Derek",
+                "LastName": "Stanford",
+            },
+        ]
+    )
+    pdc_client = FakePDCClient(
+        [],  # no House winners
+        senate_winners={
+            2024: [
+                {
+                    "person_id": "897",
+                    "filer_name": "Derek Stanford",
+                    "legislative_district": "1",
+                    "party_code": "D",
+                }
+            ]
+        },
+    )
+
+    summary = await run_refresh(
+        db_session,
+        biennium="2025-26",
+        sponsor_client=sponsor_client,
+        pdc_client=pdc_client,
+    )
+    assert summary.errors == 0
+    ident = (
+        await db_session.execute(
+            select(PersonIdentifier).where(PersonIdentifier.scheme == "wa_pdc")
+        )
+    ).scalar_one()
+    assert ident.person_id == senator.id
+    assert (
+        not (await db_session.execute(select(Assignment).where(Assignment.source == "usa_wa_pdc")))
+        .scalars()
+        .all()
+    )
 
 
 async def test_run_refresh_defaults_to_current_biennium(db_session, usa_wa, monkeypatch):

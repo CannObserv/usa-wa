@@ -6,6 +6,13 @@ election year, matches each winner to the existing WSL :class:`Person` (using a
 ``GetSponsors`` roster for House districts), and materializes the ``person_wa_pdc``
 identifier + House ``state_representative`` seat Assignment (#69).
 
+The same cycle also cross-links the **Senate** (#75): the one ``GetSponsors`` pull builds
+a Senate roster too, and the adapter discovers both staggered Senate winner cohorts
+(``start-1`` + ``start-3`` — WA Senate is up in halves each even year), attaching a
+``person_wa_pdc`` identifier to each sitting Senator's WSL Person (identifier-only — WSL's
+P1b already owns the Senate seat). Also a robustness check on WSL: a PDC winner with no
+matching senator surfaces as a ``pdc_senate_unresolved`` log.
+
 Runs **after** the WSL refresh so the WSL House Persons it binds to already exist. The
 adapter runs ``fill_only=True`` (#65): additive discovery that never clobbers a
 PM-curated row. An optional ``USA_WA_PDC_APP_TOKEN`` raises Socrata's rate limit (sent as
@@ -118,6 +125,7 @@ async def run_refresh(
             "biennium": biennium,
             "election_year": election_year_for_biennium(biennium),
             "house_roster_lds": len(house_roster),
+            "senate_roster_lds": len(senate_roster),
             "fetched": summary.fetched,
             "upserted": summary.upserted_entities,
             "errors": summary.errors,

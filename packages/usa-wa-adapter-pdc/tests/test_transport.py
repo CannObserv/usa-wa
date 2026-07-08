@@ -10,8 +10,10 @@ from __future__ import annotations
 import pytest
 from usa_wa_adapter_pdc.transport import (
     OFFICE_STATE_REPRESENTATIVE,
+    OFFICE_STATE_SENATOR,
     PDCClient,
     parse_house_winners,
+    parse_senate_winners,
 )
 
 # The 2025-26 biennium's House was elected Nov 2024.
@@ -21,6 +23,13 @@ ELECTION_YEAR = 2024
 def test_house_winners_params_filter_to_seated_representatives() -> None:
     params = PDCClient.house_winners_params(ELECTION_YEAR)
     assert params["office"] == OFFICE_STATE_REPRESENTATIVE
+    assert params["election_year"] == "2024"
+    assert "general_election_status='Won in general'" in params["$where"]
+
+
+def test_senate_winners_params_filter_to_seated_senators() -> None:
+    params = PDCClient.senate_winners_params(ELECTION_YEAR)
+    assert params["office"] == OFFICE_STATE_SENATOR
     assert params["election_year"] == "2024"
     assert "general_election_status='Won in general'" in params["$where"]
 
@@ -56,3 +65,22 @@ async def test_fetch_house_winners_round_trip(pdc_vcr) -> None:
 
     # Offline re-parse of the archived wire recovers the live parse (#56 cache path).
     assert parse_house_winners(fetch.wire) == fetch.records
+
+
+@pytest.mark.asyncio
+async def test_fetch_senate_winners_round_trip(pdc_vcr) -> None:
+    with pdc_vcr.use_cassette("campaign_finance_summary_senate_2024.yaml"):
+        fetch = await PDCClient().fetch_senate_winners(ELECTION_YEAR)
+
+    # Non-empty seated-Senate cohort (roughly half the chamber — staggered 4-yr terms, #75).
+    assert fetch.records, "expected seated Senate winners"
+    assert fetch.wire, "expected pristine archival bytes"
+
+    for row in fetch.records:
+        assert row["office"] == OFFICE_STATE_SENATOR
+        assert row["general_election_status"] == "Won in general"
+        assert row["legislative_district"]
+        assert row["person_id"]  # the stable PDC person id (person_wa_pdc value)
+
+    # Offline re-parse of the archived wire recovers the live parse (#56 cache path).
+    assert parse_senate_winners(fetch.wire) == fetch.records

@@ -90,6 +90,24 @@ sudo systemctl daemon-reload && sudo systemctl restart usa-wa
 sudo journalctl -u usa-wa -f
 ```
 
+## Data refresh (manual / backfill)
+
+Prod runs these on systemd timers; the forms below are the ad-hoc / backfill surface.
+Pair with `USA_WA_BIENNIUM` to target a non-current biennium. See AGENTS.md § Common
+Commands for the full option set.
+
+```bash
+# WSL committees + current-biennium meeting window (daily 06:00 UTC)
+python -m usa_wa_adapter_legislature.refresh
+
+# PDC — House member Position (1/2) seat Assignments (#69) + Senate person_wa_pdc
+# cross-links (#75). Pulls GetSponsors once for both rosters, discovers the House winner
+# cohort (start-1) and both staggered Senate cohorts (start-1, start-3). Daily 06:30 UTC,
+# after the WSL refresh (binds onto its Persons). USA_WA_PDC_APP_TOKEN (optional) raises
+# Socrata's rate limit.
+python -m usa_wa_adapter_pdc.refresh
+```
+
 ## Submodules
 
 The `skills-vendor/` directory holds upstream skill repos as submodules. They are updated automatically by the `UserPromptSubmit` hook in [`.claude/settings.json`](../.claude/settings.json), but the manual commands are:

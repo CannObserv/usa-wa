@@ -1,0 +1,284 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      accept:
+      - application/json
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      host:
+      - data.wa.gov
+      user-agent:
+      - python-httpx/0.28.1
+    method: GET
+    uri: https://data.wa.gov/resource/3h9x-7bvm.json?office=STATE+SENATOR&election_year=2024&%24where=general_election_status%3D%27Won+in+general%27&%24limit=5000
+  response:
+    body:
+      string: '[{"id":"ca-2024-93055","filer_id":"FRANT  464","filer_type":"CA","registered":"2021-01-04T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2021-01-04T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"T''wina Nobles","committee_address":"PO Box 65905","committee_city":"University
+        Place","committee_county":"PIERCE","committee_state":"WA","committee_zip":"98464","committee_email":"info@twinanobles.com","candidate_email":"info@twinanobles.com","candidate_committee_phone":"253-882-7810","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 28 - SENATE","jurisdiction_code":"4757","jurisdiction_county":"PIERCE","jurisdiction_type":"Legislative","jurisdiction_voters":"79415","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"D","party":"DEMOCRATIC","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"PO
+        Box 9100","treasurer_city":"Seattle","treasurer_state":"WA","treasurer_zip":"98109","treasurer_phone":"206.745.2010","has_reports":true,"contributions_amount":"377952.95","carryforward_amount":"13296.72","expenditures_amount":"364313.18","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"25670.00","independent_expenditures_for_amount":"42832.75","independent_expenditures_against_amount":"6517.35","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/42930"},"committee_id":"26362","person_id":"11450","candidacy_id":"93055","fund_id":"17275","legislative_district":"28","treasurer_name":"Jason
+        Bennett","pac_type":"candidate","updated_at":"2025-05-15T17:45:54.000"}
+
+        ,{"id":"ca-2024-93008","filer_id":"SCHOM  169","filer_type":"CA","registered":"2020-11-25T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2020-11-25T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Mark Schoesler (Mark G. Schoesler)","committee_address":"1588
+        E ROSENOFF RD","committee_city":"RITZVILLE","committee_county":"WHITMAN","committee_state":"WA","committee_zip":"99169","committee_email":"KKRAGT@LEFFELOTISWARWICK.COM","candidate_email":"mschoesler@yahoo.com","candidate_committee_phone":"509-659-1774","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 09 - SENATE","jurisdiction_code":"4738","jurisdiction_county":"WHITMAN","jurisdiction_type":"Legislative","jurisdiction_voters":"98194","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"219
+        W MAIN","treasurer_city":"RITZVILLE","treasurer_state":"WA","treasurer_zip":"99169","treasurer_phone":"509-659-0125","has_reports":true,"contributions_amount":"210312.79","carryforward_amount":"3384.30","expenditures_amount":"204121.24","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"433.31","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/42643"},"committee_id":"26260","person_id":"1093","candidacy_id":"93008","fund_id":"17354","legislative_district":"09","treasurer_name":"JAMES
+        H LEFFEL","pac_type":"candidate","updated_at":"2025-05-07T13:48:55.000"}
+
+        ,{"id":"ca-2024-93113","filer_id":"MUZZR  277","filer_type":"CA","registered":"2021-01-14T00:00:00.000","declared":"2024-05-07T00:00:00.000","filing_type":"Electronic","receipt_date":"2021-01-14T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"MUZZALL RONALD E (Ron Muzzall)","committee_address":"316
+        SE Pioneer Way # 116","committee_city":"Oak Harbor","committee_county":"SKAGIT","committee_state":"WA","committee_zip":"98277","committee_email":"ron@ronmuzzall.com","candidate_email":"ron@ronmuzzall.com","candidate_committee_phone":"360-679-1245","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 10 - SENATE","jurisdiction_code":"4739","jurisdiction_county":"SKAGIT","jurisdiction_type":"Legislative","jurisdiction_voters":"111778","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"R","party":"REPUBLICAN","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"PO
+        Box 1283","treasurer_city":"Puyallup","treasurer_state":"WA","treasurer_zip":"98371","treasurer_phone":"253-988-2455","has_reports":true,"contributions_amount":"964361.32","carryforward_amount":"8414.12","expenditures_amount":"971002.51","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"5550.00","independent_expenditures_for_amount":"648531.47","independent_expenditures_against_amount":"833439.23","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/43056"},"committee_id":"26467","person_id":"29571","candidacy_id":"93113","fund_id":"16957","legislative_district":"10","treasurer_name":"Tom
+        Perry","pac_type":"candidate","updated_at":"2025-04-10T13:31:23.000"}
+
+        ,{"id":"ca-2024-567222","filer_id":"STAND  041","filer_type":"CA","registered":"2021-09-10T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2021-09-10T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Derek Stanford","committee_address":"PO BOX 2041","committee_city":"BOTHELL","committee_county":"KING","committee_state":"WA","committee_zip":"98041","committee_email":"derekstanford@pm.me","candidate_email":"derekstanford@pm.me","candidate_committee_phone":"425-481-6231","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 01 - SENATE","jurisdiction_code":"4730","jurisdiction_county":"KING","jurisdiction_type":"Legislative","jurisdiction_voters":"100031","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"D","party":"DEMOCRATIC","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"PO
+        BOX 2041","treasurer_city":"BOTHELL","treasurer_state":"WA","treasurer_zip":"98041","treasurer_phone":"425-481-6231","has_reports":true,"contributions_amount":"338756.58","carryforward_amount":"1000.00","expenditures_amount":"339756.58","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"152.98","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/47158"},"committee_id":"29704","person_id":"897","candidacy_id":"567222","fund_id":"18097","legislative_district":"01","treasurer_name":"Cheryl
+        Stanford","pac_type":"candidate","updated_at":"2025-08-08T16:25:43.000"}
+
+        ,{"id":"ca-2024-3296605","filer_id":"BATEJ2 501","filer_type":"CA","registered":"2024-02-21T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2024-02-21T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Jessica D. Bateman (Jessica Bateman)","committee_address":"120
+        State Ave NE #1462","committee_city":"Olympia","committee_county":"THURSTON","committee_state":"WA","committee_zip":"98501","committee_email":"votejessicabateman@gmail.com","candidate_email":"info@votejessicabateman.com","candidate_committee_phone":"206-682-7328","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 22 - SENATE","jurisdiction_code":"4751","jurisdiction_county":"THURSTON","jurisdiction_type":"Legislative","jurisdiction_voters":"105342","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"D","party":"DEMOCRATIC","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"PO
+        Box 15855","treasurer_city":"Seattle","treasurer_state":"WA","treasurer_zip":"98115","treasurer_phone":"206-335-8815","has_reports":true,"contributions_amount":"195743.69","carryforward_amount":"0.00","expenditures_amount":"165743.69","loans_amount":"0.00","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"120.40","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/59505"},"committee_id":"35907","person_id":"30382","candidacy_id":"3296605","fund_id":"23777","legislative_district":"22","treasurer_name":"Andy
+        Lo","pac_type":"candidate","updated_at":"2025-04-14T14:36:12.000"}
+
+        ,{"id":"ca-2024-93212","filer_id":"GILDC  371","filer_type":"CA","registered":"2021-02-05T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2021-02-05T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Chris Gildon","committee_address":"PO Box 71","committee_city":"Puyallup","committee_county":"PIERCE","committee_state":"WA","committee_zip":"98371","committee_email":"chris@chrisgildon.com","candidate_email":"chris@chrisgildon.com","candidate_committee_phone":"360-259-9771","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 25 - SENATE","jurisdiction_code":"4754","jurisdiction_county":"PIERCE","jurisdiction_type":"Legislative","jurisdiction_voters":"96322","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"R","party":"REPUBLICAN","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"PO
+        Box 1283","treasurer_city":"Puyallup","treasurer_state":"WA","treasurer_zip":"98371","treasurer_phone":"253-988-2455","has_reports":true,"contributions_amount":"239474.39","carryforward_amount":"6542.46","expenditures_amount":"243050.60","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"1446.80","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/59620"},"committee_id":"26634","person_id":"25639","candidacy_id":"93212","fund_id":"16956","legislative_district":"25","treasurer_name":"Tom
+        Perry","pac_type":"candidate","updated_at":"2025-02-10T17:36:23.000"}
+
+        ,{"id":"ca-2024-567388","filer_id":"MCCUJ  198","filer_type":"CA","registered":"2021-12-22T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2021-12-22T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"MCCUNE JAMES G (Jim McCune)","committee_address":"19611
+        100th Ave Ct. E.","committee_city":"Graham","committee_county":"PIERCE","committee_state":"WA","committee_zip":"98338","committee_email":"jgmccune@gmail.com","candidate_email":"jgmccune@gmail.com","candidate_committee_phone":"253-732-0519","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 02 - SENATE","jurisdiction_code":"4731","jurisdiction_county":"PIERCE","jurisdiction_type":"Legislative","jurisdiction_voters":"102476","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"R","party":"REPUBLICAN","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"PO
+        Box 8055","treasurer_city":"Bonne Lake","treasurer_state":"WA","treasurer_zip":"98391","treasurer_phone":"253-208-3523","has_reports":true,"contributions_amount":"64309.00","carryforward_amount":"500.00","expenditures_amount":"69694.88","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"1350.68","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/59681"},"committee_id":"29987","person_id":"27193","candidacy_id":"567388","fund_id":"18346","legislative_district":"02","treasurer_name":"Sharon
+        Hanek","pac_type":"candidate","updated_at":"2025-04-21T09:58:16.000"}
+
+        ,{"id":"ca-2024-3296746","filer_id":"CHRIL2 208","filer_type":"CA","registered":"2024-04-05T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2024-04-05T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"LEONARD G CHRISTIAN (Leonard Christian)","committee_address":"9116
+        E Sprague Ave. #714","committee_city":"Spokane Valley","committee_county":"SPOKANE","committee_state":"WA","committee_zip":"99206","committee_email":"vote@LeonardChristian.com","candidate_email":"vote@LeonardChristian.com","candidate_committee_phone":"5098695363","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 04 - SENATE","jurisdiction_code":"4733","jurisdiction_county":"SPOKANE","jurisdiction_type":"Legislative","jurisdiction_voters":"110979","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"R","party":"REPUBLICAN","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"505
+        N Argonne Rd # A-3","treasurer_city":"Spokane Valley","treasurer_state":"WA","treasurer_zip":"99212","treasurer_phone":"5098925905","has_reports":true,"contributions_amount":"53920.00","carryforward_amount":"0.00","expenditures_amount":"48006.75","loans_amount":"0.00","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"324.64","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/59876"},"committee_id":"36143","person_id":"52","candidacy_id":"3296746","fund_id":"23901","legislative_district":"04","treasurer_name":"Robert
+        P McKinley","pac_type":"candidate","updated_at":"2025-01-02T20:21:19.000"}
+
+        ,{"id":"ca-2024-3236508","filer_id":"CHAPM  362","filer_type":"CA","registered":"2023-07-06T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2023-07-06T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Michael C Chapman (Mike Chapman)","committee_address":"1321
+        S Laurel St","committee_city":"Port Angeles","committee_county":"CLALLAM","committee_state":"WA","committee_zip":"98362","committee_email":"chapman@olypen.com","candidate_email":"chapman@olypen.com","candidate_committee_phone":"360-477-1131","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 24 - SENATE","jurisdiction_code":"4753","jurisdiction_county":"CLALLAM","jurisdiction_type":"Legislative","jurisdiction_voters":"117622","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"D","party":"DEMOCRATIC","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"PO
+        Box 9100","treasurer_city":"Seattle","treasurer_state":"WA","treasurer_zip":"98109","treasurer_phone":"2067452010","has_reports":true,"contributions_amount":"328190.49","carryforward_amount":"0.00","expenditures_amount":"311118.49","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"2300.00","independent_expenditures_for_amount":"22320.07","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/54043"},"committee_id":"34613","person_id":"30363","candidacy_id":"3236508","fund_id":"20973","legislative_district":"24","treasurer_name":"Jason
+        Bennett","pac_type":"candidate","updated_at":"2025-04-06T14:00:47.000"}
+
+        ,{"id":"ca-2024-567876","filer_id":"WILSS  632","filer_type":"CA","registered":"2022-04-19T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2022-04-19T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Stephen Jeffrey Wilson (Jeff Wilson)","committee_address":"PO
+        Box 2885","committee_city":"Longview","committee_county":"COWLITZ","committee_state":"WA","committee_zip":"98632","committee_email":"jeffwilsonforsenate@gmail.com","candidate_email":"wilsonjjtt@msn.com","candidate_committee_phone":"360-431-7864","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 19 - SENATE","jurisdiction_code":"4748","jurisdiction_county":"COWLITZ","jurisdiction_type":"Legislative","jurisdiction_voters":"102438","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"870
+        Woodpecker Dr.","treasurer_city":"Kelso","treasurer_state":"WA","treasurer_zip":"98626","treasurer_phone":"360-355-5802","has_reports":true,"contributions_amount":"83925.00","carryforward_amount":"190.00","expenditures_amount":"83315.00","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"457.73","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/59970"},"committee_id":"30680","person_id":"30745","candidacy_id":"567876","fund_id":"19141","legislative_district":"19","treasurer_name":"Ella
+        Christine Masters","pac_type":"candidate","updated_at":"2025-01-21T12:44:38.000"}
+
+        ,{"id":"ca-2024-3253605","filer_id":"HANSD2 110","filer_type":"CA","registered":"2023-09-04T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2023-09-04T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Drew Hansen","committee_address":"PO Box 9100","committee_city":"Seattle","committee_county":"KITSAP","committee_state":"WA","committee_zip":"98109","committee_email":"info@argo.us","candidate_email":"drew@drewhansen.com","candidate_committee_phone":"206-745-2010","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 23 - SENATE","jurisdiction_code":"4752","jurisdiction_county":"KITSAP","jurisdiction_type":"Legislative","jurisdiction_voters":"108168","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"D","party":"DEMOCRATIC","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"PO
+        Box 9100","treasurer_city":"Seattle","treasurer_state":"WA","treasurer_zip":"98109","treasurer_phone":"206-745-2010","has_reports":true,"contributions_amount":"234637.83","carryforward_amount":"0.00","expenditures_amount":"28929.23","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"2300.00","independent_expenditures_for_amount":"120.40","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/54497"},"committee_id":"34837","person_id":"30401","candidacy_id":"3253605","fund_id":"21098","legislative_district":"23","treasurer_name":"Jason
+        Bennett","pac_type":"candidate","updated_at":"2025-01-10T03:24:36.000"}
+
+        ,{"id":"ca-2024-3298340","filer_id":"GOEHK--991","filer_type":"CA","registered":"2024-04-24T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2024-04-24T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Keith W. Goehner","committee_address":"PO BOX 38","committee_city":"Leavenworth","committee_county":"CHELAN","committee_state":"WA","committee_zip":"98826","committee_email":"kwgoehner@gmail.com","candidate_email":"kwgoehner@gmail.com","candidate_committee_phone":"5096697338","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 12 - SENATE","jurisdiction_code":"4741","jurisdiction_county":"CHELAN","jurisdiction_type":"Legislative","jurisdiction_voters":"105659","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"PO
+        BOX 38","treasurer_city":"Leavenworth","treasurer_state":"WA","treasurer_zip":"98826","treasurer_phone":"509
+        782-3800","has_reports":true,"contributions_amount":"171704.50","carryforward_amount":"0.00","expenditures_amount":"130957.49","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"3.12","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/60066"},"committee_id":"36267","person_id":"45524","candidacy_id":"3298340","fund_id":"24193","legislative_district":"12","treasurer_name":"Dennis
+        Webb","pac_type":"candidate","updated_at":"2026-01-28T16:32:42.000"}
+
+        ,{"id":"ca-2024-93233","filer_id":"LOVEE  221","filer_type":"CA","registered":"2021-02-10T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2021-02-10T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Lovelett, Elizabeth P (LIZ LOVELETT)","committee_address":"1004
+        Commercial Avenue #453","committee_city":"Anacortes","committee_county":"SKAGIT","committee_state":"WA","committee_zip":"98221","committee_email":"COMPLIANCE@BLUEWAVEPOLITICS.COM","candidate_email":"lizlovelett@gmail.com","candidate_committee_phone":"360-588-8707","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 40 - SENATE","jurisdiction_code":"4769","jurisdiction_county":"SKAGIT","jurisdiction_type":"Legislative","jurisdiction_voters":"109010","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"D","party":"DEMOCRATIC","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"401
+        2nd Ave S Ste 303","treasurer_city":"Seattle","treasurer_state":"WA","treasurer_zip":"98104","treasurer_phone":"360-588-8707","has_reports":true,"contributions_amount":"149564.85","carryforward_amount":"22581.83","expenditures_amount":"138214.48","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"856.61","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/62388"},"committee_id":"26678","person_id":"30265","candidacy_id":"93233","fund_id":"17174","legislative_district":"40","treasurer_name":"Jay
+        Petterson","pac_type":"candidate","updated_at":"2025-04-13T12:40:34.000"}
+
+        ,{"id":"ca-2024-567341","filer_id":"WELLL  040","filer_type":"CA","registered":"2021-12-09T00:00:00.000","declared":"2024-05-07T00:00:00.000","filing_type":"Electronic","receipt_date":"2021-12-09T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Lisa Z. Wellman (Lisa Wellman)","committee_address":"PO
+        BOX 1725","committee_city":"Mercer Island","committee_county":"KING","committee_state":"WA","committee_zip":"98040","committee_email":"compliance@bluewavepolitics.com","candidate_email":"lisawellman@comcast.net","candidate_committee_phone":"206-682-7328","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 41 - SENATE","jurisdiction_code":"4770","jurisdiction_county":"KING","jurisdiction_type":"Legislative","jurisdiction_voters":"98432","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"D","party":"DEMOCRATIC","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"401
+        2nd Ave S Ste 303","treasurer_city":"Seattle","treasurer_state":"WA","treasurer_zip":"98104","treasurer_phone":"206-682-7328","has_reports":true,"contributions_amount":"146514.63","carryforward_amount":"10303.50","expenditures_amount":"112303.61","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"120.40","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/62390"},"committee_id":"29943","person_id":"30266","candidacy_id":"567341","fund_id":"18747","legislative_district":"41","treasurer_name":"Jay
+        Petterson","pac_type":"candidate","updated_at":"2025-04-10T12:22:01.000"}
+
+        ,{"id":"ca-2024-93570","filer_id":"KINGC  909","filer_type":"CA","registered":"2021-04-21T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2021-04-21T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"CURTIS P KING (Curtis King)","committee_address":"PO
+        BOX 10025","committee_city":"YAKIMA","committee_county":"YAKIMA","committee_state":"WA","committee_zip":"98909","committee_email":"SENATORKING@CHARTER.NET","candidate_email":"Senatorking@charter.net","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 14 - SENATE","jurisdiction_code":"4743","jurisdiction_county":"YAKIMA","jurisdiction_type":"Legislative","jurisdiction_voters":"60520","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"PO
+        BOX 10025","treasurer_city":"YAKIMA","treasurer_state":"WA","treasurer_zip":"98909","treasurer_phone":"5092486030","has_reports":true,"contributions_amount":"712978.67","carryforward_amount":"0.00","expenditures_amount":"711119.28","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"266449.29","independent_expenditures_against_amount":"126304.29","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/43967"},"committee_id":"27116","person_id":"1123","candidacy_id":"93570","fund_id":"17553","legislative_district":"14","treasurer_name":"JOE
+        FALK","pac_type":"candidate","updated_at":"2025-08-05T09:36:42.000"}
+
+        ,{"id":"ca-2024-567175","filer_id":"DOZIP  361","filer_type":"CA","registered":"2021-07-28T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2021-07-28T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"DOZIER PERRY L (Perry Dozier)","committee_address":"PO
+        Box 3042","committee_city":"Walla Walla","committee_county":"WALLA WALLA","committee_state":"WA","committee_zip":"99362","committee_email":"dozierforsenate@outlook.com","candidate_email":"perry.dozier@gmail.com","candidate_committee_phone":"509-525-1664","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 16 - SENATE","jurisdiction_code":"4745","jurisdiction_county":"WALLA
+        WALLA","jurisdiction_type":"Legislative","jurisdiction_voters":"92605","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"R","party":"REPUBLICAN","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"PO
+        Box 3042","treasurer_city":"Walla Walla","treasurer_state":"WA","treasurer_zip":"99362","treasurer_phone":"509-525-1664","has_reports":true,"contributions_amount":"173601.59","carryforward_amount":"0.00","expenditures_amount":"149418.25","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/46858"},"committee_id":"29540","person_id":"7744","candidacy_id":"567175","fund_id":"18027","legislative_district":"16","treasurer_name":"Daryl
+        Hopson, CPA","pac_type":"candidate","updated_at":"2025-07-22T17:10:47.000"}
+
+        ,{"id":"ca-2024-93180","filer_id":"CLEVA  660","filer_type":"CA","registered":"2021-02-02T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2021-02-02T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Annette M Cleveland (Annette Cleveland)","committee_acronym":"Annette
+        Cleveland for State Senate","committee_address":"6400 NE Hwy 99 #G340","committee_city":"Vancouver","committee_county":"CLARK","committee_state":"WA","committee_zip":"98665","committee_email":"lindamclain@comcast.net","candidate_email":"annettecleveland2016@gmail.com","candidate_committee_phone":"3602411222","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 49 - SENATE","jurisdiction_code":"4778","jurisdiction_county":"CLARK","jurisdiction_type":"Legislative","jurisdiction_voters":"92049","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"D","party":"DEMOCRATIC","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"6400
+        NE Hwy 99 #G340","treasurer_city":"Vancouver","treasurer_state":"WA","treasurer_zip":"98665","treasurer_phone":"3602411222","has_reports":true,"contributions_amount":"497037.16","carryforward_amount":"1231.14","expenditures_amount":"491748.07","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.00","independent_expenditures_for_amount":"120.40","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/47160"},"committee_id":"26596","person_id":"1105","candidacy_id":"93180","fund_id":"17094","legislative_district":"49","treasurer_name":"Linda
+        McLain","pac_type":"candidate","updated_at":"2025-04-06T09:32:24.000"}
+
+        ,{"id":"ca-2024-93081","filer_id":"BRAUJ  532","filer_type":"CA","registered":"2021-01-10T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2021-01-10T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"John E Braun (John Braun)","committee_address":"P.O.
+        Box 413","committee_city":"Chehalis","committee_county":"LEWIS","committee_state":"WA","committee_zip":"98532","committee_email":"johnbraun@votebraun.com","candidate_email":"johnbraun@votebraun.com","candidate_committee_phone":"(360)508-6540","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 20 - SENATE","jurisdiction_code":"4749","jurisdiction_county":"LEWIS","jurisdiction_type":"Legislative","jurisdiction_voters":"112953","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"R","party":"REPUBLICAN","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"P.O.
+        Box 581","treasurer_city":"Tacoma","treasurer_state":"WA","treasurer_zip":"98401","treasurer_phone":"(253)220-5590","has_reports":true,"contributions_amount":"415000.00","carryforward_amount":"1860.93","expenditures_amount":"414612.93","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/47563"},"committee_id":"26387","person_id":"1080","candidacy_id":"93081","fund_id":"16850","legislative_district":"20","treasurer_name":"Jason
+        Michaud","pac_type":"candidate","updated_at":"2025-01-10T19:51:30.000"}
+
+        ,{"id":"ca-2024-3296658","filer_id":"RICCM2 210","filer_type":"CA","registered":"2024-03-11T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2024-03-11T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Marcus M. Riccelli (Marcus Riccelli)","committee_acronym":"FMRS","committee_address":"PO
+        Box 4513","committee_city":"Spokane","committee_county":"SPOKANE","committee_state":"WA","committee_zip":"99220","committee_email":"info@marcusriccelli.com","candidate_email":"info@marcusriccelli.com","candidate_committee_phone":"509-465-4305","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 03 - SENATE","jurisdiction_code":"4732","jurisdiction_county":"SPOKANE","jurisdiction_type":"Legislative","jurisdiction_voters":"100576","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"D","party":"DEMOCRATIC","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"PO
+        Box 4513","treasurer_city":"Spokane","treasurer_state":"WA","treasurer_zip":"99220","treasurer_phone":"509-939-1897","has_reports":true,"contributions_amount":"251528.09","carryforward_amount":"0.00","expenditures_amount":"269745.62","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"856.61","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/59642"},"committee_id":"36002","person_id":"841","candidacy_id":"3296658","fund_id":"23795","legislative_district":"03","treasurer_name":"Barbara
+        Marney","pac_type":"candidate","updated_at":"2025-04-12T15:47:14.000"}
+
+        ,{"id":"ca-2024-93109","filer_id":"HASER  124","filer_type":"CA","registered":"2021-01-12T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2021-01-12T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Bob Hasegawa","committee_address":"2518 S Brandon
+        Court","committee_city":"Seattle","committee_county":"KING","committee_state":"WA","committee_zip":"98108","committee_email":"votebobhasegawa@gmail.com","candidate_email":"Bob@bobhasegawa.com","candidate_committee_phone":"206-334-4804","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 11 - SENATE","jurisdiction_code":"4740","jurisdiction_county":"KING","jurisdiction_type":"Legislative","jurisdiction_voters":"87024","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"D","party":"DEMOCRATIC","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"2518
+        S Brandon Court","treasurer_city":"Seattle","treasurer_state":"WA","treasurer_zip":"98108","treasurer_phone":"206-601-2448","has_reports":true,"contributions_amount":"83701.18","carryforward_amount":"58485.98","expenditures_amount":"113828.61","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"120.40","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/60573"},"committee_id":"26459","person_id":"1066","candidacy_id":"93109","fund_id":"16774","legislative_district":"11","treasurer_name":"Jeanne
+        Legault","pac_type":"candidate","updated_at":"2025-03-23T15:53:06.000"}
+
+        ,{"id":"ca-2024-689009","filer_id":"CHRIY  504","filer_type":"CA","registered":"2023-01-02T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2023-01-02T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Yasmin A. Trudeau (Yasmin Trudeau)","committee_address":"PO
+        Box 7437","committee_city":"Tacoma","committee_county":"PIERCE","committee_state":"WA","committee_zip":"98417","committee_email":"peopleforyasmin@gmail.com","candidate_email":"peopleforyasmin@gmail.com","candidate_committee_phone":"714-474-3190","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 27 - SENATE","jurisdiction_code":"4756","jurisdiction_county":"PIERCE","jurisdiction_type":"Legislative","jurisdiction_voters":"93147","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"D","party":"DEMOCRATIC","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"PO
+        Box 9100","treasurer_city":"Seattle","treasurer_state":"WA","treasurer_zip":"98109","treasurer_phone":"206-745-2010","has_reports":true,"contributions_amount":"131191.69","carryforward_amount":"25000.00","expenditures_amount":"128605.86","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"2750.00","independent_expenditures_for_amount":"1337.07","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/53595"},"committee_id":"31524","person_id":"25964","candidacy_id":"689009","fund_id":"19994","legislative_district":"27","treasurer_name":"Jason
+        Bennett","pac_type":"candidate","updated_at":"2025-01-10T18:40:39.000"}
+
+        ,{"id":"ca-2024-3296745","filer_id":"HARRP2 683","filer_type":"CA","registered":"2024-03-20T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2024-03-20T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Paul Harris","committee_address":"1916 SE 130th Ave","committee_city":"Vancouver","committee_county":"CLARK","committee_state":"WA","committee_zip":"98683","committee_email":"plharris@comcast.net","candidate_email":"plharris@comcast.net","candidate_committee_phone":"3605532748","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 17 - SENATE","jurisdiction_code":"4746","jurisdiction_county":"CLARK","jurisdiction_type":"Legislative","jurisdiction_voters":"108025","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"R","party":"REPUBLICAN","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"1916
+        SE 130th Ave","treasurer_city":"Vancouver","treasurer_state":"WA","treasurer_zip":"98683","treasurer_phone":"3609031579","has_reports":true,"contributions_amount":"528550.57","carryforward_amount":"0.00","expenditures_amount":"519080.40","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"146073.12","independent_expenditures_against_amount":"501575.39","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/59720"},"committee_id":"36146","person_id":"32216","candidacy_id":"3296745","fund_id":"23907","legislative_district":"17","treasurer_name":"Lori
+        Harris","pac_type":"candidate","updated_at":"2025-09-04T11:49:02.000"}
+
+        ,{"id":"ca-2024-567306","filer_id":"WAGOK  284","filer_type":"CA","registered":"2021-04-30T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2021-04-30T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Keith L. Wagoner","committee_address":"410 Talcott
+        Street","committee_city":"Sedro-Woolley","committee_county":"SNOHOMISH","committee_state":"WA","committee_zip":"98284","committee_email":"wagonerkl@msn.com","candidate_email":"wagonerkl@msn.com","candidate_committee_phone":"3612440100","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 39 - SENATE","jurisdiction_code":"4768","jurisdiction_county":"SNOHOMISH","jurisdiction_type":"Legislative","jurisdiction_voters":"107641","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"P.O.
+        Box 8055","treasurer_city":"Bonney Lake","treasurer_state":"WA","treasurer_zip":"98391","treasurer_phone":"2532083523","has_reports":true,"contributions_amount":"101575.00","carryforward_amount":"5710.00","expenditures_amount":"102946.33","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"394.48","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/54960"},"committee_id":"27200","person_id":"25532","candidacy_id":"567306","fund_id":"21499","legislative_district":"39","treasurer_name":"Sharon
+        Hanek","pac_type":"candidate","updated_at":"2025-11-10T22:17:32.000"}
+
+        ,{"id":"ca-2024-2478267","filer_id":"RAMOB2 027","filer_type":"CA","registered":"2023-06-01T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2023-06-01T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Bill Ramos","committee_address":"1420 NW Gilman Blvd
+        #2268","committee_city":"Issaquah","committee_county":"KING","committee_state":"WA","committee_zip":"98027","committee_email":"bill@voteramos.org","candidate_email":"bramosbramos@hotmail.com","candidate_committee_phone":"(202)
+        240-7451","office":"STATE SENATOR","office_code":"12","jurisdiction":"LEG
+        DISTRICT 05 - SENATE","jurisdiction_code":"4734","jurisdiction_county":"KING","jurisdiction_type":"Legislative","jurisdiction_voters":"106558","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"D","party":"DEMOCRATIC","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"20126
+        Ballinger Way NE Num 308","treasurer_city":"Shoreline","treasurer_state":"WA","treasurer_zip":"98155","treasurer_phone":"(202)
+        240-7451","has_reports":true,"contributions_amount":"344856.34","carryforward_amount":"0.00","expenditures_amount":"308362.97","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"37350.40","independent_expenditures_against_amount":"0","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/62593"},"committee_id":"33874","person_id":"30263","candidacy_id":"2478267","fund_id":"20875","legislative_district":"05","treasurer_name":"Josie
+        Olsen","pac_type":"candidate","updated_at":"2025-03-22T16:03:02.000"}
+
+        ,{"id":"ca-2024-3296661","filer_id":"CORTA  604","filer_type":"CA","registered":"2024-03-11T00:00:00.000","declared":"2024-05-06T00:00:00.000","filing_type":"Electronic","receipt_date":"2024-03-11T00:00:00.000","election_year":"2024","candidate_committee_status":"Candidate
+        declared","filer_name":"Adrian E. Cortes (Adrian Cortes)","committee_address":"2210
+        W Main St Ste 107-360","committee_city":"Battle Ground","committee_county":"CLARK","committee_state":"WA","committee_zip":"98604","committee_email":"campaign@votecortes.com","candidate_email":"compliance@bluewavepolitics.com","candidate_committee_phone":"2022408370","office":"STATE
+        SENATOR","office_code":"12","jurisdiction":"LEG DISTRICT 18 - SENATE","jurisdiction_code":"4747","jurisdiction_county":"CLARK","jurisdiction_type":"Legislative","jurisdiction_voters":"105970","jurisdiction_reporting_code":"C","jurisdiction_reporting_requirement":"Registration
+        and financial affairs","committee_category":"Candidate","political_committee_type":"Candidate","party_code":"D","party":"DEMOCRATIC","election_date":"2024-11-05T00:00:00.000","reporting_option":"full","active_candidate":true,"on_primary_election_ballot":true,"on_general_election_ballot":true,"primary_election_status":"Qualified
+        for general","general_election_status":"Won in general","treasurer_address":"20126
+        Ballinger Way NE Num 308","treasurer_city":"Shoreline","treasurer_state":"WA","treasurer_zip":"98155","treasurer_phone":"2022408370","has_reports":true,"contributions_amount":"491518.23","carryforward_amount":"0.00","expenditures_amount":"478388.00","loans_amount":"0.0","pledges_amount":"0.0","debts_amount":"0.0","independent_expenditures_for_amount":"347351.71","independent_expenditures_against_amount":"610897.20","url":{"url":"https://my.pdc.wa.gov/registration/public/-/#/public/registration/62594"},"committee_id":"35977","person_id":"1518","candidacy_id":"3296661","fund_id":"23933","legislative_district":"18","treasurer_name":"Josie
+        Olsen","pac_type":"candidate","updated_at":"2025-01-21T12:57:39.000"}]
+
+        '
+    headers:
+      access-control-allow-origin:
+      - '*'
+      connection:
+      - keep-alive
+      content-length:
+      - '49634'
+      content-type:
+      - application/json;charset=utf-8
+      date:
+      - Wed, 08 Jul 2026 01:06:20 GMT
+      etag:
+      - '"Z29sZi4yMjA0XzEyNzRfNDc3MjM5YUFiRnlvQktteG1vR2ZOUFNKUk5pS3NtUFNn---gzipg4z81pJiLX7SbRn1Es75Wdyds8c--gzip--gzip"'
+      last-modified:
+      - Wed, 08 Jul 2026 01:04:28 GMT
+      server:
+      - nginx
+      strict-transport-security:
+      - max-age=31536000; includeSubDomains
+      transfer-encoding:
+      - chunked
+      vary:
+      - Accept-Encoding
+      x-socrata-region:
+      - aws-us-east-1-fedramp-prod
+      x-socrata-requestid:
+      - 4f40865d015c5acab5017b92533eb131
+      x-soda2-data-out-of-date:
+      - 'false'
+      x-soda2-fields:
+      - '["id","filer_id","filer_type","registered","declared","withdrew","discontinued","filing_type","receipt_date","election_year","candidate_committee_status","filer_name","committee_acronym","committee_address","committee_city","committee_county","committee_state","committee_zip","committee_email","candidate_email","candidate_committee_phone","office","office_code","jurisdiction","jurisdiction_code","jurisdiction_county","jurisdiction_type","jurisdiction_voters","jurisdiction_reporting_code","jurisdiction_reporting_requirement","committee_category","political_committee_type","bonafide_committee","bonafide_type","position","party_code","party","election_date","reporting_option","active_candidate","on_primary_election_ballot","on_general_election_ballot","primary_election_status","general_election_status","election_status","exempt_nonexempt","ballot_committee","ballot_proposal_count","ballot_number","ballot_title","for_or_against","ballot_proposal_detail","other_pac","treasurer_address","treasurer_city","treasurer_state","treasurer_zip","treasurer_phone","has_reports","contributions_amount","carryforward_amount","expenditures_amount","loans_amount","pledges_amount","debts_amount","independent_expenditures_for_amount","independent_expenditures_against_amount","url","committee_id","person_id","candidacy_id","fund_id","legislative_district","treasurer_name","pac_type","continuing","updated_at"]'
+      x-soda2-secondary-last-modified:
+      - Wed, 08 Jul 2026 01:04:28 GMT
+      x-soda2-truth-last-modified:
+      - Wed, 08 Jul 2026 01:04:28 GMT
+      x-soda2-types:
+      - '["text","text","text","floating_timestamp","floating_timestamp","floating_timestamp","floating_timestamp","text","floating_timestamp","number","text","text","text","text","text","text","text","text","text","text","text","text","text","text","text","text","text","number","text","text","text","text","text","text","text","text","text","floating_timestamp","text","boolean","boolean","boolean","text","text","text","text","text","number","text","text","text","text","text","text","text","text","text","text","boolean","number","number","number","number","number","number","number","number","url","number","number","number","number","text","text","text","boolean","floating_timestamp"]'
+    status:
+      code: 200
+      message: OK
+version: 1

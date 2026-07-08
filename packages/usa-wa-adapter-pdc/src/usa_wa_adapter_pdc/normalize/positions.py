@@ -17,6 +17,11 @@ from __future__ import annotations
 import re
 import unicodedata
 
+#: The ``source`` slug PDC-provenance rows (identifiers, House Assignments) carry — matches
+#: :attr:`PDCAdapter.source_slug` and the ``Source`` row. Shared by both normalizers so the
+#: literal is defined once.
+PDC_SOURCE = "usa_wa_pdc"
+
 #: Local ``PersonIdentifier.scheme`` for the PDC person id. The person descriptor maps a
 #: Person's ``usa_wa_pdc`` source (and this child scheme) to the PM ``person_wa_pdc``
 #: identifier_type; here the identifier is a *child* row on the WSL-sourced Person, carried
