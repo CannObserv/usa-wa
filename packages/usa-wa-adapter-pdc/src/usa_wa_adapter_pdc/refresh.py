@@ -31,41 +31,18 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import configure_logging, get_logger
-from clearinghouse_core.provenance import RetentionPolicy, Source
 from clearinghouse_core.runner import AdapterRunner, RunSummary
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.refresh import biennium_for_date
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_adapter_pdc.adapter import PDCAdapter, election_year_for_biennium
 from usa_wa_adapter_pdc.normalize.house_positions import build_house_roster, build_senate_roster
-from usa_wa_adapter_pdc.transport import PDC_BASE_URL, PDCClient
+from usa_wa_adapter_pdc.provisioning import get_or_create_source
+from usa_wa_adapter_pdc.transport import PDCClient
 
 logger = get_logger(__name__)
 
 _JURISDICTION_SLUG = "usa-wa"
-
-
-async def _get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction) -> Source:
-    existing = (
-        await session.execute(select(Source).where(Source.slug == "usa_wa_pdc"))
-    ).scalar_one_or_none()
-    if existing is not None:
-        return existing
-    row = Source(
-        jurisdiction_id=jurisdiction.id,
-        name="WA Public Disclosure Commission",
-        slug="usa_wa_pdc",
-        kind="rest",
-        base_url=PDC_BASE_URL,
-        reliability=1.0,
-        cache_ttl_days=1,
-        # The archived SODA JSON (#54) is a long-lived provenance record, not an
-        # operational cache — exempt from any future RawPayload GC.
-        retention_policy=RetentionPolicy.archival,
-    )
-    session.add(row)
-    await session.flush()
-    return row
 
 
 async def run_refresh(
@@ -95,7 +72,7 @@ async def run_refresh(
     anchors = await bootstrap_synthetic_anchors(
         session, biennium=biennium, jurisdiction_id=jurisdiction.id
     )
-    source = await _get_or_create_source(session, jurisdiction)
+    source = await get_or_create_source(session, jurisdiction)
 
     sponsor_client = sponsor_client or WSLClient("SponsorService")
     sponsor_members = await sponsor_client.get_sponsors(biennium)

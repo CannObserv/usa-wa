@@ -4,10 +4,11 @@ Usage:
   python -m usa_wa_adapter_legislature.refresh
 
 Reads ``DATABASE_URL`` from the environment, computes the current biennium
-(override with ``USA_WA_BIENNIUM``), resolves the ``usa-wa`` jurisdiction,
-lazily creates the ``usa_wa_legislature`` Source row, bootstraps the
-synthetic anchors (legislature, chambers, biennium + regular sessions),
-and runs one :class:`AdapterRunner.refresh` cycle.
+(override with ``USA_WA_BIENNIUM``), resolves the ``usa-wa`` jurisdiction and
+gets-or-creates the ``usa_wa_legislature`` Source row (both now in
+:mod:`usa_wa_adapter_legislature.provisioning`, shared with the harvests),
+bootstraps the synthetic anchors (legislature, chambers, biennium + regular
+sessions), and runs one :class:`AdapterRunner.refresh` cycle.
 
 Designed to be invoked from cron or systemd. The committees pull is idempotent
 on re-run within the source's cache TTL (no live SOAP call, no new rows). The
