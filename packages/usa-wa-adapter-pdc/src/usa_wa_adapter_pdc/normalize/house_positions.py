@@ -222,6 +222,7 @@ async def normalize_house_positions(
     #: unsynced LD is resolved + logged once, not once per winner).
     resolved_ld: dict[int, Any] = {}
     deferred: dict[int, list[_Deferred]] = {}
+    direct_seated = inferred_seated = movers_linked = unresolved = 0
 
     # Phase 1 — direct match of each winner to a House roster member.
     for row in winners:
@@ -287,6 +288,7 @@ async def normalize_house_positions(
         )
         if emitted:
             seen_members.add(match.member_id)
+            direct_seated += 1
 
     # Phase 2 — reconcile mid-biennium replacements by within-LD elimination (#74).
     for ld, deferrals in deferred.items():
@@ -303,6 +305,7 @@ async def normalize_house_positions(
             await _link_pdc_identifier(
                 collector, session, senator.member_id, deferral.pdc_person_id
             )
+            movers_linked += 1
 
         # Seat inference: exactly one deferred position + one unmatched member, and that
         # deferral is a confirmed mover (so the vacancy is explained). Attempting the
@@ -327,8 +330,10 @@ async def normalize_house_positions(
             )
             if seated:
                 seen_members.add(unmatched[0].member_id)
+                inferred_seated += 1
         if not attempted:
             for deferral in deferrals:
+                unresolved += 1
                 logger.info(
                     "pdc_house_unresolved",
                     extra={
@@ -338,6 +343,16 @@ async def normalize_house_positions(
                     },
                 )
 
+    logger.info(
+        "pdc_house_summary",
+        extra={
+            "winners": len(winners),
+            "direct_seated": direct_seated,
+            "inferred_seated": inferred_seated,
+            "movers_linked": movers_linked,
+            "unresolved": unresolved,
+        },
+    )
     return NormalizedBatch(entities=collector.entities, citations=citations)
 
 

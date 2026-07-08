@@ -49,14 +49,18 @@ async def normalize_senate_identities(
     """Emit `person_wa_pdc` identifiers for the PDC Senate winner cohort (#75).
 
     Identifier-only — no Role/Assignment. Returns the matched identifiers; unmatched or
-    not-yet-ingested winners are logged (the WSL robustness signal), not emitted."""
+    not-yet-ingested winners are logged (the WSL robustness signal), not emitted. A
+    run-level `pdc_senate_summary` tally makes the robustness check observable at a glance
+    (a stable handful of `unresolved` = departed senators; a spike = a real WSL break)."""
     winners = payload.parsed or []
     collector = EntityCollector()
+    matched = unresolved = absent = incomplete = 0
 
     for row in winners:
         pdc_id = str(row.get("person_id") or "").strip()
         ld = district_number(row.get("legislative_district"))
         if not pdc_id or ld is None:
+            incomplete += 1
             logger.warning(
                 "pdc_senate_row_incomplete",
                 extra={"person_id": pdc_id, "ld": row.get("legislative_district")},
@@ -68,6 +72,7 @@ async def normalize_senate_identities(
         if len(candidates) != 1:
             # PDC says someone won this LD's Senate seat, but the WSL roster has no unique
             # match — a WSL discrepancy (missing senator / name mismatch), not a guess.
+            unresolved += 1
             logger.info(
                 "pdc_senate_unresolved",
                 extra={
@@ -80,12 +85,14 @@ async def normalize_senate_identities(
 
         person = await resolve_wsl_person(session, candidates[0].member_id)
         if person is None:
+            absent += 1
             logger.warning(
                 "pdc_senate_person_absent",
                 extra={"member_id": candidates[0].member_id, "ld": ld},
             )
             continue
 
+        matched += 1
         collector.add(
             PersonIdentifier(
                 source=PDC_SOURCE,
@@ -96,4 +103,14 @@ async def normalize_senate_identities(
             )
         )
 
+    logger.info(
+        "pdc_senate_summary",
+        extra={
+            "winners": len(winners),
+            "matched": matched,
+            "unresolved": unresolved,
+            "person_absent": absent,
+            "incomplete": incomplete,
+        },
+    )
     return NormalizedBatch(entities=collector.entities, citations=[])

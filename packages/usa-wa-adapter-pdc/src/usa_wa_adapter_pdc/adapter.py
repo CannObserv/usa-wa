@@ -46,6 +46,20 @@ SENATE_WINNERS_RESOURCE_PREFIX = "senate-winners:"
 _WINNERS_ENDPOINT = f"{PDC_BASE_URL}/resource/{CAMPAIGN_FINANCE_SUMMARY_RESOURCE}.json"
 
 
+def _stamp_url(resource_id: str) -> str:
+    """Stamp a resource id onto the SODA endpoint as a fragment for ``FetchEvent.url`` —
+    the single definition of the fetch↔normalize routing contract (inverse of
+    :func:`_resource_of`)."""
+    return f"{_WINNERS_ENDPOINT}#{resource_id}"
+
+
+def _resource_of(payload: FetchedPayload) -> str:
+    """Recover the resource id ``fetch_one`` stamped onto ``payload.url`` (inverse of
+    :func:`_stamp_url`); ``""`` if no fragment is present."""
+    _, _, resource_id = payload.url.partition("#")
+    return resource_id
+
+
 def election_year_for_biennium(biennium: str) -> int:
     """The general-election year that seated a biennium's House — its odd start year
     minus one (WA House is entirely up every even November). ``2025-26`` → ``2024``."""
@@ -123,7 +137,7 @@ class PDCAdapter(BaseAdapter):
         else:
             raise ValueError(f"unknown resource_id: {resource_id!r}")
         return FetchedPayload(
-            url=f"{_WINNERS_ENDPOINT}#{resource_id}",
+            url=_stamp_url(resource_id),
             fetched_at=datetime.now(UTC),
             content_type=fetched.content_type,
             body=fetched.wire,
@@ -135,7 +149,7 @@ class PDCAdapter(BaseAdapter):
         """Route the archived payload by its stamped resource fragment (symmetric with
         ``fetch_one``): Senate → the identifier-only Senate normalizer (#75), House → the
         House-position normalizer, anything else → ``ValueError`` (no silent House default)."""
-        _, _, resource_id = payload.url.partition("#")
+        resource_id = _resource_of(payload)
         if resource_id.startswith(SENATE_WINNERS_RESOURCE_PREFIX):
             return await normalize_senate_identities(
                 payload,

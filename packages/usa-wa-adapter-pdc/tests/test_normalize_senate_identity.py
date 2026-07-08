@@ -131,6 +131,24 @@ async def test_incomplete_row_skipped(db_session, usa_wa, caplog) -> None:
     assert "pdc_senate_row_incomplete" in [r.message for r in caplog.records]
 
 
+async def test_summary_tally_logged(db_session, usa_wa, caplog) -> None:
+    # The run-level robustness tally: one matched senator + one departed-senator miss.
+    await _add_wsl_person(db_session, "897", "Derek Stanford")
+    with caplog.at_level(logging.INFO):
+        await _run(
+            db_session,
+            [
+                _senate_winner("897", "Derek Stanford", ld="01"),
+                _senate_winner("999", "Departed Senator", ld="05"),
+            ],
+            [_sponsor("897", "Derek", "Stanford", district="1")],
+        )
+    summary = next(r for r in caplog.records if r.message == "pdc_senate_summary")
+    assert summary.winners == 2
+    assert summary.matched == 1
+    assert summary.unresolved == 1
+
+
 async def test_duplicate_person_id_deduped(db_session, usa_wa) -> None:
     # A senator appearing in both election cohorts (special-election overlap) or a repeated
     # row must not mint two identifiers — the collector dedups by (type, source_id).

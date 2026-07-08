@@ -167,9 +167,7 @@ async def test_fetch_one_senate_routes_and_stamps_url(db_session, usa_wa) -> Non
     client = FakePDCClient(
         [], senate_winners={2022: [_senate_winner("897", "Derek Stanford", ld="1")]}
     )
-    adapter = PDCAdapter(
-        anchors=anchors, biennium=BIENNIUM, house_roster={}, client=client, session=db_session
-    )
+    adapter = PDCAdapter(anchors=anchors, biennium=BIENNIUM, house_roster={}, client=client)
     payload = await adapter.fetch_one("senate-winners:2022")
     assert client.senate_calls == [2022]
     assert payload.url == "https://data.wa.gov/resource/3h9x-7bvm.json#senate-winners:2022"
