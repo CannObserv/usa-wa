@@ -43,9 +43,11 @@ from usa_wa_adapter_legislature.adapter import (
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.harvest_committee_meetings import bienniums_in_range
 from usa_wa_adapter_legislature.probe_committee_extent import probe_committee_floor
+from usa_wa_adapter_legislature.provisioning import (
+    get_or_create_source,
+    resolve_jurisdiction,
+)
 from usa_wa_adapter_legislature.refresh import (
-    _get_or_create_source,
-    _resolve_jurisdiction,
     biennium_for_date,
 )
 from usa_wa_adapter_legislature.transport import WSLClient
@@ -88,8 +90,8 @@ async def harvest_committees(
     nothing (see the runner's cache-or-fetch). The byte-identical wire still dedups
     to the existing RawPayload (revalidation, not re-store), and fill-only means an
     unaffected existing committee is never clobbered."""
-    jurisdiction = await _resolve_jurisdiction(session)
-    source = await _get_or_create_source(session, jurisdiction)
+    jurisdiction = await resolve_jurisdiction(session)
+    source = await get_or_create_source(session, jurisdiction)
     anchors = await bootstrap_synthetic_anchors(
         session, biennium=bienniums[0], jurisdiction_id=jurisdiction.id
     )

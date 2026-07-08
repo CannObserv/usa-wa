@@ -38,9 +38,11 @@ from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX, WALegis
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.harvest_committee_meetings import bienniums_in_range
 from usa_wa_adapter_legislature.probe_member_identity import DEFAULT_HISTORY_FLOOR
+from usa_wa_adapter_legislature.provisioning import (
+    get_or_create_source,
+    resolve_jurisdiction,
+)
 from usa_wa_adapter_legislature.refresh import (
-    _get_or_create_source,
-    _resolve_jurisdiction,
     biennium_for_date,
 )
 from usa_wa_adapter_legislature.transport import WSLClient, configure_wsl_rate_limit
@@ -74,8 +76,8 @@ async def harvest_sponsors(
     ``force`` bypasses the runner's freshness cache to re-materialize rolled-back Persons
     while the roster stays archived (byte-identical wire dedups to the existing
     RawPayload). Pacing is handled centrally by the WSL limiter, not here."""
-    jurisdiction = await _resolve_jurisdiction(session)
-    source = await _get_or_create_source(session, jurisdiction)
+    jurisdiction = await resolve_jurisdiction(session)
+    source = await get_or_create_source(session, jurisdiction)
     anchors = await bootstrap_synthetic_anchors(
         session, biennium=bienniums[0], jurisdiction_id=jurisdiction.id
     )

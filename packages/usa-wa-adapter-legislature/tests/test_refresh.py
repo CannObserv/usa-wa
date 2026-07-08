@@ -19,10 +19,12 @@ from clearinghouse_domain_legislative.identity import Assignment, Organization, 
 from usa_wa_adapter_legislature import refresh as refresh_module
 from usa_wa_adapter_legislature.adapter import WALegislatureAdapter
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
+from usa_wa_adapter_legislature.provisioning import (
+    get_or_create_source,
+    resolve_jurisdiction,
+)
 from usa_wa_adapter_legislature.refresh import (
     _discover_members,
-    _get_or_create_source,
-    _resolve_jurisdiction,
     biennium_for_date,
     biennium_start_date,
     previous_biennium,
@@ -444,8 +446,8 @@ async def test_member_fanout_scoped_to_current_biennium_provenance(db_session, u
     anchors = await bootstrap_synthetic_anchors(
         db_session, biennium="2025-26", jurisdiction_id=usa_wa.id
     )
-    jurisdiction = await _resolve_jurisdiction(db_session)
-    source = await _get_or_create_source(db_session, jurisdiction)
+    jurisdiction = await resolve_jurisdiction(db_session)
+    source = await get_or_create_source(db_session, jurisdiction)
     current = Organization(
         source="usa_wa_legislature",
         source_id="CUR",
@@ -545,8 +547,8 @@ async def test_member_fanout_db_error_is_isolated_by_savepoint(db_session, usa_w
     db_session.add_all(committees)
     await db_session.flush()
 
-    jurisdiction = await _resolve_jurisdiction(db_session)
-    source = await _get_or_create_source(db_session, jurisdiction)
+    jurisdiction = await resolve_jurisdiction(db_session)
+    source = await get_or_create_source(db_session, jurisdiction)
     # Both need current-biennium GetActiveCommittees provenance to be in the fan-out scope (#72).
     await _cite_committees(
         db_session, source=source, committees=committees, resource_id="committees:2025-26"

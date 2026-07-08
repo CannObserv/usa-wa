@@ -36,7 +36,7 @@ from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.client import DeliveryBlockedError
 from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
-from usa_wa_adapter_legislature.refresh import _get_or_create_source, _resolve_jurisdiction
+from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_sync_powermap.committee_name_chain import (
     DEFAULT_MAX_RENAME_FRACTION,
@@ -138,8 +138,8 @@ async def _run(args: argparse.Namespace) -> dict:
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — cannot emit to Power Map.")
     async with get_session_factory()() as session:
-        jurisdiction = await _resolve_jurisdiction(session)
-        source = await _get_or_create_source(session, jurisdiction)
+        jurisdiction = await resolve_jurisdiction(session)
+        source = await get_or_create_source(session, jurisdiction)
         provider = CommitteeRosterCohortProvider(
             WSLClient("CommitteeService"), session=session, source_id=source.id
         )

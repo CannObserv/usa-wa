@@ -12,16 +12,7 @@ from pathlib import Path
 import pytest
 import vcr
 
-from usa_wa_adapter_legislature.transport import configure_wsl_rate_limit
-
 CASSETTE_DIR = Path(__file__).parent / "cassettes"
-
-
-@pytest.fixture(autouse=True)
-def _no_wsl_rate_limit() -> None:
-    """Disable the global WSL courtesy limiter for the suite so cassette-replayed SOAP
-    calls don't incur the production inter-request sleep."""
-    configure_wsl_rate_limit(0.0)
 
 
 @pytest.fixture

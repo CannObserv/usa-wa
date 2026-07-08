@@ -71,10 +71,20 @@ class _RateLimiter:
             self._sleep(delay)
 
 
+def _env_min_interval() -> float:
+    """Read `USA_WA_WSL_MIN_REQUEST_INTERVAL`, falling back to the default on a malformed
+    value — a bad env var must not crash *every* WSL caller with an import-time ValueError."""
+    raw = os.environ.get("USA_WA_WSL_MIN_REQUEST_INTERVAL")
+    if raw is None:
+        return DEFAULT_WSL_MIN_REQUEST_INTERVAL
+    try:
+        return float(raw)
+    except ValueError:
+        return DEFAULT_WSL_MIN_REQUEST_INTERVAL
+
+
 #: The one shared limiter every WSL SOAP POST passes through (see `_CapturingTransport`).
-_WSL_LIMITER = _RateLimiter(
-    float(os.environ.get("USA_WA_WSL_MIN_REQUEST_INTERVAL", DEFAULT_WSL_MIN_REQUEST_INTERVAL))
-)
+_WSL_LIMITER = _RateLimiter(_env_min_interval())
 
 
 def configure_wsl_rate_limit(min_interval: float) -> None:

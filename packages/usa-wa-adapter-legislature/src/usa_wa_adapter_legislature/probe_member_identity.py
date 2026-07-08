@@ -50,7 +50,7 @@ from zeep.exceptions import Fault
 from clearinghouse_core.logging import configure_logging, get_logger
 from usa_wa_adapter_legislature.normalize.members import is_person
 from usa_wa_adapter_legislature.refresh import biennium_for_date, previous_biennium
-from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_adapter_legislature.transport import WSLClient, _is_biennium_out_of_range
 
 logger = get_logger(__name__)
 
@@ -123,7 +123,11 @@ def compare_id_stability(
 
 def _same_district(divergence: dict[str, Any]) -> bool:
     """Whether a same-name/different-Id pair kept the same District — a genuine seat re-key
-    (alarming) vs. a name collision between two people in different districts (benign)."""
+    (alarming) vs. a name collision between two people in different districts (benign).
+
+    Both districts blank/``None`` compare equal → treated as a re-key: when the seat is
+    unknown we can't rule out a genuine re-key, so we bias to the alarming bucket (flag for
+    review) rather than silently discounting it as a collision."""
     return str(divergence.get("district_a")) == str(divergence.get("district_b"))
 
 
@@ -165,7 +169,9 @@ async def sweep_id_stability_history(
             try:
                 rows = await sponsor_client.get_sponsors(b)
                 cache[b] = [m for m in rows if is_person(m)]
-            except Fault:
+            except Fault as exc:
+                if not _is_biennium_out_of_range(exc):
+                    raise  # a real/transient WSL fault must not read as an empty floor
                 cache[b] = None  # below the floor / invalid biennium
         return cache[b]
 

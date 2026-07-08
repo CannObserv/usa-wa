@@ -33,9 +33,8 @@ from datetime import UTC, date, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import configure_logging, get_logger
-from clearinghouse_core.provenance import Citation, FetchEvent, RetentionPolicy, Source
+from clearinghouse_core.provenance import Citation, FetchEvent
 from clearinghouse_core.runner import AdapterRunner, RunSummary
 from clearinghouse_domain_legislative.identity import Organization
 from usa_wa_adapter_legislature.adapter import (
@@ -46,7 +45,8 @@ from usa_wa_adapter_legislature.adapter import (
 )
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors, bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
-from usa_wa_adapter_legislature.transport import WSL_BASE_URL, WSLClient
+from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
+from usa_wa_adapter_legislature.transport import WSLClient
 
 logger = get_logger(__name__)
 
@@ -80,42 +80,6 @@ def previous_biennium(label: str) -> str:
     """The biennium two years before ``label`` (the rename diff's "before" side, #46)."""
     start = _biennium_start_year(label) - 2
     return f"{start}-{(start + 1) % 100:02d}"
-
-
-async def _resolve_jurisdiction(session: AsyncSession) -> Jurisdiction:
-    row = (
-        await session.execute(select(Jurisdiction).where(Jurisdiction.slug == "usa-wa"))
-    ).scalar_one_or_none()
-    if row is None:
-        raise LookupError(
-            "Jurisdiction 'usa-wa' is not seeded — run the jurisdictional IA "
-            "bootstrap before invoking the WSL refresh."
-        )
-    return row
-
-
-async def _get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction) -> Source:
-    existing = (
-        await session.execute(select(Source).where(Source.slug == "usa_wa_legislature"))
-    ).scalar_one_or_none()
-    if existing is not None:
-        return existing
-    row = Source(
-        jurisdiction_id=jurisdiction.id,
-        name="WA State Legislature SOAP",
-        slug="usa_wa_legislature",
-        kind="soap",
-        base_url=WSL_BASE_URL,
-        reliability=1.0,
-        cache_ttl_days=1,
-        # Provenance-critical: the archived SOAP wire (#54) is a long-lived
-        # tamper-evident record, not an operational cache — exempt from any
-        # future RawPayload GC.
-        retention_policy=RetentionPolicy.archival,
-    )
-    session.add(row)
-    await session.flush()
-    return row
 
 
 @dataclasses.dataclass(frozen=True)
@@ -163,8 +127,8 @@ async def run_refresh(
             "wsl_refresh_noncurrent_biennium",
             extra={"biennium": biennium, "current_biennium": current},
         )
-    jurisdiction = await _resolve_jurisdiction(session)
-    source = await _get_or_create_source(session, jurisdiction)
+    jurisdiction = await resolve_jurisdiction(session)
+    source = await get_or_create_source(session, jurisdiction)
     anchors = await bootstrap_synthetic_anchors(
         session, biennium=biennium, jurisdiction_id=jurisdiction.id
     )

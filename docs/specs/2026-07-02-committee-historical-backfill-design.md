@@ -20,6 +20,20 @@ probe answered "how much data exists":
   for **every** biennium back toward statehood — far deeper than the meeting
   service.
 
+**Chamber-op redundancy (verified — do not re-confirm).** `GetHouseCommittees(b)`,
+`GetSenateCommittees(b)`, and the `GetActive{House,Senate}Committees()` pair are
+**wholly redundant** with `GetCommittees(b)` / `GetActiveCommittees()` — they are
+strictly the same rows filtered by `Agency`. Verified live 2026-07-03 across
+1991-92 (the floor), 2001-02, 2013-14, 2025-26: `GetCommittees(b) ≡
+GetHouseCommittees(b) ∪ GetSenateCommittees(b)` exactly (empty symmetric difference
+both directions), the per-committee dicts are byte-identical (same
+`Id, Name, LongName, Agency, Acronym, Phone` keyset), and the `Active` variants
+partition identically. **No `CommitteeService` op ever returns a Joint/`Other`
+agency** — every op yields only `{House, Senate}`, reconfirming that
+`CommitteeMeetingService.GetCommitteeMeetings` is the *sole* Joint/`Other` channel
+(#39). So the chamber ops carry zero unique data and are correctly ignored;
+`GetCommittees(biennium)` is the complete standing-committee roster source.
+
 Today only **2025-26** committees and **2023-24/2025-26** meetings are ingested.
 The decisions taken in the opening brainstorm (and confirmed against the probe):
 

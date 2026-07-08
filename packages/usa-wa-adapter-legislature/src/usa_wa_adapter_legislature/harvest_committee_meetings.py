@@ -40,10 +40,12 @@ from usa_wa_adapter_legislature.committee_seed import (
     serialize_seed,
 )
 from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
+from usa_wa_adapter_legislature.provisioning import (
+    get_or_create_source,
+    resolve_jurisdiction,
+)
 from usa_wa_adapter_legislature.refresh import (
     _biennium_start_year,
-    _get_or_create_source,
-    _resolve_jurisdiction,
 )
 from usa_wa_adapter_legislature.transport import WSLClient
 
@@ -114,8 +116,8 @@ async def harvest_committee_meetings(
     dry_run: bool = False,
 ) -> HarvestSummary:
     """Archive + upsert each biennium window, then freeze the deduped cohort to the seed."""
-    jurisdiction = await _resolve_jurisdiction(session)
-    source = await _get_or_create_source(session, jurisdiction)
+    jurisdiction = await resolve_jurisdiction(session)
+    source = await get_or_create_source(session, jurisdiction)
     # The legislature/chamber anchors are biennium-independent; bootstrap once (any
     # biennium in range) to resolve the parent the meeting normalizer needs.
     anchors = await bootstrap_synthetic_anchors(

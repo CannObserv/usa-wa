@@ -35,6 +35,7 @@ from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.models import Base  # noqa: F401
 from clearinghouse_core.testing import assert_test_url_safety, declared_schemas
 from clearinghouse_domain_legislative import identity as _identity  # noqa: F401
+from usa_wa_adapter_legislature.transport import configure_wsl_rate_limit
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 if not TEST_DATABASE_URL:
@@ -44,6 +45,15 @@ if not TEST_DATABASE_URL:
     )
 
 assert_test_url_safety(TEST_DATABASE_URL)
+
+
+@pytest.fixture(autouse=True)
+def _no_wsl_rate_limit() -> None:
+    """Disable the global WSL courtesy limiter (#77) for **every** package's tests so a
+    cassette-replayed SOAP call never incurs the production inter-request sleep. Hoisted to
+    the workspace root (CR #77) — the limiter default is process-global, so a WSL-cassette
+    test in any package (not just the legislature one) needs it zeroed."""
+    configure_wsl_rate_limit(0.0)
 
 
 @pytest.fixture(scope="session")

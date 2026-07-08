@@ -229,6 +229,19 @@ async def test_sweep_name_collision_different_district_is_benign() -> None:
     assert not r["rekeys"] and len(r["name_collisions"]) == 1
 
 
+async def test_sweep_reraises_non_biennium_fault() -> None:
+    # A transient/server Fault (not "invalid biennium") must propagate — not be swallowed
+    # as an empty floor (which would silently understate the history).
+    class _BadClient:
+        async def get_sponsors(self, biennium: str) -> list[dict]:
+            raise Fault("Server was unable to process request. Connection timed out.")
+
+    with pytest.raises(Fault, match="timed out"):
+        await sweep_id_stability_history(
+            _BadClient(), from_biennium="2023-24", to_biennium="2025-26"
+        )
+
+
 async def test_sweep_treats_below_floor_biennium_as_absent() -> None:
     # The sweep walks past the floor; the faulting biennium is 'absent', not a divergence,
     # and doesn't drag stability down.

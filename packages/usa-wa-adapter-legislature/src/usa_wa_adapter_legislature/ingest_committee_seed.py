@@ -36,9 +36,11 @@ from clearinghouse_core.seed_manifest import verified_digest
 from clearinghouse_domain_legislative.identity import Organization
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_seed import DEFAULT_SEED_PATH, deserialize_seed
+from usa_wa_adapter_legislature.provisioning import (
+    get_or_create_source,
+    resolve_jurisdiction,
+)
 from usa_wa_adapter_legislature.refresh import (
-    _get_or_create_source,
-    _resolve_jurisdiction,
     biennium_for_date,
 )
 
@@ -91,8 +93,8 @@ async def ingest_committee_seed(
     content_hash = verified_digest(seed_path, content)  # raises SeedIntegrityError on mismatch
     committees = deserialize_seed(content)
 
-    jurisdiction = await _resolve_jurisdiction(session)
-    source = await _get_or_create_source(session, jurisdiction)
+    jurisdiction = await resolve_jurisdiction(session)
+    source = await get_or_create_source(session, jurisdiction)
     anchors = await bootstrap_synthetic_anchors(
         session,
         biennium=biennium_for_date(datetime.now(UTC).date()),
