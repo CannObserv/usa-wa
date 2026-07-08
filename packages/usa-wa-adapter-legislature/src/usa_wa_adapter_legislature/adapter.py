@@ -117,10 +117,14 @@ class WALegislatureAdapter(BaseAdapter):
         sponsor_client: WSLClient | None = None,
         member_client: WSLClient | None = None,
         session: AsyncSession | None = None,
+        sponsors_persons_only: bool = False,
     ) -> None:
         self.anchors = anchors
         self.jurisdiction_id = jurisdiction_id
         self.biennium = biennium
+        # #77 historical harvest (Phase A): emit only Person + identifier from GetSponsors,
+        # deferring party/seat Assignments to the Phase B span engine (#78).
+        self._sponsors_persons_only = sponsors_persons_only
         self._committee_client = client or WSLClient("CommitteeService")
         self._meeting_client = meeting_client or WSLClient("CommitteeMeetingService")
         self._sponsor_client = sponsor_client or WSLClient("SponsorService")
@@ -258,6 +262,7 @@ class WALegislatureAdapter(BaseAdapter):
                 session=self._require_session(),
                 anchors=self.anchors,
                 biennium=self.biennium,
+                persons_only=self._sponsors_persons_only,
             )
         if payload.url.endswith(_COMMITTEE_MEMBERS_FRAGMENT):
             # committee id rides the url query, before the fragment (stamped by

@@ -58,6 +58,7 @@ async def normalize_sponsors(
     session: AsyncSession,
     anchors: BootstrapAnchors,
     biennium: str,
+    persons_only: bool = False,
 ) -> NormalizedBatch:
     """Parse a sponsors payload and emit the member cluster (Person/identifier/party/seat).
 
@@ -65,7 +66,12 @@ async def normalize_sponsors(
     resolve Person/Role ids so the Assignments carry real FKs. Assignments scope to the
     biennium (``valid_from`` = Jan 1 of the odd start year). Persons/assignments carry no
     jurisdiction of their own — a seat's LD lives on the seat Role — so no jurisdiction
-    parameter is threaded here."""
+    parameter is threaded here.
+
+    ``persons_only`` (the #77 historical harvest, Phase A) emits **only** Person +
+    identifier, skipping party/seat Assignments — those are merged spans built from the full
+    archive in Phase B (#78), not per-biennium here. Persons dedup across biennia by the
+    stable WSL ``Id`` (#81), so a member seen in many biennia collapses to one Person."""
     if payload.parsed is not None:
         members = payload.parsed
     else:
@@ -88,6 +94,8 @@ async def normalize_sponsors(
         collector.add(person)
         collector.add(build_person_identifier(person, member))
 
+        if persons_only:
+            continue  # Phase A: no per-biennium Assignments — spans are Phase B (#78)
         await _emit_party(collector, session, member, person, anchors, biennium, valid_from)
         await _emit_chamber(collector, session, member, person, anchors, biennium, valid_from)
 
