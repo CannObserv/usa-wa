@@ -64,6 +64,31 @@ class SponsorRosterCohortProvider:
         """``{biennium: [member rows]}`` across ``bienniums`` — the span builder's input."""
         return {biennium: await self.cohort(biennium) for biennium in bienniums}
 
+    async def fetch_event_map(self, bienniums: list[str]) -> dict[str, tuple[_ULID, Any]]:
+        """``{biennium: (fetch_event_id, fetched_at)}`` for each biennium's latest archived
+        roster — the per-biennium provenance the span emission cites (#78, cite-every-biennium).
+        Bienniums with no archived roster are omitted."""
+        out: dict[str, tuple[_ULID, Any]] = {}
+        if self._session is None or self._source_id is None:
+            return out
+        for biennium in bienniums:
+            resource_id = f"{SPONSORS_RESOURCE_PREFIX}{biennium}"
+            row = (
+                await self._session.execute(
+                    select(FetchEvent.id, FetchEvent.fetched_at)
+                    .where(
+                        FetchEvent.source_id == self._source_id,
+                        FetchEvent.resource_id == resource_id,
+                        FetchEvent.status == FetchStatus.ok,
+                    )
+                    .order_by(FetchEvent.fetched_at.desc())
+                    .limit(1)
+                )
+            ).first()
+            if row is not None:
+                out[biennium] = (row[0], row[1])
+        return out
+
     async def archived_bienniums(self) -> list[str]:
         """Every biennium with an archived roster, ascending — the span domain."""
         if self._session is None or self._source_id is None:

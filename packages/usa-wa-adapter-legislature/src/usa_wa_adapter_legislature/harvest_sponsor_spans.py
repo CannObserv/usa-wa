@@ -1,0 +1,110 @@
+"""Phase B span builder CLI (#78 increment 2b-ii) — archive → merged-span Assignments.
+
+Reads every archived ``sponsors:<biennium>`` roster **offline** (via
+:class:`~usa_wa_adapter_legislature.sponsor_cohort.SponsorRosterCohortProvider`, no WSL
+re-pull), projects the rows to tenure observations (:mod:`sponsor_observations`), builds
+merged :class:`~usa_wa_adapter_legislature.tenure_spans.TenureSpan`s, and emits one
+:class:`Assignment` per tenure with per-biennium citations (:mod:`sponsor_span_emit`).
+
+Derives entirely from the local archive — re-runnable / re-tunable without touching WSL.
+Depends on the #77 harvest having archived the rosters first. ``--dry-run`` rolls back.
+
+    python -m usa_wa_adapter_legislature.harvest_sponsor_spans [--dry-run]
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import os
+import sys
+from datetime import UTC, datetime
+
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+from clearinghouse_core.logging import configure_logging, get_logger
+from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
+from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
+from usa_wa_adapter_legislature.refresh import biennium_for_date
+from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
+from usa_wa_adapter_legislature.sponsor_observations import build_sponsor_observations
+from usa_wa_adapter_legislature.sponsor_span_emit import emit_sponsor_spans
+from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
+from usa_wa_adapter_legislature.transport import WSLClient
+
+logger = get_logger(__name__)
+
+
+async def build_sponsor_spans(
+    session: AsyncSession,
+    *,
+    sponsor_client: WSLClient | None = None,
+    current_biennium: str | None = None,
+) -> int:
+    """Build + emit merged-span Assignments from the local sponsor archive; return the count.
+
+    Archive-derived: the provider re-parses each ``sponsors:<biennium>`` offline (the
+    ``sponsor_client`` is only a fallback for an un-archived biennium). ``current_biennium``
+    determines which spans stay open (defaults to the date-current biennium)."""
+    jurisdiction = await resolve_jurisdiction(session)
+    source = await get_or_create_source(session, jurisdiction)
+    current = current_biennium or biennium_for_date(datetime.now(UTC).date())
+    anchors = await bootstrap_synthetic_anchors(
+        session, biennium=current, jurisdiction_id=jurisdiction.id
+    )
+    provider = SponsorRosterCohortProvider(
+        sponsor_client or WSLClient("SponsorService"), session=session, source_id=source.id
+    )
+    bienniums = await provider.archived_bienniums()
+    if not bienniums:
+        logger.warning("sponsor_span_build_no_archive")
+        return 0
+    roster = await provider.roster_map(bienniums)
+    spans = build_tenure_spans(build_sponsor_observations(roster), current_biennium=current)
+    fetch_events = await provider.fetch_event_map(bienniums)
+    emitted = await emit_sponsor_spans(
+        session, spans, anchors=anchors, reliability=source.reliability, fetch_events=fetch_events
+    )
+    logger.info(
+        "sponsor_span_build_complete",
+        extra={"bienniums": len(bienniums), "spans": len(spans), "emitted": emitted},
+    )
+    return emitted
+
+
+async def _main(argv: list[str] | None = None) -> int:
+    configure_logging()
+    parser = argparse.ArgumentParser(
+        description="Build merged-span member Assignments from the sponsor archive (#78 Phase B)."
+    )
+    parser.add_argument("--dry-run", action="store_true", help="build but roll back (preview)")
+    args = parser.parse_args(argv)
+
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        print("DATABASE_URL is not set; aborting", file=sys.stderr)
+        return 2
+
+    engine = create_async_engine(database_url)
+    try:
+        async with AsyncSession(engine) as session:
+            emitted = await build_sponsor_spans(session)
+            if args.dry_run:
+                await session.rollback()
+            else:
+                await session.commit()
+    except Exception:
+        logger.exception("sponsor_span_build_failed")
+        return 1
+    finally:
+        await engine.dispose()
+
+    print(
+        f"Sponsor span build: emitted={emitted} "
+        f"{'(dry-run, rolled back)' if args.dry_run else '(committed)'}"
+    )
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(asyncio.run(_main()))

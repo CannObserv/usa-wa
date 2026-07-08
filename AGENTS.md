@@ -511,6 +511,19 @@ python -m usa_wa_adapter_legislature.probe_member_identity --history
 python -m usa_wa_adapter_legislature.harvest_sponsors --dry-run   # 1991-92→current, roll back
 python -m usa_wa_adapter_legislature.harvest_sponsors --from-biennium 1991-92 --pause-seconds 1
 
+# Historical member SPANS — Phase B of the #76 backfill (#78). Archive-derived, no WSL pull:
+# reads every archived sponsors:<biennium> offline (SponsorRosterCohortProvider re-parses via
+# parse_sponsors), projects rows to party + Senate-seat tenure Observations
+# (sponsor_observations), collapses contiguous biennia into merged valid_from..valid_to spans
+# (tenure_spans.build_tenure_spans — a dormancy gap splits; the run reaching the current
+# biennium stays open/is_active), and emits ONE Assignment per tenure keyed on the tenure
+# start (sponsor_span_emit) with a Citation per biennium in range (cite-every-biennium, #78).
+# Idempotent re-assert. Depends on the #77 harvest archiving the rosters first. --dry-run rolls
+# back. (Remaining #78: subsume the daily path onto the builder; migrate the shipped
+# per-biennium rows carrying pm_assignment_id.)
+python -m usa_wa_adapter_legislature.harvest_sponsor_spans --dry-run
+python -m usa_wa_adapter_legislature.harvest_sponsor_spans
+
 # Committee historical backfill (sub-project 3, Phase A) — sweep GetCommittees(biennium)
 # over a range through AdapterRunner(fill_only=True): archive the full-roster wire under
 # committees-roster:<biennium> + materialize standing committees by stable Id WITHOUT
