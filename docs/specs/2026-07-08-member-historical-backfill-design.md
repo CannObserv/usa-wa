@@ -174,13 +174,33 @@ span rows, retire the superseded per-biennium rows (they collapse into their spa
 ### PM production — #80
 
 - **Ordering:** Persons (+ identifiers) → Roles → span Assignments (FK/anchor deps).
-- **Backpressure:** chunked outbox drain (`OUTBOX_COMMIT_CHUNK_SIZE`); the sidecar
-  produces the anchored cohort — a large one-time enqueue. Confirm the drain keeps up
-  and the `UNAVAILABLE` re-drive path absorbs PM rate limits.
+- **Backpressure is a sidecar capability, not a one-off.** A large one-time enqueue
+  won't be an unusual event (every historical backfill, every re-materialization
+  produces a burst), so egress throttling belongs **in the sidecar itself** as
+  first-class settings, exercised by the normal reconcile/drain — not bolted onto a
+  bespoke producer CLI. See §Central throttling.
 - **Subscriptions:** each produced entity → PM auto-subscribes; re-run
   `prune_subscriptions` (#73) after and confirm the mirror-set scoping holds at scale.
 - Merged spans keep the Assignment count low. A `validate_*` pass (analog of
   `validate_committees`) spot-checks local↔PM for a sample of historical members.
+
+### Central throttling (cross-cutting) — #77/#80/#82
+
+Both the source-facing sweeps and the PM egress need pacing, and both recur beyond
+this epic — so throttling is designed **centrally**, once, rather than as per-CLI
+`--pause-seconds` flags and ad-hoc drain chunking:
+
+- **WSL egress — a transport-level limiter.** A single configurable rate limiter in
+  `WSLClient` (min inter-request interval / token bucket, env-tunable) that *every*
+  caller routes through — the daily refresh, `harvest_sponsors` (#77), the committee
+  membership sweep (#82, ~560 calls), and the existing committee harvest. Per-CLI
+  `--pause-seconds` becomes an override of the central default, not the only guard, so
+  a new caller can't accidentally burst against WSL by forgetting to pace itself.
+- **PM egress — sidecar throttle settings.** First-class `SidecarSettings`
+  (outbound request rate / inter-batch delay, alongside `OUTBOX_COMMIT_CHUNK_SIZE`)
+  that bound the drain regardless of how large the outbox grows, with the
+  `UNAVAILABLE` re-drive path as the backstop. The historical backfill is the forcing
+  function to build this properly, since bursty production is the steady-state norm.
 
 ## Identity pre-flight — #81
 
@@ -221,11 +241,11 @@ they don't. Cheap to check, expensive to get wrong.
 - **Deep-name-match quality (#81).** Very old rosters may have inconsistent name
   formatting; the `Id`-agreement probe must fold names robustly (reuse the PDC/WSL
   folding primitives).
-- **PM enqueue volume (#80).** A multi-thousand-entity one-time enqueue is the largest
-  producer load yet; rate-limit posture toward PM and outbox drain throughput are the
-  risk. Consider a dedicated throttled producer CLI vs. the sidecar's normal reconcile.
 - **Span-key migration (#78).** Retiring the shipped per-biennium assignment rows in
   favor of span rows must be idempotent and not orphan PM-linked assignments; design
   the transition explicitly (the `pm_assignment_id` link must carry to the span row).
-- **WSL load.** #77 (~18 POSTs) is trivial; #82 (~560 POSTs) is the heavy sweep — must
-  drip (`--pause-seconds`), never parallelize against WSL. One-time; cache-bounded.
+
+(PM enqueue volume and WSL sweep load were open questions in the first draft; both are
+now **decided** — handled by central throttling, see §Central throttling — rather than
+per-caller pacing. The heavy WSL sweep is #82 (~560 POSTs); the largest PM enqueue is
+#80's cohort. Both drip through the central limiters and stay one-time / cache-bounded.)
