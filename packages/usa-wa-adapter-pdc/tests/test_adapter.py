@@ -260,6 +260,10 @@ async def test_runner_end_to_end_mover_cross_link_and_inferred_seat(
     inferred = (
         await db_session.execute(select(Assignment).where(Assignment.person_id == salahuddin.id))
     ).scalar_one()
+    inferred_role = (
+        await db_session.execute(select(Role).where(Role.id == inferred.role_id))
+    ).scalar_one()
+    assert inferred_role.qualifier == "Position 1"  # the vacated position, by elimination
     cites = (
         (
             await db_session.execute(
