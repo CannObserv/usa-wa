@@ -101,6 +101,9 @@ def test_chamber_move_yields_two_spans_touching_the_move_biennium():
     by_kind = {s.kind: s for s in _spans(obs)}
     assert by_kind["chamber-house"].end_biennium == "2023-24"
     assert by_kind["chamber-house"].valid_to == date(2024, 12, 31)  # left the House
+    # A colon-bearing discriminator (LD:Position) rides source_id verbatim — opaque upsert
+    # key, never parsed back (the embedded colons are intentional, not a delimiter clash).
+    assert by_kind["chamber-house"].source_id == "100:chamber-house:5:Position 1:2021-22"
     assert by_kind["chamber-senate"].start_biennium == "2023-24"
     assert by_kind["chamber-senate"].is_active is True  # still in the Senate
 
