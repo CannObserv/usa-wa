@@ -22,8 +22,20 @@ but the name, ``District`` and ``Party`` stripped. :func:`is_person` filters tho
 so they don't pollute the overlap tally (and flags the count the real Person normalizer
 will likewise skip, deduping the surviving named rows by ``Id``).
 
+**Deep-history mode (#81).** `--history` sweeps **every consecutive biennium pair** from
+the WSL floor (`1991-92`) to current, tallying same-name/different-``Id`` divergences —
+the pre-flight for the historical member backfill (#77), which mints ~800 Persons keyed
+on ``Id``. Divergences are classified: a **re-key** keeps the seat (same District, new
+``Id``) and forks one person (alarming); a **name collision** (different District) is two
+distinct people sharing a name, which the ``Id`` correctly separates (benign — doesn't
+count against stability). **Finding (2026-07-08): ``Id`` is stable across all 17 boundaries
+1991-92→2025-26 — 0 re-keys.** The one divergence is a benign collision (two "Brian
+Sullivan"s, LD29 vs LD21), which *validates* keying on ``Id`` over name. Corollary for
+#77: dedup Persons by ``Id``, never by name — two Persons may legitimately share a name.
+
     python -m usa_wa_adapter_legislature.probe_member_identity
     python -m usa_wa_adapter_legislature.probe_member_identity --biennium 2025-26 --json
+    python -m usa_wa_adapter_legislature.probe_member_identity --history        # deep sweep (#81)
 """
 
 import argparse
@@ -33,12 +45,18 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
+from zeep.exceptions import Fault
+
 from clearinghouse_core.logging import configure_logging, get_logger
 from usa_wa_adapter_legislature.normalize.members import is_person
 from usa_wa_adapter_legislature.refresh import biennium_for_date, previous_biennium
 from usa_wa_adapter_legislature.transport import WSLClient
 
 logger = get_logger(__name__)
+
+#: The WSL ``GetSponsors`` history floor (probed 2026-07-08 — 1989-90 faults). The deep
+#: sweep (#81) walks back to here to confirm ``Id`` stability before the historical mint.
+DEFAULT_HISTORY_FLOOR = "1991-92"
 
 # ``is_person`` (imported from normalize.members, the single source of truth) filters the
 # name-blanked stubs GetSponsors returns for a superseded/departed (member, chamber-tenure)
@@ -100,6 +118,103 @@ def compare_id_stability(
         "only_b": len(set(b) - set(a)),
         "stable": len(shared) > 0 and not divergences,
         "divergences": divergences,
+    }
+
+
+def _same_district(divergence: dict[str, Any]) -> bool:
+    """Whether a same-name/different-Id pair kept the same District — a genuine seat re-key
+    (alarming) vs. a name collision between two people in different districts (benign)."""
+    return str(divergence.get("district_a")) == str(divergence.get("district_b"))
+
+
+def biennium_chain(from_biennium: str, to_biennium: str, *, max_len: int = 200) -> list[str]:
+    """The ordered biennium labels from ``from_biennium`` to ``to_biennium`` (oldest first).
+
+    Built by walking :func:`previous_biennium` back from ``to_biennium`` until
+    ``from_biennium`` is hit — so ``from_biennium`` must be older than (or equal to)
+    ``to_biennium`` and on the chain, else ``ValueError`` (guards a reversed/typo range)."""
+    chain = [to_biennium]
+    for _ in range(max_len):
+        if chain[-1] == from_biennium:
+            return list(reversed(chain))
+        chain.append(previous_biennium(chain[-1]))
+    raise ValueError(f"{from_biennium!r} not reachable walking back from {to_biennium!r}")
+
+
+async def sweep_id_stability_history(
+    sponsor_client: Any,
+    *,
+    from_biennium: str = DEFAULT_HISTORY_FLOOR,
+    to_biennium: str,
+) -> dict[str, Any]:
+    """Deep-history ``Id``-stability sweep (#81): compare **every consecutive biennium
+    pair** from ``from_biennium`` to ``to_biennium`` and tally same-name/different-``Id``
+    divergences — the re-key signal, checked at depth before minting ~800 historical
+    Persons keyed on the WSL ``Id``.
+
+    Each biennium is pulled **once** (cached; it appears in two adjacent pairs). A biennium
+    that faults (below the WSL floor) or returns no persons is **absent** — the boundary
+    is skipped, not scored (no evidence, not a divergence). ``id_is_stable_across_history``
+    is True only when at least one boundary had data on both sides and **no** boundary
+    diverged."""
+    chain = biennium_chain(from_biennium, to_biennium)
+    cache: dict[str, list[dict[str, Any]] | None] = {}
+
+    async def persons(b: str) -> list[dict[str, Any]] | None:
+        if b not in cache:
+            try:
+                rows = await sponsor_client.get_sponsors(b)
+                cache[b] = [m for m in rows if is_person(m)]
+            except Fault:
+                cache[b] = None  # below the floor / invalid biennium
+        return cache[b]
+
+    boundaries: list[dict[str, Any]] = []
+    divergences: list[dict[str, Any]] = []
+    compared = 0
+    for older, newer in zip(chain, chain[1:], strict=False):
+        a, b = await persons(older), await persons(newer)
+        label = f"{older}->{newer}"
+        if not a or not b:  # None (fault) or empty → no evidence at this boundary
+            boundaries.append({"boundary": label, "absent": True})
+            continue
+        cmp = compare_id_stability(a, b)
+        compared += 1
+        boundaries.append(
+            {"boundary": label, **{k: cmp[k] for k in ("matched", "same_id", "diff_id", "stable")}}
+        )
+        divergences.extend({"boundary": label, **d} for d in cmp["divergences"])
+
+    # Classify each same-name/different-Id pair. A genuine **re-key** keeps the seat
+    # (same District, new Id) — the alarming signal that would fork one person. A pair with
+    # a **different District** is far more likely two distinct people who share a name (the
+    # name-only key can't tell them apart, but the Id correctly does) — a benign collision,
+    # NOT evidence the Id is unstable. Only re-keys count against stability.
+    rekeys = [d for d in divergences if _same_district(d)]
+    collisions = [d for d in divergences if not _same_district(d)]
+    with_data = [b for b in chain if cache.get(b)]
+    stable = compared > 0 and not rekeys
+    logger.info(
+        "sweep_id_stability_history",
+        extra={
+            "from_biennium": from_biennium,
+            "to_biennium": to_biennium,
+            "boundaries_compared": compared,
+            "rekeys": len(rekeys),
+            "name_collisions": len(collisions),
+            "id_is_stable_across_history": stable,
+        },
+    )
+    return {
+        "from_biennium": from_biennium,
+        "to_biennium": to_biennium,
+        "boundaries_compared": compared,
+        "deepest_with_data": with_data[0] if with_data else None,
+        "id_is_stable_across_history": stable,
+        "total_divergences": len(divergences),
+        "rekeys": rekeys,
+        "name_collisions": collisions,
+        "boundaries": boundaries,
     }
 
 
@@ -183,12 +298,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="prior label to compare (default: the biennium before --biennium)",
     )
     parser.add_argument("--committee-sample", type=int, default=DEFAULT_COMMITTEE_SAMPLE)
+    parser.add_argument(
+        "--history",
+        action="store_true",
+        help="deep sweep: check Id stability across every consecutive biennium pair (#81)",
+    )
+    parser.add_argument(
+        "--from-biennium",
+        default=DEFAULT_HISTORY_FLOOR,
+        help=f"--history floor (default {DEFAULT_HISTORY_FLOOR}, the WSL GetSponsors floor)",
+    )
     parser.add_argument("--json", action="store_true", help="emit the summary as compact JSON")
     return parser
 
 
 async def _run(args: argparse.Namespace) -> dict[str, Any]:
     biennium = args.biennium or biennium_for_date(datetime.now(UTC).date())
+    if args.history:
+        return await sweep_id_stability_history(
+            WSLClient("SponsorService"),
+            from_biennium=args.from_biennium,
+            to_biennium=biennium,
+        )
     prior = args.prior_biennium or previous_biennium(biennium)
     sponsor_client = WSLClient("SponsorService")
     committee_client = WSLClient("CommitteeService")

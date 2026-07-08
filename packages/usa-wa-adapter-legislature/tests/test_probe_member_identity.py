@@ -9,11 +9,16 @@ record the finding in the plan's Revisions.
 
 from __future__ import annotations
 
+import pytest
+from zeep.exceptions import Fault
+
 from usa_wa_adapter_legislature.probe_member_identity import (
+    biennium_chain,
     compare_id_stability,
     is_person,
     name_key,
     probe_member_identity,
+    sweep_id_stability_history,
 )
 from usa_wa_adapter_legislature.transport import WireFetch
 
@@ -146,3 +151,93 @@ async def test_probe_flags_unstable_id_source() -> None:
     )
     assert result["id_is_stable_source_id"] is False
     assert "name-match" in result["recommended_source_id"]
+
+
+# --- deep-history sweep (#81) -------------------------------------------------
+
+
+class _FaultingSponsorClient:
+    """Fake that raises a WSL Fault for a biennium below its floor (invalid biennium)."""
+
+    def __init__(self, by_biennium: dict[str, list[dict]]) -> None:
+        self._by = by_biennium
+        self.calls: list[str] = []
+
+    async def get_sponsors(self, biennium: str) -> list[dict]:
+        self.calls.append(biennium)
+        if biennium not in self._by:
+            raise Fault("Invalid Input. You have not submitted a valid biennium.")
+        return self._by[biennium]
+
+
+def test_biennium_chain_orders_oldest_to_newest() -> None:
+    assert biennium_chain("2021-22", "2025-26") == ["2021-22", "2023-24", "2025-26"]
+    assert biennium_chain("2025-26", "2025-26") == ["2025-26"]
+
+
+def test_biennium_chain_unreachable_raises() -> None:
+    with pytest.raises(ValueError, match="not reachable"):
+        biennium_chain("2026-27", "2025-26")  # 'from' newer than 'to'
+
+
+async def test_sweep_all_stable_across_history() -> None:
+    rivers, king = _m(10, "Ann", "Rivers"), _m(7, "Sam", "King")
+    sponsor = _FakeSponsorClient(
+        {
+            "2021-22": [rivers, king],
+            "2023-24": [rivers, king],
+            "2025-26": [rivers, _m(30, "New", "Member")],  # King leaves; Rivers stable
+        }
+    )
+    r = await sweep_id_stability_history(sponsor, from_biennium="2021-22", to_biennium="2025-26")
+    assert r["boundaries_compared"] == 2
+    assert r["total_divergences"] == 0
+    assert r["id_is_stable_across_history"] is True
+    assert r["deepest_with_data"] == "2021-22"
+    # each biennium pulled once despite appearing in two adjacent pairs
+    assert sponsor.calls.count("2023-24") == 1
+
+
+async def test_sweep_flags_genuine_rekey_same_district() -> None:
+    # Same seat (District 5), new Id → a genuine re-key: forks one person. Alarming.
+    sponsor = _FakeSponsorClient(
+        {
+            "2021-22": [_m(10, "Ann", "Rivers", district="5")],
+            "2023-24": [_m(10, "Ann", "Rivers", district="5")],
+            "2025-26": [_m(999, "Ann", "Rivers", district="5")],  # re-key at 2023-24->2025-26
+        }
+    )
+    r = await sweep_id_stability_history(sponsor, from_biennium="2021-22", to_biennium="2025-26")
+    assert r["id_is_stable_across_history"] is False
+    assert len(r["rekeys"]) == 1 and not r["name_collisions"]
+    assert r["rekeys"][0]["boundary"] == "2023-24->2025-26"
+    assert r["rekeys"][0]["id_a"] == 10 and r["rekeys"][0]["id_b"] == 999
+
+
+async def test_sweep_name_collision_different_district_is_benign() -> None:
+    # Two different people named "Brian Sullivan" in different districts (the live 1999->2001
+    # finding): the name-only key pairs them, but the Id correctly separates → NOT a re-key.
+    sponsor = _FakeSponsorClient(
+        {
+            "2023-24": [_m(2132, "Brian", "Sullivan", district="29")],
+            "2025-26": [_m(7240, "Brian", "Sullivan", district="21")],
+        }
+    )
+    r = await sweep_id_stability_history(sponsor, from_biennium="2023-24", to_biennium="2025-26")
+    assert r["id_is_stable_across_history"] is True  # collision doesn't count against stability
+    assert r["total_divergences"] == 1
+    assert not r["rekeys"] and len(r["name_collisions"]) == 1
+
+
+async def test_sweep_treats_below_floor_biennium_as_absent() -> None:
+    # The sweep walks past the floor; the faulting biennium is 'absent', not a divergence,
+    # and doesn't drag stability down.
+    sponsor = _FaultingSponsorClient(
+        {"2023-24": [_m(10, "Ann", "Rivers")], "2025-26": [_m(10, "Ann", "Rivers")]}
+    )
+    r = await sweep_id_stability_history(sponsor, from_biennium="2021-22", to_biennium="2025-26")
+    assert r["boundaries_compared"] == 1  # only 2023-24->2025-26 had data both sides
+    assert r["id_is_stable_across_history"] is True
+    assert r["deepest_with_data"] == "2023-24"
+    absent = [b for b in r["boundaries"] if b.get("absent")]
+    assert absent and absent[0]["boundary"] == "2021-22->2023-24"
