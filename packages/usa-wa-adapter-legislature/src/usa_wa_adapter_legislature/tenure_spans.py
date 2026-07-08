@@ -8,8 +8,12 @@ holding the same seat / party / committee becomes **one** span with a real
 
 The builder is generic over the tenure *kind* + *discriminator* (the callers — the WSL
 sponsor Phase B, PDC #79, committee membership #82 — build the observations with the right
-discriminator; e.g. party slug, Senate LD, House `LD:Position`, committee id). It knows
-only biennium arithmetic:
+discriminator; e.g. party slug, Senate LD, House `LD:Position`, committee id). **The
+discriminator choice is the caller's semantic decision**, and a changed discriminator
+opens a new span: e.g. keying a Senate seat on its LD means a district *renumbered under
+redistricting* (LD5→LD6) splits a continuously-serving senator into two spans. Whether
+that's desired is for the emission increment (#78-2) to decide deliberately, not the
+builder. It knows only biennium arithmetic:
 
 - **Consecutive** biennia (each 2 years after the previous) merge into one span; a **gap**
   breaks it into two (dormancy = a genuine tenure break — the opposite of the committee
@@ -25,6 +29,7 @@ only biennium arithmetic:
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 
@@ -79,7 +84,7 @@ def _consecutive_runs(ordered: list[str]) -> list[list[str]]:
 
 
 def build_tenure_spans(
-    observations: list[Observation], *, current_biennium: str
+    observations: Iterable[Observation], *, current_biennium: str
 ) -> list[TenureSpan]:
     """Collapse ``observations`` into merged :class:`TenureSpan`s (deterministically ordered).
 

@@ -62,6 +62,25 @@ def test_dormancy_gap_splits_into_two_spans():
     assert span_list[1].valid_to == date(2022, 12, 31) and span_list[1].is_active is False
 
 
+def test_empty_observations_yield_no_spans():
+    assert build_tenure_spans([], current_biennium=CURRENT) == []
+
+
+def test_gap_then_current_run_closes_past_and_opens_present():
+    # Left after 2019-20, out for 2021-22, returned 2023-24 and still serving: a closed
+    # past span + an open current span for one member.
+    span_list = sorted(
+        _spans(_obs("100", "chamber-senate", "5", "2019-20", "2023-24", "2025-26")),
+        key=lambda s: s.start_biennium,
+    )
+    assert [s.start_biennium for s in span_list] == ["2019-20", "2023-24"]
+    past, present = span_list
+    assert past.end_biennium == "2019-20"
+    assert past.valid_to == date(2020, 12, 31) and past.is_active is False
+    assert present.end_biennium == "2025-26"
+    assert present.valid_to is None and present.is_active is True
+
+
 def test_party_switch_is_two_spans():
     # Same kind (party), different discriminator (D then R) → distinct tenures.
     obs = _obs("100", "party", "democratic", "2021-22") + _obs(
