@@ -8,11 +8,11 @@ import pytest
 from sqlalchemy import select
 from ulid import ULID as _ULID
 from usa_wa_adapter_pdc.adapter import PDCAdapter, election_year_for_biennium
-from usa_wa_adapter_pdc.normalize.house_positions import build_house_roster
+from usa_wa_adapter_pdc.normalize.house_positions import build_house_roster, build_senate_roster
 from usa_wa_adapter_pdc.transport import WireFetch
 
 from clearinghouse_core.jurisdictions import Jurisdiction
-from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
+from clearinghouse_core.provenance import Citation, FetchEvent, RawPayload, Source
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier, Role
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
@@ -182,3 +182,93 @@ async def test_runner_end_to_end_materializes_seat(db_session, usa_wa, pdc_sourc
     # Re-run inside the TTL is a cache hit (no second FetchEvent).
     summary2 = await runner.refresh()
     assert summary2.skipped_cache_hit == 1
+
+
+async def test_runner_end_to_end_mover_cross_link_and_inferred_seat(
+    db_session, usa_wa, pdc_source
+) -> None:
+    """The #74 paths persist through the runner: the replacement's inferred seat + the
+    mover's `person_wa_pdc` cross-linked onto their current (Senate) Person, with the
+    inferred assignment carrying a reduced-confidence field-level citation."""
+    anchors = await bootstrap_synthetic_anchors(
+        db_session, biennium=BIENNIUM, jurisdiction_id=usa_wa.id
+    )
+    await _add_ld(db_session, usa_wa, 48)
+    for member_id, name in [
+        ("35655", "Osman Salahuddin"),
+        ("29109", "Amy Walen"),
+        ("27504", "Vandana Slatter"),
+    ]:
+        db_session.add(Person(source="usa_wa_legislature", source_id=member_id, name_full=name))
+    await db_session.flush()
+
+    def _sponsor(id_, first, last, agency="House"):
+        return {
+            "Id": id_,
+            "Agency": agency,
+            "Party": "D",
+            "District": "48",
+            "FirstName": first,
+            "LastName": last,
+        }
+
+    sponsors = [
+        _sponsor("35655", "Osman", "Salahuddin"),
+        _sponsor("29109", "Amy", "Walen"),
+        _sponsor("27504", "Vandana", "Slatter", agency="Senate"),
+    ]
+    client = FakePDCClient(
+        [
+            _winner("800", "Amy Walen", position="2", ld="48"),
+            _winner("801", "Vandana Slatter", position="1", ld="48"),  # moved to Senate
+        ]
+    )
+    adapter = PDCAdapter(
+        anchors=anchors,
+        biennium=BIENNIUM,
+        house_roster=build_house_roster(sponsors),
+        senate_roster=build_senate_roster(sponsors),
+        client=client,
+        session=db_session,
+    )
+    runner = AdapterRunner(
+        adapter,
+        db_session,
+        source=pdc_source,
+        jurisdiction=usa_wa,
+        natural_key=("source", "source_id"),
+    )
+
+    summary = await runner.refresh()
+    assert summary.errors == 0
+
+    # Mover cross-link persisted onto Slatter's (Senate) Person.
+    slatter = (
+        await db_session.execute(select(Person).where(Person.source_id == "27504"))
+    ).scalar_one()
+    mover_id = (
+        await db_session.execute(
+            select(PersonIdentifier).where(PersonIdentifier.person_id == slatter.id)
+        )
+    ).scalar_one()
+    assert mover_id.scheme == "wa_pdc" and mover_id.value == "801"
+
+    # Inferred replacement seat (Salahuddin, Pos 1) persisted with a reduced-confidence cite.
+    salahuddin = (
+        await db_session.execute(select(Person).where(Person.source_id == "35655"))
+    ).scalar_one()
+    inferred = (
+        await db_session.execute(select(Assignment).where(Assignment.person_id == salahuddin.id))
+    ).scalar_one()
+    cites = (
+        (
+            await db_session.execute(
+                select(Citation).where(
+                    Citation.entity_id == inferred.id, Citation.field_path.is_not(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(cites) == 1 and cites[0].confidence < 1.0
