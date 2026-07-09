@@ -123,3 +123,53 @@ async def test_phase_b_no_archive_emits_nothing(db_session, usa_wa, wsl_source):
         db_session, sponsor_client=_FakeSponsorClient([]), current_biennium="2025-26"
     )
     assert emitted == 0
+
+
+class _WireMappingSponsorClient:
+    """Distinct roster per biennium — the wire encodes it (`<b:2023-24>`)."""
+
+    def __init__(self, rosters):
+        self._rosters = rosters
+
+    async def parse_sponsors(self, wire):
+        return self._rosters.get(wire.decode().removeprefix("<b:").removesuffix(">"), [])
+
+    async def fetch_sponsors(self, biennium):
+        raise AssertionError("archive-first — no live pull")
+
+
+async def test_restrict_to_biennium_scopes_rebuild_to_current_cohort(
+    db_session, usa_wa, wsl_source
+):
+    """#78-2c: the daily re-drive rebuilds only members in the current pull (their full
+    history) — a member present in a PRIOR biennium but absent from the current one is skipped."""
+    await _add_ld(db_session, usa_wa, 5)
+    for mid in (100, 200):
+        db_session.add(
+            Person(source="usa_wa_legislature", source_id=str(mid), name_full=f"Member {mid}")
+        )
+    await db_session.flush()
+    # 100 serves both biennia; 200 (departed) only appears in 2023-24.
+    await _archive(db_session, wsl_source, "2023-24", b"<b:2023-24>")
+    await _archive(db_session, wsl_source, "2025-26", b"<b:2025-26>")
+    client = _WireMappingSponsorClient(
+        {
+            "2023-24": [_member(100, district="5"), _member(200, district="9")],
+            "2025-26": [_member(100, district="5")],
+        }
+    )
+
+    emitted = await build_sponsor_spans(
+        db_session,
+        sponsor_client=client,
+        current_biennium="2025-26",
+        restrict_to_biennium="2025-26",
+    )
+
+    # Only 100's spans (party + Senate) — 200 is absent from the 2025-26 cohort, so skipped.
+    assert emitted == 2
+    members_with_spans = {
+        a.source_id.split(":")[0]
+        for a in (await db_session.execute(select(Assignment))).scalars().all()
+    }
+    assert members_with_spans == {"100"}

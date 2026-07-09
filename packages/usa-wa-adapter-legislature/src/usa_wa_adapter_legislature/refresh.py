@@ -49,17 +49,20 @@ from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
 from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
 
-# Biennium date helpers live in synthesis (dependency-free); re-exported here so existing
-# `from ...refresh import biennium_for_date` call sites (probes, PDC refresh, reconcilers)
-# keep working and test_refresh can still patch `refresh.biennium_for_date`.
+# Biennium date helpers live in synthesis (dependency-free); re-exported here (redundant-alias
+# idiom → explicit re-export, silences F401) so existing `from ...refresh import ...` call
+# sites (probes, PDC refresh, reconcilers) keep working and test_refresh can still patch
+# `refresh.biennium_for_date`.
 from usa_wa_adapter_legislature.synthesis import (
-    biennium_for_date,
-    biennium_start_date,
-    previous_biennium,
+    biennium_for_date as biennium_for_date,
+)
+from usa_wa_adapter_legislature.synthesis import (
+    biennium_start_date as biennium_start_date,
+)
+from usa_wa_adapter_legislature.synthesis import (
+    previous_biennium as previous_biennium,
 )
 from usa_wa_adapter_legislature.transport import WSLClient
-
-__all__ = ["biennium_for_date", "biennium_start_date", "previous_biennium"]
 
 logger = get_logger(__name__)
 
@@ -175,8 +178,13 @@ async def _rebuild_member_spans(
         return 0
     try:
         async with session.begin_nested():
+            # Scope to the current cohort — rebuild only spans for members in today's pull
+            # (their full history), not every member's whole archive every day (#78-2c CR).
             return await build_sponsor_spans(
-                session, sponsor_client=sponsor_client, current_biennium=current
+                session,
+                sponsor_client=sponsor_client,
+                current_biennium=current,
+                restrict_to_biennium=current,
             )
     except Exception:
         logger.exception("wsl_member_span_rebuild_failed", extra={"biennium": biennium})

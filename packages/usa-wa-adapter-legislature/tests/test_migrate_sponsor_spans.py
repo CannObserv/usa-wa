@@ -8,7 +8,9 @@ left untouched; a legacy row with no successor span is left + counted.
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, date, datetime
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import func, select
@@ -17,8 +19,9 @@ from ulid import ULID as _ULID
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person
+from usa_wa_adapter_legislature import migrate_sponsor_spans as migrate_module
 from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
-from usa_wa_adapter_legislature.migrate_sponsor_spans import migrate_sponsor_spans
+from usa_wa_adapter_legislature.migrate_sponsor_spans import MigrationResult, migrate_sponsor_spans
 
 CURRENT = "2025-26"
 
@@ -29,6 +32,21 @@ class _FakeSponsorClient:
 
     async def parse_sponsors(self, wire):
         return self._roster
+
+    async def fetch_sponsors(self, biennium):
+        raise AssertionError("archive-first — no live pull")
+
+
+class _WireMappingSponsorClient:
+    """Returns a distinct roster per biennium — the archived wire encodes it (`<r:2021-22/>`),
+    so a member absent from one biennium (dormancy gap) yields non-contiguous spans."""
+
+    def __init__(self, rosters):
+        self._rosters = rosters  # {biennium: [member rows]}
+
+    async def parse_sponsors(self, wire):
+        biennium = wire.decode().removeprefix("<r:").removesuffix("/>")
+        return self._rosters.get(biennium, [])
 
     async def fetch_sponsors(self, biennium):
         raise AssertionError("archive-first — no live pull")
@@ -72,8 +90,9 @@ async def _archive(db_session, source, biennium):
     )
     db_session.add(ev)
     await db_session.flush()
+    body = f"<r:{biennium}/>".encode()  # biennium-tagged so a wire-mapping fake can route it
     db_session.add(
-        RawPayload(fetch_event_id=ev.id, content_type="text/xml", body=b"<r/>", size_bytes=4)
+        RawPayload(fetch_event_id=ev.id, content_type="text/xml", body=body, size_bytes=len(body))
     )
     await db_session.flush()
     return ev.id
@@ -274,3 +293,86 @@ async def test_migration_is_idempotent(db_session, usa_wa, wsl_source):
     assert first.legacy_retired == 1
     assert second.legacy_found == 0  # nothing left to migrate on the second pass
     assert second.anchors_transferred == 0
+
+
+async def test_covering_span_disambiguates_same_role_tenures(db_session, usa_wa, wsl_source):
+    """A member with a dormancy gap has TWO Senate spans on the same LD seat (same role).
+    A current legacy row must collapse onto the ACTIVE (covering) span, not the closed one."""
+    await _add_ld(db_session, usa_wa, 5)
+    db_session.add(Person(source="usa_wa_legislature", source_id="100", name_full="Ann Rivers"))
+    await db_session.flush()
+    # Present 2019-20, ABSENT 2021-22 (gap), present 2023-24 + 2025-26 → two Senate spans.
+    for biennium in ("2019-20", "2023-24", "2025-26"):
+        await _archive(db_session, wsl_source, biennium)
+    rosters = {b: [_member(100)] for b in ("2019-20", "2023-24", "2025-26")}
+    client = _WireMappingSponsorClient(rosters)
+    await build_sponsor_spans(db_session, sponsor_client=client, current_biennium=CURRENT)
+
+    person = (
+        await db_session.execute(select(Person).where(Person.source_id == "100"))
+    ).scalar_one()
+    closed = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "100:chamber-senate:5:2019-20")
+        )
+    ).scalar_one()
+    active = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "100:chamber-senate:5:2023-24")
+        )
+    ).scalar_one()
+    assert closed.valid_to is not None and active.valid_to is None  # sanity: two tenures
+    assert closed.role_id == active.role_id  # same LD seat → same role → the collision case
+
+    pm_id = _ULID()
+    await _add_legacy(
+        db_session,
+        source_id="100:chamber-senate:2025-26",  # current legacy row (valid_from 2025-01-01)
+        person_id=person.id,
+        role_id=active.role_id,
+        pm_id=pm_id,
+    )
+
+    result = await migrate_sponsor_spans(
+        db_session, sponsor_client=client, current_biennium=CURRENT
+    )
+
+    assert result.anchors_transferred == 1
+    await db_session.refresh(active)
+    await db_session.refresh(closed)
+    assert active.pm_assignment_id == pm_id  # the covering (active) span got the anchor
+    assert closed.pm_assignment_id is None  # NOT the closed 2019-20 span
+
+
+# --- CLI (_main) --------------------------------------------------------------
+
+
+async def test_main_returns_2_when_database_url_unset(monkeypatch, capsys):
+    """Missing DATABASE_URL → stderr message + exit 2 (config error)."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with patch.object(migrate_module, "configure_logging"):
+        code = await migrate_module._main([])
+    assert code == 2
+    assert "DATABASE_URL is not set" in capsys.readouterr().err
+
+
+async def test_main_dry_run_rolls_back_and_returns_0(monkeypatch, capsys, test_engine):
+    """--dry-run prints the summary, rolls back, and exits 0 (migrate itself is stubbed)."""
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    fake = MigrationResult(
+        spans_built=3, legacy_found=2, anchors_transferred=2, legacy_retired=2, orphans_no_span=0
+    )
+
+    async def _fake_migrate(session, **_kwargs):
+        return fake
+
+    with (
+        patch.object(migrate_module, "configure_logging"),
+        patch.object(migrate_module, "migrate_sponsor_spans", _fake_migrate),
+    ):
+        code = await migrate_module._main(["--dry-run"])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "legacy_found=2 anchors_transferred=2 retired=2" in out
+    assert "dry-run, rolled back" in out

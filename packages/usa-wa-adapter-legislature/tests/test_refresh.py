@@ -417,6 +417,52 @@ async def test_run_refresh_materializes_member_cluster(db_session, usa_wa):
     assert seat.valid_to is None and seat.is_active is True
 
 
+async def test_span_rebuild_failure_is_isolated_by_savepoint(db_session, usa_wa):
+    """A span-build failure rolls back only its SAVEPOINT — the committees refresh + the
+    member pull still succeed, and member_spans is 0 (best-effort, #78-2c)."""
+    db_session.add(
+        Jurisdiction(
+            slug="usa-wa-ld-18",
+            name="WA LD 18",
+            type_id=usa_wa.type_id,
+            pm_jurisdiction_id=_ULID(),
+            recorded_at=datetime.now(UTC),
+        )
+    )
+    await db_session.flush()
+
+    recorder = vcr.VCR(
+        cassette_library_dir=str(CASSETTE_DIR),
+        record_mode="none",
+        match_on=["method", "scheme", "host", "port", "path"],
+        decode_compressed_response=True,
+    )
+    with (
+        recorder.use_cassette(CASSETTE),
+        patch("usa_wa_adapter_legislature.refresh.biennium_for_date", return_value="2025-26"),
+        patch(
+            "usa_wa_adapter_legislature.refresh.build_sponsor_spans",
+            side_effect=RuntimeError("span build boom"),
+        ),
+    ):
+        outcome = await run_refresh(
+            db_session,
+            biennium="2025-26",
+            meeting_client=_FakeMeetingClient([]),
+            sponsor_client=_FakeSponsorClient(
+                [_sponsor(101, "Ann", "Rivers", agency="Senate", party="R", district="18")]
+            ),
+            member_client=_FakeMembersClient([]),
+        )
+
+    assert outcome.member_spans == 0  # the build failed and was contained
+    assert outcome.committees.errors == 0  # primary refresh unaffected
+    assert outcome.members_upserted > 0  # the Person pull (before the span rebuild) survived
+    # the session is still usable — the Person from the member pull persisted
+    persons = {p.source_id for p in (await db_session.execute(select(Person))).scalars().all()}
+    assert "101" in persons
+
+
 async def _cite_committees(session, *, source, committees, resource_id):
     """Attach a ``resource_id`` citation to each committee via one shared FetchEvent —
     mirrors how a real GetActiveCommittees (``committees:<biennium>``) or roster

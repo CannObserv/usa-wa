@@ -40,12 +40,20 @@ async def build_sponsor_spans(
     *,
     sponsor_client: WSLClient | None = None,
     current_biennium: str | None = None,
+    restrict_to_biennium: str | None = None,
 ) -> int:
     """Build + emit merged-span Assignments from the local sponsor archive; return the count.
 
     Archive-derived: the provider re-parses each ``sponsors:<biennium>`` offline (the
     ``sponsor_client`` is only a fallback for an un-archived biennium). ``current_biennium``
-    determines which spans stay open (defaults to the date-current biennium)."""
+    determines which spans stay open (defaults to the date-current biennium).
+
+    ``restrict_to_biennium`` scopes the rebuild to **members observed in that biennium's
+    roster** — the daily refresh passes the current biennium so it re-asserts only that day's
+    cohort (their full span history, not just the current run), rather than rebuilding every
+    member's whole archive every day (#78-2c). Each scoped member keeps their *full*
+    cross-biennium span history; only members absent from that biennium are skipped. ``None``
+    (the harvest / migration path) rebuilds all members."""
     jurisdiction = await resolve_jurisdiction(session)
     source = await get_or_create_source(session, jurisdiction)
     current = current_biennium or biennium_for_date(datetime.now(UTC).date())
@@ -60,14 +68,23 @@ async def build_sponsor_spans(
         logger.warning("sponsor_span_build_no_archive")
         return 0
     roster = await provider.roster_map(bienniums)
-    spans = build_tenure_spans(build_sponsor_observations(roster), current_biennium=current)
+    observations = build_sponsor_observations(roster)
+    if restrict_to_biennium is not None:
+        scoped = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
+        observations = [o for o in observations if o.member_id in scoped]
+    spans = build_tenure_spans(observations, current_biennium=current)
     fetch_events = await provider.fetch_event_map(bienniums)
     emitted = await emit_sponsor_spans(
         session, spans, anchors=anchors, reliability=source.reliability, fetch_events=fetch_events
     )
     logger.info(
         "sponsor_span_build_complete",
-        extra={"bienniums": len(bienniums), "spans": len(spans), "emitted": emitted},
+        extra={
+            "bienniums": len(bienniums),
+            "spans": len(spans),
+            "emitted": emitted,
+            "restricted": restrict_to_biennium,
+        },
     )
     return emitted
 

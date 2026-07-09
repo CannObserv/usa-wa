@@ -327,6 +327,12 @@ python -m usa_wa_adapter_legislature.harvest_sponsor_spans
 # rows untouched; a legacy row with no successor span is left + counted (orphans_no_span). Since
 # PM matches structurally, the span updates the SAME PM assignment (no duplicate). Idempotent;
 # --dry-run rolls back. Prod: 202 legacy rows (151 party + 51 Senate), all 2025-26.
+# DEPLOY SEQUENCING: run this promptly after the 2c deploy, ideally with the sync sidecar
+# PAUSED (sudo systemctl stop usa-wa-sync-powermap). Between the deploy and this run, a span and
+# its legacy row briefly share one pm_assignment_id (PM's structural match), so an inbound feed
+# event for that assignment would trip the sidecar's local_match scalar_one_or_none. It is
+# transient + self-clearing (this migration removes the legacy row), but pausing the sidecar
+# avoids the error window. Restart the sidecar after: sudo systemctl start usa-wa-sync-powermap.
 python -m usa_wa_adapter_legislature.migrate_sponsor_spans --dry-run
 python -m usa_wa_adapter_legislature.migrate_sponsor_spans
 

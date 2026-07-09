@@ -13,9 +13,11 @@ the same PM assignment (which would break the assignment descriptor's ``local_ma
 ``(person, role)`` (the assignment descriptor's observation carries no source_id); a span
 shares the *same* person + role as the legacy per-biennium rows it collapses, so PM already
 folds them onto one assignment. The migration mirrors that: the successor span is the live
-Assignment with the same ``(person_id, role_id)`` and a **span-shaped** source_id (4 colon
-parts), distinct from the 3-part legacy key. It transfers the legacy anchor to that span
-(if the span lacks one) and hard-deletes the legacy row + its citations.
+Assignment with the same ``(person_id, role_id)``, a **span-shaped** source_id (4 colon
+parts, vs the 3-part legacy key), **and a validity window covering the legacy row's
+biennium** — the window check disambiguates a member with non-contiguous tenure in one role
+(a dormancy gap yields two spans under the same ``(person, role)``). It transfers the legacy
+anchor to that span (if the span lacks one) and hard-deletes the legacy row + its citations.
 
 **Scope — party + Senate seat only.** The span builder emits only ``party`` +
 ``chamber-senate`` observations, so only those legacy dims are superseded. ``chamber-house``
@@ -24,6 +26,13 @@ migrations belong to those issues. A legacy row with no successor span (e.g. an 
 Senate seat that never produced a span) is **left in place and logged**, never orphaned.
 
 Idempotent: re-running finds no legacy rows (they were retired) and re-asserts the spans.
+
+**Deploy sequencing.** Run this promptly after the 2c deploy, ideally with the sync sidecar
+paused. Between the deploy and this run, a span and its legacy row briefly share one
+``pm_assignment_id`` (PM's structural match folds them), so an inbound feed event for that
+assignment would trip the assignment descriptor's ``local_match`` ``scalar_one_or_none`` on
+two rows. It is transient and self-clearing (this migration removes the legacy row), but
+pausing ``usa-wa-sync-powermap`` over the run avoids the error window.
 """
 
 from __future__ import annotations
@@ -33,8 +42,9 @@ import asyncio
 import os
 import re
 import sys
+from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -81,6 +91,20 @@ def _is_span_source_id(source_id: str) -> bool:
     return len(parts) == 4 and parts[1] in _LEGACY_DIMS and _BIENNIUM_RE.match(parts[3]) is not None
 
 
+def _covering_span(spans, legacy_valid_from: date | None) -> Assignment | None:
+    """The span (among candidates sharing the legacy row's person+role) whose validity
+    window contains the legacy biennium's start — so a legacy row collapses into the tenure
+    it actually belonged to, not a different (e.g. closed) run of the same role. ``None`` if
+    the legacy row falls in a gap between spans (a genuine orphan)."""
+    if legacy_valid_from is None:
+        return None
+    for span in spans:
+        upper = span.valid_to or date.max
+        if span.valid_from <= legacy_valid_from <= upper:
+            return span
+    return None
+
+
 async def migrate_sponsor_spans(
     session: AsyncSession,
     *,
@@ -105,15 +129,21 @@ async def migrate_sponsor_spans(
         .scalars()
         .all()
     )
-    # Index the span rows by their structural key (PM's own assignment identity).
-    span_by_key: dict[tuple, Assignment] = {
-        (a.person_id, a.role_id): a for a in live if _is_span_source_id(a.source_id)
-    }
+    # Index the span rows by structural key (PM's assignment identity). A member with
+    # non-contiguous tenure in the SAME role (a dormancy gap → e.g. two Senate spans on one
+    # LD seat, or two party spans after a party round-trip) has multiple spans under one
+    # (person, role), so a legacy row must map to the span whose validity window covers ITS
+    # biennium — not an arbitrary one. The per-biennium legacy row's ``valid_from`` is that
+    # biennium's Jan-1 start (set by the old normalizer).
+    spans_by_key: dict[tuple, list[Assignment]] = defaultdict(list)
+    for a in live:
+        if _is_span_source_id(a.source_id):
+            spans_by_key[(a.person_id, a.role_id)].append(a)
     legacy = [a for a in live if _is_legacy_sponsor_source_id(a.source_id)]
 
     transferred = retired = orphans = 0
     for row in legacy:
-        span = span_by_key.get((row.person_id, row.role_id))
+        span = _covering_span(spans_by_key.get((row.person_id, row.role_id), ()), row.valid_from)
         if span is None:
             logger.warning(
                 "sponsor_span_migrate_no_successor",
