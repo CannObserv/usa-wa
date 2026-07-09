@@ -314,10 +314,21 @@ python -m usa_wa_adapter_legislature.harvest_sponsors --from-biennium 1991-92 --
 # biennium stays open/is_active), and emits ONE Assignment per tenure keyed on the tenure
 # start (sponsor_span_emit) with a Citation per biennium in range (cite-every-biennium, #78).
 # Idempotent re-assert. Depends on the #77 harvest archiving the rosters first. --dry-run rolls
-# back. (Remaining #78: subsume the daily path onto the builder; migrate the shipped
-# per-biennium rows carrying pm_assignment_id.)
+# back. The daily refresh also re-drives this builder for the current biennium (#78-2c).
 python -m usa_wa_adapter_legislature.harvest_sponsor_spans --dry-run
 python -m usa_wa_adapter_legislature.harvest_sponsor_spans
+
+# Span MIGRATION — #78-3, RUN-ONCE on the 2c deploy. Collapse the pre-#78 per-biennium
+# party/chamber-senate Assignments (each carrying a pm_assignment_id) onto the merged span that
+# shares their (person_id, role_id) — PM's own structural assignment key. Transfers the PM anchor
+# to the span + hard-deletes the legacy row + its citations, so the local cache holds ONE row per
+# PM assignment (else the assignment descriptor's local_match scalar_one_or_none breaks). Builds
+# the spans first (idempotent), then collapses. Leaves chamber-house (PDC/#69) + committee (#82)
+# rows untouched; a legacy row with no successor span is left + counted (orphans_no_span). Since
+# PM matches structurally, the span updates the SAME PM assignment (no duplicate). Idempotent;
+# --dry-run rolls back. Prod: 202 legacy rows (151 party + 51 Senate), all 2025-26.
+python -m usa_wa_adapter_legislature.migrate_sponsor_spans --dry-run
+python -m usa_wa_adapter_legislature.migrate_sponsor_spans
 
 # Committee historical backfill (sub-project 3, Phase A) — sweep GetCommittees(biennium)
 # over a range through AdapterRunner(fill_only=True): archive the full-roster wire under

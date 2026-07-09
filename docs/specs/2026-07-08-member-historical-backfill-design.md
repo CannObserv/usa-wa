@@ -137,20 +137,25 @@ members it observed** — the current biennium is just a span's open end. `build
 gains real `valid_to` + `is_active`. On a fresh deploy (archive holds only recent
 biennia) spans are as deep as the archive and deepen after the harvest — correct.
 
-**Migration.** Span `source_id`s differ from today's per-biennium
-`{id}:chamber-senate:{biennium}` keys. Plan an idempotent transition: emit the new
-span rows, retire the superseded per-biennium rows (they collapse into their span).
-**Citation reconciliation rides on `assignment.id`.** `emit_sponsor_spans`
-re-asserts a span's citations by *deleting every `assignment`-typed Citation for that
-row's `id`* then re-adding one per covered biennium. That is safe pre-migration
-because a span row is a *new* `Assignment` (new `source_id` → new `id`), disjoint from
-the pre-#78 per-biennium rows. When migration collapses those rows it must decide the
-`id` identity deliberately: if a span reuses a retired per-biennium row's `id` (e.g. to
-carry its `pm_assignment_id`), the re-assert silently drops that row's old
-per-biennium citations — desired here (they're superseded by the span's
-cite-every-biennium set), but it must be a conscious choice, not an accident of key
-reuse. Retiring a per-biennium row whose `id` is *not* reused must also clean its
-orphaned citations.
+**Migration — IMPLEMENTED (`migrate_sponsor_spans`, #78-3).** Span `source_id`s differ
+from today's per-biennium `{id}:{dim}:{biennium}` keys, so the span row is a *new*
+`Assignment` (new `id`), disjoint from the legacy rows. The migration does **not** reuse
+the legacy `id`; instead it keys off PM's own identity. **The successor is matched on
+`(person_id, role_id)`** — PM identifies an assignment structurally by `(person, role)`
+(the descriptor's observation carries no source_id), and a span shares the legacy rows'
+person + role, so PM already folds them onto one assignment. The migration mirrors that:
+for each legacy party/`chamber-senate` row it finds the span with the same
+`(person_id, role_id)`, **transfers the legacy `pm_assignment_id` anchor onto the span**
+(so the span, not the deleted legacy row, is the single local representative of that PM
+assignment — the descriptor's `local_match` `scalar_one_or_none` would otherwise break on
+two rows sharing one anchor), then **hard-deletes the legacy row + its citations** (the
+span carries its own cite-every-biennium set). Because PM matches structurally, the span's
+first observation updates the *same* PM assignment — no duplicate is created. Scope is
+`party` + `chamber-senate` only (the two dims the builder supersedes); `chamber-house`
+(PDC/#69) and `committee` (#82) rows are left untouched, and a legacy row with no successor
+span is left in place and counted (`orphans_no_span`), never orphaned. Idempotent
+(a second pass finds no legacy rows). Run-once on the 2c deploy — prod carried 202 legacy
+rows (151 party + 51 Senate), all `2025-26`, all PM-linked.
 
 ### PDC era-scoped backfill — #79
 
