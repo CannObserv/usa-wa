@@ -157,16 +157,25 @@ span is left in place and counted (`orphans_no_span`), never orphaned. Idempoten
 (a second pass finds no legacy rows). Run-once on the 2c deploy — prod carried 202 legacy
 rows (151 party + 51 Senate), all `2025-26`, all PM-linked.
 
-**Upstream limitation — multi-tenure producer→PM collapse (power-map#289).** The migration's
-covering-window match makes the *local* collapse correct for a member with non-contiguous
-tenure in one role (a dormancy gap → two spans sharing `(person, role)`). But PM identifies an
-assignment **structurally by `(person, role)`**, so pushing both spans folds them onto one PM
-assignment (the later overwrites the earlier) — PM can only hold the most-recent tenure per
-role. Latent today (current rosters are single-tenure); it first bites when the #77 historical
-backfill + production run surface a returning legislator. The technically-correct fix is
-temporal assignment identity `(person, role, start_date)` **with `NULLS NOT DISTINCT`** (NULL =
-the single undated tenure, the common case) — filed upstream as **power-map#289**, a natural
-gate for the deferred #77 production run.
+**Multi-tenure producer→PM (power-map#289, resolved).** The CR-6 evaluation filed power-map#289
+worried that PM would fold two spans sharing `(person, role)` onto one assignment. Reviewing PM
+confirmed the opposite: PM's match key is **`(person, role, start_date)` with NULLS NOT DISTINCT**
+and has been since power-map#177 — distinct dated `start_date`s **coexist** as separate rows, so
+our dated spans (each sends its `valid_from` as `start_date`) land as distinct tenures with no
+collapse. #289 additionally shipped the id-addressed `NULL → dated` promotion path (date an
+already-pushed undated tenure in place, rejecting a differing existing date). The migration's
+covering-window match + legacy retirement stays correct *locally* — on the shallow prod archive a
+span's `valid_from` equals its legacy row's `start_date`, so both resolve to the same PM
+assignment and the migration collapses the double-anchor.
+
+**Residual — start-date correction as the archive deepens (defer to #80).** One gap remains for
+the *deferred* #77 production run: a merged span's `valid_from` moves **earlier** as the harvest
+archives older biennia (a 2025-start span becomes a 2013-start span). Since the producer does
+match-or-create by `start_date`, the deeper span mints a **new** PM assignment and orphans the
+shallow one PM already holds — and #289's backfill only fills `NULL → dated`, not
+`dated → earlier-dated` (a `start_date_conflict`). So deepening a span's start is a genuine
+*correction*, not a fill; handling it (re-key/retire the orphan, or a PM start-correction path)
+belongs to #80 (PM historical production strategy), the same gate the #77 production run waits on.
 
 ### PDC era-scoped backfill — #79
 

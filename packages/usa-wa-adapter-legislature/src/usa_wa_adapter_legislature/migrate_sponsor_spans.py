@@ -9,15 +9,18 @@ merged span that supersedes them, so the local cache stops carrying **two** rows
 the same PM assignment (which would break the assignment descriptor's ``local_match``
 ``scalar_one_or_none``).
 
-**Why match on ``(person_id, role_id)``.** PM identifies an assignment **structurally** by
-``(person, role)`` (the assignment descriptor's observation carries no source_id); a span
-shares the *same* person + role as the legacy per-biennium rows it collapses, so PM already
-folds them onto one assignment. The migration mirrors that: the successor span is the live
-Assignment with the same ``(person_id, role_id)``, a **span-shaped** source_id (4 colon
-parts, vs the 3-part legacy key), **and a validity window covering the legacy row's
-biennium** — the window check disambiguates a member with non-contiguous tenure in one role
-(a dormancy gap yields two spans under the same ``(person, role)``). It transfers the legacy
-anchor to that span (if the span lacks one) and hard-deletes the legacy row + its citations.
+**Why retire the legacy row.** PM identifies an assignment by ``(person, role, start_date)``
+with NULLS NOT DISTINCT (power-map#177/#289) — the descriptor's observation carries no
+source_id. On today's shallow archive a span's ``valid_from`` equals its legacy per-biennium
+row's ``start_date`` (both the current biennium's Jan-1), so both resolve to the **same** PM
+assignment; leaving both locally would double-anchor one ``pm_assignment_id`` and break the
+descriptor's ``local_match`` ``scalar_one_or_none``. The migration collapses the pair: the
+successor span is the live Assignment with the same ``(person_id, role_id)``, a **span-shaped**
+source_id (4 colon parts, vs the 3-part legacy key), **and a validity window covering the
+legacy row's biennium** — the window check disambiguates a member with non-contiguous tenure
+in one role (a dormancy gap yields two spans under the same ``(person, role)``, each a distinct
+PM assignment via its own ``start_date``). It transfers the legacy anchor to that span (if the
+span lacks one) and hard-deletes the legacy row + its citations.
 
 **Scope — party + Senate seat only.** The span builder emits only ``party`` +
 ``chamber-senate`` observations, so only those legacy dims are superseded. ``chamber-house``

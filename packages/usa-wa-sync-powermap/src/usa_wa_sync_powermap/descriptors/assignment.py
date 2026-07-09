@@ -1,12 +1,18 @@
-"""Assignment descriptor — Person × Role × period, observed by (person, role).
+"""Assignment descriptor — Person × Role × period, observed by (person, role, start_date).
 
 Like roles, an assignment observation carries PM **foreign keys**
-``(person_id, role_id)`` — PM's structural match key — so it auto-attaches to
-PM's backfilled assignments natively; no name cascade. The ordering requirement is
-the strongest in the cluster: both the person *and* the role must be anchored
-before the observation can be built. :meth:`dependencies_ready` enforces that (and
-that the assignment actually has a person — an assignment carrying only a raw
-holder name cannot be expressed to PM, so it stays deferred until a Person exists).
+``(person_id, role_id)`` so it auto-attaches to PM's backfilled assignments
+natively; no name cascade. PM's match key is ``(person, role, start_date)`` with
+**NULLS NOT DISTINCT** (power-map#177/#289): a NULL ``start_date`` is the single
+"undated" tenure per ``(person, role)``, while distinct dated ``start_date``s
+**coexist** as separate rows — so a member with non-contiguous tenure in one role
+(a dormancy gap) lands as distinct assignments, one per span, because
+:meth:`to_observation` sends each span's ``valid_from`` as ``start_date``.
+The ordering requirement is the strongest in the cluster: both the person *and* the
+role must be anchored before the observation can be built. :meth:`dependencies_ready`
+enforces that (and that the assignment actually has a person — an assignment carrying
+only a raw holder name cannot be expressed to PM, so it stays deferred until a Person
+exists).
 
 Read is ``feed`` update-only (adopt PM's ``is_current``/dates; skip assignments we
 never produced; ``local_match`` keys on the anchor).
