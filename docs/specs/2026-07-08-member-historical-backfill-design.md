@@ -157,6 +157,17 @@ span is left in place and counted (`orphans_no_span`), never orphaned. Idempoten
 (a second pass finds no legacy rows). Run-once on the 2c deploy — prod carried 202 legacy
 rows (151 party + 51 Senate), all `2025-26`, all PM-linked.
 
+**Upstream limitation — multi-tenure producer→PM collapse (power-map#289).** The migration's
+covering-window match makes the *local* collapse correct for a member with non-contiguous
+tenure in one role (a dormancy gap → two spans sharing `(person, role)`). But PM identifies an
+assignment **structurally by `(person, role)`**, so pushing both spans folds them onto one PM
+assignment (the later overwrites the earlier) — PM can only hold the most-recent tenure per
+role. Latent today (current rosters are single-tenure); it first bites when the #77 historical
+backfill + production run surface a returning legislator. The technically-correct fix is
+temporal assignment identity `(person, role, start_date)` **with `NULLS NOT DISTINCT`** (NULL =
+the single undated tenure, the common case) — filed upstream as **power-map#289**, a natural
+gate for the deferred #77 production run.
+
 ### PDC era-scoped backfill — #79
 
 `python -m usa_wa_adapter_pdc.harvest_pdc`
