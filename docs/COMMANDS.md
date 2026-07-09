@@ -299,8 +299,8 @@ python -m usa_wa_adapter_legislature.ingest_committee_seed
 # Historical member (sponsor) harvest — Phase A of the #76 backfill epic (#77). Sweep
 # GetSponsors(biennium) from the 1991-92 floor to current through AdapterRunner(fill_only=True),
 # archiving each sponsors:<biennium> wire (#54) and materializing PERSONS + wa_legislature_member_id
-# identifiers ONLY (persons_only — party/seat/committee tenure are merged spans built in Phase B
-# #78, not per-biennium here). Persons dedup across biennia by the stable WSL Id (#81). Same
+# identifiers ONLY (the sponsor normalize is persons-only, #78-2c — party/seat/committee tenure
+# are merged spans built in Phase B #78, not per-biennium here). Persons dedup by stable Id (#81). Same
 # op/resource key as the daily path. Pacing is central: --pause-seconds sets the WSL limiter.
 # Closed biennia cache-hit on re-run; --dry-run rolls back; --force re-materializes.
 python -m usa_wa_adapter_legislature.harvest_sponsors --dry-run   # 1991-92→current, roll back

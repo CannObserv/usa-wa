@@ -13,7 +13,8 @@ Resources today:
   Joint/`Other` committee class (#39). Driven per date window by the backfill CLI
   and (current window) the daily refresh.
 - ``sponsors:<biennium>`` — the member roster from ``SponsorService.GetSponsors``
-  (P1b): Person + party + Senate seat.
+  (P1b): Person + identifier only (party/Senate-seat tenure are archive-derived
+  merged spans, Phase B / #78-2c, not per-biennium here).
 - ``committee-members:<committee_id>:<agency>:<name>`` — one committee's current
   roster from ``CommitteeService.GetActiveCommitteeMembers`` (P1b): membership
   Assignments. The committee id rides the resource id (the payload carries only
@@ -117,14 +118,10 @@ class WALegislatureAdapter(BaseAdapter):
         sponsor_client: WSLClient | None = None,
         member_client: WSLClient | None = None,
         session: AsyncSession | None = None,
-        sponsors_persons_only: bool = False,
     ) -> None:
         self.anchors = anchors
         self.jurisdiction_id = jurisdiction_id
         self.biennium = biennium
-        # #77 historical harvest (Phase A): emit only Person + identifier from GetSponsors,
-        # deferring party/seat Assignments to the Phase B span engine (#78).
-        self._sponsors_persons_only = sponsors_persons_only
         self._committee_client = client or WSLClient("CommitteeService")
         self._meeting_client = meeting_client or WSLClient("CommitteeMeetingService")
         self._sponsor_client = sponsor_client or WSLClient("SponsorService")
@@ -257,13 +254,7 @@ class WALegislatureAdapter(BaseAdapter):
                 jurisdiction_id=self.jurisdiction_id,
             )
         if payload.url == _SPONSORS_URL:
-            return await normalize_sponsors(
-                payload,
-                session=self._require_session(),
-                anchors=self.anchors,
-                biennium=self.biennium,
-                persons_only=self._sponsors_persons_only,
-            )
+            return await normalize_sponsors(payload, session=self._require_session())
         if payload.url.endswith(_COMMITTEE_MEMBERS_FRAGMENT):
             # committee id rides the url query, before the fragment (stamped by
             # _fetch_committee_members): …asmx?committee_id=<id>#GetActiveCommitteeMembers.

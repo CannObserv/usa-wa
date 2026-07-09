@@ -29,7 +29,7 @@ import asyncio
 import dataclasses
 import os
 import sys
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -45,42 +45,23 @@ from usa_wa_adapter_legislature.adapter import (
     committee_members_resource_id,
 )
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors, bootstrap_synthetic_anchors
+from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
 from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
+
+# Biennium date helpers live in synthesis (dependency-free); re-exported here so existing
+# `from ...refresh import biennium_for_date` call sites (probes, PDC refresh, reconcilers)
+# keep working and test_refresh can still patch `refresh.biennium_for_date`.
+from usa_wa_adapter_legislature.synthesis import (
+    biennium_for_date,
+    biennium_start_date,
+    previous_biennium,
+)
 from usa_wa_adapter_legislature.transport import WSLClient
 
+__all__ = ["biennium_for_date", "biennium_start_date", "previous_biennium"]
+
 logger = get_logger(__name__)
-
-
-def biennium_for_date(today: date) -> str:
-    """Compute the WA biennium label (``YYYY-YY``) covering ``today``.
-
-    Bienniums begin on odd years (2025-26, 2027-28, …). On an even year we
-    roll back to the prior odd year.
-    """
-    start = today.year if today.year % 2 == 1 else today.year - 1
-    end_suffix = (start + 1) % 100
-    return f"{start}-{end_suffix:02d}"
-
-
-def _biennium_start_year(label: str) -> int:
-    """Parse the odd start year from a ``YYYY-YY`` biennium label."""
-    return int(label.split("-", 1)[0])
-
-
-def biennium_start_date(label: str) -> date:
-    """The date a biennium begins — Jan 1 of its odd start year.
-
-    WSL exposes no explicit committee name-change date; this biennium-start boundary
-    is the documented approximation used to window a detected rename (#46).
-    """
-    return date(_biennium_start_year(label), 1, 1)
-
-
-def previous_biennium(label: str) -> str:
-    """The biennium two years before ``label`` (the rename diff's "before" side, #46)."""
-    start = _biennium_start_year(label) - 2
-    return f"{start}-{(start + 1) % 100:02d}"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -92,6 +73,7 @@ class RefreshOutcome:
     committees: RunSummary
     meetings_upserted: int
     members_upserted: int = 0
+    member_spans: int = 0
 
 
 async def run_refresh(
@@ -107,12 +89,14 @@ async def run_refresh(
 
     Runs the committees discovery, then an **additive** current-biennium meeting-docket
     pull for the Joint/`Other` class (#39), then the **member cluster** (P1b): the
-    ``GetSponsors`` roster (Person + party + Senate seat) and a fan-out of
-    ``GetActiveCommitteeMembers`` over the current active committees. Returns a
-    :class:`RefreshOutcome` with the committees :class:`RunSummary` and the meeting +
-    member upsert counts; both the meeting and member phases are **best-effort** — a
-    member/meeting-service outage must not fail the (primary) committees refresh (their
-    counts are 0 on failure).
+    ``GetSponsors`` roster (Persons + identifiers) and a fan-out of
+    ``GetActiveCommitteeMembers`` over the current active committees, and finally
+    **re-drives the member span builder** (#78-2c) so party/Senate-seat tenure is
+    materialized as merged Assignment spans from the archive (the current biennium as the
+    open end). Returns a :class:`RefreshOutcome` with the committees :class:`RunSummary`
+    and the meeting + member upsert + span counts; the meeting, member, and span phases are
+    all **best-effort** — a member/meeting-service outage or a span-build failure must not
+    fail the (primary) committees refresh (their counts are 0 on failure).
 
     ``committee_client`` / ``meeting_client`` / ``sponsor_client`` / ``member_client``
     are injectable for tests; production defaults to real per-service clients.
@@ -163,11 +147,40 @@ async def run_refresh(
     )
     meetings_upserted = await _discover_current_meeting_window(runner, biennium)
     members_upserted = await _discover_members(runner, session, biennium, anchors)
+    member_spans = await _rebuild_member_spans(session, biennium, current, sponsor_client)
     return RefreshOutcome(
         committees=summary,
         meetings_upserted=meetings_upserted,
         members_upserted=members_upserted,
+        member_spans=member_spans,
     )
+
+
+async def _rebuild_member_spans(
+    session: AsyncSession, biennium: str, current: str, sponsor_client: WSLClient | None
+) -> int:
+    """Re-drive the Phase B span builder (#78-2c) so the daily refresh materializes merged
+    party/Senate-seat Assignment **spans** from the sponsor archive — the current biennium
+    is just a span's open end. The per-biennium inline emission the sponsor normalizer used
+    to carry is retired; this is its replacement (:mod:`harvest_sponsor_spans`).
+
+    Only runs for the **date-current** biennium: the span builder's open-end semantics key
+    off "now", and a pinned/backfill ``USA_WA_BIENNIUM`` names closed history whose spans are
+    the ``harvest_sponsor_spans`` CLI's job (re-driving here with the wrong "current" would
+    mis-open closed tenures). **Best-effort** — wrapped in a SAVEPOINT so a builder failure
+    rolls back only the span work and never fails the (primary) committees refresh. Reads the
+    archive the sponsor pull just wrote (archive-first; no extra WSL call). Returns the count.
+    """
+    if biennium != current:
+        return 0
+    try:
+        async with session.begin_nested():
+            return await build_sponsor_spans(
+                session, sponsor_client=sponsor_client, current_biennium=current
+            )
+    except Exception:
+        logger.exception("wsl_member_span_rebuild_failed", extra={"biennium": biennium})
+        return 0
 
 
 async def _discover_members(
@@ -352,7 +365,7 @@ async def _main() -> int:
             f"upserted={committees.upserted_entities} "
             f"errors={committees.errors}) "
             f"meetings(upserted={outcome.meetings_upserted}) "
-            f"members(upserted={outcome.members_upserted})"
+            f"members(upserted={outcome.members_upserted} spans={outcome.member_spans})"
         )
         return 0 if committees.errors == 0 else 1
     finally:

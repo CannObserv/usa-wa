@@ -59,6 +59,11 @@ class _FakeSponsorClient:
         self.calls.append(biennium)
         return WireFetch(records=self._records, wire=b"<sponsors/>", content_type="text/xml")
 
+    async def parse_sponsors(self, wire) -> list[dict]:  # noqa: ANN001
+        # Archive-first span re-drive (#78-2c) re-parses the archived wire offline; the
+        # fake returns its fixed roster (the wire bytes are opaque to the test).
+        return self._records
+
 
 class _FakeMembersClient:
     """Injectable GetActiveCommitteeMembers stand-in (no network) — empty roster."""
@@ -397,16 +402,19 @@ async def test_run_refresh_materializes_member_cluster(db_session, usa_wa):
         )
 
     assert outcome.members_upserted > 0
+    assert outcome.member_spans > 0  # #78-2c: the daily refresh re-drove the span builder
     persons = {p.source_id for p in (await db_session.execute(select(Person))).scalars().all()}
     assert "101" in persons  # from the sponsor pull
     assert "301" in persons  # from the committee-member fan-out
     # the senator got a seat Assignment; the committee member got membership Assignment(s)
-    dims = {
-        a.source_id.split(":")[1]
-        for a in (await db_session.execute(select(Assignment))).scalars().all()
-    }
+    assignments = (await db_session.execute(select(Assignment))).scalars().all()
+    dims = {a.source_id.split(":")[1] for a in assignments}
     assert "chamber-senate" in dims
     assert "committee" in dims
+    # the Senate seat is now a merged SPAN (4-part source_id, open end), not a per-biennium row
+    seat = next(a for a in assignments if ":chamber-senate:" in a.source_id)
+    assert seat.source_id == "101:chamber-senate:18:2025-26"
+    assert seat.valid_to is None and seat.is_active is True
 
 
 async def _cite_committees(session, *, source, committees, resource_id):

@@ -3,9 +3,10 @@
 For each biennium in a range (default: the WSL floor ``1991-92`` → current), fetch
 ``SponsorService.GetSponsors(biennium)`` through the AdapterRunner under the
 ``sponsors:<biennium>`` resource id — archiving the pristine SOAP wire (RawPayload,
-hashed, #54) and materializing **Persons + `wa_legislature_member_id` identifiers only**
-(``persons_only``). Party / chamber-seat / committee tenure are **merged spans** built
-from the full archive in Phase B (#78), not per-biennium here.
+hashed, #54) and materializing **Persons + `wa_legislature_member_id` identifiers only**.
+The sponsor normalizer emits the Person cluster only (#78-2c); party / chamber-seat /
+committee tenure are **merged spans** built from the full archive in Phase B (#78), not
+per-biennium here.
 
 Runs the runner **`fill_only=True`** (#65): a Person already present (from the daily
 refresh or an earlier biennium) is never clobbered — deduped by the stable WSL ``Id``
@@ -87,7 +88,6 @@ async def harvest_sponsors(
         biennium=bienniums[0],
         sponsor_client=sponsor_client,
         session=session,
-        sponsors_persons_only=True,  # Phase A: Persons + identifiers only (#77)
     )
     runner = AdapterRunner(
         adapter,

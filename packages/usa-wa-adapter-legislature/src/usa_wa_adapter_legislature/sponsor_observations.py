@@ -5,7 +5,8 @@ from the sponsor archive) into tenure :class:`~usa_wa_adapter_legislature.tenure
 the span builder consumes. Per named member row (name-blanked stubs skipped):
 
 - a **party** observation (major party only — ``canonicalize_party`` folds independent/blank
-  to ``None``, which emits nothing, matching the current per-biennium ``_emit_party``), and
+  to ``None``, which emits nothing, preserving the major-party-only rule the retired
+  per-biennium ``_emit_party`` enforced, #78-2c), and
 - for a **Senate** row with a parseable district, a **chamber-senate** seat observation keyed
   on the LD.
 

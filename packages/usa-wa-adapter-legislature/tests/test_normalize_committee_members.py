@@ -109,12 +109,7 @@ async def test_unknown_committee_returns_empty_batch(db_session, usa_wa):
 
 async def test_person_deduped_against_sponsor_pull(db_session, usa_wa, committee):
     """A member already created by the sponsor pull resolves to the same Person row."""
-    # First, the sponsor pull creates the Person (source_id 301).
-    from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-
-    anchors = await bootstrap_synthetic_anchors(
-        db_session, biennium=BIENNIUM, jurisdiction_id=usa_wa.id
-    )
+    # First, the sponsor pull creates the Person (source_id 301) — persons-only (#78-2c).
     sponsor_payload = FetchedPayload(
         url="https://wslwebservices.leg.wa.gov/SponsorService.asmx#GetSponsors",
         fetched_at=datetime.now(UTC),
@@ -122,12 +117,7 @@ async def test_person_deduped_against_sponsor_pull(db_session, usa_wa, committee
         body=b"",
         parsed=[_member(301, "Kristine", "Reeves", party="D")],
     )
-    sponsor_batch = await normalize_sponsors(
-        sponsor_payload,
-        session=db_session,
-        anchors=anchors,
-        biennium=BIENNIUM,
-    )
+    sponsor_batch = await normalize_sponsors(sponsor_payload, session=db_session)
     sponsor_person_id = next(p.id for p in sponsor_batch.entities if isinstance(p, Person))
 
     # Then the committee pull for the same member reuses that Person id.

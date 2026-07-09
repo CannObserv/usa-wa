@@ -44,9 +44,7 @@ from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source,
     resolve_jurisdiction,
 )
-from usa_wa_adapter_legislature.refresh import (
-    _biennium_start_year,
-)
+from usa_wa_adapter_legislature.synthesis import _biennium_start_year
 from usa_wa_adapter_legislature.transport import WSLClient
 
 logger = get_logger(__name__)

@@ -23,6 +23,7 @@ source / source_id conventions:
 from __future__ import annotations
 
 import re
+from datetime import date
 from typing import Any
 
 from ulid import ULID as _ULID
@@ -59,6 +60,37 @@ def parse_biennium(biennium: str) -> tuple[int, int]:
     if end < start:
         end += 100
     return start, end
+
+
+def biennium_for_date(today: date) -> str:
+    """Compute the WA biennium label (``YYYY-YY``) covering ``today``.
+
+    Bienniums begin on odd years (2025-26, 2027-28, …). On an even year we
+    roll back to the prior odd year.
+    """
+    start = today.year if today.year % 2 == 1 else today.year - 1
+    end_suffix = (start + 1) % 100
+    return f"{start}-{end_suffix:02d}"
+
+
+def _biennium_start_year(label: str) -> int:
+    """Parse the odd start year from a ``YYYY-YY`` biennium label."""
+    return int(label.split("-", 1)[0])
+
+
+def biennium_start_date(label: str) -> date:
+    """The date a biennium begins — Jan 1 of its odd start year.
+
+    WSL exposes no explicit committee name-change date; this biennium-start boundary
+    is the documented approximation used to window a detected rename (#46).
+    """
+    return date(_biennium_start_year(label), 1, 1)
+
+
+def previous_biennium(label: str) -> str:
+    """The biennium two years before ``label`` (the rename diff's "before" side, #46)."""
+    start = _biennium_start_year(label) - 2
+    return f"{start}-{(start + 1) % 100:02d}"
 
 
 def legislature_org(jurisdiction_id: _ULID) -> dict[str, Any]:

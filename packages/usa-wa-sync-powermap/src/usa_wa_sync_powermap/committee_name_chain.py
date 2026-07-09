@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from clearinghouse_sync_powermap.descriptors import normalize_name
-from usa_wa_adapter_legislature.refresh import _biennium_start_year, biennium_start_date
+from usa_wa_adapter_legislature.synthesis import _biennium_start_year, biennium_start_date
 
 #: Rename-storm default: drop a boundary whose renamed fraction exceeds this (a
 #: systematic reformat, not real renames). Matches the spine's default (#46).

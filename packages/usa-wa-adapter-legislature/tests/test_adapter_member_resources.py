@@ -90,12 +90,14 @@ async def _add_ld(session, usa_wa, n):
     return row
 
 
-async def test_sponsors_resource_materializes_member_cluster(db_session, usa_wa, wsl_source):
-    """sponsors:<biennium> → Person + identifier + party + Senate seat, with provenance."""
+async def test_sponsors_resource_materializes_person_cluster(db_session, usa_wa, wsl_source):
+    """sponsors:<biennium> → Person + identifier only, with provenance (#78-2c).
+
+    Party + Senate-seat tenure are archive-derived merged spans (Phase B), NOT emitted by
+    the per-biennium sponsor normalize — so this resource materializes ZERO Assignment/Role."""
     anchors = await bootstrap_synthetic_anchors(
         db_session, biennium=BIENNIUM, jurisdiction_id=usa_wa.id
     )
-    await _add_ld(db_session, usa_wa, 18)
     client = _FakeSponsorClient(
         [_member(101, "Ann", "Rivers", agency="Senate", party="R", district="18")]
     )
@@ -117,15 +119,14 @@ async def test_sponsors_resource_materializes_member_cluster(db_session, usa_wa,
     n = await runner.fetch_and_normalize("sponsors:2025-26")
 
     assert client.calls == ["2025-26"]
-    # Person + identifier + party Role + party Assignment + seat Role + seat Assignment = 6
-    assert n == 6
+    assert n == 2  # Person + identifier only (no party/seat — those are Phase B spans)
     # provenance chain
     [event] = (await db_session.execute(select(FetchEvent))).scalars().all()
     assert event.resource_id == "sponsors:2025-26"
     assert (
         await db_session.execute(select(func.count()).select_from(RawPayload))
     ).scalar_one() == 1
-    assert (await db_session.execute(select(func.count()).select_from(Citation))).scalar_one() == 6
+    assert (await db_session.execute(select(func.count()).select_from(Citation))).scalar_one() == 2
     # canonical rows persisted with a valid FK chain
     person = (
         await db_session.execute(select(Person).where(Person.source_id == "101"))
@@ -135,13 +136,11 @@ async def test_sponsors_resource_materializes_member_cluster(db_session, usa_wa,
             select(PersonIdentifier).where(PersonIdentifier.person_id == person.id)
         )
     ).scalar_one().value == "101"
-    seat = (
-        await db_session.execute(select(Role).where(Role.role_type == "state_senator"))
-    ).scalar_one()
-    seat_asg = (
-        await db_session.execute(select(Assignment).where(Assignment.role_id == seat.id))
-    ).scalar_one()
-    assert seat_asg.person_id == person.id
+    # no Assignment / Role emitted by the persons-only normalize
+    assert (
+        await db_session.execute(select(func.count()).select_from(Assignment))
+    ).scalar_one() == 0
+    assert (await db_session.execute(select(func.count()).select_from(Role))).scalar_one() == 0
 
 
 async def test_sponsors_resource_cache_hit_on_rerun(db_session, usa_wa, wsl_source):
