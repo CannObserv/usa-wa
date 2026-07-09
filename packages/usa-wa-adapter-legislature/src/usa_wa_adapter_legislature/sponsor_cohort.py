@@ -16,6 +16,7 @@ pulls live.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Protocol
 
 from sqlalchemy import select
@@ -64,11 +65,11 @@ class SponsorRosterCohortProvider:
         """``{biennium: [member rows]}`` across ``bienniums`` — the span builder's input."""
         return {biennium: await self.cohort(biennium) for biennium in bienniums}
 
-    async def fetch_event_map(self, bienniums: list[str]) -> dict[str, tuple[_ULID, Any]]:
+    async def fetch_event_map(self, bienniums: list[str]) -> dict[str, tuple[_ULID, datetime]]:
         """``{biennium: (fetch_event_id, fetched_at)}`` for each biennium's latest archived
         roster — the per-biennium provenance the span emission cites (#78, cite-every-biennium).
         Bienniums with no archived roster are omitted."""
-        out: dict[str, tuple[_ULID, Any]] = {}
+        out: dict[str, tuple[_ULID, datetime]] = {}
         if self._session is None or self._source_id is None:
             return out
         for biennium in bienniums:

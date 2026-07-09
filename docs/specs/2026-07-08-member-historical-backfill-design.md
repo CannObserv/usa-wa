@@ -140,6 +140,17 @@ biennia) spans are as deep as the archive and deepen after the harvest — corre
 **Migration.** Span `source_id`s differ from today's per-biennium
 `{id}:chamber-senate:{biennium}` keys. Plan an idempotent transition: emit the new
 span rows, retire the superseded per-biennium rows (they collapse into their span).
+**Citation reconciliation rides on `assignment.id`.** `emit_sponsor_spans`
+re-asserts a span's citations by *deleting every `assignment`-typed Citation for that
+row's `id`* then re-adding one per covered biennium. That is safe pre-migration
+because a span row is a *new* `Assignment` (new `source_id` → new `id`), disjoint from
+the pre-#78 per-biennium rows. When migration collapses those rows it must decide the
+`id` identity deliberately: if a span reuses a retired per-biennium row's `id` (e.g. to
+carry its `pm_assignment_id`), the re-assert silently drops that row's old
+per-biennium citations — desired here (they're superseded by the span's
+cite-every-biennium set), but it must be a conscious choice, not an accident of key
+reuse. Retiring a per-biennium row whose `id` is *not* reused must also clean its
+orphaned citations.
 
 ### PDC era-scoped backfill — #79
 

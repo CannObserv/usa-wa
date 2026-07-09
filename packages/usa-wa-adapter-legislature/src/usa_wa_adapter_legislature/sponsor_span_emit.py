@@ -18,7 +18,7 @@ fetch. The Assignment source stays ``usa_wa_legislature`` (a legislature-structu
 
 from __future__ import annotations
 
-from typing import Any
+from datetime import datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,7 +54,7 @@ async def emit_sponsor_spans(
     *,
     anchors: BootstrapAnchors,
     reliability: float,
-    fetch_events: dict[str, tuple[_ULID, Any]],
+    fetch_events: dict[str, tuple[_ULID, datetime]],
 ) -> int:
     """Upsert an :class:`Assignment` per span (+ per-biennium citations); return the count.
 
@@ -160,7 +160,7 @@ async def _reassert_citations(
     assignment: Assignment,
     span: TenureSpan,
     reliability: float,
-    fetch_events: dict[str, tuple[_ULID, Any]],
+    fetch_events: dict[str, tuple[_ULID, datetime]],
 ) -> None:
     """Re-assert one Citation per covered biennium (#78 cite-every-biennium), idempotently:
     drop the row's existing ``assignment`` citations, then re-add for each biennium in the
