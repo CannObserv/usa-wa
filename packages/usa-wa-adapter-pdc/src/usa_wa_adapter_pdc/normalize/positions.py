@@ -57,6 +57,24 @@ def house_seat_role_source_id(ld_number: int, qualifier: str) -> str:
     return f"seat:house:ld-{ld_number}:{slug}"
 
 
+def house_span_discriminator(ld_number: int, qualifier: str) -> str:
+    """The tenure-span ``discriminator`` for a House Position seat (#79): ``ld-5-position-1``.
+
+    Colon-free so the span ``source_id`` (``{member}:{kind}:{discriminator}:{start}``) stays a
+    clean 4-part key — symmetric with the Senate seat span. Encoding ``(LD, position)`` means a
+    redistricting LD renumber opens a new span (a genuinely different seat), which is the
+    deliberate discriminator semantics :mod:`tenure_spans` documents."""
+    position_digit = qualifier.rsplit(" ", 1)[-1]
+    return f"ld-{ld_number}-position-{position_digit}"
+
+
+def parse_house_span_discriminator(discriminator: str) -> tuple[int, str]:
+    """Recover ``(ld_number, qualifier)`` from a House span discriminator (inverse of
+    :func:`house_span_discriminator`) — the span-emit role resolver keys the seat Role on it."""
+    _ld, ld_number, _position, position_digit = discriminator.split("-")
+    return int(ld_number), f"Position {position_digit}"
+
+
 def house_seat_assignment_source_id(member_id: str, biennium: str) -> str:
     """Deterministic ``Assignment.source_id`` for a House chamber seat — role-independent
     (the role is a *value* of the assignment), symmetric with P1b's Senate

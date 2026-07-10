@@ -58,17 +58,34 @@ from usa_wa_adapter_legislature.normalize.members import (
     resolve_ld_jurisdiction,
 )
 from usa_wa_adapter_legislature.synthesis import parse_biennium
+from usa_wa_adapter_pdc.normalize.pdc_matching import (
+    HouseRosterEntry,
+    SenateEntry,
+    build_house_roster,
+    build_senate_roster,
+    find_confirming_senator,
+    match_house_member,
+)
 from usa_wa_adapter_pdc.normalize.persons import resolve_wsl_person
 from usa_wa_adapter_pdc.normalize.positions import (
     PDC_PERSON_ID_SCHEME,
     PDC_SOURCE,
     canonical_position,
-    fold_token,
     house_seat_assignment_source_id,
     house_seat_role_source_id,
     pdc_person_identifier_source_id,
     surname_match_set,
 )
+
+# Re-exported for the existing importers (adapter, refresh, senate_identity, tests) — the
+# roster/match primitives now live in pdc_matching (#79, shared with the span projector).
+__all__ = [
+    "HouseRosterEntry",
+    "SenateEntry",
+    "build_house_roster",
+    "build_senate_roster",
+    "normalize_house_positions",
+]
 
 logger = get_logger(__name__)
 
@@ -85,26 +102,6 @@ _INFERRED_CONFIDENCE = 0.5
 
 
 @dataclass(frozen=True)
-class HouseRosterEntry:
-    """One WSL House member for the within-LD match: the stable member id, the folded
-    surname tested against a winner's name tokens, and the party for a tiebreak."""
-
-    member_id: str
-    folded_last: str
-    party_slug: str | None
-
-
-@dataclass(frozen=True)
-class SenateEntry:
-    """One WSL Senator for the #74 confirming signal — the stable member id (to cross-link
-    a mover's PDC id onto their current Person) + the folded surname (to match a deferred
-    House winner who moved to this LD's Senate seat)."""
-
-    member_id: str
-    folded_last: str
-
-
-@dataclass(frozen=True)
 class _Deferred:
     """A PDC winner that matched no House roster member — a mid-biennium replacement
     inference candidate (#74). Carries the PDC ``person_id`` so a confirmed mover's identity
@@ -113,80 +110,6 @@ class _Deferred:
     qualifier: str
     filer_name: str
     pdc_person_id: str
-
-
-def build_house_roster(sponsor_members: list[dict[str, Any]]) -> dict[int, list[HouseRosterEntry]]:
-    """Group WSL ``GetSponsors`` **House** rows by LD number for the winner match.
-
-    Only House rows with a parseable district + last name participate (Senate rows,
-    name-blanked stubs, and blank districts are skipped — they can't seat a House member)."""
-    roster: dict[int, list[HouseRosterEntry]] = {}
-    for member in sponsor_members:
-        if member.get("Agency") != "House":
-            continue
-        last = (member.get("LastName") or "").strip()
-        ld = district_number(member.get("District"))
-        if not last or ld is None:
-            continue
-        roster.setdefault(ld, []).append(
-            HouseRosterEntry(
-                member_id=str(member["Id"]),
-                folded_last=fold_token(last),
-                party_slug=canonicalize_party(member.get("Party")),
-            )
-        )
-    return roster
-
-
-def build_senate_roster(sponsor_members: list[dict[str, Any]]) -> dict[int, list[SenateEntry]]:
-    """``{LD: [SenateEntry]}`` — the confirming signal for the #74 replacement inference. A
-    deferred House winner who reappears as their LD's sitting Senator is a genuine
-    mid-biennium House→Senate mover, which *explains* the vacated House seat; the entry's
-    member id lets us cross-link the mover's PDC identity onto their current Person."""
-    out: dict[int, list[SenateEntry]] = {}
-    for member in sponsor_members:
-        if member.get("Agency") != "Senate":
-            continue
-        last = (member.get("LastName") or "").strip()
-        ld = district_number(member.get("District"))
-        if not last or ld is None:
-            continue
-        out.setdefault(ld, []).append(
-            SenateEntry(member_id=str(member["Id"]), folded_last=fold_token(last))
-        )
-    return out
-
-
-def _match_member(
-    roster: dict[int, list[HouseRosterEntry]],
-    ld: int,
-    winner_tokens: set[str],
-    winner_party: str | None,
-) -> HouseRosterEntry | None:
-    """Resolve a PDC winner to a WSL House member in its LD: the member whose folded
-    surname is among the winner's name tokens; a shared surname is broken by party. A
-    zero-or-ambiguous match returns ``None`` (the winner is left unresolved, not guessed)."""
-    candidates = [e for e in roster.get(ld, []) if e.folded_last in winner_tokens]
-    if len(candidates) == 1:
-        return candidates[0]
-    if len(candidates) > 1 and winner_party is not None:
-        by_party = [e for e in candidates if e.party_slug == winner_party]
-        if len(by_party) == 1:
-            return by_party[0]
-    return None
-
-
-def _find_confirming_senator(
-    filer_name: str, ld: int, senate_roster: dict[int, list[SenateEntry]]
-) -> SenateEntry | None:
-    """The LD's Senator whose folded surname matches a deferred House winner — the genuine
-    mid-biennium House→Senate mover that explains the vacant House seat (#74). Without this
-    signal an unmatched winner could be a name-match miss, so we don't infer. Returns the
-    single matching Senator (so their id can carry the mover's PDC cross-link), or ``None``
-    when there is no unique match."""
-    keys = surname_match_set(filer_name)
-    matches = [s for s in senate_roster.get(ld, []) if s.folded_last in keys]
-    return matches[0] if len(matches) == 1 else None
 
 
 async def normalize_house_positions(
@@ -247,7 +170,7 @@ async def normalize_house_positions(
             unresolved_ld += 1
             continue
 
-        match = _match_member(
+        match = match_house_member(
             house_roster,
             ld,
             surname_match_set(row.get("filer_name") or ""),
@@ -302,7 +225,7 @@ async def normalize_house_positions(
         movers = [
             (d, senator)
             for d in deferrals
-            if (senator := _find_confirming_senator(d.filer_name, ld, senate_roster)) is not None
+            if (senator := find_confirming_senator(d.filer_name, ld, senate_roster)) is not None
         ]
         for deferral, senator in movers:
             await _link_pdc_identifier(

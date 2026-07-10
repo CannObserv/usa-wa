@@ -82,3 +82,18 @@ def test_surname_match_set_excludes_non_matching_surname() -> None:
     # A concatenation must be *consecutive* — non-adjacent tokens don't join.
     assert fold_token("Peterstrom") not in surname_match_set("Strom Peterson")  # reversed order
     assert fold_token("Barkis") not in surname_match_set("Strom Peterson")
+
+
+def test_house_span_discriminator_round_trips() -> None:
+    from usa_wa_adapter_pdc.normalize.positions import (
+        house_span_discriminator,
+        parse_house_span_discriminator,
+    )
+
+    disc = house_span_discriminator(5, "Position 1")
+    assert ":" not in disc  # colon-free so the 4-part span source_id stays parseable
+    assert disc == "ld-5-position-1"
+    assert parse_house_span_discriminator(disc) == (5, "Position 1")
+    # distinct seats yield distinct discriminators
+    assert house_span_discriminator(5, "Position 2") != disc
+    assert house_span_discriminator(6, "Position 1") != disc
