@@ -1,0 +1,621 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - Zeep/4.3.2 (www.python-zeep.org)
+    method: GET
+    uri: https://wslwebservices.leg.wa.gov/CommitteeService.asmx?wsdl
+  response:
+    body:
+      string: "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<wsdl:definitions xmlns:s=\"http://www.w3.org/2001/XMLSchema\"
+        xmlns:soap12=\"http://schemas.xmlsoap.org/wsdl/soap12/\" xmlns:http=\"http://schemas.xmlsoap.org/wsdl/http/\"
+        xmlns:mime=\"http://schemas.xmlsoap.org/wsdl/mime/\" xmlns:tns=\"http://WSLWebServices.leg.wa.gov/\"
+        xmlns:soap=\"http://schemas.xmlsoap.org/wsdl/soap/\" xmlns:tm=\"http://microsoft.com/wsdl/mime/textMatching/\"
+        xmlns:soapenc=\"http://schemas.xmlsoap.org/soap/encoding/\" targetNamespace=\"http://WSLWebServices.leg.wa.gov/\"
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">\r\n  <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Information on committees
+        of the Washington State Legislature.</wsdl:documentation>\r\n  <wsdl:types>\r\n
+        \   <s:schema elementFormDefault=\"qualified\" targetNamespace=\"http://WSLWebServices.leg.wa.gov/\">\r\n
+        \     <s:element name=\"GetCommittees\">\r\n        <s:complexType>\r\n          <s:sequence>\r\n
+        \           <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"biennium\" type=\"s:string\"
+        />\r\n          </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:element name=\"GetCommitteesResponse\">\r\n        <s:complexType>\r\n
+        \         <s:sequence>\r\n            <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"GetCommitteesResult\" type=\"tns:ArrayOfCommittee\" />\r\n          </s:sequence>\r\n
+        \       </s:complexType>\r\n      </s:element>\r\n      <s:complexType name=\"ArrayOfCommittee\">\r\n
+        \       <s:sequence>\r\n          <s:element minOccurs=\"0\" maxOccurs=\"unbounded\"
+        name=\"Committee\" nillable=\"true\" type=\"tns:Committee\" />\r\n        </s:sequence>\r\n
+        \     </s:complexType>\r\n      <s:complexType name=\"Committee\">\r\n        <s:complexContent
+        mixed=\"false\">\r\n          <s:extension base=\"tns:LegislativeEntity\">\r\n
+        \           <s:sequence>\r\n              <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"Phone\" type=\"s:string\" />\r\n            </s:sequence>\r\n          </s:extension>\r\n
+        \       </s:complexContent>\r\n      </s:complexType>\r\n      <s:complexType
+        name=\"LegislativeEntity\">\r\n        <s:sequence>\r\n          <s:element
+        minOccurs=\"1\" maxOccurs=\"1\" name=\"Id\" type=\"s:int\" />\r\n          <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"Name\" type=\"s:string\" />\r\n          <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"LongName\" type=\"s:string\" />\r\n
+        \         <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"Agency\" type=\"s:string\"
+        />\r\n          <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"Acronym\"
+        type=\"s:string\" />\r\n        </s:sequence>\r\n      </s:complexType>\r\n
+        \     <s:element name=\"GetHouseCommittees\">\r\n        <s:complexType>\r\n
+        \         <s:sequence>\r\n            <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"biennium\" type=\"s:string\" />\r\n          </s:sequence>\r\n        </s:complexType>\r\n
+        \     </s:element>\r\n      <s:element name=\"GetHouseCommitteesResponse\">\r\n
+        \       <s:complexType>\r\n          <s:sequence>\r\n            <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"GetHouseCommitteesResult\" type=\"tns:ArrayOfCommittee\"
+        />\r\n          </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:element name=\"GetSenateCommittees\">\r\n        <s:complexType>\r\n
+        \         <s:sequence>\r\n            <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"biennium\" type=\"s:string\" />\r\n          </s:sequence>\r\n        </s:complexType>\r\n
+        \     </s:element>\r\n      <s:element name=\"GetSenateCommitteesResponse\">\r\n
+        \       <s:complexType>\r\n          <s:sequence>\r\n            <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"GetSenateCommitteesResult\" type=\"tns:ArrayOfCommittee\"
+        />\r\n          </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:element name=\"GetCommitteeMembers\">\r\n        <s:complexType>\r\n
+        \         <s:sequence>\r\n            <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"biennium\" type=\"s:string\" />\r\n            <s:element minOccurs=\"0\"
+        maxOccurs=\"1\" name=\"agency\" type=\"s:string\" />\r\n            <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"committeeName\" type=\"s:string\" />\r\n
+        \         </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:element name=\"GetCommitteeMembersResponse\">\r\n        <s:complexType>\r\n
+        \         <s:sequence>\r\n            <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"GetCommitteeMembersResult\" type=\"tns:ArrayOfMember\" />\r\n          </s:sequence>\r\n
+        \       </s:complexType>\r\n      </s:element>\r\n      <s:complexType name=\"ArrayOfMember\">\r\n
+        \       <s:sequence>\r\n          <s:element minOccurs=\"0\" maxOccurs=\"unbounded\"
+        name=\"Member\" nillable=\"true\" type=\"tns:Member\" />\r\n        </s:sequence>\r\n
+        \     </s:complexType>\r\n      <s:complexType name=\"Member\">\r\n        <s:complexContent
+        mixed=\"false\">\r\n          <s:extension base=\"tns:LegislativeEntity\">\r\n
+        \           <s:sequence>\r\n              <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"Party\" type=\"s:string\" />\r\n              <s:element minOccurs=\"0\"
+        maxOccurs=\"1\" name=\"District\" type=\"s:string\" />\r\n              <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"Phone\" type=\"s:string\" />\r\n              <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"Email\" type=\"s:string\" />\r\n              <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"FirstName\" type=\"s:string\" />\r\n
+        \             <s:element minOccurs=\"0\" maxOccurs=\"1\" name=\"LastName\"
+        type=\"s:string\" />\r\n            </s:sequence>\r\n          </s:extension>\r\n
+        \       </s:complexContent>\r\n      </s:complexType>\r\n      <s:element
+        name=\"GetActiveCommittees\">\r\n        <s:complexType />\r\n      </s:element>\r\n
+        \     <s:element name=\"GetActiveCommitteesResponse\">\r\n        <s:complexType>\r\n
+        \         <s:sequence>\r\n            <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"GetActiveCommitteesResult\" type=\"tns:ArrayOfCommittee\" />\r\n          </s:sequence>\r\n
+        \       </s:complexType>\r\n      </s:element>\r\n      <s:element name=\"GetActiveHouseCommittees\">\r\n
+        \       <s:complexType />\r\n      </s:element>\r\n      <s:element name=\"GetActiveHouseCommitteesResponse\">\r\n
+        \       <s:complexType>\r\n          <s:sequence>\r\n            <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"GetActiveHouseCommitteesResult\" type=\"tns:ArrayOfCommittee\"
+        />\r\n          </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:element name=\"GetActiveSenateCommittees\">\r\n        <s:complexType
+        />\r\n      </s:element>\r\n      <s:element name=\"GetActiveSenateCommitteesResponse\">\r\n
+        \       <s:complexType>\r\n          <s:sequence>\r\n            <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"GetActiveSenateCommitteesResult\" type=\"tns:ArrayOfCommittee\"
+        />\r\n          </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:element name=\"GetActiveCommitteeMembers\">\r\n        <s:complexType>\r\n
+        \         <s:sequence>\r\n            <s:element minOccurs=\"0\" maxOccurs=\"1\"
+        name=\"agency\" type=\"s:string\" />\r\n            <s:element minOccurs=\"0\"
+        maxOccurs=\"1\" name=\"committeeName\" type=\"s:string\" />\r\n          </s:sequence>\r\n
+        \       </s:complexType>\r\n      </s:element>\r\n      <s:element name=\"GetActiveCommitteeMembersResponse\">\r\n
+        \       <s:complexType>\r\n          <s:sequence>\r\n            <s:element
+        minOccurs=\"0\" maxOccurs=\"1\" name=\"GetActiveCommitteeMembersResult\" type=\"tns:ArrayOfMember\"
+        />\r\n          </s:sequence>\r\n        </s:complexType>\r\n      </s:element>\r\n
+        \     <s:element name=\"ArrayOfCommittee\" nillable=\"true\" type=\"tns:ArrayOfCommittee\"
+        />\r\n      <s:element name=\"ArrayOfMember\" nillable=\"true\" type=\"tns:ArrayOfMember\"
+        />\r\n    </s:schema>\r\n  </wsdl:types>\r\n  <wsdl:message name=\"GetCommitteesSoapIn\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetCommittees\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetCommitteesSoapOut\">\r\n    <wsdl:part name=\"parameters\"
+        element=\"tns:GetCommitteesResponse\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetHouseCommitteesSoapIn\">\r\n    <wsdl:part name=\"parameters\" element=\"tns:GetHouseCommittees\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetHouseCommitteesSoapOut\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetHouseCommitteesResponse\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetSenateCommitteesSoapIn\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetSenateCommittees\" />\r\n
+        \ </wsdl:message>\r\n  <wsdl:message name=\"GetSenateCommitteesSoapOut\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetSenateCommitteesResponse\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetCommitteeMembersSoapIn\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetCommitteeMembers\" />\r\n
+        \ </wsdl:message>\r\n  <wsdl:message name=\"GetCommitteeMembersSoapOut\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetCommitteeMembersResponse\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetActiveCommitteesSoapIn\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetActiveCommittees\" />\r\n
+        \ </wsdl:message>\r\n  <wsdl:message name=\"GetActiveCommitteesSoapOut\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetActiveCommitteesResponse\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetActiveHouseCommitteesSoapIn\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetActiveHouseCommittees\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetActiveHouseCommitteesSoapOut\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetActiveHouseCommitteesResponse\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetActiveSenateCommitteesSoapIn\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetActiveSenateCommittees\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetActiveSenateCommitteesSoapOut\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetActiveSenateCommitteesResponse\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetActiveCommitteeMembersSoapIn\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetActiveCommitteeMembers\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetActiveCommitteeMembersSoapOut\">\r\n
+        \   <wsdl:part name=\"parameters\" element=\"tns:GetActiveCommitteeMembersResponse\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetCommitteesHttpGetIn\">\r\n
+        \   <wsdl:part name=\"biennium\" type=\"s:string\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetCommitteesHttpGetOut\">\r\n    <wsdl:part name=\"Body\"
+        element=\"tns:ArrayOfCommittee\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetHouseCommitteesHttpGetIn\">\r\n    <wsdl:part name=\"biennium\"
+        type=\"s:string\" />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetHouseCommitteesHttpGetOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfCommittee\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetSenateCommitteesHttpGetIn\">\r\n    <wsdl:part name=\"biennium\"
+        type=\"s:string\" />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetSenateCommitteesHttpGetOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfCommittee\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetCommitteeMembersHttpGetIn\">\r\n    <wsdl:part name=\"biennium\"
+        type=\"s:string\" />\r\n    <wsdl:part name=\"agency\" type=\"s:string\" />\r\n
+        \   <wsdl:part name=\"committeeName\" type=\"s:string\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetCommitteeMembersHttpGetOut\">\r\n    <wsdl:part
+        name=\"Body\" element=\"tns:ArrayOfMember\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetActiveCommitteesHttpGetIn\" />\r\n  <wsdl:message name=\"GetActiveCommitteesHttpGetOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfCommittee\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetActiveHouseCommitteesHttpGetIn\" />\r\n  <wsdl:message
+        name=\"GetActiveHouseCommitteesHttpGetOut\">\r\n    <wsdl:part name=\"Body\"
+        element=\"tns:ArrayOfCommittee\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetActiveSenateCommitteesHttpGetIn\" />\r\n  <wsdl:message name=\"GetActiveSenateCommitteesHttpGetOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfCommittee\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetActiveCommitteeMembersHttpGetIn\">\r\n    <wsdl:part
+        name=\"agency\" type=\"s:string\" />\r\n    <wsdl:part name=\"committeeName\"
+        type=\"s:string\" />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetActiveCommitteeMembersHttpGetOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfMember\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetCommitteesHttpPostIn\">\r\n    <wsdl:part name=\"biennium\"
+        type=\"s:string\" />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetCommitteesHttpPostOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfCommittee\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetHouseCommitteesHttpPostIn\">\r\n    <wsdl:part name=\"biennium\"
+        type=\"s:string\" />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetHouseCommitteesHttpPostOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfCommittee\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetSenateCommitteesHttpPostIn\">\r\n    <wsdl:part
+        name=\"biennium\" type=\"s:string\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetSenateCommitteesHttpPostOut\">\r\n    <wsdl:part name=\"Body\" element=\"tns:ArrayOfCommittee\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetCommitteeMembersHttpPostIn\">\r\n
+        \   <wsdl:part name=\"biennium\" type=\"s:string\" />\r\n    <wsdl:part name=\"agency\"
+        type=\"s:string\" />\r\n    <wsdl:part name=\"committeeName\" type=\"s:string\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetCommitteeMembersHttpPostOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfMember\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetActiveCommitteesHttpPostIn\" />\r\n  <wsdl:message
+        name=\"GetActiveCommitteesHttpPostOut\">\r\n    <wsdl:part name=\"Body\" element=\"tns:ArrayOfCommittee\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetActiveHouseCommitteesHttpPostIn\"
+        />\r\n  <wsdl:message name=\"GetActiveHouseCommitteesHttpPostOut\">\r\n    <wsdl:part
+        name=\"Body\" element=\"tns:ArrayOfCommittee\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:message name=\"GetActiveSenateCommitteesHttpPostIn\" />\r\n  <wsdl:message
+        name=\"GetActiveSenateCommitteesHttpPostOut\">\r\n    <wsdl:part name=\"Body\"
+        element=\"tns:ArrayOfCommittee\" />\r\n  </wsdl:message>\r\n  <wsdl:message
+        name=\"GetActiveCommitteeMembersHttpPostIn\">\r\n    <wsdl:part name=\"agency\"
+        type=\"s:string\" />\r\n    <wsdl:part name=\"committeeName\" type=\"s:string\"
+        />\r\n  </wsdl:message>\r\n  <wsdl:message name=\"GetActiveCommitteeMembersHttpPostOut\">\r\n
+        \   <wsdl:part name=\"Body\" element=\"tns:ArrayOfMember\" />\r\n  </wsdl:message>\r\n
+        \ <wsdl:portType name=\"CommitteeServiceSoap\">\r\n    <wsdl:operation name=\"GetCommittees\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        House and Senate standing committees during the given biennium. &lt;BR&gt;Exception
+        thrown for invalid biennium. &lt;BR&gt;Expects iennium to be in the format:
+        2005-06</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetCommitteesSoapIn\"
+        />\r\n      <wsdl:output message=\"tns:GetCommitteesSoapOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetHouseCommittees\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All House standing committees
+        during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium.
+        &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetHouseCommitteesSoapIn\" />\r\n      <wsdl:output
+        message=\"tns:GetHouseCommitteesSoapOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetSenateCommittees\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All Senate standing committees
+        during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium.
+        &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetSenateCommitteesSoapIn\" />\r\n      <wsdl:output
+        message=\"tns:GetSenateCommitteesSoapOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetCommitteeMembers\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Lists committee members for
+        the given standing committee. &lt;BR&gt;Exception thrown for invalid biennium,
+        agency, or committee name. &lt;BR&gt;Expects biennium to be in the format:
+        2005-06. Agency should be House or Senate.  CommitteeName is the Name Property
+        returned in GetHouseCommittees/GetSenateCommittees.</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetCommitteeMembersSoapIn\" />\r\n      <wsdl:output
+        message=\"tns:GetCommitteeMembersSoapOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetActiveCommittees\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All active House and Senate
+        standing committees.</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetActiveCommitteesSoapIn\"
+        />\r\n      <wsdl:output message=\"tns:GetActiveCommitteesSoapOut\" />\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetActiveHouseCommittees\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        active House standing committees.</wsdl:documentation>\r\n      <wsdl:input
+        message=\"tns:GetActiveHouseCommitteesSoapIn\" />\r\n      <wsdl:output message=\"tns:GetActiveHouseCommitteesSoapOut\"
+        />\r\n    </wsdl:operation>\r\n    <wsdl:operation name=\"GetActiveSenateCommittees\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        active Senate standing committees.</wsdl:documentation>\r\n      <wsdl:input
+        message=\"tns:GetActiveSenateCommitteesSoapIn\" />\r\n      <wsdl:output message=\"tns:GetActiveSenateCommitteesSoapOut\"
+        />\r\n    </wsdl:operation>\r\n    <wsdl:operation name=\"GetActiveCommitteeMembers\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Lists
+        active committee members for the given standing committee. &lt;BR&gt;Exception
+        thrown for invalid agency or committee name. &lt;BR&gt;Agency should be House
+        or Senate.  CommitteeName is the Name Property returned in GetActiveHouseCommittees/GetActiveSenateCommittees.</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetActiveCommitteeMembersSoapIn\" />\r\n      <wsdl:output
+        message=\"tns:GetActiveCommitteeMembersSoapOut\" />\r\n    </wsdl:operation>\r\n
+        \ </wsdl:portType>\r\n  <wsdl:portType name=\"CommitteeServiceHttpGet\">\r\n
+        \   <wsdl:operation name=\"GetCommittees\">\r\n      <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        House and Senate standing committees during the given biennium. &lt;BR&gt;Exception
+        thrown for invalid biennium. &lt;BR&gt;Expects iennium to be in the format:
+        2005-06</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetCommitteesHttpGetIn\"
+        />\r\n      <wsdl:output message=\"tns:GetCommitteesHttpGetOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetHouseCommittees\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All House standing committees
+        during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium.
+        &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetHouseCommitteesHttpGetIn\" />\r\n      <wsdl:output
+        message=\"tns:GetHouseCommitteesHttpGetOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetSenateCommittees\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All Senate standing committees
+        during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium.
+        &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetSenateCommitteesHttpGetIn\" />\r\n      <wsdl:output
+        message=\"tns:GetSenateCommitteesHttpGetOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetCommitteeMembers\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Lists committee members for
+        the given standing committee. &lt;BR&gt;Exception thrown for invalid biennium,
+        agency, or committee name. &lt;BR&gt;Expects biennium to be in the format:
+        2005-06. Agency should be House or Senate.  CommitteeName is the Name Property
+        returned in GetHouseCommittees/GetSenateCommittees.</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetCommitteeMembersHttpGetIn\" />\r\n      <wsdl:output
+        message=\"tns:GetCommitteeMembersHttpGetOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetActiveCommittees\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All active House and Senate
+        standing committees.</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetActiveCommitteesHttpGetIn\"
+        />\r\n      <wsdl:output message=\"tns:GetActiveCommitteesHttpGetOut\" />\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetActiveHouseCommittees\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        active House standing committees.</wsdl:documentation>\r\n      <wsdl:input
+        message=\"tns:GetActiveHouseCommitteesHttpGetIn\" />\r\n      <wsdl:output
+        message=\"tns:GetActiveHouseCommitteesHttpGetOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetActiveSenateCommittees\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All active Senate standing
+        committees.</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetActiveSenateCommitteesHttpGetIn\"
+        />\r\n      <wsdl:output message=\"tns:GetActiveSenateCommitteesHttpGetOut\"
+        />\r\n    </wsdl:operation>\r\n    <wsdl:operation name=\"GetActiveCommitteeMembers\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Lists
+        active committee members for the given standing committee. &lt;BR&gt;Exception
+        thrown for invalid agency or committee name. &lt;BR&gt;Agency should be House
+        or Senate.  CommitteeName is the Name Property returned in GetActiveHouseCommittees/GetActiveSenateCommittees.</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetActiveCommitteeMembersHttpGetIn\" />\r\n
+        \     <wsdl:output message=\"tns:GetActiveCommitteeMembersHttpGetOut\" />\r\n
+        \   </wsdl:operation>\r\n  </wsdl:portType>\r\n  <wsdl:portType name=\"CommitteeServiceHttpPost\">\r\n
+        \   <wsdl:operation name=\"GetCommittees\">\r\n      <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        House and Senate standing committees during the given biennium. &lt;BR&gt;Exception
+        thrown for invalid biennium. &lt;BR&gt;Expects iennium to be in the format:
+        2005-06</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetCommitteesHttpPostIn\"
+        />\r\n      <wsdl:output message=\"tns:GetCommitteesHttpPostOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetHouseCommittees\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All House standing committees
+        during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium.
+        &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetHouseCommitteesHttpPostIn\" />\r\n      <wsdl:output
+        message=\"tns:GetHouseCommitteesHttpPostOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetSenateCommittees\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All Senate standing committees
+        during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium.
+        &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetSenateCommitteesHttpPostIn\" />\r\n      <wsdl:output
+        message=\"tns:GetSenateCommitteesHttpPostOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetCommitteeMembers\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Lists committee members for
+        the given standing committee. &lt;BR&gt;Exception thrown for invalid biennium,
+        agency, or committee name. &lt;BR&gt;Expects biennium to be in the format:
+        2005-06. Agency should be House or Senate.  CommitteeName is the Name Property
+        returned in GetHouseCommittees/GetSenateCommittees.</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetCommitteeMembersHttpPostIn\" />\r\n      <wsdl:output
+        message=\"tns:GetCommitteeMembersHttpPostOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetActiveCommittees\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All active House and Senate
+        standing committees.</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetActiveCommitteesHttpPostIn\"
+        />\r\n      <wsdl:output message=\"tns:GetActiveCommitteesHttpPostOut\" />\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetActiveHouseCommittees\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All
+        active House standing committees.</wsdl:documentation>\r\n      <wsdl:input
+        message=\"tns:GetActiveHouseCommitteesHttpPostIn\" />\r\n      <wsdl:output
+        message=\"tns:GetActiveHouseCommitteesHttpPostOut\" />\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetActiveSenateCommittees\">\r\n      <wsdl:documentation
+        xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">All active Senate standing
+        committees.</wsdl:documentation>\r\n      <wsdl:input message=\"tns:GetActiveSenateCommitteesHttpPostIn\"
+        />\r\n      <wsdl:output message=\"tns:GetActiveSenateCommitteesHttpPostOut\"
+        />\r\n    </wsdl:operation>\r\n    <wsdl:operation name=\"GetActiveCommitteeMembers\">\r\n
+        \     <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Lists
+        active committee members for the given standing committee. &lt;BR&gt;Exception
+        thrown for invalid agency or committee name. &lt;BR&gt;Agency should be House
+        or Senate.  CommitteeName is the Name Property returned in GetActiveHouseCommittees/GetActiveSenateCommittees.</wsdl:documentation>\r\n
+        \     <wsdl:input message=\"tns:GetActiveCommitteeMembersHttpPostIn\" />\r\n
+        \     <wsdl:output message=\"tns:GetActiveCommitteeMembersHttpPostOut\" />\r\n
+        \   </wsdl:operation>\r\n  </wsdl:portType>\r\n  <wsdl:binding name=\"CommitteeServiceSoap\"
+        type=\"tns:CommitteeServiceSoap\">\r\n    <soap:binding transport=\"http://schemas.xmlsoap.org/soap/http\"
+        />\r\n    <wsdl:operation name=\"GetCommittees\">\r\n      <soap:operation
+        soapAction=\"http://WSLWebServices.leg.wa.gov/GetCommittees\" style=\"document\"
+        />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\" />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <soap:body use=\"literal\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetHouseCommittees\">\r\n
+        \     <soap:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetHouseCommittees\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetSenateCommittees\">\r\n      <soap:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetSenateCommittees\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetCommitteeMembers\">\r\n      <soap:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetCommitteeMembers\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetActiveCommittees\">\r\n      <soap:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetActiveCommittees\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetActiveHouseCommittees\">\r\n      <soap:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetActiveHouseCommittees\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetActiveSenateCommittees\">\r\n      <soap:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetActiveSenateCommittees\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetActiveCommitteeMembers\">\r\n      <soap:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetActiveCommitteeMembers\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n  </wsdl:binding>\r\n
+        \ <wsdl:binding name=\"CommitteeServiceSoap12\" type=\"tns:CommitteeServiceSoap\">\r\n
+        \   <soap12:binding transport=\"http://schemas.xmlsoap.org/soap/http\" />\r\n
+        \   <wsdl:operation name=\"GetCommittees\">\r\n      <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetCommittees\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetHouseCommittees\">\r\n      <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetHouseCommittees\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetSenateCommittees\">\r\n      <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetSenateCommittees\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetCommitteeMembers\">\r\n      <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetCommitteeMembers\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetActiveCommittees\">\r\n      <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetActiveCommittees\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetActiveHouseCommittees\">\r\n      <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetActiveHouseCommittees\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetActiveSenateCommittees\">\r\n      <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetActiveSenateCommittees\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetActiveCommitteeMembers\">\r\n      <soap12:operation soapAction=\"http://WSLWebServices.leg.wa.gov/GetActiveCommitteeMembers\"
+        style=\"document\" />\r\n      <wsdl:input>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <soap12:body use=\"literal\"
+        />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n  </wsdl:binding>\r\n
+        \ <wsdl:binding name=\"CommitteeServiceHttpGet\" type=\"tns:CommitteeServiceHttpGet\">\r\n
+        \   <http:binding verb=\"GET\" />\r\n    <wsdl:operation name=\"GetCommittees\">\r\n
+        \     <http:operation location=\"/GetCommittees\" />\r\n      <wsdl:input>\r\n
+        \       <http:urlEncoded />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n
+        \       <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetHouseCommittees\">\r\n      <http:operation
+        location=\"/GetHouseCommittees\" />\r\n      <wsdl:input>\r\n        <http:urlEncoded
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <mime:mimeXml
+        part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetSenateCommittees\">\r\n      <http:operation location=\"/GetSenateCommittees\"
+        />\r\n      <wsdl:input>\r\n        <http:urlEncoded />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetCommitteeMembers\">\r\n
+        \     <http:operation location=\"/GetCommitteeMembers\" />\r\n      <wsdl:input>\r\n
+        \       <http:urlEncoded />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n
+        \       <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetActiveCommittees\">\r\n      <http:operation
+        location=\"/GetActiveCommittees\" />\r\n      <wsdl:input>\r\n        <http:urlEncoded
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <mime:mimeXml
+        part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n    <wsdl:operation
+        name=\"GetActiveHouseCommittees\">\r\n      <http:operation location=\"/GetActiveHouseCommittees\"
+        />\r\n      <wsdl:input>\r\n        <http:urlEncoded />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetActiveSenateCommittees\">\r\n
+        \     <http:operation location=\"/GetActiveSenateCommittees\" />\r\n      <wsdl:input>\r\n
+        \       <http:urlEncoded />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n
+        \       <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n
+        \   <wsdl:operation name=\"GetActiveCommitteeMembers\">\r\n      <http:operation
+        location=\"/GetActiveCommitteeMembers\" />\r\n      <wsdl:input>\r\n        <http:urlEncoded
+        />\r\n      </wsdl:input>\r\n      <wsdl:output>\r\n        <mime:mimeXml
+        part=\"Body\" />\r\n      </wsdl:output>\r\n    </wsdl:operation>\r\n  </wsdl:binding>\r\n
+        \ <wsdl:binding name=\"CommitteeServiceHttpPost\" type=\"tns:CommitteeServiceHttpPost\">\r\n
+        \   <http:binding verb=\"POST\" />\r\n    <wsdl:operation name=\"GetCommittees\">\r\n
+        \     <http:operation location=\"/GetCommittees\" />\r\n      <wsdl:input>\r\n
+        \       <mime:content type=\"application/x-www-form-urlencoded\" />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetHouseCommittees\">\r\n
+        \     <http:operation location=\"/GetHouseCommittees\" />\r\n      <wsdl:input>\r\n
+        \       <mime:content type=\"application/x-www-form-urlencoded\" />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetSenateCommittees\">\r\n
+        \     <http:operation location=\"/GetSenateCommittees\" />\r\n      <wsdl:input>\r\n
+        \       <mime:content type=\"application/x-www-form-urlencoded\" />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetCommitteeMembers\">\r\n
+        \     <http:operation location=\"/GetCommitteeMembers\" />\r\n      <wsdl:input>\r\n
+        \       <mime:content type=\"application/x-www-form-urlencoded\" />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetActiveCommittees\">\r\n
+        \     <http:operation location=\"/GetActiveCommittees\" />\r\n      <wsdl:input>\r\n
+        \       <mime:content type=\"application/x-www-form-urlencoded\" />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetActiveHouseCommittees\">\r\n
+        \     <http:operation location=\"/GetActiveHouseCommittees\" />\r\n      <wsdl:input>\r\n
+        \       <mime:content type=\"application/x-www-form-urlencoded\" />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetActiveSenateCommittees\">\r\n
+        \     <http:operation location=\"/GetActiveSenateCommittees\" />\r\n      <wsdl:input>\r\n
+        \       <mime:content type=\"application/x-www-form-urlencoded\" />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n    <wsdl:operation name=\"GetActiveCommitteeMembers\">\r\n
+        \     <http:operation location=\"/GetActiveCommitteeMembers\" />\r\n      <wsdl:input>\r\n
+        \       <mime:content type=\"application/x-www-form-urlencoded\" />\r\n      </wsdl:input>\r\n
+        \     <wsdl:output>\r\n        <mime:mimeXml part=\"Body\" />\r\n      </wsdl:output>\r\n
+        \   </wsdl:operation>\r\n  </wsdl:binding>\r\n  <wsdl:service name=\"CommitteeService\">\r\n
+        \   <wsdl:documentation xmlns:wsdl=\"http://schemas.xmlsoap.org/wsdl/\">Information
+        on committees of the Washington State Legislature.</wsdl:documentation>\r\n
+        \   <wsdl:port name=\"CommitteeServiceSoap\" binding=\"tns:CommitteeServiceSoap\">\r\n
+        \     <soap:address location=\"https://wslwebservices.leg.wa.gov/CommitteeService.asmx\"
+        />\r\n    </wsdl:port>\r\n    <wsdl:port name=\"CommitteeServiceSoap12\" binding=\"tns:CommitteeServiceSoap12\">\r\n
+        \     <soap12:address location=\"https://wslwebservices.leg.wa.gov/CommitteeService.asmx\"
+        />\r\n    </wsdl:port>\r\n    <wsdl:port name=\"CommitteeServiceHttpGet\"
+        binding=\"tns:CommitteeServiceHttpGet\">\r\n      <http:address location=\"https://wslwebservices.leg.wa.gov/CommitteeService.asmx\"
+        />\r\n    </wsdl:port>\r\n    <wsdl:port name=\"CommitteeServiceHttpPost\"
+        binding=\"tns:CommitteeServiceHttpPost\">\r\n      <http:address location=\"https://wslwebservices.leg.wa.gov/CommitteeService.asmx\"
+        />\r\n    </wsdl:port>\r\n  </wsdl:service>\r\n</wsdl:definitions>"
+    headers:
+      Cache-Control:
+      - private, max-age=0
+      Content-Length:
+      - '36830'
+      Content-Type:
+      - text/xml; charset=utf-8
+      Date:
+      - Fri, 10 Jul 2026 13:26:41 GMT
+      Server:
+      - Microsoft-IIS/10.0
+      Server-Timing:
+      - dtTrId;desc="5485e03300497f2c6914c864e8157497", dtSInfo;desc="0"
+      - dtRpid;desc="-436127457"
+      Set-Cookie:
+      - dtCookie=v_4_srv_7_sn_C26234A25195BB18B739CBA0FD0C91BA_perc_100000_ol_0_mul_1_app-3A58b9dc846cbd8ccb_1_rcs-3Acss_0;
+        Path=/; Domain=.wa.gov
+      X-AspNet-Version:
+      - 4.0.30319
+      X-Powered-By:
+      - ASP.NET
+    status:
+      code: 200
+      message: OK
+- request:
+    body: '<?xml version=''1.0'' encoding=''utf-8''?>
+
+      <soap-env:Envelope xmlns:soap-env="http://schemas.xmlsoap.org/soap/envelope/"><soap-env:Body><ns0:GetCommitteeMembers
+      xmlns:ns0="http://WSLWebServices.leg.wa.gov/"><ns0:biennium>2013-14</ns0:biennium><ns0:agency>House</ns0:agency><ns0:committeeName>Appropriations</ns0:committeeName></ns0:GetCommitteeMembers></soap-env:Body></soap-env:Envelope>'
+    headers:
+      Accept:
+      - '*/*'
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '384'
+      Content-Type:
+      - text/xml; charset=utf-8
+      Cookie:
+      - dtCookie=v_4_srv_7_sn_C26234A25195BB18B739CBA0FD0C91BA_perc_100000_ol_0_mul_1_app-3A58b9dc846cbd8ccb_1_rcs-3Acss_0
+      SOAPAction:
+      - '"http://WSLWebServices.leg.wa.gov/GetCommitteeMembers"'
+      User-Agent:
+      - Zeep/4.3.2 (www.python-zeep.org)
+    method: POST
+    uri: https://wslwebservices.leg.wa.gov/CommitteeService.asmx
+  response:
+    body:
+      string: <?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema"><soap:Body><GetCommitteeMembersResponse
+        xmlns="http://WSLWebServices.leg.wa.gov/"><GetCommitteeMembersResult><Member><Id>9207</Id><Name>Timm
+        Ormsby</Name><LongName>Representative Ormsby</LongName><Agency>House</Agency><Acronym>ORMS</Acronym><Party>Democrat</Party><District>3</District><Phone>(360)
+        786-7946</Phone><Email>Timm.Ormsby@leg.wa.gov</Email><FirstName>Timm</FirstName><LastName>Ormsby</LastName></Member><Member><Id>3469</Id><Name>Bruce
+        Chandler</Name><LongName>Representative Chandler</LongName><Agency>House</Agency><Acronym>CHAB</Acronym><Party>Republican</Party><District>15</District><Phone>(360)
+        786-7960</Phone><Email>Bruce.Chandler@leg.wa.gov</Email><FirstName>Bruce</FirstName><LastName>Chandler</LastName></Member><Member><Id>8222</Id><Name>Ross
+        Hunter</Name><LongName>Representative Hunter</LongName><Agency>House</Agency><Acronym>HUNT</Acronym><Party>Democrat</Party><District>48</District><Phone>(360)
+        786-7936</Phone><Email>Ross.Hunter@leg.wa.gov</Email><FirstName>Ross</FirstName><LastName>Hunter</LastName></Member><Member><Id>2157</Id><Name>Gary
+        Alexander</Name><LongName>Representative Alexander</LongName><Agency>House</Agency><Acronym>ALEX</Acronym><Party>Republican</Party><District>2</District><Phone>(360)
+        786-7824</Phone><Email>Gary.Alexander@leg.wa.gov</Email><FirstName>Gary</FirstName><LastName>Alexander</LastName></Member><Member><Id>12082</Id><Name>Charles
+        Ross</Name><LongName>Representative Ross</LongName><Agency>House</Agency><Acronym>ROSC</Acronym><Party>Republican</Party><District>14</District><Phone>(360)
+        786-7856</Phone><Email>Charles.Ross@leg.wa.gov</Email><FirstName>Charles</FirstName><LastName>Ross</LastName></Member><Member><Id>15810</Id><Name>J.T.
+        Wilcox</Name><LongName>Representative Wilcox</LongName><Agency>House</Agency><Acronym>WILC</Acronym><Party>Republican</Party><District>2</District><Phone>(360)
+        786-7912</Phone><Email>JT.Wilcox@leg.wa.gov</Email><FirstName>J.T.</FirstName><LastName>Wilcox</LastName></Member><Member><Id>15820</Id><Name>Vincent
+        Buys</Name><LongName>Representative Buys</LongName><Agency>House</Agency><Acronym>BUYS</Acronym><Party>Republican</Party><District>42</District><Phone>(360)
+        786-7854</Phone><Email>Vincent.Buys@leg.wa.gov</Email><FirstName>Vincent</FirstName><LastName>Buys</LastName></Member><Member><Id>14325</Id><Name>Reuven
+        Carlyle</Name><LongName>Representative Carlyle</LongName><Agency>House</Agency><Acronym>CARL</Acronym><Party>Democrat</Party><District>36</District><Phone>(360)
+        786-7814</Phone><Email>Reuven.Carlyle@leg.wa.gov</Email><FirstName>Reuven</FirstName><LastName>Carlyle</LastName></Member><Member><Id>18458</Id><Name>Leonard
+        Christian</Name><LongName>Representative Christian</LongName><Agency>House</Agency><Acronym>CHRI</Acronym><Party>Republican</Party><District>4</District><Phone>(360)
+        786-7820</Phone><Email>Leonard.Christian@leg.wa.gov</Email><FirstName>Leonard</FirstName><LastName>Christian</LastName></Member><Member><Id>1543</Id><Name>Eileen
+        Cody</Name><LongName>Representative Cody</LongName><Agency>House</Agency><Acronym>CODY</Acronym><Party>Democrat</Party><District>34</District><Phone>(360)
+        786-7978</Phone><Email>Eileen.Cody@leg.wa.gov</Email><FirstName>Eileen</FirstName><LastName>Cody</LastName></Member><Member><Id>15771</Id><Name>Cathy
+        Dahlquist</Name><LongName>Representative Dahlquist</LongName><Agency>House</Agency><Acronym>DAHL</Acronym><Party>Republican</Party><District>31</District><Phone>(360)
+        786-7846</Phone><Email>Cathy.Dahlquist@leg.wa.gov</Email><FirstName>Cathy</FirstName><LastName>Dahlquist</LastName></Member><Member><Id>630</Id><Name>Hans
+        Dunshee</Name><LongName>Representative Dunshee</LongName><Agency>House</Agency><Acronym>DUNS</Acronym><Party>Democrat</Party><District>44</District><Phone>(360)
+        786-7804</Phone><Email>Hans.Dunshee@leg.wa.gov</Email><FirstName>Hans</FirstName><LastName>Dunshee</LastName></Member><Member><Id>15098</Id><Name>Susan
+        Fagan</Name><LongName>Representative Fagan</LongName><Agency>House</Agency><Acronym>FAGA</Acronym><Party>Republican</Party><District>9</District><Phone>(360)
+        786-7942</Phone><Email>Susan.Fagan@leg.wa.gov</Email><FirstName>Susan</FirstName><LastName>Fagan</LastName></Member><Member><Id>10021</Id><Name>Tami
+        Green</Name><LongName>Representative Green</LongName><Agency>House</Agency><Acronym>GREE</Acronym><Party>Democrat</Party><District>28</District><Phone>(360)
+        786-7958</Phone><Email>Tami.Green@leg.wa.gov</Email><FirstName>Tami</FirstName><LastName>Green</LastName></Member><Member><Id>3475</Id><Name>Kathy
+        Haigh</Name><LongName>Representative Haigh</LongName><Agency>House</Agency><Acronym>HAIG</Acronym><Party>Democrat</Party><District>35</District><Phone>(360)
+        786-7966</Phone><Email>Kathy.Haigh@leg.wa.gov</Email><FirstName>Kathy</FirstName><LastName>Haigh</LastName></Member><Member><Id>9996</Id><Name>Larry
+        Haler</Name><LongName>Representative Haler</LongName><Agency>House</Agency><Acronym>HALE</Acronym><Party>Republican</Party><District>8</District><Phone>(360)
+        786-7986</Phone><Email>Larry.Haler@leg.wa.gov</Email><FirstName>Larry</FirstName><LastName>Haler</LastName></Member><Member><Id>15813</Id><Name>Paul
+        Harris</Name><LongName>Representative Harris</LongName><Agency>House</Agency><Acronym>HARR</Acronym><Party>Republican</Party><District>17</District><Phone>(360)
+        786-7976</Phone><Email>Paul.Harris@leg.wa.gov</Email><FirstName>Paul</FirstName><LastName>Harris</LastName></Member><Member><Id>8215</Id><Name>Zack
+        Hudgins</Name><LongName>Representative Hudgins</LongName><Agency>House</Agency><Acronym>HUDG</Acronym><Party>Democrat</Party><District>11</District><Phone>(360)
+        786-7956</Phone><Email>Zack.Hudgins@leg.wa.gov</Email><FirstName>Zack</FirstName><LastName>Hudgins</LastName></Member><Member><Id>18517</Id><Name>Graham
+        Hunt</Name><LongName>Representative Hunt</LongName><Agency>House</Agency><Acronym>HNTG</Acronym><Party>Republican</Party><District>2</District><Phone>(360)
+        786-7824</Phone><Email>Graham.Hunt@leg.wa.gov</Email><FirstName>Graham</FirstName><LastName>Hunt</LastName></Member><Member><Id>5155</Id><Name>Sam
+        Hunt</Name><LongName>Representative Hunt</LongName><Agency>House</Agency><Acronym>HUNS</Acronym><Party>Democrat</Party><District>22</District><Phone>(360)
+        786-7992</Phone><Email>Sam.Hunt@leg.wa.gov</Email><FirstName>Sam</FirstName><LastName>Hunt</LastName></Member><Member><Id>15817</Id><Name>Laurie
+        Jinkins</Name><LongName>Representative Jinkins</LongName><Agency>House</Agency><Acronym>JINK</Acronym><Party>Democrat</Party><District>27</District><Phone>(360)
+        786-7930</Phone><Email>Laurie.Jinkins@leg.wa.gov</Email><FirstName>Laurie</FirstName><LastName>Jinkins</LastName></Member><Member><Id>3487</Id><Name>Ruth
+        Kagi</Name><LongName>Representative Kagi</LongName><Agency>House</Agency><Acronym>KAGI</Acronym><Party>Democrat</Party><District>32</District><Phone>(360)
+        786-7910</Phone><Email>Ruth.Kagi@leg.wa.gov</Email><FirstName>Ruth</FirstName><LastName>Kagi</LastName></Member><Member><Id>10041</Id><Name>Joel
+        Kretz</Name><LongName>Representative Kretz</LongName><Agency>House</Agency><Acronym>KRET</Acronym><Party>Republican</Party><District>7</District><Phone>(360)
+        786-7988</Phone><Email>Joel.Kretz@leg.wa.gov</Email><FirstName>Joel</FirstName><LastName>Kretz</LastName></Member><Member><Id>15818</Id><Name>Kristine
+        Lytton</Name><LongName>Representative Lytton</LongName><Agency>House</Agency><Acronym>LYTT</Acronym><Party>Democrat</Party><District>40</District><Phone>(360)
+        786-7800</Phone><Email>Kristine.Lytton@leg.wa.gov</Email><FirstName>Kristine</FirstName><LastName>Lytton</LastName></Member><Member><Id>14204</Id><Name>Marcie
+        Maxwell</Name><LongName>Representative Maxwell</LongName><Agency>House</Agency><Acronym>MAXW</Acronym><Party>Democrat</Party><District>41</District><Phone>(360)
+        786-7894</Phone><Email>Marcie.Maxwell@leg.wa.gov</Email><FirstName>Marcie</FirstName><LastName>Maxwell</LastName></Member><Member><Id>8208</Id><Name>Dawn
+        Morrell</Name><LongName>Representative Morrell</LongName><Agency>House</Agency><Acronym>MORE</Acronym><Party>Democrat</Party><District>25</District><Phone>(360)
+        786-7948</Phone><Email>Dawn.Morrell@leg.wa.gov</Email><FirstName>Dawn</FirstName><LastName>Morrell</LastName></Member><Member><Id>14186</Id><Name>Kevin
+        Parker</Name><LongName>Representative Parker</LongName><Agency>House</Agency><Acronym>PARK</Acronym><Party>Republican</Party><District>6</District><Phone>(360)
+        786-7922</Phone><Email>Kevin.Parker@leg.wa.gov</Email><FirstName>Kevin</FirstName><LastName>Parker</LastName></Member><Member><Id>12002</Id><Name>Jamie
+        Pedersen</Name><LongName>Representative Pedersen</LongName><Agency>House</Agency><Acronym>PEDE</Acronym><Party>Democrat</Party><District>43</District><Phone>(360)
+        786-7826</Phone><Email>Jamie.Pedersen@leg.wa.gov</Email><FirstName>Jamie</FirstName><LastName>Pedersen</LastName></Member><Member><Id>8286</Id><Name>Eric
+        Pettigrew</Name><LongName>Representative Pettigrew</LongName><Agency>House</Agency><Acronym>PETT</Acronym><Party>Democrat</Party><District>37</District><Phone>(360)
+        786-7838</Phone><Email>Eric.Pettigrew@leg.wa.gov</Email><FirstName>Eric</FirstName><LastName>Pettigrew</LastName></Member><Member><Id>17158</Id><Name>Liz
+        Pike</Name><LongName>Representative Pike</LongName><Agency>House</Agency><Acronym>PIKE</Acronym><Party>Republican</Party><District>18</District><Phone>(360)
+        786-7812</Phone><Email>Liz.Pike@leg.wa.gov</Email><FirstName>Liz</FirstName><LastName>Pike</LastName></Member><Member><Id>13209</Id><Name>Joe
+        Schmick</Name><LongName>Representative Schmick</LongName><Agency>House</Agency><Acronym>SHMK</Acronym><Party>Republican</Party><District>9</District><Phone>(360)
+        786-7844</Phone><Email>Joe.Schmick@leg.wa.gov</Email><FirstName>Joe</FirstName><LastName>Schmick</LastName></Member><Member><Id>12068</Id><Name>Larry
+        Seaquist</Name><LongName>Representative Seaquist</LongName><Agency>House</Agency><Acronym>SEAQ</Acronym><Party>Democrat</Party><District>26</District><Phone>(360)
+        786-7802</Phone><Email>Larry.Seaquist@leg.wa.gov</Email><FirstName>Larry</FirstName><LastName>Seaquist</LastName></Member><Member><Id>10039</Id><Name>Larry
+        Springer</Name><LongName>Representative Springer</LongName><Agency>House</Agency><Acronym>SPRI</Acronym><Party>Democrat</Party><District>45</District><Phone>(360)
+        786-7822</Phone><Email>Larry.Springer@leg.wa.gov</Email><FirstName>Larry</FirstName><LastName>Springer</LastName></Member><Member><Id>1218</Id><Name>Pat
+        Sullivan</Name><LongName>Representative Sullivan</LongName><Agency>House</Agency><Acronym>SULP</Acronym><Party>Democrat</Party><District>47</District><Phone>(360)
+        786-7858</Phone><Email>Pat.Sullivan@leg.wa.gov</Email><FirstName>Pat</FirstName><LastName>Sullivan</LastName></Member><Member><Id>15006</Id><Name>David
+        Taylor</Name><LongName>Representative Taylor</LongName><Agency>House</Agency><Acronym>TAYL</Acronym><Party>Republican</Party><District>15</District><Phone>(360)
+        786-7874</Phone><Email>David.Taylor@leg.wa.gov</Email><FirstName>David</FirstName><LastName>Taylor</LastName></Member><Member><Id>15816</Id><Name>Steve
+        Tharinger</Name><LongName>Representative Tharinger</LongName><Agency>House</Agency><Acronym>THAR</Acronym><Party>Democrat</Party><District>24</District><Phone>(360)
+        786-7904</Phone><Email>Steve.Tharinger@leg.wa.gov</Email><FirstName>Steve</FirstName><LastName>Tharinger</LastName></Member><Member><Id>17218</Id><Name>Brandon
+        Vick</Name><LongName>Representative Vick</LongName><Agency>House</Agency><Acronym>VICK</Acronym><Party>Republican</Party><District>18</District><Phone>(360)
+        786-7850</Phone><Email>Brandon.Vick@leg.wa.gov</Email><FirstName>Brandon</FirstName><LastName>Vick</LastName></Member></GetCommitteeMembersResult></GetCommitteeMembersResponse></soap:Body></soap:Envelope>
+    headers:
+      Cache-Control:
+      - private, max-age=0
+      Content-Length:
+      - '11948'
+      Content-Type:
+      - text/xml; charset=utf-8
+      Date:
+      - Fri, 10 Jul 2026 13:26:41 GMT
+      Server:
+      - Microsoft-IIS/10.0
+      Server-Timing:
+      - dtTrId;desc="d1c60f3494b754edc41c63eedab6e8e9", dtSInfo;desc="0"
+      - dtRpid;desc="2002399640"
+      X-AspNet-Version:
+      - 4.0.30319
+      X-Powered-By:
+      - ASP.NET
+    status:
+      code: 200
+      message: OK
+version: 1

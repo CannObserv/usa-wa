@@ -158,3 +158,101 @@ async def test_parse_committee_members_wrong_service_raises():
     client = WSLClient("SponsorService")
     with pytest.raises(ValueError, match="CommitteeService"):
         await client.parse_committee_members(b"<x/>")
+
+
+# --- fetch_historical_committee_members (GetCommitteeMembers, #82) --------------
+
+HIST_MEMBERS_CASSETTE = "committee_service_get_committee_members_house_appropriations_2013-14.yaml"
+HIST_MEMBERS_MISSING_CASSETTE = "committee_service_get_committee_members_missing.yaml"
+
+
+async def test_fetch_historical_committee_members_returns_biennium_roster(wsl_vcr):
+    """GetCommitteeMembers(biennium, agency, name) — a *past* biennium's roster (2013-14
+    House Appropriations = 37 members). Same member-row shape as the active op; the
+    committee is query context, not a field on the row."""
+    with wsl_vcr.use_cassette(HIST_MEMBERS_CASSETTE):
+        client = WSLClient("CommitteeService")
+        fetched = await client.fetch_historical_committee_members(
+            "2013-14", "House", "Appropriations"
+        )
+
+    assert len(fetched.records) == 37
+    for row in fetched.records:
+        assert _MEMBER_KEYS.issubset(row.keys())
+        assert isinstance(row["Id"], int)
+        assert row["Agency"] == "House"
+
+    # the wire is the historical op's envelope — NOT GetActiveCommitteeMembers
+    assert isinstance(fetched.wire, bytes)
+    assert b"GetCommitteeMembers" in fetched.wire
+    assert "xml" in fetched.content_type.lower()
+
+
+async def test_parse_historical_committee_members_round_trips_archived_wire(wsl_vcr):
+    """The offline re-parse (span builder's archive-first path) recovers the same members."""
+    with wsl_vcr.use_cassette(HIST_MEMBERS_CASSETTE):
+        client = WSLClient("CommitteeService")
+        fetched = await client.fetch_historical_committee_members(
+            "2013-14", "House", "Appropriations"
+        )
+        reparsed = await client.parse_historical_committee_members(fetched.wire)
+
+    assert reparsed and len(reparsed) == len(fetched.records)
+    assert {r["Id"] for r in reparsed} == {r["Id"] for r in fetched.records}
+
+
+async def test_fetch_historical_committee_members_missing_committee_yields_empty(wsl_vcr):
+    """A committee absent from that biennium raises a benign Fault → swallowed to empty,
+    so the harvest fan-out skips and continues (also covers the sub-1999-00 floor)."""
+    with wsl_vcr.use_cassette(HIST_MEMBERS_MISSING_CASSETTE):
+        client = WSLClient("CommitteeService")
+        fetched = await client.fetch_historical_committee_members(
+            "2013-14", "House", "NoSuchCommitteeXYZ"
+        )
+
+    assert fetched.records == []
+    assert fetched.wire == b""
+
+
+async def test_fetch_historical_committee_members_wrong_service_raises():
+    client = WSLClient("SponsorService")
+    with pytest.raises(ValueError, match="CommitteeService"):
+        await client.fetch_historical_committee_members("2013-14", "House", "Rules")
+
+
+async def test_parse_historical_committee_members_wrong_service_raises():
+    client = WSLClient("SponsorService")
+    with pytest.raises(ValueError, match="CommitteeService"):
+        await client.parse_historical_committee_members(b"<x/>")
+
+
+# --- the empty-roster Fault matcher is narrow (must not swallow real faults) ----
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        # the two live messages (probed 2026-07)
+        (
+            "No committee members have been found. Please ensure that you have a valid "
+            "biennium, agency, and committee name.",
+            True,
+        ),
+        (
+            "No committee was found. Please ensure that you have a valid biennium, agency, "
+            "and committee name.",
+            True,
+        ),
+        # an unrelated fault must NOT be swallowed — even though real faults can mention
+        # a biennium, only the two known "nothing here" messages count
+        ("Server was unable to process request.", False),
+        ("Object reference not set to an instance of an object.", False),
+        ("Please ensure that you have a valid biennium.", False),
+    ],
+)
+def test_empty_committee_roster_matcher_is_narrow(message, expected):
+    from zeep.exceptions import Fault
+
+    from usa_wa_adapter_legislature.transport import _is_empty_committee_roster
+
+    assert _is_empty_committee_roster(Fault(message)) is expected

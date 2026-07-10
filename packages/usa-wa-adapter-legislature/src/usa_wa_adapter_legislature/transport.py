@@ -104,6 +104,23 @@ def _is_biennium_out_of_range(exc: Fault) -> bool:
     return _BIENNIUM_OUT_OF_RANGE_MARKER in str(exc).lower()
 
 
+#: ``GetCommitteeMembers`` (the historical roster op, #82) raises a Fault rather than
+#: returning empty for the two benign "nothing here" cases the harvest sweep provokes:
+#: a committee that didn't exist that biennium, and a biennium below the ~1999-00 floor
+#: (whose truncated old committee names don't resolve). Both mean "no roster" — the
+#: fan-out skips and continues. Matched on the **specific** messages, not their shared
+#: "valid biennium" advice tail, so an unrelated Fault still propagates.
+_EMPTY_ROSTER_MARKERS = (
+    "no committee members have been found",
+    "no committee was found",
+)
+
+
+def _is_empty_committee_roster(exc: Fault) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in _EMPTY_ROSTER_MARKERS)
+
+
 @dataclass(frozen=True)
 class WireFetch:
     """An archival fetch result: the pristine wire bytes plus the derived parse.
@@ -291,6 +308,33 @@ class WSLClient:
         serialized = serialize_object(result, dict)
         return list(serialized) if serialized is not None else []
 
+    def _fetch_historical_committee_members_sync(
+        self, biennium: str, agency: str, committee_name: str
+    ) -> WireFetch:
+        try:
+            result = self._ensure_client().service.GetCommitteeMembers(
+                biennium=biennium, agency=agency, committeeName=committee_name
+            )
+        except Fault as exc:
+            if _is_empty_committee_roster(exc):
+                return WireFetch(records=[], wire=b"", content_type="text/xml")
+            raise
+        serialized = serialize_object(result, dict)
+        records = list(serialized) if serialized is not None else []
+        return WireFetch(
+            records=records,
+            wire=self._transport.last_wire or b"",
+            content_type=self._transport.last_content_type or "text/xml",
+        )
+
+    def _parse_historical_committee_members_sync(self, wire: bytes) -> list[dict[str, Any]]:
+        client = self._ensure_client()
+        binding = client.service._binding
+        operation = binding.get("GetCommitteeMembers")
+        result = binding.process_reply(client, operation, _StoredResponse(wire))
+        serialized = serialize_object(result, dict)
+        return list(serialized) if serialized is not None else []
+
     def _fetch_committees_sync(self, biennium: str) -> WireFetch:
         try:
             result = self._ensure_client().service.GetCommittees(biennium)
@@ -447,6 +491,49 @@ class WSLClient:
                 f"parse_committee_members requires service='CommitteeService', got {self.service!r}"
             )
         return await asyncio.to_thread(self._parse_committee_members_sync, wire)
+
+    async def fetch_historical_committee_members(
+        self, biennium: str, agency: str, committee_name: str
+    ) -> WireFetch:
+        """Archival pull of one committee's roster **for a given biennium** (#82).
+
+        The historical sibling of :meth:`fetch_committee_members`: calls
+        ``CommitteeService.GetCommitteeMembers(biennium, agency, committeeName)`` — a
+        distinct SOAP op from the (biennium-less, current-only)
+        ``GetActiveCommitteeMembers`` — and returns a :class:`WireFetch` (the derived
+        ``Member`` dicts + the raw envelope for archival/hashing, #54). The response shape
+        matches the active op: a flat member roster, with the committee supplied as query
+        context rather than carried on each row.
+
+        ``committee_name`` is the committee's short ``Name`` (``"Appropriations"``);
+        ``LongName`` faults. A committee absent from that biennium — or a biennium below
+        the ~1999-00 floor, where truncated old names don't resolve — raises a benign Fault
+        that is swallowed into an **empty** :class:`WireFetch`, so the harvest fan-out skips
+        and continues instead of crashing.
+        """
+        if self.service != "CommitteeService":
+            raise ValueError(
+                "fetch_historical_committee_members requires service='CommitteeService', "
+                f"got {self.service!r}"
+            )
+        return await asyncio.to_thread(
+            self._fetch_historical_committee_members_sync, biennium, agency, committee_name
+        )
+
+    async def parse_historical_committee_members(self, wire: bytes) -> list[dict[str, Any]]:
+        """Re-deserialize an **archived** ``GetCommitteeMembers`` envelope offline (#82).
+
+        Replays a stored ``RawPayload.body`` through the **same** ``GetCommitteeMembers``
+        binding :meth:`fetch_historical_committee_members` uses, so the offline parse (the
+        span builder's archive-first path) can't drift from the live one. Guarded by the
+        cassette round-trip test.
+        """
+        if self.service != "CommitteeService":
+            raise ValueError(
+                "parse_historical_committee_members requires service='CommitteeService', "
+                f"got {self.service!r}"
+            )
+        return await asyncio.to_thread(self._parse_historical_committee_members_sync, wire)
 
     async def fetch_active_committees(self) -> WireFetch:
         """Archival pull of the *currently active* committees, keeping the wire.
