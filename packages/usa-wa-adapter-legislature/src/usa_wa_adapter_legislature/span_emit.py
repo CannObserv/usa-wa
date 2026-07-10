@@ -59,13 +59,22 @@ async def emit_spans(
     resolve_role: RoleResolver,
     citation_target: CitationLocator,
     reliability: float,
+    person_source: str = SOURCE,
+    assignment_source: str = SOURCE,
 ) -> int:
     """Upsert an :class:`Assignment` per span (+ per-biennium citations); return the count.
 
-    A span whose Person or Role can't be resolved is logged and skipped (never guessed)."""
+    A span whose Person or Role can't be resolved is logged and skipped (never guessed).
+
+    ``person_source`` / ``assignment_source`` split the two uses of ``source`` that coincide
+    for the WSL callers but diverge for PDC (#79): a PDC House-position span resolves the
+    **WSL-sourced** Person (``person_source='usa_wa_legislature'``) yet writes a **PDC-sourced**
+    Assignment (``assignment_source='usa_wa_pdc'``), because PDC is the authority for the
+    ballot Position. Both default to ``usa_wa_legislature``, so sponsor + committee callers are
+    unchanged."""
     emitted = 0
     for span in spans:
-        person = await resolve_person(session, span.member_id)
+        person = await resolve_person(session, span.member_id, source=person_source)
         if person is None:
             logger.warning("span_person_absent", extra={"member_id": span.member_id})
             continue
@@ -76,30 +85,37 @@ async def emit_spans(
                 extra={"member_id": span.member_id, "kind": span.kind, "disc": span.discriminator},
             )
             continue
-        assignment = await _upsert_assignment(session, span, person, role)
+        assignment = await _upsert_assignment(session, span, person, role, assignment_source)
         await _ensure_citations(session, assignment, span, reliability, citation_target)
         emitted += 1
     return emitted
 
 
-async def resolve_person(session: AsyncSession, member_id: str) -> Person | None:
-    """The WSL :class:`Person` a span's ``member_id`` names (``(source, source_id)``)."""
+async def resolve_person(
+    session: AsyncSession, member_id: str, *, source: str = SOURCE
+) -> Person | None:
+    """The :class:`Person` a span's ``member_id`` names (``(source, source_id)``). ``source``
+    defaults to WSL — every span binds a WSL-sourced Person, PDC spans included (#79)."""
     return (
         await session.execute(
-            select(Person).where(Person.source == SOURCE, Person.source_id == member_id)
+            select(Person).where(Person.source == source, Person.source_id == member_id)
         )
     ).scalar_one_or_none()
 
 
 async def _upsert_assignment(
-    session: AsyncSession, span: TenureSpan, person: Person, role: Role
+    session: AsyncSession,
+    span: TenureSpan,
+    person: Person,
+    role: Role,
+    assignment_source: str,
 ) -> Assignment:
     """Insert or update the span's Assignment by ``(source, source_id)`` — the span
     ``source_id`` is keyed on the tenure start, so an extending span updates its own row."""
     existing = (
         await session.execute(
             select(Assignment).where(
-                Assignment.source == SOURCE, Assignment.source_id == span.source_id
+                Assignment.source == assignment_source, Assignment.source_id == span.source_id
             )
         )
     ).scalar_one_or_none()
@@ -112,7 +128,7 @@ async def _upsert_assignment(
         await session.flush()
         return existing
     row = Assignment(
-        source=SOURCE,
+        source=assignment_source,
         source_id=span.source_id,
         person_id=person.id,
         role_id=role.id,
