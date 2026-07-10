@@ -82,7 +82,9 @@ class CommitteeMemberCohortProvider:
                     FetchEvent.resource_id.like(f"{COMMITTEE_MEMBERS_HIST_RESOURCE_PREFIX}%"),
                     FetchEvent.status == FetchStatus.ok,
                 )
-                .order_by(FetchEvent.fetched_at.asc(), FetchEvent.id.asc())  # last write wins
+                # Newest-first, same as sponsor_cohort's per-biennium `desc + LIMIT 1`; here
+                # one bulk scan feeds many keys, so `setdefault` keeps the first (newest) seen.
+                .order_by(FetchEvent.fetched_at.desc(), FetchEvent.id.desc())
             )
         ).all()
         latest: dict[RosterKey, CitationTarget] = {}
@@ -90,7 +92,7 @@ class CommitteeMemberCohortProvider:
             biennium, committee_id, _agency, _name = parse_committee_members_hist_resource_id(
                 resource_id
             )
-            latest[(biennium, committee_id)] = (event_id, fetched_at, resource_id)
+            latest.setdefault((biennium, committee_id), (event_id, fetched_at, resource_id))
         return latest
 
     async def _latest_events(self) -> dict[RosterKey, CitationTarget]:

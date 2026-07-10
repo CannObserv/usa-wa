@@ -153,7 +153,9 @@ async def test_fetch_historical_committee_members_senate_committee(wsl_vcr):
         )
 
     assert len(fetched.records) == 25
-    assert all(r["Agency"] == "Senate" for r in fetched.records)
+    for row in fetched.records:
+        assert _MEMBER_KEYS.issubset(row.keys())
+        assert row["Agency"] == "Senate"
 
 
 async def test_parse_historical_committee_members_round_trips_archived_wire(wsl_vcr):
