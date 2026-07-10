@@ -66,9 +66,14 @@ async def harvest_pdc(
     pdc_client: PDCClient | None = None,
     dry_run: bool = False,
     force: bool = False,
+    pause_seconds: float = 0.0,
 ) -> HarvestSummary:
     """Archive each year's House + Senate winner cohorts (archive-only). Operates in the
-    caller's transaction (the CLI commits, or rolls back on ``dry_run``)."""
+    caller's transaction (the CLI commits, or rolls back on ``dry_run``).
+
+    A mid-sweep failure aborts the whole run (nothing committed); re-run from the floor —
+    closed years cache-hit, so it resumes cheaply. ``pause_seconds`` drips between years (the
+    SODA analog of the WSL harvests' ``--pause-seconds``; Socrata has no central limiter)."""
     jurisdiction = await resolve_jurisdiction(session)
     source = await get_or_create_source(session, jurisdiction)
     adapter = PDCAdapter(
@@ -85,7 +90,9 @@ async def harvest_pdc(
     )
 
     archived = 0
-    for year in years:
+    for index, year in enumerate(years):
+        if index > 0 and pause_seconds > 0:
+            await asyncio.sleep(pause_seconds)
         for prefix in (HOUSE_WINNERS_RESOURCE_PREFIX, SENATE_WINNERS_RESOURCE_PREFIX):
             if await runner.archive_only(f"{prefix}{year}", force=force):
                 archived += 1
@@ -110,6 +117,9 @@ async def _main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--dry-run", action="store_true", help="harvest but roll back")
     parser.add_argument("--force", action="store_true", help="re-fetch past the freshness cache")
+    parser.add_argument(
+        "--pause-seconds", type=float, default=0.0, help="seconds to drip between years (SODA)"
+    )
     args = parser.parse_args(argv)
 
     database_url = os.environ.get("DATABASE_URL")
@@ -126,7 +136,11 @@ async def _main(argv: list[str] | None = None) -> int:
     try:
         async with AsyncSession(engine) as session:
             summary = await harvest_pdc(
-                session, years=years, dry_run=args.dry_run, force=args.force
+                session,
+                years=years,
+                dry_run=args.dry_run,
+                force=args.force,
+                pause_seconds=args.pause_seconds,
             )
             if summary.dry_run:
                 await session.rollback()

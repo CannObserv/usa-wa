@@ -55,6 +55,11 @@ from usa_wa_adapter_pdc.provisioning import get_or_create_source as get_or_creat
 logger = get_logger(__name__)
 
 
+def _roster_member_ids(roster: dict[int, list]) -> set[str]:
+    """The set of WSL member ids in a ``{LD: [entry]}`` roster (House or Senate)."""
+    return {entry.member_id for entries in roster.values() for entry in entries}
+
+
 @dataclass
 class PdcSpanResult:
     """Counts from one Phase B build."""
@@ -125,6 +130,9 @@ async def build_pdc_spans(
         observations.extend(proj.observations)
         identifiers.extend(proj.pdc_identifiers)
         result.coverage[year] = proj.summary
+        # Log the per-cohort coverage so a shortfall (fewer seated than the 98-seat House) is
+        # visible — the issue's "log the shortfall", symmetric with the Senate log below.
+        logger.info("pdc_house_cohort", extra={"year": year, **proj.summary})
         for member_id, _biennium in proj.inferred_keys:
             logger.info(
                 "pdc_house_seat_inferred", extra={"member_id": member_id, "biennium": biennium}
@@ -132,19 +140,28 @@ async def build_pdc_spans(
         if year in house_events:
             fetch_events[biennium] = house_events[year]
 
-    # Senate — identifier-only (#75), era-matched.
+    # Senate — identifier-only (#75). The staggered senators are all sitting, so the daily
+    # re-drive matches them against the **current** roster (``restrict_to_biennium``), not each
+    # cohort's historical seating biennium — otherwise the ``start-3`` cohort would force a live
+    # ``GetSponsors`` pull for a non-current biennium every day. The backfill (restrict None)
+    # era-matches each cohort to who actually won then.
     for year in sorted(senate_cohorts):
         if not senate_cohorts[year]:
             continue  # empty cohort → nothing to match, no era roster needed
-        biennium = seating_biennium_for_election_year(year)
-        _house_roster, senate_roster = await _era_rosters(biennium)
+        senate_biennium = restrict_to_biennium or seating_biennium_for_election_year(year)
+        _house_roster, senate_roster = await _era_rosters(senate_biennium)
         links = build_senate_identity_links(senate_cohorts[year], senate_roster=senate_roster)
         identifiers.extend(links.identifiers)
         logger.info("pdc_senate_cohort", extra={"year": year, **links.summary})
 
     if restrict_to_biennium is not None:
-        scoped = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
-        observations = [o for o in observations if o.member_id in scoped]
+        # Daily re-drive: keep only current members' House spans (each with full history) and
+        # only current members' identifiers — the current biennium's rosters define "current".
+        observed = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
+        observations = [o for o in observations if o.member_id in observed]
+        current_house, current_senate = await _era_rosters(restrict_to_biennium)
+        current_ids = _roster_member_ids(current_house) | _roster_member_ids(current_senate)
+        identifiers = [(m, p) for (m, p) in identifiers if m in current_ids]
 
     spans = build_tenure_spans(observations, current_biennium=current)
     result.house_spans = await emit_house_position_spans(

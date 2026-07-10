@@ -8,9 +8,12 @@ are NOT touched here (era matching needs a roster the harvest doesn't hold).
 from __future__ import annotations
 
 import json
+import os
+from unittest.mock import patch
 
 from sqlalchemy import func, select
-from usa_wa_adapter_pdc.harvest_pdc import election_years, harvest_pdc
+from usa_wa_adapter_pdc import harvest_pdc as harvest_module
+from usa_wa_adapter_pdc.harvest_pdc import HarvestSummary, election_years, harvest_pdc
 from usa_wa_adapter_pdc.transport import WireFetch
 
 from clearinghouse_core.provenance import FetchEvent, RawPayload
@@ -68,3 +71,33 @@ async def test_reharvest_is_cache_hit(db_session, usa_wa):
 
     assert second.cohorts_archived == 0  # within TTL → cache hit, no re-fetch
     assert client.house_calls == [2012]  # only the first run fetched
+
+
+# --- CLI ----------------------------------------------------------------------
+
+
+async def test_main_requires_database_url(monkeypatch, capsys):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with patch.object(harvest_module, "configure_logging"):
+        code = await harvest_module._main([])
+    assert code == 2
+    assert "DATABASE_URL is not set" in capsys.readouterr().err
+
+
+async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    fake = HarvestSummary(years=2, cohorts_archived=4, dry_run=True)
+
+    async def _fake_harvest(session, **_kwargs):
+        return fake
+
+    with (
+        patch.object(harvest_module, "configure_logging"),
+        patch.object(harvest_module, "harvest_pdc", _fake_harvest),
+    ):
+        code = await harvest_module._main(["--from-year", "2012", "--to-year", "2014", "--dry-run"])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "cohorts_archived=4" in out
+    assert "dry-run, rolled back" in out

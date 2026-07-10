@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import PersonIdentifier, Role
+from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors
 from usa_wa_adapter_legislature.normalize.members import get_or_create_role, resolve_ld_jurisdiction
 from usa_wa_adapter_legislature.span_emit import CitationTarget, emit_spans, resolve_person
 from usa_wa_adapter_legislature.tenure_spans import TenureSpan
@@ -48,7 +49,7 @@ async def emit_house_position_spans(
     session: AsyncSession,
     spans: list[TenureSpan],
     *,
-    anchors: object,
+    anchors: BootstrapAnchors,
     reliability: float,
     fetch_events: HouseCitationEvents,
 ) -> int:

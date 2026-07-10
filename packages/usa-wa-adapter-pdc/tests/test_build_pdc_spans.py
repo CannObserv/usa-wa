@@ -9,12 +9,15 @@ links. The load-bearing assertion is **era matching** — a 2012 cohort resolves
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
-from usa_wa_adapter_pdc.build_pdc_spans import build_pdc_spans
+from usa_wa_adapter_pdc import build_pdc_spans as build_module
+from usa_wa_adapter_pdc.build_pdc_spans import PdcSpanResult, build_pdc_spans
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
@@ -184,7 +187,85 @@ async def test_absent_person_yields_no_span(db_session, usa_wa, wsl_source, pdc_
     )
 
     assert result.house_spans == 0
+    assert result.identifiers == 0  # absent Person → no seat AND no identifier
     assert (await db_session.execute(select(func.count()).select_from(Assignment))).scalar() == 0
+
+
+async def test_daily_redrive_matches_staggered_senate_against_current_roster(
+    db_session, usa_wa, wsl_source, pdc_source
+):
+    """The daily re-drive (restrict_to_biennium set) must NOT era-match the start-3 Senate cohort
+    to its historical seating biennium — that would force a live GetSponsors pull. It matches the
+    staggered senators against the CURRENT roster instead (they're all sitting)."""
+    await _add_ld(db_session, usa_wa, 8)
+    await _add_person(db_session, 200)
+    # A staggered Senate cohort: 2022 winners seat 2023-24 but sit through the current biennium.
+    await _archive(
+        db_session, pdc_source, "senate-winners:2022", _winners(("800", 8, 0, "M200 Jones"))
+    )
+    # ONLY the current sponsor roster is archived — sponsors:2023-24 is deliberately absent, so a
+    # seating-biennium era-match would hit the stub's live pull and raise.
+    await _archive(
+        db_session, wsl_source, "sponsors:2025-26", _sponsor_wire((200, 8, "Jones", "Senate"))
+    )
+
+    result = await build_pdc_spans(
+        db_session,
+        sponsor_client=_StubSponsorClient(),
+        current_biennium=CURRENT,
+        restrict_to_biennium=CURRENT,
+    )
+
+    assert result.identifiers == 1  # matched against the current roster, no live pull
+
+
+async def test_daily_redrive_scopes_identifiers_to_current_members(
+    db_session, usa_wa, wsl_source, pdc_source
+):
+    """restrict_to_biennium keeps only current members' identifiers — a member who won a
+    historical House seat but isn't in the current roster is not re-emitted daily."""
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_person(db_session, 100)  # current member
+    await _add_person(db_session, 999)  # historical-only member
+    # A historical House cohort seating a now-departed member (999) + a current one (100).
+    await _archive(
+        db_session,
+        pdc_source,
+        "house-winners:2012",
+        _winners(("900", 5, 1, "M100 Smith"), ("999", 6, 1, "M999 Gone")),
+    )
+    await _archive(
+        db_session,
+        pdc_source,
+        "house-winners:2024",
+        _winners(("900", 5, 1, "M100 Smith")),  # only 100 is current
+    )
+    await _add_ld(db_session, usa_wa, 6)
+    await _archive(
+        db_session,
+        wsl_source,
+        "sponsors:2013-14",
+        _sponsor_wire((100, 5, "Smith", "House"), (999, 6, "Gone", "House")),
+    )
+    await _archive(
+        db_session, wsl_source, "sponsors:2025-26", _sponsor_wire((100, 5, "Smith", "House"))
+    )
+
+    result = await build_pdc_spans(
+        db_session,
+        sponsor_client=_StubSponsorClient(),
+        current_biennium=CURRENT,
+        restrict_to_biennium=CURRENT,
+    )
+
+    assert result.identifiers == 1  # only member 100's link (999 is not current)
+    assert (
+        await db_session.execute(
+            select(func.count())
+            .select_from(PersonIdentifier)
+            .where(PersonIdentifier.source_id == "999:wa_pdc")
+        )
+    ).scalar() == 0
 
 
 async def test_no_archive_emits_nothing(db_session, usa_wa, wsl_source, pdc_source):
@@ -192,3 +273,33 @@ async def test_no_archive_emits_nothing(db_session, usa_wa, wsl_source, pdc_sour
         db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
     )
     assert result.house_spans == 0 and result.identifiers == 0
+
+
+# --- CLI ----------------------------------------------------------------------
+
+
+async def test_main_requires_database_url(monkeypatch, capsys):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with patch.object(build_module, "configure_logging"):
+        code = await build_module._main([])
+    assert code == 2
+    assert "DATABASE_URL is not set" in capsys.readouterr().err
+
+
+async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    fake = PdcSpanResult(house_spans=3, identifiers=5, house_years=2, senate_years=2)
+
+    async def _fake_build(session, **_kwargs):
+        return fake
+
+    with (
+        patch.object(build_module, "configure_logging"),
+        patch.object(build_module, "build_pdc_spans", _fake_build),
+    ):
+        code = await build_module._main(["--dry-run"])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "house_spans=3 identifiers=5" in out
+    assert "dry-run, rolled back" in out

@@ -131,9 +131,11 @@ python -m usa_wa_adapter_pdc.refresh
 # is skipped (logged, correct); run this after the sponsor harvest.
 
 # Phase A — archive the winner cohorts (archive-only; no normalize). Even election years from the
-# floor (2008) to current; a year with no data archives empty; cache-hit on re-run.
+# floor (2008) to current; a year with no data archives empty; cache-hit on re-run. A mid-sweep
+# failure aborts the run (nothing committed) — re-run from the floor (closed years cache-hit).
+# --pause-seconds drips between years (SODA analog of the WSL harvests' pacing).
 python -m usa_wa_adapter_pdc.harvest_pdc --dry-run
-python -m usa_wa_adapter_pdc.harvest_pdc --from-year 2008
+python -m usa_wa_adapter_pdc.harvest_pdc --from-year 2008 --pause-seconds 0.5
 
 # Phase B — era-matched span build (archive-first, no live PDC pull): each cohort pairs with its
 # seating biennium's sponsor roster (2012 → 2013-14), projects House Position observations + links,
