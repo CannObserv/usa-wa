@@ -75,13 +75,6 @@ def parse_house_span_discriminator(discriminator: str) -> tuple[int, str]:
     return int(ld_number), f"Position {position_digit}"
 
 
-def house_seat_assignment_source_id(member_id: str, biennium: str) -> str:
-    """Deterministic ``Assignment.source_id`` for a House chamber seat — role-independent
-    (the role is a *value* of the assignment), symmetric with P1b's Senate
-    ``{member_id}:chamber-senate:{biennium}``."""
-    return f"{member_id}:chamber-house:{biennium}"
-
-
 def pdc_person_identifier_source_id(pdc_person_id: str) -> str:
     """Deterministic ``PersonIdentifier.source_id`` for the PDC id child row."""
     return f"{pdc_person_id}:{PDC_PERSON_ID_SCHEME}"

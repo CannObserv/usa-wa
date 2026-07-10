@@ -1,4 +1,10 @@
-"""Tests for the PDC refresh cycle — roster build + fill-only adapter run."""
+"""PDC refresh cycle (#79) — archive current cohorts + re-drive the span builder.
+
+The refresh is span-based now: it archives the current biennium's PDC winner cohorts and
+re-drives :func:`build_pdc_spans` scoped to the current biennium (House Position seat spans with
+the current biennium as the open end + ``person_wa_pdc`` links). The era roster is read
+archive-first from the WSL sponsor archive (pre-seeded here as the WSL refresh does in prod).
+"""
 
 from __future__ import annotations
 
@@ -6,41 +12,55 @@ import json
 import logging
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy import select
 from ulid import ULID as _ULID
 from usa_wa_adapter_pdc.refresh import run_refresh
 from usa_wa_adapter_pdc.transport import WireFetch
 
 from clearinghouse_core.jurisdictions import Jurisdiction
-from clearinghouse_core.provenance import Source
+from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier, Role
 from usa_wa_adapter_legislature.refresh import biennium_for_date
 
+BIENNIUM = "2025-26"
 
-class FakeSponsorClient:
-    def __init__(self, members):
-        self._members = members
-        self.calls = []
 
-    async def get_sponsors(self, biennium):
-        self.calls.append(biennium)
-        return self._members
+class _StubSponsorClient:
+    """Archive-first: the live fetch must not be hit; parse decodes the archived JSON wire."""
+
+    async def fetch_sponsors(self, biennium):  # pragma: no cover
+        raise AssertionError("live sponsor pull; era roster must be archive-first")
+
+    async def parse_sponsors(self, wire):
+        return json.loads(wire.decode())
 
 
 class FakePDCClient:
-    def __init__(self, winners, senate_winners=None):
-        self._winners = winners
-        self._wire = json.dumps(winners).encode("utf-8")
-        self._senate = senate_winners or {}
+    def __init__(self, house=None, senate=None):
+        self._house = house or []
+        self._senate = senate or {}
 
     async def fetch_house_winners(self, election_year):
-        return WireFetch(records=self._winners, wire=self._wire, content_type="application/json")
+        return WireFetch(
+            records=self._house,
+            wire=json.dumps(self._house).encode(),
+            content_type="application/json",
+        )
 
     async def fetch_senate_winners(self, election_year):
         rows = self._senate.get(election_year, [])
         return WireFetch(
-            records=rows, wire=json.dumps(rows).encode("utf-8"), content_type="application/json"
+            records=rows, wire=json.dumps(rows).encode(), content_type="application/json"
         )
+
+
+@pytest.fixture
+async def wsl_source(db_session, usa_wa):
+    row = Source(jurisdiction_id=usa_wa.id, name="WSL", slug="usa_wa_legislature", kind="soap")
+    db_session.add(row)
+    await db_session.flush()
+    return row
 
 
 async def _add_ld(session, usa_wa, n):
@@ -56,45 +76,61 @@ async def _add_ld(session, usa_wa, n):
     await session.flush()
 
 
-async def test_run_refresh_materializes_house_seat(db_session, usa_wa):
-    await _add_ld(db_session, usa_wa, 42)
-    person = Person(source="usa_wa_legislature", source_id="100", name_full="Alicia Rule")
-    db_session.add(person)
-    await db_session.flush()
+async def _add_person(session, mid, name):
+    session.add(Person(source="usa_wa_legislature", source_id=str(mid), name_full=name))
+    await session.flush()
 
-    sponsor_client = FakeSponsorClient(
-        [
-            {
-                "Id": "100",
-                "Agency": "House",
-                "Party": "D",
-                "District": "42",
-                "FirstName": "Alicia",
-                "LastName": "Rule",
-            },
-        ]
+
+async def _archive_sponsors(session, wsl_source, biennium, rows):
+    body = json.dumps(rows).encode()
+    ev = FetchEvent(
+        source_id=wsl_source.id,
+        resource_id=f"sponsors:{biennium}",
+        url="https://x",
+        fetched_at=datetime.now(UTC),
+        http_status=200,
+        content_hash=b"\x01" * 32,
+        status=FetchStatus.ok,
     )
-    pdc_client = FakePDCClient(
-        [
+    session.add(ev)
+    await session.flush()
+    session.add(RawPayload(fetch_event_id=ev.id, content_type="x", body=body, size_bytes=len(body)))
+    await session.flush()
+
+
+def _sponsor(mid, ld, last, agency="House"):
+    return {
+        "Id": mid,
+        "FirstName": "X",
+        "LastName": last,
+        "District": str(ld),
+        "Agency": agency,
+        "Party": "D",
+    }
+
+
+async def test_refresh_materializes_open_house_span(db_session, usa_wa, wsl_source):
+    await _add_ld(db_session, usa_wa, 42)
+    await _add_person(db_session, 100, "Alicia Rule")
+    await _archive_sponsors(db_session, wsl_source, BIENNIUM, [_sponsor(100, 42, "Rule")])
+    pdc = FakePDCClient(
+        house=[
             {
                 "person_id": "900",
                 "filer_name": "Alicia Rule",
                 "position": "1",
                 "legislative_district": "42",
                 "party_code": "D",
-            },
+            }
         ]
     )
 
-    summary = await run_refresh(
-        db_session,
-        biennium="2025-26",
-        sponsor_client=sponsor_client,
-        pdc_client=pdc_client,
+    outcome = await run_refresh(
+        db_session, biennium=BIENNIUM, sponsor_client=_StubSponsorClient(), pdc_client=pdc
     )
 
-    assert sponsor_client.calls == ["2025-26"]  # roster pulled for the biennium
-    assert summary.errors == 0
+    assert outcome.cohorts_archived == 3  # house + 2 staggered senate cohorts
+    assert outcome.house_spans == 1
     role = (
         await db_session.execute(select(Role).where(Role.role_type == "state_representative"))
     ).scalar_one()
@@ -102,98 +138,75 @@ async def test_run_refresh_materializes_house_seat(db_session, usa_wa):
     assign = (
         await db_session.execute(select(Assignment).where(Assignment.source == "usa_wa_pdc"))
     ).scalar_one()
-    assert assign.person_id == person.id
-
-    # Source row created with the REST kind.
-    source = (
-        await db_session.execute(select(Source).where(Source.slug == "usa_wa_pdc"))
-    ).scalar_one()
-    assert source.kind == "rest"
+    assert assign.source_id == "100:chamber-house:ld-42-position-1:2025-26"
+    assert assign.valid_to is None and assign.is_active is True  # current → open end
 
 
-async def test_run_refresh_materializes_senate_identifier(db_session, usa_wa):
-    # The one GetSponsors pull builds both rosters; a Senate winner cross-links its
-    # person_wa_pdc onto the sitting WSL Senator (#75) — identifier-only, no Assignment.
+async def test_refresh_materializes_senate_identifier_only(db_session, usa_wa, wsl_source):
     await _add_ld(db_session, usa_wa, 1)
-    senator = Person(source="usa_wa_legislature", source_id="897", name_full="Derek Stanford")
-    db_session.add(senator)
-    await db_session.flush()
-
-    sponsor_client = FakeSponsorClient(
-        [
-            {
-                "Id": "897",
-                "Agency": "Senate",
-                "Party": "D",
-                "District": "1",
-                "FirstName": "Derek",
-                "LastName": "Stanford",
-            },
-        ]
+    await _add_person(db_session, 897, "Derek Stanford")
+    await _archive_sponsors(
+        db_session, wsl_source, BIENNIUM, [_sponsor(897, 1, "Stanford", agency="Senate")]
     )
-    pdc_client = FakePDCClient(
-        [],  # no House winners
-        senate_winners={
+    pdc = FakePDCClient(
+        senate={
             2024: [
                 {
-                    "person_id": "897",
+                    "person_id": "800",
                     "filer_name": "Derek Stanford",
                     "legislative_district": "1",
                     "party_code": "D",
                 }
             ]
-        },
+        }
     )
 
-    summary = await run_refresh(
-        db_session,
-        biennium="2025-26",
-        sponsor_client=sponsor_client,
-        pdc_client=pdc_client,
+    outcome = await run_refresh(
+        db_session, biennium=BIENNIUM, sponsor_client=_StubSponsorClient(), pdc_client=pdc
     )
-    assert summary.errors == 0
+
+    assert outcome.identifiers == 1
     ident = (
         await db_session.execute(
             select(PersonIdentifier).where(PersonIdentifier.scheme == "wa_pdc")
         )
     ).scalar_one()
-    assert ident.person_id == senator.id
+    assert ident.person_id is not None
     assert (
-        not (await db_session.execute(select(Assignment).where(Assignment.source == "usa_wa_pdc")))
-        .scalars()
-        .all()
-    )
+        await db_session.execute(select(Assignment).where(Assignment.source == "usa_wa_pdc"))
+    ).scalars().all() == []
 
 
-async def test_run_refresh_defaults_to_current_biennium(db_session, usa_wa, monkeypatch):
-    # No explicit biennium and no USA_WA_BIENNIUM override → derived from the current date.
+async def test_refresh_defaults_to_current_biennium(db_session, usa_wa, wsl_source, monkeypatch):
     monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
     expected = biennium_for_date(datetime.now(UTC).date())
-    sponsor_client = FakeSponsorClient([])
-    await run_refresh(db_session, sponsor_client=sponsor_client, pdc_client=FakePDCClient([]))
-    assert sponsor_client.calls == [expected]
+    await _archive_sponsors(db_session, wsl_source, expected, [])
+    outcome = await run_refresh(
+        db_session, sponsor_client=_StubSponsorClient(), pdc_client=FakePDCClient()
+    )
+    assert outcome.cohorts_archived == 3  # archived the current cohorts
 
 
-async def test_run_refresh_warns_on_noncurrent_biennium(db_session, usa_wa, caplog):
-    sponsor_client = FakeSponsorClient([])
+async def test_refresh_warns_on_noncurrent_biennium(db_session, usa_wa, wsl_source, caplog):
+    await _archive_sponsors(db_session, wsl_source, "2019-20", [])
     with caplog.at_level(logging.WARNING):
         await run_refresh(
             db_session,
-            biennium="2019-20",  # deliberately not the current biennium
-            sponsor_client=sponsor_client,
-            pdc_client=FakePDCClient([]),
+            biennium="2019-20",
+            sponsor_client=_StubSponsorClient(),
+            pdc_client=FakePDCClient(),
         )
     assert "pdc_refresh_noncurrent_biennium" in [r.message for r in caplog.records]
 
 
-async def test_run_refresh_reuses_existing_source(db_session, usa_wa):
-    # Second cycle finds the Source created by the first (idempotent _get_or_create_source).
+async def test_refresh_reuses_existing_source(db_session, usa_wa, wsl_source):
+    await _archive_sponsors(db_session, wsl_source, BIENNIUM, [])
     for _ in range(2):
         await run_refresh(
             db_session,
-            biennium="2025-26",
-            sponsor_client=FakeSponsorClient([]),
-            pdc_client=FakePDCClient([]),
+            biennium=BIENNIUM,
+            sponsor_client=_StubSponsorClient(),
+            pdc_client=FakePDCClient(),
         )
     sources = (
         (await db_session.execute(select(Source).where(Source.slug == "usa_wa_pdc")))
@@ -201,3 +214,4 @@ async def test_run_refresh_reuses_existing_source(db_session, usa_wa):
         .all()
     )
     assert len(sources) == 1
+    assert sources[0].kind == "rest"

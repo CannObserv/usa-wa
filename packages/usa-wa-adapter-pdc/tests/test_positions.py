@@ -7,7 +7,6 @@ from usa_wa_adapter_pdc.normalize.positions import (
     PDC_PERSON_ID_SCHEME,
     canonical_position,
     fold_token,
-    house_seat_assignment_source_id,
     house_seat_role_source_id,
     pdc_person_identifier_source_id,
     surname_match_set,
@@ -32,11 +31,6 @@ def test_house_seat_role_source_id_is_deterministic_per_ld_position() -> None:
     assert a == house_seat_role_source_id(42, "Position 1")
     assert a != house_seat_role_source_id(42, "Position 2")
     assert a != house_seat_role_source_id(7, "Position 1")
-
-
-def test_house_seat_assignment_source_id_is_role_independent() -> None:
-    # Keyed on the WSL member id + chamber dimension + biennium (role is a value).
-    assert house_seat_assignment_source_id("34024", "2025-26") == "34024:chamber-house:2025-26"
 
 
 def test_pdc_person_identifier_source_id_scoped_by_scheme() -> None:

@@ -109,19 +109,46 @@ surface. Pair with `USA_WA_BIENNIUM` to target a non-current biennium.
 # (#65 — additive, never clobbers PM-curated rows).
 python -m usa_wa_adapter_legislature.refresh
 
-# PDC refresh (#69 + #75) — source WA House members' Position (1/2), which WSL doesn't expose,
-# from the PDC Campaign Finance Summary Socrata dataset (3h9x-7bvm) on data.wa.gov, and emit the
-# House state_representative seat Assignment P1b deferred. Pulls the seated House winner cohort
-# for the biennium's election year (start-1), pulls GetSponsors ONCE for both the House + Senate
-# rosters, matches each winner to the existing WSL Person (within LD, by folded last name +
-# party), and attaches a person_wa_pdc identifier + seat Assignment (qualifier="Position N").
-# ALSO (#75) discovers both staggered Senate winner cohorts (start-1 + start-3) and cross-links a
-# person_wa_pdc identifier onto each sitting Senator's WSL Person (identifier-only — WSL owns the
-# Senate seat); a departed member's stale winner row logs pdc_senate_unresolved (WSL robustness
-# check). fill_only (#65). Prod runs this daily at 06:30 UTC (after the WSL refresh) via
-# usa-wa-pdc-refresh.timer; the form below is the manual / backfill surface (pair with
-# USA_WA_BIENNIUM). USA_WA_PDC_APP_TOKEN (optional) raises Socrata's rate limit.
+# PDC refresh (#69 + #75, span-based since #79) — source WA House members' ballot Position (1/2),
+# which WSL doesn't expose, from the PDC Campaign Finance Summary Socrata dataset (3h9x-7bvm) on
+# data.wa.gov, as merged House state_representative Position seat SPANS. Archives the current
+# biennium's winner cohorts (house-winners:<Y> + both staggered senate-winners:<Y>) via the
+# runner's archive_only seam, then re-drives build_pdc_spans scoped to the current biennium: House
+# Position seat spans (current biennium = the open end) + person_wa_pdc identifiers, era-matched
+# against the biennium's sponsor roster (archive-first from the WSL sponsor archive, which the WSL
+# refresh writes first). Senate is identifier-only (#75 — WSL owns the Senate seat). Prod runs this
+# daily at 06:30 UTC (after the WSL refresh) via usa-wa-pdc-refresh.timer; the form below is the
+# manual surface (pair with USA_WA_BIENNIUM). USA_WA_PDC_APP_TOKEN (optional) raises Socrata's rate.
 python -m usa_wa_adapter_pdc.refresh
+```
+
+### PDC historical backfill (#79)
+
+```bash
+# The #75 fix: each PDC election cohort must match the roster of the biennium it SEATED, not the
+# current one. Era-scoped historical backfill of House Position seat spans + person_wa_pdc links.
+# DEPENDS ON #77 (Persons + the sponsor archive) — a pre-#77 winner's Person is absent so its span
+# is skipped (logged, correct); run this after the sponsor harvest.
+
+# Phase A — archive the winner cohorts (archive-only; no normalize). Even election years from the
+# floor (2008) to current; a year with no data archives empty; cache-hit on re-run.
+python -m usa_wa_adapter_pdc.harvest_pdc --dry-run
+python -m usa_wa_adapter_pdc.harvest_pdc --from-year 2008
+
+# Phase B — era-matched span build (archive-first, no live PDC pull): each cohort pairs with its
+# seating biennium's sponsor roster (2012 → 2013-14), projects House Position observations + links,
+# merges across years into usa_wa_pdc seat spans + person_wa_pdc identifiers. Idempotent.
+python -m usa_wa_adapter_pdc.build_pdc_spans --dry-run
+python -m usa_wa_adapter_pdc.build_pdc_spans
+
+# Migration — OWNER ROLE, run AFTER build_pdc_spans, sidecar paused. Retires the pre-#79
+# per-biennium usa_wa_pdc House rows ({member}:chamber-house:{biennium}, 3-part) stranded by the
+# 4-part span key: maps each to the covering span by (person, role) + window, transfers the PM
+# anchor, hard-deletes the row + its citations (owner-only under #54). A row with no covering span
+# yet is left as orphans_no_span (re-run after the build). anchors_dropped (>0) = the sidecar
+# anchored the span first, orphaning the legacy PM assignment (the #80 start-date gap).
+python -m usa_wa_adapter_pdc.migrate_pdc_spans --dry-run
+python -m usa_wa_adapter_pdc.migrate_pdc_spans
 ```
 
 ## Reconcilers & validation (PM sync)

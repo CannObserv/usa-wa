@@ -71,13 +71,9 @@ async def harvest_pdc(
     caller's transaction (the CLI commits, or rolls back on ``dry_run``)."""
     jurisdiction = await resolve_jurisdiction(session)
     source = await get_or_create_source(session, jurisdiction)
-    # archive_only never normalizes, so the adapter needs no rosters/anchors here.
     adapter = PDCAdapter(
-        anchors=None,
         biennium=biennium_for_date(datetime.now(UTC).date()),
-        house_roster={},
         client=pdc_client or PDCClient(app_token=os.environ.get("USA_WA_PDC_APP_TOKEN")),
-        session=session,
     )
     runner = AdapterRunner(
         adapter,

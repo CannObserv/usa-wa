@@ -1,22 +1,19 @@
 """WA PDC refresh — ``python -m usa_wa_adapter_pdc.refresh``.
 
-Daily-driven counterpart to the WSL refresh: resolves the current biennium (override with
-``USA_WA_BIENNIUM``), pulls the seated House winner cohort from PDC for that biennium's
-election year, matches each winner to the existing WSL :class:`Person` (using a
-``GetSponsors`` roster for House districts), and materializes the ``person_wa_pdc``
-identifier + House ``state_representative`` seat Assignment (#69).
+Daily counterpart to the WSL refresh, now **span-based** (#79). It:
 
-The same cycle also cross-links the **Senate** (#75): the one ``GetSponsors`` pull builds
-a Senate roster too, and the adapter discovers both staggered Senate winner cohorts
-(``start-1`` + ``start-3`` — WA Senate is up in halves each even year), attaching a
-``person_wa_pdc`` identifier to each sitting Senator's WSL Person (identifier-only — WSL's
-P1b already owns the Senate seat). Also a robustness check on WSL: a PDC winner with no
-matching senator surfaces as a ``pdc_senate_unresolved`` log.
+1. Archives the current biennium's PDC winner cohorts (``house-winners:<Y>`` +
+   both staggered ``senate-winners:<Y>``) through the runner's archive-only seam (#54), and
+2. Re-drives the archive-first span builder (:func:`build_pdc_spans`) scoped to the current
+   biennium — materializing House Position seat **spans** (the current biennium as the open
+   end) + ``person_wa_pdc`` identifiers, era-matched.
 
-Runs **after** the WSL refresh so the WSL House Persons it binds to already exist. The
-adapter runs ``fill_only=True`` (#65): additive discovery that never clobbers a
-PM-curated row. An optional ``USA_WA_PDC_APP_TOKEN`` raises Socrata's rate limit (sent as
-``X-App-Token`` only when set; not required at this once-daily single-GET volume).
+This replaces the pre-#79 per-biennium normalize path (retired with its normalizers): PDC seats
+are merged Assignment spans, consistent with the sponsor (#78) and committee (#82) models. The
+era roster comes archive-first from the WSL sponsor archive (``sponsors:<biennium>``, written by
+the WSL refresh, which runs first); a live ``GetSponsors`` fallback covers an un-archived
+biennium. Runs **after** the WSL refresh so the Persons it binds to exist. An optional
+``USA_WA_PDC_APP_TOKEN`` raises Socrata's rate limit.
 """
 
 from __future__ import annotations
@@ -24,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -31,12 +29,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import configure_logging, get_logger
-from clearinghouse_core.runner import AdapterRunner, RunSummary
-from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
+from clearinghouse_core.runner import AdapterRunner
 from usa_wa_adapter_legislature.refresh import biennium_for_date
 from usa_wa_adapter_legislature.transport import WSLClient
-from usa_wa_adapter_pdc.adapter import PDCAdapter, election_year_for_biennium
-from usa_wa_adapter_pdc.normalize.house_positions import build_house_roster, build_senate_roster
+from usa_wa_adapter_pdc.adapter import (
+    HOUSE_WINNERS_RESOURCE_PREFIX,
+    SENATE_WINNERS_RESOURCE_PREFIX,
+    PDCAdapter,
+    election_year_for_biennium,
+    senate_election_years_for_biennium,
+)
+from usa_wa_adapter_pdc.build_pdc_spans import build_pdc_spans
 from usa_wa_adapter_pdc.provisioning import get_or_create_source
 from usa_wa_adapter_pdc.transport import PDCClient
 
@@ -45,18 +48,25 @@ logger = get_logger(__name__)
 _JURISDICTION_SLUG = "usa-wa"
 
 
+@dataclass(frozen=True)
+class PdcRefreshOutcome:
+    """Counts from one PDC refresh cycle."""
+
+    cohorts_archived: int
+    house_spans: int
+    identifiers: int
+
+
 async def run_refresh(
     session: AsyncSession,
     *,
     biennium: str | None = None,
     sponsor_client: WSLClient | None = None,
     pdc_client: PDCClient | None = None,
-) -> RunSummary:
-    """Execute one PDC refresh cycle against the supplied session.
-
-    Pulls the WSL ``GetSponsors`` roster (for House member → district), then drives the
-    :class:`PDCAdapter` through the runner (``fill_only=True``). ``sponsor_client`` /
-    ``pdc_client`` are injectable for tests; production defaults to the real clients."""
+) -> PdcRefreshOutcome:
+    """Execute one PDC refresh cycle: archive the current cohorts, then re-drive the span
+    builder scoped to the current biennium. ``sponsor_client`` / ``pdc_client`` are injectable
+    for tests."""
     if biennium is None:
         biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
     current = biennium_for_date(datetime.now(UTC).date())
@@ -69,23 +79,11 @@ async def run_refresh(
     jurisdiction = (
         await session.execute(select(Jurisdiction).where(Jurisdiction.slug == _JURISDICTION_SLUG))
     ).scalar_one()
-    anchors = await bootstrap_synthetic_anchors(
-        session, biennium=biennium, jurisdiction_id=jurisdiction.id
-    )
     source = await get_or_create_source(session, jurisdiction)
 
-    sponsor_client = sponsor_client or WSLClient("SponsorService")
-    sponsor_members = await sponsor_client.get_sponsors(biennium)
-    house_roster = build_house_roster(sponsor_members)
-    senate_roster = build_senate_roster(sponsor_members)
-
     adapter = PDCAdapter(
-        anchors=anchors,
         biennium=biennium,
-        house_roster=house_roster,
-        senate_roster=senate_roster,
         client=pdc_client or PDCClient(app_token=os.environ.get("USA_WA_PDC_APP_TOKEN")),
-        session=session,
     )
     runner = AdapterRunner(
         adapter,
@@ -95,20 +93,42 @@ async def run_refresh(
         natural_key=("source", "source_id"),
         fill_only=True,
     )
-    summary = await runner.refresh()
+
+    # 1. Archive the current cohorts. Forced past the freshness TTL for daily determinism (the
+    #    dedup guard still bounds RawPayload growth on a byte-identical re-pull).
+    election_year = election_year_for_biennium(biennium)
+    senate_years = senate_election_years_for_biennium(biennium)
+    resource_ids = [f"{HOUSE_WINNERS_RESOURCE_PREFIX}{election_year}"]
+    resource_ids += [f"{SENATE_WINNERS_RESOURCE_PREFIX}{y}" for y in senate_years]
+    archived = 0
+    for resource_id in resource_ids:
+        if await runner.archive_only(resource_id, force=True):
+            archived += 1
+
+    # 2. Re-drive the span builder scoped to the current biennium (each scoped member keeps
+    #    their full cross-biennium span history; the current biennium is the open end).
+    result = await build_pdc_spans(
+        session,
+        sponsor_client=sponsor_client,
+        current_biennium=biennium,
+        restrict_to_biennium=biennium,
+    )
+    outcome = PdcRefreshOutcome(
+        cohorts_archived=archived,
+        house_spans=result.house_spans,
+        identifiers=result.identifiers,
+    )
     logger.info(
         "pdc_refresh_complete",
         extra={
             "biennium": biennium,
-            "election_year": election_year_for_biennium(biennium),
-            "house_roster_lds": len(house_roster),
-            "senate_roster_lds": len(senate_roster),
-            "fetched": summary.fetched,
-            "upserted": summary.upserted_entities,
-            "errors": summary.errors,
+            "election_year": election_year,
+            "cohorts_archived": archived,
+            "house_spans": result.house_spans,
+            "identifiers": result.identifiers,
         },
     )
-    return summary
+    return outcome
 
 
 async def _main() -> int:
@@ -121,16 +141,15 @@ async def _main() -> int:
     try:
         try:
             async with AsyncSession(engine) as session, session.begin():
-                summary = await run_refresh(session)
+                outcome = await run_refresh(session)
         except Exception:
             logger.exception("pdc_refresh_failed")
             return 1
         print(
-            f"PDC refresh: house-winners(fetched={summary.fetched} "
-            f"skipped={summary.skipped_cache_hit} "
-            f"upserted={summary.upserted_entities} errors={summary.errors})"
+            f"PDC refresh: cohorts_archived={outcome.cohorts_archived} "
+            f"house_spans={outcome.house_spans} identifiers={outcome.identifiers}"
         )
-        return 0 if summary.errors == 0 else 1
+        return 0
     finally:
         await engine.dispose()
 

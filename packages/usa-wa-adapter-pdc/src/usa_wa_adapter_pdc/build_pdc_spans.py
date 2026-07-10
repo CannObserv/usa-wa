@@ -112,6 +112,8 @@ async def build_pdc_spans(
 
     # House — era-matched Position observations (merged into spans below) + identifier links.
     for year in sorted(house_cohorts):
+        if not house_cohorts[year]:
+            continue  # empty cohort → nothing to match, no era roster needed
         biennium = seating_biennium_for_election_year(year)
         house_roster, senate_roster = await _era_rosters(biennium)
         proj = build_house_position_observations(
@@ -132,6 +134,8 @@ async def build_pdc_spans(
 
     # Senate — identifier-only (#75), era-matched.
     for year in sorted(senate_cohorts):
+        if not senate_cohorts[year]:
+            continue  # empty cohort → nothing to match, no era roster needed
         biennium = seating_biennium_for_election_year(year)
         _house_roster, senate_roster = await _era_rosters(biennium)
         links = build_senate_identity_links(senate_cohorts[year], senate_roster=senate_roster)
