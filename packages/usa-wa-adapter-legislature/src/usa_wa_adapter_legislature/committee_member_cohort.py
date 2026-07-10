@@ -109,7 +109,7 @@ class CommitteeMemberCohortProvider:
         """``{(biennium, committee_id): [member rows]}`` re-parsed offline from the archive."""
         rosters: dict[RosterKey, list[dict[str, Any]]] = {}
         for key, (event_id, _fetched_at, resource_id) in (await self._latest_events()).items():
-            wire = await self._archived_wire(event_id)
+            wire = await self._payload_bytes(event_id)
             if not wire:
                 # Empty archive = the swallowed "no roster that biennium" Fault (#82).
                 logger.debug("committee_member_cohort_empty_wire", extra={"resource": resource_id})
@@ -119,9 +119,13 @@ class CommitteeMemberCohortProvider:
         logger.info("committee_member_cohort_loaded", extra={"rosters": len(rosters)})
         return rosters
 
-    async def _archived_wire(self, event_id: _ULID) -> bytes | None:
+    async def _payload_bytes(self, event_id: _ULID) -> bytes | None:
         """The bytes archived under one event (present by construction — the event set is
-        joined against ``RawPayload``); ``b""`` for a swallowed empty-roster Fault."""
+        joined against ``RawPayload``); ``b""`` for a swallowed empty-roster Fault.
+
+        Keyed on the **event id**, deliberately distinct from the sibling providers'
+        ``_archived_wire(resource_id)`` — here the payload-bearing event was already resolved
+        by :meth:`_load_latest_events`, so this only dereferences it."""
         return (
             await self._session.execute(
                 select(RawPayload.body).where(RawPayload.fetch_event_id == event_id)

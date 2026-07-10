@@ -14,6 +14,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import event
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
@@ -198,7 +199,8 @@ async def test_event_with_no_payload_at_all_is_not_a_roster(db_session, usa_wa, 
 
 async def test_latest_events_is_memoized_across_both_reads(db_session, usa_wa, wsl_source):
     """``archived_rosters`` + ``fetch_event_map`` are both called per build — the underlying
-    event scan runs once."""
+    ``fetch_events`` scan must run once. Counted via emitted SQL rather than a monkeypatch, so
+    the test doesn't couple to a private method name."""
     await _event(
         db_session,
         wsl_source,
@@ -208,17 +210,20 @@ async def test_latest_events_is_memoized_across_both_reads(db_session, usa_wa, w
         body=b"<r:100/>",
     )
     provider = _provider(db_session, wsl_source)
-    calls = 0
-    original = provider._load_latest_events
 
-    async def _counting():
-        nonlocal calls
-        calls += 1
-        return await original()
+    scans = 0
 
-    provider._load_latest_events = _counting
+    def _count(conn, cursor, statement, parameters, context, executemany):
+        nonlocal scans
+        if "fetch_events" in statement.lower():
+            scans += 1
 
-    await provider.archived_rosters()
-    await provider.fetch_event_map()
+    sync_engine = db_session.get_bind().engine
+    event.listen(sync_engine, "before_cursor_execute", _count)
+    try:
+        await provider.archived_rosters()
+        await provider.fetch_event_map()
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _count)
 
-    assert calls == 1
+    assert scans == 1  # the second accessor reads the memoized result

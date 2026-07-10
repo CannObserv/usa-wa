@@ -104,6 +104,11 @@ ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_co
 --       docstring + Source.retention_policy, #54), and the eventual retention
 --       GC runs as the app role; archival payloads are protected by
 --       retention_policy in the GC's WHERE clause, not by this grant.
+--       CAVEAT (#78/#82): sponsors:<biennium> and committee-members-hist:<…>
+--       payloads are NOT freely GC-eligible while tenure is archive-derived —
+--       the span builders re-parse them offline each run, so dropping one
+--       truncates or closes the membership/party span it attested. Any retention
+--       GC must exclude those resource prefixes (or re-run the harvest after).
 --
 --    Only <owner> (migrations) can UPDATE/DELETE the ledger. Default privileges
 --    (step 5) still grant full DML on FUTURE clearinghouse_core tables, so a new

@@ -252,6 +252,48 @@ async def test_already_anchored_span_records_the_dropped_legacy_anchor(
     assert await _count(db_session, Assignment, pm_assignment_id=legacy_anchor) == 0
 
 
+async def test_legacy_and_span_sharing_one_anchor_retires_cleanly(db_session, usa_wa, wsl_source):
+    """PM's structural (person, role, start_date) match can fold the deepened span and its
+    legacy row onto the *same* pm_assignment_id (#78-3's double-anchor case). Retiring the
+    legacy row is then a clean collapse — no anchor to transfer, none dropped."""
+    await _add_committee(db_session, usa_wa)
+    person = await _add_person(db_session)
+    for biennium in ("2013-14", "2015-16", "2017-18", "2019-20", "2021-22", "2023-24", CURRENT):
+        await _archive(db_session, wsl_source, biennium)
+    rosters = {
+        (b, CID): [_member(100)]
+        for b in ("2013-14", "2015-16", "2017-18", "2019-20", "2021-22", "2023-24", CURRENT)
+    }
+    client = _WireMappingMemberClient(rosters)
+
+    await migrate_committee_spans(db_session, member_client=client, current_biennium=CURRENT)
+    span = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == f"100:committee:{CID}:2013-14")
+        )
+    ).scalar_one()
+    shared = _ULID()
+    span.pm_assignment_id = shared
+    await _add_legacy(
+        db_session,
+        source_id=f"100:committee:{CID}:{CURRENT}",
+        person_id=person.id,
+        role_id=span.role_id,
+        pm_id=shared,  # same anchor as the span (PM folded them)
+        valid_from=date(2025, 1, 1),
+    )
+    await db_session.flush()
+
+    result = await migrate_committee_spans(
+        db_session, member_client=client, current_biennium=CURRENT
+    )
+
+    assert (result.legacy_retired, result.anchors_transferred, result.anchors_dropped) == (1, 0, 0)
+    await db_session.refresh(span)
+    assert span.pm_assignment_id == shared
+    assert await _count(db_session, Assignment, pm_assignment_id=shared) == 1  # only the span
+
+
 async def test_non_committee_rows_are_untouched(db_session, usa_wa, wsl_source):
     """party / chamber-senate / chamber-house rows are other issues' spans — never touched."""
     await _add_committee(db_session, usa_wa)

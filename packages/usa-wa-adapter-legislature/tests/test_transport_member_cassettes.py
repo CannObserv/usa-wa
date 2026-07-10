@@ -98,6 +98,9 @@ async def test_parse_sponsors_wrong_service_raises():
 # --- fetch_historical_committee_members (GetCommitteeMembers, #82) --------------
 
 HIST_MEMBERS_CASSETTE = "committee_service_get_committee_members_house_appropriations_2013-14.yaml"
+HIST_MEMBERS_SENATE_CASSETTE = (
+    "committee_service_get_committee_members_senate_ways_and_means_2013-14.yaml"
+)
 HIST_MEMBERS_MISSING_CASSETTE = "committee_service_get_committee_members_missing.yaml"
 
 
@@ -138,6 +141,19 @@ async def test_fetch_historical_committee_members_returns_biennium_roster(wsl_vc
     assert isinstance(fetched.wire, bytes)
     assert b"GetCommitteeMembers" in fetched.wire
     assert "xml" in fetched.content_type.lower()
+
+
+async def test_fetch_historical_committee_members_senate_committee(wsl_vcr):
+    """A Senate committee (Ways & Means, 2013-14 = 25 members) resolves under agency=Senate —
+    the cross-chamber shape the retired GetActiveCommitteeMembers Senate cassette used to pin."""
+    with wsl_vcr.use_cassette(HIST_MEMBERS_SENATE_CASSETTE):
+        client = WSLClient("CommitteeService")
+        fetched = await client.fetch_historical_committee_members(
+            "2013-14", "Senate", "Ways & Means"
+        )
+
+    assert len(fetched.records) == 25
+    assert all(r["Agency"] == "Senate" for r in fetched.records)
 
 
 async def test_parse_historical_committee_members_round_trips_archived_wire(wsl_vcr):

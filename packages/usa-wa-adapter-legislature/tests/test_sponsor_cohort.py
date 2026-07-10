@@ -4,7 +4,7 @@ offline, live fallback only for an un-archived biennium; enumerate the archived 
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -41,22 +41,26 @@ async def wsl_source(db_session, usa_wa):
     return row
 
 
-async def _archive(db_session, source, biennium, wire=b"<roster/>"):
+async def _archive(db_session, source, biennium, wire=b"<roster/>", *, fetched_at=None):
     ev = FetchEvent(
         source_id=source.id,
         resource_id=f"sponsors:{biennium}",
         url="https://x",
-        fetched_at=datetime.now(UTC),
+        fetched_at=fetched_at or datetime.now(UTC),
         http_status=200,
         content_hash=b"\x01" * 32,
         status=FetchStatus.ok,
     )
     db_session.add(ev)
     await db_session.flush()
-    db_session.add(
-        RawPayload(fetch_event_id=ev.id, content_type="text/xml", body=wire, size_bytes=len(wire))
-    )
-    await db_session.flush()
+    if wire is not None:  # wire=None models the runner's dedup skip (no RawPayload written)
+        db_session.add(
+            RawPayload(
+                fetch_event_id=ev.id, content_type="text/xml", body=wire, size_bytes=len(wire)
+            )
+        )
+        await db_session.flush()
+    return ev
 
 
 async def test_cohort_reads_archive_offline(db_session, usa_wa, wsl_source):
@@ -100,6 +104,23 @@ async def test_roster_map_across_bienniums(db_session, usa_wa, wsl_source):
 
     assert set(roster) == {"2023-24", "2025-26"}
     assert roster["2023-24"][0]["Id"] == 100
+
+
+async def test_fetch_event_map_cites_the_payload_bearing_event(db_session, usa_wa, wsl_source):
+    """A forced daily re-pull re-records a payload-less FetchEvent (the dedup marker). The
+    citation target must be the earlier event that actually stored bytes — otherwise a span
+    first emitted on such a day would cite an event with no recoverable wire (CR round 6,
+    symmetric with the committee provider)."""
+    now = datetime.now(UTC)
+    day1 = await _archive(db_session, wsl_source, "2025-26", fetched_at=now - timedelta(days=1))
+    await _archive(db_session, wsl_source, "2025-26", wire=None, fetched_at=now)  # dedup marker
+    provider = SponsorRosterCohortProvider(
+        _FakeClient(), session=db_session, source_id=wsl_source.id
+    )
+
+    events = await provider.fetch_event_map(["2025-26"])
+
+    assert events["2025-26"][0] == day1.id
 
 
 async def test_no_session_always_pulls_live():

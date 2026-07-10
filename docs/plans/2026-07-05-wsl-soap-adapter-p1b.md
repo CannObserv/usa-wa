@@ -106,6 +106,13 @@ gate; new tests mirror source layout; TDD red→green per step; no inline import
    **Canonical `source_id` = `GetSponsors.Id`**; the committee normalizer keys Person on `Id` directly
    (the `(FirstName, LastName, District)` name-match fallback is not needed — dropped).
 
+> **Superseded by #82 (2026-07-10).** The archival `fetch_committee_members` / `parse_committee_members`
+> (`GetActiveCommitteeMembers`) pair and its two `committee_service_get_active_committee_members_*`
+> cassettes were **removed**: `GetCommitteeMembers(current, …)` returns the identical set, so the daily
+> path keys the historical op by the current biennium and one uniform `committee-members-hist:` archive
+> covers current + history. The non-archival `get_active_committee_members` survives for the identity
+> probe. This step's description below is the original P1b intent, kept as a historical record.
+
 1. **Transport: sponsor + member operations (TDD + cassettes). ✅ DONE 2026-07-06.** `transport.py`
    gained `fetch_sponsors(biennium) -> WireFetch` (SponsorService.GetSponsors) and
    `fetch_committee_members(agency, committee_name) -> WireFetch`

@@ -171,6 +171,13 @@ class RawPayload(Base, CreatedAtMixin):
     but **shares** the already-stored payload rather than duplicating the bytes. So a
     payload-less FetchEvent is expected, not corruption — an integrity/audit tool must
     not assume a 1:1 FetchEvent→RawPayload mapping.
+
+    **GC caveat (#78/#82).** The cache framing holds only where the bytes are truly
+    re-derivable from upstream. usa-wa's tenure spans are **archive-derived**: the span
+    builders re-parse ``sponsors:<biennium>`` and ``committee-members-hist:<…>`` payloads
+    offline on every run, so those rows are load-bearing, not disposable — GC'ing one
+    truncates or closes the party/membership span it attests (WSL exposes no way to re-pull a
+    closed biennium's roster cheaply). A retention GC must exclude those resource prefixes.
     """
 
     __tablename__ = "raw_payloads"

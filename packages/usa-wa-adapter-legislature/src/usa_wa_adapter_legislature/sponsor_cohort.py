@@ -77,12 +77,18 @@ class SponsorRosterCohortProvider:
             row = (
                 await self._session.execute(
                     select(FetchEvent.id, FetchEvent.fetched_at)
+                    # Join RawPayload so the citation targets the pull that actually stored
+                    # bytes: a forced daily re-pull re-records a payload-less FetchEvent (the
+                    # dedup marker) whose latest-wins ordering would otherwise cite an event
+                    # with no recoverable wire (CR round 6, symmetric with the committee
+                    # provider). Same window `_archived_wire` already reads through.
+                    .join(RawPayload, RawPayload.fetch_event_id == FetchEvent.id)
                     .where(
                         FetchEvent.source_id == self._source_id,
                         FetchEvent.resource_id == resource_id,
                         FetchEvent.status == FetchStatus.ok,
                     )
-                    .order_by(FetchEvent.fetched_at.desc())
+                    .order_by(FetchEvent.fetched_at.desc(), FetchEvent.id.desc())
                     .limit(1)
                 )
             ).first()
@@ -119,7 +125,9 @@ class SponsorRosterCohortProvider:
                 FetchEvent.resource_id == resource_id,
                 FetchEvent.status == FetchStatus.ok,
             )
-            .order_by(FetchEvent.fetched_at.desc())
+            # Same ordering as fetch_event_map so the parsed roster and its cited FetchEvent
+            # can't diverge on a fetched_at tie.
+            .order_by(FetchEvent.fetched_at.desc(), FetchEvent.id.desc())
             .limit(1)
         )
         return (await self._session.execute(stmt)).scalar_one_or_none()
