@@ -44,6 +44,48 @@ from usa_wa_adapter_pdc.normalize.positions import (
     surname_match_set,
 )
 
+
+@dataclass
+class SenateIdentityLinks:
+    """The Senate cohort's ``person_wa_pdc`` links + robustness tally (#75, era-matched)."""
+
+    identifiers: list[tuple[str, str]] = field(default_factory=list)
+    summary: dict[str, int] = field(default_factory=dict)
+
+
+def build_senate_identity_links(
+    winners: list[dict],
+    *,
+    senate_roster: dict[int, list[SenateEntry]],
+) -> SenateIdentityLinks:
+    """Match each PDC Senate winner to its LD's WSL Senator (single seat/LD → unique) and emit
+    a ``(member_id, pdc_person_id)`` link — the identifier-only Senate contribution (#75),
+    era-matched here. A zero/ambiguous match is left unresolved (a WSL robustness signal),
+    never guessed. Pure — Person resolution happens at emit time."""
+    links = SenateIdentityLinks()
+    matched = unresolved = incomplete = 0
+    for row in winners:
+        pdc_id = str(row.get("person_id") or "").strip()
+        ld = district_number(row.get("legislative_district"))
+        if not pdc_id or ld is None:
+            incomplete += 1
+            continue
+        keys = surname_match_set(row.get("filer_name") or "")
+        candidates = [s for s in senate_roster.get(ld, []) if s.folded_last in keys]
+        if len(candidates) != 1:
+            unresolved += 1
+            continue
+        links.identifiers.append((candidates[0].member_id, pdc_id))
+        matched += 1
+    links.summary = {
+        "winners": len(winners),
+        "matched": matched,
+        "unresolved": unresolved,
+        "incomplete": incomplete,
+    }
+    return links
+
+
 #: Tenure ``kind`` for a House Position seat — matches the legacy per-biennium dimension so
 #: the migration (#79 inc4) can recognise the rows it supersedes.
 KIND_HOUSE = "chamber-house"

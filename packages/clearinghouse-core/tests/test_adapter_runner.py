@@ -255,6 +255,35 @@ async def test_archive_payload_records_status(db_session, setup):
     assert event.status == FetchStatus.err
 
 
+async def test_archive_only_fetches_and_archives_without_normalizing(db_session, setup):
+    """The public archive-only pull (#79 Phase A): fetch + archive the wire, never normalize.
+    Returns True (a fetch happened) and writes exactly one FetchEvent + RawPayload."""
+    adapter = setup["adapter"]
+    runner = setup["runner"]
+
+    archived = await runner.archive_only("W-1")
+
+    assert archived is True
+    assert adapter.fetch_calls == 1
+    assert adapter.normalize_calls == 0
+    assert len((await db_session.execute(select(FetchEvent))).scalars().all()) == 1
+    assert len((await db_session.execute(select(RawPayload))).scalars().all()) == 1
+    assert (await db_session.execute(select(FakeWidget))).scalars().all() == []
+
+
+async def test_archive_only_honours_cache_ttl(db_session, setup):
+    """A second archive_only within TTL is a cache hit (returns False, no fetch); ``force``
+    re-pulls and re-archives past the TTL."""
+    adapter = setup["adapter"]
+    runner = setup["runner"]
+
+    assert await runner.archive_only("W-1") is True
+    assert await runner.archive_only("W-1") is False  # cache hit
+    assert adapter.fetch_calls == 1
+    assert await runner.archive_only("W-1", force=True) is True  # forced re-pull
+    assert adapter.fetch_calls == 2
+
+
 async def test_skip_unchanged_skips_renormalize_on_identical_forced_repull(db_session, setup):
     """A forced re-pull of a byte-identical wire with ``skip_unchanged=True`` re-records the
     FetchEvent (TTL/ledger) but does NOT re-normalize — so a forced daily discovery pull

@@ -143,6 +143,23 @@ class AdapterRunner:
             await self._record_raw_payload(event, payload)
         return event, stored_new
 
+    async def archive_only(self, resource_id: str, *, force: bool = False) -> bool:
+        """Cache-or-fetch one resource and archive its wire **without normalizing** (#79).
+
+        The public promotion of the ``_archive_payload`` seam (#62): a Phase-A harvest that
+        archives the pristine wire (FetchEvent + deduped RawPayload, #54 hashing on the single
+        chokepoint) so a later archive-first Phase B can derive canonical rows offline — here
+        because the derivation (PDC winner → seat) needs an era-appropriate roster the harvest
+        doesn't hold. Honours the freshness cache like :meth:`fetch_and_normalize`; ``force``
+        re-pulls past the TTL. Returns True iff a fetch happened (False on a cache hit)."""
+        if not force:
+            cached = await self._find_fresh_fetch_event(resource_id)
+            if cached is not None:
+                return False
+        payload = await self.adapter.fetch_one(resource_id)
+        await self._archive_payload(resource_id, payload)
+        return True
+
     async def refresh(self, since: datetime | None = None) -> RunSummary:
         """Iterate ``adapter.discover(since)`` and process each ref."""
         discovered = fetched = skipped = upserted = errors = 0

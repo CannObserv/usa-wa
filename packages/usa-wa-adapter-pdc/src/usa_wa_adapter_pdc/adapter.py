@@ -67,6 +67,15 @@ def election_year_for_biennium(biennium: str) -> int:
     return start_year - 1
 
 
+def seating_biennium_for_election_year(election_year: int) -> str:
+    """The biennium an even-year general election seats — the inverse of
+    :func:`election_year_for_biennium`. ``2012`` → ``"2013-14"`` (a WA biennium starts the odd
+    year after the election). Used by the #79 backfill to era-match each cohort to the roster
+    it seated, fixing the #75 current-snapshot limitation."""
+    start = election_year + 1
+    return f"{start}-{(start + 1) % 100:02d}"
+
+
 def senate_election_years_for_biennium(biennium: str) -> tuple[int, int]:
     """The two general-election years whose winners sit in a biennium's Senate (#75).
 
