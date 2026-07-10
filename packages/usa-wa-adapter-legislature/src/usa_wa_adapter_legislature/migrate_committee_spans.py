@@ -26,6 +26,17 @@ anchor moves to the span; the legacy row + its citations are hard-deleted.
 so this runs under ``DATABASE_URL_OWNER`` — like :mod:`migrate_sponsor_spans`. The daily span
 re-drive stays app-role-safe (insert-only citations).
 
+**Deploy sequencing.** Run this in the *same* maintenance window as the Phase A harvest that
+deepens the spans, with ``usa-wa-sync-powermap`` paused. A deepened span is a new local row
+with a new ``valid_from``, and PM keys assignments on ``(person, role, start_date)`` — so if
+the sidecar drains before this runs, it mints a **fresh** PM assignment for the span while the
+legacy row still holds the old one. This migration can then only retire the legacy row, not
+transfer its anchor: that PM assignment is orphaned upstream (a live PM row with the wrong
+``start_date`` and no local mirror to ever correct it). That case is counted as
+``anchors_dropped`` and warned per row, so it is visible rather than silent — but the only way
+to avoid it is to run harvest → migrate before the sidecar sees the deepened spans. Correcting
+already-orphaned PM assignments is the start-date-correction gap tracked in #80.
+
 Idempotent: a second pass finds no stranded rows. ``--dry-run`` rolls back.
 """
 
@@ -36,6 +47,7 @@ import asyncio
 import os
 import sys
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
@@ -69,6 +81,10 @@ class MigrationResult:
     anchors_transferred: int
     legacy_retired: int
     orphans_no_span: int
+    #: Legacy rows retired while their covering span already carried a *different* PM anchor:
+    #: the legacy row's PM assignment is orphaned upstream (see the module docstring's deploy
+    #: sequencing note). Expected 0 when harvest+migrate run before the sidecar drains.
+    anchors_dropped: int = 0
 
 
 def _is_committee_assignment(source_id: str) -> bool:
@@ -77,7 +93,9 @@ def _is_committee_assignment(source_id: str) -> bool:
     return len(parts) == 4 and parts[1] == KIND_COMMITTEE
 
 
-def _covering_span(spans, legacy_valid_from: date | None) -> Assignment | None:
+def _covering_span(
+    spans: Sequence[Assignment], legacy_valid_from: date | None
+) -> Assignment | None:
     """The span (among candidates sharing the legacy row's person+role) whose validity window
     contains the legacy biennium's start — so a stranded row collapses into the tenure it
     actually belonged to, not a different (e.g. closed) run on the same committee."""
@@ -139,7 +157,7 @@ async def migrate_committee_spans(
         if _is_committee_assignment(row.source_id) and row.source_id not in span_source_ids
     ]
 
-    transferred = retired = orphans = 0
+    transferred = retired = orphans = dropped = 0
     for row in legacy:
         span = _covering_span(spans_by_key.get((row.person_id, row.role_id), ()), row.valid_from)
         if span is None:
@@ -149,9 +167,22 @@ async def migrate_committee_spans(
             )
             orphans += 1
             continue
-        if span.pm_assignment_id is None and row.pm_assignment_id is not None:
-            span.pm_assignment_id = row.pm_assignment_id
-            transferred += 1
+        if row.pm_assignment_id is not None:
+            if span.pm_assignment_id is None:
+                span.pm_assignment_id = row.pm_assignment_id
+                transferred += 1
+            elif span.pm_assignment_id != row.pm_assignment_id:
+                # The sidecar anchored the deepened span before this ran; retiring the legacy
+                # row strands its PM assignment upstream. Surface it (see the deploy note).
+                logger.warning(
+                    "committee_span_migrate_anchor_dropped",
+                    extra={
+                        "source_id": row.source_id,
+                        "orphaned_pm_assignment_id": str(row.pm_assignment_id),
+                        "span_pm_assignment_id": str(span.pm_assignment_id),
+                    },
+                )
+                dropped += 1
         await session.execute(
             delete(Citation).where(
                 Citation.entity_type == ASSIGNMENT_CITATION_TYPE, Citation.entity_id == row.id
@@ -167,6 +198,7 @@ async def migrate_committee_spans(
         anchors_transferred=transferred,
         legacy_retired=retired,
         orphans_no_span=orphans,
+        anchors_dropped=dropped,
     )
     logger.info("committee_span_migrate_complete", extra=result.__dict__)
     return result
@@ -208,6 +240,7 @@ async def _main(argv: list[str] | None = None) -> int:
     print(
         f"Committee span migration: legacy_found={result.legacy_found} "
         f"anchors_transferred={result.anchors_transferred} retired={result.legacy_retired} "
+        f"anchors_dropped={result.anchors_dropped} "
         f"orphans_no_span={result.orphans_no_span} spans_built={result.spans_built} "
         f"{'(dry-run, rolled back)' if args.dry_run else '(committed)'}"
     )

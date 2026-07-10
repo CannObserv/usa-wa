@@ -338,7 +338,9 @@ python -m usa_wa_adapter_legislature.migrate_sponsor_spans --dry-run
 python -m usa_wa_adapter_legislature.migrate_sponsor_spans
 
 # Committee MEMBERSHIP harvest — Phase A (#82). Enumerate each biennium's House/Senate standing
-# committees from the local committees-roster archive (no extra GetCommittees call) and fan
+# committees from the local committees-roster archive (no extra GetCommittees call; an un-archived
+# biennium falls back to a live, UNARCHIVED GetCommittees pull — run harvest_committees first if
+# you want the enumeration itself provenanced) and fan
 # GetCommitteeMembers(biennium, agency, Name) over them, archiving each wire (#54). Persons only
 # (fill_only) — membership is a Phase B span. Joint/Other skipped (no membership op, #39). Floor
 # 1999-00 (below it WSL's truncated old names fault → swallowed to an empty roster). ~40
@@ -360,6 +362,13 @@ python -m usa_wa_adapter_legislature.harvest_committee_member_spans
 # per-biennium row is stranded: legacy = a committee Assignment the emitted span-key set doesn't
 # claim. Each is mapped to the covering span by (person_id, role_id) + validity window, its
 # pm_assignment_id transferred, then hard-deleted with its citations (owner-only under #54).
+#
+# SEQUENCING: run this in the SAME maintenance window as the Phase A harvest, with the sidecar
+# paused (sudo systemctl stop usa-wa-sync-powermap). PM keys assignments on
+# (person, role, start_date), so a deepened span the sidecar drains first is minted as its OWN PM
+# assignment — after which the legacy row's anchor can only be dropped, orphaning that PM row
+# (a live PM assignment with the wrong start_date and no local mirror). Those are counted
+# `anchors_dropped` and warned per row; expect 0. Restart the sidecar after.
 # Idempotent; --dry-run rolls back.
 python -m usa_wa_adapter_legislature.migrate_committee_spans --dry-run
 python -m usa_wa_adapter_legislature.migrate_committee_spans

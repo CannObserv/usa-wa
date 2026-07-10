@@ -205,6 +205,53 @@ async def test_deeper_span_strands_legacy_row_which_is_retired_with_its_anchor(
     assert await _count(db_session, Assignment, pm_assignment_id=pm_id) == 1
 
 
+async def test_already_anchored_span_records_the_dropped_legacy_anchor(
+    db_session, usa_wa, wsl_source
+):
+    """If the daily re-drive anchored the deepened span before this migration ran, the legacy
+    row's own PM anchor cannot be transferred — retiring it orphans that PM assignment
+    upstream. That must be counted + warned, never silent."""
+    await _add_committee(db_session, usa_wa)
+    person = await _add_person(db_session)
+    for biennium in ("2013-14", "2015-16", "2017-18", "2019-20", "2021-22", "2023-24", CURRENT):
+        await _archive(db_session, wsl_source, biennium)
+    rosters = {
+        (b, CID): [_member(100)]
+        for b in ("2013-14", "2015-16", "2017-18", "2019-20", "2021-22", "2023-24", CURRENT)
+    }
+    client = _WireMappingMemberClient(rosters)
+
+    await migrate_committee_spans(db_session, member_client=client, current_biennium=CURRENT)
+    span = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == f"100:committee:{CID}:2013-14")
+        )
+    ).scalar_one()
+    span_anchor = _ULID()
+    span.pm_assignment_id = span_anchor  # the sidecar got there first
+    legacy_anchor = _ULID()
+    await _add_legacy(
+        db_session,
+        source_id=f"100:committee:{CID}:{CURRENT}",
+        person_id=person.id,
+        role_id=span.role_id,
+        pm_id=legacy_anchor,
+        valid_from=date(2025, 1, 1),
+    )
+    await db_session.flush()
+
+    result = await migrate_committee_spans(
+        db_session, member_client=client, current_biennium=CURRENT
+    )
+
+    assert result.legacy_retired == 1
+    assert result.anchors_transferred == 0
+    assert result.anchors_dropped == 1  # the orphaned PM assignment, surfaced
+    await db_session.refresh(span)
+    assert span.pm_assignment_id == span_anchor  # the span keeps its own anchor
+    assert await _count(db_session, Assignment, pm_assignment_id=legacy_anchor) == 0
+
+
 async def test_non_committee_rows_are_untouched(db_session, usa_wa, wsl_source):
     """party / chamber-senate / chamber-house rows are other issues' spans — never touched."""
     await _add_committee(db_session, usa_wa)

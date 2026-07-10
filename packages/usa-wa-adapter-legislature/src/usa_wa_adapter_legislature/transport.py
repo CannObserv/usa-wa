@@ -288,26 +288,6 @@ class WSLClient:
         serialized = serialize_object(result, dict)
         return list(serialized) if serialized is not None else []
 
-    def _fetch_committee_members_sync(self, agency: str, committee_name: str) -> WireFetch:
-        result = self._ensure_client().service.GetActiveCommitteeMembers(
-            agency=agency, committeeName=committee_name
-        )
-        serialized = serialize_object(result, dict)
-        records = list(serialized) if serialized is not None else []
-        return WireFetch(
-            records=records,
-            wire=self._transport.last_wire or b"",
-            content_type=self._transport.last_content_type or "text/xml",
-        )
-
-    def _parse_committee_members_sync(self, wire: bytes) -> list[dict[str, Any]]:
-        client = self._ensure_client()
-        binding = client.service._binding
-        operation = binding.get("GetActiveCommitteeMembers")
-        result = binding.process_reply(client, operation, _StoredResponse(wire))
-        serialized = serialize_object(result, dict)
-        return list(serialized) if serialized is not None else []
-
     def _fetch_historical_committee_members_sync(
         self, biennium: str, agency: str, committee_name: str
     ) -> WireFetch:
@@ -449,8 +429,13 @@ class WSLClient:
         the ``LongName``. Each row is a serialized ``Member`` — same shape as
         :meth:`get_sponsors`, but the committee endpoint spells party in full
         (``"Democrat"``/``"Republican"``) where the sponsor endpoint uses ``"D"``/``"R"``.
-        The write-free sibling the member-identity probe (P1b step 0) fans out over the
-        roster cohort; the archival ``fetch_committee_members`` (step 1) keeps the wire.
+
+        **The probe's op, and only the probe's.** Nothing archives this operation: #82
+        retired the ``committee-members:`` resource once ``GetCommitteeMembers(current, …)``
+        was shown to return the identical set, so the archival roster pull is
+        :meth:`fetch_historical_committee_members` (one uniform archive, current + history).
+        This write-free sibling survives for the member-identity probe (P1b step 0), which
+        needs a second *endpoint* — not a second biennium — to cross-check ``Id`` stability.
         """
         if self.service != "CommitteeService":
             raise ValueError(
@@ -460,37 +445,6 @@ class WSLClient:
         return await asyncio.to_thread(
             self._get_active_committee_members_sync, agency, committee_name
         )
-
-    async def fetch_committee_members(self, agency: str, committee_name: str) -> WireFetch:
-        """Archival pull of one active committee's members, keeping the wire (#54).
-
-        The archival sibling of :meth:`get_active_committee_members`: calls
-        ``CommitteeService.GetActiveCommitteeMembers(agency, committeeName)`` and returns
-        a :class:`WireFetch` — the derived ``Member`` dicts plus the raw SOAP envelope
-        bytes for archival + hashing. ``committee_name`` is the committee's short ``Name``
-        (not ``LongName``). One archive per committee, keyed
-        ``committee-members:<agency>:<committeeName>`` by the adapter's fan-out (step 7).
-        """
-        if self.service != "CommitteeService":
-            raise ValueError(
-                f"fetch_committee_members requires service='CommitteeService', got {self.service!r}"
-            )
-        return await asyncio.to_thread(self._fetch_committee_members_sync, agency, committee_name)
-
-    async def parse_committee_members(self, wire: bytes) -> list[dict[str, Any]]:
-        """Re-deserialize an **archived** ``GetActiveCommitteeMembers`` envelope offline.
-
-        The member analog of :meth:`parse_committees` (#56 cache path): replays a stored
-        ``RawPayload.body`` through the **same** ``GetActiveCommitteeMembers`` binding
-        :meth:`fetch_committee_members` uses, so the offline parse can't drift from the
-        live one (#54 fidelity). Only network cost is the one-time WSDL load. Guarded by
-        the cassette round-trip test.
-        """
-        if self.service != "CommitteeService":
-            raise ValueError(
-                f"parse_committee_members requires service='CommitteeService', got {self.service!r}"
-            )
-        return await asyncio.to_thread(self._parse_committee_members_sync, wire)
 
     async def fetch_historical_committee_members(
         self, biennium: str, agency: str, committee_name: str

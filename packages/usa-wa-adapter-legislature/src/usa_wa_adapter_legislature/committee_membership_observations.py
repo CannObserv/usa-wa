@@ -19,6 +19,8 @@ Name-blanked stubs are skipped (:func:`is_person`), matching every other member 
 
 from __future__ import annotations
 
+from typing import Any
+
 from usa_wa_adapter_legislature.normalize.members import is_person
 from usa_wa_adapter_legislature.tenure_spans import Observation
 
@@ -27,7 +29,7 @@ KIND_COMMITTEE = "committee"
 
 
 def build_committee_membership_observations(
-    rosters: dict[tuple[str, str], list[dict]],
+    rosters: dict[tuple[str, str], list[dict[str, Any]]],
 ) -> list[Observation]:
     """Project ``{(biennium, committee_source_id): [member rows]}`` into membership
     :class:`Observation`s.

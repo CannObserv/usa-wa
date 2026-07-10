@@ -2,7 +2,9 @@
 
 For each biennium in a range, enumerate that biennium's House/Senate standing committees
 **from the local roster archive** (``committees-roster:<biennium>``, written by the
-sub-project-3 committee harvest — no extra ``GetCommittees`` call) and fan
+sub-project-3 committee harvest — no extra ``GetCommittees`` call; a biennium that harvest
+never covered falls back to a **live, unarchived** ``GetCommittees(biennium)`` pull — run
+``harvest_committees`` first if you want the enumeration itself to be provenanced) and fan
 ``CommitteeService.GetCommitteeMembers(biennium, agency, Name)`` over them through the
 :class:`AdapterRunner` under the ``committee-members-hist:<biennium>:<id>:<agency>:<name>``
 resource id — archiving each pristine SOAP wire (RawPayload, hashed, #54).
@@ -65,6 +67,8 @@ class HarvestSummary:
     bienniums: int
     rosters_pulled: int
     upserted: int
+    #: Echoed back so the caller's commit/rollback decision reads the summary it acted on
+    #: rather than re-deriving it from argv (the harvest itself never commits).
     dry_run: bool
 
 
@@ -184,7 +188,7 @@ async def _main(argv: list[str] | None = None) -> int:
             summary = await harvest_committee_members(
                 session, bienniums=bienniums, dry_run=args.dry_run, force=args.force
             )
-            if args.dry_run:
+            if summary.dry_run:
                 await session.rollback()
             else:
                 await session.commit()
@@ -197,7 +201,7 @@ async def _main(argv: list[str] | None = None) -> int:
     print(
         f"Committee member harvest: bienniums={summary.bienniums} "
         f"rosters={summary.rosters_pulled} upserted={summary.upserted} "
-        f"{'(dry-run, rolled back)' if args.dry_run else '(committed)'}"
+        f"{'(dry-run, rolled back)' if summary.dry_run else '(committed)'}"
     )
     return 0
 

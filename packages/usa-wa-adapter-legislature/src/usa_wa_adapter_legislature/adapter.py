@@ -62,16 +62,14 @@ COMMITTEES_RESOURCE_PREFIX = "committees:"
 #: implicit-current active set), so the wire genuinely differs and the two keys
 #: never collide. Phase B's rename-chain reads only this key.
 COMMITTEES_ROSTER_RESOURCE_PREFIX = "committees-roster:"
-#: The member cluster (P1b). ``sponsors:<biennium>`` drives GetSponsors;
-#: ``committee-members:<committee_id>:<agency>:<name>`` drives one committee's
-#: GetActiveCommitteeMembers roster (the committee id rides the resource id so the
-#: normalizer can resolve the committee Org — the members payload doesn't carry it).
+#: The member roster (P1b): ``sponsors:<biennium>`` drives ``SponsorService.GetSponsors``.
 SPONSORS_RESOURCE_PREFIX = "sponsors:"
-#: The **historical** roster key (#82): ``committee-members-hist:<biennium>:<id>:<agency>:<name>``
-#: drives ``GetCommitteeMembers(biennium, agency, name)`` — a distinct SOAP op (and so a
-#: distinct provenance key) from the biennium-less, current-only ``committee-members:`` above.
-#: The biennium leads so a committee's rosters sort by era; the id lets the span builder key
-#: citations per (biennium, committee).
+#: The committee roster key (#82): ``committee-members-hist:<biennium>:<id>:<agency>:<name>``
+#: drives ``GetCommitteeMembers(biennium, agency, name)``. The biennium leads so a committee's
+#: rosters sort by era; the id (which the members payload doesn't carry) lets the span builder
+#: resolve the committee Org and key citations per (biennium, committee). The daily fan-out
+#: keys this same op by the *current* biennium — it returns exactly the set the retired
+#: ``GetActiveCommitteeMembers`` pull did — so one uniform archive covers current + history.
 COMMITTEE_MEMBERS_HIST_RESOURCE_PREFIX = "committee-members-hist:"
 
 _COMMITTEE_SERVICE_URL = f"{WSL_BASE_URL}/CommitteeService.asmx"

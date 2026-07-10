@@ -248,3 +248,73 @@ async def test_reemission_is_append_only_and_idempotent(db_session, usa_wa, wsl_
         )
     ).scalar_one()  # exactly one row
     assert await _count(db_session, Citation, entity_id=row.id) == 2  # not 4
+
+
+async def test_daily_repull_of_the_same_roster_adds_no_citation(db_session, usa_wa, wsl_source):
+    """The daily forced pull mints a **fresh FetchEvent** for the same resource. Citation
+    idempotency keys on the event's ``resource_id``, not its id — so a re-drive against a new
+    event for an already-cited roster appends nothing (the #54 append-only contract would
+    otherwise grow one citation per day, and the app role cannot DELETE them)."""
+    await _add_committee(db_session, usa_wa)
+    await _add_person(db_session, 100)
+    spans = build_tenure_spans(
+        build_committee_membership_observations({(CURRENT, CID): [_member(100)]}),
+        current_biennium=CURRENT,
+    )
+    day1 = await _fetch_events(db_session, wsl_source, [CURRENT])
+    await emit_committee_spans(db_session, spans, reliability=1.0, fetch_events=day1)
+
+    day2 = await _fetch_events(db_session, wsl_source, [CURRENT])  # new event, same resource_id
+    assert day2[(CURRENT, CID)][0] != day1[(CURRENT, CID)][0]
+    await emit_committee_spans(db_session, spans, reliability=1.0, fetch_events=day2)
+
+    row = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == f"100:committee:{CID}:{CURRENT}")
+        )
+    ).scalar_one()
+    assert await _count(db_session, Citation, entity_id=row.id) == 1
+
+
+async def test_renamed_committee_appends_a_second_citation_for_that_biennium(
+    db_session, usa_wa, wsl_source
+):
+    """A WSL rename changes the short ``Name``, which rides the resource id — so the renamed
+    roster is a *different* resource and attests the span separately. Two citations for the
+    one biennium is intended (two distinct pulls, both real evidence), not a leak: the
+    idempotency key is the resource, and each resource is cited exactly once."""
+    await _add_committee(db_session, usa_wa)
+    await _add_person(db_session, 100)
+    spans = build_tenure_spans(
+        build_committee_membership_observations({(CURRENT, CID): [_member(100)]}),
+        current_biennium=CURRENT,
+    )
+    before = await _fetch_events(db_session, wsl_source, [CURRENT])
+    await emit_committee_spans(db_session, spans, reliability=1.0, fetch_events=before)
+
+    # same (biennium, committee) key, new short Name → new resource_id
+    renamed_rid = committee_members_hist_resource_id(CURRENT, CID, "House", "Approps")
+    ev = FetchEvent(
+        source_id=wsl_source.id,
+        resource_id=renamed_rid,
+        url="https://x",
+        fetched_at=datetime.now(UTC),
+        http_status=200,
+        content_hash=b"\x02" * 32,
+        status=FetchStatus.ok,
+    )
+    db_session.add(ev)
+    await db_session.flush()
+    await emit_committee_spans(
+        db_session,
+        spans,
+        reliability=1.0,
+        fetch_events={(CURRENT, CID): (ev.id, ev.fetched_at, renamed_rid)},
+    )
+
+    row = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == f"100:committee:{CID}:{CURRENT}")
+        )
+    ).scalar_one()
+    assert await _count(db_session, Citation, entity_id=row.id) == 2
