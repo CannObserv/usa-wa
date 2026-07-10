@@ -103,9 +103,10 @@ surface. Pair with `USA_WA_BIENNIUM` to target a non-current biennium.
 # additive current-biennium meeting-window pull for Joint/Other discovery (#39).
 # Prod runs this daily at 06:00 UTC via the usa-wa-wsl-refresh.timer systemd
 # unit; the command below is the manual / backfill form (pair with USA_WA_BIENNIUM).
-# Also drives the member cluster (P1b): forced GetSponsors + per-committee
-# GetActiveCommitteeMembers fan-out. fill_only (#65 — additive, never clobbers
-# PM-curated rows).
+# Also drives the member cluster: forced GetSponsors + a per-committee
+# GetCommitteeMembers(current, ...) fan-out (#82), then re-drives BOTH span builders for the
+# current cohort — party/Senate-seat (#78-2c) and committee membership (#82). fill_only
+# (#65 — additive, never clobbers PM-curated rows).
 python -m usa_wa_adapter_legislature.refresh
 
 # PDC refresh (#69 + #75) — source WA House members' Position (1/2), which WSL doesn't expose,
@@ -335,6 +336,33 @@ python -m usa_wa_adapter_legislature.harvest_sponsor_spans
 # avoids the error window. Restart the sidecar after: sudo systemctl start usa-wa-sync-powermap.
 python -m usa_wa_adapter_legislature.migrate_sponsor_spans --dry-run
 python -m usa_wa_adapter_legislature.migrate_sponsor_spans
+
+# Committee MEMBERSHIP harvest — Phase A (#82). Enumerate each biennium's House/Senate standing
+# committees from the local committees-roster archive (no extra GetCommittees call) and fan
+# GetCommitteeMembers(biennium, agency, Name) over them, archiving each wire (#54). Persons only
+# (fill_only) — membership is a Phase B span. Joint/Other skipped (no membership op, #39). Floor
+# 1999-00 (below it WSL's truncated old names fault → swallowed to an empty roster). ~40
+# committees x ~14 biennia; --pause-seconds sets the central WSL limiter. Closed rosters cache-hit.
+python -m usa_wa_adapter_legislature.harvest_committee_members --dry-run
+python -m usa_wa_adapter_legislature.harvest_committee_members --from-biennium 1999-00 --pause-seconds 1
+
+# Committee membership SPANS — Phase B (#82). Archive-derived, no WSL pull: re-parses each
+# archived committee-members-hist roster offline, projects (member, committee, biennium)
+# observations, merges contiguous biennia into one membership span bound to the committee's
+# shared `member` Role, citing each (biennium, committee) roster. A dormancy gap opens a second
+# span. Idempotent. The daily refresh re-drives this for the current cohort.
+python -m usa_wa_adapter_legislature.harvest_committee_member_spans --dry-run
+python -m usa_wa_adapter_legislature.harvest_committee_member_spans
+
+# Committee span MIGRATION — #82, OWNER ROLE, run AFTER the Phase A harvest deepens spans.
+# A span starting at a legacy row's biennium upserts it in place (same 4-part key), so a shallow
+# archive needs no migration. Once the harvest pushes a span's start earlier, the shipped
+# per-biennium row is stranded: legacy = a committee Assignment the emitted span-key set doesn't
+# claim. Each is mapped to the covering span by (person_id, role_id) + validity window, its
+# pm_assignment_id transferred, then hard-deleted with its citations (owner-only under #54).
+# Idempotent; --dry-run rolls back.
+python -m usa_wa_adapter_legislature.migrate_committee_spans --dry-run
+python -m usa_wa_adapter_legislature.migrate_committee_spans
 
 # Committee historical backfill (sub-project 3, Phase A) — sweep GetCommittees(biennium)
 # over a range through AdapterRunner(fill_only=True): archive the full-roster wire under
