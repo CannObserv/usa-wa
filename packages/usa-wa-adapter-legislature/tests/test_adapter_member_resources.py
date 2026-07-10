@@ -13,13 +13,12 @@ from clearinghouse_core.provenance import Citation, FetchEvent, RawPayload, Sour
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.identity import (
     Assignment,
-    Organization,
     Person,
     PersonIdentifier,
     Role,
 )
 from usa_wa_adapter_legislature import WALegislatureAdapter
-from usa_wa_adapter_legislature.adapter import committee_members_resource_id
+from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.transport import WireFetch
 
@@ -56,8 +55,8 @@ class _FakeMembersClient:
         self._wire = wire
         self.calls: list[tuple[str, str]] = []
 
-    async def fetch_committee_members(self, agency, name) -> WireFetch:
-        self.calls.append((agency, name))
+    async def fetch_historical_committee_members(self, biennium, agency, name) -> WireFetch:
+        self.calls.append((biennium, agency, name))
         return WireFetch(records=self._records, wire=self._wire, content_type="text/xml")
 
 
@@ -174,22 +173,16 @@ async def test_sponsors_resource_cache_hit_on_rerun(db_session, usa_wa, wsl_sour
     assert (await db_session.execute(select(func.count()).select_from(Person))).scalar_one() == 1
 
 
-async def test_committee_members_resource_materializes_membership(db_session, usa_wa, wsl_source):
-    """committee-members:<id>:<agency>:<name> → membership Assignments, committee resolved by id."""
+async def test_historical_committee_roster_materializes_persons_only(
+    db_session, usa_wa, wsl_source
+):
+    """committee-members-hist:<biennium>:<id>:<agency>:<name> → Person cluster only (#82).
+
+    Membership tenure is an archive-derived merged span (Phase B), so this resource emits
+    ZERO Assignment/Role — it exists to archive the roster wire and dedup Persons."""
     anchors = await bootstrap_synthetic_anchors(
         db_session, biennium=BIENNIUM, jurisdiction_id=usa_wa.id
     )
-    committee = Organization(
-        source="usa_wa_legislature",
-        source_id="31635",
-        jurisdiction_id=usa_wa.id,
-        name="House Appropriations",
-        short_name="Appropriations",
-        org_type="committee",
-    )
-    db_session.add(committee)
-    await db_session.flush()
-
     client = _FakeMembersClient(
         [
             _member(301, "Kristine", "Reeves", agency="House", party="Democrat", district="30"),
@@ -200,7 +193,7 @@ async def test_committee_members_resource_materializes_membership(db_session, us
         anchors=anchors,
         jurisdiction_id=usa_wa.id,
         biennium=BIENNIUM,
-        client=client,
+        member_client=client,
         session=db_session,
     )
     runner = AdapterRunner(
@@ -211,28 +204,21 @@ async def test_committee_members_resource_materializes_membership(db_session, us
         natural_key=("source", "source_id"),
     )
 
-    resource_id = committee_members_resource_id("31635", "House", "Appropriations")
+    resource_id = committee_members_hist_resource_id(BIENNIUM, "31635", "House", "Appropriations")
     n = await runner.fetch_and_normalize(resource_id)
 
-    assert client.calls == [("House", "Appropriations")]
-    # 2 Persons + 2 identifiers + 1 shared member Role + 2 Assignments = 7
-    assert n == 7
+    assert client.calls == [(BIENNIUM, "House", "Appropriations")]
+    assert n == 4  # 2 Persons + 2 identifiers; no membership rows
     [event] = (await db_session.execute(select(FetchEvent))).scalars().all()
     assert event.resource_id == resource_id
-    role = (
-        await db_session.execute(
-            select(Role).where(Role.organization_id == committee.id, Role.role_type == "member")
-        )
-    ).scalar_one()
-    asgs = (
-        (await db_session.execute(select(Assignment).where(Assignment.role_id == role.id)))
-        .scalars()
-        .all()
-    )
-    assert len(asgs) == 2
-    assert {a.person_id for a in asgs} == {
-        p.id for p in (await db_session.execute(select(Person))).scalars().all()
+    assert {p.source_id for p in (await db_session.execute(select(Person))).scalars().all()} == {
+        "301",
+        "302",
     }
+    assert (
+        await db_session.execute(select(func.count()).select_from(Assignment))
+    ).scalar_one() == 0
+    assert (await db_session.execute(select(func.count()).select_from(Role))).scalar_one() == 0
 
 
 async def test_member_normalize_without_session_raises(db_session, usa_wa):

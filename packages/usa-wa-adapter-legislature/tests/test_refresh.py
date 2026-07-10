@@ -66,15 +66,21 @@ class _FakeSponsorClient:
 
 
 class _FakeMembersClient:
-    """Injectable GetActiveCommitteeMembers stand-in (no network) — empty roster."""
+    """Injectable GetCommitteeMembers stand-in (no network) — empty roster.
+
+    #82: the daily fan-out keys the historical op by the current biennium, and the span
+    re-drive re-parses the archived wire offline through the same binding."""
 
     def __init__(self, records: list[dict] | None = None) -> None:
         self._records = records or []
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, str, str]] = []
 
-    async def fetch_committee_members(self, agency, name) -> WireFetch:  # noqa: ANN001
-        self.calls.append((agency, name))
+    async def fetch_historical_committee_members(self, biennium, agency, name) -> WireFetch:  # noqa: ANN001
+        self.calls.append((biennium, agency, name))
         return WireFetch(records=self._records, wire=b"<members/>", content_type="text/xml")
+
+    async def parse_historical_committee_members(self, wire) -> list[dict]:  # noqa: ANN001
+        return self._records
 
 
 def _jtc_docket() -> list[dict]:
@@ -403,6 +409,7 @@ async def test_run_refresh_materializes_member_cluster(db_session, usa_wa):
 
     assert outcome.members_upserted > 0
     assert outcome.member_spans > 0  # #78-2c: the daily refresh re-drove the span builder
+    assert outcome.committee_spans > 0  # #82: and the committee-membership span builder
     persons = {p.source_id for p in (await db_session.execute(select(Person))).scalars().all()}
     assert "101" in persons  # from the sponsor pull
     assert "301" in persons  # from the committee-member fan-out
@@ -555,7 +562,7 @@ async def test_member_fanout_scoped_to_current_biennium_provenance(db_session, u
         await _discover_members(runner, db_session, "2025-26", anchors)
 
     # Only the current-provenance committee was fanned out; the historical one was skipped.
-    assert member_client.calls == [("House", "Current")]
+    assert member_client.calls == [("2025-26", "House", "Current")]
 
 
 class _PoisonNormalizeAdapter(WALegislatureAdapter):
@@ -637,11 +644,16 @@ async def test_member_fanout_db_error_is_isolated_by_savepoint(db_session, usa_w
     persons = {p.source_id for p in (await db_session.execute(select(Person))).scalars().all()}
     assert "101" in persons  # sponsor pull committed
     assert "301" in persons  # good committee's member committed
-    dims = {
-        a.source_id.split(":")[1]
-        for a in (await db_session.execute(select(Assignment))).scalars().all()
+    # #82: the fan-out archives rosters + Persons only — the surviving committee's roster is
+    # archived under the historical key. Membership itself is a merged span built by the
+    # re-drive in run_refresh, so NO Assignment lands on this (fan-out-only) path.
+    archived = {
+        e.resource_id
+        for e in (await db_session.execute(select(FetchEvent))).scalars().all()
+        if e.resource_id.startswith("committee-members-hist:")
     }
-    assert "committee" in dims  # the surviving committee's membership Assignment landed
+    assert "committee-members-hist:2025-26:100:House:Good" in archived
+    assert (await db_session.execute(select(Assignment))).scalars().all() == []
 
 
 async def test_run_refresh_warns_exactly_when_biennium_not_current(db_session, usa_wa, caplog):

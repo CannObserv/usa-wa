@@ -35,7 +35,6 @@ from clearinghouse_core.adapter import FetchedPayload, NormalizedBatch
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import (
-    Assignment,
     Person,
     PersonIdentifier,
     Role,
@@ -145,14 +144,6 @@ def senate_seat_role_source_id(ld_number: int) -> str:
     return f"seat:senate:ld-{ld_number}"
 
 
-def assignment_source_id(member_id: str, dimension: str, biennium: str) -> str:
-    """Deterministic ``Assignment.source_id`` — role-independent (the role is a *value*
-    of the assignment, not part of the key, so a role correction needs no new row).
-
-    ``dimension`` ∈ {``chamber-senate``, ``party``, ``committee:<committee_source_id>``}."""
-    return f"{member_id}:{dimension}:{biennium}"
-
-
 def build_person(member: dict[str, Any]) -> Person:
     """Construct a :class:`Person` from a member row (name recomposed from first+last)."""
     first = (member.get("FirstName") or "").strip()
@@ -253,25 +244,6 @@ async def resolve_ld_jurisdiction(session: AsyncSession, ld_number: int) -> Juri
             select(Jurisdiction).where(Jurisdiction.slug == f"usa-wa-ld-{ld_number}")
         )
     ).scalar_one_or_none()
-
-
-def build_assignment(
-    *,
-    source_id: str,
-    person_id: _ULID,
-    role_id: _ULID,
-    valid_from: Any,
-) -> Assignment:
-    """Construct an active :class:`Assignment` (leaf row — resolved FK ids, no
-    get-or-create; the runner upserts it idempotently on ``(source, source_id)``)."""
-    return Assignment(
-        source=_SOURCE,
-        source_id=source_id,
-        person_id=person_id,
-        role_id=role_id,
-        valid_from=valid_from,
-        is_active=True,
-    )
 
 
 async def normalize_member_persons(

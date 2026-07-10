@@ -42,9 +42,10 @@ from usa_wa_adapter_legislature.adapter import (
     COMMITTEES_RESOURCE_PREFIX,
     SPONSORS_RESOURCE_PREFIX,
     WALegislatureAdapter,
-    committee_members_resource_id,
+    committee_members_hist_resource_id,
 )
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors, bootstrap_synthetic_anchors
+from usa_wa_adapter_legislature.harvest_committee_member_spans import build_committee_member_spans
 from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
 from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
@@ -77,6 +78,7 @@ class RefreshOutcome:
     meetings_upserted: int
     members_upserted: int = 0
     member_spans: int = 0
+    committee_spans: int = 0
 
 
 async def run_refresh(
@@ -151,12 +153,42 @@ async def run_refresh(
     meetings_upserted = await _discover_current_meeting_window(runner, biennium)
     members_upserted = await _discover_members(runner, session, biennium, anchors)
     member_spans = await _rebuild_member_spans(session, biennium, current, sponsor_client)
+    committee_spans = await _rebuild_committee_member_spans(
+        session, biennium, current, member_client
+    )
     return RefreshOutcome(
         committees=summary,
         meetings_upserted=meetings_upserted,
         members_upserted=members_upserted,
         member_spans=member_spans,
+        committee_spans=committee_spans,
     )
+
+
+async def _rebuild_committee_member_spans(
+    session: AsyncSession, biennium: str, current: str, member_client: WSLClient | None
+) -> int:
+    """Re-drive the committee-membership span builder (#82) so the daily refresh materializes
+    merged membership **spans** from the roster archive — the current biennium is a span's
+    open end. The per-biennium inline emission the committee-member normalizer used to carry
+    is retired; this is its replacement (:mod:`harvest_committee_member_spans`).
+
+    Scoped to the current cohort (``restrict_to_biennium``) so it re-asserts only today's
+    (member, committee) pairs — each with their full history — not every membership in the
+    archive. Same gating + best-effort SAVEPOINT contract as :func:`_rebuild_member_spans`."""
+    if biennium != current:
+        return 0
+    try:
+        async with session.begin_nested():
+            return await build_committee_member_spans(
+                session,
+                member_client=member_client,
+                current_biennium=current,
+                restrict_to_biennium=current,
+            )
+    except Exception:
+        logger.exception("wsl_committee_span_rebuild_failed", extra={"biennium": biennium})
+        return 0
 
 
 async def _rebuild_member_spans(
@@ -283,7 +315,14 @@ async def _discover_members(
                 extra={"committee_source_id": committee.source_id, "agency": agency},
             )
             continue
-        resource_id = committee_members_resource_id(committee.source_id, agency, name)
+        # #82: the daily pull uses the SAME historical op keyed by the current biennium.
+        # GetCommitteeMembers(current, agency, name) returns exactly the GetActiveCommitteeMembers
+        # set (verified live 2026-07: identical 31-member House Appropriations roster), so one
+        # uniform `committee-members-hist:` archive covers current + history and the span builder
+        # sees the current biennium as a membership span's open end.
+        resource_id = committee_members_hist_resource_id(
+            biennium, committee.source_id, agency, name
+        )
         try:
             # SAVEPOINT per committee (#1): contains a DB-layer persist failure to this
             # one committee so the rest of the fan-out still commits.
@@ -373,7 +412,8 @@ async def _main() -> int:
             f"upserted={committees.upserted_entities} "
             f"errors={committees.errors}) "
             f"meetings(upserted={outcome.meetings_upserted}) "
-            f"members(upserted={outcome.members_upserted} spans={outcome.member_spans})"
+            f"members(upserted={outcome.members_upserted} spans={outcome.member_spans} "
+            f"committee_spans={outcome.committee_spans})"
         )
         return 0 if committees.errors == 0 else 1
     finally:
