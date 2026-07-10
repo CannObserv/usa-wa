@@ -75,6 +75,22 @@ class CommitteeRosterCohortProvider:
         fetched = await self._client.fetch_committees(biennium)
         return roster_cohort_names(fetched.records)
 
+    async def roster_records(self, biennium: str) -> list[dict[str, Any]]:
+        """The biennium's raw committee records (``Id``/``Name``/``Agency``/``LongName``),
+        archive-first — the same wire :meth:`cohort` reads, undigested.
+
+        The #82 member harvest fans ``GetCommitteeMembers(biennium, agency, Name)`` over these,
+        so it needs the short ``Name`` + ``Agency`` the ``{source_id: LongName}`` cohort drops.
+        """
+        resource_id = f"{COMMITTEES_ROSTER_RESOURCE_PREFIX}{biennium}"
+        wire = await self._archived_wire(resource_id)
+        if wire is not None:
+            logger.info("roster_records_cache_hit", extra={"resource_id": resource_id})
+            return await self._client.parse_committees(wire)
+        logger.info("roster_records_live_pull", extra={"resource_id": resource_id})
+        fetched = await self._client.fetch_committees(biennium)
+        return list(fetched.records)
+
     async def archived_bienniums(self) -> list[str]:
         """Every biennium with an archived roster, ascending — the chain's domain."""
         if self._session is None or self._source_id is None:
