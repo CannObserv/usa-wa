@@ -5,12 +5,14 @@ archived sponsor rosters), resolve each span's WSL :class:`Person` + Role and up
 :class:`Assignment` with the span's ``valid_from/valid_to/is_active`` — one merged row per
 tenure, replacing the pre-#78 per-biennium rows.
 
-**Provenance — cite every biennium in range (#78 decision).** A merged span is attested by
-*every* biennium's roster it was observed in, so it carries one :class:`Citation` per
-covered biennium (a span is a contiguous run, so its biennia = ``bienniums_in_range(start,
-end)``), each pointing at that biennium's ``sponsors:<biennium>`` roster
-:class:`FetchEvent`. Re-emission re-asserts idempotently: existing ``assignment`` citations
-for the row are deleted and re-added, so a re-run converges rather than piling up.
+**Provenance — cite every biennium in range (#78 decision), append-only.** A merged span is
+attested by *every* biennium's roster it was observed in, so it carries one :class:`Citation`
+per covered biennium (a span is a contiguous run, so its biennia = ``bienniums_in_range(start,
+end)``), each pointing at that biennium's ``sponsors:<biennium>`` roster :class:`FetchEvent`.
+Re-emission is **insert-only** — provenance is write-once for the app role (#54 ``REVOKE
+DELETE`` on ``citations``), so a re-run adds only the biennia not yet cited (keyed on the
+biennium, not the FetchEvent id, since the daily re-pull mints a fresh FetchEvent). It never
+deletes/rewrites, so it converges without piling up **and** runs under the DML app role.
 
 Direct session writes (Phase-B derived rows, like the reconcilers/heal) — no AdapterRunner
 fetch. The Assignment source stays ``usa_wa_legislature`` (a legislature-structural fact).
@@ -20,13 +22,14 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID as _ULID
 
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.provenance import Citation
+from clearinghouse_core.provenance import Citation, FetchEvent
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
+from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors
 from usa_wa_adapter_legislature.harvest_committee_meetings import bienniums_in_range
 from usa_wa_adapter_legislature.normalize.members import (
@@ -75,7 +78,7 @@ async def emit_sponsor_spans(
             )
             continue
         assignment = await _upsert_assignment(session, span, person, role)
-        await _reassert_citations(session, assignment, span, reliability, fetch_events)
+        await _ensure_citations(session, assignment, span, reliability, fetch_events)
         emitted += 1
     return emitted
 
@@ -155,26 +158,43 @@ async def _upsert_assignment(
     return row
 
 
-async def _reassert_citations(
+async def _ensure_citations(
     session: AsyncSession,
     assignment: Assignment,
     span: TenureSpan,
     reliability: float,
     fetch_events: dict[str, tuple[_ULID, datetime]],
 ) -> None:
-    """Re-assert one Citation per covered biennium (#78 cite-every-biennium), idempotently:
-    drop the row's existing ``assignment`` citations, then re-add for each biennium in the
-    span's contiguous range that has an archived roster FetchEvent."""
-    await session.execute(
-        delete(Citation).where(
-            Citation.entity_type == _ASSIGNMENT_CITATION_TYPE,
-            Citation.entity_id == assignment.id,
+    """Add one Citation per covered biennium the span isn't yet cited for (#78
+    cite-every-biennium) — **append-only**. Provenance is write-once for the app role (the
+    #54 ``REVOKE DELETE`` on ``citations``), so this never deletes/rewrites; it inserts only
+    the missing biennia.
+
+    Idempotency keys on the roster's **biennium** (the cited ``FetchEvent``'s ``resource_id``,
+    ``sponsors:<biennium>``), not the ``fetch_event_id`` — the daily current-biennium re-pull
+    records a *fresh* FetchEvent each run (#63/#65), so keying on the id would append a new
+    citation every day. Keying on the biennium keeps exactly one citation per covered
+    biennium across re-runs."""
+    already_cited = set(
+        (
+            await session.execute(
+                select(FetchEvent.resource_id)
+                .join(Citation, Citation.fetch_event_id == FetchEvent.id)
+                .where(
+                    Citation.entity_type == _ASSIGNMENT_CITATION_TYPE,
+                    Citation.entity_id == assignment.id,
+                )
+            )
         )
+        .scalars()
+        .all()
     )
     for biennium in bienniums_in_range(span.start_biennium, span.end_biennium):
         fetch_event = fetch_events.get(biennium)
         if fetch_event is None:
             continue
+        if f"{SPONSORS_RESOURCE_PREFIX}{biennium}" in already_cited:
+            continue  # already cited for this biennium (append-only — no rewrite)
         fetch_event_id, fetched_at = fetch_event
         session.add(
             Citation(

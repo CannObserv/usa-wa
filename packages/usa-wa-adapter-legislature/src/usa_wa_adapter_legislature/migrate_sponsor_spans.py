@@ -30,6 +30,11 @@ Senate seat that never produced a span) is **left in place and logged**, never o
 
 Idempotent: re-running finds no legacy rows (they were retired) and re-asserts the spans.
 
+**Owner role.** Retiring a legacy row hard-deletes its ``citations``, which the app role is
+REVOKEd (#54 provenance immutability), so the CLI runs under ``DATABASE_URL_OWNER`` (like
+``baseline_unbaselined_committees``). The daily span re-drive stays app-role-safe because
+:func:`~usa_wa_adapter_legislature.sponsor_span_emit._ensure_citations` is insert-only.
+
 **Deploy sequencing.** Run this promptly after the 2c deploy, ideally with the sync sidecar
 paused. Between the deploy and this run, a span and its legacy row briefly share one
 ``pm_assignment_id`` (PM's structural match folds them), so an inbound feed event for that
@@ -187,9 +192,15 @@ async def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="migrate but roll back (preview)")
     args = parser.parse_args(argv)
 
-    database_url = os.environ.get("DATABASE_URL")
+    # Owner role: retiring a legacy row hard-deletes its citations, and the app role is
+    # REVOKEd DELETE on the provenance ledger (#54). Like baseline_unbaselined_committees.
+    database_url = os.environ.get("DATABASE_URL_OWNER")
     if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
+        print(
+            "DATABASE_URL_OWNER is not set; aborting — retiring legacy rows deletes their "
+            "citations, which the app role is REVOKEd (#54); run under the owner role.",
+            file=sys.stderr,
+        )
         return 2
 
     engine = create_async_engine(database_url)

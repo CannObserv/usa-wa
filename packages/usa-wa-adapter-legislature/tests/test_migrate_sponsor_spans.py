@@ -347,18 +347,21 @@ async def test_covering_span_disambiguates_same_role_tenures(db_session, usa_wa,
 # --- CLI (_main) --------------------------------------------------------------
 
 
-async def test_main_returns_2_when_database_url_unset(monkeypatch, capsys):
-    """Missing DATABASE_URL → stderr message + exit 2 (config error)."""
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+async def test_main_returns_2_when_owner_url_unset(monkeypatch, capsys):
+    """Missing DATABASE_URL_OWNER → stderr message + exit 2 (config error).
+
+    The migration runs under the owner role — retiring a legacy row deletes its citations,
+    which the app role is REVOKEd (#54)."""
+    monkeypatch.delenv("DATABASE_URL_OWNER", raising=False)
     with patch.object(migrate_module, "configure_logging"):
         code = await migrate_module._main([])
     assert code == 2
-    assert "DATABASE_URL is not set" in capsys.readouterr().err
+    assert "DATABASE_URL_OWNER is not set" in capsys.readouterr().err
 
 
 async def test_main_dry_run_rolls_back_and_returns_0(monkeypatch, capsys, test_engine):
     """--dry-run prints the summary, rolls back, and exits 0 (migrate itself is stubbed)."""
-    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    monkeypatch.setenv("DATABASE_URL_OWNER", os.environ["TEST_DATABASE_URL"])
     fake = MigrationResult(
         spans_built=3, legacy_found=2, anchors_transferred=2, legacy_retired=2, orphans_no_span=0
     )

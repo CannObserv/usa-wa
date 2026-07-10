@@ -168,3 +168,57 @@ async def test_unsynced_ld_senate_span_is_skipped(db_session, usa_wa, anchors):
         await db_session.execute(select(Role).join(Assignment, Assignment.role_id == Role.id))
     ).scalar_one()
     assert role.role_type == "member"  # the party Role
+
+
+async def test_citations_are_append_only_across_a_fresh_fetch_event(db_session, usa_wa, anchors):
+    """The daily current-biennium re-pull records a FRESH FetchEvent each run (#63/#65). Since
+    citations key on the biennium (not the fetch_event id), a second emission with a new
+    FetchEvent for the same biennium must NOT add a duplicate citation — append-only, one per
+    covered biennium (the app role is REVOKEd DELETE on citations, #54)."""
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_person(db_session, 100, "Ann Rivers")
+    source = Source(jurisdiction_id=usa_wa.id, name="WSL", slug="usa_wa_legislature", kind="soap")
+    db_session.add(source)
+    await db_session.flush()
+
+    async def _fresh_event() -> tuple:
+        ev = FetchEvent(
+            source_id=source.id,
+            resource_id=f"sponsors:{CURRENT}",
+            url="https://x",
+            fetched_at=datetime.now(UTC),
+            http_status=200,
+            content_hash=b"\x01" * 32,
+            status=FetchStatus.ok,
+        )
+        db_session.add(ev)
+        await db_session.flush()
+        return (ev.id, ev.fetched_at)
+
+    spans = build_tenure_spans(
+        build_sponsor_observations({CURRENT: [_member(100)]}), current_biennium=CURRENT
+    )
+
+    # Day 1 — first FetchEvent for the biennium.
+    await emit_sponsor_spans(
+        db_session,
+        spans,
+        anchors=anchors,
+        reliability=1.0,
+        fetch_events={CURRENT: await _fresh_event()},
+    )
+    # Day 2 — a DIFFERENT FetchEvent for the SAME biennium (a byte-identical daily re-pull).
+    await emit_sponsor_spans(
+        db_session,
+        spans,
+        anchors=anchors,
+        reliability=1.0,
+        fetch_events={CURRENT: await _fresh_event()},
+    )
+
+    seat = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "100:chamber-senate:5:2025-26")
+        )
+    ).scalar_one()
+    assert await _count(db_session, Citation, entity_id=seat.id) == 1  # one per biennium, not two
