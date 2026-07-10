@@ -33,7 +33,7 @@ Idempotent: re-running finds no legacy rows (they were retired) and re-asserts t
 **Owner role.** Retiring a legacy row hard-deletes its ``citations``, which the app role is
 REVOKEd (#54 provenance immutability), so the CLI runs under ``DATABASE_URL_OWNER`` (like
 ``baseline_unbaselined_committees``). The daily span re-drive stays app-role-safe because
-:func:`~usa_wa_adapter_legislature.sponsor_span_emit._ensure_citations` is insert-only.
+:func:`~usa_wa_adapter_legislature.span_emit._ensure_citations` is insert-only.
 
 **Deploy sequencing.** Run this promptly after the 2c deploy, ideally with the sync sidecar
 paused. Between the deploy and this run, a span and its legacy row briefly share one

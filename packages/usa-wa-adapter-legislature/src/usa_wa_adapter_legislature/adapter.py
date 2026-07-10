@@ -51,6 +51,7 @@ from usa_wa_adapter_legislature.normalize.committee_meetings import (
 )
 from usa_wa_adapter_legislature.normalize.committee_members import normalize_committee_members
 from usa_wa_adapter_legislature.normalize.committees import normalize_committees
+from usa_wa_adapter_legislature.normalize.members import normalize_member_persons
 from usa_wa_adapter_legislature.normalize.sponsors import normalize_sponsors
 from usa_wa_adapter_legislature.transport import WSL_BASE_URL, WSLClient
 
@@ -67,6 +68,12 @@ COMMITTEES_ROSTER_RESOURCE_PREFIX = "committees-roster:"
 #: normalizer can resolve the committee Org — the members payload doesn't carry it).
 SPONSORS_RESOURCE_PREFIX = "sponsors:"
 COMMITTEE_MEMBERS_RESOURCE_PREFIX = "committee-members:"
+#: The **historical** roster key (#82): ``committee-members-hist:<biennium>:<id>:<agency>:<name>``
+#: drives ``GetCommitteeMembers(biennium, agency, name)`` — a distinct SOAP op (and so a
+#: distinct provenance key) from the biennium-less, current-only ``committee-members:`` above.
+#: The biennium leads so a committee's rosters sort by era; the id lets the span builder key
+#: citations per (biennium, committee).
+COMMITTEE_MEMBERS_HIST_RESOURCE_PREFIX = "committee-members-hist:"
 
 _COMMITTEE_SERVICE_URL = f"{WSL_BASE_URL}/CommitteeService.asmx"
 _COMMITTEES_URL = f"{_COMMITTEE_SERVICE_URL}#GetActiveCommittees"
@@ -78,6 +85,30 @@ _SPONSORS_URL = f"{WSL_BASE_URL}/SponsorService.asmx#GetSponsors"
 #: stamped url stays well-formed (query precedes fragment); ``normalize`` dispatches on
 #: this fragment suffix and reads the id back from the query.
 _COMMITTEE_MEMBERS_FRAGMENT = "#GetActiveCommitteeMembers"
+#: The historical (#82) fragment. Same query-then-fragment stamping as the active op, plus a
+#: ``biennium`` query param, so ``normalize`` can dispatch on the fragment and recover both.
+_COMMITTEE_MEMBERS_HIST_FRAGMENT = "#GetCommitteeMembers"
+
+
+def committee_members_hist_resource_id(
+    biennium: str, committee_source_id: str, agency: str, committee_name: str
+) -> str:
+    """Build the ``committee-members-hist:<biennium>:<id>:<agency>:<name>`` resource id (#82)."""
+    return (
+        f"{COMMITTEE_MEMBERS_HIST_RESOURCE_PREFIX}{biennium}:{committee_source_id}:"
+        f"{agency}:{committee_name}"
+    )
+
+
+def parse_committee_members_hist_resource_id(resource_id: str) -> tuple[str, str, str, str]:
+    """Parse ``committee-members-hist:<biennium>:<id>:<agency>:<name>`` →
+    (biennium, committee_id, agency, name).
+
+    Splits on the first three colons only, so a committee ``Name`` containing a colon
+    (none do today) still round-trips in the trailing segment."""
+    rest = resource_id[len(COMMITTEE_MEMBERS_HIST_RESOURCE_PREFIX) :]
+    biennium, committee_source_id, agency, committee_name = rest.split(":", 3)
+    return biennium, committee_source_id, agency, committee_name
 
 
 def committee_members_resource_id(
@@ -155,6 +186,11 @@ class WALegislatureAdapter(BaseAdapter):
         """Fetch one resource, archiving the pristine SOAP wire as ``body`` (#54)."""
         if resource_id.startswith(COMMITTEE_MEETINGS_RESOURCE_PREFIX):
             return await self._fetch_committee_meetings(resource_id)
+        # Historical roster before the active one: the two prefixes are disjoint
+        # ("committee-members-hist:" vs "committee-members:"), but check the longer,
+        # more specific key first so a future prefix change can't silently mis-route.
+        if resource_id.startswith(COMMITTEE_MEMBERS_HIST_RESOURCE_PREFIX):
+            return await self._fetch_historical_committee_members(resource_id)
         if resource_id.startswith(COMMITTEE_MEMBERS_RESOURCE_PREFIX):
             return await self._fetch_committee_members(resource_id)
         if resource_id.startswith(SPONSORS_RESOURCE_PREFIX):
@@ -229,6 +265,29 @@ class WALegislatureAdapter(BaseAdapter):
             parsed=fetched.records,
         )
 
+    async def _fetch_historical_committee_members(self, resource_id: str) -> FetchedPayload:
+        """Archive one committee's roster **for a past biennium** (#82, GetCommitteeMembers).
+
+        The biennium + committee id ride the stamped ``url`` (query before fragment) so the
+        archived payload is self-describing; ``normalize`` dispatches on the fragment. A
+        committee absent that biennium yields an empty wire (benign Fault swallowed in the
+        transport) — the runner archives nothing useful and the fan-out moves on."""
+        biennium, committee_source_id, agency, name = parse_committee_members_hist_resource_id(
+            resource_id
+        )
+        fetched = await self._member_client.fetch_historical_committee_members(
+            biennium, agency, name
+        )
+        return FetchedPayload(
+            url=f"{_COMMITTEE_SERVICE_URL}?biennium={biennium}&committee_id={committee_source_id}"
+            f"{_COMMITTEE_MEMBERS_HIST_FRAGMENT}",
+            fetched_at=datetime.now(UTC),
+            content_type=fetched.content_type,
+            body=fetched.wire,
+            http_status=200,
+            parsed=fetched.records,
+        )
+
     async def _fetch_committee_meetings(self, resource_id: str) -> FetchedPayload:
         begin, end = parse_meetings_resource_id(resource_id)
         fetched = await self._meeting_client.fetch_committee_meetings(begin, end)
@@ -255,6 +314,12 @@ class WALegislatureAdapter(BaseAdapter):
             )
         if payload.url == _SPONSORS_URL:
             return await normalize_sponsors(payload, session=self._require_session())
+        # Historical committee roster (#82) — check before the active-members fragment.
+        # Persons only: membership tenure is an archive-derived merged span (Phase B), not a
+        # per-biennium row. (The two fragments are mutually exclusive — neither is a suffix
+        # of the other — but the more specific historical one is tested first.)
+        if payload.url.endswith(_COMMITTEE_MEMBERS_HIST_FRAGMENT):
+            return await normalize_member_persons(payload, session=self._require_session())
         if payload.url.endswith(_COMMITTEE_MEMBERS_FRAGMENT):
             # committee id rides the url query, before the fragment (stamped by
             # _fetch_committee_members): …asmx?committee_id=<id>#GetActiveCommitteeMembers.

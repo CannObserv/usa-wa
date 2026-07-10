@@ -24,19 +24,24 @@ an independent / blank / unknown value yields ``None`` → no party Assignment.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID as _ULID
 
+from clearinghouse_core.adapter import FetchedPayload, NormalizedBatch
 from clearinghouse_core.jurisdictions import Jurisdiction
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import (
     Assignment,
     Person,
     PersonIdentifier,
     Role,
 )
+
+logger = get_logger(__name__)
 
 _SOURCE = "usa_wa_legislature"
 
@@ -267,3 +272,34 @@ def build_assignment(
         valid_from=valid_from,
         is_active=True,
     )
+
+
+async def normalize_member_persons(
+    payload: FetchedPayload,
+    *,
+    session: AsyncSession,
+) -> NormalizedBatch:
+    """Member rows → the Person cluster (:class:`Person` + ``wa_legislature_member_id``
+    :class:`PersonIdentifier`), and nothing else.
+
+    Shared by every WSL roster whose payload is a flat ``Member`` list: ``GetSponsors``
+    (#78-2c) and the historical ``GetCommitteeMembers`` (#82). Tenure — party, chamber
+    seat, committee membership — is **not** emitted per-biennium; it is archive-derived
+    merged spans built by the span engine. Name-blanked stubs are skipped; Persons dedup
+    across biennia and endpoints by the stable WSL ``Id`` (#81)."""
+    members = payload.parsed if payload.parsed is not None else json.loads(payload.body.decode())
+
+    collector = EntityCollector()
+    for member in members:
+        if not is_person(member):
+            # Expected per run (name-blanked departed/superseded tenure stubs) — debug.
+            logger.debug(
+                "wsl_member_skip_non_person",
+                extra={"member_id": member.get("Id"), "agency": member.get("Agency")},
+            )
+            continue
+        person = await get_or_create_person(session, member)
+        collector.add(person)
+        collector.add(build_person_identifier(person, member))
+
+    return NormalizedBatch(entities=collector.entities)
