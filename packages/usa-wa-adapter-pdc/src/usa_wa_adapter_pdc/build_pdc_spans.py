@@ -40,7 +40,12 @@ from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.tenure_spans import Observation, build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_adapter_pdc.adapter import seating_biennium_for_election_year
-from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster, build_senate_roster
+from usa_wa_adapter_pdc.normalize.pdc_matching import (
+    HouseRosterEntry,
+    SenateEntry,
+    build_house_roster,
+    build_senate_roster,
+)
 from usa_wa_adapter_pdc.normalize.pdc_observations import (
     build_house_position_observations,
     build_senate_identity_links,
@@ -55,7 +60,9 @@ from usa_wa_adapter_pdc.provisioning import get_or_create_source as get_or_creat
 logger = get_logger(__name__)
 
 
-def _roster_member_ids(roster: dict[int, list]) -> set[str]:
+def _roster_member_ids(
+    roster: dict[int, list[HouseRosterEntry]] | dict[int, list[SenateEntry]],
+) -> set[str]:
     """The set of WSL member ids in a ``{LD: [entry]}`` roster (House or Senate)."""
     return {entry.member_id for entries in roster.values() for entry in entries}
 

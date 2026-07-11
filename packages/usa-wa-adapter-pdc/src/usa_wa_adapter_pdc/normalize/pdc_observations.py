@@ -1,7 +1,7 @@
 """House-position observation projector (#79) — PDC winners → tenure observations (pure).
 
-The archive-first Phase B analog of the daily :func:`normalize_house_positions`: instead of
-emitting one per-biennium Assignment per winner, it projects each year's cohort into
+The archive-first Phase B analog of the retired per-biennium House-positions normalizer:
+instead of emitting one per-biennium Assignment per winner, it projects each year's cohort into
 :class:`~usa_wa_adapter_legislature.tenure_spans.Observation`s that the span builder merges
 across years into one Assignment per contiguous House tenure (#78/#82 model). It reuses the
 same #69 within-LD match and #74 mid-biennium mover inference, but:

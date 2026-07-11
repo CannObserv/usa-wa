@@ -5,8 +5,8 @@ Turns the archived PDC winner cohorts into the span builder's inputs:
 - :meth:`house_cohorts` / :meth:`senate_cohorts` — ``{election_year: [winner rows]}``,
   re-parsed **offline** from each ``house-winners:<Y>`` / ``senate-winners:<Y>``
   :class:`RawPayload` (written by the Phase A harvest, :mod:`harvest_pdc`) — no SODA re-pull.
-- :meth:`house_events` / :meth:`senate_events` — ``{election_year: (fetch_event_id,
-  fetched_at, resource_id)}``, the per-cohort provenance each House Position span cites.
+- :meth:`house_events` — ``{election_year: (fetch_event_id, fetched_at, resource_id)}``, the
+  per-cohort provenance each House Position span cites (Senate is identifier-only, uncited).
 
 **"Latest" = latest payload-bearing event.** As in the committee provider (usa-wa#82 CR): the
 runner re-records a FetchEvent on a forced re-pull but skips the RawPayload when the wire is
@@ -72,17 +72,9 @@ class PdcWinnerCohortProvider:
         """``{election_year: citation target}`` for the archived House winner cohorts."""
         return dict(await self._events(HOUSE_WINNERS_RESOURCE_PREFIX))
 
-    async def senate_events(self) -> dict[int, CitationTarget]:
-        """``{election_year: citation target}`` for the archived Senate winner cohorts."""
-        return dict(await self._events(SENATE_WINNERS_RESOURCE_PREFIX))
-
     async def archived_house_years(self) -> list[int]:
         """Election years with an archived House cohort, ascending."""
         return sorted(await self._events(HOUSE_WINNERS_RESOURCE_PREFIX))
-
-    async def archived_senate_years(self) -> list[int]:
-        """Election years with an archived Senate cohort, ascending."""
-        return sorted(await self._events(SENATE_WINNERS_RESOURCE_PREFIX))
 
     async def house_cohorts(self) -> dict[int, list[dict[str, Any]]]:
         """``{election_year: [House winner rows]}`` re-parsed offline from the archive."""

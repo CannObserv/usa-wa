@@ -1,10 +1,9 @@
 """Pure PDC↔WSL roster matching (#79) — shared by the daily normalizer and the span projector.
 
-Extracted from :mod:`house_positions` so both the per-cohort normalizer (#69/#75) and the
-archive-first span projector (#79) can reuse the *same* matching logic without a circular
-import (the projector can't live under the normalizer that will come to delegate to it). No
-DB access — everything here operates on the injected WSL rosters (``{LD: [entry]}``) built
-from a ``GetSponsors`` pull.
+Extracted from the retired per-biennium house-positions normalizer so the archive-first span
+projector (#79) can reuse the *same* #69/#75 matching logic without a circular import. No DB
+access — everything here operates on the injected WSL rosters (``{LD: [entry]}``) built from a
+``GetSponsors`` pull.
 """
 
 from __future__ import annotations
