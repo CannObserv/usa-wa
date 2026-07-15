@@ -112,6 +112,26 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
 
 
 @pytest.fixture
+async def drop_anchor_unique_indexes(db_session) -> None:
+    """Drop the #86 one-row-per-PM-anchor partial unique indexes for one test.
+
+    The one-shot span-collapse migrations (``migrate_sponsor_spans`` /
+    ``migrate_pdc_spans`` / ``migrate_committee_spans``) exist to retire the
+    *pre-#86* duplicate-anchor rows the #84 crash loop was armed by — a state the
+    partial unique indexes now forbid, so those tests cannot even build the fixture
+    under them. Reproduce the pre-index world by dropping the indexes; the per-test
+    transaction rolls the drops back on teardown, so other tests keep the constraint.
+    """
+    for index in (
+        "uq_persons_pm_person_id",
+        "uq_organizations_pm_organization_id",
+        "uq_roles_pm_role_id",
+        "uq_assignments_pm_assignment_id",
+    ):
+        await db_session.execute(text(f"DROP INDEX IF EXISTS canonical.{index}"))
+
+
+@pytest.fixture
 async def usa_wa(db_session) -> Jurisdiction:
     """Seed (or fetch) the ``usa-wa`` Jurisdiction cache row for canonical tests.
 

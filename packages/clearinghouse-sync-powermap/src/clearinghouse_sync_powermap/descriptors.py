@@ -18,7 +18,12 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
+from sqlalchemy import select
 from ulid import ULID
+
+from clearinghouse_core.logging import get_logger
+
+logger = get_logger(__name__)
 
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
 
@@ -199,6 +204,49 @@ class EntityDescriptor(ABC):
     def set_anchor(self, row: Any, pm_id: ULID) -> None:
         """Write the PM anchor id back onto a local row."""
         setattr(row, self.anchor_column, pm_id)
+
+    async def _anchor_match(self, session: Any, record: dict) -> Any | None:
+        """Resolve the local row a PM record maps to **by anchor**, tolerant of a
+        duplicate that violates the one-row-per-PM-anchor invariant (usa-wa#86).
+
+        The shared body of every anchor-keyed descriptor's :meth:`local_match`.
+        The invariant is enforced at the DB layer (a partial unique index on the
+        anchor column); this is the read-side defense in depth for any pre-index
+        duplicate that predates it. A plain ``scalar_one_or_none`` would raise
+        ``MultipleResultsFound`` on such a pair and poison the whole reconcile/feed
+        apply path (the #84 failure mode). Instead we log ``anchor_invariant_violation``
+        with both ``source_id``s and return a **deterministic** winner — newest
+        ``updated_at``, ``id`` as tiebreak (``updated_at`` alone can tie between
+        duplicate spans, and a non-deterministic winner would make LWW flap).
+        """
+        pm_id = self.pm_id_from_record(record)
+        if pm_id is None:
+            return None
+        rows = (
+            (
+                await session.execute(
+                    select(self.model)
+                    .where(self.anchor_column_expr() == pm_id)
+                    .order_by(self.model.updated_at.desc(), self.model.id.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not rows:
+            return None
+        if len(rows) > 1:
+            logger.error(
+                "anchor_invariant_violation",
+                extra={
+                    "entity_type": self.entity_type,
+                    "anchor_column": self.anchor_column,
+                    "pm_id": str(pm_id),
+                    "source_ids": [getattr(r, "source_id", None) for r in rows],
+                    "winner_id": str(rows[0].id),
+                },
+            )
+        return rows[0]
 
     def deleted_column_expr(self) -> Any:
         """The mapped column for the terminal-delete tombstone (e.g. ``Model.deleted_at``).

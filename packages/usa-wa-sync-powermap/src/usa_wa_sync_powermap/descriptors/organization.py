@@ -419,15 +419,10 @@ class OrganizationDescriptor(EntityDescriptor):
         PM's backfilled orgs carry no usa-wa identifier, so the local natural key
         cannot be derived from the record; the durable link is the anchor written
         on first match/create. Returns ``None`` for an org we have never
-        produced — :meth:`upsert_from_pm` then skips it (update-only)."""
-        pm_id = record.get("id")
-        if pm_id is None:
-            return None
-        return (
-            await session.execute(
-                select(Organization).where(Organization.pm_organization_id == as_ulid(pm_id))
-            )
-        ).scalar_one_or_none()
+        produced — :meth:`upsert_from_pm` then skips it (update-only).
+        Delegates to the tolerant base helper (usa-wa#86): a duplicate anchor logs
+        + returns a deterministic winner rather than raising ``MultipleResultsFound``."""
+        return await self._anchor_match(session, record)
 
     async def fetch_record(self, client: Any, pm_id: Any) -> dict | None:
         """Fetch the PM org and attach its ``/events`` sub-resource (#19).

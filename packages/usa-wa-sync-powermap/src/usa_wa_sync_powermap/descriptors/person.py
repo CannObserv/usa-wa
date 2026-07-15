@@ -174,13 +174,11 @@ class PersonDescriptor(EntityDescriptor):
         return additional
 
     async def local_match(self, session: Any, record: dict) -> Any | None:
-        """Map a PM person to its local row by **anchor** (``pm_person_id``)."""
-        pm_id = record.get("id")
-        if pm_id is None:
-            return None
-        return (
-            await session.execute(select(Person).where(Person.pm_person_id == as_ulid(pm_id)))
-        ).scalar_one_or_none()
+        """Map a PM person to its local row by **anchor** (``pm_person_id``).
+
+        Delegates to the tolerant base helper (usa-wa#86): a duplicate anchor logs
+        + returns a deterministic winner rather than raising ``MultipleResultsFound``."""
+        return await self._anchor_match(session, record)
 
     async def fetch_record(self, client: Any, pm_id: Any) -> dict | None:
         """Fetch the PM person and attach its ``/events`` sub-resource (#19).

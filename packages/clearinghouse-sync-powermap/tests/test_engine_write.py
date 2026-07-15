@@ -278,6 +278,31 @@ async def test_drain_anchors_on_auto_attached(db_session, fake_descriptor):
     assert row.pm_fake_id == pm_id
 
 
+async def test_drain_parks_duplicate_anchor_instead_of_crashing(
+    db_session, fake_descriptor, caplog
+):
+    """Two rows whose observations PM dedups to one assignment id (both anchored to
+    the same pm_id) must NOT crash the drain via the anchor unique index (usa-wa#86):
+    one row wins the anchor, the other parks to the re-sweepable REJECTED state."""
+    await _add_entity(db_session, source_id="1")
+    await _add_entity(db_session, source_id="2")
+    shared = ULID()
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, shared, {}))
+    engine = SyncEngine([fake_descriptor], client)
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+
+    with caplog.at_level("ERROR"):
+        touched = await engine.drain_outbox(db_session, now=NOW)
+
+    assert sorted(e.status for e in touched) == sorted([STATUS_DELIVERED, STATUS_REJECTED])
+    delivered = next(e for e in touched if e.status == STATUS_DELIVERED)
+    rejected = next(e for e in touched if e.status == STATUS_REJECTED)
+    assert (await db_session.get(FakeEntity, delivered.local_id)).pm_fake_id == shared
+    # The parked row keeps NO anchor — the conflicting stamp was rolled back.
+    assert (await db_session.get(FakeEntity, rejected.local_id)).pm_fake_id is None
+    assert any(r.msg == "anchor_invariant_violation" for r in caplog.records)
+
+
 async def test_drain_rejected_marks_terminal(db_session, fake_descriptor):
     row = await _add_entity(db_session, source_id="1")
     client = FakeClient(

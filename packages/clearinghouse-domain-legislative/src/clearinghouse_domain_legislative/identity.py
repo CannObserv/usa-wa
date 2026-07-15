@@ -82,6 +82,14 @@ class Person(Base, TimestampMixin, LifecycleMixin):
     __tablename__ = "persons"
     __table_args__ = (
         UniqueConstraint("source", "source_id", name="uq_persons_natural_key"),
+        # One local row per PM anchor (usa-wa#86). Partial: NULL = unsynced, many
+        # coexist. Supersedes the plain lookup index (a unique index serves reads too).
+        Index(
+            "uq_persons_pm_person_id",
+            "pm_person_id",
+            unique=True,
+            postgresql_where=text("pm_person_id IS NOT NULL"),
+        ),
         {"schema": SCHEMA},
     )
 
@@ -104,7 +112,7 @@ class Person(Base, TimestampMixin, LifecycleMixin):
     # Cross-cohort denormalization; the full N-scheme graph lives in PersonIdentifier.
     # PM anchor (sidecar sync). Standardized to ``pm_<entity>_id`` (was
     # ``powermap_person_id`` pre-sidecar) so the sync engine keys uniformly.
-    pm_person_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
+    pm_person_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True)
     # archived_at + deleted_at tombstones provided by LifecycleMixin (#31/#38/#42).
 
 
@@ -114,6 +122,14 @@ class Organization(Base, TimestampMixin, LifecycleMixin):
     __tablename__ = "organizations"
     __table_args__ = (
         UniqueConstraint("source", "source_id", name="uq_organizations_natural_key"),
+        # One local row per PM anchor (usa-wa#86). Partial: NULL = unsynced, many
+        # coexist. Supersedes the plain lookup index (a unique index serves reads too).
+        Index(
+            "uq_organizations_pm_organization_id",
+            "pm_organization_id",
+            unique=True,
+            postgresql_where=text("pm_organization_id IS NOT NULL"),
+        ),
         {"schema": SCHEMA},
     )
 
@@ -155,7 +171,7 @@ class Organization(Base, TimestampMixin, LifecycleMixin):
         index=True,
     )
     # PM anchor (sidecar sync). Was ``powermap_organization_id`` pre-sidecar.
-    pm_organization_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
+    pm_organization_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True)
     # archived_at + deleted_at tombstones provided by LifecycleMixin (#31/#38/#42).
 
     # PM's third lifecycle axis — the operationally-live-vs-dissolved domain flag
@@ -201,6 +217,14 @@ class Role(Base, TimestampMixin, LifecycleMixin):
             unique=True,
             postgresql_where=text("jurisdiction_id IS NULL"),
         ),
+        # One local row per PM anchor (usa-wa#86). Partial: NULL = unsynced, many
+        # coexist. Supersedes the plain lookup index (a unique index serves reads too).
+        Index(
+            "uq_roles_pm_role_id",
+            "pm_role_id",
+            unique=True,
+            postgresql_where=text("pm_role_id IS NOT NULL"),
+        ),
         {"schema": SCHEMA},
     )
 
@@ -236,7 +260,7 @@ class Role(Base, TimestampMixin, LifecycleMixin):
 
     # PM anchor (sidecar sync). Write path dormant until power-map#176 ships
     # the roles observation endpoint.
-    pm_role_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
+    pm_role_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True)
     # archived_at + deleted_at tombstones provided by LifecycleMixin (#31/#38/#42).
 
 
@@ -249,6 +273,15 @@ class Assignment(Base, TimestampMixin, LifecycleMixin):
         CheckConstraint(
             "person_id IS NOT NULL OR holder_name_raw IS NOT NULL",
             name="ck_assignments_person_or_name",
+        ),
+        # One local row per PM anchor (usa-wa#86) — the invariant the #84 crash loop
+        # violated (98 rows sharing one pm_assignment_id). Partial: NULL = unsynced,
+        # many coexist. Supersedes the plain lookup index.
+        Index(
+            "uq_assignments_pm_assignment_id",
+            "pm_assignment_id",
+            unique=True,
+            postgresql_where=text("pm_assignment_id IS NOT NULL"),
         ),
         {"schema": SCHEMA},
     )
@@ -277,7 +310,7 @@ class Assignment(Base, TimestampMixin, LifecycleMixin):
 
     # PM anchor (sidecar sync). Write path dormant until power-map#177 ships
     # the assignments observation endpoint.
-    pm_assignment_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
+    pm_assignment_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True)
     # archived_at + deleted_at tombstones provided by LifecycleMixin (#31/#38/#42).
 
 

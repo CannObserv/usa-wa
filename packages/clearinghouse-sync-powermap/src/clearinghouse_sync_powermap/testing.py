@@ -13,7 +13,7 @@ reaches production metadata or alembic autogen — only test runs that import it
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, String, select
+from sqlalchemy import DateTime, Index, String, select, text
 from sqlalchemy.orm import Mapped, mapped_column
 from ulid import ULID as _ULID
 
@@ -41,7 +41,17 @@ class FakeEntity(Base, TimestampMixin):
     """Minimal cache table standing in for a real synced entity."""
 
     __tablename__ = "fake_entities"
-    __table_args__ = {"schema": TEST_SCHEMA}
+    # Model the one-row-per-PM-anchor invariant the engine now enforces (usa-wa#86)
+    # so the portable drain-parking test exercises a real duplicate-anchor rejection.
+    __table_args__ = (
+        Index(
+            "uq_fake_entities_pm_fake_id",
+            "pm_fake_id",
+            unique=True,
+            postgresql_where=text("pm_fake_id IS NOT NULL"),
+        ),
+        {"schema": TEST_SCHEMA},
+    )
 
     id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_ULID)
     source: Mapped[str] = mapped_column(String(64), nullable=False)

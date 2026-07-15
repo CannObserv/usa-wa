@@ -704,6 +704,21 @@ class SyncEngine:
 
         entry.last_disposition = result.disposition
         if result.anchored:
+            if await self._anchor_taken(session, descriptor, row, result.pm_id):
+                # A *different* local row already holds this PM anchor — the
+                # one-row-per-anchor invariant, DB-enforced (usa-wa#86). PM dedups
+                # observations on (person, role, start_date), so two local rows can
+                # resolve to one assignment id. Park to the re-sweepable REJECTED
+                # state (visible in the cycle summary + rejection-rise alert) rather
+                # than stamp a duplicate and let the flush abort the whole tick. The
+                # pre-check keeps the transaction clean; the unique index is the hard
+                # backstop for any writer the single-drainer check can't see.
+                await self._reject(
+                    session,
+                    entry,
+                    f"anchor conflict: {descriptor.anchor_column}={result.pm_id}",
+                )
+                return True
             descriptor.set_anchor(row, result.pm_id)
             entry.status = STATUS_DELIVERED
             entry.last_error = None
@@ -715,6 +730,40 @@ class SyncEngine:
             # can see it and it cannot loop forever.
             self._fail_attempt(entry, now, f"unexpected disposition: {result.disposition!r}")
         return True
+
+    async def _anchor_taken(
+        self, session: AsyncSession, descriptor: EntityDescriptor, row: Any, pm_id: ULID
+    ) -> bool:
+        """Whether a **different** local row already carries this PM anchor.
+
+        The write-side guard for the one-row-per-anchor invariant (usa-wa#86). PM
+        dedups observations on ``(person, role, start_date)`` and returns an existing
+        id, so two local rows can resolve to one PM assignment; stamping the second
+        would violate the anchor's partial unique index and — uncaught — abort the
+        whole drain transaction, spinning the cycle (the fast-loop counterpart of the
+        #84 slow reconcile loop). Checking first keeps the transaction clean and parks
+        the offending entry alone. Autoflush makes a same-transaction sibling's pending
+        anchor visible here, so two rows delivered in one drain are caught too. The DB
+        index remains the hard backstop for any writer this single-drainer check misses.
+        """
+        conflict = (
+            await session.execute(
+                select(descriptor.anchor_column_expr())
+                .where(descriptor.anchor_column_expr() == pm_id, descriptor.model.id != row.id)
+                .limit(1)
+            )
+        ).first()
+        if conflict is not None:
+            logger.error(
+                "anchor_invariant_violation",
+                extra={
+                    "entity_type": descriptor.entity_type,
+                    "anchor_column": descriptor.anchor_column,
+                    "pm_id": str(pm_id),
+                    "local_id": str(row.id),
+                },
+            )
+        return conflict is not None
 
     async def _reject(
         self, session: AsyncSession, entry: OutboxEntry, error: str, *, raw: dict | None = None

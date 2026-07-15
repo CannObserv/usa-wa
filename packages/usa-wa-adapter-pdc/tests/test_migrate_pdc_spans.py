@@ -23,6 +23,10 @@ from usa_wa_adapter_pdc.normalize.positions import house_seat_role_source_id
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 
+# This one-shot migration collapses pre-#86 duplicate-anchor rows — a state the #86
+# partial unique indexes forbid, so the fixtures reproduce the pre-index world.
+pytestmark = pytest.mark.usefixtures("drop_anchor_unique_indexes")
+
 PDC = "usa_wa_pdc"
 WSL = "usa_wa_legislature"
 

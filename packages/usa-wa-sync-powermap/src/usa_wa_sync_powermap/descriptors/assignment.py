@@ -21,8 +21,6 @@ never produced; ``local_match`` keys on the anchor).
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import select
-
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid, parse_pm_timestamp
@@ -77,15 +75,11 @@ class AssignmentDescriptor(EntityDescriptor):
         }
 
     async def local_match(self, session: Any, record: dict) -> Any | None:
-        """Map a PM assignment to its local row by **anchor** (``pm_assignment_id``)."""
-        pm_id = record.get("id")
-        if pm_id is None:
-            return None
-        return (
-            await session.execute(
-                select(Assignment).where(Assignment.pm_assignment_id == as_ulid(pm_id))
-            )
-        ).scalar_one_or_none()
+        """Map a PM assignment to its local row by **anchor** (``pm_assignment_id``).
+
+        Delegates to the tolerant base helper (usa-wa#86): a duplicate anchor logs
+        + returns a deterministic winner rather than raising ``MultipleResultsFound``."""
+        return await self._anchor_match(session, record)
 
     async def upsert_from_pm(self, session: Any, record: dict, existing: Any | None = None) -> Any:
         """Apply a PM assignment onto the local cache — **update-only**."""

@@ -25,6 +25,10 @@ from usa_wa_adapter_legislature.migrate_committee_spans import (
     migrate_committee_spans,
 )
 
+# This one-shot migration collapses pre-#86 duplicate-anchor rows — a state the #86
+# partial unique indexes forbid, so the fixtures reproduce the pre-index world.
+pytestmark = pytest.mark.usefixtures("drop_anchor_unique_indexes")
+
 CURRENT = "2025-26"
 CID = "31635"
 

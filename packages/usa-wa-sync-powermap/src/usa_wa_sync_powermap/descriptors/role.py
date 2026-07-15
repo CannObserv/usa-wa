@@ -188,13 +188,10 @@ class RoleDescriptor(EntityDescriptor):
         """Map a PM role to its local row by **anchor** (``pm_role_id``).
 
         PM roles carry no usa-wa natural key; the durable link is the anchor.
-        ``None`` for a role we never produced → :meth:`upsert_from_pm` skips it."""
-        pm_id = record.get("id")
-        if pm_id is None:
-            return None
-        return (
-            await session.execute(select(Role).where(Role.pm_role_id == as_ulid(pm_id)))
-        ).scalar_one_or_none()
+        ``None`` for a role we never produced → :meth:`upsert_from_pm` skips it.
+        Delegates to the tolerant base helper (usa-wa#86): a duplicate anchor logs
+        + returns a deterministic winner rather than raising ``MultipleResultsFound``."""
+        return await self._anchor_match(session, record)
 
     async def upsert_from_pm(self, session: Any, record: dict, existing: Any | None = None) -> Any:
         """Apply a PM role onto the local cache — **update-only** (see org descriptor)."""

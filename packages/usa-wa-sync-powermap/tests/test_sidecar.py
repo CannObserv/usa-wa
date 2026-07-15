@@ -165,7 +165,11 @@ async def test_tick_commits_outbox_per_entry(db_session, state_type):
             Jurisdiction(slug=slug, name=slug, type_id=state_type.id, recorded_at=datetime.now(UTC))
         )
     await db_session.flush()
-    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    # A distinct PM id per delivery — three jurisdictions cannot share one anchor
+    # (the #86 one-row-per-anchor guard would park the duplicates).
+    client = FakeClient(
+        observation_result=lambda _payload: ObservationResult(DISPOSITION_NEW, ULID(), {})
+    )
     sidecar, _ = _sidecar(client)
     commits = 0
 
@@ -189,7 +193,11 @@ async def test_tick_uses_configured_commit_chunk_size(db_session, state_type):
             Jurisdiction(slug=slug, name=slug, type_id=state_type.id, recorded_at=datetime.now(UTC))
         )
     await db_session.flush()
-    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    # Distinct PM id per delivery (see the per-entry test) — four jurisdictions can't
+    # share one anchor under the #86 guard.
+    client = FakeClient(
+        observation_result=lambda _payload: ObservationResult(DISPOSITION_NEW, ULID(), {})
+    )
     descriptor = JurisdictionDescriptor()
     engine = SyncEngine([descriptor], client)
     sidecar = Sidecar(
