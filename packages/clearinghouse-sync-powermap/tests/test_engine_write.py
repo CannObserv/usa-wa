@@ -283,7 +283,9 @@ async def test_drain_parks_duplicate_anchor_instead_of_crashing(
 ):
     """Two rows whose observations PM dedups to one assignment id (both anchored to
     the same pm_id) must NOT crash the drain via the anchor unique index (usa-wa#86):
-    one row wins the anchor, the other parks to the re-sweepable REJECTED state."""
+    one row wins the anchor, the other dead-letters to the *blocking* UNAVAILABLE
+    state (not REJECTED — an anchor conflict is a permanent operator-dedup case, and
+    a blocking status stops the per-cycle re-sweep + rejection-rise spam)."""
     await _add_entity(db_session, source_id="1")
     await _add_entity(db_session, source_id="2")
     shared = ULID()
@@ -294,13 +296,45 @@ async def test_drain_parks_duplicate_anchor_instead_of_crashing(
     with caplog.at_level("ERROR"):
         touched = await engine.drain_outbox(db_session, now=NOW)
 
-    assert sorted(e.status for e in touched) == sorted([STATUS_DELIVERED, STATUS_REJECTED])
+    assert sorted(e.status for e in touched) == sorted([STATUS_DELIVERED, STATUS_UNAVAILABLE])
     delivered = next(e for e in touched if e.status == STATUS_DELIVERED)
-    rejected = next(e for e in touched if e.status == STATUS_REJECTED)
+    parked = next(e for e in touched if e.status == STATUS_UNAVAILABLE)
     assert (await db_session.get(FakeEntity, delivered.local_id)).pm_fake_id == shared
-    # The parked row keeps NO anchor — the conflicting stamp was rolled back.
-    assert (await db_session.get(FakeEntity, rejected.local_id)).pm_fake_id is None
+    # The parked row keeps NO anchor — the conflicting stamp was never applied.
+    assert (await db_session.get(FakeEntity, parked.local_id)).pm_fake_id is None
     assert any(r.msg == "anchor_invariant_violation" for r in caplog.records)
+
+
+async def test_sweep_pm_match_collision_does_not_crash_and_routes_to_park(db_session, caplog):
+    """The sweep's PM-first adoption is guarded too (usa-wa#86): if pm_match resolves
+    a pm_id another local row already anchors, the sweep declines the adopt (which
+    would violate the anchor index and abort the tick) and falls through to a CREATE,
+    which the drain then dead-letters to UNAVAILABLE."""
+    pm_id = ULID()
+    descriptor = _MatchingDescriptor(pm_id)  # pm_match always returns pm_id
+    # First row adopts pm_id via the sweep's PM-first path.
+    row_a = await _add_entity(db_session, source_id="a")
+    entities = {pm_id: {"id": str(pm_id), "source": "wsl", "source_id": "a", "name": "x"}}
+    # PM dedups any CREATE observation back to the same taken pm_id.
+    client = FakeClient(
+        entities=entities, observation_result=ObservationResult(DISPOSITION_NEW, pm_id, {})
+    )
+    engine = SyncEngine([descriptor], client)
+    assert await engine.sweep_unanchored(db_session, descriptor) == 0  # adopted, no CREATE
+    assert row_a.pm_fake_id == pm_id
+
+    # Second row name-matches the same pm_id — must not crash; routes to a CREATE.
+    row_b = await _add_entity(db_session, source_id="b")
+    with caplog.at_level("ERROR"):
+        enqueued = await engine.sweep_unanchored(db_session, descriptor)
+    assert enqueued == 1  # declined the adopt, enqueued a CREATE instead
+    assert row_b.pm_fake_id is None
+
+    # The drain parks that CREATE to UNAVAILABLE (PM dedups to the taken pm_id).
+    touched = await engine.drain_outbox(db_session, now=NOW)
+    parked = next(e for e in touched if e.local_id == row_b.id)
+    assert parked.status == STATUS_UNAVAILABLE
+    assert (await db_session.get(FakeEntity, row_b.id)).pm_fake_id is None
 
 
 async def test_drain_rejected_marks_terminal(db_session, fake_descriptor):

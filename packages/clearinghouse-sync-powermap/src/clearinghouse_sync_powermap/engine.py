@@ -355,7 +355,18 @@ class SyncEngine:
         # PM-first: try to find a pre-existing PM record before creating one,
         # so we never duplicate PM's curated tree (identifier-less backfill).
         pm_id = await descriptor.pm_match(self._client, session, row)
-        if pm_id is not None:
+        # Adopting a pm_id another local row already anchors would violate the anchor
+        # unique index (#86) and abort the whole tick — the sweep counterpart of the
+        # drain guard. On a collision, decline the adopt and fall through to a CREATE
+        # so the drain path owns the single park (UNAVAILABLE); ``log=False`` keeps
+        # this per-cycle re-check quiet — the drain emits the authoritative line.
+        # PM's observation dedup then arbitrates the CREATE: a true duplicate dedups
+        # back to the taken id and parks UNAVAILABLE, while a false name-match (a
+        # distinct entity) is minted as its own PM record — so a sweep collision does
+        # not always dead-letter, and correctly so (PM owns identity).
+        if pm_id is not None and not await self._anchor_taken(
+            session, descriptor, row, pm_id, log=False
+        ):
             record = await descriptor.fetch_record(self._client, pm_id)
             if record is not None:
                 # Adopt PM's canonical fields + anchor; no create.
@@ -708,13 +719,16 @@ class SyncEngine:
                 # A *different* local row already holds this PM anchor — the
                 # one-row-per-anchor invariant, DB-enforced (usa-wa#86). PM dedups
                 # observations on (person, role, start_date), so two local rows can
-                # resolve to one assignment id. Park to the re-sweepable REJECTED
-                # state (visible in the cycle summary + rejection-rise alert) rather
-                # than stamp a duplicate and let the flush abort the whole tick. The
-                # pre-check keeps the transaction clean; the unique index is the hard
-                # backstop for any writer the single-drainer check can't see.
-                await self._reject(
-                    session,
+                # resolve to one assignment id. Dead-letter to UNAVAILABLE (a
+                # permanent block: the fix is an operator dedup, then a redrive — not
+                # a data edit the sweep can auto-retry) rather than stamp a duplicate
+                # and let the flush abort the whole tick. UNAVAILABLE is a *blocking*
+                # status, so the row is not re-swept/re-POSTed and REJECTED entries
+                # don't pile up cycle-over-cycle (which would trip the #85
+                # rejection-rise email every cycle). The pre-check keeps the
+                # transaction clean; the unique index is the hard backstop for any
+                # writer the single-drainer check can't see.
+                self._park_blocked(
                     entry,
                     f"anchor conflict: {descriptor.anchor_column}={result.pm_id}",
                 )
@@ -732,7 +746,13 @@ class SyncEngine:
         return True
 
     async def _anchor_taken(
-        self, session: AsyncSession, descriptor: EntityDescriptor, row: Any, pm_id: ULID
+        self,
+        session: AsyncSession,
+        descriptor: EntityDescriptor,
+        row: Any,
+        pm_id: ULID,
+        *,
+        log: bool = True,
     ) -> bool:
         """Whether a **different** local row already carries this PM anchor.
 
@@ -740,11 +760,18 @@ class SyncEngine:
         dedups observations on ``(person, role, start_date)`` and returns an existing
         id, so two local rows can resolve to one PM assignment; stamping the second
         would violate the anchor's partial unique index and — uncaught — abort the
-        whole drain transaction, spinning the cycle (the fast-loop counterpart of the
-        #84 slow reconcile loop). Checking first keeps the transaction clean and parks
-        the offending entry alone. Autoflush makes a same-transaction sibling's pending
-        anchor visible here, so two rows delivered in one drain are caught too. The DB
-        index remains the hard backstop for any writer this single-drainer check misses.
+        whole tick, spinning the cycle (the fast-loop counterpart of the #84 slow
+        reconcile loop). Both anchor-stamp sites consult this: the drain delivery
+        (:meth:`_deliver`) parks the offending entry, and the sweep's PM-first
+        adoption (:meth:`_sweep_row`) declines the adopt and falls through to a CREATE
+        so the drain owns the single park. Autoflush makes a same-transaction
+        sibling's pending anchor visible here, so two rows delivered in one drain are
+        caught too. The DB index remains the hard backstop for any writer this
+        single-drainer check misses.
+
+        ``log=False`` suppresses the ``anchor_invariant_violation`` line so a caller
+        that re-checks every cycle (the sweep) does not spam it — the authoritative
+        one is emitted where the row is parked (the drain).
         """
         conflict = (
             await session.execute(
@@ -753,7 +780,7 @@ class SyncEngine:
                 .limit(1)
             )
         ).first()
-        if conflict is not None:
+        if conflict is not None and log:
             logger.error(
                 "anchor_invariant_violation",
                 extra={

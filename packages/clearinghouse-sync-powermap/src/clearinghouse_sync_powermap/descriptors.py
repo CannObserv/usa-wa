@@ -218,6 +218,11 @@ class EntityDescriptor(ABC):
         with both ``source_id``s and return a **deterministic** winner — newest
         ``updated_at``, ``id`` as tiebreak (``updated_at`` alone can tie between
         duplicate spans, and a non-deterministic winner would make LWW flap).
+
+        Requires ``self.model`` to expose ``updated_at`` and ``id`` (the ordering
+        keys) — true for every anchor-keyed descriptor's model (all carry
+        ``TimestampMixin`` + an ``id`` PK). A future anchor-keyed descriptor over a
+        model lacking either would need its own ``local_match`` (or those columns).
         """
         pm_id = self.pm_id_from_record(record)
         if pm_id is None:
