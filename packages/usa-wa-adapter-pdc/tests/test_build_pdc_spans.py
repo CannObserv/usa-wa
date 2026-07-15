@@ -9,6 +9,7 @@ links. The load-bearing assertion is **era matching** — a 2012 cohort resolves
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import UTC, datetime
 from unittest.mock import patch
@@ -266,6 +267,58 @@ async def test_daily_redrive_scopes_identifiers_to_current_members(
             .where(PersonIdentifier.source_id == "999:wa_pdc")
         )
     ).scalar() == 0
+
+
+async def test_mid_biennium_mover_inference_end_to_end(
+    db_session, usa_wa, wsl_source, pdc_source, caplog
+):
+    """Drive the #74 inference through the full build: the 2012 House winner (Rivers) moved to
+    the Senate mid-term; an appointed replacement (300) holds the seat. The build infers the
+    seat for 300 (no PDC id) and cross-links Rivers' PDC id onto her Senate Person (100), and
+    logs ``pdc_house_seat_inferred``."""
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_person(db_session, 300)  # appointed replacement
+    await _add_person(db_session, 100)  # the mover, now a Senator
+    await _archive(
+        db_session, pdc_source, "house-winners:2012", _winners(("900", 5, 1, "Ann Rivers"))
+    )
+    # 2013-14 roster: the seat is held by replacement 300; the mover 100 now sits in the Senate.
+    await _archive(
+        db_session,
+        wsl_source,
+        "sponsors:2013-14",
+        _sponsor_wire((300, 5, "Replacement", "House"), (100, 5, "Rivers", "Senate")),
+    )
+
+    with caplog.at_level(logging.INFO):
+        result = await build_pdc_spans(
+            db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
+        )
+
+    assert result.house_spans == 1  # the inferred seat for the replacement
+    assert result.identifiers == 1  # the mover's cross-link (inferred seat carries none)
+    span = (
+        await db_session.execute(select(Assignment).where(Assignment.source == "usa_wa_pdc"))
+    ).scalar_one()
+    assert span.source_id == "300:chamber-house:ld-5-position-1:2013-14"
+    # the mover's PDC id links onto her Senate Person (100), not the replacement
+    ident = (
+        await db_session.execute(
+            select(PersonIdentifier).where(PersonIdentifier.source_id == "900:wa_pdc")
+        )
+    ).scalar_one()
+    assert str(ident.person_id) == str(await _person_id(db_session, 100))
+    assert "pdc_house_seat_inferred" in [r.message for r in caplog.records]
+
+
+async def _person_id(session, mid):
+    return (
+        await session.execute(
+            select(Person.id).where(
+                Person.source == "usa_wa_legislature", Person.source_id == str(mid)
+            )
+        )
+    ).scalar_one()
 
 
 async def test_no_archive_emits_nothing(db_session, usa_wa, wsl_source, pdc_source):

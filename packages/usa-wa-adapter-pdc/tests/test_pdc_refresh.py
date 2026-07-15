@@ -11,10 +11,12 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
 from ulid import ULID as _ULID
+from usa_wa_adapter_pdc import refresh as refresh_module
 from usa_wa_adapter_pdc.refresh import run_refresh
 from usa_wa_adapter_pdc.transport import WireFetch
 
@@ -215,3 +217,16 @@ async def test_refresh_reuses_existing_source(db_session, usa_wa, wsl_source):
     )
     assert len(sources) == 1
     assert sources[0].kind == "rest"
+
+
+# --- CLI ----------------------------------------------------------------------
+
+
+async def test_main_requires_database_url(monkeypatch, capsys):
+    """The daily entrypoint aborts with exit 2 when DATABASE_URL is unset (symmetric with the
+    harvest / build / migrate CLIs)."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    with patch.object(refresh_module, "configure_logging"):
+        code = await refresh_module._main()
+    assert code == 2
+    assert "DATABASE_URL is not set" in capsys.readouterr().err

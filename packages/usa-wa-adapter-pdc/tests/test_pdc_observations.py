@@ -13,6 +13,7 @@ from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster, build_
 from usa_wa_adapter_pdc.normalize.pdc_observations import (
     KIND_HOUSE,
     build_house_position_observations,
+    build_senate_identity_links,
 )
 
 BIENNIUM = "2013-14"
@@ -113,6 +114,21 @@ def test_historical_mid_biennium_mover_infers_seat_and_cross_links():
     assert ("300", BIENNIUM) in proj.inferred_keys
 
 
+def test_double_match_same_member_skips_the_duplicate():
+    """Two winner rows in one LD resolving to the *same* House member (e.g. a stray duplicate
+    filer row) → the member is seated once; the second match is skipped, not double-emitted."""
+    house = build_house_roster([_sponsor(100, 5, "Rivers")])
+    proj = build_house_position_observations(
+        [_winner("900", 5, 1, "Ann Rivers"), _winner("901", 5, 2, "Ann Rivers")],
+        house_roster=house,
+        senate_roster={},
+        biennium=BIENNIUM,
+    )
+    assert len(proj.observations) == 1
+    assert proj.observations[0].member_id == "100"
+    assert proj.summary["direct_seated"] == 1
+
+
 def test_incomplete_row_counted_not_emitted():
     proj = build_house_position_observations(
         [{"person_id": "", "legislative_district": "5", "position": "1", "filer_name": "X"}],
@@ -122,3 +138,43 @@ def test_incomplete_row_counted_not_emitted():
     )
     assert proj.observations == []
     assert proj.summary["incomplete"] == 1
+
+
+# --- Senate identity links (#75) — the identifier-only contribution + robustness tallies ------
+
+
+def test_senate_link_matched():
+    senate = build_senate_roster([_sponsor(100, 1, "Stanford", agency="Senate")])
+    links = build_senate_identity_links(
+        [_winner("800", 1, 0, "Derek Stanford")], senate_roster=senate
+    )
+    assert links.identifiers == [("100", "800")]
+    assert links.summary == {"winners": 1, "matched": 1, "unresolved": 0, "incomplete": 0}
+
+
+def test_senate_link_incomplete_when_district_missing():
+    """A winner missing person_id or district is counted ``incomplete``, never matched."""
+    senate = build_senate_roster([_sponsor(100, 1, "Stanford", agency="Senate")])
+    links = build_senate_identity_links(
+        [{"person_id": "800", "filer_name": "Derek Stanford", "legislative_district": ""}],
+        senate_roster=senate,
+    )
+    assert links.identifiers == []
+    assert links.summary["incomplete"] == 1
+    assert links.summary["matched"] == 0
+
+
+def test_senate_link_unresolved_when_ambiguous():
+    """Two same-surname senators in an LD → the winner can't be resolved to one, so it's left
+    ``unresolved`` (never guessed) — the #75 robustness signal."""
+    senate = build_senate_roster(
+        [
+            _sponsor(100, 1, "Stanford", agency="Senate"),
+            _sponsor(101, 1, "Stanford", agency="Senate"),
+        ]
+    )
+    links = build_senate_identity_links(
+        [_winner("800", 1, 0, "Derek Stanford")], senate_roster=senate
+    )
+    assert links.identifiers == []
+    assert links.summary["unresolved"] == 1
