@@ -571,8 +571,9 @@ async def test_poison_reconcile_is_isolated_and_others_still_run():
 
     assert ran == ["person", "tick"]  # b's reconcile and the tick both ran
     assert ok is False  # ...but the cycle verdict reports the failure (backoff signal)
-    # One session per descriptor + one for the tick — a poison session is never shared.
-    assert len(sessions) == 3
+    # One session per descriptor + one for the tick + one for the cycle summary —
+    # a poison session is never shared.
+    assert len(sessions) == 4
 
 
 async def test_run_cycle_verdict_true_when_clean():
@@ -828,3 +829,90 @@ async def test_alert_body_carries_last_cycle_errors():
     _subject, body = alerts[0]
     assert "MultipleResultsFound" in body
     assert "assignment" in body  # which component failed is in the body
+
+
+# --- #85: per-entry rejection visibility ------------------------------------------
+
+
+async def _add_rejected(session, *, reason: str) -> None:
+    from clearinghouse_sync_powermap.models import OP_CREATE, STATUS_REJECTED
+
+    entry = OutboxEntry(entity_type="person", local_id=ULID(), op=OP_CREATE, status=STATUS_REJECTED)
+    entry.last_error = reason
+    session.add(entry)
+    await session.flush()
+
+
+def _summary_sidecar(alerts: list[tuple[str, str]] | None = None) -> Sidecar:
+    async def _alert(subject: str, body: str) -> None:
+        if alerts is not None:
+            alerts.append((subject, body))
+
+    return Sidecar(
+        engine=None,
+        descriptors=[],
+        session_factory=lambda: None,
+        alert=_alert if alerts is not None else None,
+    )
+
+
+async def test_cycle_summary_logs_backlog_and_reasons(db_session, caplog):
+    """#84 postmortem: 12 identifier_conflict rejections sat unnoticed from Jul 8 —
+    each was a lone logger.error at park time. The cycle summary re-surfaces the
+    standing REJECTED pile (with reasons) every cycle."""
+    await _add_rejected(db_session, reason="identifier_conflict")
+    await _add_rejected(db_session, reason="identifier_conflict")
+    sidecar = _summary_sidecar()
+
+    with caplog.at_level("INFO"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    record = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
+    assert record.rejected == 2
+    assert record.rejected_reasons == {"identifier_conflict": 2}
+
+
+async def test_rejected_rise_alerts_once_and_rearms_on_new_rise(db_session):
+    """A REJECTED count rise emails the operator once; a static pile does not
+    re-spam; a further rise alerts again."""
+    alerts: list[tuple[str, str]] = []
+    sidecar = _summary_sidecar(alerts)
+
+    await _add_rejected(db_session, reason="identifier_conflict")
+    await sidecar.report_cycle_summary(db_session, now=NOW)  # 0 → 1: alert
+    await sidecar.report_cycle_summary(db_session, now=NOW)  # static: no repeat
+    assert len(alerts) == 1
+    assert "identifier_conflict" in alerts[0][1]
+
+    await _add_rejected(db_session, reason="qualifier_required")
+    await sidecar.report_cycle_summary(db_session, now=NOW)  # 1 → 2: alert again
+    assert len(alerts) == 2
+    assert "qualifier_required" in alerts[1][1]
+
+
+async def test_rejected_alert_skipped_when_no_alert_wired(db_session, caplog):
+    """No alert callable → the rise is still logged (never crashes)."""
+    sidecar = _summary_sidecar(alerts=None)
+    await _add_rejected(db_session, reason="identifier_conflict")
+
+    with caplog.at_level("INFO"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)  # must NOT raise
+
+    assert any(r.message == "sidecar_cycle_summary" for r in caplog.records)
+
+
+async def test_run_cycle_summary_failure_never_fails_verdict():
+    """The summary is observability, not work — its failure must not flip the
+    verdict (that would put reporting in the backoff/alert path)."""
+    sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: _FakeSession())
+
+    async def _ok(s, *, now, commit):
+        return None
+
+    async def _boom_summary(session, *, now):
+        raise RuntimeError("summary query failed")
+
+    sidecar.tick = _ok
+    sidecar.report_cycle_summary = _boom_summary
+
+    assert await sidecar.run_cycle() is True

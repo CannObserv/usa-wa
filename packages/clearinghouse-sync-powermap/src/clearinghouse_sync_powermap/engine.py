@@ -1334,6 +1334,38 @@ async def outbox_backlog(session: AsyncSession, *, now: datetime) -> OutboxBackl
     )
 
 
+#: Cap on distinct-reason grouping in :func:`rejected_breakdown` — the REJECTED
+#: pile is small by definition (each row needs a data fix); a pile past this cap
+#: is itself the signal and the truncated breakdown still shows the shape.
+_REJECTED_BREAKDOWN_LIMIT = 500
+#: Reason strings are free text (a 422 detail can embed the whole payload); group
+#: on a prefix so near-identical rejections collapse into one line.
+_REASON_PREFIX_LEN = 120
+
+
+async def rejected_breakdown(session: AsyncSession) -> dict[str, int]:
+    """REJECTED entries grouped by (truncated) ``last_error`` reason (usa-wa#85).
+
+    The per-entry ``powermap_observation_rejected`` log line fires once at park
+    time and is never repeated — the #84 postmortem found 12 rejections that sat
+    unnoticed for a week. This is the periodic re-surface: the sidecar logs it in
+    the cycle summary and alerts on a count rise. Free function like
+    :func:`outbox_backlog` so any operator surface can read it without an engine.
+    """
+    reasons = (
+        await session.execute(
+            select(OutboxEntry.last_error)
+            .where(OutboxEntry.status == STATUS_REJECTED)
+            .limit(_REJECTED_BREAKDOWN_LIMIT)
+        )
+    ).scalars()
+    breakdown: dict[str, int] = {}
+    for reason in reasons:
+        key = (reason or "(no reason recorded)")[:_REASON_PREFIX_LEN]
+        breakdown[key] = breakdown.get(key, 0) + 1
+    return breakdown
+
+
 def _reconcile_stream(descriptor: EntityDescriptor) -> str:
     return f"reconcile:{descriptor.entity_type}"
 

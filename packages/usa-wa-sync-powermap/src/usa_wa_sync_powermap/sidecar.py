@@ -44,7 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
-from clearinghouse_sync_powermap.engine import SyncEngine
+from clearinghouse_sync_powermap.engine import SyncEngine, outbox_backlog, rejected_breakdown
 from clearinghouse_sync_powermap.models import SyncState
 from clearinghouse_sync_powermap.retry import backoff
 from clearinghouse_sync_powermap.subscriptions import SubscriptionReconciler
@@ -103,6 +103,11 @@ class Sidecar:
         # Component errors collected during the current run_cycle — embedded in the
         # streak alert body so the operator can triage without opening the journal.
         self._cycle_errors: list[str] = []
+        # Last observed REJECTED backlog count (#85 rejection visibility): the
+        # cycle summary alerts only when the count RISES past this, so a standing
+        # pile emails once (and once more per restart — deliberate: a pile needs a
+        # data fix, and a process that never saw it should say so).
+        self._last_rejected_count = 0
         self._clock = clock
 
     async def tick(
@@ -162,7 +167,69 @@ class Sidecar:
                 logger.exception("sidecar_cycle_failed")
                 self._cycle_errors.append(f"tick: {exc!r}")
                 ok = False
+        await self._report_cycle_summary(now)
         return ok
+
+    async def _report_cycle_summary(self, now: datetime) -> None:
+        """Run the cycle summary in its own session; never affects the verdict.
+
+        Observability, not work (#85): a summary-query failure must not flip the
+        cycle verdict — that would put reporting in the backoff/alert path.
+        """
+        try:
+            async with self._session_factory() as session:
+                await self.report_cycle_summary(session, now=now)
+        except Exception:
+            logger.exception("sidecar_cycle_summary_failed")
+
+    async def report_cycle_summary(self, session: AsyncSession, *, now: datetime) -> None:
+        """Log the outbox backlog + REJECTED reason breakdown; alert on a rise (#85).
+
+        A REJECTED observation is a single ``logger.error`` at park time and then
+        silence — the #84 postmortem found 12 ``identifier_conflict`` rejections
+        that sat unnoticed for a week. This re-surfaces the standing pile every
+        cycle (the ``sidecar_cycle_summary`` line) and emails the operator when the
+        count *rises* past the last observed count — a static pile never re-spams,
+        a genuinely new rejection after a fix alerts again. Distinct from the
+        failure-streak alert (cycle crashes, not per-entry verdicts).
+        """
+        backlog = await outbox_backlog(session, now=now)
+        reasons = await rejected_breakdown(session)
+        logger.info(
+            "sidecar_cycle_summary",
+            extra={
+                "pending": backlog.pending,
+                "pending_due": backlog.pending_due,
+                "rejected": backlog.rejected,
+                "unavailable": backlog.unavailable,
+                "oldest_pending_age_seconds": backlog.oldest_pending_age_seconds,
+                "rejected_reasons": reasons,
+            },
+        )
+        if backlog.rejected > self._last_rejected_count:
+            await self._send_rejected_alert(backlog.rejected, reasons)
+        self._last_rejected_count = backlog.rejected
+
+    async def _send_rejected_alert(self, rejected: int, reasons: dict[str, int]) -> None:
+        """Email the operator about a REJECTED-count rise; swallow send failures."""
+        if self._alert is None:
+            logger.warning("sidecar_rejected_rise_unalerted", extra={"rejected": rejected})
+            return
+        subject = (
+            f"[usa-wa] sidecar rejected observations: {rejected}"
+            f" (rose from {self._last_rejected_count})"
+        )
+        lines = "\n".join(f"{count} x {reason}" for reason, count in sorted(reasons.items()))
+        body = (
+            f"The PM sync outbox holds {rejected} REJECTED observation(s) — PM refused\n"
+            f"the payload, so each needs a data fix (the next sweep re-attempts fixed\n"
+            f"rows automatically). No repeat email while the count is static.\n\n"
+            f"--- reasons ---\n{lines or '(none recorded)'}\n"
+        )
+        try:
+            await self._alert(subject, body)
+        except Exception:
+            logger.exception("sidecar_rejected_alert_failed", extra={"rejected": rejected})
 
     async def _run_reconciles(self, now: datetime) -> bool:
         """Run each due descriptor's reconcile in its own session + error boundary.
