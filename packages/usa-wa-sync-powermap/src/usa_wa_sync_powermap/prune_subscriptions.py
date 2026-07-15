@@ -34,10 +34,9 @@ from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.client import DeliveryBlockedError
 from clearinghouse_sync_powermap.engine import SyncEngine
-from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 from clearinghouse_sync_powermap.subscriptions import DEFAULT_MAX_PRUNE_FRACTION
 from usa_wa_sync_powermap.config import get_sidecar_settings
-from usa_wa_sync_powermap.registry import build_descriptors, build_reconciler
+from usa_wa_sync_powermap.registry import build_descriptors, build_pm_client, build_reconciler
 
 logger = get_logger(__name__)
 
@@ -78,7 +77,7 @@ async def _run(args: argparse.Namespace) -> dict:
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — required to read/modify subscriptions.")
     factory = get_session_factory()
-    client = GeneratedPowerMapClient(settings.powermap_base_url, settings.powermap_api_key)
+    client = build_pm_client(settings)
     engine = SyncEngine(build_descriptors(settings), client)
     reconciler = build_reconciler(client, engine, settings)
     try:

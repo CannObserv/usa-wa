@@ -57,8 +57,8 @@ from clearinghouse_domain_legislative.identity import (
     OrganizationName,
 )
 from clearinghouse_sync_powermap.client import DeliveryBlockedError, RetryableClientError
-from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 from usa_wa_sync_powermap.config import get_sidecar_settings
+from usa_wa_sync_powermap.registry import build_pm_client
 
 logger = get_logger(__name__)
 
@@ -450,9 +450,7 @@ async def _run(args: argparse.Namespace) -> dict:
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — cannot read from Power Map.")
     async with get_session_factory()() as session:
-        pm_client = GeneratedPowerMapClient(
-            base_url=settings.powermap_base_url, api_key=settings.powermap_api_key
-        )
+        pm_client = build_pm_client(settings)
         try:
             return await validate_committees(session, pm_client)
         finally:

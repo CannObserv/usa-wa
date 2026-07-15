@@ -164,7 +164,7 @@ async def test_run_submits_and_closes_client(monkeypatch, db_session, usa_wa):
         async def aclose(self):
             closed["v"] = True
 
-    monkeypatch.setattr(cli, "GeneratedPowerMapClient", _FakePM)
+    monkeypatch.setattr(cli, "build_pm_client", _FakePM)
 
     args = SimpleNamespace(
         biennium="2025-26", dry_run=False, max_rename_fraction=1.0, min_overlap_fraction=0.0

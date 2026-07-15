@@ -785,3 +785,98 @@ async def test_list_entity_events_404_returns_empty(client):
     )
 
     assert await client.list_entity_events("/api/v1/people", pm_id) == []
+
+
+# --- #85: 429 Retry-After surfacing + central read pacing -------------------------
+
+
+@respx.mock
+async def test_429_retryable_carries_retry_after(client):
+    """A PM 429 (rate limit, live since the #84 companion hardening) surfaces
+    ``Retry-After`` on the retryable error so read loops can pause-and-resume."""
+    pm_id = ULID()
+    respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(
+        return_value=httpx.Response(429, headers={"Retry-After": "7"})
+    )
+
+    with pytest.raises(RetryableClientError, match="429") as excinfo:
+        await client.get_entity("/api/v1/jurisdictions", pm_id)
+
+    assert excinfo.value.retry_after == 7.0
+
+
+@respx.mock
+async def test_429_without_retry_after_header(client):
+    pm_id = ULID()
+    respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(return_value=httpx.Response(429))
+
+    with pytest.raises(RetryableClientError) as excinfo:
+        await client.get_entity("/api/v1/jurisdictions", pm_id)
+
+    assert excinfo.value.retry_after is None
+
+
+@respx.mock
+async def test_429_on_send_path_carries_retry_after(client):
+    """The shared ``_send`` mapping (feed/list/observe ops) carries Retry-After too."""
+    respx.get(f"{BASE}/api/v1/changes").mock(
+        return_value=httpx.Response(429, headers={"Retry-After": "3"})
+    )
+
+    with pytest.raises(RetryableClientError) as excinfo:
+        await client.get_changes(after=None)
+
+    assert excinfo.value.retry_after == 3.0
+
+
+@respx.mock
+async def test_429_non_numeric_retry_after_is_none(client):
+    """An HTTP-date Retry-After (rare) degrades to None, not a crash."""
+    pm_id = ULID()
+    respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(
+        return_value=httpx.Response(429, headers={"Retry-After": "Wed, 15 Jul 2026 07:28:00 GMT"})
+    )
+
+    with pytest.raises(RetryableClientError) as excinfo:
+        await client.get_entity("/api/v1/jurisdictions", pm_id)
+
+    assert excinfo.value.retry_after is None
+
+
+@respx.mock
+async def test_min_request_interval_spaces_calls():
+    """#85 (the #77 pattern for PM): with a min interval configured, back-to-back
+    calls through the client are spaced — the central governor no single caller
+    (the person backstop's ~300-GET crawl) can burst past."""
+    import time
+
+    pm_id = ULID()
+    respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(return_value=httpx.Response(404))
+    paced = GeneratedPowerMapClient(base_url=BASE, api_key="k", min_request_interval=0.05)
+    try:
+        start = time.monotonic()
+        await paced.get_entity("/api/v1/jurisdictions", pm_id)
+        await paced.get_entity("/api/v1/jurisdictions", pm_id)
+        await paced.get_entity("/api/v1/jurisdictions", pm_id)
+        elapsed = time.monotonic() - start
+    finally:
+        await paced.aclose()
+
+    assert elapsed >= 0.1  # two enforced gaps of >= 0.05s each
+
+
+@respx.mock
+async def test_min_request_interval_default_off(client):
+    """The default client is unpaced — pacing is the deployment's knob
+    (SidecarSettings.powermap_min_request_interval), not a library tax."""
+    import time
+
+    pm_id = ULID()
+    respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(return_value=httpx.Response(404))
+
+    start = time.monotonic()
+    for _ in range(3):
+        await client.get_entity("/api/v1/jurisdictions", pm_id)
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 0.05

@@ -151,3 +151,15 @@ async def test_daemon_main_passes_settings_to_build_descriptors(monkeypatch):
     from usa_wa_sync_powermap import __main__ as daemon
 
     await _assert_entrypoint_passes_settings(monkeypatch, daemon)
+
+
+def test_build_pm_client_applies_pacing(monkeypatch):
+    """#85: the factory is the single construction path, so the central PM
+    min-interval governor is always wired from settings."""
+    from usa_wa_sync_powermap.config import SidecarSettings
+    from usa_wa_sync_powermap.registry import build_pm_client
+
+    settings = SidecarSettings(powermap_api_key="k", powermap_min_request_interval=0.7)
+    client = build_pm_client(settings)
+
+    assert client._gate._min == 0.7

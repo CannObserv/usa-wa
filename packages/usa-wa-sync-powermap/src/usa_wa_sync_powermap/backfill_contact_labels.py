@@ -50,9 +50,9 @@ from clearinghouse_domain_legislative.queries import live_only
 from clearinghouse_sync_powermap.client import DeliveryBlockedError, PayloadRejectedError
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.engine import TRANSIENT_EXCEPTIONS
-from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
+from usa_wa_sync_powermap.registry import build_pm_client
 
 logger = get_logger(__name__)
 
@@ -190,7 +190,7 @@ async def _run(dry_run: bool) -> dict:
             )
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — required to submit observations.")
-    client = GeneratedPowerMapClient(settings.powermap_base_url, settings.powermap_api_key)
+    client = build_pm_client(settings)
     try:
         async with factory() as session:
             result = await backfill_contact_labels(session, OrganizationDescriptor(), client)

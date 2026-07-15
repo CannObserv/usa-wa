@@ -38,9 +38,9 @@ from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.queries import live_only
 from clearinghouse_sync_powermap.client import DeliveryBlockedError
-from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
+from usa_wa_sync_powermap.registry import build_pm_client
 
 logger = get_logger(__name__)
 
@@ -119,9 +119,7 @@ async def _run(args: argparse.Namespace) -> dict:
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — cannot read from Power Map.")
     async with get_session_factory()() as session:
-        client = GeneratedPowerMapClient(
-            base_url=settings.powermap_base_url, api_key=settings.powermap_api_key
-        )
+        client = build_pm_client(settings)
         try:
             result = await heal_committee_curation(session, OrganizationDescriptor(), client)
             if args.dry_run:

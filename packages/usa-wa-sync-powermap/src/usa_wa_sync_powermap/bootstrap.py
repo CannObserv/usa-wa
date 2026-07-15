@@ -15,9 +15,8 @@ import asyncio
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.engine import SyncEngine
-from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 from usa_wa_sync_powermap.config import get_sidecar_settings
-from usa_wa_sync_powermap.registry import build_descriptors, build_reconciler
+from usa_wa_sync_powermap.registry import build_descriptors, build_pm_client, build_reconciler
 
 logger = get_logger(__name__)
 
@@ -28,7 +27,7 @@ async def _amain() -> None:
         raise RuntimeError("POWERMAP_API_KEY is not set — required for the PM bootstrap.")
 
     descriptors = build_descriptors(settings)
-    client = GeneratedPowerMapClient(settings.powermap_base_url, settings.powermap_api_key)
+    client = build_pm_client(settings)
     engine = SyncEngine(descriptors, client)
     reconciler = build_reconciler(client, engine, settings)
     factory = get_session_factory()

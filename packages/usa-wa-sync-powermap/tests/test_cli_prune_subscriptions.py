@@ -115,7 +115,7 @@ async def test_run_prunes_strangers_and_closes_client(monkeypatch, db_session, u
     anchor, stranger = ULID(), ULID()
     await _add_committee(db_session, source_id="100", anchor=anchor)
     fake_pm = _FakePM(registered=[anchor, stranger], discovered=[])
-    monkeypatch.setattr(cli, "GeneratedPowerMapClient", lambda *_a, **_k: fake_pm)
+    monkeypatch.setattr(cli, "build_pm_client", lambda *_a, **_k: fake_pm)
     _patch_factory(monkeypatch, db_session)
     _patch_settings(monkeypatch, api_key="k")
 
@@ -132,7 +132,7 @@ async def test_run_dry_run_removes_nothing(monkeypatch, db_session, usa_wa):
     anchor, stranger = ULID(), ULID()
     await _add_committee(db_session, source_id="100", anchor=anchor)
     fake_pm = _FakePM(registered=[anchor, stranger], discovered=[])
-    monkeypatch.setattr(cli, "GeneratedPowerMapClient", lambda *_a, **_k: fake_pm)
+    monkeypatch.setattr(cli, "build_pm_client", lambda *_a, **_k: fake_pm)
     _patch_factory(monkeypatch, db_session)
     _patch_settings(monkeypatch, api_key="k")
 

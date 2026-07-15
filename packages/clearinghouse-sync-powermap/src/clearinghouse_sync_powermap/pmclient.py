@@ -12,8 +12,9 @@ Auth is PM's ``X-API-Key`` header, wired through the generated
 ``AuthenticatedClient`` (``prefix=""`` + ``auth_header_name``).
 """
 
+import asyncio
 from collections.abc import Sequence
-from typing import Any, NoReturn
+from typing import Any
 
 from powermap_client import AuthenticatedClient
 from powermap_client.api.public_api import (
@@ -41,7 +42,6 @@ from powermap_client.api.public_api import (
     submit_people_observation,
     submit_role_observation,
 )
-from powermap_client.errors import UnexpectedStatus
 from powermap_client.models import (
     AssignmentObservationRequest,
     DiscoverSubscriptionsRootType,
@@ -90,24 +90,67 @@ _SUBSCRIBE_BATCH = 500
 _MAX_PAGINATION_PAGES = 1000
 
 
-def _retryable(exc: UnexpectedStatus) -> bool:
-    """Worth a backoff retry: rate-limit (429) or any server error (5xx)."""
-    return exc.status_code == 429 or exc.status_code >= 500
+def _parse_retry_after(headers: Any) -> float | None:
+    """The ``Retry-After`` header as seconds, or None.
+
+    Only the delta-seconds form is parsed (what PM's limiter sends); the HTTP-date
+    form degrades to None — the caller falls back to its own backoff schedule.
+    """
+    value = headers.get("Retry-After")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
-def _raise_mapped(exc: UnexpectedStatus) -> NoReturn:
-    """Translate a non-retryable SDK ``UnexpectedStatus`` into the engine's portable
-    permanent-failure vocabulary. Caller has already ruled out retryable statuses.
+def _raise_for_status(resp: Any) -> None:
+    """Map a non-2xx detailed response to the engine's portable error vocabulary.
 
-    Always raises (hence ``NoReturn``): callers fall through to use ``resp`` only on
-    the no-exception path, so a future non-raising edit here would be a type error.
+    The client is built with ``raise_on_unexpected_status=False`` (usa-wa#85) so the
+    full response — status AND headers — reaches this mapping (the SDK's
+    ``UnexpectedStatus`` carries no headers, which made ``Retry-After`` unreachable).
 
+    - 429 / 5xx → :class:`RetryableClientError`, carrying the ``Retry-After`` hint.
     - 401/403 → :class:`DeliveryBlockedError` (auth/scope; park to UNAVAILABLE).
     - any other 4xx → :class:`PayloadRejectedError` (payload refused; park to REJECTED).
     """
-    if exc.status_code in _BLOCKED_STATUSES:
-        raise DeliveryBlockedError(f"PM {exc.status_code}") from exc
-    raise PayloadRejectedError(f"PM {exc.status_code}") from exc
+    status = resp.status_code
+    if status < 400:
+        return
+    if status == 429 or status >= 500:
+        raise RetryableClientError(f"PM {status}", retry_after=_parse_retry_after(resp.headers))
+    if status in _BLOCKED_STATUSES:
+        raise DeliveryBlockedError(f"PM {status}")
+    raise PayloadRejectedError(f"PM {status}")
+
+
+class _MinIntervalGate:
+    """Central min-interval governor for PM reads/writes (usa-wa#85, the #77 pattern).
+
+    Installed as an httpx *request* event hook, so every generated operation —
+    including the ones that bypass ``_send`` — passes through it; no caller (the
+    anchored-cohort backstop's ~300-GET crawl, a harvest CLI) can burst the PM host.
+    Slot reservation under the lock, sleep outside it, so concurrent callers are
+    spaced by ``min_interval`` without serializing on a held lock. ``0`` disables
+    (the library default — pacing is the deployment's knob).
+    """
+
+    def __init__(self, min_interval: float) -> None:
+        self._min = max(0.0, min_interval)
+        self._next_at = 0.0
+        self._lock = asyncio.Lock()
+
+    async def wait(self, _request: Any = None) -> None:
+        if self._min <= 0:
+            return
+        async with self._lock:
+            now = asyncio.get_running_loop().time()
+            wait = self._next_at - now
+            self._next_at = max(now, self._next_at) + self._min
+        if wait > 0:
+            await asyncio.sleep(wait)
 
 
 def _list_paged(fn, *, with_query: bool):
@@ -170,30 +213,40 @@ class GeneratedPowerMapClient:
         "/api/v1/orgs/search": (search_orgs, True),
     }
 
-    def __init__(self, base_url: str, api_key: str, *, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        *,
+        timeout: float = 30.0,
+        min_request_interval: float = 0.0,
+    ) -> None:
+        # raise_on_unexpected_status=False (usa-wa#85): undocumented statuses come
+        # back as a full detailed Response — status + headers — so the error mapping
+        # (_raise_for_status) can surface Retry-After on a 429. The gate hook paces
+        # every request centrally (0 = off; the sidecar wires
+        # SidecarSettings.powermap_min_request_interval).
+        self._gate = _MinIntervalGate(min_request_interval)
         self._client = AuthenticatedClient(
             base_url=base_url.rstrip("/"),
             token=api_key,
             prefix="",
             auth_header_name="X-API-Key",
             timeout=timeout,
-            raise_on_unexpected_status=True,
+            raise_on_unexpected_status=False,
+            httpx_args={"event_hooks": {"request": [self._gate.wait]}},
         )
 
     async def _send(self, awaitable):
-        """Await a generated op; map 5xx/429 to a retryable error, permanent auth
-        statuses to :class:`DeliveryBlockedError`, and a non-retryable 4xx (incl. a
-        422 ``HTTPValidationError`` body) to :class:`PayloadRejectedError` — so no
-        raw SDK exception escapes to crash-loop the sync cycle."""
-        try:
-            resp = await awaitable
-        except UnexpectedStatus as exc:
-            if _retryable(exc):
-                raise RetryableClientError(f"PM {exc.status_code}") from exc
-            _raise_mapped(exc)
+        """Await a generated op; map 5xx/429 to a retryable error (with Retry-After),
+        permanent auth statuses to :class:`DeliveryBlockedError`, and a non-retryable
+        4xx (incl. a 422 ``HTTPValidationError`` body) to :class:`PayloadRejectedError`
+        — so no raw SDK response escapes to crash-loop the sync cycle."""
+        resp = await awaitable
         parsed = resp.parsed
         if isinstance(parsed, HTTPValidationError):
             raise PayloadRejectedError(f"PM rejected the request (422): {parsed.to_dict()}")
+        _raise_for_status(resp)
         return parsed
 
     async def get_changes(self, after: int | None, limit: int = 100) -> ChangePage:
@@ -363,14 +416,10 @@ class GeneratedPowerMapClient:
         return [rt.to_dict() for rt in body.data]
 
     async def get_entity(self, read_path: str, pm_id: Any) -> dict | None:
-        try:
-            resp = await self._GET[read_path].asyncio_detailed(str(pm_id), client=self._client)
-        except UnexpectedStatus as exc:
-            if exc.status_code == 404:
-                return None  # entity gone (e.g. deleted between feed and fetch)
-            if _retryable(exc):
-                raise RetryableClientError(f"PM {exc.status_code}") from exc
-            _raise_mapped(exc)
+        resp = await self._GET[read_path].asyncio_detailed(str(pm_id), client=self._client)
+        if resp.status_code == 404:
+            return None  # entity gone (e.g. deleted between feed and fetch)
+        _raise_for_status(resp)
         parsed = resp.parsed
         if parsed is None or isinstance(parsed, HTTPValidationError):
             return None
@@ -388,16 +437,12 @@ class GeneratedPowerMapClient:
         offset = 0
         limit = 100
         for _page in range(_MAX_PAGINATION_PAGES):
-            try:
-                resp = await op.asyncio_detailed(
-                    str(pm_id), client=self._client, limit=limit, offset=offset
-                )
-            except UnexpectedStatus as exc:
-                if exc.status_code == 404:
-                    return []  # parent gone between feed and fetch
-                if _retryable(exc):
-                    raise RetryableClientError(f"PM {exc.status_code}") from exc
-                _raise_mapped(exc)
+            resp = await op.asyncio_detailed(
+                str(pm_id), client=self._client, limit=limit, offset=offset
+            )
+            if resp.status_code == 404:
+                return []  # parent gone between feed and fetch
+            _raise_for_status(resp)
             body = resp.parsed
             if body is None or isinstance(body, HTTPValidationError):
                 return records

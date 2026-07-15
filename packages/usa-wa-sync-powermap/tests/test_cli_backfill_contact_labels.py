@@ -165,7 +165,7 @@ async def test_run_submits_and_commits(monkeypatch, db_session, usa_wa):
         async def aclose(self):
             closed["v"] = True
 
-    monkeypatch.setattr(cli, "GeneratedPowerMapClient", _FakeClient)
+    monkeypatch.setattr(cli, "build_pm_client", _FakeClient)
 
     result = await cli._run(dry_run=False)
 

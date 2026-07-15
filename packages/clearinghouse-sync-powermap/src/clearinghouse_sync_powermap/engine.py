@@ -213,6 +213,15 @@ TRANSIENT_EXCEPTIONS = (
     asyncio.TimeoutError,
 )
 
+#: Foreground backoff schedule for transient reads inside the anchored-cohort
+#: crawl (usa-wa#85) — pause-and-resume, not cycle-abort: a 429 mid-crawl used to
+#: propagate, roll back the reconcile stamp, and trigger an immediate full re-crawl
+#: (the #88 miniature of the #84 loop). Small like validate_committees' schedule
+#: (not the 60s-base outbox one) so a transient blip doesn't stall the cycle; the
+#: length is the per-read retry budget — exhausting it re-raises into the sidecar's
+#: per-descriptor boundary. A server ``Retry-After`` hint overrides a step.
+READ_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
+
 
 @dataclass(frozen=True)
 class OutboxBacklog:
@@ -243,6 +252,7 @@ class SyncEngine:
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         deferred_stuck_threshold: timedelta = DEFAULT_DEFERRED_STUCK_THRESHOLD,
         sweep_batch_size: int = DEFAULT_SWEEP_BATCH_SIZE,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         if sweep_batch_size < 1:
             raise ValueError("sweep_batch_size must be >= 1")
@@ -252,6 +262,8 @@ class SyncEngine:
         self._max_attempts = max_attempts
         self._deferred_stuck_threshold = deferred_stuck_threshold
         self._sweep_batch_size = sweep_batch_size
+        # Injectable for the transient-read retry tests (usa-wa#85); production sleeps.
+        self._sleep = sleep
         #: Outbox ids already surfaced as deferred-stuck this process, so the WARNING
         #: fires once per wedged entry rather than every cycle (#15 throttle). Bounded
         #: by the live stuck-entry count; a daemon restart re-warns once (acceptable).
@@ -1152,7 +1164,7 @@ class SyncEngine:
             for row in rows:
                 last_id = row.id
                 pm_id = descriptor.anchor_value(row)
-                record = await descriptor.fetch_record(self._client, pm_id)
+                record = await self._fetch_record_with_retry(descriptor, pm_id)
                 if record is None:
                     # PM record gone (404): the entity was merged/deleted. Self-heal —
                     # re-anchor to the merge-winner, or retire on a genuine delete (#31).
@@ -1171,6 +1183,34 @@ class SyncEngine:
             if len(rows) < self._sweep_batch_size:
                 break
         return applied
+
+    async def _fetch_record_with_retry(self, descriptor: EntityDescriptor, pm_id: Any) -> Any:
+        """``descriptor.fetch_record`` with a bounded pause-and-resume on 429/5xx.
+
+        usa-wa#85 (from the #88 re-drive): PM's rate limit is live, and the cohort
+        crawl is exactly the burst that trips it. A :class:`RetryableClientError`
+        here sleeps the server's ``Retry-After`` hint (else the
+        :data:`READ_BACKOFF_SECONDS` step) and retries in place — the crawl resumes
+        where it was instead of aborting the cycle, rolling back the reconcile
+        stamp, and re-crawling from the top (which re-trips the limiter). A failure
+        outlasting the budget re-raises into the sidecar's per-descriptor boundary.
+        """
+        for delay in READ_BACKOFF_SECONDS:
+            try:
+                return await descriptor.fetch_record(self._client, pm_id)
+            except RetryableClientError as exc:
+                wait = exc.retry_after if exc.retry_after is not None else delay
+                logger.warning(
+                    "reconcile_read_backoff",
+                    extra={
+                        "entity_type": descriptor.entity_type,
+                        "pm_id": str(pm_id),
+                        "wait_seconds": wait,
+                        "error": str(exc),
+                    },
+                )
+                await self._sleep(wait)
+        return await descriptor.fetch_record(self._client, pm_id)
 
     # --- read path: changes feed (incremental primary for person/org) --------
 

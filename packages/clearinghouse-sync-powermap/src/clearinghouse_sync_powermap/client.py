@@ -31,7 +31,15 @@ class RetryableClientError(Exception):
     stays free of any concrete-client imports. A concrete client raises this for
     failures worth retrying (e.g. a PM 5xx / 429) instead of leaking SDK-specific
     exception types into the generic engine.
+
+    ``retry_after`` (usa-wa#85): the server's ``Retry-After`` hint in seconds when
+    it sent one (a 429 rate limit), else ``None``. Read loops honor it to
+    pause-and-resume instead of aborting the cycle.
     """
+
+    def __init__(self, message: str, *, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class DeliveryBlockedError(Exception):

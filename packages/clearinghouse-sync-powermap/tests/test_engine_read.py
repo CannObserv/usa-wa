@@ -11,6 +11,7 @@ from clearinghouse_sync_powermap.client import (
     ChangePage,
     EntityPage,
     ObservationResult,
+    RetryableClientError,
 )
 from clearinghouse_sync_powermap.engine import (
     APPLY_KEPT_LOCAL,
@@ -1148,3 +1149,106 @@ async def test_anchored_cohort_requires_now(db_session):
 
     with pytest.raises(ValueError, match="requires an explicit now"):
         await engine.reconcile(db_session, descriptor, now=None)
+
+
+# --- #85: bounded transient-read retry in the anchored-cohort backstop -----------
+
+
+class _FlakyClient(FakeClient):
+    """FakeClient whose get_entity raises RetryableClientError N times first."""
+
+    def __init__(self, *, failures, retry_after=None, **kwargs):
+        super().__init__(**kwargs)
+        self._failures = failures
+        self._retry_after = retry_after
+
+    async def get_entity(self, read_path, pm_id):
+        if self._failures > 0:
+            self._failures -= 1
+            raise RetryableClientError("PM 429", retry_after=self._retry_after)
+        return await super().get_entity(read_path, pm_id)
+
+
+def _sleep_recorder():
+    sleeps: list[float] = []
+
+    async def _sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    return sleeps, _sleep
+
+
+async def test_anchored_cohort_retries_transient_read_honoring_retry_after(db_session):
+    """A 429 inside the cohort crawl pauses (Retry-After) and resumes — it must not
+    abort the reconcile (the #88 miniature #84 loop: cycle-fatal 429 → stamp rollback
+    → immediate full re-crawl → re-trip the limiter)."""
+    pm_id = ULID()
+    row = await _add_anchored(
+        db_session,
+        source_id="x",
+        name="StaleName",
+        pm_id=pm_id,
+        updated_at=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+    descriptor = CohortDescriptor()
+    client = _FlakyClient(
+        failures=2,
+        retry_after=3.0,
+        entities={
+            pm_id: _record("x", "CuratedName", pm_id=pm_id, updated_at="2026-06-07T00:00:00Z")
+        },
+    )
+    sleeps, sleep = _sleep_recorder()
+    engine = SyncEngine([descriptor], client, sleep=sleep)
+
+    applied = await engine.reconcile(db_session, descriptor, now=NOW)
+    await db_session.refresh(row)
+
+    assert applied == 1
+    assert row.name == "CuratedName"  # the crawl resumed and recovered the edit
+    assert sleeps == [3.0, 3.0]  # honored Retry-After, not the fallback schedule
+
+
+async def test_anchored_cohort_retry_falls_back_to_schedule(db_session):
+    """No Retry-After header → the small foreground backoff schedule (1, 2, 4, 8)."""
+    pm_id = ULID()
+    await _add_anchored(
+        db_session,
+        source_id="x",
+        name="A",
+        pm_id=pm_id,
+        updated_at=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+    descriptor = CohortDescriptor()
+    client = _FlakyClient(
+        failures=3,
+        entities={pm_id: _record("x", "A", pm_id=pm_id, updated_at="2000-01-01T00:00:00Z")},
+    )
+    sleeps, sleep = _sleep_recorder()
+    engine = SyncEngine([descriptor], client, sleep=sleep)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert sleeps == [1.0, 2.0, 4.0]
+
+
+async def test_anchored_cohort_read_retry_budget_exhausted_reraises(db_session):
+    """A persistent 429/5xx exhausts the bounded budget and re-raises — the
+    per-descriptor boundary (usa-wa#85) contains it; no infinite in-loop stall."""
+    pm_id = ULID()
+    await _add_anchored(
+        db_session,
+        source_id="x",
+        name="A",
+        pm_id=pm_id,
+        updated_at=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+    descriptor = CohortDescriptor()
+    client = _FlakyClient(failures=99)
+    sleeps, sleep = _sleep_recorder()
+    engine = SyncEngine([descriptor], client, sleep=sleep)
+
+    with pytest.raises(RetryableClientError):
+        await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert sleeps == [1.0, 2.0, 4.0, 8.0]  # the whole budget, then re-raise

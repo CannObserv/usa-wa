@@ -34,7 +34,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.client import DeliveryBlockedError
-from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
 from usa_wa_adapter_legislature.transport import WSLClient
@@ -51,6 +50,7 @@ from usa_wa_sync_powermap.committee_name_reconcile import (
 )
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
+from usa_wa_sync_powermap.registry import build_pm_client
 
 logger = get_logger(__name__)
 
@@ -143,9 +143,7 @@ async def _run(args: argparse.Namespace) -> dict:
         provider = CommitteeRosterCohortProvider(
             WSLClient("CommitteeService"), session=session, source_id=source.id
         )
-        pm_client = GeneratedPowerMapClient(
-            base_url=settings.powermap_base_url, api_key=settings.powermap_api_key
-        )
+        pm_client = build_pm_client(settings)
         try:
             return await emit_rename_chain(
                 session,

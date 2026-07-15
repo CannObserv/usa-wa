@@ -9,10 +9,9 @@ import asyncio
 from clearinghouse_core.database import get_session_factory, log_connection_fingerprint
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.engine import SyncEngine
-from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 from usa_wa_sync_powermap.alerts import build_alert
 from usa_wa_sync_powermap.config import get_sidecar_settings
-from usa_wa_sync_powermap.registry import build_descriptors, build_reconciler
+from usa_wa_sync_powermap.registry import build_descriptors, build_pm_client, build_reconciler
 from usa_wa_sync_powermap.role_type_catalog import sync_role_type_catalog
 from usa_wa_sync_powermap.sidecar import Sidecar
 
@@ -29,7 +28,7 @@ async def _amain() -> None:
         await log_connection_fingerprint(session, context="sync-sidecar")
 
     descriptors = build_descriptors(settings)
-    client = GeneratedPowerMapClient(settings.powermap_base_url, settings.powermap_api_key)
+    client = build_pm_client(settings)
     engine = SyncEngine(descriptors, client)
     reconciler = build_reconciler(client, engine, settings)
     # Failure-streak alerting (#85): fail-closed like notify-failure.sh — no

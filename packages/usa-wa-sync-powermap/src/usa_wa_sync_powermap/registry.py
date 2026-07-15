@@ -8,6 +8,7 @@ are a person/org sub-resource.
 from clearinghouse_sync_powermap.client import PowerMapClient
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.engine import SyncEngine
+from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 from clearinghouse_sync_powermap.subscriptions import DiscoverySpec, SubscriptionReconciler
 from usa_wa_sync_powermap.config import SidecarSettings
 from usa_wa_sync_powermap.descriptors import (
@@ -17,6 +18,20 @@ from usa_wa_sync_powermap.descriptors import (
     PersonDescriptor,
     RoleDescriptor,
 )
+
+
+def build_pm_client(settings: SidecarSettings) -> GeneratedPowerMapClient:
+    """The one way production code constructs the PM client (#85).
+
+    Centralizes the pacing wiring: every caller — sidecar daemon, bootstrap, the
+    reconcile/validate/heal CLIs — gets ``powermap_min_request_interval`` applied,
+    so no code path can burst PM's rate limit by forgetting the knob.
+    """
+    return GeneratedPowerMapClient(
+        settings.powermap_base_url,
+        settings.powermap_api_key,
+        min_request_interval=settings.powermap_min_request_interval,
+    )
 
 
 def build_descriptors(settings: SidecarSettings | None = None) -> list[EntityDescriptor]:

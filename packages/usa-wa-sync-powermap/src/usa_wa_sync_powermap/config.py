@@ -17,6 +17,12 @@ class SidecarSettings(BaseSettings):
 
     powermap_base_url: str = "https://power-map.exe.xyz"
     powermap_api_key: str | None = None
+    #: Central courtesy floor (seconds) between any two PM HTTP calls (#85, the
+    #: #77 pattern): an httpx request hook inside GeneratedPowerMapClient, so no
+    #: caller — the anchored-cohort backstop's ~300-GET crawl, a harvest CLI — can
+    #: burst PM's live rate limit (429 since the #84 companion hardening; the
+    #: observed trip was ~8 req/s). Default 0.2 (≤5 req/s); 0 disables.
+    powermap_min_request_interval: float = 0.2
     #: Seconds between sync cycles (feed poll + due reconcile + outbox drain).
     feed_poll_seconds: float = 60.0
     #: Outbox delivery transaction boundary (#8): how many delivered entries to
