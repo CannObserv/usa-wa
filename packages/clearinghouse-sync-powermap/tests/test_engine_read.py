@@ -233,6 +233,39 @@ async def test_process_feed_applies_and_advances_cursor(db_session, fake_descrip
     assert state.cursor == "42"
 
 
+async def test_process_feed_retries_transient_get_changes(db_session, fake_descriptor):
+    """usa-wa#89: a 429 on the changes-feed read pauses + resumes rather than aborting
+    the tick. The feed is the real-time path; a bare 429 there used to fail the whole
+    cycle, leaving the subscription cadence unstamped → re-crawl → re-trip the limiter."""
+    pm_id = ULID()
+    record = _record("1", "FromFeed", pm_id=pm_id)
+    item = ChangeItem(entity_type="fake", entity_id=pm_id, changed_at=NOW, change_kind="updated")
+
+    class FlakyFeedClient(FakeClient):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self._left = 2
+
+        async def get_changes(self, after, limit=100):
+            if self._left > 0:
+                self._left -= 1
+                raise RetryableClientError("PM 429", retry_after=1.5)
+            return await super().get_changes(after, limit=limit)
+
+    client = FlakyFeedClient(
+        changes_pages=[ChangePage(items=[item], next_after=42)],
+        entities={pm_id: record},
+    )
+    sleeps, sleep = _sleep_recorder()
+    engine = SyncEngine([fake_descriptor], client, sleep=sleep)
+
+    applied = await engine.process_feed(db_session, now=NOW)
+
+    assert applied == 1
+    assert (await db_session.execute(select(FakeEntity))).scalar_one().name == "FromFeed"
+    assert sleeps == [1.5, 1.5]  # honored Retry-After across both transient failures
+
+
 async def test_process_feed_reads_stored_integer_cursor_as_after(db_session, fake_descriptor):
     """A previously-stored integer cursor is passed back as the ``after`` seq."""
 

@@ -10,7 +10,11 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from ulid import ULID
 
-from clearinghouse_sync_powermap.client import DiscoveredEntity, SubscriptionResult
+from clearinghouse_sync_powermap.client import (
+    DiscoveredEntity,
+    RetryableClientError,
+    SubscriptionResult,
+)
 from clearinghouse_sync_powermap.engine import SyncEngine
 from clearinghouse_sync_powermap.subscriptions import DiscoverySpec, SubscriptionReconciler
 from clearinghouse_sync_powermap.testing import FakeClient, FakeDescriptor, FakeEntity
@@ -177,6 +181,73 @@ async def test_backfill_skip_counted_separately_from_backfilled(db_session):
     assert report.backfilled == 0
     assert report.backfill_skipped == 1
     assert (await db_session.execute(select(FakeEntity))).first() is None
+
+
+async def test_backfill_skips_entity_already_present_locally(db_session, fake_descriptor):
+    """usa-wa#89: an entity that surfaces as ``new`` (missing from list_subscriptions)
+    but which we ALREADY hold locally is registered idempotently but NOT re-fetched.
+
+    This kills the phantom-new backfill crawl: PM's ``/subscriptions`` pagination can
+    under-report the registered set (power-map#297), so already-subscribed rows
+    resurface as ``new`` every cycle. Re-fetching each was the burst that tripped PM's
+    429. A row we already anchored is current via the feed + reconcile backstop, so the
+    backfill (which only exists to seed a newly-subscribed entity the forward-only feed
+    won't retroactively deliver) is skipped."""
+    pm_id = ULID()
+    await _seed(db_session, source_id="1", name="Ours", anchor=pm_id)
+    client = FakeClient(
+        discovered=[_disc(pm_id)],
+        subscribed=[],  # under-reported: pm_id is really subscribed but omitted here
+        entities={pm_id: _record(pm_id, "1", "FromBackfill")},
+    )
+    reconciler = _reconciler(client, [fake_descriptor])
+
+    report = await reconciler.sync_subscriptions(db_session)
+
+    assert client.added == [[pm_id]]  # still (idempotently) registered
+    assert client.fetched == []  # but NOT re-fetched — the phantom crawl is gone
+    assert report.already_cached == 1
+    assert report.backfilled == 0
+    row = (await db_session.execute(select(FakeEntity))).scalar_one()
+    assert row.name == "Ours"  # untouched by a backfill
+
+
+async def test_backfill_retries_transient_read(db_session, fake_descriptor):
+    """usa-wa#89: a 429 during a genuine backfill fetch pauses + resumes rather than
+    aborting the backstop before it stamps (which re-crawls next cycle and re-trips the
+    limiter). Mirrors the anchored-cohort crawl's #85 pause-and-resume."""
+    pm_id = ULID()
+
+    class FlakyClient(FakeClient):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self._left = 1
+
+        async def get_entity(self, read_path, pm_id):
+            if self._left > 0:
+                self._left -= 1
+                raise RetryableClientError("PM 429", retry_after=2.0)
+            return await super().get_entity(read_path, pm_id)
+
+    client = FlakyClient(
+        discovered=[_disc(pm_id)],
+        subscribed=[],
+        entities={pm_id: _record(pm_id, "1", "FromBackfill")},
+    )
+    sleeps: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    engine = SyncEngine([fake_descriptor], client, sleep=sleep)
+    reconciler = SubscriptionReconciler(client, engine, SPEC)
+
+    report = await reconciler.sync_subscriptions(db_session)
+
+    assert report.backfilled == 1  # resumed and applied, not aborted
+    assert sleeps == [2.0]  # honored the Retry-After hint
+    row = (await db_session.execute(select(FakeEntity))).scalar_one()
+    assert row.name == "FromBackfill"
 
 
 async def test_discover_called_with_spec(db_session, fake_descriptor):

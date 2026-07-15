@@ -65,7 +65,9 @@ class SubscriptionSyncReport:
     just registered; ``backfilled`` the new rows actually written to the cache
     (``apply_record`` returned inserted/updated); ``backfill_skipped`` the new rows an
     update-only producer descriptor declined to mirror (a record usa-wa never produced)
-    or that could not be fetched; ``not_found`` the ids PM could not resolve;
+    or that could not be fetched; ``already_cached`` the new rows skipped because we
+    already hold them locally (the phantom-new crawl PM's under-reporting subscription
+    pagination resurfaces — usa-wa#89); ``not_found`` the ids PM could not resolve;
     ``skipped_unknown_type`` the discovered candidates with no local descriptor.
     """
 
@@ -74,6 +76,7 @@ class SubscriptionSyncReport:
     newly_subscribed: int
     backfilled: int
     backfill_skipped: int
+    already_cached: int
     not_found: int
     skipped_unknown_type: int
 
@@ -123,6 +126,7 @@ class SubscriptionReconciler:
 
         backfilled = 0
         backfill_skipped = 0
+        already_cached = 0
         skipped_unknown = 0
         for d in new:
             if d.entity_id in not_found:
@@ -137,7 +141,18 @@ class SubscriptionReconciler:
                     extra={"entity_type": d.entity_type, "entity_id": str(d.entity_id)},
                 )
                 continue
-            record = await descriptor.fetch_record(self._client, d.entity_id)
+            # Skip the backfill for an entity we already hold locally (usa-wa#89). The
+            # backfill exists only to seed a newly-subscribed entity the forward-only
+            # feed won't retroactively deliver; a row we already anchored is kept current
+            # by the feed + reconcile backstop. This collapses the phantom-new crawl:
+            # PM's /subscriptions pagination can under-report the registered set
+            # (power-map#297), so already-subscribed rows resurface as `new` every cycle
+            # — re-fetching each was the burst that tripped PM's 429. add_subscriptions
+            # above is idempotent, so re-registering them is a harmless no-op.
+            if await self._engine.has_local_anchor(session, descriptor, d.entity_id):
+                already_cached += 1
+                continue
+            record = await self._engine.fetch_record_with_retry(descriptor, d.entity_id)
             if record is None:
                 # Subscribed but the entity could not be fetched (e.g. 404 between
                 # discovery and backfill); the feed will deliver it if it reappears.
@@ -159,6 +174,7 @@ class SubscriptionReconciler:
             newly_subscribed=len(new) - len(not_found),
             backfilled=backfilled,
             backfill_skipped=backfill_skipped,
+            already_cached=already_cached,
             not_found=len(not_found),
             skipped_unknown_type=skipped_unknown,
         )
@@ -169,6 +185,7 @@ class SubscriptionReconciler:
                 "newly_subscribed": report.newly_subscribed,
                 "backfilled": report.backfilled,
                 "backfill_skipped": report.backfill_skipped,
+                "already_cached": report.already_cached,
                 "not_found": report.not_found,
                 "skipped_unknown_type": report.skipped_unknown_type,
             },

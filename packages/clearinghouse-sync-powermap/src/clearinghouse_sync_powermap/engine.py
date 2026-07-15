@@ -1233,33 +1233,65 @@ class SyncEngine:
                 break
         return applied
 
-    async def _fetch_record_with_retry(self, descriptor: EntityDescriptor, pm_id: Any) -> Any:
-        """``descriptor.fetch_record`` with a bounded pause-and-resume on 429/5xx.
+    async def _read_with_retry(
+        self, make_awaitable: Callable[[], Awaitable[Any]], *, log_extra: dict
+    ) -> Any:
+        """Run a PM *read* with a bounded pause-and-resume on 429/5xx.
 
-        usa-wa#85 (from the #88 re-drive): PM's rate limit is live, and the cohort
-        crawl is exactly the burst that trips it. A :class:`RetryableClientError`
-        here sleeps the server's ``Retry-After`` hint (else the
-        :data:`READ_BACKOFF_SECONDS` step) and retries in place — the crawl resumes
-        where it was instead of aborting the cycle, rolling back the reconcile
-        stamp, and re-crawling from the top (which re-trips the limiter). A failure
-        outlasting the budget re-raises into the sidecar's per-descriptor boundary.
-        """
+        usa-wa#85/#89: PM's rate limit is live, and a read burst is exactly what trips
+        it. A :class:`RetryableClientError` sleeps the server's ``Retry-After`` hint
+        (else the :data:`READ_BACKOFF_SECONDS` step) and retries in place, so the read
+        resumes instead of aborting the cycle — which would leave the cadence unstamped,
+        re-crawl from the top next cycle, and re-trip the limiter. Shared by every read
+        whose bare 429 was cycle-fatal: the anchored-cohort reconcile (``read`` =
+        ``reconcile``), the subscription backfill (``backfill``), and the changes-feed
+        read (``feed``). A failure outlasting the budget re-raises into the caller's
+        error boundary (the sidecar's per-component containment)."""
         for delay in READ_BACKOFF_SECONDS:
             try:
-                return await descriptor.fetch_record(self._client, pm_id)
+                return await make_awaitable()
             except RetryableClientError as exc:
                 wait = exc.retry_after if exc.retry_after is not None else delay
                 logger.warning(
-                    "reconcile_read_backoff",
-                    extra={
-                        "entity_type": descriptor.entity_type,
-                        "pm_id": str(pm_id),
-                        "wait_seconds": wait,
-                        "error": str(exc),
-                    },
+                    "read_backoff",
+                    extra={**log_extra, "wait_seconds": wait, "error": str(exc)},
                 )
                 await self._sleep(wait)
-        return await descriptor.fetch_record(self._client, pm_id)
+        return await make_awaitable()
+
+    async def _fetch_record_with_retry(self, descriptor: EntityDescriptor, pm_id: Any) -> Any:
+        """``descriptor.fetch_record`` with the shared read pause-and-resume (#85)."""
+        return await self._read_with_retry(
+            lambda: descriptor.fetch_record(self._client, pm_id),
+            log_extra={
+                "read": "reconcile",
+                "entity_type": descriptor.entity_type,
+                "pm_id": str(pm_id),
+            },
+        )
+
+    async def fetch_record_with_retry(self, descriptor: EntityDescriptor, pm_id: Any) -> Any:
+        """Public seam for the subscription backfill (usa-wa#89): fetch a newly-
+        subscribed entity's current state with the same 429 pause-and-resume the
+        reconcile crawl uses, so a rate-limit mid-backfill doesn't abort the backstop
+        before it stamps (→ re-crawl → re-trip)."""
+        return await self._read_with_retry(
+            lambda: descriptor.fetch_record(self._client, pm_id),
+            log_extra={
+                "read": "backfill",
+                "entity_type": descriptor.entity_type,
+                "pm_id": str(pm_id),
+            },
+        )
+
+    async def has_local_anchor(
+        self, session: AsyncSession, descriptor: EntityDescriptor, pm_id: Any
+    ) -> bool:
+        """Whether a local row is already anchored to ``pm_id`` (usa-wa#89).
+
+        The subscription backfill's skip gate: an entity we already hold locally is
+        current via the feed + reconcile backstop and does not need a re-fetch."""
+        return (await self._row_by_anchor(session, descriptor, pm_id)) is not None
 
     # --- read path: changes feed (incremental primary for person/org) --------
 
@@ -1285,7 +1317,10 @@ class SyncEngine:
         """
         state = await self._get_or_create_state(session, CHANGES_STREAM)
         after = _parse_after(state.cursor)
-        page = await self._client.get_changes(after, limit=limit)
+        page = await self._read_with_retry(
+            lambda: self._client.get_changes(after, limit=limit),
+            log_extra={"read": "feed", "after": after},
+        )
         applied = 0
         for item in page.items:
             descriptor = self.descriptor_for(item.entity_type)
