@@ -52,6 +52,15 @@ class SidecarSettings(BaseSettings):
     #: FTS ranking pushes a true match past the default window. ``None`` keeps each
     #: descriptor's historical per-entity default (orgs 50, people 20) — non-breaking.
     powermap_search_match_cap: int | None = None
+    #: Failure-streak alerting (#85): after this many consecutive failed cycles the
+    #: sidecar emails the operator once (re-armed by the next clean cycle). With the
+    #: exponential backoff schedule (60s base, doubling, 1h cap), 5 ≈ ~30 min of
+    #: continuous failure before the email.
+    failure_alert_threshold: int = 5
+    #: Recipient for the failure-streak alert (#85) — the same ``USA_WA_ALERT_EMAIL``
+    #: the #49 oneshot handler reads (`/etc/usa-wa/.env`). Unset = alerting disabled;
+    #: the daemon warns loudly at startup (fail-closed, like notify-failure.sh).
+    usa_wa_alert_email: str | None = None
 
 
 @lru_cache

@@ -324,10 +324,46 @@ async def test_anchored_cohort_producers_are_reconcile_due(db_session):
     assert await sidecar._reconcile_due(db_session, RoleDescriptor(), NOW) is True
 
 
-async def test_tick_runs_anchored_cohort_backstop_and_recovers_dropped_edit(db_session):
-    """End-to-end through the sidecar tick: an anchored org whose feed bump was
-    dropped (stale local name + old clock) is recovered by the cohort backstop, which
-    re-fetches only its anchored row by id and applies PM's newer record under LWW."""
+async def test_run_descriptor_reconcile_recovers_dropped_edit(db_session):
+    """End-to-end through the per-descriptor reconcile seam (#85): an anchored org
+    whose feed bump was dropped (stale local name + old clock) is recovered by the
+    cohort backstop, which re-fetches only its anchored row by id and applies PM's
+    newer record under LWW."""
+    pm_id = ULID()
+    org = Organization(
+        source="usa_wa_legislature",
+        source_id="comm-1",
+        name="StaleName",
+        org_type="committee",
+        pm_organization_id=pm_id,
+    )
+    org.updated_at = datetime(2020, 1, 1, tzinfo=UTC)
+    db_session.add(org)
+    await db_session.flush()
+
+    descriptor = OrganizationDescriptor()
+    record = {"id": str(pm_id), "name": "CuratedName", "updated_at": "2026-06-07T00:00:00Z"}
+    engine = SyncEngine([descriptor], FakeClient(entities={pm_id: record}))
+    sidecar = Sidecar(engine, [descriptor], session_factory=lambda: None)
+
+    ran = await sidecar.run_descriptor_reconcile(db_session, descriptor, now=NOW)
+    await db_session.refresh(org)
+
+    assert ran is True
+    assert org.name == "CuratedName"
+    # The reconcile stamped its stream, so the cadence gate sees the run.
+    state = (
+        await db_session.execute(
+            select(SyncState).where(SyncState.stream == "reconcile:organization")
+        )
+    ).scalar_one()
+    assert state.last_reconcile_at == NOW
+
+
+async def test_tick_does_not_run_reconciles(db_session):
+    """#85 fix 1: tick owns only feed/sweep/drain — reconciles run per-descriptor in
+    their own sessions via run_cycle, so a poison reconcile can't roll back the feed
+    cursor or starve the drain. The dropped edit is NOT recovered by tick alone."""
     pm_id = ULID()
     org = Organization(
         source="usa_wa_legislature",
@@ -348,7 +384,7 @@ async def test_tick_runs_anchored_cohort_backstop_and_recovers_dropped_edit(db_s
     await sidecar.tick(db_session, now=NOW)
     await db_session.refresh(org)
 
-    assert org.name == "CuratedName"
+    assert org.name == "StaleName"
 
 
 # --- subscription backstop ------------------------------------------------------
@@ -493,3 +529,302 @@ async def test_run_backstop_contains_session_acquire_failure():
     )
 
     await sidecar._run_backstop(NOW)  # must NOT raise
+
+
+# --- #85: per-descriptor reconcile isolation + cycle verdict ---------------------
+
+
+class _Descriptor:
+    """Minimal stand-in — only ``entity_type`` is read by the isolation loop."""
+
+    def __init__(self, entity_type: str) -> None:
+        self.entity_type = entity_type
+
+
+async def test_poison_reconcile_is_isolated_and_others_still_run():
+    """#84's core amplification: one descriptor's reconcile raising must not stop the
+    other descriptors' reconciles (each has its own session) nor the main tick."""
+    sessions: list[_FakeSession] = []
+
+    def _factory() -> _FakeSession:
+        s = _FakeSession()
+        sessions.append(s)
+        return s
+
+    a, b = _Descriptor("assignment"), _Descriptor("person")
+    sidecar = Sidecar(engine=None, descriptors=[a, b], session_factory=_factory)
+    ran: list[str] = []
+
+    async def _reconcile(session, descriptor, *, now):
+        if descriptor is a:
+            raise RuntimeError("MultipleResultsFound: poison entity")
+        ran.append(descriptor.entity_type)
+        return True
+
+    async def _ok_tick(s, *, now, commit):
+        ran.append("tick")
+
+    sidecar.run_descriptor_reconcile = _reconcile
+    sidecar.tick = _ok_tick
+
+    ok = await sidecar.run_cycle()  # must NOT raise
+
+    assert ran == ["person", "tick"]  # b's reconcile and the tick both ran
+    assert ok is False  # ...but the cycle verdict reports the failure (backoff signal)
+    # One session per descriptor + one for the tick — a poison session is never shared.
+    assert len(sessions) == 3
+
+
+async def test_run_cycle_verdict_true_when_clean():
+    sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: _FakeSession())
+
+    async def _ok(s, *, now, commit):
+        return None
+
+    sidecar.tick = _ok
+    assert await sidecar.run_cycle() is True
+
+
+async def test_run_cycle_verdict_false_on_tick_failure():
+    sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: _FakeSession())
+
+    async def _boom(s, *, now, commit):
+        raise RuntimeError("tick poison")
+
+    sidecar.tick = _boom
+    assert await sidecar.run_cycle() is False
+
+
+async def test_run_cycle_verdict_false_on_backstop_failure():
+    """A contained backstop failure still fails the cycle verdict — isolation must not
+    silently defeat the backoff/streak signal (#85 interaction)."""
+    sidecar = Sidecar(
+        engine=None,
+        descriptors=[],
+        session_factory=lambda: _FakeSession(),
+        reconciler=object(),
+    )
+
+    async def _boom_backstop(s, *, now):
+        raise RuntimeError("discover endpoint down")
+
+    async def _ok_tick(s, *, now, commit):
+        return None
+
+    sidecar.run_subscription_backstop = _boom_backstop
+    sidecar.tick = _ok_tick
+    assert await sidecar.run_cycle() is False
+
+
+async def test_run_cycle_verdict_false_on_catalog_sync_failure():
+    async def _boom_catalog(session):
+        raise RuntimeError("PM down")
+
+    sidecar = Sidecar(
+        engine=None,
+        descriptors=[],
+        session_factory=lambda: _FakeSession(),
+        catalog_sync=_boom_catalog,
+    )
+
+    async def _ok_tick(s, *, now, commit):
+        return None
+
+    sidecar.tick = _ok_tick
+    assert await sidecar.run_cycle() is False
+
+
+# --- #85: exponential backoff on consecutive cycle failures ----------------------
+
+
+class _StopLoop(Exception):
+    """Breaks run_forever after the scripted outcomes are consumed."""
+
+
+def _scripted_sidecar(outcomes: list[bool]) -> tuple[Sidecar, list[float]]:
+    sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: _FakeSession())
+    script = iter(outcomes)
+
+    async def _cycle() -> bool:
+        try:
+            return next(script)
+        except StopIteration:
+            raise _StopLoop from None
+
+    sidecar.run_cycle = _cycle
+    sleeps: list[float] = []
+    return sidecar, sleeps
+
+
+async def _run_scripted(sidecar: Sidecar, sleeps: list[float]) -> None:
+    async def _sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    with pytest.raises(_StopLoop):
+        await sidecar.run_forever(sleep=_sleep)
+
+
+async def test_run_forever_backs_off_on_consecutive_failures_and_resets():
+    """Failures sleep the retry.backoff schedule (60s base, doubling); a success
+    resets to the poll cadence."""
+    sidecar, sleeps = _scripted_sidecar([False, False, False, True, False])
+    sidecar._feed_poll_seconds = 1.0
+
+    await _run_scripted(sidecar, sleeps)
+
+    assert sleeps == [60.0, 120.0, 240.0, 1.0, 60.0]
+
+
+async def test_run_forever_backoff_never_below_poll_cadence():
+    """With a poll cadence above the early backoff steps, the sleep is the max of
+    the two — backoff slows the loop down, never speeds it up."""
+    sidecar, sleeps = _scripted_sidecar([False, False])
+    sidecar._feed_poll_seconds = 90.0
+
+    await _run_scripted(sidecar, sleeps)
+
+    assert sleeps == [90.0, 120.0]
+
+
+async def test_run_forever_backoff_caps_at_one_hour():
+    sidecar, sleeps = _scripted_sidecar([False] * 9)
+    sidecar._feed_poll_seconds = 1.0
+
+    await _run_scripted(sidecar, sleeps)
+
+    assert sleeps[-1] == 3600.0
+    assert max(sleeps) == 3600.0
+
+
+# --- #85: failure-streak alerting -------------------------------------------------
+
+
+def _alerting_sidecar(
+    outcomes: list[bool], *, threshold: int = 3
+) -> tuple[Sidecar, list[tuple[str, str]], list[float]]:
+    alerts: list[tuple[str, str]] = []
+
+    async def _alert(subject: str, body: str) -> None:
+        alerts.append((subject, body))
+
+    sidecar = Sidecar(
+        engine=None,
+        descriptors=[],
+        session_factory=lambda: _FakeSession(),
+        alert=_alert,
+        failure_alert_threshold=threshold,
+    )
+    script = iter(outcomes)
+
+    async def _cycle() -> bool:
+        try:
+            return next(script)
+        except StopIteration:
+            raise _StopLoop from None
+
+    sidecar.run_cycle = _cycle
+    sleeps: list[float] = []
+    return sidecar, alerts, sleeps
+
+
+async def test_alert_fires_once_at_streak_threshold():
+    """One email at streak == N; the continuing streak does not re-send."""
+    sidecar, alerts, sleeps = _alerting_sidecar([False] * 5, threshold=3)
+
+    await _run_scripted(sidecar, sleeps)
+
+    assert len(alerts) == 1
+    subject, _body = alerts[0]
+    assert "3" in subject  # streak size is triageable from the subject line
+
+
+async def test_alert_rearms_after_recovery():
+    """Success resets the streak; a fresh streak reaching N alerts again."""
+    sidecar, alerts, sleeps = _alerting_sidecar(
+        [False, False, False, True, False, False, False], threshold=3
+    )
+
+    await _run_scripted(sidecar, sleeps)
+
+    assert len(alerts) == 2
+
+
+async def test_alert_below_threshold_never_fires():
+    sidecar, alerts, sleeps = _alerting_sidecar([False, False, True, False, False], threshold=3)
+
+    await _run_scripted(sidecar, sleeps)
+
+    assert alerts == []
+
+
+async def test_alert_send_failure_is_swallowed():
+    """A failing alert send must never crash the loop it is watching."""
+    sidecar = Sidecar(
+        engine=None,
+        descriptors=[],
+        session_factory=lambda: _FakeSession(),
+        alert=None,
+        failure_alert_threshold=1,
+    )
+
+    async def _boom_alert(subject: str, body: str) -> None:
+        raise RuntimeError("gateway down")
+
+    sidecar._alert = _boom_alert
+    script = iter([False, False])
+
+    async def _cycle() -> bool:
+        try:
+            return next(script)
+        except StopIteration:
+            raise _StopLoop from None
+
+    sidecar.run_cycle = _cycle
+    sleeps: list[float] = []
+
+    await _run_scripted(sidecar, sleeps)  # must NOT raise beyond _StopLoop
+
+    assert len(sleeps) == 2
+
+
+async def test_alert_body_carries_last_cycle_errors():
+    """The alert body embeds the collected component errors so the operator can
+    triage without the journal (#49 philosophy)."""
+    alerts: list[tuple[str, str]] = []
+
+    async def _alert(subject: str, body: str) -> None:
+        alerts.append((subject, body))
+
+    sidecar = Sidecar(
+        engine=None,
+        descriptors=[_Descriptor("assignment")],
+        session_factory=lambda: _FakeSession(),
+        alert=_alert,
+        failure_alert_threshold=1,
+    )
+
+    async def _reconcile(session, descriptor, *, now):
+        raise RuntimeError("MultipleResultsFound: poison entity")
+
+    async def _ok_tick(s, *, now, commit):
+        return None
+
+    sidecar.run_descriptor_reconcile = _reconcile
+    sidecar.tick = _ok_tick
+
+    stop = iter([True])
+
+    async def _sleep(seconds: float) -> None:
+        try:
+            next(stop)
+            raise _StopLoop
+        except StopIteration:
+            raise _StopLoop from None
+
+    with pytest.raises(_StopLoop):
+        await sidecar.run_forever(sleep=_sleep)
+
+    assert len(alerts) == 1
+    _subject, body = alerts[0]
+    assert "MultipleResultsFound" in body
+    assert "assignment" in body  # which component failed is in the body

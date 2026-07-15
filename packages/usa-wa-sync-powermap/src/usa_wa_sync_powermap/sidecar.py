@@ -12,6 +12,18 @@ try/except that rolls back and logs on failure, so a propagating non-transient
 error (the outbox worker no longer swallows bugs as transient) cannot kill the
 daemon or poison the next cycle.
 
+Cycle-failure containment (#85, from the #84 postmortem): each descriptor's
+reconcile runs in its OWN session + error boundary (``_run_reconciles``), so one
+poison entity cannot roll back the other descriptors' reconcile stamps, the feed
+cursor, or the drain. Isolation must not defeat the failure signal, though: every
+contained component failure (catalog sync, backstop, a descriptor reconcile, the
+tick) fails the cycle *verdict* — ``run_cycle`` returns False — which drives the
+exponential backoff (``retry.backoff``, 60s base → 1h cap) and the failure-streak
+operator alert in :meth:`run_forever`. The sidecar is a ``Restart=`` service the
+#49 ``OnFailure=`` handler can't see, so after ``failure_alert_threshold``
+consecutive failed cycles the injected ``alert`` callable emails the operator once
+per streak (re-armed by the next clean cycle).
+
 Outbox delivery transaction boundary (#8): the read + sweep work runs in one
 session, but the outbox *drain* commits incrementally — by default once per
 delivered entry (``outbox_commit_chunk_size = 1``), so a slow PM never holds one
@@ -34,6 +46,7 @@ from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.engine import SyncEngine
 from clearinghouse_sync_powermap.models import SyncState
+from clearinghouse_sync_powermap.retry import backoff
 from clearinghouse_sync_powermap.subscriptions import SubscriptionReconciler
 
 logger = get_logger(__name__)
@@ -64,6 +77,8 @@ class Sidecar:
         outbox_commit_chunk_size: int = 1,
         catalog_sync: Callable[[AsyncSession], Awaitable[Any]] | None = None,
         catalog_sync_cadence: timedelta = timedelta(hours=1),
+        alert: Callable[[str, str], Awaitable[None]] | None = None,
+        failure_alert_threshold: int = 5,
         clock: Callable[[], datetime] = _utcnow,
     ) -> None:
         self._engine = engine
@@ -80,6 +95,14 @@ class Sidecar:
         self._catalog_sync = catalog_sync
         self._catalog_sync_cadence = catalog_sync_cadence
         self._last_catalog_sync: datetime | None = None
+        # Failure-streak alerting (#85): the sidecar is a Restart= service, invisible
+        # to the #49 OnFailure= handler, so it emails the operator itself. The send
+        # is an injected callable (deployment wires the exe.dev gateway; tests fake it).
+        self._alert = alert
+        self._failure_alert_threshold = failure_alert_threshold
+        # Component errors collected during the current run_cycle — embedded in the
+        # streak alert body so the operator can triage without opening the journal.
+        self._cycle_errors: list[str] = []
         self._clock = clock
 
     async def tick(
@@ -92,27 +115,19 @@ class Sidecar:
         """One sync cycle against a single session.
 
         The feed read and the sweep enqueue accumulate in the open transaction; the
-        caller owns their commit. When ``commit`` is supplied, both the anchored-cohort
-        reconcile backstop (per page, #13 CR) and the outbox *drain* (per delivered
-        entry by default, or every ``outbox_commit_chunk_size`` entries, #8) commit
-        incrementally — so a slow PM never holds the transaction open across every
-        round-trip. With no ``commit`` hook the whole tick is one transaction (the
-        legacy boundary).
+        caller owns their commit. When ``commit`` is supplied, the outbox *drain*
+        (per delivered entry by default, or every ``outbox_commit_chunk_size``
+        entries, #8) commits incrementally — so a slow PM never holds the transaction
+        open across every round-trip. With no ``commit`` hook the whole tick is one
+        transaction (the legacy boundary).
 
-        The subscription re-discovery backstop is NOT run here — it runs in its own
-        session via :meth:`run_cycle` so a discovery/PM failure cannot roll back or
+        Neither the subscription re-discovery backstop nor the per-descriptor
+        reconciles run here — each runs in its own session via :meth:`run_cycle`
+        (#85), so a discovery/PM failure or one poison entity cannot roll back or
         starve the feed/sweep/drain in this transaction.
         """
-        # Reads: incremental feed first, then due reconcile backstops. Jurisdictions
-        # run none (subscription feed + discovery only); the cohort producers run the
-        # bounded anchored-cohort backstop (re-fetch our anchored rows → recover dropped
-        # feed events, usa-wa#13); the full-list backstop is sibling-only.
+        # Read: the incremental feed (the real-time path).
         await self._engine.process_feed(session, now=now)
-        for descriptor in self._descriptors:
-            if await self._reconcile_due(session, descriptor, now):
-                # Pass the commit hook so a large cohort backstop commits per page
-                # rather than holding one transaction across every PM round-trip (#13 CR).
-                await self._engine.reconcile(session, descriptor, now=now, commit=commit)
         # Writes: enqueue un-anchored rows, then deliver.
         for descriptor in self._descriptors:
             if descriptor.write_enabled:
@@ -121,50 +136,111 @@ class Sidecar:
             session, now=now, commit=commit, chunk_size=self._outbox_commit_chunk_size
         )
 
-    async def run_cycle(self) -> None:
-        """Run one isolated cycle: own session, commit on success, rollback on error.
+    async def run_cycle(self) -> bool:
+        """Run one isolated cycle; return the cycle verdict (True = fully clean).
 
-        The re-discovery backstop runs first in its OWN session (:meth:`_run_backstop`),
-        so a discovery/PM failure is contained there and the main tick (feed → sweep →
-        drain) still runs against already-registered subscriptions.
+        Component order: catalog sync → re-discovery backstop → per-descriptor
+        reconciles → main tick (feed → sweep → drain). Each component runs in its
+        own session + error boundary, so any one failing leaves the rest running.
+        Containment must not defeat the retry-pressure signal (#85): any contained
+        component failure flips the verdict to False, which :meth:`run_forever`
+        turns into exponential backoff + streak alerting.
         """
         now = self._clock()
-        await self._run_catalog_sync(now)
-        await self._run_backstop(now)
+        self._cycle_errors = []
+        ok = await self._run_catalog_sync(now)
+        ok = await self._run_backstop(now) and ok
+        ok = await self._run_reconciles(now) and ok
         async with self._session_factory() as session:
             try:
                 # The drain commits incrementally via this hook (#8); the trailing
                 # commit covers the read/sweep work and any sub-chunk drain remainder.
                 await self.tick(session, now=now, commit=session.commit)
                 await session.commit()
-            except Exception:
+            except Exception as exc:
                 await session.rollback()
                 logger.exception("sidecar_cycle_failed")
+                self._cycle_errors.append(f"tick: {exc!r}")
+                ok = False
+        return ok
 
-    async def _run_catalog_sync(self, now: datetime) -> None:
+    async def _run_reconciles(self, now: datetime) -> bool:
+        """Run each due descriptor's reconcile in its own session + error boundary.
+
+        The #84 amplification fix (#85 fix 1): the assignment descriptor's poison
+        entity rolled back the whole tick — the other descriptors' reconcile stamps,
+        the feed cursor — and aborted before the drain. Here a raising reconcile is
+        contained to its descriptor: its own session rolls back (the context manager
+        discards uncommitted work), the others' reconciles commit, and the tick still
+        runs. The failed descriptor's stream stays unstamped, so it is due again next
+        cycle — retry frequency is bounded by :meth:`run_forever`'s backoff, not here.
+
+        Returns False if any descriptor's reconcile failed (the cycle-verdict signal).
+        """
+        ok = True
+        for descriptor in self._descriptors:
+            try:
+                async with self._session_factory() as session:
+                    await self.run_descriptor_reconcile(session, descriptor, now=now)
+            except Exception as exc:
+                logger.exception(
+                    "sidecar_reconcile_failed",
+                    extra={"entity_type": descriptor.entity_type},
+                )
+                self._cycle_errors.append(f"reconcile:{descriptor.entity_type}: {exc!r}")
+                ok = False
+        return ok
+
+    async def run_descriptor_reconcile(
+        self, session: AsyncSession, descriptor: EntityDescriptor, *, now: datetime
+    ) -> bool:
+        """Due-check → reconcile backstop → commit, on the given ``session``.
+
+        Returns True if the reconcile was due and ran. Jurisdictions run none
+        (subscription feed + discovery only); the cohort producers run the bounded
+        anchored-cohort backstop (re-fetch our anchored rows → recover dropped feed
+        events, usa-wa#13); the full-list backstop is sibling-only. The commit hook
+        bounds the open transaction to one page of PM round-trips (#13 CR); the
+        trailing commit persists the reconcile stamp. Separated from
+        :meth:`_run_reconciles` as the testable seam (the ``run_subscription_backstop``
+        pattern); production calls it via ``_run_reconciles``, which adds the session
+        isolation + error containment.
+        """
+        if not await self._reconcile_due(session, descriptor, now):
+            return False
+        await self._engine.reconcile(session, descriptor, now=now, commit=session.commit)
+        await session.commit()
+        return True
+
+    async def _run_catalog_sync(self, now: datetime) -> bool:
         """Refresh the role-type catalog mirror in its own session + error boundary.
 
         Runs on the first cycle and thereafter on ``catalog_sync_cadence`` (in-memory).
         Isolated like :meth:`_run_backstop` so a catalog-fetch/PM failure can't roll back
         or starve the main tick; a failure leaves the cadence unstamped so the next cycle
         retries promptly. The mirror gates seat observations (:class:`RoleDescriptor`), so
-        a stale-but-present mirror is safe — seats simply keep flowing on the last catalog."""
+        a stale-but-present mirror is safe — seats simply keep flowing on the last catalog.
+
+        Returns False on a contained failure (the cycle-verdict signal, #85)."""
         if self._catalog_sync is None:
-            return
+            return True
         if (
             self._last_catalog_sync is not None
             and now - self._last_catalog_sync < self._catalog_sync_cadence
         ):
-            return
+            return True
         try:
             async with self._session_factory() as session:
                 await self._catalog_sync(session)
                 await session.commit()
             self._last_catalog_sync = now
-        except Exception:
+            return True
+        except Exception as exc:
             logger.exception("role_type_catalog_sync_failed")
+            self._cycle_errors.append(f"catalog_sync: {exc!r}")
+            return False
 
-    async def _run_backstop(self, now: datetime) -> None:
+    async def _run_backstop(self, now: datetime) -> bool:
         """Run the due re-discovery backstop in its own session + error boundary.
 
         Isolated from :meth:`run_cycle`'s main tick so a discovery/registration failure
@@ -177,15 +253,20 @@ class Sidecar:
         propagate out of :meth:`run_cycle` to crash the daemon before the feed runs. The
         context manager rolls back any uncommitted work on close, so no explicit rollback
         is needed.
+
+        Returns False on a contained failure (the cycle-verdict signal, #85).
         """
         if self._reconciler is None:
-            return
+            return True
         try:
             async with self._session_factory() as session:
                 if await self.run_subscription_backstop(session, now=now):
                     await session.commit()
-        except Exception:
+            return True
+        except Exception as exc:
             logger.exception("subscription_backstop_failed")
+            self._cycle_errors.append(f"subscription_backstop: {exc!r}")
+            return False
 
     async def run_subscription_backstop(self, session: AsyncSession, *, now: datetime) -> bool:
         """Due-check → discover/register/backfill → stamp, on the given ``session``.
@@ -203,14 +284,53 @@ class Sidecar:
     async def run_forever(
         self, *, sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
     ) -> None:
-        """Loop cycles forever, sleeping between them."""
+        """Loop cycles forever, backing off on consecutive failures (#85).
+
+        A clean cycle sleeps ``feed_poll_seconds``. A failed cycle sleeps
+        ``max(feed_poll_seconds, backoff(streak))`` — the outbox retry schedule
+        (60s base, doubling, 1h cap) — so a deterministic poison entity retries
+        hourly, not every poll (the #84 amplification: ~2.6 min forever). A success
+        resets the streak.
+
+        At ``failure_alert_threshold`` consecutive failures the injected ``alert``
+        callable emails the operator once — no repeat while the streak continues;
+        a clean cycle re-arms it. A failed send is swallowed (never crash the loop
+        being watched); the failure is already in the journal.
+        """
         logger.info(
             "sidecar_started",
             extra={"entities": [d.entity_type for d in self._descriptors]},
         )
+        streak = 0
         while True:
-            await self.run_cycle()
-            await sleep(self._feed_poll_seconds)
+            ok = await self.run_cycle()
+            if ok:
+                streak = 0
+                delay = self._feed_poll_seconds
+            else:
+                streak += 1
+                if streak == self._failure_alert_threshold:
+                    await self._send_streak_alert(streak)
+                delay = max(self._feed_poll_seconds, backoff(streak).total_seconds())
+            await sleep(delay)
+
+    async def _send_streak_alert(self, streak: int) -> None:
+        """Email the operator about a failure streak; swallow send failures."""
+        if self._alert is None:
+            logger.warning("sidecar_failure_streak_unalerted", extra={"streak": streak})
+            return
+        subject = f"[usa-wa] sidecar cycle failure streak ({streak} consecutive)"
+        errors = "\n".join(self._cycle_errors) or "(no component errors captured)"
+        body = (
+            f"The PM sync sidecar has failed {streak} consecutive cycles.\n"
+            f"Retries continue with exponential backoff (1h cap); no repeat email\n"
+            f"while this streak continues — see `journalctl -u usa-wa-sync-powermap`.\n\n"
+            f"--- last cycle's component errors ---\n{errors}\n"
+        )
+        try:
+            await self._alert(subject, body)
+        except Exception:
+            logger.exception("sidecar_streak_alert_failed", extra={"streak": streak})
 
     async def _subscription_backstop_due(self, session: AsyncSession, now: datetime) -> bool:
         """Whether the in-loop re-discovery backstop should run this cycle.
