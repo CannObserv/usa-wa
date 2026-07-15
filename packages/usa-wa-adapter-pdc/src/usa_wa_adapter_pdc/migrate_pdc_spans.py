@@ -74,12 +74,9 @@ def _is_span_house(source_id: str) -> bool:
     return len(parts) == 4 and parts[1] == _KIND_HOUSE
 
 
-def _covering_span(
-    spans: Sequence[Assignment], legacy_valid_from: date | None
-) -> Assignment | None:
-    """The span whose validity window contains the legacy row's biennium start."""
-    if legacy_valid_from is None:
-        return None
+def _covering_span(spans: Sequence[Assignment], legacy_valid_from: date) -> Assignment | None:
+    """The span whose validity window contains the legacy row's biennium start
+    (``Assignment.valid_from`` is non-nullable, so the legacy start is always present)."""
     for span in spans:
         upper = span.valid_to or date.max
         if span.valid_from <= legacy_valid_from <= upper:

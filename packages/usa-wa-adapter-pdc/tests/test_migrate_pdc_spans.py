@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from ulid import ULID as _ULID
 from usa_wa_adapter_pdc import migrate_pdc_spans as migrate_module
 from usa_wa_adapter_pdc.migrate_pdc_spans import MigrationResult, migrate_pdc_spans
+from usa_wa_adapter_pdc.normalize.positions import house_seat_role_source_id
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
@@ -62,8 +63,6 @@ async def _add_person(session, mid):
 
 
 async def _add_role(session, house_org, ld, qualifier):
-    from usa_wa_adapter_pdc.normalize.positions import house_seat_role_source_id
-
     row = Role(
         source=WSL,
         source_id=house_seat_role_source_id(ld, qualifier),
@@ -136,6 +135,48 @@ async def test_legacy_row_retired_onto_covering_span_with_its_anchor(db_session,
     assert await _count(db_session, Assignment, source_id="100:chamber-house:2025-26") == 0
     await db_session.refresh(span)
     assert span.pm_assignment_id == pm_id  # anchor moved to the span
+
+
+async def test_anchor_dropped_when_covering_span_already_anchored(db_session, usa_wa, house_org):
+    """The deploy hazard the docstring warns about: the sidecar wasn't paused, so the covering
+    span already minted its **own** PM assignment before the migration ran. The legacy row's
+    anchor now differs from the span's → it can't be transferred (that would double-anchor), so
+    it's dropped (counted + warned) and the legacy row is still retired. The orphaned legacy PM
+    assignment upstream is the #80 start-date gap."""
+    person = await _add_person(db_session, 100)
+    role = await _add_role(db_session, house_org, 5, "Position 1")
+    span_pm = _ULID()
+    span = await _add_assignment(
+        db_session,
+        source_id="100:chamber-house:ld-5-position-1:2013-14",
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(2013, 1, 1),
+        valid_to=None,
+        is_active=True,
+        pm_id=span_pm,  # span already carries its own anchor
+    )
+    legacy_pm = _ULID()
+    await _add_assignment(
+        db_session,
+        source_id="100:chamber-house:2025-26",
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(2025, 1, 1),
+        valid_to=None,
+        is_active=True,
+        pm_id=legacy_pm,  # a *different* anchor than the span
+    )
+
+    result = await migrate_pdc_spans(db_session)
+
+    assert result.legacy_found == 1
+    assert result.legacy_retired == 1  # still retired
+    assert result.anchors_transferred == 0  # not transferred — span already anchored
+    assert result.anchors_dropped == 1  # legacy anchor dropped (orphaned upstream)
+    assert await _count(db_session, Assignment, source_id="100:chamber-house:2025-26") == 0
+    await db_session.refresh(span)
+    assert span.pm_assignment_id == span_pm  # span keeps its own anchor, unchanged
 
 
 async def test_shallow_state_nothing_stranded(db_session, usa_wa, house_org):

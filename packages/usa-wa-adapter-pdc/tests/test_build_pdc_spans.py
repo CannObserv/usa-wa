@@ -36,7 +36,7 @@ async def wsl_source(db_session, usa_wa):
 
 @pytest.fixture
 async def pdc_source(db_session, usa_wa):
-    row = Source(jurisdiction_id=usa_wa.id, name="PDC", slug="usa_wa_pdc", kind="soda")
+    row = Source(jurisdiction_id=usa_wa.id, name="PDC", slug="usa_wa_pdc", kind="rest")
     db_session.add(row)
     await db_session.flush()
     return row

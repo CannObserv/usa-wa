@@ -8,6 +8,7 @@ so the query joins ``RawPayload``.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -18,7 +19,7 @@ from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, S
 
 @pytest.fixture
 async def pdc_source(db_session, usa_wa):
-    row = Source(jurisdiction_id=usa_wa.id, name="PDC", slug="usa_wa_pdc", kind="soda")
+    row = Source(jurisdiction_id=usa_wa.id, name="PDC", slug="usa_wa_pdc", kind="rest")
     db_session.add(row)
     await db_session.flush()
     return row
@@ -52,8 +53,6 @@ async def _archive(
 
 
 def _rows(*ids):
-    import json
-
     return json.dumps([{"person_id": str(i)} for i in ids]).encode()
 
 

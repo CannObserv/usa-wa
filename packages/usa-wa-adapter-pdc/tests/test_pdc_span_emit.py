@@ -58,7 +58,7 @@ async def _add_person(session, mid):
 
 async def _house_winner_events(session, usa_wa, years):
     """One archived house-winners:<Y> FetchEvent per election year; return {biennium: target}."""
-    source = Source(jurisdiction_id=usa_wa.id, name="PDC", slug="usa_wa_pdc", kind="soda")
+    source = Source(jurisdiction_id=usa_wa.id, name="PDC", slug="usa_wa_pdc", kind="rest")
     session.add(source)
     await session.flush()
     out = {}

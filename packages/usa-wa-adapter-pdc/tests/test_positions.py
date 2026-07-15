@@ -8,6 +8,8 @@ from usa_wa_adapter_pdc.normalize.positions import (
     canonical_position,
     fold_token,
     house_seat_role_source_id,
+    house_span_discriminator,
+    parse_house_span_discriminator,
     pdc_person_identifier_source_id,
     surname_match_set,
 )
@@ -79,11 +81,6 @@ def test_surname_match_set_excludes_non_matching_surname() -> None:
 
 
 def test_house_span_discriminator_round_trips() -> None:
-    from usa_wa_adapter_pdc.normalize.positions import (
-        house_span_discriminator,
-        parse_house_span_discriminator,
-    )
-
     disc = house_span_discriminator(5, "Position 1")
     assert ":" not in disc  # colon-free so the 4-part span source_id stays parseable
     assert disc == "ld-5-position-1"
