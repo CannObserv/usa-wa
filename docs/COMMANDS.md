@@ -176,6 +176,14 @@ python -m usa_wa_sync_powermap.backfill_contact_labels
 # GetActiveCommittees), guarded by an empty-pull abort + a cohort floor (--max-absent-fraction,
 # default 0.34) so a partial WSL pull can't mass-retire. Skips archived/deleted/unanchored;
 # emit-only (PM mirrors `active` back). Idempotent.
+# Live-era scoping (#90): the diff is restricted to committees whose WSL Id appears in the
+# current OR immediately-prior biennium roster (present_ids ∪ prior_ids; the prior roster's
+# raw Ids read archive-first via CommitteeRosterCohortProvider). The historical committee
+# backfill (harvest_committees, model A) added ~152 defunct-era committee orgs, all defaulting
+# active=true; absent from the current roster they'd read as a mass retirement and trip the
+# floor every run. Scoping drops them before the diff (counted `scoped_out`) while a genuine
+# prior-biennium retirement (in prior, gone from current) still fires. Retirement window is
+# one biennium — a multi-biennium reconcile outage strands a vanished committee active=true.
 # Prod runs this weekly (Sun 07:00 UTC) via usa-wa-reconcile-committee-active.timer (#48).
 # --dry-run previews the diff. Biennium: --biennium, else USA_WA_BIENNIUM, else current date.
 # Exit codes: 0 clean; 1 some rows rejected/failed; 2 auth block; 3 guardrail abort.

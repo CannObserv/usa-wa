@@ -73,13 +73,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.provenance import Source
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.queries import live_only
 from clearinghouse_sync_powermap.client import DeliveryBlockedError, PayloadRejectedError
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.engine import TRANSIENT_EXCEPTIONS
 from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
-from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
 from usa_wa_adapter_legislature.refresh import biennium_for_date
 from usa_wa_adapter_legislature.synthesis import previous_biennium
 from usa_wa_adapter_legislature.transport import WSLClient
@@ -109,12 +109,15 @@ EXIT_ABORTED = 3
 
 
 class RosterProvider(Protocol):
-    """Biennium → ``{source_id: name}`` roster — the era-scoping input (#90).
+    """Biennium → raw committee records — the era-scoping input (#90).
 
+    Returns the *undigested* roster records (``Id``/``Name``/``Agency``/``LongName``) so
+    the prior-biennium Id set is built symmetrically with ``present_ids`` — from raw
+    ``Id``s, not a name-filtered cohort (which drops blank-``LongName`` committees).
     Satisfied by :class:`CommitteeRosterCohortProvider` (archive-first, so a closed prior
     biennium is a cache hit, not a WSL re-pull)."""
 
-    async def cohort(self, biennium: str) -> dict[str, str]: ...
+    async def roster_records(self, biennium: str) -> list[dict[str, Any]]: ...
 
 
 async def _produced_committee_cohort(session: AsyncSession) -> list[Organization]:
@@ -208,6 +211,13 @@ async def reconcile_committee_active(
     prior roster but gone from the current one). Without a provider the whole produced
     cohort is diffed (legacy behavior).
 
+    **Retirement window is one biennium.** A committee is retired the biennium it first
+    goes absent (it is still in the *prior* roster then). If this reconcile does not run
+    for a whole biennium, a committee that vanished falls out of *both* the current and
+    prior rosters and is scoped out — left ``active=true`` until a bulk one-shot corrects
+    it. At the weekly cadence this gap never opens; a multi-biennium reconcile outage is
+    the only way to strand a stale-active row.
+
     Guardrails (see module docstring): an empty roster aborts (``empty_pull``); an
     absent fraction over ``max_absent_fraction`` aborts (``cohort_floor``). Both gate
     the whole run, so a suspect pull does nothing and the next clean pull self-heals
@@ -230,7 +240,8 @@ async def reconcile_committee_active(
     full_cohort = await _produced_committee_cohort(session)
     if roster_provider is not None:
         prior = previous_biennium(biennium)
-        prior_ids = set((await roster_provider.cohort(prior)).keys())
+        prior_records = await roster_provider.roster_records(prior)
+        prior_ids = {str(r["Id"]) for r in prior_records if r.get("Id") is not None}
         era_ids = present_ids | prior_ids
         cohort = [c for c in full_cohort if c.source_id in era_ids]
     else:
@@ -329,12 +340,19 @@ async def _build_roster_provider(
 ) -> CommitteeRosterCohortProvider:
     """The archive-first prior-roster provider for era scoping (#90).
 
-    Bound to the WSL provenance source so a closed prior biennium is a cache hit on the
-    ``committees-roster:<biennium>`` archive (written by ``harvest_committees``), not a
-    fresh ``GetCommittees`` pull; an un-harvested biennium falls back to a live pull."""
-    jurisdiction = await resolve_jurisdiction(session)
-    source = await get_or_create_source(session, jurisdiction)
-    return CommitteeRosterCohortProvider(wsl_client, session=session, source_id=source.id)
+    Bound to the WSL provenance source (``source_id``) so a closed prior biennium is a
+    cache hit on the ``committees-roster:<biennium>`` archive (written by
+    ``harvest_committees``), not a fresh ``GetCommittees`` pull.
+
+    A **read-only** lookup, not get-or-create: this reconcile never commits (PM is
+    authority for ``active`` and mirrors it back), so it has no business provisioning the
+    Source. If the Source is somehow absent (a DB that never ran a WSL pull), the provider
+    gets ``source_id=None`` and simply live-pulls every biennium — no archive to read."""
+    source = (
+        await session.execute(select(Source).where(Source.slug == _SOURCE))
+    ).scalar_one_or_none()
+    source_id = source.id if source is not None else None
+    return CommitteeRosterCohortProvider(wsl_client, session=session, source_id=source_id)
 
 
 async def _run(args: argparse.Namespace) -> dict:

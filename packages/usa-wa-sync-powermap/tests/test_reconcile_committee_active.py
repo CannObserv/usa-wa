@@ -43,15 +43,15 @@ class _FakeWSL:
 
 
 class _FakeRosterProvider:
-    """Stub prior-roster provider — maps a biennium to its ``{source_id: name}`` cohort."""
+    """Stub prior-roster provider — maps a biennium to its raw committee records."""
 
-    def __init__(self, cohorts):
-        self._cohorts = cohorts
+    def __init__(self, rosters):
+        self._rosters = rosters
         self.calls = []
 
-    async def cohort(self, biennium):
+    async def roster_records(self, biennium):
         self.calls.append(biennium)
-        return dict(self._cohorts.get(biennium, {}))
+        return list(self._rosters.get(biennium, []))
 
 
 class _FakePM:
@@ -296,7 +296,7 @@ async def test_historical_cohort_does_not_trip_cohort_floor(db_session, usa_wa):
 
     wsl = _FakeWSL(_roster("A", "B", "C"))
     provider = _FakeRosterProvider(
-        {"2023-24": {"A": "A", "B": "B", "C": "C", "D": "D"}}  # prior roster: A–D
+        {"2023-24": _roster("A", "B", "C", "D")}  # prior roster: A–D
     )
     pm = _FakePM()
 
@@ -326,7 +326,7 @@ async def test_defunct_era_committee_is_never_retired(db_session, usa_wa):
     await _add_committee(db_session, source_id="A", anchor=ULID())  # present
     await _add_committee(db_session, source_id="OLD", anchor=ULID())  # defunct, active
     wsl = _FakeWSL(_roster("A"))
-    provider = _FakeRosterProvider({"2023-24": {"A": "A"}})  # OLD in neither roster
+    provider = _FakeRosterProvider({"2023-24": _roster("A")})  # OLD in neither roster
     pm = _FakePM()
 
     summary = await reconcile_committee_active(
@@ -337,6 +337,34 @@ async def test_defunct_era_committee_is_never_retired(db_session, usa_wa):
     assert summary["scoped_out"] == 1
     assert summary["absent"] == 0
     assert summary["retired"] == 0
+
+
+async def test_prior_roster_blank_name_still_scopes_in(db_session, usa_wa):
+    """Era scoping reads the prior roster's raw records (not the name-filtered cohort), so
+    a prior-biennium committee carrying a blank ``LongName`` is still in the live era and
+    remains a retirement candidate — symmetric with how ``present_ids`` is built."""
+    await _add_committee(db_session, source_id="A", anchor=ULID())  # present
+    await _add_committee(db_session, source_id="B", anchor=ULID())  # prior (blank name), now gone
+    wsl = _FakeWSL(_roster("A"))
+    # B appears in the prior roster with a blank LongName (dropped by the cohort, kept raw).
+    provider = _FakeRosterProvider({"2023-24": [{"Id": "A", "LongName": "A"}, {"Id": "B"}]})
+    pm = _FakePM()
+
+    # 1 absent of 2 active would trip the default floor; this test is about scoping, not
+    # the floor (as with the other happy-path retirement tests), so permit it.
+    summary = await reconcile_committee_active(
+        db_session,
+        OrganizationDescriptor(),
+        wsl,
+        pm,
+        biennium="2025-26",
+        roster_provider=provider,
+        max_absent_fraction=1.0,
+    )
+
+    assert summary["scoped_out"] == 0  # B not dropped despite the blank name
+    assert summary["absent"] == 1
+    assert summary["retired"] == 1
 
 
 async def test_no_provider_leaves_cohort_unscoped(db_session, usa_wa):
