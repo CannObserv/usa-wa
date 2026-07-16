@@ -34,7 +34,7 @@ from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
 )
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
-from usa_wa_adapter_legislature.span_emit import CitationTarget
+from usa_wa_adapter_legislature.span_emit import CitationTarget, close_stale_spans
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.tenure_spans import Observation, build_tenure_spans
@@ -47,6 +47,7 @@ from usa_wa_adapter_pdc.normalize.pdc_matching import (
     build_senate_roster,
 )
 from usa_wa_adapter_pdc.normalize.pdc_observations import (
+    KIND_HOUSE,
     build_house_position_observations,
     build_senate_identity_links,
 )
@@ -54,6 +55,7 @@ from usa_wa_adapter_pdc.normalize.pdc_span_emit import (
     emit_house_position_spans,
     emit_pdc_identifiers,
 )
+from usa_wa_adapter_pdc.normalize.positions import PDC_SOURCE
 from usa_wa_adapter_pdc.pdc_cohort import PdcWinnerCohortProvider
 from usa_wa_adapter_pdc.provisioning import get_or_create_source as get_or_create_pdc_source
 
@@ -179,6 +181,15 @@ async def build_pdc_spans(
         fetch_events=fetch_events,
     )
     result.identifiers = await emit_pdc_identifiers(session, identifiers)
+    # #83: a departed member keeps no observation in the rebuilt (possibly restricted) set,
+    # so their open chamber-house span would stay is_active forever — close it.
+    closed = await close_stale_spans(
+        session,
+        assignment_source=PDC_SOURCE,
+        kinds={KIND_HOUSE},
+        asserted_source_ids={s.source_id for s in spans},
+        current_biennium=current,
+    )
     logger.info(
         "pdc_span_build_complete",
         extra={
@@ -186,6 +197,7 @@ async def build_pdc_spans(
             "senate_years": result.senate_years,
             "house_spans": result.house_spans,
             "identifiers": result.identifiers,
+            "closed_stale": closed,
             "restricted": restrict_to_biennium,
         },
     )

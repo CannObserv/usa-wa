@@ -26,8 +26,8 @@ Direct session writes (Phase-B derived rows, like the reconcilers/heal) — no A
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from datetime import datetime
+from collections.abc import Awaitable, Callable, Collection
+from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +37,7 @@ from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import Citation, FetchEvent
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from usa_wa_adapter_legislature.harvest_committee_meetings import bienniums_in_range
+from usa_wa_adapter_legislature.synthesis import parse_biennium
 from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
 logger = get_logger(__name__)
@@ -89,6 +90,67 @@ async def emit_spans(
         await _ensure_citations(session, assignment, span, reliability, citation_target)
         emitted += 1
     return emitted
+
+
+async def close_stale_spans(
+    session: AsyncSession,
+    *,
+    assignment_source: str,
+    kinds: Collection[str],
+    asserted_source_ids: Collection[str],
+    current_biennium: str,
+) -> int:
+    """Close open span Assignments the rebuild no longer asserts; return the count (#83).
+
+    The restricted daily re-drive rebuilds only members observed in the current biennium, so
+    a departed member (or a sitting member who left a committee, or a superseded-wire orphan)
+    is never rebuilt and their open row would stay ``is_active=True`` forever. This sweep
+    closes every ``is_active`` Assignment of ``assignment_source`` whose span ``source_id``
+    (4-part ``{member}:{kind}:{discriminator}:{start}``) carries one of the builder's
+    ``kinds`` but was **not** in this run's built span set — set ``is_active=False`` and
+    ``valid_to`` = Dec 31 of the biennium before ``current_biennium`` (clamped to
+    ``valid_from`` for a span that started in the current biennium).
+
+    The valid_to derivation rests on the daily cadence: a member's last rebuilt biennium is
+    ``current - 1``. If the re-drive skipped a boundary, the close date lands late — the next
+    unrestricted rebuild self-corrects (spans upsert on ``source_id``). An **empty** asserted
+    set aborts the sweep (an empty archive read must not read as mass departure). Non-4-part
+    (legacy) source_ids are never touched."""
+    if not asserted_source_ids:
+        logger.warning(
+            "stale_span_sweep_skipped_empty_assertion",
+            extra={"assignment_source": assignment_source, "kinds": sorted(kinds)},
+        )
+        return 0
+    prior_end = date(parse_biennium(current_biennium)[0] - 1, 12, 31)
+    asserted = set(asserted_source_ids)
+    kind_set = set(kinds)
+    open_rows = (
+        (
+            await session.execute(
+                select(Assignment).where(
+                    Assignment.source == assignment_source, Assignment.is_active.is_(True)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    closed = 0
+    for row in open_rows:
+        parts = row.source_id.split(":")
+        if len(parts) != 4 or parts[1] not in kind_set or row.source_id in asserted:
+            continue
+        row.is_active = False
+        row.valid_to = max(prior_end, row.valid_from) if row.valid_from else prior_end
+        closed += 1
+        logger.info(
+            "stale_span_closed",
+            extra={"source_id": row.source_id, "valid_to": row.valid_to.isoformat()},
+        )
+    if closed:
+        await session.flush()
+    return closed
 
 
 async def resolve_person(

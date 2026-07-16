@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
-from usa_wa_adapter_legislature.span_emit import emit_spans, resolve_person
+from usa_wa_adapter_legislature.span_emit import close_stale_spans, emit_spans, resolve_person
 from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
 CURRENT = "2025-26"
@@ -169,3 +169,127 @@ async def test_default_source_is_legislature_for_existing_callers(db_session, us
         .scalars()
         .all()
     )  # cited
+
+
+# --- close_stale_spans (#83) -------------------------------------------------------------
+
+
+async def _open_assignment(session, usa_wa, source_id, *, source="usa_wa_legislature", frm=None):
+    """An open (is_active, valid_to NULL) Assignment row, as a prior daily run left it."""
+    person = Person(source="usa_wa_legislature", source_id=source_id.split(":")[0], name_full="M")
+    session.add(person)
+    await session.flush()
+    role = (
+        await session.execute(select(Role).where(Role.source_id == "seat:house:ld-5:position-1"))
+    ).scalar_one_or_none() or await _add_role(session, usa_wa)
+    row = Assignment(
+        source=source,
+        source_id=source_id,
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=frm or date(2021, 1, 1),
+        valid_to=None,
+        is_active=True,
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def test_close_stale_spans_closes_unasserted_open_row(db_session, usa_wa):
+    """An open span the rebuild no longer asserts (departed member) closes at the end of the
+    biennium before the current one (#83)."""
+    row = await _open_assignment(db_session, usa_wa, "100:party:democratic:2021-22")
+
+    closed = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"party", "chamber-senate"},
+        asserted_source_ids={"200:party:democratic:2021-22"},
+        current_biennium="2027-28",
+    )
+
+    assert closed == 1
+    assert row.is_active is False
+    assert row.valid_to == date(2026, 12, 31)
+
+
+async def test_close_stale_spans_leaves_asserted_closed_other_kind_and_other_source(
+    db_session, usa_wa
+):
+    """Selectivity: asserted rows, already-closed rows, foreign kinds, and foreign sources
+    are all untouched — as is a malformed (non-4-part) legacy source_id."""
+    asserted = await _open_assignment(db_session, usa_wa, "100:party:democratic:2021-22")
+    already_closed = await _open_assignment(db_session, usa_wa, "300:party:republican:2019-20")
+    already_closed.is_active = False
+    already_closed.valid_to = date(2020, 12, 31)
+    other_kind = await _open_assignment(db_session, usa_wa, "400:committee:31635:2021-22")
+    other_source = await _open_assignment(
+        db_session, usa_wa, "500:party:democratic:2021-22", source="usa_wa_pdc"
+    )
+    legacy_3part = await _open_assignment(db_session, usa_wa, "600:party:2021-22")
+    await db_session.flush()
+
+    closed = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"party", "chamber-senate"},
+        asserted_source_ids={"100:party:democratic:2021-22"},
+        current_biennium="2027-28",
+    )
+
+    assert closed == 0
+    assert asserted.is_active is True and asserted.valid_to is None
+    assert already_closed.valid_to == date(2020, 12, 31)
+    assert other_kind.is_active is True
+    assert other_source.is_active is True
+    assert legacy_3part.is_active is True
+
+
+async def test_close_stale_spans_clamps_valid_to_at_valid_from(db_session, usa_wa):
+    """A span that started in the current biennium and vanished (superseded-wire orphan)
+    closes at its own valid_from, never before it."""
+    row = await _open_assignment(
+        db_session, usa_wa, "100:party:democratic:2027-28", frm=date(2027, 1, 1)
+    )
+
+    closed = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"party"},
+        asserted_source_ids={"other:party:democratic:2027-28"},
+        current_biennium="2027-28",
+    )
+
+    assert closed == 1
+    assert row.valid_to == date(2027, 1, 1)  # clamped to valid_from, not 2026-12-31
+
+
+async def test_close_stale_spans_empty_assertion_set_is_a_guarded_noop(db_session, usa_wa):
+    """An empty asserted set means the rebuild saw nothing — an anomaly that must not read
+    as mass departure. The sweep declines to close anything."""
+    row = await _open_assignment(db_session, usa_wa, "100:party:democratic:2021-22")
+
+    closed = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"party"},
+        asserted_source_ids=set(),
+        current_biennium="2027-28",
+    )
+
+    assert closed == 0
+    assert row.is_active is True
+
+
+async def test_close_stale_spans_is_idempotent(db_session, usa_wa):
+    await _open_assignment(db_session, usa_wa, "100:party:democratic:2021-22")
+    kwargs = dict(
+        assignment_source="usa_wa_legislature",
+        kinds={"party"},
+        asserted_source_ids={"200:party:democratic:2021-22"},
+        current_biennium="2027-28",
+    )
+
+    assert await close_stale_spans(db_session, **kwargs) == 1
+    assert await close_stale_spans(db_session, **kwargs) == 0  # already closed — nothing left

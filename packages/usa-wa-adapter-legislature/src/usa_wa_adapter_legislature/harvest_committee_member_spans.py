@@ -28,10 +28,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging, get_logger
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.committee_membership_observations import (
+    KIND_COMMITTEE,
     build_committee_membership_observations,
 )
 from usa_wa_adapter_legislature.committee_span_emit import emit_committee_spans
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
+from usa_wa_adapter_legislature.span_emit import SOURCE, close_stale_spans
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
@@ -54,7 +56,11 @@ async def build_committee_member_spans(
     in that biennium's rosters** — the daily refresh passes the current biennium so it
     re-asserts only today's memberships (each with its *full* cross-biennium history), rather
     than rebuilding every member's whole committee archive every day. ``None`` (the harvest
-    path) rebuilds all."""
+    path) rebuilds all.
+
+    Either way, memberships the rebuilt set no longer asserts are **closed** (#83,
+    :func:`~usa_wa_adapter_legislature.span_emit.close_stale_spans`) — a member who left the
+    committee (or the legislature) must not keep an ``is_active`` row forever."""
     jurisdiction = await resolve_jurisdiction(session)
     source = await get_or_create_source(session, jurisdiction)
     current = current_biennium or biennium_for_date(datetime.now(UTC).date())
@@ -81,12 +87,20 @@ async def build_committee_member_spans(
     emitted = await emit_committee_spans(
         session, spans, reliability=source.reliability, fetch_events=fetch_events
     )
+    closed = await close_stale_spans(
+        session,
+        assignment_source=SOURCE,
+        kinds={KIND_COMMITTEE},
+        asserted_source_ids={s.source_id for s in spans},
+        current_biennium=current,
+    )
     logger.info(
         "committee_member_span_build_complete",
         extra={
             "rosters": len(rosters),
             "spans": len(spans),
             "emitted": emitted,
+            "closed_stale": closed,
             "restricted": restrict_to_biennium,
         },
     )

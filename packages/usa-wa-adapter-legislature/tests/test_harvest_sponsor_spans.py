@@ -173,3 +173,59 @@ async def test_restrict_to_biennium_scopes_rebuild_to_current_cohort(
         for a in (await db_session.execute(select(Assignment))).scalars().all()
     }
     assert members_with_spans == {"100"}
+
+
+async def test_restricted_rebuild_closes_departed_members_open_spans(
+    db_session, usa_wa, wsl_source
+):
+    """#83: a departed member's open spans (left by an earlier build) are closed by the
+    restricted re-drive — is_active=False, valid_to = end of the biennium before current —
+    instead of staying open forever."""
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_ld(db_session, usa_wa, 9)
+    for mid in (100, 200):
+        db_session.add(
+            Person(source="usa_wa_legislature", source_id=str(mid), name_full=f"Member {mid}")
+        )
+    await db_session.flush()
+    await _archive(db_session, wsl_source, "2023-24", b"<b:2023-24>")
+    client = _WireMappingSponsorClient(
+        {
+            "2023-24": [_member(100, district="5"), _member(200, district="9")],
+            "2025-26": [_member(100, district="5")],
+        }
+    )
+
+    # Sitting-era build: both members' spans open (end == current 2023-24).
+    await build_sponsor_spans(db_session, sponsor_client=client, current_biennium="2023-24")
+    departed_seat = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "200:chamber-senate:9:2023-24")
+        )
+    ).scalar_one()
+    assert departed_seat.is_active is True and departed_seat.valid_to is None
+
+    # New biennium: 200 departed. The restricted daily re-drive must close their spans.
+    await _archive(db_session, wsl_source, "2025-26", b"<b:2025-26>")
+    await build_sponsor_spans(
+        db_session,
+        sponsor_client=client,
+        current_biennium="2025-26",
+        restrict_to_biennium="2025-26",
+    )
+
+    assert departed_seat.is_active is False
+    assert departed_seat.valid_to == date(2024, 12, 31)
+    departed_party = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "200:party:democratic:2023-24")
+        )
+    ).scalar_one()
+    assert departed_party.is_active is False
+    # the sitting member's span stays open
+    sitting = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "100:chamber-senate:5:2023-24")
+        )
+    ).scalar_one()
+    assert sitting.is_active is True and sitting.valid_to is None
