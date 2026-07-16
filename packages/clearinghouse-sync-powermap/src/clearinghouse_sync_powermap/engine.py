@@ -659,6 +659,10 @@ class SyncEngine:
         # dependents whose ``next_attempt_at`` sorts earlier starves the root out of
         # the cut forever (attempts frozen). ``_drain_priority`` maps each entity
         # type to its registry index; an unknown type (no descriptor) sorts last.
+        # ``id`` is the final tiebreak so same-tier, same-``next_attempt_at`` entries
+        # (a bulk produce clusters thousands) order stably cycle-to-cycle rather than
+        # by nondeterministic physical order — the ULID id also roughly encodes
+        # enqueue time, so the tiebreak is FIFO-ish within the tie.
         order_by: list[Any] = []
         if self._drain_priority:  # case({}) is illegal; empty registry drains nothing anyway
             order_by.append(
@@ -669,6 +673,7 @@ class SyncEngine:
                 )
             )
         order_by.append(OutboxEntry.next_attempt_at)
+        order_by.append(OutboxEntry.id)
         return (
             (
                 await session.execute(
