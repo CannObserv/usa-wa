@@ -25,8 +25,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging, get_logger
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
+from usa_wa_adapter_legislature.span_emit import SOURCE, close_stale_spans
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
-from usa_wa_adapter_legislature.sponsor_observations import build_sponsor_observations
+from usa_wa_adapter_legislature.sponsor_observations import (
+    KIND_PARTY,
+    KIND_SENATE,
+    build_sponsor_observations,
+)
 from usa_wa_adapter_legislature.sponsor_span_emit import emit_sponsor_spans
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
@@ -53,7 +58,11 @@ async def build_sponsor_spans(
     cohort (their full span history, not just the current run), rather than rebuilding every
     member's whole archive every day (#78-2c). Each scoped member keeps their *full*
     cross-biennium span history; only members absent from that biennium are skipped. ``None``
-    (the harvest / migration path) rebuilds all members."""
+    (the harvest / migration path) rebuilds all members.
+
+    Either way, spans the rebuilt set no longer asserts are **closed** (#83,
+    :func:`~usa_wa_adapter_legislature.span_emit.close_stale_spans`) — a departed member's
+    open row must not stay ``is_active`` forever."""
     jurisdiction = await resolve_jurisdiction(session)
     source = await get_or_create_source(session, jurisdiction)
     current = current_biennium or biennium_for_date(datetime.now(UTC).date())
@@ -77,12 +86,20 @@ async def build_sponsor_spans(
     emitted = await emit_sponsor_spans(
         session, spans, anchors=anchors, reliability=source.reliability, fetch_events=fetch_events
     )
+    closed = await close_stale_spans(
+        session,
+        assignment_source=SOURCE,
+        kinds={KIND_PARTY, KIND_SENATE},
+        asserted_source_ids={s.source_id for s in spans},
+        current_biennium=current,
+    )
     logger.info(
         "sponsor_span_build_complete",
         extra={
             "bienniums": len(bienniums),
             "spans": len(spans),
             "emitted": emitted,
+            "closed_stale": closed,
             "restricted": restrict_to_biennium,
         },
     )

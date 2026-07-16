@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import patch
 
 import pytest
@@ -267,6 +267,69 @@ async def test_daily_redrive_scopes_identifiers_to_current_members(
             .where(PersonIdentifier.source_id == "999:wa_pdc")
         )
     ).scalar() == 0
+
+
+async def test_daily_redrive_closes_departed_members_open_house_span(
+    db_session, usa_wa, wsl_source, pdc_source
+):
+    """#83, PDC: a House member who departed at the boundary keeps no observation in the
+    restricted rebuild — their open ``chamber-house`` span must be closed at the end of the
+    prior biennium, while the re-elected member's span stays open."""
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_ld(db_session, usa_wa, 9)
+    await _add_person(db_session, 100)
+    await _add_person(db_session, 200)
+    # 2022 cohort seats 2023-24: both members won.
+    await _archive(
+        db_session,
+        pdc_source,
+        "house-winners:2022",
+        _winners(("900", 5, 1, "M100 Smith"), ("800", 9, 1, "M200 Jones")),
+    )
+    await _archive(
+        db_session,
+        wsl_source,
+        "sponsors:2023-24",
+        _sponsor_wire((100, 5, "Smith", "House"), (200, 9, "Jones", "House")),
+    )
+
+    # Sitting-era build (2023-24 current): both House Position spans open.
+    await build_pdc_spans(
+        db_session, sponsor_client=_StubSponsorClient(), current_biennium="2023-24"
+    )
+    departed = (
+        await db_session.execute(
+            select(Assignment).where(
+                Assignment.source_id == "200:chamber-house:ld-9-position-1:2023-24"
+            )
+        )
+    ).scalar_one()
+    assert departed.is_active is True and departed.valid_to is None
+
+    # 2024 cohort: only 100 re-elected; 200 departed. Daily restricted re-drive.
+    await _archive(
+        db_session, pdc_source, "house-winners:2024", _winners(("900", 5, 1, "M100 Smith"))
+    )
+    await _archive(
+        db_session, wsl_source, "sponsors:2025-26", _sponsor_wire((100, 5, "Smith", "House"))
+    )
+    await build_pdc_spans(
+        db_session,
+        sponsor_client=_StubSponsorClient(),
+        current_biennium=CURRENT,
+        restrict_to_biennium=CURRENT,
+    )
+
+    assert departed.is_active is False
+    assert departed.valid_to == date(2024, 12, 31)
+    kept = (
+        await db_session.execute(
+            select(Assignment).where(
+                Assignment.source_id == "100:chamber-house:ld-5-position-1:2023-24"
+            )
+        )
+    ).scalar_one()
+    assert kept.is_active is True and kept.valid_to is None
 
 
 async def test_mid_biennium_mover_inference_end_to_end(

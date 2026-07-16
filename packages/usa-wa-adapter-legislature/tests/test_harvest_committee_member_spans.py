@@ -162,3 +162,48 @@ async def test_restrict_to_biennium_scopes_to_current_memberships(db_session, us
         for a in (await db_session.execute(select(Assignment))).scalars().all()
     }
     assert members == {"100"}
+
+
+async def test_restricted_rebuild_closes_stale_membership_of_sitting_member(
+    db_session, usa_wa, wsl_source
+):
+    """#83, the committee-switch case: member 200 is still seated but LEFT this committee at
+    the boundary — the (member, committee) pair vanishes from the current roster, so the
+    restricted re-drive must close their open membership span (not just full departures)."""
+    await _add_committee(db_session, usa_wa)
+    await _add_person(db_session, 100)
+    await _add_person(db_session, 200)
+    await _archive(db_session, wsl_source, "2023-24")
+    client = _WireMappingMemberClient(
+        {
+            ("2023-24", CID): [_member(100), _member(200)],
+            (CURRENT, CID): [_member(100)],  # 200 switched committees; still a legislator
+        }
+    )
+
+    # Sitting-era build: both memberships open.
+    await build_committee_member_spans(db_session, member_client=client, current_biennium="2023-24")
+    stale = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == f"200:committee:{CID}:2023-24")
+        )
+    ).scalar_one()
+    assert stale.is_active is True and stale.valid_to is None
+
+    # Current biennium roster no longer holds the (200, CID) pair → span must close.
+    await _archive(db_session, wsl_source, CURRENT)
+    await build_committee_member_spans(
+        db_session,
+        member_client=client,
+        current_biennium=CURRENT,
+        restrict_to_biennium=CURRENT,
+    )
+
+    assert stale.is_active is False
+    assert stale.valid_to == date(2024, 12, 31)
+    kept = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == f"100:committee:{CID}:2023-24")
+        )
+    ).scalar_one()
+    assert kept.is_active is True and kept.valid_to is None
