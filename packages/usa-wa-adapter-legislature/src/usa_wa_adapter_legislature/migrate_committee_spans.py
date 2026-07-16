@@ -19,8 +19,11 @@ CLI retires those.
 shape can't distinguish them (unlike #78-3's 3-part-vs-4-part party/Senate keys), so the span
 set itself is the discriminator. Each stranded row is mapped to the span covering its biennium
 (same ``(person_id, role_id)``, validity window containing the row's ``valid_from``) — the
-committee ``member`` Role is per-committee, so ``(person, role)`` names the membership. The PM
-anchor moves to the span; the legacy row + its citations are hard-deleted.
+committee ``member`` Role is per-committee, so ``(person, role)`` names the membership. The
+legacy row + its citations are hard-deleted **first** (freeing its anchor), and *then* the PM
+anchor is moved onto the covering span — index-safe (#95): assigning first would autoflush the
+keeper's UPDATE while the legacy row still holds the same ``pm_assignment_id``, colliding with
+``uq_assignments_pm_assignment_id`` (#86). Mirrors :func:`migrate_pdc_spans._retire_onto` (#91).
 
 **Owner role.** Retiring a row deletes its ``citations``, which the app role is REVOKEd (#54),
 so this runs under ``DATABASE_URL_OWNER`` — like :mod:`migrate_sponsor_spans`. The daily span
