@@ -1274,6 +1274,12 @@ class SyncEngine:
                 # dropped un-archive event is recovered here (#42).
                 stmt = stmt.where(descriptor.deleted_column_expr().is_(None))
             if last_id is not None:
+                # Resume trade-off (#94): rows at/below the checkpoint are skipped for the
+                # rest of this pass, so a dropped feed event on a healthy-prefix row is not
+                # re-fetched until the next *full* pass. If a row past the cursor permanently
+                # raises (the #85 boundary rolls back its page but the prefix cursor stays
+                # committed), every resume re-hits it and the prefix "freezes" — the poison
+                # row is the actionable bug (surfaced by the #85 streak alert), not this skip.
                 stmt = stmt.where(pk_col > last_id)
             stmt = stmt.order_by(pk_col).limit(self._sweep_batch_size)
             rows = (await session.execute(stmt)).scalars().all()

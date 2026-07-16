@@ -540,6 +540,13 @@ async def test_anchored_cohort_resumes_from_persisted_cursor(db_session):
     assert fetched == {rows[1][1], rows[2][1]}  # rows[0] skipped (at/below the cursor)
     assert applied == 2
 
+    # Resume → completion → clear: a resumed pass that runs to the tail clears the checkpoint
+    # too, so the cadence gate (not a stale cursor) governs the next run (#94).
+    state = (
+        await db_session.execute(select(SyncState).where(SyncState.stream == "reconcile:fake"))
+    ).scalar_one()
+    assert state.cursor is None
+
 
 async def test_anchored_cohort_skips_missing_pm_record(db_session):
     """A 404 on re-fetch (PM record gone between anchor and pass) is skipped, not
