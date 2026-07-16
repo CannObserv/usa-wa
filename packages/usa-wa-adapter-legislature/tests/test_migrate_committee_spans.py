@@ -25,9 +25,10 @@ from usa_wa_adapter_legislature.migrate_committee_spans import (
     migrate_committee_spans,
 )
 
-# This one-shot migration collapses pre-#86 duplicate-anchor rows — a state the #86
-# partial unique indexes forbid, so the fixtures reproduce the pre-index world.
-pytestmark = pytest.mark.usefixtures("drop_anchor_unique_indexes")
+# Run under the LIVE #86 partial unique indexes (as prod has them, #95) — the retire must be
+# index-safe (delete the stranded row to free its anchor *before* moving it to the keeper).
+# Only the shared-anchor case below genuinely needs a pre-index world (two rows share one
+# anchor at rest, which the index forbids), so it opts into the drop fixture per-test.
 
 CURRENT = "2025-26"
 CID = "31635"
@@ -256,6 +257,7 @@ async def test_already_anchored_span_records_the_dropped_legacy_anchor(
     assert await _count(db_session, Assignment, pm_assignment_id=legacy_anchor) == 0
 
 
+@pytest.mark.usefixtures("drop_anchor_unique_indexes")
 async def test_legacy_and_span_sharing_one_anchor_retires_cleanly(db_session, usa_wa, wsl_source):
     """PM's structural (person, role, start_date) match can fold the deepened span and its
     legacy row onto the *same* pm_assignment_id (#78-3's double-anchor case). Retiring the

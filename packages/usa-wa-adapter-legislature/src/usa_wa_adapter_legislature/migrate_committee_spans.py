@@ -172,29 +172,36 @@ async def migrate_committee_spans(
             )
             orphans += 1
             continue
-        if row.pm_assignment_id is not None:
-            if span.pm_assignment_id is None:
-                span.pm_assignment_id = row.pm_assignment_id
-                transferred += 1
-            elif span.pm_assignment_id != row.pm_assignment_id:
-                # The sidecar anchored the deepened span before this ran; retiring the legacy
-                # row strands its PM assignment upstream. Surface it (see the deploy note).
-                logger.warning(
-                    "committee_span_migrate_anchor_dropped",
-                    extra={
-                        "source_id": row.source_id,
-                        "orphaned_pm_assignment_id": str(row.pm_assignment_id),
-                        "span_pm_assignment_id": str(span.pm_assignment_id),
-                    },
-                )
-                dropped += 1
+        anchor = row.pm_assignment_id
+        # Index-safe (#95, mirroring migrate_pdc_spans._retire_onto #91): delete the stranded
+        # row — freeing its anchor — and flush BEFORE moving the anchor to the keeper. Assigning
+        # first would autoflush the keeper's UPDATE while the legacy row still holds the same
+        # pm_assignment_id, colliding with uq_assignments_pm_assignment_id (#86).
         await session.execute(
             delete(Citation).where(
                 Citation.entity_type == ASSIGNMENT_CITATION_TYPE, Citation.entity_id == row.id
             )
         )
         await session.delete(row)
+        await session.flush()
         retired += 1
+        if anchor is not None:
+            if span.pm_assignment_id is None:
+                span.pm_assignment_id = anchor
+                await session.flush()
+                transferred += 1
+            elif span.pm_assignment_id != anchor:
+                # The sidecar anchored the deepened span before this ran; retiring the legacy
+                # row strands its PM assignment upstream. Surface it (see the deploy note).
+                logger.warning(
+                    "committee_span_migrate_anchor_dropped",
+                    extra={
+                        "source_id": row.source_id,
+                        "orphaned_pm_assignment_id": str(anchor),
+                        "span_pm_assignment_id": str(span.pm_assignment_id),
+                    },
+                )
+                dropped += 1
     await session.flush()
 
     result = MigrationResult(
