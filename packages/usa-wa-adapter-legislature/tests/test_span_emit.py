@@ -293,3 +293,64 @@ async def test_close_stale_spans_is_idempotent(db_session, usa_wa):
 
     assert await close_stale_spans(db_session, **kwargs) == 1
     assert await close_stale_spans(db_session, **kwargs) == 0  # already closed — nothing left
+
+
+async def test_close_stale_spans_aborts_a_mass_close(db_session, usa_wa):
+    """#83 CR: a partial current-biennium read (e.g. a truncated roster wire archived as
+    latest) must not sweep most of the open cohort closed — over the fraction, abort all."""
+    rows = [
+        await _open_assignment(db_session, usa_wa, f"{mid}:party:democratic:2021-22")
+        for mid in range(100, 110)  # 10 open rows
+    ]
+
+    closed = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"party"},
+        asserted_source_ids={"100:party:democratic:2021-22"},  # 9/10 stale → 0.9 > 0.5
+        current_biennium="2027-28",
+    )
+
+    assert closed == 0
+    assert all(r.is_active is True for r in rows)
+
+
+async def test_close_stale_spans_fraction_guard_passes_normal_churn(db_session, usa_wa):
+    """Boundary-scale churn under the fraction closes normally, even past the small-count
+    floor: 6 of 20 stale (0.3 < 0.5) → all 6 close."""
+    rows = [
+        await _open_assignment(db_session, usa_wa, f"{mid}:party:democratic:2021-22")
+        for mid in range(100, 120)  # 20 open rows
+    ]
+    asserted = {f"{mid}:party:democratic:2021-22" for mid in range(106, 120)}  # 6 stale
+
+    closed = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"party"},
+        asserted_source_ids=asserted,
+        current_biennium="2027-28",
+    )
+
+    assert closed == 6
+    assert sum(1 for r in rows if not r.is_active) == 6
+
+
+async def test_close_stale_spans_floor_allows_small_high_fraction_closes(db_session, usa_wa):
+    """The absolute floor keeps tiny cohorts working: 2 of 3 stale is over the fraction but
+    under the floor, so both still close (a 1-member cohort must not wedge the sweep)."""
+    rows = [
+        await _open_assignment(db_session, usa_wa, f"{mid}:party:democratic:2021-22")
+        for mid in (100, 200, 300)
+    ]
+
+    closed = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"party"},
+        asserted_source_ids={"100:party:democratic:2021-22"},
+        current_biennium="2027-28",
+    )
+
+    assert closed == 2
+    assert rows[0].is_active is True and not rows[1].is_active and not rows[2].is_active

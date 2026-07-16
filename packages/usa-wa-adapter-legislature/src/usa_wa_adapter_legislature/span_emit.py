@@ -99,6 +99,8 @@ async def close_stale_spans(
     kinds: Collection[str],
     asserted_source_ids: Collection[str],
     current_biennium: str,
+    max_close_fraction: float = 0.5,
+    close_fraction_floor: int = 5,
 ) -> int:
     """Close open span Assignments the rebuild no longer asserts; return the count (#83).
 
@@ -109,13 +111,21 @@ async def close_stale_spans(
     (4-part ``{member}:{kind}:{discriminator}:{start}``) carries one of the builder's
     ``kinds`` but was **not** in this run's built span set — set ``is_active=False`` and
     ``valid_to`` = Dec 31 of the biennium before ``current_biennium`` (clamped to
-    ``valid_from`` for a span that started in the current biennium).
+    ``valid_from`` for a span that started in the current biennium). ``current_biennium``
+    must be the biennium the asserted span set was built against — a mismatched pair would
+    close everything outside the wrong cohort.
 
     The valid_to derivation rests on the daily cadence: a member's last rebuilt biennium is
     ``current - 1``. If the re-drive skipped a boundary, the close date lands late — the next
-    unrestricted rebuild self-corrects (spans upsert on ``source_id``). An **empty** asserted
-    set aborts the sweep (an empty archive read must not read as mass departure). Non-4-part
-    (legacy) source_ids are never touched."""
+    unrestricted rebuild self-corrects (spans upsert on ``source_id``). Non-4-part (legacy)
+    source_ids are never touched.
+
+    **Mass-close guards.** An **empty** asserted set aborts the sweep, and so does closing
+    more than ``max_close_fraction`` of the open rows of the swept kinds once past
+    ``close_fraction_floor`` candidates (the #44/#56 floor pattern — a truncated-but-valid
+    roster wire archived as latest must not read as mass departure, while a tiny cohort's
+    legitimate 1-of-1 close stays under the floor). A wrongly-aborted sweep self-heals: the
+    next full read re-asserts the survivors and the stale rows close then."""
     if not asserted_source_ids:
         logger.warning(
             "stale_span_sweep_skipped_empty_assertion",
@@ -136,21 +146,34 @@ async def close_stale_spans(
         .scalars()
         .all()
     )
-    closed = 0
-    for row in open_rows:
-        parts = row.source_id.split(":")
-        if len(parts) != 4 or parts[1] not in kind_set or row.source_id in asserted:
-            continue
+    in_scope = [
+        row
+        for row in open_rows
+        if len(parts := row.source_id.split(":")) == 4 and parts[1] in kind_set
+    ]
+    stale = [row for row in in_scope if row.source_id not in asserted]
+    if len(stale) > close_fraction_floor and len(stale) > max_close_fraction * len(in_scope):
+        logger.warning(
+            "stale_span_sweep_aborted_mass_close",
+            extra={
+                "assignment_source": assignment_source,
+                "kinds": sorted(kind_set),
+                "stale": len(stale),
+                "open": len(in_scope),
+                "max_close_fraction": max_close_fraction,
+            },
+        )
+        return 0
+    for row in stale:
         row.is_active = False
-        row.valid_to = max(prior_end, row.valid_from) if row.valid_from else prior_end
-        closed += 1
+        row.valid_to = max(prior_end, row.valid_from)
         logger.info(
             "stale_span_closed",
             extra={"source_id": row.source_id, "valid_to": row.valid_to.isoformat()},
         )
-    if closed:
+    if stale:
         await session.flush()
-    return closed
+    return len(stale)
 
 
 async def resolve_person(

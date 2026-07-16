@@ -140,6 +140,10 @@ python -m usa_wa_adapter_pdc.harvest_pdc --from-year 2008 --pause-seconds 0.5
 # Phase B — era-matched span build (archive-first, no live PDC pull): each cohort pairs with its
 # seating biennium's sponsor roster (2012 → 2013-14), projects House Position observations + links,
 # merges across years into usa_wa_pdc seat spans + person_wa_pdc identifiers. Idempotent.
+# Ends with the #83 stale-span sweep (chamber-house): open spans the rebuild no longer asserts are
+# closed (departed members / superseded-wire orphans) — closed_stale in the completion log, one
+# stale_span_closed line per row; closed_stale > 0 on an unrestricted run = stranded rows repaired.
+# Mass-close guard: an empty or >50% close aborts with stale_span_sweep_aborted_mass_close.
 python -m usa_wa_adapter_pdc.build_pdc_spans --dry-run
 python -m usa_wa_adapter_pdc.build_pdc_spans
 
@@ -353,6 +357,9 @@ python -m usa_wa_adapter_legislature.harvest_sponsors --from-biennium 1991-92 --
 # start (sponsor_span_emit) with a Citation per biennium in range (cite-every-biennium, #78).
 # Idempotent re-assert. Depends on the #77 harvest archiving the rosters first. --dry-run rolls
 # back. The daily refresh also re-drives this builder for the current biennium (#78-2c).
+# Ends with the #83 stale-span sweep (party + chamber-senate): open spans the rebuild no longer
+# asserts are closed (departed members) — closed_stale in the completion log; closed_stale > 0 on
+# an unrestricted run = previously-stranded rows repaired. Guarded against empty/mass closes.
 python -m usa_wa_adapter_legislature.harvest_sponsor_spans --dry-run
 python -m usa_wa_adapter_legislature.harvest_sponsor_spans
 
@@ -390,6 +397,9 @@ python -m usa_wa_adapter_legislature.harvest_committee_members --from-biennium 1
 # observations, merges contiguous biennia into one membership span bound to the committee's
 # shared `member` Role, citing each (biennium, committee) roster. A dormancy gap opens a second
 # span. Idempotent. The daily refresh re-drives this for the current cohort.
+# Ends with the #83 stale-span sweep (committee): open memberships the rebuild no longer asserts
+# are closed — a member who left the committee OR the legislature, and superseded-wire orphans.
+# closed_stale in the completion log; guarded against empty/mass closes.
 python -m usa_wa_adapter_legislature.harvest_committee_member_spans --dry-run
 python -m usa_wa_adapter_legislature.harvest_committee_member_spans
 

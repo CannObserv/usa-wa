@@ -35,7 +35,12 @@ transfer its anchor: that PM assignment is orphaned upstream (a live PM row with
 ``start_date`` and no local mirror to ever correct it). That case is counted as
 ``anchors_dropped`` and warned per row, so it is visible rather than silent — but the only way
 to avoid it is to run harvest → migrate before the sidecar sees the deepened spans. Correcting
-already-orphaned PM assignments is the start-date-correction gap tracked in #80.
+already-orphaned PM assignments is the start-date-correction gap tracked in #80. A second
+reason to keep the window tight: the daily #83 stale-span sweep
+(:func:`~usa_wa_adapter_legislature.span_emit.close_stale_spans`) treats a stranded legacy row
+as an unasserted open span and closes it — harmless for the mapping here (it matches on the
+unchanged ``valid_from``), but the row's PM anchor transiently asserts ``is_active=false``
+until the anchor transfers.
 
 Idempotent: a second pass finds no stranded rows. ``--dry-run`` rolls back.
 """
