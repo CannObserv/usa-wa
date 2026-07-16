@@ -122,9 +122,9 @@ async def migrate_sponsor_spans(
     """Build the spans, then collapse each legacy per-biennium party/Senate row onto its
     successor span (transfer the PM anchor + retire the legacy row). Returns the counts."""
     current = current_biennium or biennium_for_date(datetime.now(UTC).date())
-    spans_built = await build_sponsor_spans(
-        session, sponsor_client=sponsor_client, current_biennium=current
-    )
+    spans_built = (
+        await build_sponsor_spans(session, sponsor_client=sponsor_client, current_biennium=current)
+    ).emitted
 
     live = (
         (

@@ -16,7 +16,12 @@ from sqlalchemy import select
 
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
-from usa_wa_adapter_legislature.span_emit import close_stale_spans, emit_spans, resolve_person
+from usa_wa_adapter_legislature.span_emit import (
+    close_fraction,
+    close_stale_spans,
+    emit_spans,
+    resolve_person,
+)
 from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
 CURRENT = "2025-26"
@@ -403,3 +408,14 @@ async def test_close_stale_spans_fraction_override_permits_legitimate_mass_close
 
     assert result.aborted is False and result.closed == 9
     assert sum(1 for r in rows if not r.is_active) == 9
+
+
+def test_close_fraction_validator_accepts_the_valid_range():
+    """#83 CR round 3: the CLI flag validator — (0, 1] accepted, everything else rejected
+    (a typo'd 0 would silently make the sweep abort-everything, the opposite of intent)."""
+    assert close_fraction("0.5") == 0.5
+    assert close_fraction("1.0") == 1.0
+    assert close_fraction("1") == 1.0
+    for bad in ("0", "0.0", "-0.3", "1.5", "nan"):
+        with pytest.raises(ValueError):
+            close_fraction(bad)

@@ -479,20 +479,22 @@ async def test_max_close_fraction_threads_through_the_builder(
     await db_session.flush()
 
     # Default fraction aborts (6 of 7 open chamber-house spans stale)...
-    await build_pdc_spans(
+    result = await build_pdc_spans(
         db_session,
         sponsor_client=_StubSponsorClient(),
         current_biennium=CURRENT,
         restrict_to_biennium=CURRENT,
     )
+    assert result.sweep_aborted is True and result.closed_stale == 0
     assert all(r.is_active for r in stale)
 
     # ...the override closes them.
-    await build_pdc_spans(
+    result = await build_pdc_spans(
         db_session,
         sponsor_client=_StubSponsorClient(),
         current_biennium=CURRENT,
         restrict_to_biennium=CURRENT,
         max_close_fraction=1.0,
     )
+    assert result.sweep_aborted is False and result.closed_stale == 6
     assert all(not r.is_active for r in stale)

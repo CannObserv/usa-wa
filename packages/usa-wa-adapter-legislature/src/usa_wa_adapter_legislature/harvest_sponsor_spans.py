@@ -28,6 +28,8 @@ from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolv
 from usa_wa_adapter_legislature.span_emit import (
     MAX_CLOSE_FRACTION_DEFAULT,
     SOURCE,
+    SpanBuildResult,
+    close_fraction,
     close_stale_spans,
 )
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
@@ -51,8 +53,8 @@ async def build_sponsor_spans(
     current_biennium: str | None = None,
     restrict_to_biennium: str | None = None,
     max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
-) -> int:
-    """Build + emit merged-span Assignments from the local sponsor archive; return the count.
+) -> SpanBuildResult:
+    """Build + emit merged-span Assignments from the local sponsor archive; return the result.
 
     Archive-derived: the provider re-parses each ``sponsors:<biennium>`` offline (the
     ``sponsor_client`` is only a fallback for an un-archived biennium). ``current_biennium``
@@ -80,7 +82,7 @@ async def build_sponsor_spans(
     bienniums = await provider.archived_bienniums()
     if not bienniums:
         logger.warning("sponsor_span_build_no_archive")
-        return 0
+        return SpanBuildResult(emitted=0)
     roster = await provider.roster_map(bienniums)
     observations = build_sponsor_observations(roster)
     if restrict_to_biennium is not None:
@@ -110,7 +112,7 @@ async def build_sponsor_spans(
             "restricted": restrict_to_biennium,
         },
     )
-    return emitted
+    return SpanBuildResult(emitted=emitted, closed_stale=sweep.closed, sweep_aborted=sweep.aborted)
 
 
 async def _main(argv: list[str] | None = None) -> int:
@@ -121,10 +123,10 @@ async def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="build but roll back (preview)")
     parser.add_argument(
         "--max-close-fraction",
-        type=float,
+        type=close_fraction,
         default=MAX_CLOSE_FRACTION_DEFAULT,
-        help="mass-close guard ceiling (#83); raise to 1.0 for a deliberate mass close "
-        "(e.g. a wholesale WSL committee-Id re-key)",
+        help="mass-close guard ceiling in (0, 1] (#83); 1.0 disables the guard for a "
+        "deliberate mass close (e.g. a wholesale WSL committee-Id re-key)",
     )
     args = parser.parse_args(argv)
 
@@ -136,7 +138,7 @@ async def _main(argv: list[str] | None = None) -> int:
     engine = create_async_engine(database_url)
     try:
         async with AsyncSession(engine) as session:
-            emitted = await build_sponsor_spans(session, max_close_fraction=args.max_close_fraction)
+            result = await build_sponsor_spans(session, max_close_fraction=args.max_close_fraction)
             if args.dry_run:
                 await session.rollback()
             else:
@@ -148,7 +150,8 @@ async def _main(argv: list[str] | None = None) -> int:
         await engine.dispose()
 
     print(
-        f"Sponsor span build: emitted={emitted} "
+        f"Sponsor span build: emitted={result.emitted} closed_stale={result.closed_stale} "
+        f"sweep_aborted={result.sweep_aborted} "
         f"{'(dry-run, rolled back)' if args.dry_run else '(committed)'}"
     )
     return 0

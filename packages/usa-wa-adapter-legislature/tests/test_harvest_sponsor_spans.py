@@ -99,11 +99,11 @@ async def test_phase_b_builds_merged_spans_from_archive(db_session, usa_wa, wsl_
     await _archive(db_session, wsl_source, "2023-24", b"<r23/>")
     await _archive(db_session, wsl_source, "2025-26", b"<r25/>")
 
-    emitted = await build_sponsor_spans(
+    result = await build_sponsor_spans(
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium="2025-26"
     )
 
-    assert emitted == 2  # party + Senate seat, each merged across both archived biennia
+    assert result.emitted == 2  # party + Senate seat, merged across both archived biennia
     seat = (
         await db_session.execute(
             select(Assignment).where(Assignment.source_id == "100:chamber-senate:5:2023-24")
@@ -120,10 +120,10 @@ async def test_phase_b_builds_merged_spans_from_archive(db_session, usa_wa, wsl_
 
 
 async def test_phase_b_no_archive_emits_nothing(db_session, usa_wa, wsl_source):
-    emitted = await build_sponsor_spans(
+    result = await build_sponsor_spans(
         db_session, sponsor_client=_FakeSponsorClient([]), current_biennium="2025-26"
     )
-    assert emitted == 0
+    assert result.emitted == 0
 
 
 class _WireMappingSponsorClient:
@@ -160,7 +160,7 @@ async def test_restrict_to_biennium_scopes_rebuild_to_current_cohort(
         }
     )
 
-    emitted = await build_sponsor_spans(
+    result = await build_sponsor_spans(
         db_session,
         sponsor_client=client,
         current_biennium="2025-26",
@@ -168,7 +168,7 @@ async def test_restrict_to_biennium_scopes_rebuild_to_current_cohort(
     )
 
     # Only 100's spans (party + Senate) — 200 is absent from the 2025-26 cohort, so skipped.
-    assert emitted == 2
+    assert result.emitted == 2
     members_with_spans = {
         a.source_id.split(":")[0]
         for a in (await db_session.execute(select(Assignment))).scalars().all()
@@ -287,25 +287,28 @@ async def test_max_close_fraction_threads_through_the_builder(
     client = _FakeSponsorClient([_member(100, district="5")])
     stale = await _stale_party_rows(db_session, usa_wa, 6)
 
-    # Default fraction: 6 of 8 open rows stale → abort, surfaced in the completion log.
+    # Default fraction: 6 of 8 open rows stale → abort, surfaced in the completion log
+    # AND the returned result (the CLI prints it, #83 CR round 3).
     with caplog.at_level(logging.INFO):
-        await build_sponsor_spans(
+        result = await build_sponsor_spans(
             db_session,
             sponsor_client=client,
             current_biennium="2025-26",
             restrict_to_biennium="2025-26",
         )
     assert all(r.is_active for r in stale)  # aborted — nothing closed
+    assert result.sweep_aborted is True and result.closed_stale == 0
     completes = [r for r in caplog.records if r.getMessage() == "sponsor_span_build_complete"]
     assert completes and completes[-1].sweep_aborted is True
 
     # Operator override: raised fraction lets the legitimate mass close through.
-    await build_sponsor_spans(
+    result = await build_sponsor_spans(
         db_session,
         sponsor_client=client,
         current_biennium="2025-26",
         restrict_to_biennium="2025-26",
         max_close_fraction=1.0,
     )
+    assert result.sweep_aborted is False and result.closed_stale == 6
     assert all(not r.is_active for r in stale)
     assert all(r.valid_to == date(2024, 12, 31) for r in stale)

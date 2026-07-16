@@ -60,6 +60,26 @@ class StaleSweepOutcome:
     aborted: bool = False
 
 
+@dataclass(frozen=True)
+class SpanBuildResult:
+    """A span builder's run summary — emitted spans plus the stale-sweep outcome, so the
+    CLIs can print what the sweep did (#83 CR round 3) and the refresh can count spans."""
+
+    emitted: int
+    closed_stale: int = 0
+    sweep_aborted: bool = False
+
+
+def close_fraction(value: str) -> float:
+    """``--max-close-fraction`` argparse type: a float in ``(0, 1]``. Rejects 0/negative
+    (which would silently make the sweep abort-everything past the floor — the opposite of
+    the operator's likely intent) and > 1 (meaningless; 1.0 already disables the guard)."""
+    fraction = float(value)
+    if not 0.0 < fraction <= 1.0:
+        raise ValueError(f"must be in (0, 1], got {value!r} (1.0 disables the guard)")
+    return fraction
+
+
 #: ``(fetch_event_id, fetched_at, resource_id)`` — the archived pull attesting one biennium
 #: of a span. ``resource_id`` is the append-only citation's idempotency key.
 CitationTarget = tuple[_ULID, datetime, str]

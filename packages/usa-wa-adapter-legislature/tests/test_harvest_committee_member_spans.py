@@ -107,11 +107,11 @@ async def test_phase_b_builds_merged_membership_spans_from_archive(db_session, u
         {("2023-24", CID): [_member(100)], (CURRENT, CID): [_member(100)]}
     )
 
-    emitted = await build_committee_member_spans(
+    result = await build_committee_member_spans(
         db_session, member_client=client, current_biennium=CURRENT
     )
 
-    assert emitted == 1  # one merged membership span across both biennia
+    assert result.emitted == 1  # one merged membership span across both biennia
     row = (
         await db_session.execute(
             select(Assignment).where(Assignment.source_id == f"100:committee:{CID}:2023-24")
@@ -128,10 +128,10 @@ async def test_phase_b_builds_merged_membership_spans_from_archive(db_session, u
 
 
 async def test_phase_b_no_archive_emits_nothing(db_session, usa_wa, wsl_source):
-    emitted = await build_committee_member_spans(
+    result = await build_committee_member_spans(
         db_session, member_client=_WireMappingMemberClient({}), current_biennium=CURRENT
     )
-    assert emitted == 0
+    assert result.emitted == 0
 
 
 async def test_restrict_to_biennium_scopes_to_current_memberships(db_session, usa_wa, wsl_source):
@@ -149,14 +149,14 @@ async def test_restrict_to_biennium_scopes_to_current_memberships(db_session, us
         }
     )
 
-    emitted = await build_committee_member_spans(
+    result = await build_committee_member_spans(
         db_session,
         member_client=client,
         current_biennium=CURRENT,
         restrict_to_biennium=CURRENT,
     )
 
-    assert emitted == 1  # only member 100's membership span
+    assert result.emitted == 1  # only member 100's membership span
     members = {
         a.source_id.split(":")[0]
         for a in (await db_session.execute(select(Assignment))).scalars().all()
@@ -247,17 +247,19 @@ async def test_max_close_fraction_threads_through_the_builder(db_session, usa_wa
     await db_session.flush()
 
     # Default fraction aborts (6 of 7 open memberships stale)...
-    await build_committee_member_spans(
+    result = await build_committee_member_spans(
         db_session, member_client=client, current_biennium=CURRENT, restrict_to_biennium=CURRENT
     )
+    assert result.sweep_aborted is True and result.closed_stale == 0
     assert all(r.is_active for r in stale)
 
     # ...the override closes them.
-    await build_committee_member_spans(
+    result = await build_committee_member_spans(
         db_session,
         member_client=client,
         current_biennium=CURRENT,
         restrict_to_biennium=CURRENT,
         max_close_fraction=1.0,
     )
+    assert result.sweep_aborted is False and result.closed_stale == 6
     assert all(not r.is_active for r in stale)

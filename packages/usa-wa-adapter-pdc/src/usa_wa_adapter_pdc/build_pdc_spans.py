@@ -37,6 +37,7 @@ from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 from usa_wa_adapter_legislature.span_emit import (
     MAX_CLOSE_FRACTION_DEFAULT,
     CitationTarget,
+    close_fraction,
     close_stale_spans,
 )
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
@@ -81,6 +82,8 @@ class PdcSpanResult:
     identifiers: int = 0
     house_years: int = 0
     senate_years: int = 0
+    closed_stale: int = 0
+    sweep_aborted: bool = False
     coverage: dict[int, dict[str, int]] = field(default_factory=dict)
 
 
@@ -196,6 +199,8 @@ async def build_pdc_spans(
         current_biennium=current,
         max_close_fraction=max_close_fraction,
     )
+    result.closed_stale = sweep.closed
+    result.sweep_aborted = sweep.aborted
     logger.info(
         "pdc_span_build_complete",
         extra={
@@ -219,10 +224,10 @@ async def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="build but roll back (preview)")
     parser.add_argument(
         "--max-close-fraction",
-        type=float,
+        type=close_fraction,
         default=MAX_CLOSE_FRACTION_DEFAULT,
-        help="mass-close guard ceiling (#83); raise to 1.0 for a deliberate mass close "
-        "(e.g. a wholesale WSL committee-Id re-key)",
+        help="mass-close guard ceiling in (0, 1] (#83); 1.0 disables the guard for a "
+        "deliberate mass close (e.g. a wholesale WSL committee-Id re-key)",
     )
     args = parser.parse_args(argv)
 
@@ -248,6 +253,7 @@ async def _main(argv: list[str] | None = None) -> int:
     print(
         f"PDC span build: house_spans={result.house_spans} identifiers={result.identifiers} "
         f"house_years={result.house_years} senate_years={result.senate_years} "
+        f"closed_stale={result.closed_stale} sweep_aborted={result.sweep_aborted} "
         f"{'(dry-run, rolled back)' if args.dry_run else '(committed)'}"
     )
     return 0

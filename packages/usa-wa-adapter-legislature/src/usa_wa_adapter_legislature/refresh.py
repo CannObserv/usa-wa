@@ -180,12 +180,13 @@ async def _rebuild_committee_member_spans(
         return 0
     try:
         async with session.begin_nested():
-            return await build_committee_member_spans(
+            result = await build_committee_member_spans(
                 session,
                 member_client=member_client,
                 current_biennium=current,
                 restrict_to_biennium=current,
             )
+            return result.emitted
     except Exception:
         logger.exception("wsl_committee_span_rebuild_failed", extra={"biennium": biennium})
         return 0
@@ -212,12 +213,13 @@ async def _rebuild_member_spans(
         async with session.begin_nested():
             # Scope to the current cohort — rebuild only spans for members in today's pull
             # (their full history), not every member's whole archive every day (#78-2c CR).
-            return await build_sponsor_spans(
+            result = await build_sponsor_spans(
                 session,
                 sponsor_client=sponsor_client,
                 current_biennium=current,
                 restrict_to_biennium=current,
             )
+            return result.emitted
     except Exception:
         logger.exception("wsl_member_span_rebuild_failed", extra={"biennium": biennium})
         return 0

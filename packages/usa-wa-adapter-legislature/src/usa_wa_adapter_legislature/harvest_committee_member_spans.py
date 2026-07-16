@@ -36,6 +36,8 @@ from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolv
 from usa_wa_adapter_legislature.span_emit import (
     MAX_CLOSE_FRACTION_DEFAULT,
     SOURCE,
+    SpanBuildResult,
+    close_fraction,
     close_stale_spans,
 )
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
@@ -52,7 +54,7 @@ async def build_committee_member_spans(
     current_biennium: str | None = None,
     restrict_to_biennium: str | None = None,
     max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
-) -> int:
+) -> SpanBuildResult:
     """Build + emit merged committee-membership Assignment spans from the archive.
 
     ``current_biennium`` decides which spans stay open (defaults to the date-current one).
@@ -76,7 +78,7 @@ async def build_committee_member_spans(
     rosters = await provider.archived_rosters()
     if not rosters:
         logger.warning("committee_member_span_build_no_archive")
-        return 0
+        return SpanBuildResult(emitted=0)
 
     observations = build_committee_membership_observations(rosters)
     if restrict_to_biennium is not None:
@@ -111,7 +113,7 @@ async def build_committee_member_spans(
             "restricted": restrict_to_biennium,
         },
     )
-    return emitted
+    return SpanBuildResult(emitted=emitted, closed_stale=sweep.closed, sweep_aborted=sweep.aborted)
 
 
 async def _main(argv: list[str] | None = None) -> int:
@@ -122,10 +124,10 @@ async def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="build but roll back (preview)")
     parser.add_argument(
         "--max-close-fraction",
-        type=float,
+        type=close_fraction,
         default=MAX_CLOSE_FRACTION_DEFAULT,
-        help="mass-close guard ceiling (#83); raise to 1.0 for a deliberate mass close "
-        "(e.g. a wholesale WSL committee-Id re-key)",
+        help="mass-close guard ceiling in (0, 1] (#83); 1.0 disables the guard for a "
+        "deliberate mass close (e.g. a wholesale WSL committee-Id re-key)",
     )
     args = parser.parse_args(argv)
 
@@ -137,7 +139,7 @@ async def _main(argv: list[str] | None = None) -> int:
     engine = create_async_engine(database_url)
     try:
         async with AsyncSession(engine) as session:
-            emitted = await build_committee_member_spans(
+            result = await build_committee_member_spans(
                 session, max_close_fraction=args.max_close_fraction
             )
             if args.dry_run:
@@ -151,7 +153,8 @@ async def _main(argv: list[str] | None = None) -> int:
         await engine.dispose()
 
     print(
-        f"Committee membership span build: emitted={emitted} "
+        f"Committee membership span build: emitted={result.emitted} "
+        f"closed_stale={result.closed_stale} sweep_aborted={result.sweep_aborted} "
         f"{'(dry-run, rolled back)' if args.dry_run else '(committed)'}"
     )
     return 0
