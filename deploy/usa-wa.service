@@ -11,6 +11,10 @@ Type=simple
 User=exedev
 WorkingDirectory=/home/exedev/usa-wa
 
+# Refuse to start off a non-main checkout (#87): the enforcement behind the
+# "main is the deployed code" convention, which #84 showed is not self-enforcing.
+ExecStartPre=/home/exedev/usa-wa/scripts/assert-main-checkout.sh
+
 # Create runtime dir (runs as root before User= takes effect with + prefix)
 ExecStartPre=+/bin/bash -c 'mkdir -p /run/usa-wa && chown exedev:exedev /run/usa-wa'
 

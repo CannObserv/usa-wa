@@ -12,6 +12,10 @@ Type=simple
 User=exedev
 WorkingDirectory=/home/exedev/usa-wa
 
+# Refuse to start off a non-main checkout (#87): the enforcement behind the
+# "main is the deployed code" convention, which #84 showed is not self-enforcing.
+ExecStartPre=/home/exedev/usa-wa/scripts/assert-main-checkout.sh
+
 # Load system secrets (DATABASE_URL, POWERMAP_API_KEY, POWERMAP_BASE_URL), then
 # optional repo-local overrides. Later EnvironmentFiles override earlier ones.
 EnvironmentFile=/etc/usa-wa/.env

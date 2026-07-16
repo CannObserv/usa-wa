@@ -126,6 +126,16 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
 }
 
 
+# Shared branch guard (issue #87). Every code-running prod .service carries this
+# as an ExecStartPre so the unit refuses to start off a non-main checkout — the
+# enforcement behind the "main is the deployed code" convention #84 showed is not
+# self-enforcing. Only .service units that run repo code are guarded; the notify
+# handler (the alerting path, runs notify-failure.sh not app code) is exempt, and
+# timers can't carry ExecStartPre (they only activate their guarded .service).
+GUARD_EXEC = "/home/exedev/usa-wa/scripts/assert-main-checkout.sh"
+UNGUARDED_SERVICES = {"usa-wa-notify-failure@.service"}
+
+
 def _join_continuations(text: str) -> list[str]:
     """Fold systemd trailing-backslash line continuations into single lines."""
     lines: list[str] = []
@@ -171,6 +181,63 @@ def parse_unit_deps(path: Path) -> tuple[set[str], set[str], set[str]]:
         elif key.strip() == "OnFailure":
             on_failure.update(value.split())
     return after, before, on_failure
+
+
+def parse_exec_start_pre(path: Path) -> list[str]:
+    """Return the ExecStartPre command values from a unit's [Service] section.
+
+    Space/prefix-char handling matters: systemd allows leading `+`/`!`/`-`
+    modifiers on the executable. We compare against the bare guard path, so
+    strip a leading modifier char before returning the first token.
+    """
+    values: list[str] = []
+    section = None
+    for raw in _join_continuations(path.read_text()):
+        line = raw.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1]
+            continue
+        if section != "Service" or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        if key.strip() == "ExecStartPre":
+            values.append(value.strip())
+    return values
+
+
+def _guard_present(path: Path) -> bool:
+    for value in parse_exec_start_pre(path):
+        exe = value.lstrip("+!-").split()[0] if value else ""
+        if exe == GUARD_EXEC:
+            return True
+    return False
+
+
+def test_branch_guard_on_every_code_running_service():
+    """Every prod .service that runs repo code carries the main-branch guard (#87).
+
+    Cross-checked against the on-disk .service set (minus the exempt notify
+    handler), so a newly added service can't silently omit the guard — it either
+    carries it or is added to UNGUARDED_SERVICES as an explicit decision.
+    """
+    on_disk_services = {p.name for p in DEPLOY.glob("*.service")}
+    expected_guarded = on_disk_services - UNGUARDED_SERVICES
+    actually_guarded = {name for name in on_disk_services if _guard_present(DEPLOY / name)}
+    assert actually_guarded == expected_guarded
+
+
+def test_exempt_services_carry_no_guard():
+    """The notify handler must not carry the guard (it's the alerting path)."""
+    for name in UNGUARDED_SERVICES:
+        assert not _guard_present(DEPLOY / name)
+
+
+def test_guard_script_exists_and_is_executable():
+    script = DEPLOY.parent / "scripts" / "assert-main-checkout.sh"
+    assert script.is_file()
+    assert script.stat().st_mode & 0o111, "guard script must be executable"
 
 
 def test_every_unit_has_an_expected_entry():

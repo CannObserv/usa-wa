@@ -204,6 +204,23 @@ DDL and DML rights are split across roles so a misconfigured DSN can't migrate/d
 
 **Port 8000 belongs to systemd.** Never start uvicorn manually on port 8000.
 
+**Main-only checkout — enforced (issue #87).** The prod checkout at
+`/home/exedev/usa-wa` must stay on `main`: every code-running prod `.service`
+(serving + oneshots + migrate) carries `ExecStartPre=…/scripts/assert-main-checkout.sh`
+as its **first** `ExecStartPre`, so a unit **refuses to start** off a non-main
+(or detached) checkout — loud in the journal, and for the `OnFailure=`-wired
+oneshots an operator email. This closes the #84 hole: the PDC timer ran unmerged
+`feat/79` code purely because the repo was left checked out on that branch (the
+timer runs `uv run --frozen --no-sync` from whatever is checked out — no human
+sequencing error involved). Convention alone enforced nothing. Do **feature work
+in a git worktree** (see the `using-git-worktrees` skill), leaving the prod
+checkout on `main`. `USA_WA_DEPLOY_BRANCH` overrides the expected branch for a
+non-standard host. The notify handler (`usa-wa-notify-failure@.service`) is
+exempt (it's the alerting path); timers carry no guard (they run no code, only
+activate their guarded `.service`). `test_unit_ordering.py` asserts the guard is
+present on every code-running service and cross-checks the on-disk set, so a new
+service can't silently omit it.
+
 **Deploy convention: units never sync the venv (issue #30).** Every systemd
 entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
 `usa-wa-sync-powermap.service`, `usa-wa-wsl-refresh.service`,

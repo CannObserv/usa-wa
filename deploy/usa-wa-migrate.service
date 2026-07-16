@@ -20,6 +20,10 @@ RemainAfterExit=yes
 User=exedev
 WorkingDirectory=/home/exedev/usa-wa
 
+# Refuse to start off a non-main checkout (#87): the enforcement behind the
+# "main is the deployed code" convention, which #84 showed is not self-enforcing.
+ExecStartPre=/home/exedev/usa-wa/scripts/assert-main-checkout.sh
+
 # Pin PATH so `uv` + `psql` resolve regardless of the inherited systemd default.
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
