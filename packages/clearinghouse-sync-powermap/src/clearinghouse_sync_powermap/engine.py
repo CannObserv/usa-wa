@@ -1342,8 +1342,11 @@ class SyncEngine:
         permanent failures, because there a single poison entry must not starve the
         rest of the outbox.
         """
-        state = await self._get_or_create_state(session, CHANGES_STREAM)
-        after = _parse_after(state.cursor)
+        # Read only the cursor value before the fetch (usa-wa#89): the SyncState row
+        # acquisition (a potential INSERT + flush) is deferred to after the retried
+        # get_changes, so a 429 pause-and-resume doesn't hold uncommitted state open
+        # across the backoff sleeps (the feed runs inside the tick's transaction).
+        after = _parse_after(await self._read_cursor(session, CHANGES_STREAM))
         page = await self._read_with_retry(
             lambda: self._client.get_changes(after, limit=limit),
             log_extra={"read": "feed", "after": after},
@@ -1390,12 +1393,23 @@ class SyncEngine:
                 continue
             await self.apply_record(session, descriptor, record)
             applied += 1
+        # Acquire (get-or-create) the state row now, after the fetch — see the cursor-
+        # read note above. Unconditional to preserve the prior behaviour (the row is
+        # materialised every run, even on an empty feed).
+        state = await self._get_or_create_state(session, CHANGES_STREAM)
         if page.next_after is not None:
             state.cursor = str(page.next_after)
         await session.flush()
         return applied
 
     # --- sync-state helpers ---------------------------------------------------
+
+    async def _read_cursor(self, session: AsyncSession, stream: str) -> str | None:
+        """The stream's persisted cursor value, or None — a scalar read that does NOT
+        materialise or create the SyncState row (usa-wa#89). Lets ``process_feed`` learn
+        ``after`` before the retried fetch while deferring the row's get-or-create (a
+        possible INSERT + flush) to the post-fetch cursor write."""
+        return await session.scalar(select(SyncState.cursor).where(SyncState.stream == stream))
 
     async def _get_or_create_state(self, session: AsyncSession, stream: str) -> SyncState:
         state = (

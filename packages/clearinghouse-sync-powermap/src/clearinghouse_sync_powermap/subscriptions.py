@@ -61,8 +61,13 @@ class DiscoverySpec:
 class SubscriptionSyncReport:
     """Observability counts for one :meth:`SubscriptionReconciler.sync_subscriptions`.
 
-    ``discovered`` is the full candidate set; ``newly_subscribed`` the additive diff
-    just registered; ``backfilled`` the new rows actually written to the cache
+    ``discovered`` is the full candidate set; ``newly_subscribed`` the count PM
+    reports as *genuinely* newly registered (``add_subscriptions().registered``, not
+    ``len(new)``): under PM's under-reporting subscription pagination (power-map#297)
+    the candidate diff resurfaces already-subscribed ids every cycle, which PM returns
+    as ``already_subscribed`` — so sourcing this from PM keeps the metric honest rather
+    than pinned at the phantom-diff size; ``backfilled`` the new rows actually written
+    to the cache
     (``apply_record`` returned inserted/updated); ``backfill_skipped`` the new rows an
     update-only producer descriptor declined to mirror (a record usa-wa never produced)
     or that could not be fetched; ``already_cached`` the new rows skipped because we
@@ -115,9 +120,15 @@ class SubscriptionReconciler:
         new = [d for d in discovered if d.entity_id not in registered]
 
         not_found: set = set()
+        newly_registered = 0
         if new:
             result = await self._client.add_subscriptions([d.entity_id for d in new])
             not_found = set(result.not_found)
+            # PM's authoritative count of ids it actually registered (vs the ones it
+            # returns as already_subscribed). len(new) over-reports here because PM's
+            # /subscriptions pagination under-reports the registered set (power-map#297),
+            # so the diff perpetually re-includes already-subscribed ids.
+            newly_registered = result.registered
             if result.not_found:
                 logger.warning(
                     "subscription_register_not_found",
@@ -149,6 +160,10 @@ class SubscriptionReconciler:
             # (power-map#297), so already-subscribed rows resurface as `new` every cycle
             # — re-fetching each was the burst that tripped PM's 429. add_subscriptions
             # above is idempotent, so re-registering them is a harmless no-op.
+            # has_local_anchor matches ANY anchored row, incl. a tombstoned/archived one:
+            # a locally-deleted row is intentionally NOT resurrected by a backfill — the
+            # feed's explicit delete/merge events drive its lifecycle, and the reconcile
+            # backstop already excludes tombstoned rows from its re-fetch cohort.
             if await self._engine.has_local_anchor(session, descriptor, d.entity_id):
                 already_cached += 1
                 continue
@@ -171,7 +186,7 @@ class SubscriptionReconciler:
         report = SubscriptionSyncReport(
             discovered=len(discovered),
             already_registered=len(discovered) - len(new),
-            newly_subscribed=len(new) - len(not_found),
+            newly_subscribed=newly_registered,
             backfilled=backfilled,
             backfill_skipped=backfill_skipped,
             already_cached=already_cached,

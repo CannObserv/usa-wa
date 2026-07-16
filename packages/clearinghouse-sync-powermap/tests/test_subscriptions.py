@@ -212,6 +212,37 @@ async def test_backfill_skips_entity_already_present_locally(db_session, fake_de
     assert row.name == "Ours"  # untouched by a backfill
 
 
+async def test_newly_subscribed_reflects_pm_registered_count(db_session, fake_descriptor):
+    """usa-wa#89: newly_subscribed is PM's ``registered`` count, not ``len(new)``.
+
+    Under PM's under-reporting subscription pagination (power-map#297), list_subscriptions
+    omits an already-subscribed id so it resurfaces in ``new``; add_subscriptions reports
+    it as ``already_subscribed`` (registered=0). The metric must read 0 — not 1 — so an
+    operator isn't shown a phantom newly-subscribed count every cycle."""
+    pm_id = ULID()
+    await _seed(db_session, source_id="1", name="Ours", anchor=pm_id)
+
+    class UnderReportingClient(FakeClient):
+        async def add_subscriptions(self, entity_ids):
+            ids = list(entity_ids)
+            self.added.append(ids)
+            # PM already holds it (list_subscriptions under-reported): registered 0.
+            return SubscriptionResult(registered=0, already_subscribed=len(ids), not_found=[])
+
+    client = UnderReportingClient(
+        discovered=[_disc(pm_id)],
+        subscribed=[],  # under-reported: pm_id omitted though really subscribed
+        entities={pm_id: _record(pm_id, "1", "X")},
+    )
+    reconciler = _reconciler(client, [fake_descriptor])
+
+    report = await reconciler.sync_subscriptions(db_session)
+
+    assert client.added == [[pm_id]]
+    assert report.newly_subscribed == 0  # PM's registered count, not len(new)=1
+    assert report.already_cached == 1
+
+
 async def test_backfill_retries_transient_read(db_session, fake_descriptor):
     """usa-wa#89: a 429 during a genuine backfill fetch pauses + resumes rather than
     aborting the backstop before it stamps (which re-crawls next cycle and re-trips the
