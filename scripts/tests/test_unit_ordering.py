@@ -287,6 +287,11 @@ def _loop_is_bounded(interval: str, restart_sec: str, burst: str) -> bool:
     span. Shared by the production assertion and its has-teeth proof so the two
     can't drift.
     """
+    # burst=0 and interval=0 are both systemd sentinels that DISABLE the limiter
+    # (unbounded); treat either as not-bounded rather than letting burst=0 make
+    # the `>=` trivially true.
+    if int(burst) < 1 or parse_seconds(interval) < 1:
+        return False
     return parse_seconds(interval) >= parse_seconds(restart_sec) * int(burst)
 
 
@@ -356,6 +361,10 @@ def test_bounded_loop_invariant_would_fail_the_default_window():
     assert not _loop_is_bounded("10", "5", "5")
     # And a widened window (our 5min / 10) is bounded.
     assert _loop_is_bounded("5min", "5", "10")
+    # systemd sentinels that disable the limiter (unbounded) are not bounded,
+    # even though burst=0 would make the bare `>=` trivially true.
+    assert not _loop_is_bounded("300", "5", "0")
+    assert not _loop_is_bounded("0", "5", "10")
 
 
 def test_parse_seconds_handles_systemd_forms():
