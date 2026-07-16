@@ -119,12 +119,14 @@ class Sidecar:
     ) -> None:
         """One sync cycle against a single session.
 
-        The feed read and the sweep enqueue accumulate in the open transaction; the
-        caller owns their commit. When ``commit`` is supplied, the outbox *drain*
-        (per delivered entry by default, or every ``outbox_commit_chunk_size``
-        entries, #8) commits incrementally — so a slow PM never holds the transaction
-        open across every round-trip. With no ``commit`` hook the whole tick is one
-        transaction (the legacy boundary).
+        When ``commit`` is supplied, both the *sweep* (per keyset batch, #92) and the
+        outbox *drain* (per delivered entry by default, or every
+        ``outbox_commit_chunk_size`` entries, #8) commit incrementally — so a slow or
+        rate-limiting PM never holds the transaction open across the whole cohort, and
+        a first bulk ingest's progress persists batch-by-batch instead of riding one
+        all-or-nothing transaction. The feed read accumulates into the first such
+        boundary. With no ``commit`` hook the whole tick is one transaction (the legacy
+        boundary).
 
         Neither the subscription re-discovery backstop nor the per-descriptor
         reconciles run here — each runs in its own session via :meth:`run_cycle`
@@ -136,7 +138,7 @@ class Sidecar:
         # Writes: enqueue un-anchored rows, then deliver.
         for descriptor in self._descriptors:
             if descriptor.write_enabled:
-                await self._engine.sweep_unanchored(session, descriptor)
+                await self._engine.sweep_unanchored(session, descriptor, commit=commit)
         await self._engine.drain_outbox(
             session, now=now, commit=commit, chunk_size=self._outbox_commit_chunk_size
         )

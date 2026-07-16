@@ -10,6 +10,7 @@ from clearinghouse_sync_powermap.client import (
     DeliveryBlockedError,
     ObservationResult,
     PayloadRejectedError,
+    RetryableClientError,
 )
 from clearinghouse_sync_powermap.engine import SyncEngine, outbox_backlog
 from clearinghouse_sync_powermap.models import (
@@ -39,6 +40,77 @@ async def _add_entity(session, *, source_id, name="x", anchor=None):
     session.add(row)
     await session.flush()
     return row
+
+
+def _sleep_recorder():
+    sleeps: list[float] = []
+
+    async def _sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    return sleeps, _sleep
+
+
+class _Flaky429Descriptor(FakeDescriptor):
+    """``pm_match`` raises a 429 the first ``failures`` calls, then resolves to
+    no-match (→ CREATE) — the #92 bulk-ingest burst that used to abort the tick."""
+
+    def __init__(self, *, failures: int) -> None:
+        self._failures = failures
+        self.match_calls = 0
+
+    async def pm_match(self, client, session, row):  # noqa: ARG002
+        self.match_calls += 1
+        if self._failures > 0:
+            self._failures -= 1
+            raise RetryableClientError("PM 429", retry_after=0.5)
+        return None
+
+
+async def test_sweep_match_429_pauses_and_resumes(db_session):
+    """#92: a 429 during the sweep's ``pm_match`` pauses-and-resumes (honoring
+    Retry-After) instead of aborting the tick — else a first bulk ingest, one search
+    per un-anchored row, trips PM's limit and makes zero durable progress."""
+    await _add_entity(db_session, source_id="1")
+    descriptor = _Flaky429Descriptor(failures=2)
+    sleeps, sleep = _sleep_recorder()
+    engine = SyncEngine([descriptor], FakeClient(), sleep=sleep)
+
+    count = await engine.sweep_unanchored(db_session, descriptor)
+
+    assert count == 1  # resolved to a CREATE after the retries — no exception propagated
+    assert sleeps == [0.5, 0.5]  # honored Retry-After on each transient 429
+    assert descriptor.match_calls == 3  # 2 failures + 1 success
+    assert (await db_session.execute(select(OutboxEntry))).scalars().one().op == OP_CREATE
+
+
+async def test_sweep_commits_per_batch(db_session, fake_descriptor):
+    """#92: with a commit hook the sweep commits per keyset batch, so a bulk ingest's
+    progress persists incrementally rather than riding one all-or-nothing transaction."""
+    for i in range(5):
+        await _add_entity(db_session, source_id=str(i))
+    commits: list[int] = []
+
+    async def _commit() -> None:
+        commits.append(1)
+
+    engine = SyncEngine([fake_descriptor], FakeClient(), sweep_batch_size=2)
+
+    count = await engine.sweep_unanchored(db_session, fake_descriptor, commit=_commit)
+
+    assert count == 5
+    assert len(commits) == 3  # batches of 2, 2, 1 → one commit each
+
+
+async def test_sweep_no_commit_hook_is_single_transaction(db_session, fake_descriptor):
+    """Without a commit hook the sweep keeps the legacy single-transaction boundary."""
+    for i in range(3):
+        await _add_entity(db_session, source_id=str(i))
+    engine = SyncEngine([fake_descriptor], FakeClient(), sweep_batch_size=2)
+
+    count = await engine.sweep_unanchored(db_session, fake_descriptor)  # no commit=
+
+    assert count == 3  # still enqueues everything, just no intermediate commits
 
 
 async def test_sweep_enqueues_unanchored(db_session, fake_descriptor):

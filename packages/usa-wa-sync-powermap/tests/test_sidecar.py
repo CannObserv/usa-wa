@@ -183,7 +183,9 @@ async def test_tick_commits_outbox_per_entry(db_session, state_type):
     delivered = (await db_session.execute(select(OutboxEntry))).scalars().all()
     assert len(delivered) == 3
     assert all(e.status == STATUS_DELIVERED for e in delivered)
-    assert commits == 3  # one commit per delivered entry, not one for the whole drain
+    # 1 sweep-batch commit (#92, the 3 rows are one keyset batch) + 3 per-entry drain
+    # commits — the drain still commits once per delivered entry, not once for the whole drain.
+    assert commits == 4
 
 
 async def test_tick_uses_configured_commit_chunk_size(db_session, state_type):
@@ -212,7 +214,8 @@ async def test_tick_uses_configured_commit_chunk_size(db_session, state_type):
 
     await sidecar.tick(db_session, now=NOW, commit=_commit)
 
-    assert commits == 2  # ceil(4/2)
+    # 1 sweep-batch commit (#92, 4 rows in one keyset batch) + ceil(4/2)=2 drain commits.
+    assert commits == 3
 
 
 # --- run_cycle isolation (CR #13) ----------------------------------------------

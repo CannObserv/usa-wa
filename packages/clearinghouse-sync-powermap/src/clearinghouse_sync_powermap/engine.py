@@ -310,7 +310,13 @@ class SyncEngine:
         await session.flush()
         return entry
 
-    async def sweep_unanchored(self, session: AsyncSession, descriptor: EntityDescriptor) -> int:
+    async def sweep_unanchored(
+        self,
+        session: AsyncSession,
+        descriptor: EntityDescriptor,
+        *,
+        commit: Callable[[], Awaitable[None]] | None = None,
+    ) -> int:
         """Enqueue a CREATE for every locally-minted row with a null anchor.
 
         Keeps the adapter ignorant of the sidecar — it just writes rows; the
@@ -324,6 +330,14 @@ class SyncEngine:
         delivery — those rows stay in the ``anchor IS NULL`` set within the sweep,
         so advancing past the last processed id is what guarantees forward progress
         and termination instead of re-reading the same already-enqueued rows.
+
+        When ``commit`` is supplied the sweep commits **per batch** (#92), mirroring
+        :meth:`_crawl_and_apply`: a first bulk ingest runs one PM match per row, so
+        without an incremental boundary the whole sweep's enqueues + adoptions would
+        ride one open transaction — and a later-batch failure would roll back every
+        earlier batch's progress. Committing per page persists each batch; the keyset
+        walk (``pk > last_id``) resumes past the committed rows even though a CREATE
+        leaves the anchor NULL, so there is no re-processing.
         """
         anchor_col = getattr(descriptor.model, descriptor.anchor_column)
         pk_col = descriptor.model.id
@@ -346,6 +360,11 @@ class SyncEngine:
                 last_id = row.id
                 if await self._sweep_row(session, descriptor, row):
                     enqueued += 1
+            if commit is not None:
+                # Bound the open transaction to one page of PM round-trips + persist
+                # each batch's progress before the next (#92, mirroring _crawl_and_apply).
+                await session.flush()
+                await commit()
             if len(rows) < self._sweep_batch_size:
                 break
         return enqueued
@@ -353,8 +372,14 @@ class SyncEngine:
     async def _sweep_row(self, session: AsyncSession, descriptor: EntityDescriptor, row) -> bool:
         """Process one unanchored row; return True iff a new CREATE was enqueued."""
         # PM-first: try to find a pre-existing PM record before creating one,
-        # so we never duplicate PM's curated tree (identifier-less backfill).
-        pm_id = await descriptor.pm_match(self._client, session, row)
+        # so we never duplicate PM's curated tree (identifier-less backfill). The match
+        # is a PM read, so it pauses-and-resumes on a 429 (#92) — a first bulk ingest
+        # runs one search per un-anchored row, exactly the burst that trips PM's limit;
+        # a bare 429 here would abort the whole tick and lose the batch's progress.
+        pm_id = await self._read_with_retry(
+            lambda: descriptor.pm_match(self._client, session, row),
+            log_extra={"read": "sweep_match", "entity_type": descriptor.entity_type},
+        )
         # Adopting a pm_id another local row already anchors would violate the anchor
         # unique index (#86) and abort the whole tick — the sweep counterpart of the
         # drain guard. On a collision, decline the adopt and fall through to a CREATE
@@ -367,7 +392,7 @@ class SyncEngine:
         if pm_id is not None and not await self._anchor_taken(
             session, descriptor, row, pm_id, log=False
         ):
-            record = await descriptor.fetch_record(self._client, pm_id)
+            record = await self._fetch_record_with_retry(descriptor, pm_id)
             if record is not None:
                 # Adopt PM's canonical fields + anchor; no create.
                 await descriptor.upsert_from_pm(session, record, existing=row)
