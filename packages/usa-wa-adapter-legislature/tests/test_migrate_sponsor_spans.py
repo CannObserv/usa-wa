@@ -1,9 +1,14 @@
-"""Migration (#78-3): collapse pre-#78 per-biennium sponsor Assignments into merged spans.
+"""Migration (#78-3 + #97): collapse stranded sponsor Assignments into merged spans.
 
-The legacy per-biennium party/Senate rows (each carrying a ``pm_assignment_id``) are retired
-onto the span that shares their ``(person_id, role_id)`` — the anchor moves to the span so
-the local cache holds ONE row per PM assignment. chamber-house (PDC) + committee rows are
-left untouched; a legacy row with no successor span is left + counted.
+Two stranded shapes are retired onto the span that shares their ``(person_id, role_id)`` — the
+anchor moves to the span so the local cache holds ONE row per PM assignment: the pre-#78
+per-biennium 3-part rows (#78-3) and the superseded 4-part shallow spans a deeper backfill
+strands (#97, the #91/#95 case). chamber-house (PDC) + committee rows are left untouched; a
+stranded row with no covering span is left + counted.
+
+The anchor transfer is **index-safe** (#97, mirroring #91/#95): the stranded row is deleted +
+flushed before its anchor moves to the keeper, so these tests run under the **live** #86
+partial unique index (no ``drop_anchor_unique_indexes``).
 """
 
 from __future__ import annotations
@@ -22,10 +27,6 @@ from clearinghouse_domain_legislative.identity import Assignment, Person
 from usa_wa_adapter_legislature import migrate_sponsor_spans as migrate_module
 from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
 from usa_wa_adapter_legislature.migrate_sponsor_spans import MigrationResult, migrate_sponsor_spans
-
-# This one-shot migration collapses pre-#86 duplicate-anchor rows — a state the #86
-# partial unique indexes forbid, so the fixtures reproduce the pre-index world.
-pytestmark = pytest.mark.usefixtures("drop_anchor_unique_indexes")
 
 CURRENT = "2025-26"
 
@@ -148,6 +149,34 @@ async def _add_legacy(session, *, source_id, person_id, role_id, pm_id, fetch_ev
             )
         )
         await session.flush()
+    return row
+
+
+async def _add_span_row(
+    session,
+    *,
+    source_id,
+    person_id,
+    role_id,
+    valid_from,
+    valid_to,
+    is_active,
+    pm_id,
+):
+    """A 4-part span-shaped Assignment with explicit validity — used to stage a superseded
+    shallow daily-span (#97) that a deeper backfill span strands."""
+    row = Assignment(
+        source="usa_wa_legislature",
+        source_id=source_id,
+        person_id=person_id,
+        role_id=role_id,
+        valid_from=valid_from,
+        valid_to=valid_to,
+        is_active=is_active,
+        pm_assignment_id=pm_id,
+    )
+    session.add(row)
+    await session.flush()
     return row
 
 
@@ -348,6 +377,101 @@ async def test_covering_span_disambiguates_same_role_tenures(db_session, usa_wa,
     assert closed.pm_assignment_id is None  # NOT the closed 2019-20 span
 
 
+# --- Superseded 4-part shallow spans (#97) ------------------------------------
+# The 2c daily path builds a span keyed on the CURRENT biennium start (already 4-part). The
+# full-archive backfill then merges the same tenure into a span starting EARLIER (a new
+# source_id), stranding the anchored current-start row. It is 4-part (not the 3-part legacy
+# shape) so the #78-3 migration missed it — this retires it onto the covering earlier-start
+# span, moving the anchor. Same case #91 fixed for PDC House, #95 for committees.
+
+
+async def test_superseded_shallow_span_retired_onto_deeper_span(db_session, usa_wa, wsl_source):
+    """A current-start 4-part Senate span, stranded by a deeper backfill span, is retired onto
+    it — anchor transferred, index-safe (runs under the live #86 index)."""
+    person, spans, _fe = await _setup_person_and_spans(db_session, usa_wa, wsl_source)
+    keeper = spans["chamber-senate"]  # the built 2023-24 span (open), unanchored
+    assert keeper.source_id == "100:chamber-senate:5:2023-24"
+    pm_id = _ULID()
+    await _add_span_row(
+        db_session,
+        source_id="100:chamber-senate:5:2025-26",  # daily-built current span, stale-closed
+        person_id=person.id,
+        role_id=keeper.role_id,
+        valid_from=date(2025, 1, 1),
+        valid_to=date(2025, 1, 1),
+        is_active=False,
+        pm_id=pm_id,
+    )
+
+    result = await migrate_sponsor_spans(
+        db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium=CURRENT
+    )
+
+    assert result.superseded_found == 1
+    assert result.superseded_retired == 1
+    assert result.anchors_transferred == 1
+    assert result.legacy_found == 0
+    assert await _count(db_session, Assignment, source_id="100:chamber-senate:5:2025-26") == 0
+    await db_session.refresh(keeper)
+    assert keeper.pm_assignment_id == pm_id  # anchor moved to the deeper span
+    assert await _count(db_session, Assignment, pm_assignment_id=pm_id) == 1
+
+
+async def test_superseded_anchor_dropped_when_keeper_already_anchored(
+    db_session, usa_wa, wsl_source
+):
+    """If the deeper span already carries its own anchor (sidecar produced it first), the
+    superseded row's anchor can't transfer — it's dropped + counted, row still retired."""
+    person, spans, _fe = await _setup_person_and_spans(db_session, usa_wa, wsl_source)
+    keeper = spans["party"]  # 2023-24 party span
+    keeper_pm = _ULID()
+    keeper.pm_assignment_id = keeper_pm  # already anchored (preserved through build's re-emit)
+    await db_session.flush()
+    await _add_span_row(
+        db_session,
+        source_id="100:party:democratic:2025-26",  # superseded shallow, a DIFFERENT anchor
+        person_id=person.id,
+        role_id=keeper.role_id,
+        valid_from=date(2025, 1, 1),
+        valid_to=date(2025, 1, 1),
+        is_active=False,
+        pm_id=_ULID(),
+    )
+
+    result = await migrate_sponsor_spans(
+        db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium=CURRENT
+    )
+
+    assert result.superseded_found == 1
+    assert result.superseded_retired == 1
+    assert result.anchors_transferred == 0
+    assert result.anchors_dropped == 1
+    await db_session.refresh(keeper)
+    assert keeper.pm_assignment_id == keeper_pm  # unchanged
+    assert await _count(db_session, Assignment, source_id="100:party:democratic:2025-26") == 0
+
+
+async def test_disjoint_dormancy_4part_spans_both_kept(db_session, usa_wa, wsl_source):
+    """Two 4-part Senate spans for one seat with disjoint windows (a dormancy gap) are BOTH
+    real tenures — neither covers the other's start, so neither is superseded."""
+    await _add_ld(db_session, usa_wa, 5)
+    db_session.add(Person(source="usa_wa_legislature", source_id="100", name_full="Ann Rivers"))
+    await db_session.flush()
+    # Present 2019-20, ABSENT 2021-22 (gap), present 2023-24 + 2025-26 → two disjoint Senate spans.
+    for biennium in ("2019-20", "2023-24", "2025-26"):
+        await _archive(db_session, wsl_source, biennium)
+    bienniums = ("2019-20", "2023-24", "2025-26")
+    client = _WireMappingSponsorClient({b: [_member(100)] for b in bienniums})
+
+    result = await migrate_sponsor_spans(
+        db_session, sponsor_client=client, current_biennium=CURRENT
+    )
+
+    assert result.superseded_found == 0
+    assert await _count(db_session, Assignment, source_id="100:chamber-senate:5:2019-20") == 1
+    assert await _count(db_session, Assignment, source_id="100:chamber-senate:5:2023-24") == 1
+
+
 # --- CLI (_main) --------------------------------------------------------------
 
 
@@ -381,5 +505,6 @@ async def test_main_dry_run_rolls_back_and_returns_0(monkeypatch, capsys, test_e
 
     assert code == 0
     out = capsys.readouterr().out
-    assert "legacy_found=2 anchors_transferred=2 retired=2" in out
+    assert "legacy_found=2 legacy_retired=2" in out
+    assert "superseded_found=0 superseded_retired=0" in out
     assert "dry-run, rolled back" in out
