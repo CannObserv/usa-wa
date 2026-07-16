@@ -6,12 +6,15 @@ Description=usa-wa — Washington State law, regulation, and policy tracking ser
 # wedge serving on an already-migrated box (no Wants=/Requires=).
 After=network.target postgresql.service usa-wa-migrate.service
 # Bound restart attempts so an off-main checkout — which fails the guard
-# ExecStartPre below on every attempt — settles into a visible `failed` state
-# rather than an unbounded RestartSec=5 loop (#87 CR). The interval is wide
-# enough that 5 attempts (~25s at RestartSec=5) fall inside the window and trip
-# the limit; systemd's default 10s window never would.
-StartLimitIntervalSec=60
-StartLimitBurst=5
+# ExecStartPre below on every attempt — eventually settles into a visible
+# `failed` state rather than an unbounded RestartSec=5 loop (#87 CR). Widened
+# past systemd's default 10s window (which never trips at RestartSec=5) but kept
+# generous so a transient dependency blip still self-heals via Restart=: gives
+# up only after 10 failures across 5 min (#87 CR round 2). Invariant asserted in
+# test_unit_ordering.py: StartLimitIntervalSec >= RestartSec * StartLimitBurst,
+# so the burst can accumulate inside the window and the loop is provably bounded.
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
 Type=simple

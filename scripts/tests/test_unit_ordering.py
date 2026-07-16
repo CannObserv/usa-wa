@@ -135,6 +135,12 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
 GUARD_EXEC = "/home/exedev/usa-wa/scripts/assert-main-checkout.sh"
 UNGUARDED_SERVICES = {"usa-wa-notify-failure@.service"}
 
+# Units whose Restart=on-failure engages systemd's start-rate limiter (#87 CR).
+# Each must carry a StartLimit window wide enough for the burst to accumulate,
+# else the guard's ExecStartPre failure restart-loops unbounded (finding 1) —
+# systemd's default 10s window never trips at RestartSec=5.
+RESTARTING_SERVICES = {"usa-wa.service", "usa-wa-sync-powermap.service"}
+
 
 def _join_continuations(text: str) -> list[str]:
     """Fold systemd trailing-backslash line continuations into single lines."""
@@ -215,6 +221,25 @@ def _guard_present(path: Path) -> bool:
     return False
 
 
+def unit_value(path: Path, section: str, key: str) -> str | None:
+    """Return the last value of `key` in `section` (systemd: last assignment wins), or None."""
+    current = None
+    found: str | None = None
+    for raw in _join_continuations(path.read_text()):
+        line = raw.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = line[1:-1]
+            continue
+        if current != section or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        if k.strip() == key:
+            found = v.strip()
+    return found
+
+
 def test_branch_guard_on_every_code_running_service():
     """Every prod .service that runs repo code carries the main-branch guard (#87).
 
@@ -238,6 +263,53 @@ def test_guard_script_exists_and_is_executable():
     script = DEPLOY.parent / "scripts" / "assert-main-checkout.sh"
     assert script.is_file()
     assert script.stat().st_mode & 0o111, "guard script must be executable"
+
+
+@pytest.mark.parametrize("name", sorted(RESTARTING_SERVICES))
+def test_restart_loop_is_bounded(name):
+    """A Restart= serving unit's StartLimit window must let the burst accumulate (#87 CR).
+
+    Off-main, the guard fails ExecStartPre on every attempt; without a wide-enough
+    window the limiter never trips and the unit restart-loops forever. The
+    invariant StartLimitIntervalSec >= RestartSec * StartLimitBurst guarantees the
+    burst (N starts ~RestartSec apart) fits inside one window, so the loop is
+    provably bounded — while staying generous enough that a transient dependency
+    blip still self-heals via Restart=.
+    """
+    path = DEPLOY / name
+    assert unit_value(path, "Service", "Restart") == "on-failure"
+    interval = unit_value(path, "Unit", "StartLimitIntervalSec")
+    burst = unit_value(path, "Unit", "StartLimitBurst")
+    restart_sec = unit_value(path, "Service", "RestartSec")
+    assert interval is not None, f"{name} missing StartLimitIntervalSec"
+    assert burst is not None, f"{name} missing StartLimitBurst"
+    assert restart_sec is not None, f"{name} missing RestartSec"
+    assert int(interval) >= int(restart_sec) * int(burst)
+
+
+def test_every_restarting_service_is_declared():
+    """A new Restart=on-failure serving unit must opt into the bounded-loop assertion."""
+    on_disk = {
+        p.name
+        for p in DEPLOY.glob("*.service")
+        if unit_value(p, "Service", "Restart") == "on-failure"
+    }
+    assert on_disk == RESTARTING_SERVICES
+
+
+def test_bounded_loop_invariant_would_fail_the_default_window(tmp_path):
+    # Proof the invariant has teeth: systemd's default (10s / 5) at RestartSec=5
+    # violates it (10 < 5*5) — exactly the unbounded loop finding 1 fixed. So
+    # reverting a real unit to the default fails test_restart_loop_is_bounded.
+    unit = tmp_path / "d.service"
+    unit.write_text(
+        "[Unit]\nStartLimitIntervalSec=10\nStartLimitBurst=5\n"
+        "[Service]\nRestart=on-failure\nRestartSec=5\nExecStart=/bin/true\n"
+    )
+    interval = int(unit_value(unit, "Unit", "StartLimitIntervalSec"))
+    burst = int(unit_value(unit, "Unit", "StartLimitBurst"))
+    restart_sec = int(unit_value(unit, "Service", "RestartSec"))
+    assert interval < restart_sec * burst
 
 
 def test_every_unit_has_an_expected_entry():
