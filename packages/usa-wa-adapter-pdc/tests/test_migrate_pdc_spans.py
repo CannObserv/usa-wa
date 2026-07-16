@@ -23,9 +23,10 @@ from usa_wa_adapter_pdc.normalize.positions import house_seat_role_source_id
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 
-# This one-shot migration collapses pre-#86 duplicate-anchor rows — a state the #86
-# partial unique indexes forbid, so the fixtures reproduce the pre-index world.
-pytestmark = pytest.mark.usefixtures("drop_anchor_unique_indexes")
+# These fixtures never build two rows sharing one pm_assignment_id, and the migration's
+# anchor transfer is index-safe (delete the stranded row before moving its anchor to the
+# keeper, #91), so the suite runs under the live #86 partial unique index — proving the
+# one-shot migration is safe against the constraint prod actually carries.
 
 PDC = "usa_wa_pdc"
 WSL = "usa_wa_legislature"
@@ -258,6 +259,160 @@ async def test_idempotent(db_session, usa_wa, house_org):
     assert second.legacy_found == 0 and second.legacy_retired == 0
 
 
+# --- Superseded 4-part daily-spans (#91) -------------------------------------------------------
+# The daily #79 path anchored short spans keyed on the CURRENT biennium start; the historical
+# backfill then merges the same tenure into a span with an EARLIER start (a new source_id),
+# stranding the anchored short row. It is 4-part (not the 3-part legacy shape) so the original
+# migration missed it — this retires it onto the covering earlier-start span, moving the anchor.
+
+
+async def test_superseded_daily_span_retired_onto_earlier_merged_span(
+    db_session, usa_wa, house_org
+):
+    person = await _add_person(db_session, 100)
+    role = await _add_role(db_session, house_org, 9, "Position 1")
+    # The merged span the backfill built: open since 2019-20, not yet anchored.
+    keeper = await _add_assignment(
+        db_session,
+        source_id="100:chamber-house:ld-9-position-1:2019-20",
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(2019, 1, 1),
+        valid_to=None,
+        is_active=True,
+        pm_id=None,
+    )
+    # The superseded daily span: started this biennium, carries the PM anchor. build_pdc_spans'
+    # stale-sweep has closed it (is_active False) but it lingers, anchored.
+    pm_id = _ULID()
+    await _add_assignment(
+        db_session,
+        source_id="100:chamber-house:ld-9-position-1:2025-26",
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(2025, 1, 1),
+        valid_to=date(2025, 1, 1),
+        is_active=False,
+        pm_id=pm_id,
+    )
+
+    result = await migrate_pdc_spans(db_session)
+
+    assert result.superseded_found == 1
+    assert result.superseded_retired == 1
+    assert result.anchors_transferred == 1
+    assert (
+        await _count(db_session, Assignment, source_id="100:chamber-house:ld-9-position-1:2025-26")
+        == 0
+    )
+    await db_session.refresh(keeper)
+    assert keeper.pm_assignment_id == pm_id  # anchor moved to the merged span, index-safe
+
+
+async def test_superseded_anchor_dropped_when_keeper_already_anchored(
+    db_session, usa_wa, house_org
+):
+    """If the merged span already carries its own anchor (sidecar produced it first), the
+    superseded row's anchor can't be transferred — it's dropped + counted, row still retired."""
+    person = await _add_person(db_session, 100)
+    role = await _add_role(db_session, house_org, 9, "Position 1")
+    keeper_pm = _ULID()
+    keeper = await _add_assignment(
+        db_session,
+        source_id="100:chamber-house:ld-9-position-1:2019-20",
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(2019, 1, 1),
+        valid_to=None,
+        is_active=True,
+        pm_id=keeper_pm,
+    )
+    await _add_assignment(
+        db_session,
+        source_id="100:chamber-house:ld-9-position-1:2025-26",
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(2025, 1, 1),
+        valid_to=date(2025, 1, 1),
+        is_active=False,
+        pm_id=_ULID(),  # a different anchor than the keeper
+    )
+
+    result = await migrate_pdc_spans(db_session)
+
+    assert result.superseded_found == 1
+    assert result.superseded_retired == 1
+    assert result.anchors_transferred == 0
+    assert result.anchors_dropped == 1
+    await db_session.refresh(keeper)
+    assert keeper.pm_assignment_id == keeper_pm  # unchanged
+
+
+async def test_superseded_unanchored_row_retired_without_transfer(db_session, usa_wa, house_org):
+    """A superseded row that was never PM-anchored is simply deleted — nothing to transfer."""
+    person = await _add_person(db_session, 100)
+    role = await _add_role(db_session, house_org, 9, "Position 1")
+    keeper = await _add_assignment(
+        db_session,
+        source_id="100:chamber-house:ld-9-position-1:2019-20",
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(2019, 1, 1),
+        valid_to=None,
+        is_active=True,
+        pm_id=None,
+    )
+    await _add_assignment(
+        db_session,
+        source_id="100:chamber-house:ld-9-position-1:2025-26",
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(2025, 1, 1),
+        valid_to=date(2025, 1, 1),
+        is_active=False,
+        pm_id=None,  # never anchored
+    )
+
+    result = await migrate_pdc_spans(db_session)
+
+    assert result.superseded_retired == 1
+    assert result.anchors_transferred == 0 and result.anchors_dropped == 0
+    await db_session.refresh(keeper)
+    assert keeper.pm_assignment_id is None
+
+
+async def test_disjoint_dormancy_spans_both_kept(db_session, usa_wa, house_org):
+    """Two 4-part spans for one seat with disjoint windows (a dormancy gap) are BOTH real
+    tenures — neither covers the other's start, so neither is superseded."""
+    person = await _add_person(db_session, 100)
+    role = await _add_role(db_session, house_org, 9, "Position 1")
+    await _add_assignment(
+        db_session,
+        source_id="100:chamber-house:ld-9-position-1:2013-14",
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(2013, 1, 1),
+        valid_to=date(2014, 12, 31),  # closed before the later span starts
+        is_active=False,
+        pm_id=_ULID(),
+    )
+    await _add_assignment(
+        db_session,
+        source_id="100:chamber-house:ld-9-position-1:2019-20",
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(2019, 1, 1),
+        valid_to=None,
+        is_active=True,
+        pm_id=_ULID(),
+    )
+
+    result = await migrate_pdc_spans(db_session)
+
+    assert result.superseded_found == 0
+    assert await _count(db_session, Assignment, source="usa_wa_pdc") == 2  # both kept
+
+
 async def test_main_requires_owner_url(monkeypatch, capsys):
     monkeypatch.delenv("DATABASE_URL_OWNER", raising=False)
     with patch.object(migrate_module, "configure_logging"):
@@ -269,7 +424,12 @@ async def test_main_requires_owner_url(monkeypatch, capsys):
 async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
     monkeypatch.setenv("DATABASE_URL_OWNER", os.environ["TEST_DATABASE_URL"])
     fake = MigrationResult(
-        legacy_found=2, anchors_transferred=2, legacy_retired=2, orphans_no_span=0
+        legacy_found=2,
+        anchors_transferred=5,
+        legacy_retired=2,
+        orphans_no_span=0,
+        superseded_found=3,
+        superseded_retired=3,
     )
 
     async def _fake(session, **_):
@@ -283,5 +443,7 @@ async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
 
     assert code == 0
     out = capsys.readouterr().out
-    assert "legacy_found=2 anchors_transferred=2 retired=2" in out
+    assert "legacy_found=2 legacy_retired=2" in out
+    assert "superseded_found=3 superseded_retired=3" in out
+    assert "anchors_transferred=5" in out
     assert "dry-run, rolled back" in out
