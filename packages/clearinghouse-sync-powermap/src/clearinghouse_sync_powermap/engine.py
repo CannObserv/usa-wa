@@ -1393,11 +1393,13 @@ class SyncEngine:
                 continue
             await self.apply_record(session, descriptor, record)
             applied += 1
-        # Acquire (get-or-create) the state row now, after the fetch — see the cursor-
-        # read note above. Unconditional to preserve the prior behaviour (the row is
-        # materialised every run, even on an empty feed).
-        state = await self._get_or_create_state(session, CHANGES_STREAM)
+        # Persist the advanced cursor — acquiring (get-or-create) the state row only when
+        # there is one to write (usa-wa#89 CR): an empty feed has nothing to persist, so
+        # this skips both the row's get-or-create round-trip and the creation of an empty
+        # state row on a first empty poll. _read_cursor above still resets a stale cursor
+        # to 0 on every read, so a non-advancing feed is unaffected.
         if page.next_after is not None:
+            state = await self._get_or_create_state(session, CHANGES_STREAM)
             state.cursor = str(page.next_after)
         await session.flush()
         return applied

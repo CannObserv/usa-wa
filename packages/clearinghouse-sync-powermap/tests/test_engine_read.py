@@ -307,6 +307,21 @@ async def test_process_feed_resets_stale_timestamp_cursor_to_zero(db_session, fa
     assert client.seen_after == 0
 
 
+async def test_process_feed_empty_feed_does_not_create_state_row(db_session, fake_descriptor):
+    """usa-wa#89 CR: an empty feed (no next_after) has no cursor to persist, so it does
+    not materialise a SyncState row — the get-or-create is gated on an advancing cursor."""
+    client = FakeClient(changes_pages=[ChangePage(items=[], next_after=None)])
+    engine = SyncEngine([fake_descriptor], client)
+
+    applied = await engine.process_feed(db_session, now=NOW)
+
+    assert applied == 0
+    state = (
+        await db_session.execute(select(SyncState).where(SyncState.stream == CHANGES_STREAM))
+    ).first()
+    assert state is None  # no empty row created
+
+
 async def test_process_feed_skips_deletes(db_session, fake_descriptor):
     item = ChangeItem(entity_type="fake", entity_id=ULID(), changed_at=NOW, change_kind="deleted")
     client = FakeClient(changes_pages=[ChangePage(items=[item], next_after=9)])
