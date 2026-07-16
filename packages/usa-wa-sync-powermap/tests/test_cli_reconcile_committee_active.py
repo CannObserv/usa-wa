@@ -37,13 +37,26 @@ def _patch_settings(monkeypatch, *, api_key="k"):
     )
 
 
-def _patch_wsl(monkeypatch, roster):
+def _patch_wsl(monkeypatch, roster, prior=None):
+    """Patch ``WSLClient`` with a fake serving the current roster (``get_committees``) and
+    the prior-biennium roster the era-scoping provider falls back to live (#90) — no
+    archived roster exists in the test DB, so the provider misses the archive and calls
+    ``fetch_committees``. ``prior`` defaults to the current roster."""
+    prior_rows = roster if prior is None else prior
+
     class _FakeWSL:
         def __init__(self, *_a, **_k):
             pass
 
         async def get_committees(self, _biennium):
             return roster
+
+        async def fetch_committees(self, _biennium):
+            records = [{"Id": r["Id"], "LongName": f"Committee {r['Id']}"} for r in prior_rows]
+            return SimpleNamespace(records=records)
+
+        async def parse_committees(self, _wire):
+            return []
 
     monkeypatch.setattr(cli, "WSLClient", _FakeWSL)
 
@@ -102,7 +115,8 @@ async def test_run_dry_run_counts_without_pm_client(monkeypatch, db_session, usa
     await _add_committee(db_session, source_id="200", anchor=ULID())
     _patch_factory(monkeypatch, db_session)
     _patch_settings(monkeypatch, api_key="")  # absent key is fine for a dry-run
-    _patch_wsl(monkeypatch, [{"Id": 100}])
+    # 200 is absent from the current roster but present in the prior — a live-era retire.
+    _patch_wsl(monkeypatch, [{"Id": 100}], prior=[{"Id": 100}, {"Id": 200}])
 
     args = SimpleNamespace(biennium="2025-26", dry_run=True, max_absent_fraction=1.0)
     result = await cli._run(args)
@@ -128,7 +142,8 @@ async def test_run_submits_and_closes_client(monkeypatch, db_session, usa_wa):
     await _add_committee(db_session, source_id="200", anchor=anchor)
     _patch_factory(monkeypatch, db_session)
     _patch_settings(monkeypatch, api_key="k")
-    _patch_wsl(monkeypatch, [{"Id": 100}])
+    # 200 absent from current, present in prior → a live-era retirement candidate.
+    _patch_wsl(monkeypatch, [{"Id": 100}], prior=[{"Id": 100}, {"Id": 200}])
 
     closed = {"v": False}
 

@@ -38,6 +38,14 @@ The narrowing that makes autonomous retirement safe (resolved in the spec's Open
   trustworthy roster.)
 - **Skip archived / deleted.** The cohort is :func:`live_only`, so an archived
   (PM 422s ``active_on_archived_org``) or deleted committee is never a candidate.
+- **Live-era scoping (#90).** The historical committee backfill (``harvest_committees``,
+  model A — each WSL ``Id`` its own org) added ~152 defunct-era committee orgs, all
+  defaulting ``active=true``. Absent from the *current* roster they read as a mass
+  retirement and trip the cohort floor every run. So the diff is scoped to the **live
+  era** — committees whose ``Id`` appears in the current *or* immediately-prior biennium
+  roster (``present_ids ∪ prior_ids``, the prior roster read archive-first). Deep-history
+  Ids fall out before the diff (counted ``scoped_out``); a genuine prior-biennium
+  retirement (in the prior roster, gone from the current) still fires.
 
 Thin operator surface — ``python -m usa_wa_sync_powermap.reconcile_committee_active``,
 no operator token (shell access is the trust boundary, as with the redrive and
@@ -58,7 +66,7 @@ import json
 import os
 import sys
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,7 +78,10 @@ from clearinghouse_domain_legislative.queries import live_only
 from clearinghouse_sync_powermap.client import DeliveryBlockedError, PayloadRejectedError
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.engine import TRANSIENT_EXCEPTIONS
+from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
+from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
 from usa_wa_adapter_legislature.refresh import biennium_for_date
+from usa_wa_adapter_legislature.synthesis import previous_biennium
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
@@ -95,6 +106,15 @@ _DELIVERY_FAILURES = TRANSIENT_EXCEPTIONS
 #: Exit code for a guardrail abort (empty pull / cohort floor) — distinct from a partial
 #: row failure (1) so an operator/cron can tell "took no action" from "acted, some failed".
 EXIT_ABORTED = 3
+
+
+class RosterProvider(Protocol):
+    """Biennium → ``{source_id: name}`` roster — the era-scoping input (#90).
+
+    Satisfied by :class:`CommitteeRosterCohortProvider` (archive-first, so a closed prior
+    biennium is a cache hit, not a WSL re-pull)."""
+
+    async def cohort(self, biennium: str) -> dict[str, str]: ...
 
 
 async def _produced_committee_cohort(session: AsyncSession) -> list[Organization]:
@@ -171,10 +191,22 @@ async def reconcile_committee_active(
     biennium: str,
     dry_run: bool = False,
     max_absent_fraction: float = DEFAULT_MAX_ABSENT_FRACTION,
+    roster_provider: RosterProvider | None = None,
 ) -> dict:
     """Diff the produced committee cohort against ``GetCommittees(biennium)`` and emit
     ``active=false`` for committees the roster dropped + ``active=true`` for ones it
     lists again.
+
+    **Era scoping (#90).** When a ``roster_provider`` is supplied the diff is restricted
+    to the **live era** — committees whose ``source_id`` appears in the current *or*
+    immediately-prior biennium roster (``present_ids ∪ prior_ids``). The historical
+    committee backfill (``harvest_committees``, model A — each WSL ``Id`` its own org)
+    floods the produced cohort with defunct-era Ids, all defaulting ``active=true``;
+    absent from the current roster they would read as a mass retirement and trip the
+    cohort floor every run (#90). Scoping drops them before the diff (counted
+    ``scoped_out``) while keeping a genuine prior-biennium retirement (an ``Id`` in the
+    prior roster but gone from the current one). Without a provider the whole produced
+    cohort is diffed (legacy behavior).
 
     Guardrails (see module docstring): an empty roster aborts (``empty_pull``); an
     absent fraction over ``max_absent_fraction`` aborts (``cohort_floor``). Both gate
@@ -195,7 +227,15 @@ async def reconcile_committee_active(
     """
     roster = await wsl_client.get_committees(biennium)
     present_ids = {str(c["Id"]) for c in roster if c.get("Id") is not None}
-    cohort = await _produced_committee_cohort(session)
+    full_cohort = await _produced_committee_cohort(session)
+    if roster_provider is not None:
+        prior = previous_biennium(biennium)
+        prior_ids = set((await roster_provider.cohort(prior)).keys())
+        era_ids = present_ids | prior_ids
+        cohort = [c for c in full_cohort if c.source_id in era_ids]
+    else:
+        cohort = full_cohort
+    scoped_out = len(full_cohort) - len(cohort)
     active_cohort = [c for c in cohort if c.active]
     to_retire = [c for c in active_cohort if c.source_id not in present_ids]
     to_reactivate = [c for c in cohort if not c.active and c.source_id in present_ids]
@@ -203,6 +243,7 @@ async def reconcile_committee_active(
         "biennium": biennium,
         "present": len(present_ids),
         "cohort": len(cohort),
+        "scoped_out": scoped_out,
         "absent": len(to_retire),
         "returning": len(to_reactivate),
         "retired": 0,
@@ -283,6 +324,19 @@ def _resolve_biennium(arg: str | None) -> str:
     return os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
 
 
+async def _build_roster_provider(
+    session: AsyncSession, wsl_client: Any
+) -> CommitteeRosterCohortProvider:
+    """The archive-first prior-roster provider for era scoping (#90).
+
+    Bound to the WSL provenance source so a closed prior biennium is a cache hit on the
+    ``committees-roster:<biennium>`` archive (written by ``harvest_committees``), not a
+    fresh ``GetCommittees`` pull; an un-harvested biennium falls back to a live pull."""
+    jurisdiction = await resolve_jurisdiction(session)
+    source = await get_or_create_source(session, jurisdiction)
+    return CommitteeRosterCohortProvider(wsl_client, session=session, source_id=source.id)
+
+
 async def _run(args: argparse.Namespace) -> dict:
     """Open a session + WSL/PM clients, run the reconciliation, and return the summary.
 
@@ -302,6 +356,7 @@ async def _run(args: argparse.Namespace) -> dict:
                 biennium=biennium,
                 dry_run=True,
                 max_absent_fraction=args.max_absent_fraction,
+                roster_provider=await _build_roster_provider(session, wsl_client),
             )
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — required to submit observations.")
@@ -315,6 +370,7 @@ async def _run(args: argparse.Namespace) -> dict:
                 pm_client,
                 biennium=biennium,
                 max_absent_fraction=args.max_absent_fraction,
+                roster_provider=await _build_roster_provider(session, wsl_client),
             )
     finally:
         await pm_client.aclose()

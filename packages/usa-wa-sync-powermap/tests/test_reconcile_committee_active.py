@@ -42,6 +42,18 @@ class _FakeWSL:
         return self._rows
 
 
+class _FakeRosterProvider:
+    """Stub prior-roster provider — maps a biennium to its ``{source_id: name}`` cohort."""
+
+    def __init__(self, cohorts):
+        self._cohorts = cohorts
+        self.calls = []
+
+    async def cohort(self, biennium):
+        self.calls.append(biennium)
+        return dict(self._cohorts.get(biennium, {}))
+
+
 class _FakePM:
     """Stub PM client capturing posted observations; result via a factory callable."""
 
@@ -264,6 +276,83 @@ async def test_inactive_cohort_does_not_dilute_the_floor(db_session, usa_wa):
 
     assert summary["aborted"] == "cohort_floor"
     assert pm.posted == []
+
+
+# --- era scoping (#90) --------------------------------------------------------
+
+
+async def test_historical_cohort_does_not_trip_cohort_floor(db_session, usa_wa):
+    """Post-backfill regression (#90): the historical committee harvest (sub-project 3,
+    model A) floods the produced cohort with defunct-era Ids, all ``active=true``. Absent
+    from the *current* roster, they read as a mass retirement and trip the cohort floor.
+    A ``roster_provider`` scopes the diff to the live era (current ∪ prior roster), so the
+    defunct Ids never enter the diff — a genuine prior-biennium retirement still fires."""
+    for sid in ("A", "B", "C"):  # current-biennium standing committees (present)
+        await _add_committee(db_session, source_id=sid, anchor=ULID())
+    d_anchor = ULID()
+    await _add_committee(db_session, source_id="D", anchor=d_anchor)  # prior biennium, now gone
+    for sid in ("H1", "H2", "H3", "H4", "H5"):  # defunct-era harvest Ids — never current
+        await _add_committee(db_session, source_id=sid, anchor=ULID())
+
+    wsl = _FakeWSL(_roster("A", "B", "C"))
+    provider = _FakeRosterProvider(
+        {"2023-24": {"A": "A", "B": "B", "C": "C", "D": "D"}}  # prior roster: A–D
+    )
+    pm = _FakePM()
+
+    summary = await reconcile_committee_active(
+        db_session,
+        OrganizationDescriptor(),
+        wsl,
+        pm,
+        biennium="2025-26",
+        roster_provider=provider,
+    )
+
+    assert provider.calls == ["2023-24"]  # prior biennium
+    assert summary["aborted"] is None  # floor no longer trips
+    assert summary["scoped_out"] == 5  # the 5 defunct-era Ids excluded from the diff
+    assert summary["absent"] == 1  # only D (prior-active, now absent) retires
+    assert summary["retired"] == 1
+    assert len(pm.posted) == 1
+    _path, payload = pm.posted[0]
+    assert payload["identifier_value"] == str(d_anchor)
+    assert payload["active"] is False
+
+
+async def test_defunct_era_committee_is_never_retired(db_session, usa_wa):
+    """A defunct-era Id absent from both current and prior rosters is scoped out — not a
+    retirement candidate, so nothing is posted for it."""
+    await _add_committee(db_session, source_id="A", anchor=ULID())  # present
+    await _add_committee(db_session, source_id="OLD", anchor=ULID())  # defunct, active
+    wsl = _FakeWSL(_roster("A"))
+    provider = _FakeRosterProvider({"2023-24": {"A": "A"}})  # OLD in neither roster
+    pm = _FakePM()
+
+    summary = await reconcile_committee_active(
+        db_session, OrganizationDescriptor(), wsl, pm, biennium="2025-26", roster_provider=provider
+    )
+
+    assert pm.posted == []
+    assert summary["scoped_out"] == 1
+    assert summary["absent"] == 0
+    assert summary["retired"] == 0
+
+
+async def test_no_provider_leaves_cohort_unscoped(db_session, usa_wa):
+    """Without a ``roster_provider`` the diff spans the whole produced cohort (legacy
+    behavior) — ``scoped_out`` is 0 and no prior roster is pulled."""
+    await _add_committee(db_session, source_id="100", anchor=ULID())
+    await _add_committee(db_session, source_id="200", anchor=ULID())
+    wsl, pm = _FakeWSL(_roster(100)), _FakePM()
+
+    summary = await reconcile_committee_active(
+        db_session, OrganizationDescriptor(), wsl, pm, biennium="2025-26", max_absent_fraction=1.0
+    )
+
+    assert summary["scoped_out"] == 0
+    assert summary["absent"] == 1  # 200 still a candidate — unscoped
+    assert summary["retired"] == 1
 
 
 # --- per-row eligibility ------------------------------------------------------
