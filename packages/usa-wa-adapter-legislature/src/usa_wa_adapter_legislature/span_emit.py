@@ -26,6 +26,7 @@ Direct session writes (Phase-B derived rows, like the reconcilers/heal) — no A
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -73,10 +74,14 @@ class SpanBuildResult:
 def close_fraction(value: str) -> float:
     """``--max-close-fraction`` argparse type: a float in ``(0, 1]``. Rejects 0/negative
     (which would silently make the sweep abort-everything past the floor — the opposite of
-    the operator's likely intent) and > 1 (meaningless; 1.0 already disables the guard)."""
+    the operator's likely intent) and > 1 (meaningless; 1.0 already disables the guard).
+    Raises :class:`argparse.ArgumentTypeError` so argparse surfaces the range hint verbatim
+    (a plain ``ValueError``'s text is swallowed into the generic "invalid value" line)."""
     fraction = float(value)
     if not 0.0 < fraction <= 1.0:
-        raise ValueError(f"must be in (0, 1], got {value!r} (1.0 disables the guard)")
+        raise argparse.ArgumentTypeError(
+            f"must be in (0, 1], got {value!r} (1.0 disables the guard)"
+        )
     return fraction
 
 

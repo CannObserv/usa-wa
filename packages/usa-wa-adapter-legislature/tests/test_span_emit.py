@@ -9,6 +9,7 @@ the Assignment source **differ**. These tests pin that split without disturbing 
 
 from __future__ import annotations
 
+import argparse
 from datetime import UTC, date, datetime
 
 import pytest
@@ -411,11 +412,14 @@ async def test_close_stale_spans_fraction_override_permits_legitimate_mass_close
 
 
 def test_close_fraction_validator_accepts_the_valid_range():
-    """#83 CR round 3: the CLI flag validator — (0, 1] accepted, everything else rejected
-    (a typo'd 0 would silently make the sweep abort-everything, the opposite of intent)."""
+    """#83 CR rounds 3-4: the CLI flag validator — (0, 1] accepted; a range violation raises
+    argparse.ArgumentTypeError so the "1.0 disables the guard" hint actually reaches the
+    operator (argparse swallows a plain ValueError's text)."""
     assert close_fraction("0.5") == 0.5
     assert close_fraction("1.0") == 1.0
     assert close_fraction("1") == 1.0
     for bad in ("0", "0.0", "-0.3", "1.5", "nan"):
-        with pytest.raises(ValueError):
+        with pytest.raises(argparse.ArgumentTypeError, match="disables the guard"):
             close_fraction(bad)
+    with pytest.raises(ValueError):  # non-numeric still fails loudly (argparse generic path)
+        close_fraction("abc")
