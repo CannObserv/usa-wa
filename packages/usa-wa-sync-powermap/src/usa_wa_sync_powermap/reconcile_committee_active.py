@@ -348,6 +348,8 @@ async def _build_roster_provider(
     authority for ``active`` and mirrors it back), so it has no business provisioning the
     Source. If the Source is somehow absent (a DB that never ran a WSL pull), the provider
     gets ``source_id=None`` and simply live-pulls every biennium — no archive to read."""
+    # _SOURCE is the Organization.source producer string; it equals the provenance
+    # Source.slug by convention, so it doubles as the Source lookup key here.
     source = (
         await session.execute(select(Source).where(Source.slug == _SOURCE))
     ).scalar_one_or_none()
