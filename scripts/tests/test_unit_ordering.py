@@ -22,6 +22,7 @@ cross-checks the on-disk unit set against EXPECTED's keys, so adding a unit
 without a dependency decision fails the suite.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -240,6 +241,55 @@ def unit_value(path: Path, section: str, key: str) -> str | None:
     return found
 
 
+# systemd time-span units → seconds. A bare number is seconds; tokens may be
+# unit-suffixed (`5min`, `300s`, `2h`) and space-combined (`1min 30s`). Our units
+# use plain integer seconds, but the idiomatic forms are valid — parse them so a
+# `5min` edit asserts cleanly instead of crashing the invariant test on int().
+_SPAN_UNIT_SECONDS = {
+    "": 1,
+    "s": 1,
+    "sec": 1,
+    "second": 1,
+    "seconds": 1,
+    "m": 60,
+    "min": 60,
+    "minute": 60,
+    "minutes": 60,
+    "h": 3600,
+    "hr": 3600,
+    "hour": 3600,
+    "hours": 3600,
+    "d": 86400,
+    "day": 86400,
+    "days": 86400,
+}
+
+
+def parse_seconds(value: str) -> int:
+    """Parse a systemd time span into whole seconds (see _SPAN_UNIT_SECONDS)."""
+    tokens = re.findall(r"(\d+)\s*([a-z]*)", value.strip().lower())
+    if not tokens:
+        raise ValueError(f"unparseable systemd time span: {value!r}")
+    total = 0
+    for number, unit in tokens:
+        if unit not in _SPAN_UNIT_SECONDS:
+            raise ValueError(f"unrecognized systemd time unit {unit!r} in {value!r}")
+        total += int(number) * _SPAN_UNIT_SECONDS[unit]
+    return total
+
+
+def _loop_is_bounded(interval: str, restart_sec: str, burst: str) -> bool:
+    """Whether a Restart= unit's start-rate limiter can trip (loop is bounded).
+
+    The burst — `burst` starts spaced ~`restart_sec` apart — must fit inside the
+    `interval` window, else the limiter never trips and an ExecStartPre failure
+    (e.g. the off-main guard) restart-loops forever. `burst` is a count, not a
+    span. Shared by the production assertion and its has-teeth proof so the two
+    can't drift.
+    """
+    return parse_seconds(interval) >= parse_seconds(restart_sec) * int(burst)
+
+
 def test_branch_guard_on_every_code_running_service():
     """Every prod .service that runs repo code carries the main-branch guard (#87).
 
@@ -284,7 +334,7 @@ def test_restart_loop_is_bounded(name):
     assert interval is not None, f"{name} missing StartLimitIntervalSec"
     assert burst is not None, f"{name} missing StartLimitBurst"
     assert restart_sec is not None, f"{name} missing RestartSec"
-    assert int(interval) >= int(restart_sec) * int(burst)
+    assert _loop_is_bounded(interval, restart_sec, burst)
 
 
 def test_every_restarting_service_is_declared():
@@ -297,19 +347,25 @@ def test_every_restarting_service_is_declared():
     assert on_disk == RESTARTING_SERVICES
 
 
-def test_bounded_loop_invariant_would_fail_the_default_window(tmp_path):
-    # Proof the invariant has teeth: systemd's default (10s / 5) at RestartSec=5
-    # violates it (10 < 5*5) — exactly the unbounded loop finding 1 fixed. So
-    # reverting a real unit to the default fails test_restart_loop_is_bounded.
-    unit = tmp_path / "d.service"
-    unit.write_text(
-        "[Unit]\nStartLimitIntervalSec=10\nStartLimitBurst=5\n"
-        "[Service]\nRestart=on-failure\nRestartSec=5\nExecStart=/bin/true\n"
-    )
-    interval = int(unit_value(unit, "Unit", "StartLimitIntervalSec"))
-    burst = int(unit_value(unit, "Unit", "StartLimitBurst"))
-    restart_sec = int(unit_value(unit, "Service", "RestartSec"))
-    assert interval < restart_sec * burst
+def test_bounded_loop_invariant_would_fail_the_default_window():
+    # Proof the shared predicate has teeth: systemd's default (10s / 5) at
+    # RestartSec=5 is NOT bounded (10 < 5*5) — exactly the unbounded loop finding
+    # 1 fixed. Uses the same _loop_is_bounded as the production assertion, so the
+    # proof actually guards it (findings 8): a wrong edit to the predicate fails
+    # here too.
+    assert not _loop_is_bounded("10", "5", "5")
+    # And a widened window (our 5min / 10) is bounded.
+    assert _loop_is_bounded("5min", "5", "10")
+
+
+def test_parse_seconds_handles_systemd_forms():
+    assert parse_seconds("300") == 300  # bare number = seconds
+    assert parse_seconds("300s") == 300
+    assert parse_seconds("5min") == 300
+    assert parse_seconds("1min 30s") == 90
+    assert parse_seconds("2h") == 7200
+    with pytest.raises(ValueError):
+        parse_seconds("5furlongs")  # unrecognized unit fails loudly, not silently
 
 
 def test_every_unit_has_an_expected_entry():

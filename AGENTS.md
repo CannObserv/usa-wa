@@ -217,9 +217,17 @@ in a git worktree** (see the `using-git-worktrees` skill), leaving the prod
 checkout on `main`. `USA_WA_DEPLOY_BRANCH` overrides the expected branch for a
 non-standard host. The notify handler (`usa-wa-notify-failure@.service`) is
 exempt (it's the alerting path); timers carry no guard (they run no code, only
-activate their guarded `.service`). `test_unit_ordering.py` asserts the guard is
-present on every code-running service and cross-checks the on-disk set, so a new
-service can't silently omit it.
+activate their guarded `.service`). The two serving units
+(`usa-wa`/`usa-wa-sync-powermap`) carry a widened `StartLimitIntervalSec=300`/
+`StartLimitBurst=10` so an off-main checkout — which fails the guard on every
+`Restart=` attempt — settles into `failed` instead of looping forever (a
+transient dependency blip under ~50s still self-heals). **Recovery after an
+off-main wedge:** returning to `main` doesn't auto-restart a `failed` unit — the
+normal deploy (`systemctl restart …`) clears it; a bare `reset-failed` + `start`
+also works. `test_unit_ordering.py` asserts the guard is present on every
+code-running service, cross-checks the on-disk set (so a new service can't
+silently omit it), and asserts every `Restart=` unit's start-limit window is
+wide enough to bound the loop (`StartLimitIntervalSec >= RestartSec * StartLimitBurst`).
 
 **Deploy convention: units never sync the venv (issue #30).** Every systemd
 entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
