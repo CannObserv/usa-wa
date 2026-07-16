@@ -139,8 +139,15 @@ class Sidecar:
         for descriptor in self._descriptors:
             if descriptor.write_enabled:
                 await self._engine.sweep_unanchored(session, descriptor, commit=commit)
+        # Drain against a FRESH clock read (#93): the sweep above can take minutes on a
+        # bulk ingest, so entries enqueued during it carry a ``next_attempt_at`` later than
+        # the cycle-start ``now`` — draining against the stale ``now`` finds them "not due"
+        # and defers delivery a whole cycle. A fresh read is >= every just-enqueued stamp.
         await self._engine.drain_outbox(
-            session, now=now, commit=commit, chunk_size=self._outbox_commit_chunk_size
+            session,
+            now=self._clock(),
+            commit=commit,
+            chunk_size=self._outbox_commit_chunk_size,
         )
 
     async def run_cycle(self) -> bool:

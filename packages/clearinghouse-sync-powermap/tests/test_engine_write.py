@@ -67,6 +67,33 @@ class _Flaky429Descriptor(FakeDescriptor):
         return None
 
 
+class _CountingDescriptor(FakeDescriptor):
+    """Counts ``pm_match`` calls so a test can assert a queued row is not re-searched."""
+
+    def __init__(self) -> None:
+        self.match_calls = 0
+
+    async def pm_match(self, client, session, row):  # noqa: ARG002
+        self.match_calls += 1
+        return None
+
+
+async def test_sweep_skips_rows_with_open_outbox_entry(db_session):
+    """#93: a row that already has a PENDING outbox entry is excluded from the sweep —
+    not re-``pm_match``ed — so a bulk ingest doesn't re-search queued rows every cycle."""
+    await _add_entity(db_session, source_id="1")
+    descriptor = _CountingDescriptor()
+    engine = SyncEngine([descriptor], FakeClient())
+
+    assert await engine.sweep_unanchored(db_session, descriptor) == 1  # first: enqueues a CREATE
+    assert descriptor.match_calls == 1
+
+    # Second sweep: the row is still anchor-NULL (create not delivered) but now carries a
+    # PENDING entry → excluded from the query, so pm_match is NOT called again.
+    assert await engine.sweep_unanchored(db_session, descriptor) == 0
+    assert descriptor.match_calls == 1  # unchanged — no wasted re-search
+
+
 async def test_sweep_match_429_pauses_and_resumes(db_session):
     """#92: a 429 during the sweep's ``pm_match`` pauses-and-resumes (honoring
     Retry-After) instead of aborting the tick — else a first bulk ingest, one search

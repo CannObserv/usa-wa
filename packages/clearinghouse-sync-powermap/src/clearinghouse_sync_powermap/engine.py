@@ -86,7 +86,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
-from sqlalchemy import ColumnElement, func, select, update
+from sqlalchemy import ColumnElement, exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
@@ -341,10 +341,20 @@ class SyncEngine:
         """
         anchor_col = getattr(descriptor.model, descriptor.anchor_column)
         pk_col = descriptor.model.id
+        # Skip rows that already have an open/dead-lettered outbox entry (#93): their
+        # CREATE is queued (or parked), so they stay ``anchor IS NULL`` until delivery —
+        # re-running ``pm_match`` (a PM read per row) on them every cycle is pure waste,
+        # and ``_enqueue`` no-ops on the same guard anyway. Correlated NOT EXISTS on the
+        # same ``(entity_type, local_id)`` in the re-enqueue-blocking statuses.
+        already_queued = exists().where(
+            OutboxEntry.entity_type == descriptor.entity_type,
+            OutboxEntry.local_id == pk_col,
+            OutboxEntry.status.in_(_REENQUEUE_BLOCKING_STATUSES),
+        )
         enqueued = 0
         last_id = None
         while True:
-            stmt = select(descriptor.model).where(anchor_col.is_(None))
+            stmt = select(descriptor.model).where(anchor_col.is_(None), ~already_queued)
             if descriptor.deleted_column is not None:
                 # Never re-create a terminally-deleted row — it would resurrect a
                 # deliberately-deleted entity in PM (#31). An *archived* row keeps a

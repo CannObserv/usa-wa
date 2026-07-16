@@ -218,6 +218,34 @@ async def test_tick_uses_configured_commit_chunk_size(db_session, state_type):
     assert commits == 3
 
 
+async def test_tick_drains_against_a_fresh_clock(db_session, state_type):
+    """#93: entries enqueued during the tick are delivered the SAME cycle even when the
+    passed cycle ``now`` predates their ``next_attempt_at`` — the drain re-reads the clock,
+    so a slow bulk sweep doesn't defer every freshly-enqueued entry a whole cycle."""
+    for slug in ("usa-wa-a", "usa-wa-b"):
+        db_session.add(
+            Jurisdiction(slug=slug, name=slug, type_id=state_type.id, recorded_at=datetime.now(UTC))
+        )
+    await db_session.flush()
+    client = FakeClient(
+        observation_result=lambda _payload: ObservationResult(DISPOSITION_NEW, ULID(), {})
+    )
+    sidecar, _ = _sidecar(client)
+
+    async def _commit() -> None:
+        await db_session.commit()
+
+    # A cycle ``now`` far in the PAST — earlier than the rows' server-default
+    # ``next_attempt_at``. Draining against this stale ``now`` would find nothing due; the
+    # fresh-clock drain (real now, after the sweep) delivers them this cycle.
+    past = datetime(2000, 1, 1, tzinfo=UTC)
+    await sidecar.tick(db_session, now=past, commit=_commit)
+
+    delivered = (await db_session.execute(select(OutboxEntry))).scalars().all()
+    assert len(delivered) == 2
+    assert all(e.status == STATUS_DELIVERED for e in delivered)
+
+
 # --- run_cycle isolation (CR #13) ----------------------------------------------
 
 
