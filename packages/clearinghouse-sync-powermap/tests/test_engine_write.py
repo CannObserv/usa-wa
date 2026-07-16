@@ -526,6 +526,64 @@ async def test_drain_blocked_error_does_not_starve_siblings(db_session, fake_des
     assert good.pm_fake_id is not None
 
 
+async def test_drain_prioritizes_dependency_roots_over_deferred_dependents(db_session):
+    """Regression for #96: a dependency-ROOT entry must not be starved out of the
+    drain batch by a flood of dependent entries whose ``next_attempt_at`` sorts
+    earlier. In the bulk-produce incident the role roots failed once (frozen at
+    ~T0+60) while thousands of dependency-blocked assignments re-deferred to
+    *just before* T0, filling every ``batch_limit`` cut ahead of the roots — so
+    the roots were never re-attempted for ~42 min. The drain now orders
+    topologically (registry/dependency order) first, ``next_attempt_at`` second,
+    so a bounded root tier is always attempted before its dependents."""
+
+    class _RootDescriptor(FakeDescriptor):
+        entity_type = "root"
+
+    class _DepDescriptor(FakeDescriptor):
+        entity_type = "dep"
+
+        async def dependencies_ready(self, session, row):  # noqa: ARG002
+            return False  # perpetually blocked → defers each cycle, never posts
+
+    root_row = await _add_entity(db_session, source_id="root-1")
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    # Registry order is dependency-first: the root descriptor precedes the dependent.
+    engine = SyncEngine([_RootDescriptor(), _DepDescriptor()], client, batch_limit=2)
+
+    # The root failed once on the initial burst → frozen at NOW (attempts=1).
+    root_entry = OutboxEntry(
+        entity_type="root",
+        local_id=root_row.id,
+        op=OP_CREATE,
+        status=STATUS_PENDING,
+        attempts=1,
+        next_attempt_at=NOW,
+    )
+    db_session.add(root_entry)
+    # A flood of dependency-blocked dependents deferred to *just before* the root,
+    # more than ``batch_limit`` — pure next_attempt_at ordering would exclude the root.
+    for i in range(5):
+        dep_row = await _add_entity(db_session, source_id=f"dep-{i}")
+        db_session.add(
+            OutboxEntry(
+                entity_type="dep",
+                local_id=dep_row.id,
+                op=OP_CREATE,
+                status=STATUS_PENDING,
+                attempts=0,
+                next_attempt_at=NOW - timedelta(seconds=1),
+            )
+        )
+    await db_session.flush()
+
+    touched = await engine.drain_outbox(db_session, now=NOW)
+
+    assert root_entry in touched  # topological priority pulled the root into the batch
+    assert root_entry.status == STATUS_DELIVERED
+    await db_session.refresh(root_row)
+    assert root_row.pm_fake_id is not None  # actually delivered this cycle
+
+
 async def test_drain_payload_rejected_marks_terminal(db_session, fake_descriptor):
     """A payload-validation rejection (e.g. PM 422) parks the entry to REJECTED — the
     re-sweepable 'fix the data' terminal state — not UNAVAILABLE, and never propagates."""

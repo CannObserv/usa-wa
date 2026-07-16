@@ -86,7 +86,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
-from sqlalchemy import ColumnElement, exists, func, select, update
+from sqlalchemy import ColumnElement, case, exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID
 
@@ -257,6 +257,15 @@ class SyncEngine:
         if sweep_batch_size < 1:
             raise ValueError("sweep_batch_size must be >= 1")
         self._by_type = {d.entity_type: d for d in descriptors}
+        #: Drain priority per entity type = its index in the (dependency-first)
+        #: descriptor registry order. Lower drains first, so a dependency **root**
+        #: (org/role) is always attempted before its dependents (assignments) in a
+        #: single batch — the fix for the #96 bulk-produce starvation, where frozen
+        #: role roots were crowded out of the ``next_attempt_at``-only ``LIMIT`` cut
+        #: by thousands of dependency-blocked assignments deferred just ahead of them.
+        #: ``build_descriptors`` authors this order; it is load-bearing here, not
+        #: merely informational.
+        self._drain_priority = {d.entity_type: i for i, d in enumerate(descriptors)}
         self._client = client
         self._batch_limit = batch_limit
         self._max_attempts = max_attempts
@@ -643,6 +652,23 @@ class SyncEngine:
         # single sidecar instance (process model B, one systemd unit). Two
         # concurrent daemons would double-send. If the deployment ever scales out,
         # add ``.with_for_update(skip_locked=True)`` here.
+        #
+        # Ordering is topological first, ``next_attempt_at`` second (usa-wa#96):
+        # a dependency **root** (org/role) must be attempted before its dependents
+        # (assignments) inside one ``LIMIT`` batch, or a flood of dependency-blocked
+        # dependents whose ``next_attempt_at`` sorts earlier starves the root out of
+        # the cut forever (attempts frozen). ``_drain_priority`` maps each entity
+        # type to its registry index; an unknown type (no descriptor) sorts last.
+        order_by: list[Any] = []
+        if self._drain_priority:  # case({}) is illegal; empty registry drains nothing anyway
+            order_by.append(
+                case(
+                    self._drain_priority,
+                    value=OutboxEntry.entity_type,
+                    else_=len(self._drain_priority),
+                )
+            )
+        order_by.append(OutboxEntry.next_attempt_at)
         return (
             (
                 await session.execute(
@@ -651,7 +677,7 @@ class SyncEngine:
                         OutboxEntry.status == STATUS_PENDING,
                         OutboxEntry.next_attempt_at <= now,
                     )
-                    .order_by(OutboxEntry.next_attempt_at)
+                    .order_by(*order_by)
                     .limit(self._batch_limit)
                 )
             )

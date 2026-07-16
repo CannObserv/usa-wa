@@ -37,12 +37,16 @@ def build_pm_client(settings: SidecarSettings) -> GeneratedPowerMapClient:
 def build_descriptors(settings: SidecarSettings | None = None) -> list[EntityDescriptor]:
     """Construct the descriptor set the sidecar engine operates over.
 
-    Order is informational (the engine indexes by ``entity_type``), but kept
-    dependency-first: jurisdictions → the org tree they govern → roles within
-    those orgs → persons → assignments (which bind a person to a role). Ordering
-    at *delivery* time is enforced by each descriptor's ``dependencies_ready``
-    gate, not by this list order — a role/assignment whose parents aren't yet
-    anchored is deferred, not failed.
+    Order is dependency-first: jurisdictions → the org tree they govern → roles
+    within those orgs → persons → assignments (which bind a person to a role).
+    This order is **load-bearing** in two ways. (1) At *delivery* time each
+    descriptor's ``dependencies_ready`` gate defers a role/assignment whose
+    parents aren't yet anchored (deferred, not failed). (2) The engine reads this
+    list index as the outbox **drain priority** (``_drain_priority``): a
+    dependency root (org/role) is drained before its dependents (assignments)
+    inside one batch, so a flood of dependency-blocked dependents can't starve a
+    root out of the ``next_attempt_at``-ordered ``LIMIT`` cut (usa-wa#96).
+    Reordering this list changes both behaviours — keep it topological.
 
     ``settings`` (#12): when provided and ``powermap_search_match_cap`` is set, the
     org/person match-cascade name-search cap is overridden; ``None`` (or an unset
