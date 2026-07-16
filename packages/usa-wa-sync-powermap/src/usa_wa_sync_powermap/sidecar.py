@@ -448,4 +448,8 @@ class Sidecar:
         ).scalar_one_or_none()
         if state is None or state.last_reconcile_at is None:
             return True
+        if state.cursor is not None:
+            # An interrupted pass left a keyset checkpoint (#94) — resume it now regardless
+            # of the cadence, so a reconcile broken off mid-cohort finishes promptly.
+            return True
         return (now - state.last_reconcile_at) >= descriptor.reconcile_cadence

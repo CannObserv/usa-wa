@@ -363,6 +363,27 @@ async def test_anchored_cohort_producers_are_reconcile_due(db_session):
     assert await sidecar._reconcile_due(db_session, RoleDescriptor(), NOW) is True
 
 
+async def test_reconcile_due_resumes_when_cursor_set_within_cadence(db_session):
+    """#94: a fresh stamp normally means not-due within the cadence — but a set cursor is an
+    interrupted pass that must resume now, so it's due regardless of the stamp."""
+    sidecar, _ = _sidecar(FakeClient())
+    org = OrganizationDescriptor()
+    # A just-stamped stream: by cadence alone this is NOT due (now == last_reconcile_at).
+    db_session.add(SyncState(stream=f"reconcile:{org.entity_type}", last_reconcile_at=NOW))
+    await db_session.flush()
+    assert await sidecar._reconcile_due(db_session, org, NOW) is False
+
+    # Set a keyset checkpoint → an interrupted pass → due now, cadence notwithstanding.
+    state = (
+        await db_session.execute(
+            select(SyncState).where(SyncState.stream == f"reconcile:{org.entity_type}")
+        )
+    ).scalar_one()
+    state.cursor = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+    await db_session.flush()
+    assert await sidecar._reconcile_due(db_session, org, NOW) is True
+
+
 async def test_run_descriptor_reconcile_recovers_dropped_edit(db_session):
     """End-to-end through the per-descriptor reconcile seam (#85): an anchored org
     whose feed bump was dropped (stale local name + old clock) is recovered by the

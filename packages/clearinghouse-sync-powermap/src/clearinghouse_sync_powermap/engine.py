@@ -1257,8 +1257,15 @@ class SyncEngine:
         """
         anchor_col = descriptor.anchor_column_expr()
         pk_col = descriptor.model.id
+        # Resumable across restarts (#94): a persisted keyset checkpoint in the reconcile
+        # stream's ``cursor`` lets an interrupted pass continue from where it stopped instead
+        # of re-scanning the whole cohort from the top — which, at slow pacing on a large
+        # cohort, never completed (so ``last_reconcile_at`` never stamped) and re-ran every
+        # restart during a bulk produce. Only advanced with a ``commit`` hook (persisted per
+        # page); ``None`` = start a fresh pass.
+        state = await self._get_or_create_state(session, _reconcile_stream(descriptor))
         applied = 0
-        last_id = None
+        last_id = as_ulid(state.cursor) if state.cursor else None
         while True:
             stmt = select(descriptor.model).where(anchor_col.is_not(None))
             if descriptor.deleted_column is not None:
@@ -1288,11 +1295,17 @@ class SyncEngine:
                 await self._maybe_enqueue_enrich(session, descriptor, record, row, check_drift=True)
                 applied += 1
             if commit is not None:
-                # Bound the open transaction to one page of PM round-trips (#13 CR).
+                # Bound the open transaction to one page of PM round-trips (#13 CR) and
+                # persist the keyset checkpoint with it, so a restart resumes here (#94).
+                state.cursor = str(last_id)
                 await session.flush()
                 await commit()
             if len(rows) < self._sweep_batch_size:
                 break
+        # Full pass complete — clear the resume checkpoint so the next run starts fresh
+        # (and the cadence gate, not the cursor, governs when that is, #94).
+        state.cursor = None
+        await session.flush()
         return applied
 
     async def _read_with_retry(

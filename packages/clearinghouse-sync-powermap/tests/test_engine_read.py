@@ -483,6 +483,64 @@ async def test_anchored_cohort_stamps_last_reconcile_at(db_session):
     assert state.last_reconcile_at == NOW
 
 
+async def test_anchored_cohort_clears_cursor_after_full_pass(db_session):
+    """#94: a completed reconcile leaves the keyset checkpoint NULL, so the cadence gate —
+    not a stale cursor — governs when the next pass runs."""
+    pm_id = ULID()
+    await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortDescriptor()
+    client = FakeClient(
+        entities={pm_id: _record("x", "X", pm_id=pm_id, updated_at="2000-01-01T00:00:00Z")}
+    )
+    engine = SyncEngine([descriptor], client, sweep_batch_size=1)
+
+    async def fake_commit():
+        pass
+
+    await engine.reconcile(db_session, descriptor, now=NOW, commit=fake_commit)
+
+    state = (
+        await db_session.execute(select(SyncState).where(SyncState.stream == "reconcile:fake"))
+    ).scalar_one()
+    assert state.cursor is None  # checkpoint cleared on completion
+
+
+async def test_anchored_cohort_resumes_from_persisted_cursor(db_session):
+    """#94: a persisted cursor makes the pass skip rows already processed (id <= cursor), so
+    an interrupted reconcile resumes where it stopped instead of re-scanning from the top."""
+    rows = []
+    for i in range(3):
+        pm_id = ULID()
+        row = await _add_anchored(
+            db_session, source_id=str(i), name=f"N{i}", pm_id=pm_id, updated_at=NOW
+        )
+        rows.append((row, pm_id))
+    rows.sort(key=lambda rp: rp[0].id)  # keyset order is by primary key
+    # Pre-seed the checkpoint at the FIRST row's id — a prior pass got that far then stopped.
+    db_session.add(
+        SyncState(stream="reconcile:fake", last_reconcile_at=NOW, cursor=str(rows[0][0].id))
+    )
+    await db_session.flush()
+
+    descriptor = CohortDescriptor()
+    client = FakeClient(
+        entities={
+            pm_id: _record(r.source_id, r.name, pm_id=pm_id, updated_at="2000-01-01T00:00:00Z")
+            for r, pm_id in rows
+        }
+    )
+    engine = SyncEngine([descriptor], client)
+
+    async def fake_commit():
+        pass
+
+    applied = await engine.reconcile(db_session, descriptor, now=NOW, commit=fake_commit)
+
+    fetched = {pm_id for _path, pm_id in client.fetched}
+    assert fetched == {rows[1][1], rows[2][1]}  # rows[0] skipped (at/below the cursor)
+    assert applied == 2
+
+
 async def test_anchored_cohort_skips_missing_pm_record(db_session):
     """A 404 on re-fetch (PM record gone between anchor and pass) is skipped, not
     fatal — the row is left as-is and the pass continues."""
