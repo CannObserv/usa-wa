@@ -7,6 +7,7 @@ per-biennium citations.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 
 import pytest
@@ -15,7 +16,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
-from clearinghouse_domain_legislative.identity import Assignment, Person
+from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
 
 
@@ -229,3 +230,82 @@ async def test_restricted_rebuild_closes_departed_members_open_spans(
         )
     ).scalar_one()
     assert sitting.is_active is True and sitting.valid_to is None
+
+
+async def _stale_party_rows(db_session, usa_wa, count):
+    """Directly-inserted open party spans for long-departed members (no archive backing)."""
+    org = Organization(
+        source="usa_wa_legislature",
+        source_id="test-stale-party-org",
+        jurisdiction_id=usa_wa.id,
+        name="Test Party",
+        org_type="party",
+    )
+    db_session.add(org)
+    await db_session.flush()
+    role = Role(
+        source="usa_wa_legislature",
+        source_id="test-stale-party-role",
+        organization_id=org.id,
+        name="Member",
+        role_type="member",
+    )
+    db_session.add(role)
+    await db_session.flush()
+    rows = []
+    for mid in range(900, 900 + count):
+        person = Person(
+            source="usa_wa_legislature", source_id=str(mid), name_full=f"Departed {mid}"
+        )
+        db_session.add(person)
+        await db_session.flush()
+        row = Assignment(
+            source="usa_wa_legislature",
+            source_id=f"{mid}:party:democratic:2021-22",
+            person_id=person.id,
+            role_id=role.id,
+            valid_from=date(2021, 1, 1),
+            valid_to=None,
+            is_active=True,
+        )
+        db_session.add(row)
+        rows.append(row)
+    await db_session.flush()
+    return rows
+
+
+async def test_max_close_fraction_threads_through_the_builder(
+    db_session, usa_wa, wsl_source, caplog
+):
+    """#83 CR round 2: a legitimate mass close (e.g. a WSL committee-era re-key) needs the
+    operator override — the builder forwards ``max_close_fraction`` to the sweep, and a
+    default run surfaces the abort in its completion log (``sweep_aborted``)."""
+    await _add_ld(db_session, usa_wa, 5)
+    db_session.add(Person(source="usa_wa_legislature", source_id="100", name_full="Member 100"))
+    await db_session.flush()
+    await _archive(db_session, wsl_source, "2025-26", b"<r25/>")
+    client = _FakeSponsorClient([_member(100, district="5")])
+    stale = await _stale_party_rows(db_session, usa_wa, 6)
+
+    # Default fraction: 6 of 8 open rows stale → abort, surfaced in the completion log.
+    with caplog.at_level(logging.INFO):
+        await build_sponsor_spans(
+            db_session,
+            sponsor_client=client,
+            current_biennium="2025-26",
+            restrict_to_biennium="2025-26",
+        )
+    assert all(r.is_active for r in stale)  # aborted — nothing closed
+    completes = [r for r in caplog.records if r.getMessage() == "sponsor_span_build_complete"]
+    assert completes and completes[-1].sweep_aborted is True
+
+    # Operator override: raised fraction lets the legitimate mass close through.
+    await build_sponsor_spans(
+        db_session,
+        sponsor_client=client,
+        current_biennium="2025-26",
+        restrict_to_biennium="2025-26",
+        max_close_fraction=1.0,
+    )
+    assert all(not r.is_active for r in stale)
+    assert all(r.valid_to == date(2024, 12, 31) for r in stale)

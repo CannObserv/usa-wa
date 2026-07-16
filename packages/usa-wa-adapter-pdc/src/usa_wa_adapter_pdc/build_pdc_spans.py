@@ -34,7 +34,11 @@ from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
 )
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
-from usa_wa_adapter_legislature.span_emit import CitationTarget, close_stale_spans
+from usa_wa_adapter_legislature.span_emit import (
+    MAX_CLOSE_FRACTION_DEFAULT,
+    CitationTarget,
+    close_stale_spans,
+)
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.tenure_spans import Observation, build_tenure_spans
@@ -86,6 +90,7 @@ async def build_pdc_spans(
     sponsor_client: WSLClient | None = None,
     current_biennium: str | None = None,
     restrict_to_biennium: str | None = None,
+    max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
 ) -> PdcSpanResult:
     """Build + emit era-matched House Position spans + ``person_wa_pdc`` links; return counts.
 
@@ -183,12 +188,13 @@ async def build_pdc_spans(
     result.identifiers = await emit_pdc_identifiers(session, identifiers)
     # #83: a departed member keeps no observation in the rebuilt (possibly restricted) set,
     # so their open chamber-house span would stay is_active forever — close it.
-    closed = await close_stale_spans(
+    sweep = await close_stale_spans(
         session,
         assignment_source=PDC_SOURCE,
         kinds={KIND_HOUSE},
         asserted_source_ids={s.source_id for s in spans},
         current_biennium=current,
+        max_close_fraction=max_close_fraction,
     )
     logger.info(
         "pdc_span_build_complete",
@@ -197,7 +203,8 @@ async def build_pdc_spans(
             "senate_years": result.senate_years,
             "house_spans": result.house_spans,
             "identifiers": result.identifiers,
-            "closed_stale": closed,
+            "closed_stale": sweep.closed,
+            "sweep_aborted": sweep.aborted,
             "restricted": restrict_to_biennium,
         },
     )
@@ -210,6 +217,13 @@ async def _main(argv: list[str] | None = None) -> int:
         description="Build era-matched PDC House Position spans + identifiers from archive (#79)."
     )
     parser.add_argument("--dry-run", action="store_true", help="build but roll back (preview)")
+    parser.add_argument(
+        "--max-close-fraction",
+        type=float,
+        default=MAX_CLOSE_FRACTION_DEFAULT,
+        help="mass-close guard ceiling (#83); raise to 1.0 for a deliberate mass close "
+        "(e.g. a wholesale WSL committee-Id re-key)",
+    )
     args = parser.parse_args(argv)
 
     database_url = os.environ.get("DATABASE_URL")
@@ -220,7 +234,7 @@ async def _main(argv: list[str] | None = None) -> int:
     engine = create_async_engine(database_url)
     try:
         async with AsyncSession(engine) as session:
-            result = await build_pdc_spans(session)
+            result = await build_pdc_spans(session, max_close_fraction=args.max_close_fraction)
             if args.dry_run:
                 await session.rollback()
             else:

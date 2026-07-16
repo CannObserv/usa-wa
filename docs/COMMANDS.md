@@ -143,7 +143,9 @@ python -m usa_wa_adapter_pdc.harvest_pdc --from-year 2008 --pause-seconds 0.5
 # Ends with the #83 stale-span sweep (chamber-house): open spans the rebuild no longer asserts are
 # closed (departed members / superseded-wire orphans) — closed_stale in the completion log, one
 # stale_span_closed line per row; closed_stale > 0 on an unrestricted run = stranded rows repaired.
-# Mass-close guard: an empty or >50% close aborts with stale_span_sweep_aborted_mass_close.
+# Mass-close guard: an empty span set is a no-op, and stale rows exceeding 50% of the open cohort
+# (only past 5 candidates) abort with stale_span_sweep_aborted_mass_close + sweep_aborted=true in
+# the completion log. A LEGITIMATE mass close (wholesale re-key) needs --max-close-fraction 1.0.
 python -m usa_wa_adapter_pdc.build_pdc_spans --dry-run
 python -m usa_wa_adapter_pdc.build_pdc_spans
 
@@ -359,7 +361,8 @@ python -m usa_wa_adapter_legislature.harvest_sponsors --from-biennium 1991-92 --
 # back. The daily refresh also re-drives this builder for the current biennium (#78-2c).
 # Ends with the #83 stale-span sweep (party + chamber-senate): open spans the rebuild no longer
 # asserts are closed (departed members) — closed_stale in the completion log; closed_stale > 0 on
-# an unrestricted run = previously-stranded rows repaired. Guarded against empty/mass closes.
+# an unrestricted run = previously-stranded rows repaired. Guarded against empty/mass closes
+# (sweep_aborted=true in the completion log); --max-close-fraction 1.0 permits a deliberate one.
 python -m usa_wa_adapter_legislature.harvest_sponsor_spans --dry-run
 python -m usa_wa_adapter_legislature.harvest_sponsor_spans
 
@@ -399,7 +402,9 @@ python -m usa_wa_adapter_legislature.harvest_committee_members --from-biennium 1
 # span. Idempotent. The daily refresh re-drives this for the current cohort.
 # Ends with the #83 stale-span sweep (committee): open memberships the rebuild no longer asserts
 # are closed — a member who left the committee OR the legislature, and superseded-wire orphans.
-# closed_stale in the completion log; guarded against empty/mass closes.
+# closed_stale in the completion log; guarded against empty/mass closes (sweep_aborted=true when
+# tripped). A wholesale WSL committee-Id re-key makes EVERY old-Id span stale at once — that
+# legitimate mass close is the --max-close-fraction 1.0 case.
 python -m usa_wa_adapter_legislature.harvest_committee_member_spans --dry-run
 python -m usa_wa_adapter_legislature.harvest_committee_member_spans
 

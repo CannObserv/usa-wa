@@ -25,7 +25,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging, get_logger
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
-from usa_wa_adapter_legislature.span_emit import SOURCE, close_stale_spans
+from usa_wa_adapter_legislature.span_emit import (
+    MAX_CLOSE_FRACTION_DEFAULT,
+    SOURCE,
+    close_stale_spans,
+)
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
 from usa_wa_adapter_legislature.sponsor_observations import (
     KIND_PARTY,
@@ -46,6 +50,7 @@ async def build_sponsor_spans(
     sponsor_client: WSLClient | None = None,
     current_biennium: str | None = None,
     restrict_to_biennium: str | None = None,
+    max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
 ) -> int:
     """Build + emit merged-span Assignments from the local sponsor archive; return the count.
 
@@ -86,12 +91,13 @@ async def build_sponsor_spans(
     emitted = await emit_sponsor_spans(
         session, spans, anchors=anchors, reliability=source.reliability, fetch_events=fetch_events
     )
-    closed = await close_stale_spans(
+    sweep = await close_stale_spans(
         session,
         assignment_source=SOURCE,
         kinds={KIND_PARTY, KIND_SENATE},
         asserted_source_ids={s.source_id for s in spans},
         current_biennium=current,
+        max_close_fraction=max_close_fraction,
     )
     logger.info(
         "sponsor_span_build_complete",
@@ -99,7 +105,8 @@ async def build_sponsor_spans(
             "bienniums": len(bienniums),
             "spans": len(spans),
             "emitted": emitted,
-            "closed_stale": closed,
+            "closed_stale": sweep.closed,
+            "sweep_aborted": sweep.aborted,
             "restricted": restrict_to_biennium,
         },
     )
@@ -112,6 +119,13 @@ async def _main(argv: list[str] | None = None) -> int:
         description="Build merged-span member Assignments from the sponsor archive (#78 Phase B)."
     )
     parser.add_argument("--dry-run", action="store_true", help="build but roll back (preview)")
+    parser.add_argument(
+        "--max-close-fraction",
+        type=float,
+        default=MAX_CLOSE_FRACTION_DEFAULT,
+        help="mass-close guard ceiling (#83); raise to 1.0 for a deliberate mass close "
+        "(e.g. a wholesale WSL committee-Id re-key)",
+    )
     args = parser.parse_args(argv)
 
     database_url = os.environ.get("DATABASE_URL")
@@ -122,7 +136,7 @@ async def _main(argv: list[str] | None = None) -> int:
     engine = create_async_engine(database_url)
     try:
         async with AsyncSession(engine) as session:
-            emitted = await build_sponsor_spans(session)
+            emitted = await build_sponsor_spans(session, max_close_fraction=args.max_close_fraction)
             if args.dry_run:
                 await session.rollback()
             else:

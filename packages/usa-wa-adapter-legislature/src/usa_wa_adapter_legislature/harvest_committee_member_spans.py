@@ -33,7 +33,11 @@ from usa_wa_adapter_legislature.committee_membership_observations import (
 )
 from usa_wa_adapter_legislature.committee_span_emit import emit_committee_spans
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
-from usa_wa_adapter_legislature.span_emit import SOURCE, close_stale_spans
+from usa_wa_adapter_legislature.span_emit import (
+    MAX_CLOSE_FRACTION_DEFAULT,
+    SOURCE,
+    close_stale_spans,
+)
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
@@ -47,6 +51,7 @@ async def build_committee_member_spans(
     member_client: WSLClient | None = None,
     current_biennium: str | None = None,
     restrict_to_biennium: str | None = None,
+    max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
 ) -> int:
     """Build + emit merged committee-membership Assignment spans from the archive.
 
@@ -87,12 +92,13 @@ async def build_committee_member_spans(
     emitted = await emit_committee_spans(
         session, spans, reliability=source.reliability, fetch_events=fetch_events
     )
-    closed = await close_stale_spans(
+    sweep = await close_stale_spans(
         session,
         assignment_source=SOURCE,
         kinds={KIND_COMMITTEE},
         asserted_source_ids={s.source_id for s in spans},
         current_biennium=current,
+        max_close_fraction=max_close_fraction,
     )
     logger.info(
         "committee_member_span_build_complete",
@@ -100,7 +106,8 @@ async def build_committee_member_spans(
             "rosters": len(rosters),
             "spans": len(spans),
             "emitted": emitted,
-            "closed_stale": closed,
+            "closed_stale": sweep.closed,
+            "sweep_aborted": sweep.aborted,
             "restricted": restrict_to_biennium,
         },
     )
@@ -113,6 +120,13 @@ async def _main(argv: list[str] | None = None) -> int:
         description="Build merged committee-membership spans from the roster archive (#82)."
     )
     parser.add_argument("--dry-run", action="store_true", help="build but roll back (preview)")
+    parser.add_argument(
+        "--max-close-fraction",
+        type=float,
+        default=MAX_CLOSE_FRACTION_DEFAULT,
+        help="mass-close guard ceiling (#83); raise to 1.0 for a deliberate mass close "
+        "(e.g. a wholesale WSL committee-Id re-key)",
+    )
     args = parser.parse_args(argv)
 
     database_url = os.environ.get("DATABASE_URL")
@@ -123,7 +137,9 @@ async def _main(argv: list[str] | None = None) -> int:
     engine = create_async_engine(database_url)
     try:
         async with AsyncSession(engine) as session:
-            emitted = await build_committee_member_spans(session)
+            emitted = await build_committee_member_spans(
+                session, max_close_fraction=args.max_close_fraction
+            )
             if args.dry_run:
                 await session.rollback()
             else:

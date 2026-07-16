@@ -201,7 +201,7 @@ async def test_close_stale_spans_closes_unasserted_open_row(db_session, usa_wa):
     biennium before the current one (#83)."""
     row = await _open_assignment(db_session, usa_wa, "100:party:democratic:2021-22")
 
-    closed = await close_stale_spans(
+    result = await close_stale_spans(
         db_session,
         assignment_source="usa_wa_legislature",
         kinds={"party", "chamber-senate"},
@@ -209,7 +209,7 @@ async def test_close_stale_spans_closes_unasserted_open_row(db_session, usa_wa):
         current_biennium="2027-28",
     )
 
-    assert closed == 1
+    assert result.closed == 1
     assert row.is_active is False
     assert row.valid_to == date(2026, 12, 31)
 
@@ -230,7 +230,7 @@ async def test_close_stale_spans_leaves_asserted_closed_other_kind_and_other_sou
     legacy_3part = await _open_assignment(db_session, usa_wa, "600:party:2021-22")
     await db_session.flush()
 
-    closed = await close_stale_spans(
+    result = await close_stale_spans(
         db_session,
         assignment_source="usa_wa_legislature",
         kinds={"party", "chamber-senate"},
@@ -238,7 +238,7 @@ async def test_close_stale_spans_leaves_asserted_closed_other_kind_and_other_sou
         current_biennium="2027-28",
     )
 
-    assert closed == 0
+    assert result.closed == 0
     assert asserted.is_active is True and asserted.valid_to is None
     assert already_closed.valid_to == date(2020, 12, 31)
     assert other_kind.is_active is True
@@ -253,7 +253,7 @@ async def test_close_stale_spans_clamps_valid_to_at_valid_from(db_session, usa_w
         db_session, usa_wa, "100:party:democratic:2027-28", frm=date(2027, 1, 1)
     )
 
-    closed = await close_stale_spans(
+    result = await close_stale_spans(
         db_session,
         assignment_source="usa_wa_legislature",
         kinds={"party"},
@@ -261,7 +261,7 @@ async def test_close_stale_spans_clamps_valid_to_at_valid_from(db_session, usa_w
         current_biennium="2027-28",
     )
 
-    assert closed == 1
+    assert result.closed == 1
     assert row.valid_to == date(2027, 1, 1)  # clamped to valid_from, not 2026-12-31
 
 
@@ -270,7 +270,7 @@ async def test_close_stale_spans_empty_assertion_set_is_a_guarded_noop(db_sessio
     as mass departure. The sweep declines to close anything."""
     row = await _open_assignment(db_session, usa_wa, "100:party:democratic:2021-22")
 
-    closed = await close_stale_spans(
+    result = await close_stale_spans(
         db_session,
         assignment_source="usa_wa_legislature",
         kinds={"party"},
@@ -278,7 +278,7 @@ async def test_close_stale_spans_empty_assertion_set_is_a_guarded_noop(db_sessio
         current_biennium="2027-28",
     )
 
-    assert closed == 0
+    assert result.closed == 0
     assert row.is_active is True
 
 
@@ -291,8 +291,9 @@ async def test_close_stale_spans_is_idempotent(db_session, usa_wa):
         current_biennium="2027-28",
     )
 
-    assert await close_stale_spans(db_session, **kwargs) == 1
-    assert await close_stale_spans(db_session, **kwargs) == 0  # already closed — nothing left
+    assert (await close_stale_spans(db_session, **kwargs)).closed == 1
+    # already closed — nothing left on the second pass
+    assert (await close_stale_spans(db_session, **kwargs)).closed == 0
 
 
 async def test_close_stale_spans_aborts_a_mass_close(db_session, usa_wa):
@@ -303,7 +304,7 @@ async def test_close_stale_spans_aborts_a_mass_close(db_session, usa_wa):
         for mid in range(100, 110)  # 10 open rows
     ]
 
-    closed = await close_stale_spans(
+    result = await close_stale_spans(
         db_session,
         assignment_source="usa_wa_legislature",
         kinds={"party"},
@@ -311,7 +312,7 @@ async def test_close_stale_spans_aborts_a_mass_close(db_session, usa_wa):
         current_biennium="2027-28",
     )
 
-    assert closed == 0
+    assert result.closed == 0 and result.aborted is True
     assert all(r.is_active is True for r in rows)
 
 
@@ -324,7 +325,7 @@ async def test_close_stale_spans_fraction_guard_passes_normal_churn(db_session, 
     ]
     asserted = {f"{mid}:party:democratic:2021-22" for mid in range(106, 120)}  # 6 stale
 
-    closed = await close_stale_spans(
+    result = await close_stale_spans(
         db_session,
         assignment_source="usa_wa_legislature",
         kinds={"party"},
@@ -332,7 +333,7 @@ async def test_close_stale_spans_fraction_guard_passes_normal_churn(db_session, 
         current_biennium="2027-28",
     )
 
-    assert closed == 6
+    assert result.closed == 6 and result.aborted is False
     assert sum(1 for r in rows if not r.is_active) == 6
 
 
@@ -344,7 +345,7 @@ async def test_close_stale_spans_floor_allows_small_high_fraction_closes(db_sess
         for mid in (100, 200, 300)
     ]
 
-    closed = await close_stale_spans(
+    result = await close_stale_spans(
         db_session,
         assignment_source="usa_wa_legislature",
         kinds={"party"},
@@ -352,5 +353,53 @@ async def test_close_stale_spans_floor_allows_small_high_fraction_closes(db_sess
         current_biennium="2027-28",
     )
 
-    assert closed == 2
+    assert result.closed == 2
     assert rows[0].is_active is True and not rows[1].is_active and not rows[2].is_active
+
+
+async def test_close_stale_spans_reports_abort_distinctly(db_session, usa_wa):
+    """#83 CR round 2: an aborted sweep must be distinguishable from 'nothing to close' —
+    the result carries an ``aborted`` flag the builders surface in their completion log."""
+    for mid in range(100, 110):
+        await _open_assignment(db_session, usa_wa, f"{mid}:party:democratic:2021-22")
+
+    result = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"party"},
+        asserted_source_ids={"100:party:democratic:2021-22"},  # 9/10 stale → abort
+        current_biennium="2027-28",
+    )
+    assert result.aborted is True and result.closed == 0
+
+    clean = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"chamber-senate"},  # no open rows of this kind — nothing to close, no abort
+        asserted_source_ids={"100:chamber-senate:5:2021-22"},
+        current_biennium="2027-28",
+    )
+    assert clean.aborted is False and clean.closed == 0
+
+
+async def test_close_stale_spans_fraction_override_permits_legitimate_mass_close(
+    db_session, usa_wa
+):
+    """#83 CR round 2 (the WSL committee re-key case): the operator corrective — a raised
+    ``max_close_fraction`` — lets a legitimate >50% close through."""
+    rows = [
+        await _open_assignment(db_session, usa_wa, f"{mid}:party:democratic:2021-22")
+        for mid in range(100, 110)
+    ]
+
+    result = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"party"},
+        asserted_source_ids={"100:party:democratic:2021-22"},
+        current_biennium="2027-28",
+        max_close_fraction=1.0,
+    )
+
+    assert result.aborted is False and result.closed == 9
+    assert sum(1 for r in rows if not r.is_active) == 9

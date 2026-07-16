@@ -22,7 +22,13 @@ from usa_wa_adapter_pdc.build_pdc_spans import PdcSpanResult, build_pdc_spans
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
-from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier
+from clearinghouse_domain_legislative.identity import (
+    Assignment,
+    Organization,
+    Person,
+    PersonIdentifier,
+    Role,
+)
 
 CURRENT = "2025-26"
 
@@ -419,3 +425,74 @@ async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
     out = capsys.readouterr().out
     assert "house_spans=3 identifiers=5" in out
     assert "dry-run, rolled back" in out
+
+
+async def test_max_close_fraction_threads_through_the_builder(
+    db_session, usa_wa, wsl_source, pdc_source
+):
+    """#83 CR round 2: the PDC builder forwards ``max_close_fraction`` so a legitimate mass
+    close of chamber-house spans can be run deliberately."""
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_person(db_session, 100)
+    await _archive(
+        db_session, pdc_source, "house-winners:2024", _winners(("900", 5, 1, "M100 Smith"))
+    )
+    await _archive(
+        db_session, wsl_source, "sponsors:2025-26", _sponsor_wire((100, 5, "Smith", "House"))
+    )
+    org = Organization(
+        source="usa_wa_legislature",
+        source_id="test-stale-house-org",
+        jurisdiction_id=usa_wa.id,
+        name="Test House",
+        org_type="chamber",
+    )
+    db_session.add(org)
+    await db_session.flush()
+    role = Role(
+        source="usa_wa_legislature",
+        source_id="test-stale-house-role",
+        organization_id=org.id,
+        name="Stale Representative",
+        role_type="state_representative",
+    )
+    db_session.add(role)
+    await db_session.flush()
+    stale = []
+    for mid in range(900, 906):
+        person = Person(
+            source="usa_wa_legislature", source_id=str(mid), name_full=f"Departed {mid}"
+        )
+        db_session.add(person)
+        await db_session.flush()
+        row = Assignment(
+            source="usa_wa_pdc",
+            source_id=f"{mid}:chamber-house:ld-9-position-1:2021-22",
+            person_id=person.id,
+            role_id=role.id,
+            valid_from=date(2021, 1, 1),
+            valid_to=None,
+            is_active=True,
+        )
+        db_session.add(row)
+        stale.append(row)
+    await db_session.flush()
+
+    # Default fraction aborts (6 of 7 open chamber-house spans stale)...
+    await build_pdc_spans(
+        db_session,
+        sponsor_client=_StubSponsorClient(),
+        current_biennium=CURRENT,
+        restrict_to_biennium=CURRENT,
+    )
+    assert all(r.is_active for r in stale)
+
+    # ...the override closes them.
+    await build_pdc_spans(
+        db_session,
+        sponsor_client=_StubSponsorClient(),
+        current_biennium=CURRENT,
+        restrict_to_biennium=CURRENT,
+        max_close_fraction=1.0,
+    )
+    assert all(not r.is_active for r in stale)

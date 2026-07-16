@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
-from clearinghouse_domain_legislative.identity import Assignment, Organization, Person
+from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.harvest_committee_member_spans import build_committee_member_spans
 
@@ -207,3 +207,57 @@ async def test_restricted_rebuild_closes_stale_membership_of_sitting_member(
         )
     ).scalar_one()
     assert kept.is_active is True and kept.valid_to is None
+
+
+async def test_max_close_fraction_threads_through_the_builder(db_session, usa_wa, wsl_source):
+    """#83 CR round 2 (the WSL committee re-key case): a wholesale committee Id re-key makes
+    every old-Id membership span stale at once — the builder must forward the operator's
+    raised ``max_close_fraction`` so the legitimate mass close can run."""
+    committee = await _add_committee(db_session, usa_wa)
+    await _add_person(db_session, 100)
+    await _archive(db_session, wsl_source, CURRENT)
+    client = _WireMappingMemberClient({(CURRENT, CID): [_member(100)]})
+    role = Role(
+        source="usa_wa_legislature",
+        source_id=f"test-stale-role:{CID}",
+        organization_id=committee.id,
+        name="Stale Member",
+        role_type="member",
+    )
+    db_session.add(role)
+    await db_session.flush()
+    stale = []
+    for mid in range(900, 906):
+        person = Person(
+            source="usa_wa_legislature", source_id=str(mid), name_full=f"Departed {mid}"
+        )
+        db_session.add(person)
+        await db_session.flush()
+        row = Assignment(
+            source="usa_wa_legislature",
+            source_id=f"{mid}:committee:{CID}:2021-22",
+            person_id=person.id,
+            role_id=role.id,
+            valid_from=date(2021, 1, 1),
+            valid_to=None,
+            is_active=True,
+        )
+        db_session.add(row)
+        stale.append(row)
+    await db_session.flush()
+
+    # Default fraction aborts (6 of 7 open memberships stale)...
+    await build_committee_member_spans(
+        db_session, member_client=client, current_biennium=CURRENT, restrict_to_biennium=CURRENT
+    )
+    assert all(r.is_active for r in stale)
+
+    # ...the override closes them.
+    await build_committee_member_spans(
+        db_session,
+        member_client=client,
+        current_biennium=CURRENT,
+        restrict_to_biennium=CURRENT,
+        max_close_fraction=1.0,
+    )
+    assert all(not r.is_active for r in stale)

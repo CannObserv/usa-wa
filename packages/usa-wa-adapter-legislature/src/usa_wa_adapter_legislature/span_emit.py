@@ -27,6 +27,7 @@ Direct session writes (Phase-B derived rows, like the reconcilers/heal) — no A
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Collection
+from dataclasses import dataclass
 from datetime import date, datetime
 
 from sqlalchemy import select
@@ -44,6 +45,20 @@ logger = get_logger(__name__)
 
 SOURCE = "usa_wa_legislature"
 ASSIGNMENT_CITATION_TYPE = "assignment"
+
+#: Default mass-close guard fraction — shared by the builders and their CLI flags so the
+#: operator override (`--max-close-fraction`) documents the same default everywhere.
+MAX_CLOSE_FRACTION_DEFAULT = 0.5
+
+
+@dataclass(frozen=True)
+class StaleSweepOutcome:
+    """What :func:`close_stale_spans` did — ``aborted`` distinguishes a mass-close abort
+    from a clean nothing-to-close run (#83 CR: the builders surface it in their logs)."""
+
+    closed: int = 0
+    aborted: bool = False
+
 
 #: ``(fetch_event_id, fetched_at, resource_id)`` — the archived pull attesting one biennium
 #: of a span. ``resource_id`` is the append-only citation's idempotency key.
@@ -99,10 +114,10 @@ async def close_stale_spans(
     kinds: Collection[str],
     asserted_source_ids: Collection[str],
     current_biennium: str,
-    max_close_fraction: float = 0.5,
+    max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
     close_fraction_floor: int = 5,
-) -> int:
-    """Close open span Assignments the rebuild no longer asserts; return the count (#83).
+) -> StaleSweepOutcome:
+    """Close open span Assignments the rebuild no longer asserts; return the outcome (#83).
 
     The restricted daily re-drive rebuilds only members observed in the current biennium, so
     a departed member (or a sitting member who left a committee, or a superseded-wire orphan)
@@ -125,13 +140,18 @@ async def close_stale_spans(
     ``close_fraction_floor`` candidates (the #44/#56 floor pattern — a truncated-but-valid
     roster wire archived as latest must not read as mass departure, while a tiny cohort's
     legitimate 1-of-1 close stays under the floor). A wrongly-aborted sweep self-heals: the
-    next full read re-asserts the survivors and the stale rows close then."""
+    next full read re-asserts the survivors and the stale rows close then. A *legitimate*
+    mass close (e.g. a wholesale WSL committee-Id re-key) needs the operator override — the
+    builders/CLIs forward a raised ``max_close_fraction`` (``--max-close-fraction 1.0``).
+    The outcome's ``aborted`` flag distinguishes the fraction abort from nothing-to-close;
+    the empty-assertion skip is not flagged (an empty span set is a legitimate no-op for
+    e.g. a Senate-only PDC run and is separately logged)."""
     if not asserted_source_ids:
         logger.warning(
             "stale_span_sweep_skipped_empty_assertion",
             extra={"assignment_source": assignment_source, "kinds": sorted(kinds)},
         )
-        return 0
+        return StaleSweepOutcome()
     prior_end = date(parse_biennium(current_biennium)[0] - 1, 12, 31)
     asserted = set(asserted_source_ids)
     kind_set = set(kinds)
@@ -163,7 +183,7 @@ async def close_stale_spans(
                 "max_close_fraction": max_close_fraction,
             },
         )
-        return 0
+        return StaleSweepOutcome(aborted=True)
     for row in stale:
         row.is_active = False
         row.valid_to = max(prior_end, row.valid_from)
@@ -173,7 +193,7 @@ async def close_stale_spans(
         )
     if stale:
         await session.flush()
-    return len(stale)
+    return StaleSweepOutcome(closed=len(stale))
 
 
 async def resolve_person(
