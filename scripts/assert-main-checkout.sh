@@ -18,7 +18,10 @@ REPO=/home/exedev/usa-wa
 EXPECTED="${USA_WA_DEPLOY_BRANCH:-main}"
 
 if ! branch=$(git -C "$REPO" symbolic-ref --short HEAD 2>/dev/null); then
-    echo "assert-main: refusing to start — HEAD is detached (expected '$EXPECTED')" >&2
+    # Non-zero exit covers detached HEAD *and* other git failures (git not on
+    # PATH, not a repo, permissions) — all "not verifiably on $EXPECTED", so
+    # fail closed; the message names the likely cause without over-claiming.
+    echo "assert-main: refusing to start — HEAD not on a branch (detached, or git/repo error; expected '$EXPECTED')" >&2
     exit 1
 fi
 

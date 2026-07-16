@@ -6,11 +6,22 @@ Description=usa-wa Power Map sync sidecar — bidirectional canonical-data sync 
 # wedge the sidecar on an already-migrated box (no Wants=/Requires=).
 After=network-online.target postgresql.service usa-wa-migrate.service
 Wants=network-online.target
+# Bound restart attempts so an off-main checkout — which fails the guard
+# ExecStartPre below on every attempt — settles into a visible `failed` state
+# rather than an unbounded RestartSec=5 loop (#87 CR). The interval is wide
+# enough that 5 attempts (~25s at RestartSec=5) fall inside the window and trip
+# the limit; systemd's default 10s window never would.
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=exedev
 WorkingDirectory=/home/exedev/usa-wa
+
+# Pin PATH so the guard's `git` (and `uv`) resolve regardless of the inherited
+# systemd default — parity with the oneshot units.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
 # Refuse to start off a non-main checkout (#87): the enforcement behind the
 # "main is the deployed code" convention, which #84 showed is not self-enforcing.

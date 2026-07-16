@@ -206,8 +206,8 @@ DDL and DML rights are split across roles so a misconfigured DSN can't migrate/d
 
 **Main-only checkout — enforced (issue #87).** The prod checkout at
 `/home/exedev/usa-wa` must stay on `main`: every code-running prod `.service`
-(serving + oneshots + migrate) carries `ExecStartPre=…/scripts/assert-main-checkout.sh`
-as its **first** `ExecStartPre`, so a unit **refuses to start** off a non-main
+(serving + oneshots + migrate) carries `ExecStartPre=…/scripts/assert-main-checkout.sh`,
+so a unit **refuses to start** off a non-main
 (or detached) checkout — loud in the journal, and for the `OnFailure=`-wired
 oneshots an operator email. This closes the #84 hole: the PDC timer ran unmerged
 `feat/79` code purely because the repo was left checked out on that branch (the
