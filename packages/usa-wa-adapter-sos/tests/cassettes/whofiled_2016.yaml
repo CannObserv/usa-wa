@@ -1,0 +1,1253 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      accept:
+      - '*/*'
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      host:
+      - eledataweb.votewa.gov
+      user-agent:
+      - python-httpx/0.28.1
+    method: GET
+    uri: https://eledataweb.votewa.gov/Candidates/ExportToExcel?electionDate=201611&countyCode=xx
+  response:
+    body:
+      string: "ElectionId,RaceJurisdictionTypeID,RaceJurisdictionTypeName,RaceJurisdictionID,RaceJurisdictionName,CountyDisplay,RaceID,RaceName,TermLength,TermTypeID,TermFullLabel,BallotID,BallotName,PartyName,MailingAddress,MailingCity,MailingState,MailingZipCode,Phone,Email,Website,RaceLevel,FilingDate,IsWithdrawn,WithdrawnDate,IsWriteIn,AttachmentID,IsPartisanOffice,IsFilingApproved,DisplayOrder\r\n0,1,Federal,49,United
+        States,Statewide,1,President/Vice President,4,1,4-year term,45726,Hillary
+        Clinton / Tim Kaine,Democratic Party Nominees,Post Office Box 5256,New York,NY,10185-5256,(646)
+        854-1432,info@hillaryclinton.com,,State,2/24/2016 4:30:00 PM,False,,False,0,True,True,1\r\n0,1,Federal,49,United
+        States,Statewide,1,President/Vice President,4,1,4-year term,45724,Donald J.
+        Trump / Michael R. Pence,Republican Party Nominees,\"725 Fifth Avenue, Fifth
+        Floor\",New York,NY,10022,(646) 736-1779,info@donaldtrump.com,,State,2/24/2016
+        4:30:00 PM,False,,False,0,True,True,1\r\n0,5,Legislative,63420,Legislative
+        District 15,Yakima*,272,State Representative Pos. 1,2,1,2-year term,42896,Bruce
+        Chandler,(Prefers Republican Party),PO Box 1108,Zillah,WA,98953,(509) 854-2813,info@votechandler.com,,State,5/16/2016
+        12:00:00 AM,False,,False,0,True,True,71\r\n0,5,Legislative,63420,Legislative
+        District 15,Yakima*,273,State Representative Pos. 2,2,1,2-year term,42775,David
+        V. Taylor,(Prefers Republican Party),1661 Beane Rd,Moxee,WA,98936,(509) 985-3115,taylor.15thdistrict@gmail.com,,State,5/16/2016
+        12:00:00 AM,False,,False,0,True,True,72\r\n0,6,Judicial,63610,Yakima Superior
+        Court,Yakima,222,Judge Position 3,4,1,4-year term,42905,Douglas L. Federspiel,,2
+        S 28th Ave,Yakima,WA,98902,(509) 480-2806,dougfederspiel@me.com,,State,5/16/2016
+        12:00:00 AM,False,,False,0,False,True,395\r\n0,5,Legislative,63417,Legislative
+        District 12,\"Chelan, Douglas, Grant*, Okanogan*\",262,State Senator,4,1,4-year
+        term,40696,Brad Hawkins,(Prefers Republican Party),630 Valley Mall Pkwy Box
+        432,East Wenatchee,WA,98802,(509) 393-5441,campaign@bradhawkins.org,,State,5/16/2016
+        8:00:00 AM,False,,False,0,True,True,61\r\n0,5,Legislative,63445,Legislative
+        District 40,\"San Juan, Skagit*, Whatcom*\",347,State Representative Pos.
+        1,2,1,2-year term,40703,Kristine Lytton,(Prefers Democratic Party),1004 Commercial
+        Ave PMB 349,Anacortes,WA,98221,(360) 299-4542,mrlytton@fidalgo.net,,State,5/16/2016
+        8:00:00 AM,False,,False,0,True,True,146\r\n0,6,Judicial,63461,\"Court of Appeals,
+        Division 3, District 2\",\"Adams, Asotin, Benton, Columbia, Franklin, Garfield,
+        Grant, Walla Walla, Whitman\",50,Judge Position 1,6,1,6-year term,40704,George
+        Fearing,,429 Greenbrook Pl,Richland,WA,99352,(509) 378-5415,georgefearing@outlook.com,,State,5/16/2016
+        8:00:00 AM,False,,False,0,False,True,203\r\n0,6,Judicial,63582,\"Benton, Franklin
+        Superior Court\",\"Benton, Franklin\",56,Judge Position 3,4,1,4-year term,40701,Alexander
+        Carl Ekstrom,,1038 Jadwin Ave,Richland,WA,99352,(509) 579-0080,info@alexforjudge.net,,State,5/16/2016
+        8:00:00 AM,False,,False,0,False,True,210\r\n0,6,Judicial,63582,\"Benton, Franklin
+        Superior Court\",\"Benton, Franklin\",57,Judge Position 4,4,1,4-year term,40700,Cameron
+        Mitchell,,1646 Lucca Ln,Richland,WA,99352,(509) 627-2005,cmitchell2005@charter.net,,State,5/16/2016
+        8:00:00 AM,False,,False,0,False,True,211\r\n0,6,Judicial,63582,\"Benton, Franklin
+        Superior Court\",\"Benton, Franklin\",58,Judge Position 5,4,1,4-year term,40699,Vic
+        L. VanderSchoor,,9123 Whipple Ave,Pasco,WA,99301,(509) 547-0903,,,State,5/16/2016
+        8:00:00 AM,False,,False,0,False,True,212\r\n0,6,Judicial,63582,\"Benton, Franklin
+        Superior Court\",\"Benton, Franklin\",376,Judge Position 6,4,1,4-year term,40698,Carrie
+        Runge,,36106 S Valley Vista Pr SE,Kennewick,WA,99338,(509) 546-1585,,,State,5/16/2016
+        8:00:00 AM,False,,False,0,False,True,213\r\n0,6,Judicial,63582,\"Benton, Franklin
+        Superior Court\",\"Benton, Franklin\",39812,Judge Position 7,4,4,4-year short
+        and full term,40697,Jackie Shea Brown,,92703 E Valencia Dr,Kennewick,WA,99338,(509)
+        205-7505,jsheabrown@icloud.com,,State,5/16/2016 8:00:00 AM,False,,False,0,False,True,214\r\n0,6,Judicial,63589,Grant
+        Superior Court,Grant,83,Judge Position 1,4,4,4-year short and full term,40738,David
+        Estudillo,,PO Box 1113,Moses Lake,WA,98837,(509) 793-3207,judgeestudillo@gmail.com,,State,5/16/2016
+        8:00:00 AM,False,,False,0,False,True,239\r\n0,6,Judicial,63597,Lewis Superior
+        Court,Lewis,98,Judge Position 1,4,1,4-year term,40722,Andrew Toynbee,,104
+        Cliff Dr,Chehalis,WA,98532,(360) 915-2428,electandrewtoynbee@gmail.com,,State,5/16/2016
+        8:03:00 AM,False,,False,0,False,True,314\r\n0,1,Federal,49,United States,Statewide,3,U.S.
+        Senator,6,1,6-year term,40725,Patty Murray,(Prefers Democratic Party),PO Box
+        3662,Seattle,WA,98124,(206) 659-4915,campmail@pattymurray.com,,State,5/16/2016
+        8:05:00 AM,False,,False,0,True,True,5\r\n0,5,Legislative,63422,Legislative
+        District 17,Clark*,277,State Senator,4,1,4-year term,40736,Lynda Wilson,(Prefers
+        Republican Party),PO Box 820568,Vancouver,WA,98682,(360) 608-4519,lynda@electlyndawilson.com,,State,5/16/2016
+        8:05:00 AM,False,,False,0,True,True,76\r\n0,6,Judicial,63589,Grant Superior
+        Court,Grant,84,Judge Position 2,4,1,4-year term,40754,John D. Knodell,,509
+        H St SW,Quincy,WA,98848,,,,State,5/16/2016 8:06:00 AM,False,,False,0,False,True,240\r\n0,6,Judicial,63597,Lewis
+        Superior Court,Lewis,100,Judge Position 3,4,1,4-year term,40729,Joely O'Rourke,,PO
+        Box 865,Chehalis,WA,98532,(360) 996-4439,contact@joelyorourkeforjudge.com,,State,5/16/2016
+        8:06:00 AM,False,,False,0,False,True,316\r\n0,6,Judicial,63589,Grant Superior
+        Court,Grant,85,Judge Position 3,4,1,4-year term,40756,John Antosz,,345 4th
+        Ave SE,Ephrata,WA,98823,,,,State,5/16/2016 8:09:00 AM,False,,False,0,False,True,241\r\n0,6,Judicial,63594,Kitsap
+        Superior Court,Kitsap,94,Judge Position 5,4,4,4-year short and full term,40734,Jeffrey
+        P. Bassett,,3313 Viewcrest Dr NE,Bremerton,WA,98310,(360) 204-8865,retainjudgebassett@gmail.com,,State,5/16/2016
+        8:13:00 AM,False,,False,0,False,True,307\r\n0,6,Judicial,63606,Thurston Superior
+        Court,Thurston,213,Judge Position 1,4,1,4-year term,40733,Chris Lanese,,PO
+        Box 2514,Olympia,WA,98507,(360) 970-7817,chris@chrislaneseforjudge.com,,State,5/16/2016
+        8:16:00 AM,False,,False,0,False,True,378\r\n0,6,Judicial,63590,Grays Harbor
+        Superior Court,Grays Harbor,87,Judge Position 2,4,1,4-year term,40741,David
+        L. Edwards,,1005 N Broadway St,Aberdeen,WA,98520,(360) 538-0167,dkedwards1005@gmail.com,,State,5/16/2016
+        8:27:00 AM,False,,False,0,False,True,243\r\n0,6,Judicial,63600,Okanogan Superior
+        Court,Okanogan,28820,Judge Position 2,4,1,4-year term,40779,Chris Culp,,29
+        Fairview Dr,Okanogan,WA,98840,(509) 322-1534,C_Culp@hotmail.com,,State,5/16/2016
+        8:30:00 AM,False,,False,0,False,True,322\r\n0,5,Legislative,158,Legislative
+        District 6,Spokane*,244,State Representative Pos. 1,2,1,2-year term,40757,Lynnette
+        Vehrs,(Prefers Democratic Party),P.O. Box 31242,Spokane,WA,99223,(509) 474-0229,lynnette@electvehrs.com,,State,5/16/2016
+        8:32:00 AM,False,,False,0,True,True,44\r\n0,6,Judicial,63580,Adams Superior
+        Court ,Adams,65,Judge Position 1,4,1,4-year term,41142,Steve Dixon,,309 E
+        5th Ave,Ritzville,WA,99169,,stevedixon.pllc@hotmail.com,,State,5/16/2016 8:33:00
+        AM,False,,False,0,False,True,206\r\n0,6,Judicial,63590,Grays Harbor Superior
+        Court,Grays Harbor,88,Judge Position 3,4,1,4-year term,40751,Mark McCauley,,1254
+        N L St,Aberdeen,WA,98520,(360) 538-1254,mccauleyfm@comcast.net,,State,5/16/2016
+        8:33:00 AM,False,,False,0,False,True,244\r\n0,6,Judicial,63606,Thurston Superior
+        Court,Thurston,219,Judge Position 7,4,1,4-year term,40752,John C. Skinder,,PO
+        Box 11383,Olympia,WA,98508,,johnskinderforjudge@gmail.com,,State,5/16/2016
+        8:33:00 AM,False,,False,0,False,True,384\r\n0,6,Judicial,63602,Pierce Superior
+        Court,Pierce,182,Judge Position 17,4,1,4-year term,40759,Karena Kirkendoll,,PO
+        Box 7561,Tacoma,WA,98417,(253) 414-8568,karenaforjudge@gmail.com,,State,5/16/2016
+        8:38:00 AM,False,,False,0,False,True,340\r\n0,6,Judicial,63599,Mason Superior
+        Court,Mason,103,Judge Position 2,4,1,4-year term,40769,Toni A Sheldon,,PO
+        Box 727,Shelton,WA,98584,(360) 877-5105,potlatch@hctc.com,,State,5/16/2016
+        8:39:00 AM,False,,False,0,False,True,319\r\n0,2,State Executive,55,Washington
+        State,Statewide,21,Insurance Commissioner,4,1,4-year term,40767,Mike Kreidler,(Prefers
+        Democratic Party),PO Box 15017,Tumwater,WA,98511,(360) 819-6956,mike@mikekreidler.com,,State,5/16/2016
+        8:42:00 AM,False,,False,0,True,True,16\r\n0,6,Judicial,63599,Mason Superior
+        Court,Mason,102,Judge Position 1,4,1,4-year term,40775,Amber Louise Finlay,,PO
+        Box 891,Shelton,WA,98584,(360) 490-0252,amberf@hctc.com,,State,5/16/2016 8:42:00
+        AM,False,,False,0,False,True,318\r\n0,6,Judicial,63609,Whitman Superior Court,Whitman,113,Judge
+        Position 1,4,1,4-year term,40784,Gary J. Libey,,622 E Valley View Ave,Colfax,wa,99111,(509)
+        397-4345,gary.libey@lenlawyers.com,,State,5/16/2016 8:51:00 AM,False,,False,0,False,True,392\r\n0,6,Judicial,63584,Clallam
+        Superior Court,Clallam,69,Judge Position 2,4,4,4-year short and full term,40786,Brian
+        Paul Coughenour,,1664 Eden Valley Rd,Port Angeles,WA,98363,(360) 457-4167,sunriseranch@olypen.com,,State,5/16/2016
+        8:54:00 AM,False,,False,0,False,True,219\r\n0,6,Judicial,52,Supreme Court,Statewide,26,Justice
+        Position 5,6,1,6-year term,40796,Barbara Madsen,,6963 Littlerock Rd SW,Olympia,WA,98512,(253)
+        905-3272,JusticeBarbaraMadsen@gmail.com,,State,5/16/2016 8:56:00 AM,False,,False,0,False,True,179\r\n0,5,Legislative,63432,Legislative
+        District 27,Pierce*,307,State Senator,4,1,4-year term,40789,Jeannie Darneille,(Prefers
+        Democratic Party),PO Box 7753,Tacoma,WA,98417,(253) 219-1345,Vote4Jeannie@aol.com,,State,5/16/2016
+        8:57:00 AM,False,,False,0,True,True,106\r\n0,6,Judicial,63602,Pierce Superior
+        Court,Pierce,167,Judge Position 2,4,1,4-year term,40791,Katherine M. Stolz,,PO
+        Box 65990,University Place,WA,98464,(253) 732-4062,katherinestolz@q.com,,State,5/16/2016
+        8:58:00 AM,False,,False,0,False,True,325\r\n0,6,Judicial,80297,Island Superior
+        Court,Island,9219,Judge Position 1,4,1,4-year term,41376,Alan R. Hancock,,395
+        Engle Rd,Coupeville,WA,98239,(360) 678-4464,ar-hancock@hotmail.com,,State,5/16/2016
+        9:00:00 AM,False,,False,0,False,True,245\r\n0,6,Judicial,63583,Chelan Superior
+        Court,Chelan,67,Judge Position 2,4,1,4-year term,40818,T.W. (Chip) Small,,392
+        Allison St,Wenatchee,WA,98801,(509) 679-0169,chipsmall@hotmail.com,,State,5/16/2016
+        9:02:00 AM,False,,False,0,False,True,216\r\n0,5,Legislative,63433,Legislative
+        District 28,Pierce*,312,State Representative Pos. 2,2,1,2-year term,40807,Paul
+        Wagemann,(Prefers Republican Party),8920 Butte Terrace SW,Lakewood,WA,98498,(253)
+        209-5638,paulwagemann@gmail.com,,State,5/16/2016 9:04:00 AM,False,,False,0,True,True,111\r\n0,5,Legislative,63434,Legislative
+        District 29,Pierce*,314,State Representative Pos. 1,2,1,2-year term,40811,David
+        Sawyer,(Prefers Democratic Party),PO Box 98479,Lakewood,WA,98496,(253) 778-6080,info@electdavidsawyer.com,,State,5/16/2016
+        9:04:00 AM,False,,False,0,True,True,113\r\n0,6,Judicial,63602,Pierce Superior
+        Court,Pierce,173,Judge Position 8,4,1,4-year term,40829,Dwayne L. Christopher,,PO
+        Box 111810,Tacoma,WA,98411,(253) 830-5787,christopherforjudge@gmail.com,,State,5/16/2016
+        9:07:00 AM,False,,False,0,False,True,331\r\n0,5,Legislative,63431,Legislative
+        District 26,\"Kitsap*, Pierce*\",306,State Representative Pos. 2,2,1,2-year
+        term,40844,Michelle Caldier,(Prefers Republican Party),PO Box 1710,Port Orchard,WA,98366,(206)
+        898-3883,michelle@michellecaldier.com,,State,5/16/2016 9:09:00 AM,False,,False,0,True,True,105\r\n0,6,Judicial,52,Supreme
+        Court,Statewide,22,Justice Position 1,6,1,6-year term,40843,Mary Yu,,603 Stewart
+        St #819,Seattle,WA,98101,(206) 682-7328,mary@justicemaryyu.com,,State,5/16/2016
+        9:09:00 AM,False,,False,0,False,True,175\r\n0,5,Legislative,147,Legislative
+        District 2,\"Pierce*, Thurston*\",232,State Representative Pos. 1,2,4,2-year
+        short and full term,40859,Amy Pivetta Hoffman,(Prefers Independent Dem. Party),PO
+        Box 73854,Puyallup,WA,98373,(253) 213-3767,friendsofaph@gmail.com,,State,5/16/2016
+        9:10:00 AM,False,,False,0,True,True,32\r\n0,5,Legislative,63432,Legislative
+        District 27,Pierce*,309,State Representative Pos. 2,2,1,2-year term,40856,Jake
+        Fey,(Prefers Democratic Party),PO Box 1972,Tacoma,WA,98401,(253) 383-5908,jakefey@rainierconnect.com,,State,5/16/2016
+        9:10:00 AM,False,,False,0,True,True,108\r\n0,5,Legislative,63436,Legislative
+        District 31,\"King*, Pierce*\",320,State Representative Pos. 1,2,1,2-year
+        term,40852,Drew Stokesbary,(Prefers Republican Party),PO Box 92,Auburn,WA,98092,(253)
+        501-1756,drew@drewstokesbary.com,,State,5/16/2016 9:10:00 AM,False,,False,0,True,True,119\r\n0,5,Legislative,63437,Legislative
+        District 32,\"King*, Snohomish*\",323,State Representative Pos. 1,2,1,2-year
+        term,40849,Cindy Ryu,(Prefers Democratic Party),PO Box 33548,Seattle,WA,98133,(206)
+        605-1588,FriendsforCindyRyu@yahoo.com,,State,5/16/2016 9:10:00 AM,False,,False,0,True,True,122\r\n0,5,Legislative,63442,Legislative
+        District 37,King*,338,State Representative Pos. 1,2,1,2-year term,42131,Sharon
+        Tomiko Santos,(Prefers Democratic Party),PO Box 78606,Seattle,WA,98178,(206)
+        326-9042,friendsofsts@aol.com,,State,5/16/2016 9:10:00 AM,False,,False,0,True,True,137\r\n0,6,Judicial,63598,Lincoln
+        Superior Court,Lincoln,101,Judge Position 1,4,1,4-year term,41024,John F.
+        Strohmaier,,PO Box 431,Odessa,WA,99159,(509) 988-0701,stroh@odessaoffice.com,,State,5/16/2016
+        9:10:00 AM,False,,False,0,False,True,317\r\n0,5,Legislative,63440,Legislative
+        District 35,\"Kitsap*, Mason, Thurston*\",332,State Representative Pos. 1,2,1,2-year
+        term,40862,Dan Griffey,(Prefers Republican Party),PO Box 83,Allyn,WA,98524,(360)
+        204-9636,danielgriffey@gmail.com,,State,5/16/2016 9:11:00 AM,False,,False,0,True,True,131\r\n0,5,Legislative,63440,Legislative
+        District 35,\"Kitsap*, Mason, Thurston*\",333,State Representative Pos. 2,2,1,2-year
+        term,40867,Drew C. MacEwen,(Prefers Republican Party),PO Box 651,Union,WA,98592,(360)
+        250-0730,votedrewmac@gmail.com,,State,5/16/2016 9:12:00 AM,False,,False,0,True,True,132\r\n0,6,Judicial,63582,\"Benton,
+        Franklin Superior Court\",\"Benton, Franklin\",55,Judge Position 2,4,1,4-year
+        term,40872,Joe Burrowes,,1334 Jadwin Ave,Richland,WA,99354,(509) 521-9448,judgejoeburrowes@gmail.com,,State,5/16/2016
+        9:12:00 AM,False,,False,0,False,True,209\r\n0,5,Legislative,63447,Legislative
+        District 42,Whatcom*,353,State Representative Pos. 1,2,1,2-year term,40880,Luanne
+        Van Werven,(Prefers Republican Party),PO Box 29964,Bellingham,WA,98228,(360)
+        319-3761,Luanne@LuanneVanWerven.com,,State,5/16/2016 9:13:00 AM,False,,False,0,True,True,152\r\n0,6,Judicial,63593,King
+        Superior Court,King,7738,Judge Position 52,4,1,4-year term,42762,Anthony Gipe,,PO
+        Box 20655,Seattle,WA,98102,(425) 610-9071,info@gipeforjudge.com,,State,5/16/2016
+        9:14:00 AM,False,,False,0,False,True,301\r\n0,5,Legislative,63414,Legislative
+        District 9,\"Adams, Asotin, Franklin*, Garfield, Spokane*, Whitman\",255,State
+        Representative Pos. 2,2,1,2-year term,40896,Joe Schmick,(Prefers Republican
+        Party),PO Box 620,Colfax,WA,99111,(509) 879-2078,people4schmick@colfax.com,,State,5/16/2016
+        9:15:00 AM,False,,False,0,True,True,54\r\n0,5,Legislative,63417,Legislative
+        District 12,\"Chelan, Douglas, Grant*, Okanogan*\",263,State Representative
+        Pos. 1,2,1,2-year term,40892,Cary Condotta,(Prefers Republican Party),PO Box
+        3001,Wenatchee,WA,98807,,Info@carycondotta.com,,State,5/16/2016 9:15:00 AM,False,,False,0,True,True,62\r\n0,5,Legislative,63425,Legislative
+        District 20,\"Clark*, Cowlitz*, Lewis*, Thurston*\",288,State Representative
+        Pos. 2,2,1,2-year term,40898,Ed Orcutt,(Prefers Republican Party),PO Box 1280,Kalama,WA,98625,(360)
+        751-2317,ElectEdOrcutt@kalama.com,,State,5/16/2016 9:15:00 AM,False,,False,0,True,True,87\r\n0,2,State
+        Executive,55,Washington State,Statewide,17,State Auditor,4,1,4-year term,40901,Pat
+        (Patrice) McCarthy,(Prefers Democratic Party),2661 N Pearl St #409,Tacoma,WA,98407,(253)
+        693-8147,pat@patmccarthy.org,,State,5/16/2016 9:16:00 AM,False,,False,0,True,True,12\r\n0,5,Legislative,100,Legislative
+        District 1,\"King*, Snohomish*\",229,State Representative Pos. 1,2,1,2-year
+        term,40904,Neil Thannisch,(Prefers Republican Party),20611 Bothell Everett
+        Hwy #E136,Bothell,WA,98012,(425) 501-8466,neil@restorethehouse.com,,State,5/16/2016
+        9:17:00 AM,False,,False,0,True,True,29\r\n0,6,Judicial,63605,Spokane Superior
+        Court,Spokane,210,Judge Position 10,4,1,4-year term,40902,Linda Tompkins,,PO
+        Box 830,Liberty Lake,WA,99019,(509) 309-6144,reelectjudgetompkins@gmail.com,,State,5/16/2016
+        9:17:00 AM,False,,False,0,False,True,375\r\n0,6,Judicial,63607,Walla Walla
+        \ Superior Court,Walla Walla,109,Judge Position 2,4,1,4-year term,40906,M.
+        Scott Wolfram,,704 Beet Rd,Walla Walla,WA,99362,(509) 301-4964,wolfram@pocketinet.com,,State,5/16/2016
+        9:17:00 AM,False,,False,0,False,True,387\r\n0,5,Legislative,63433,Legislative
+        District 28,Pierce*,311,State Representative Pos. 1,2,1,2-year term,40919,Richard
+        (Dick) Muri,(Prefers Republican Party),PO Box 1581,Tacoma,WA,98401,(253) 581-5609,Dick@DickMuri.com,,State,5/16/2016
+        9:19:00 AM,False,,False,0,True,True,110\r\n0,6,Judicial,63602,Pierce Superior
+        Court,Pierce,170,Judge Position 5,4,1,4-year term,40925,Shelly K. Speir,,PO
+        Box 20084,Seattle,WA,98102,(253) 533-3070,speirforjudge@gmail.com,,State,5/16/2016
+        9:20:00 AM,False,,False,0,False,True,328\r\n0,5,Legislative,63426,Legislative
+        District 21,Snohomish*,290,State Representative Pos. 1,2,1,2-year term,40930,Strom
+        Peterson,(Prefers Democratic Party),110 James St Ste 100,Edmonds,WA,98020,(626)
+        600-1767,votestrom@gmail.com,,State,5/16/2016 9:21:00 AM,False,,False,0,True,True,89\r\n0,5,Legislative,101,Legislative
+        District 3,Spokane*,235,State Representative Pos. 1,2,1,2-year term,40940,Marcus
+        Riccelli,(Prefers Democratic Party),PO Box 1325,Spokane,WA,99210,(509) 465-4305,info@marcusriccelli.com,,State,5/16/2016
+        9:22:00 AM,False,,False,0,True,True,35\r\n0,5,Legislative,63427,Legislative
+        District 22,Thurston*,294,State Representative Pos. 2,2,1,2-year term,40938,Beth
+        Doglio,(Prefers Democratic Party),PO Box 222,Olympia,WA,98507,(360) 628-0935,info@bethdoglioforhouse.com,,State,5/16/2016
+        9:22:00 AM,False,,False,0,True,True,93\r\n0,5,Legislative,63430,Legislative
+        District 25,Pierce*,303,State Representative Pos. 2,2,1,2-year term,40939,Joyce
+        McDonald,(Prefers Republican Party),PO Box 1225,Puyallup,WA,98371,(253) 770-8061,Joyce@JoyceMcDonald.com,,State,5/16/2016
+        9:22:00 AM,False,,False,0,True,True,102\r\n0,5,Legislative,101,Legislative
+        District 3,Spokane*,236,State Representative Pos. 2,2,1,2-year term,40944,Timm
+        Ormsby,(Prefers Democratic Party),PO Box 2177,Spokane,WA,99210,(509) 389-8288,vote.ormsby@gmail.com,,State,5/16/2016
+        9:23:00 AM,False,,False,0,True,True,36\r\n0,6,Judicial,63607,Walla Walla  Superior
+        Court,Walla Walla,108,Judge Position 1,4,1,4-year term,40948,John W. Lohrmann,,2100
+        Plaza Way Apt 201,Walla Walla,WA,99362,(509) 629-3130,johnlohrmann@charter.net,,State,5/16/2016
+        9:23:00 AM,False,,False,0,False,True,386\r\n0,5,Legislative,63417,Legislative
+        District 12,\"Chelan, Douglas, Grant*, Okanogan*\",264,State Representative
+        Pos. 2,2,1,2-year term,40963,Mike Steele,(Prefers Republican Party),PO Box
+        1072,Chelan,WA,98816,(509) 679-7085,Mike@votemikesteele.com,,State,5/16/2016
+        9:25:00 AM,False,,False,0,True,True,63\r\n0,5,Legislative,63423,Legislative
+        District 18,Clark*,282,State Representative Pos. 2,2,1,2-year term,40958,Kathy
+        Gillespie,(Prefers Independent Dem. Party),301 NE 144th Street,Vancouver,WA,98685,(360)
+        901-6538,kathy.e.gillespie@comcast.net,,State,5/16/2016 9:25:00 AM,False,,False,0,True,True,81\r\n0,6,Judicial,63582,\"Benton,
+        Franklin Superior Court\",\"Benton, Franklin\",54,Judge Position 1,4,1,4-year
+        term,40959,Bruce A. Spanner,,PO Box 3083,Richland,WA,99354,(509) 531-8501,b.spanner@charter.net,,State,5/16/2016
+        9:25:00 AM,False,,False,0,False,True,208\r\n0,5,Legislative,63431,Legislative
+        District 26,\"Kitsap*, Pierce*\",305,State Representative Pos. 1,2,1,2-year
+        term,40976,Jesse L. Young,(Prefers Republican Party),PO Box 222,Gig Harbor,WA,98335,(253)
+        509-8585,info@jyfsr.com,,State,5/16/2016 9:28:00 AM,False,,False,0,True,True,104\r\n0,6,Judicial,63583,Chelan
+        Superior Court,Chelan,66,Judge Position 1,4,1,4-year term,40982,Lesley A.
+        Allan,,19 N Garfield Ave,Wenatchee,WA,98801,(509) 663-3743,,,State,5/16/2016
+        9:28:00 AM,False,,False,0,False,True,215\r\n0,5,Legislative,63422,Legislative
+        District 17,Clark*,279,State Representative Pos. 2,2,1,2-year term,40984,Martin
+        Hash,(Prefers Democratic Party),10411 NE 110th Circle,Vancouver,WA,98662,(360)
+        901-8089,Martin@Hash.com,,State,5/16/2016 9:29:00 AM,False,,False,0,True,True,78\r\n0,5,Legislative,63433,Legislative
+        District 28,Pierce*,311,State Representative Pos. 1,2,1,2-year term,40980,Mari
+        Leavitt,(Prefers Democratic Party),PO Box 65195,Tacoma,WA,98466,(253) 651-5583,ElectMariLeavitt@gmail.com,,State,5/16/2016
+        9:29:00 AM,False,,False,0,True,True,110\r\n0,5,Legislative,63424,Legislative
+        District 19,\"Cowlitz*, Grays Harbor*, Lewis*, Pacific, Wahkiakum\",285,State
+        Representative Pos. 2,2,1,2-year term,40989,Jimi O'Hagan,(Prefers Republican
+        Party),2298 Cranbery Rd,Grayland ,WA,98547,(360) 267-7911,wayoutwest1@hotmail.com,,State,5/16/2016
+        9:30:00 AM,False,,False,0,True,True,84\r\n0,6,Judicial,80297,Island Superior
+        Court,Island,9220,Judge Position 2,4,1,4-year term,41368,Vickie I. Churchill,,PO
+        Box 2622,Oak Harbor,WA,98277,(360) 679-4044,vickie@oakharbor.com,,State,5/16/2016
+        9:30:00 AM,False,,False,0,False,True,246\r\n0,2,State Executive,55,Washington
+        State,Statewide,15,Secretary of State,4,1,4-year term,40993,Tina Podlodowski,(Prefers
+        Democratic Party),PO Box 20655,Seattle,WA,98102,(206) 419-1364,Tina@votersfortina.com,,State,5/16/2016
+        9:32:00 AM,False,,False,0,True,True,10\r\n0,5,Legislative,63423,Legislative
+        District 18,Clark*,280,State Senator,4,1,4-year term,40996,Eric K. Holt,(Prefers
+        Democratic Party),21311 NE 189th St,Brush Prairie,WA,98606,(360) 798-3180,e.k.holt@outlook.com,,State,5/16/2016
+        9:32:00 AM,False,,False,0,True,True,79\r\n0,6,Judicial,63455,\"Court of Appeals,
+        Division 1, District 2\",Snohomish,38,Judge Position 1,6,1,6-year term,40997,Steve
+        Dwyer,,PO Box 1265,Edmonds,WA,98020,(206) 617-3034,electjudgedwyer@frontier.com,,State,5/16/2016
+        9:32:00 AM,False,,False,0,False,True,191\r\n0,5,Legislative,63434,Legislative
+        District 29,Pierce*,315,State Representative Pos. 2,2,1,2-year term,41010,Steve
+        Kirby,(Prefers Democratic Party),9415 Tacoma Ave S,Tacoma,WA,98444,(253) 473-3663,stevekirby@harbornet.com,,State,5/16/2016
+        9:35:00 AM,False,,False,0,True,True,114\r\n0,6,Judicial,63583,Chelan Superior
+        Court,Chelan,142,Judge Position 3,4,1,4-year term,41017,Alicia H. Nakata,,2014
+        Broadway N,Wenatchee,WA,98801,(509) 670-6999,,,State,5/16/2016 9:35:00 AM,False,,False,0,False,True,217\r\n0,5,Legislative,63429,Legislative
+        District 24,\"Clallam, Grays Harbor*, Jefferson\",298,State Senator,4,1,4-year
+        term,41014,Kevin Van De Wege,(Prefers Democratic Party),10 Sable Court,Sequim,WA,98382,(360)
+        477-0548,kevinvandewege@hotmail.com,,State,5/16/2016 9:36:00 AM,False,,False,0,True,True,97\r\n0,5,Legislative,63429,Legislative
+        District 24,\"Clallam, Grays Harbor*, Jefferson\",300,State Representative
+        Pos. 2,2,1,2-year term,41021,Steve Tharinger,(Prefers Democratic Party),PO
+        Box 834,Sequim,WA,98382,(360) 460-3079,stharinger@gmail.com,,State,5/16/2016
+        9:37:00 AM,False,,False,0,True,True,99\r\n0,6,Judicial,63584,Clallam Superior
+        Court,Clallam,6195,Judge Position 3,4,1,4-year term,41020,Christopher Melly,,3603
+        Galaxy Pl,Port Angeles,WA,98362,(360) 452-6385,cmelly@olypen.com,,State,5/16/2016
+        9:37:00 AM,False,,False,0,False,True,220\r\n0,5,Legislative,63446,Legislative
+        District 41,King*,349,State Senator,4,1,4-year term,42127,Steve Litzow,(Prefers
+        Republican Party),7683 SE 27th St #431,Mercer Island,WA,98040,(206) 941-2627,info@stevelitzow.com,,State,5/16/2016
+        9:38:00 AM,False,,False,0,True,True,148\r\n0,5,Legislative,63428,Legislative
+        District 23,Kitsap*,297,State Representative Pos. 2,2,1,2-year term,41033,Drew
+        Hansen,(Prefers Democratic Party),PO Box 2140,Poulsbo,WA,98370,(360) 447-8510,drew@drewhansen.com,,State,5/16/2016
+        9:39:00 AM,False,,False,0,True,True,96\r\n0,5,Legislative,63430,Legislative
+        District 25,Pierce*,303,State Representative Pos. 2,2,1,2-year term,41042,Michelle
+        Chatterton,(Prefers Democratic Party),PO Box 1356,Puyallup ,WA,98371,(253)
+        693-8219,michelle@michellechatterton.org,,State,5/16/2016 9:42:00 AM,False,,False,0,True,True,102\r\n0,5,Legislative,63433,Legislative
+        District 28,Pierce*,312,State Representative Pos. 2,2,1,2-year term,41038,Christine
+        Kilduff,(Prefers Democratic Party),PO Box 65431,University Place,WA,98464,(253)
+        448-9641,Christine@ChristineKilduff.com,,State,5/16/2016 9:42:00 AM,False,,False,0,True,True,111\r\n0,5,Legislative,63440,Legislative
+        District 35,\"Kitsap*, Mason, Thurston*\",332,State Representative Pos. 1,2,1,2-year
+        term,41041,Irene Bowling,(Prefers Independent Dem. Party),PO Box 1261,Silverdale,WA,98383,(360)
+        990-5302,irene.ruth.bowling@gmail.com,,State,5/16/2016 9:42:00 AM,False,,False,0,True,True,131\r\n0,6,Judicial,63602,Pierce
+        Superior Court,Pierce,182,Judge Position 17,4,1,4-year term,41043,Tom Quinlan,,PO
+        Box 606,Tacoma,WA,98401,(253) 312-2856,Tom@TomQuinlanForJudge.com,,State,5/16/2016
+        9:43:00 AM,False,,False,0,False,True,340\r\n0,5,Legislative,63414,Legislative
+        District 9,\"Adams, Asotin, Franklin*, Garfield, Spokane*, Whitman\",254,State
+        Representative Pos. 1,2,1,2-year term,41047,Mary Dye,(Prefers Republican Party),285
+        6th St,Pomeroy,WA,99347,(509) 843-3595,electmarydye@gmail.com,,State,5/16/2016
+        9:44:00 AM,False,,False,0,True,True,53\r\n0,6,Judicial,63603,Skagit Superior
+        Court,Skagit,107,Judge Position 3,4,4,4-year short and full term,41079,Laura
+        Riquelme,,PO Box 654,Mount Vernon,WA,98273,(360) 770-5421,RetainJudgeRiquelme@gmail.com,,State,5/16/2016
+        9:46:00 AM,False,,False,0,False,True,349\r\n0,2,State Executive,55,Washington
+        State,Statewide,20,Superintendent of Public Instruction,4,1,4-year term,41080,Chris
+        Reykdal,,855 Trosper Rd Ste 108-117,Tumwater,WA,98512,(360) 790-3151,chris4wakids@gmail.com,,State,5/16/2016
+        9:47:00 AM,False,,False,0,False,True,15\r\n0,5,Legislative,63421,Legislative
+        District 16,\"Benton*, Columbia, Franklin*, Walla Walla*\",275,State Representative
+        Pos. 1,2,1,2-year term,41060,William 'Bill' Jenkin,(Prefers Republican Party),PO
+        Box 288,Prosser,WA,99350,(509) 778-2482,rotaryjenkin@yahoo.com,,State,5/16/2016
+        9:47:00 AM,False,,False,0,True,True,74\r\n0,3,Congressional,155,Congressional
+        District 9,\"King*, Pierce*\",10,U.S. Representative,2,1,2-year term,41065,Adam
+        Smith,(Prefers Democratic Party),PO Box 578,Renton,WA,98057,(253) 572-6125,info@electadamsmith.com,,State,5/16/2016
+        9:48:00 AM,False,,False,0,True,True,26\r\n0,5,Legislative,63436,Legislative
+        District 31,\"King*, Pierce*\",321,State Representative Pos. 2,2,1,2-year
+        term,41070,Lane Walthers,(Prefers Independent Dem. Party),PO Box 615,Enumclaw,WA,98022,(253)
+        350-0103,ElectLaneWalthers@gmail.com,,State,5/16/2016 9:49:00 AM,False,,False,0,True,True,120\r\n0,6,Judicial,63593,King
+        Superior Court,King,145,Judge Position 31,4,1,4-year term,42902,Marc S. Stern,,2120
+        NW 89th St,Seattle,WA,98117,(206) 448-7996,office@hutzbah.com,,State,5/16/2016
+        9:50:00 AM,False,,False,0,False,True,280\r\n0,5,Legislative,63435,Legislative
+        District 30,\"King*, Pierce*\",317,State Representative Pos. 1,2,1,2-year
+        term,41103,Linda Kochmar,(Prefers Republican Party),PO Box 3676,Federal Way,WA,98063,(253)
+        640-0469,Linda@LindaKochmar.com,,State,5/16/2016 9:54:00 AM,False,,False,0,True,True,116\r\n0,3,Congressional,98412,Congressional
+        District 10,\"Mason*, Pierce*, Thurston*\",28824,U.S. Representative,2,1,2-year
+        term,41106,Jim Postma,(Prefers Republican Party),414 Third St,Steilacoom,WA,98388,(253)
+        691-2979,jlpostma@yahoo.com,,State,5/16/2016 9:55:00 AM,False,,False,0,True,True,27\r\n0,6,Judicial,63462,\"Court
+        of Appeals, Division 3, District 3\",\"Chelan, Douglas, Kittitas, Klickitat,
+        Yakima\",51,Judge Position 1,4,5,4-year unexpired term,41124,Rebecca Pennell,,32
+        N 3rd St Ste 310,Yakima,WA,98901,,rebeccapennell@hotmail.com,,State,5/16/2016
+        10:00:00 AM,False,,False,0,False,True,204\r\n0,6,Judicial,63596,\"Klickitat,
+        Skamania Superior Court\",\"Klickitat, Skamania\",63,Judge Position 1,4,1,4-year
+        term,41126,Randall Krog,,PO Box 114,Carson,WA,98610,(541) 380-9700,electkrogforjudge@gmail.com,,State,5/16/2016
+        10:00:00 AM,False,,False,0,False,True,313\r\n0,1,Federal,49,United States,Statewide,3,U.S.
+        Senator,6,1,6-year term,41135,Chris Vance,(Prefers Republican Party),PO Box
+        1972,Auburn,WA,98071,(253) 326-0816,info@chrisvanceforsenate.com,,State,5/16/2016
+        10:03:00 AM,False,,False,0,True,True,5\r\n0,5,Legislative,63448,Legislative
+        District 43,King*,356,State Representative Pos. 1,2,1,2-year term,42110,Dan
+        Shih,(Prefers Democratic Party),98 Union St #205,Seattle,WA,98101,(206) 319-2800,campaign@danshih.com,,State,5/16/2016
+        10:06:00 AM,False,,False,0,True,True,155\r\n0,5,Legislative,63444,Legislative
+        District 39,\"King*, Skagit*, Snohomish*\",343,State Senator,4,1,4-year term,41161,Kirk
+        Pearson,(Prefers Republican Party),105 Pearson Ln,Monroe,WA,98272,(360) 794-1156,kirk@kirkpearson.com,,State,5/16/2016
+        10:07:00 AM,False,,False,0,True,True,142\r\n0,6,Judicial,63603,Skagit Superior
+        Court,Skagit,107,Judge Position 3,4,4,4-year short and full term,41157,David
+        A. Svaren,,127 E Fairhaven Ave,Burlington,WA,98233,(360) 404-2017,electjudgesvaren@gmail.com,,State,5/16/2016
+        10:08:00 AM,False,,False,0,False,True,349\r\n0,5,Legislative,63422,Legislative
+        District 17,Clark*,278,State Representative Pos. 1,2,1,2-year term,41336,Vicki
+        Kraft,(Prefers Republican Party),PO Box 821481,Vancouver,WA,98682,(360) 771-5201,Vicki@VickiKraft.com,,State,5/16/2016
+        10:10:00 AM,False,,False,0,True,True,77\r\n0,6,Judicial,63593,King Superior
+        Court,King,10104,Judge Position 53,4,1,4-year term,42897,Mariane Spearman,,PO
+        Box 61383,Seattle,WA,98141,,retainjudgespearman@gmail.com,,State,5/16/2016
+        10:10:00 AM,False,,False,0,False,True,302\r\n0,5,Legislative,63436,Legislative
+        District 31,\"King*, Pierce*\",321,State Representative Pos. 2,2,1,2-year
+        term,41197,Phil Fortunato,(Prefers Republican Party),PO Box 2201,Auburn,WA,98071,(253)
+        680-9545,Phil@VoteFortunato.org,,State,5/16/2016 10:21:00 AM,False,,False,0,True,True,120\r\n0,6,Judicial,63600,Okanogan
+        Superior Court,Okanogan,104,Judge Position 1,4,1,4-year term,41239,Henry (Hank)
+        Rawson,,301 Birch St S,Omak,WA,98841,(509) 429-4732,rawson4judge@gmail.com,,State,5/16/2016
+        10:21:00 AM,False,,False,0,False,True,321\r\n0,5,Legislative,63433,Legislative
+        District 28,Pierce*,310,State Senator,4,1,4-year term,41207,Steve O'Ban,(Prefers
+        Republican Party),PO Box 65335,University Place,WA,98464,(253) 312-1688,Steve@SteveOBan.com,,State,5/16/2016
+        10:23:00 AM,False,,False,0,True,True,109\r\n0,5,Legislative,100,Legislative
+        District 1,\"King*, Snohomish*\",228,State Senator,4,1,4-year term,41224,Mindie
+        Wirth,(Prefers Republican Party),PO Box 1102,Bothell,WA,98041,(206) 579-4532,mindie@wirththevote.com,,State,5/16/2016
+        10:26:00 AM,False,,False,0,True,True,28\r\n0,5,Legislative,63432,Legislative
+        District 27,Pierce*,307,State Senator,4,1,4-year term,41225,Greg Taylor,(Prefers
+        Republican Party),PO Box 26516,Federal Way,WA,98093,(253) 306-2383,info@gregtaylorforsenator.com,,State,5/16/2016
+        10:27:00 AM,False,,False,0,True,True,106\r\n0,5,Legislative,63428,Legislative
+        District 23,Kitsap*,296,State Representative Pos. 1,2,1,2-year term,41234,Sherry
+        V. Appleton,(Prefers Democratic Party),PO Box 2140,Poulsbo,WA,98370,(360)
+        697-2588,sherrya76@comcast.net,,State,5/16/2016 10:28:00 AM,False,,False,0,True,True,95\r\n0,5,Legislative,63430,Legislative
+        District 25,Pierce*,301,State Senator,4,1,4-year term,41229,Hans Zeiger,(Prefers
+        Republican Party),PO Box 73303,Puyallup,WA,98373,(253) 905-8160,hans@hanszeiger.com,,State,5/16/2016
+        10:28:00 AM,False,,False,0,True,True,100\r\n0,5,Legislative,63438,Legislative
+        District 33,King*,326,State Representative Pos. 1,2,1,2-year term,43553,Tina
+        L. Orwall,(Prefers Democratic Party),17837 1st Ave S PMB 299,Normandy Park,WA,98148,(206)
+        409-3038,tina.orwall@gmail.com,,State,5/16/2016 10:29:00 AM,False,,False,0,True,True,125\r\n0,6,Judicial,63594,Kitsap
+        Superior Court,Kitsap,94,Judge Position 5,4,4,4-year short and full term,41237,Dale
+        A. Magneson,,PO Box 659,Silverdale,WA,98383,(360) 698-1688,magneson@silverdaleattorney.com,,State,5/16/2016
+        10:31:00 AM,False,,False,0,False,True,307\r\n0,5,Legislative,101,Legislative
+        District 3,Spokane*,234,State Senator,4,1,4-year term,41249,Andy Billig,(Prefers
+        Democratic Party),PO Box 145,Spokane,WA,99210,(509) 990-9219,andy@andybillig.com,,State,5/16/2016
+        10:32:00 AM,False,,False,0,True,True,34\r\n0,2,State Executive,55,Washington
+        State,Statewide,16,State Treasurer,4,1,4-year term,41243,Michael Waite,(Prefers
+        Republican Party),PO Box 721,Bothell,WA,98041,(425) 233-8176,info@HireMichaelWaite.com,,State,5/16/2016
+        10:33:00 AM,False,,False,0,True,True,11\r\n0,6,Judicial,63602,Pierce Superior
+        Court,Pierce,167,Judge Position 2,4,1,4-year term,41245,Timothy L. Ashcraft,,PO
+        Box 708,Tacoma,WA,98401,(253) 230-7554,timashcraft@ashcraftforjudge.org,,State,5/16/2016
+        10:34:00 AM,False,,False,0,False,True,325\r\n0,5,Legislative,100,Legislative
+        District 1,\"King*, Snohomish*\",229,State Representative Pos. 1,2,1,2-year
+        term,41257,Derek Stanford,(Prefers Democratic Party),PO Box 2041,Bothell,WA,98041,(425)
+        481-6231,derekstanford@hotmail.com,,State,5/16/2016 10:37:00 AM,False,,False,0,True,True,29\r\n0,5,Legislative,63415,Legislative
+        District 10,\"Island, Skagit*, Snohomish*\",256,State Senator,4,1,4-year term,41258,Angie
+        Homola,(Prefers Democratic Party),PO Box 955,Oak Harbor,WA,98277,(360) 632-3016,AngieForPeople@gmail.com,,State,5/16/2016
+        10:38:00 AM,False,,False,0,True,True,55\r\n0,6,Judicial,63590,Grays Harbor
+        Superior Court,Grays Harbor,86,Judge Position 1,4,1,4-year term,41260,Stephen
+        E. Brown,,PO Box 793,Elma,WA,98541,(360) 470-1289,sebjudge@comcast.net,,State,5/16/2016
+        10:38:00 AM,False,,False,0,False,True,242\r\n0,5,Legislative,63425,Legislative
+        District 20,\"Clark*, Cowlitz*, Lewis*, Thurston*\",286,State Senator,4,1,4-year
+        term,41265,John Braun,(Prefers Republican Party),PO Box 234,Chehalis,WA,98532,(360)
+        508-6540,johnbraun@votebraun.com,,State,5/16/2016 10:40:00 AM,False,,False,0,True,True,85\r\n0,5,Legislative,63453,Legislative
+        District 48,King*,372,State Representative Pos. 2,2,1,2-year term,43559,Joan
+        McBride,(Prefers Democratic Party),PO Box 2707,Redmond,WA,98073,(425) 698-7556,info@joanmcbride.com,,State,5/16/2016
+        10:40:00 AM,False,,False,0,True,True,171\r\n0,5,Legislative,63419,Legislative
+        District 14,\"Clark*, Klickitat, Skamania, Yakima*\",270,State Representative
+        Pos. 2,2,1,2-year term,41276,John (Eric) Adams,(Prefers Democratic Party),PO
+        Box 242,Goldendale,WA,98620,(503) 290-6810,wineisgood2010@live.com,,State,5/16/2016
+        10:43:00 AM,False,,False,0,True,True,69\r\n0,6,Judicial,63595,Kittitas Superior
+        Court,Kittitas,377,Judge Position 2,4,1,4-year term,41281,Scott R. Sparks,,4311
+        Hanson Rd,Ellensburg,WA,98926,,,,State,5/16/2016 10:43:00 AM,False,,False,0,False,True,312\r\n0,3,Congressional,103,Congressional
+        District 1,\"King*, Skagit*, Snohomish*, Whatcom*\",6,U.S. Representative,2,1,2-year
+        term,41292,Suzan DelBene ,(Prefers Democratic Party),PO Box 487,Bothell,WA,98041,(425)
+        483-1500,info@delbeneforcongress.com,,State,5/16/2016 10:46:00 AM,False,,False,0,True,True,17\r\n0,5,Legislative,63438,Legislative
+        District 33,King*,327,State Representative Pos. 2,2,1,2-year term,42126,Mia
+        Su-Ling Gregerson,(Prefers Democratic Party),PO Box 297,Seahurst,WA,98062,(206)
+        795-1950,PeopleForMia@gmail.com,,State,5/16/2016 10:46:00 AM,False,,False,0,True,True,126\r\n0,2,State
+        Executive,55,Washington State,Statewide,20,Superintendent of Public Instruction,4,1,4-year
+        term,41297,Erin Jones,,PO Box 23125,Seattle,WA,98102,(360) 918-3498,Erinjonesin2016@gmail.com,,State,5/16/2016
+        10:48:00 AM,False,,False,0,False,True,15\r\n0,5,Legislative,63429,Legislative
+        District 24,\"Clallam, Grays Harbor*, Jefferson\",299,State Representative
+        Pos. 1,2,1,2-year term,41299,Mike Chapman,(Prefers Democratic Party),1321
+        S Laurel St,Port Angeles,WA,98362,(360) 477-1131,chapman@olypen.com,,State,5/16/2016
+        10:48:00 AM,False,,False,0,True,True,98\r\n0,5,Legislative,63449,Legislative
+        District 44,Snohomish*,359,State Representative Pos. 1,2,4,2-year short and
+        full term,41305,John Lovick,(Prefers Democratic Party),2403 157th Pl SE,Mill
+        Creek,WA,98012,(425) 750-0306,johnlovick@frontier.com,,State,5/16/2016 10:49:00
+        AM,False,,False,0,True,True,158\r\n0,6,Judicial,63593,King Superior Court,King,158,Judge
+        Position 44,4,1,4-year term,43569,Eric Newman,,PO Box 23011,Seattle,WA,98102,(206)
+        602-6070,info@electnewmanjudge.com,,State,5/16/2016 10:49:00 AM,False,,False,0,False,True,293\r\n0,6,Judicial,50,\"Court
+        of Appeals, Division 1, District 1\",King,31,Judge Position 1,6,1,6-year term,43570,Michael
+        J. Trickey,,2518 S Brandon Ct,Seattle,WA,98108,(206) 726-8053,reelectjudgetrickey@gmail.com,,State,5/16/2016
+        10:52:00 AM,False,,False,0,False,True,184\r\n0,5,Legislative,63416,Legislative
+        District 11,King*,261,State Representative Pos. 2,2,1,2-year term,43575,Steve
+        Bergquist,(Prefers Democratic Party),PO Box 2050,Renton,WA,98056,(425) 306-7569,steve4house@gmail.com,,State,5/16/2016
+        10:56:00 AM,False,,False,0,True,True,60\r\n0,6,Judicial,63584,Clallam Superior
+        Court,Clallam,68,Judge Position 1,4,1,4-year term,41328,Erik Rohrer,,PO Box
+        1489,Forks,WA,98331,(360) 327-3316,erik.rohrer@yahoo.com,,State,5/16/2016
+        10:56:00 AM,False,,False,0,False,True,218\r\n0,5,Legislative,63446,Legislative
+        District 41,King*,351,State Representative Pos. 2,2,1,2-year term,43579,Judy
+        Clibborn,(Prefers Democratic Party),PO Box 808,Mercer Island,WA,98040,(206)
+        232-8941,jclibborn@comcast.net,,State,5/16/2016 10:58:00 AM,False,,False,0,True,True,150\r\n0,5,Legislative,63418,Legislative
+        District 13,\"Grant*, Kittitas, Lincoln, Yakima*\",267,State Representative
+        Pos. 2,2,1,2-year term,41339,Matt Manweller,(Prefers Republican Party),110
+        W 6th Ave PMB 392,Ellensburg,WA,98926,(360) 747-2463,matt@manwellerforstaterep.com,,State,5/16/2016
+        10:59:00 AM,False,,False,0,True,True,66\r\n0,6,Judicial,63588,\"Ferry, Pend
+        Oreille, Stevens Superior Court\",\"Ferry, Pend Oreille, Stevens\",60,Judge
+        Position 2,4,1,4-year term,41344,Jessica (Taylor) Reeves,,PO Box 33,Chewelah,WA,99109,(509)
+        936-0729,info@jessicaforjudge.com,,State,5/16/2016 11:01:00 AM,False,,False,0,False,True,238\r\n0,2,State
+        Executive,55,Washington State,Statewide,14,Lt. Governor,4,1,4-year term,41345,Cyrus
+        Habib,(Prefers Democratic Party),11900 NE 1st St Ste 300,Bellevue,WA,98005,(425)
+        679-9103,cyrus@cyrushabib.com,,State,5/16/2016 11:02:00 AM,False,,False,0,True,True,9\r\n0,6,Judicial,63589,Grant
+        Superior Court,Grant,83,Judge Position 1,4,4,4-year short and full term,41454,Nick
+        Wallace,,725 N Shipmaster Ct,Moses Lake,WA,98837,(509) 765-1196,nick@wallace4judge.com,,State,5/16/2016
+        11:03:00 AM,False,,False,0,False,True,239\r\n0,5,Legislative,63423,Legislative
+        District 18,Clark*,282,State Representative Pos. 2,2,1,2-year term,41517,Liz
+        Pike,(Prefers Republican Party),PO Box 662,Camas,WA,98607,(360) 281-8720,electlizpike@comcast.net,,State,5/16/2016
+        11:08:00 AM,False,,False,0,True,True,81\r\n0,5,Legislative,63449,Legislative
+        District 44,Snohomish*,359,State Representative Pos. 1,2,4,2-year short and
+        full term,41360,Janice Huxford,(Prefers Republican Party),PO Box 1357,Lake
+        Stevens,WA,98258,(425) 766-1219,janice@janicehuxford.com,,State,5/16/2016
+        11:08:00 AM,False,,False,0,True,True,158\r\n0,6,Judicial,63593,King Superior
+        Court,King,139,Judge Position 26,4,1,4-year term,43591,David Keenan,,PO Box
+        23037,Seattle,WA,98102,(206) 299-2121,info@keenanforjudge.com,,State,5/16/2016
+        11:08:00 AM,False,,False,0,False,True,275\r\n0,5,Legislative,63424,Legislative
+        District 19,\"Cowlitz*, Grays Harbor*, Lewis*, Pacific, Wahkiakum\",283,State
+        Senator,4,4,4-year short and full term,41402,Dean Takko,(Prefers Democratic
+        Party),3319 Columbia Heights Rd,Longview,WA,98632,(360) 423-4589,Dtakko@comcast.net,,State,5/16/2016
+        11:16:00 AM,False,,False,0,True,True,82\r\n0,2,State Executive,55,Washington
+        State,Statewide,13,Governor,4,1,4-year term,41381,Jay Inslee,(Prefers Democratic
+        Party),PO Box 21067,Seattle,WA,98111,(206) 533-0575,Jay@JayInslee.com,,State,5/16/2016
+        11:17:00 AM,False,,False,0,True,True,8\r\n0,3,Congressional,151,Congressional
+        District 5,\"Asotin, Columbia, Ferry, Garfield, Lincoln, Pend Oreille, Spokane,
+        Stevens, Walla Walla*, Whitman\",4,U.S. Representative,2,1,2-year term,41382,Cathy
+        McMorris Rodgers,(Prefers Republican Party),PO Box 137,Spokane,WA,99210,(509)
+        624-1199,info@cathyforcongress.com,,State,5/16/2016 11:17:00 AM,False,,False,0,True,True,22\r\n0,6,Judicial,63593,King
+        Superior Court,King,127,Judge Position 14,4,1,4-year term,43600,Nicole Gaines
+        Phelps,,PO Box 23125,Seattle,WA,98102,(206) 364-0355,electnicolegainesphelps@gmail.com,,State,5/16/2016
+        11:20:00 AM,False,,False,0,False,True,263\r\n0,5,Legislative,63449,Legislative
+        District 44,Snohomish*,360,State Representative Pos. 2,2,1,2-year term,41396,Mark
+        Harmsworth,(Prefers Republican Party),PO Box 13581,Mill Creek,WA,98082,(425)
+        375-5805,markharm@markharmsworth.com,,State,5/16/2016 11:21:00 AM,False,,False,0,True,True,159\r\n0,6,Judicial,63604,Snohomish
+        Superior Court,Snohomish,189,Judge Position 3,4,1,4-year term,41398,Thomas
+        J. Wynne,,17811 7th Ave W,Bothell,WA,98012,(425) 238-1388,tjwynne1@icloud.com,,State,5/16/2016
+        11:21:00 AM,True,5/23/2016 12:59:00 PM,False,0,False,True,353\r\n0,5,Legislative,63436,Legislative
+        District 31,\"King*, Pierce*\",320,State Representative Pos. 1,2,1,2-year
+        term,41406,John Frostad,(Prefers Libertarian Party),3217 Meridian Ave E,Edgewood,WA,98371,(253)
+        310-3941,johnfrostad@outlook.com,,State,5/16/2016 11:23:00 AM,False,,False,0,True,True,119\r\n0,5,Legislative,63433,Legislative
+        District 28,Pierce*,310,State Senator,4,1,4-year term,41429,Marisa Peloquin,(Prefers
+        Democratic Party),3800 Bridgeport Way W St A #198,University Place,WA,98466,(206)
+        434-0793,info@marisaforsenate.org,,State,5/16/2016 11:29:00 AM,False,,False,0,True,True,109\r\n0,6,Judicial,63592,Jefferson
+        Superior Court,Jefferson,89,Judge Position 1,4,1,4-year term,41433,Keith C.
+        Harper,,PO Box 104,Port Townsend,WA,98368,(360) 385-5108,kcharper@olympus.net,,State,5/16/2016
+        11:29:00 AM,False,,False,0,False,True,249\r\n0,5,Legislative,63454,Legislative
+        District 49,Clark*,375,State Representative Pos. 2,2,1,2-year term,41431,Monica
+        Jurado Stonier,(Prefers Democratic Party),PO Box 668,Vancouver,WA,98666,(360)
+        901-2859,info@votemonicastonier.com,,State,5/16/2016 11:30:00 AM,False,,False,0,True,True,174\r\n0,5,Legislative,63430,Legislative
+        District 25,Pierce*,302,State Representative Pos. 1,2,1,2-year term,41447,Melanie
+        Stambaugh,(Prefers Republican Party),PO Box 73267,Puyallup,WA,98373,(253)
+        256-1953,Melanie@MelanieStambaugh.com,,State,5/16/2016 11:35:00 AM,False,,False,0,True,True,101\r\n0,5,Legislative,63419,Legislative
+        District 14,\"Clark*, Klickitat, Skamania, Yakima*\",269,State Representative
+        Pos. 1,2,1,2-year term,41501,Norm Johnson,(Prefers Republican Party),55 W
+        Washington Ave Apt 83,Yakima,WA,98903,(509) 314-9668,normjleg14@outlook.com,,State,5/16/2016
+        11:40:00 AM,False,,False,0,True,True,68\r\n0,5,Legislative,63418,Legislative
+        District 13,\"Grant*, Kittitas, Lincoln, Yakima*\",266,State Representative
+        Pos. 1,2,1,2-year term,41470,Tom Dent,(Prefers Republican Party),601 S Pioneer
+        Way Ste F Box 396,Moses Lake,WA,98837,(509) 765-6926,tom@flyingt.us,,State,5/16/2016
+        11:44:00 AM,False,,False,0,True,True,65\r\n0,5,Legislative,63451,Legislative
+        District 46,King*,365,State Representative Pos. 1,2,1,2-year term,42118,Gerry
+        Pollet,(Prefers Democratic Party),7750 17th Ave NE,Seattle,WA,98115,(206)
+        528-0078,info@gerrypollet.com,,State,5/16/2016 11:54:00 AM,False,,False,0,True,True,164\r\n0,5,Legislative,156,Legislative
+        District 4,Spokane*,237,State Senator,4,1,4-year term,41535,Mike Padden,(Prefers
+        Republican Party),13021 E 9th Ave,Spokane Vly,WA,99216,(509) 928-1694,vote@paddenforsenate.com,,State,5/16/2016
+        11:58:00 AM,False,,False,0,True,True,37\r\n0,6,Judicial,52,Supreme Court,Statewide,27,Justice
+        Position 6,6,1,6-year term,41551,Charles (Charlie) Wiggins,,PO Box 10028,Bainbridge
+        Island,WA,98110,(253) 227-4954,info@justicecharliewiggins.com,,State,5/16/2016
+        12:02:00 PM,False,,False,0,False,True,180\r\n0,5,Legislative,63441,Legislative
+        District 36,King*,335,State Representative Pos. 1,2,4,2-year short and full
+        term,42138,Noel Christina Frame,(Prefers Democratic Party),PO Box 99143,Seattle,WA,98139,(206)
+        701-0344,manager@noelframe.com,,State,5/16/2016 12:03:00 PM,False,,False,0,True,True,134\r\n0,3,Congressional,150,Congressional
+        District 4,\"Adams, Benton, Douglas*, Franklin, Grant, Okanogan, Walla Walla*,
+        Yakima\",7,U.S. Representative,2,1,2-year term,41539,Dan Newhouse,(Prefers
+        Republican Party),PO Box 10949,Yakima,WA,98909,(503) 351-0842,dan@dannewhouse.com,,State,5/16/2016
+        12:04:00 PM,False,,False,0,True,True,21\r\n0,5,Legislative,63419,Legislative
+        District 14,\"Clark*, Klickitat, Skamania, Yakima*\",270,State Representative
+        Pos. 2,2,1,2-year term,41540,Gina McCabe,(Prefers Republican Party),PO Box
+        1105,Goldendale,WA,98620,(509) 250-0679,Electginamccabe@gmail.com,,State,5/16/2016
+        12:04:00 PM,False,,False,0,True,True,69\r\n0,5,Legislative,63414,Legislative
+        District 9,\"Adams, Asotin, Franklin*, Garfield, Spokane*, Whitman\",254,State
+        Representative Pos. 1,2,1,2-year term,41548,Jennifer Goulet,(Prefers Democratic
+        Party),4910 Sahara Dr,Pasco,WA,99301,(509) 396-8272,jenn4wa@gmail.com,,State,5/16/2016
+        12:06:00 PM,False,,False,0,True,True,53\r\n0,5,Legislative,63432,Legislative
+        District 27,Pierce*,308,State Representative Pos. 1,2,1,2-year term,41564,Laurie
+        Jinkins,(Prefers Democratic Party),PO Box 2032,Tacoma,WA,98401,(253) 219-1345,info@lauriejinkins.com,,State,5/16/2016
+        12:12:00 PM,False,,False,0,True,True,107\r\n0,5,Legislative,157,Legislative
+        District 5,King*,242,State Representative Pos. 2,2,1,2-year term,42133,Paul
+        Graves,(Prefers Republican Party),PO Box 417,Fall City,WA,98024,(206) 818-5607,info@paulgraveswa.com,,State,5/16/2016
+        12:17:00 PM,False,,False,0,True,True,42\r\n0,6,Judicial,63599,Mason Superior
+        Court,Mason,39665,Judge Position 3,4,1,4-year term,41622,Daniel L. Goodell,,PO
+        Box 1465,Shelton,WA,98584,(360) 731-3983,danlgoodell@gmail.com,,State,5/16/2016
+        12:33:00 PM,False,,False,0,False,True,320\r\n0,5,Legislative,157,Legislative
+        District 5,King*,240,State Senator,4,1,4-year term,42145,Mark Mullet,(Prefers
+        Democratic Party),2525 NE Park Dr Ste A,Issaquah,WA,98029,(425) 638-9356,taemin@electmarkmullet.com,,State,5/16/2016
+        12:36:00 PM,False,,False,0,True,True,40\r\n0,6,Judicial,63457,\"Court of Appeals,
+        Division 2, District 1\",Pierce,41,Judge Position 1,6,1,6-year term,41630,Brad
+        Maxa,,PO Box 1654,Tacoma,WA,98401,(253) 208-8418,reelectjudgemaxa@gmail.com,,State,5/16/2016
+        12:40:00 PM,False,,False,0,False,True,194\r\n0,5,Legislative,100,Legislative
+        District 1,\"King*, Snohomish*\",228,State Senator,4,1,4-year term,41648,Guy
+        Palumbo,(Prefers Democratic Party),PO Box 734,Woodinville,WA,98072,(206) 718-1970,guy@guy4senate.com,,State,5/16/2016
+        12:46:00 PM,False,,False,0,True,True,28\r\n0,5,Legislative,63435,Legislative
+        District 30,\"King*, Pierce*\",318,State Representative Pos. 2,2,1,2-year
+        term,41656,Kristine Reeves,(Prefers Democratic Party),PO Box 24163,Federal
+        Way,WA,98093,(206) 249-3327,Info@ElectKristineReeves.com,,State,5/16/2016
+        12:50:00 PM,False,,False,0,True,True,117\r\n0,6,Judicial,63581,\"Asotin, Columbia,
+        Garfield Superior Court\",\"Asotin, Columbia, Garfield\",53,Judge Position
+        1,4,1,4-year term,41669,Scott D. Gallina,,1230 Toby Ct,Clarkston,WA,99403,(509)
+        432-6401,scottgallina@gmail.com,,State,5/16/2016 12:55:00 PM,False,,False,0,False,True,207\r\n0,6,Judicial,63605,Spokane
+        Superior Court,Spokane,211,Judge Position 11,4,1,4-year term,41679,Greg Sypolt,,PO
+        Box 207,Spokane Vly,WA,99016,(509) 535-9595,info@judgegregsypolt.com,,State,5/16/2016
+        12:56:00 PM,False,,False,0,False,True,376\r\n0,3,Congressional,148,Congressional
+        District 2,\"Island, San Juan, Skagit*, Snohomish*, Whatcom*\",8,U.S. Representative,2,1,2-year
+        term,41685,Marc Hennemann,(Prefers Republican Party),PO Box 1426,Stanwood,WA,98292,(360)
+        322-8778,Marc@Marc4Congress.com,,State,5/16/2016 1:05:00 PM,False,,False,0,True,True,19\r\n0,2,State
+        Executive,55,Washington State,Statewide,19,Commissioner of Public Lands,4,1,4-year
+        term,41691,Hilary Franz,(Prefers Democratic Party),PO Box 20664,Seattle,WA,98102,(206)
+        734-9729,hilary@hilaryfranz.com,,State,5/16/2016 1:08:00 PM,False,,False,0,True,True,14\r\n0,6,Judicial,63587,Douglas
+        Superior Court ,Douglas,82,Judge Position 1,4,1,4-year term,41705,John Hotchkiss,,2541
+        Fancher Heights Blvd,E Wenatchee,WA,98802,(509) 884-5642,,,State,5/16/2016
+        1:13:00 PM,False,,False,0,False,True,236\r\n0,5,Legislative,63454,Legislative
+        District 49,Clark*,374,State Representative Pos. 1,2,1,2-year term,41889,Sharon
+        Wylie,(Prefers Democratic Party),6400 NE Hwy 99 G360,Vancouver,WA,98665,(360)
+        921-5716,campaign@sharonfor49th.com,,State,5/16/2016 1:18:00 PM,False,,False,0,True,True,173\r\n0,5,Legislative,63443,Legislative
+        District 38,Snohomish*,342,State Representative Pos. 2,2,1,2-year term,41725,Mike
+        Sells,(Prefers Democratic Party),PO Box 12395,Everett,WA,98206,(425) 327-4561,mikesells@aol.com,,State,5/16/2016
+        1:25:00 PM,False,,False,0,True,True,141\r\n0,5,Legislative,100,Legislative
+        District 1,\"King*, Snohomish*\",230,State Representative Pos. 2,2,1,2-year
+        term,41750,Edward J. (Ed) Barton,(Prefers Republican Party),PO Box 1181,Bothell,WA,98041,(206)
+        550-6442,ed@electedbarton.org,,State,5/16/2016 1:37:00 PM,True,5/23/2016 10:53:00
+        AM,False,0,True,True,30\r\n0,5,Legislative,158,Legislative District 6,Spokane*,245,State
+        Representative Pos. 2,2,1,2-year term,41755,Shar Lichty,(Prefers Democratic
+        Party),PO Box 30673,Spokane,WA,99223,(509) 218-5386,shar@votesharlichty.com,,State,5/16/2016
+        1:37:00 PM,False,,False,0,True,True,45\r\n0,3,Congressional,154,Congressional
+        District 8,\"Chelan, Douglas*, King*, Kittitas, Pierce*\",12,U.S. Representative,2,1,2-year
+        term,41756,Dave Reichert,(Prefers Republican Party),PO Box 567,Auburn,WA,98071,(425)
+        455-3283,dave@davereichert.com,,State,5/16/2016 1:42:00 PM,False,,False,0,True,True,25\r\n0,5,Legislative,63422,Legislative
+        District 17,Clark*,279,State Representative Pos. 2,2,1,2-year term,41895,Paul
+        Harris,(Prefers Republican Party),237 NE Chkalov Dr,Vancouver,WA,98684,(360)
+        553-2748,plharris@comcast.net,,State,5/16/2016 1:43:00 PM,False,,False,0,True,True,78\r\n0,5,Legislative,63427,Legislative
+        District 22,Thurston*,292,State Senator,4,1,4-year term,41767,Sam Hunt,(Prefers
+        Democratic Party),PO Box 2573,Olympia,WA,98507,(360) 456-0886,votehunt@comcast.net,,State,5/16/2016
+        1:48:00 PM,False,,False,0,True,True,91\r\n0,5,Legislative,63439,Legislative
+        District 34,King*,329,State Representative Pos. 1,2,1,2-year term,42111,Eileen
+        L. Cody,(Prefers Democratic Party),6714 38th Ave SW,Seattle,WA,98126,(206)
+        935-9176,eileencody@comcast.net,,State,5/16/2016 2:09:00 PM,False,,False,0,True,True,128\r\n0,5,Legislative,63453,Legislative
+        District 48,King*,371,State Representative Pos. 1,2,4,2-year short and full
+        term,42137,Patty Kuderer,(Prefers Democratic Party),PO Box 1545,Bellevue,WA,98009,(206)
+        910-2422,patty.kuderer@gmail.com,,State,5/16/2016 2:12:00 PM,False,,False,0,True,True,170\r\n0,5,Legislative,63435,Legislative
+        District 30,\"King*, Pierce*\",318,State Representative Pos. 2,2,1,2-year
+        term,41815,Teri Hickel,(Prefers Republican Party),PO Box 1034,Milton,WA,98354,(253)
+        261-4643,Teri.H@comcast.net,,State,5/16/2016 2:14:00 PM,False,,False,0,True,True,117\r\n0,5,Legislative,63421,Legislative
+        District 16,\"Benton*, Columbia, Franklin*, Walla Walla*\",274,State Senator,4,1,4-year
+        term,41825,Maureen Walsh,(Prefers Republican Party),PO Box 2662,Walla Walla,WA,99362,(509)
+        200-1232,Maureen@walshforstatesenate.com,,State,5/16/2016 2:20:00 PM,False,,False,0,True,True,73\r\n0,5,Legislative,63450,Legislative
+        District 45,King*,363,State Representative Pos. 2,2,1,2-year term,43190,Larry
+        Springer,(Prefers Democratic Party),700 20th Ave W,Kirkland,WA,98033,(425)
+        822-2907,larry@larryspringer.org,,State,5/16/2016 2:27:00 PM,False,,False,0,True,True,162\r\n0,2,State
+        Executive,55,Washington State,Statewide,17,State Auditor,4,1,4-year term,41866,Mark
+        Miloscia,(Prefers Republican Party),30720 19th Ave S,Federal Way,WA,98003,(253)
+        839-7087,miloscia@comcast.net,,State,5/16/2016 2:33:00 PM,False,,False,0,True,True,12\r\n0,6,Judicial,63593,King
+        Superior Court,King,158,Judge Position 44,4,1,4-year term,43200,Cathy Moore,,2366
+        Eastlake Ave E #206,Seattle,WA,98102,(206) 687-5308,cmoorejusticeforall@gmail.com,,State,5/16/2016
+        2:34:00 PM,False,,False,0,False,True,293\r\n0,5,Legislative,63454,Legislative
+        District 49,Clark*,375,State Representative Pos. 2,2,1,2-year term,41884,Alishia
+        Topper,(Prefers Democratic Party),6400 NE Hwy 99 #G319,Vancouver,WA,98665,(360)
+        521-8295,topper@electtopper.com,,State,5/16/2016 2:39:00 PM,False,,False,0,True,True,174\r\n0,3,Congressional,152,Congressional
+        District 6,\"Clallam, Grays Harbor, Jefferson, Kitsap, Mason*, Pierce*\",9,U.S.
+        Representative,2,1,2-year term,41887,Derek Kilmer,(Prefers Democratic Party),PO
+        Box 1381,Tacoma,WA,98402,(253) 572-4355,info@derekkilmer.com,,State,5/16/2016
+        2:42:00 PM,False,,False,0,True,True,23\r\n0,5,Legislative,63442,Legislative
+        District 37,King*,339,State Representative Pos. 2,2,1,2-year term,43197,Eric
+        Pettigrew,(Prefers Democratic Party),PO Box 28660,Seattle,WA,98118,(206) 979-5999,e.pettigrew@comcast.net,,State,5/16/2016
+        2:51:00 PM,False,,False,0,True,True,138\r\n0,3,Congressional,151,Congressional
+        District 5,\"Asotin, Columbia, Ferry, Garfield, Lincoln, Pend Oreille, Spokane,
+        Stevens, Walla Walla*, Whitman\",4,U.S. Representative,2,1,2-year term,41920,Joe
+        Pakootas,(Prefers Democratic Party),PO Box 4494,Spokane,WA,99220,(509) 850-3235,info@PakootasforCongress.com,,State,5/16/2016
+        2:57:00 PM,False,,False,0,True,True,22\r\n0,5,Legislative,63424,Legislative
+        District 19,\"Cowlitz*, Grays Harbor*, Lewis*, Pacific, Wahkiakum\",285,State
+        Representative Pos. 2,2,1,2-year term,41930,Brian E. Blake,(Prefers Democratic
+        Party),PO Box 1561,Longview,WA,98632,(360) 589-0123,repbrianblake@msn.com,,State,5/16/2016
+        2:57:00 PM,False,,False,0,True,True,84\r\n0,5,Legislative,63428,Legislative
+        District 23,Kitsap*,295,State Senator,4,1,4-year term,41950,Christine Rolfes,(Prefers
+        Democratic Party),19689 7th Ave NE PMB 118,Poulsbo,WA,98370,(206) 588-5364,info@electchristine.com,,State,5/16/2016
+        3:02:00 PM,False,,False,0,True,True,94\r\n0,5,Legislative,63426,Legislative
+        District 21,Snohomish*,290,State Representative Pos. 1,2,1,2-year term,41974,Alex
+        Hels,(Prefers Libertarian Party),605 Center Rd #F101,Everett,WA,98204,(425)
+        772-5152,alexander.hels.staterep@gmail.com,,State,5/16/2016 3:21:00 PM,False,,False,0,True,True,89\r\n0,5,Legislative,63423,Legislative
+        District 18,Clark*,281,State Representative Pos. 1,2,1,2-year term,41983,Brandon
+        Vick,(Prefers Republican Party),PO Box 1434,Battle Ground,WA,98604,(360) 609-4363,brandon@electbrandonvick.com,,State,5/16/2016
+        3:24:00 PM,False,,False,0,True,True,80\r\n0,3,Congressional,149,Congressional
+        District 3,\"Clark, Cowlitz, Klickitat, Lewis, Pacific, Skamania, Thurston*,
+        Wahkiakum\",5,U.S. Representative,2,1,2-year term,42016,Jaime Herrera Beutler,(Prefers
+        Republican Party),PO Box 1614,Ridgefield,WA,98642,(360) 597-3065,info@votejaime.com,,State,5/16/2016
+        3:42:00 PM,False,,False,0,True,True,20\r\n0,5,Legislative,162,Legislative
+        District 8,Benton*,251,State Representative Pos. 1,2,1,2-year term,42037,Rick
+        Jansons,(Prefers Republican Party),1386 Baywood Ave,Richland,WA,99352,(509)
+        528-3488,rickjansons@msn.com,,State,5/16/2016 3:52:00 PM,False,,False,0,True,True,50\r\n0,2,State
+        Executive,55,Washington State,Statewide,15,Secretary of State,4,1,4-year term,42055,Kim
+        Wyman,(Prefers Republican Party),PO Box 3812,Lacey,WA,98509,(360) 746-6668,Kim@kimwyman.com,,State,5/16/2016
+        4:01:00 PM,False,,False,0,True,True,10\r\n0,6,Judicial,63582,\"Benton, Franklin
+        Superior Court\",\"Benton, Franklin\",55,Judge Position 2,4,1,4-year term,42077,Sam
+        Swanberg,,8106 W Livingston Rd,Pasco,WA,99301,(509) 430-9009,sam@swanbergforjudge.com,,State,5/16/2016
+        4:13:00 PM,False,,False,0,False,True,209\r\n0,6,Judicial,63593,King Superior
+        Court,King,145,Judge Position 31,4,1,4-year term,43196,Helen Halpert,,PO Box
+        33043,Seattle,WA,98133,(206) 475-5902,retainjudgehalpert@gmail.com,,State,5/16/2016
+        4:13:00 PM,False,,False,0,False,True,280\r\n0,5,Legislative,63439,Legislative
+        District 34,King*,330,State Representative Pos. 2,2,1,2-year term,42122,Joe
+        Fitzgibbon,(Prefers Democratic Party),PO Box 66235,Burien,WA,98166,(206) 949-5127,jcfitzgibbon@gmail.com,,State,5/16/2016
+        4:39:00 PM,False,,False,0,True,True,129\r\n0,5,Legislative,63453,Legislative
+        District 48,King*,372,State Representative Pos. 2,2,1,2-year term,43198,Benjamin
+        Judah Phelps,(Prefers Libertarian Party),PO Box 7255,Bellevue,WA,98008,(425)
+        761-5615,benjphelps@lpwa.org,,State,5/16/2016 5:02:00 PM,False,,False,0,True,True,171\r\n0,5,Legislative,63417,Legislative
+        District 12,\"Chelan, Douglas, Grant*, Okanogan*\",262,State Senator,4,1,4-year
+        term,42150,Jon Wyss ,(Prefers Republican Party),PO Box 604,Brewster,WA,98812,(509)
+        433-7260,electjonwyss@jonwyss.com,,State,5/16/2016 5:04:00 PM,False,,False,0,True,True,61\r\n0,6,Judicial,63602,Pierce
+        Superior Court,Pierce,173,Judge Position 8,4,1,4-year term,42172,Grant Blinn,,PO
+        Box 65107,University Place,WA,98464,(253) 666-0685,Grant.Blinn@gmail.com,,State,5/16/2016
+        5:25:00 PM,False,,False,0,False,True,331\r\n0,5,Legislative,63421,Legislative
+        District 16,\"Benton*, Columbia, Franklin*, Walla Walla*\",275,State Representative
+        Pos. 1,2,1,2-year term,42178,Rebecca Francik,(Prefers Democratic Party),3114
+        W Wilcox Dr,Pasco,WA,99301,(509) 545-6134,votefrancik@gmail.com,,State,5/16/2016
+        5:31:00 PM,False,,False,0,True,True,74\r\n0,2,State Executive,55,Washington
+        State,Statewide,16,State Treasurer,4,1,4-year term,42187,Duane Davidson,(Prefers
+        Republican Party),PO Box 277,Richland,WA,99352,(509) 366-3646,Duane@electDuaneDavidson.org,,State,5/16/2016
+        5:41:00 PM,False,,False,0,True,True,11\r\n0,5,Legislative,63424,Legislative
+        District 19,\"Cowlitz*, Grays Harbor*, Lewis*, Pacific, Wahkiakum\",284,State
+        Representative Pos. 1,2,4,2-year short and full term,42206,Jim Walsh,(Prefers
+        Republican Party),PO Box 2259,Aberdeen,WA,98520,(360) 500-7523,jwalsh@electjimwalsh.org,,State,5/16/2016
+        6:04:00 PM,False,,False,0,True,True,83\r\n0,6,Judicial,63602,Pierce Superior
+        Court,Pierce,170,Judge Position 5,4,1,4-year term,42207,Dominique L. Jinhong,,2522
+        N. Proctor #199,Tacoma,WA,98406,(253) 389-0700,Dominique.jinhong@gmail.com,,State,5/16/2016
+        6:04:00 PM,False,,False,0,False,True,328\r\n0,6,Judicial,63586,Cowlitz Superior
+        Court,Cowlitz,78,Judge Position 1,4,1,4-year term,42229,Gary B. Bashor,,PO
+        Box 1824,Longview,WA,98632,(360) 560-3142,bashor4judge@gmail.com,,State,5/16/2016
+        6:28:00 PM,False,,False,0,False,True,231\r\n0,5,Legislative,63446,Legislative
+        District 41,King*,350,State Representative Pos. 1,2,1,2-year term,43175,Tana
+        Senn,(Prefers Democratic Party),PO Box 771,Mercer Island,WA,98040,(206) 369-1253,ElectTanaSenn@gmail.com,,State,5/16/2016
+        6:43:00 PM,False,,False,0,True,True,149\r\n0,5,Legislative,63444,Legislative
+        District 39,\"King*, Skagit*, Snohomish*\",345,State Representative Pos. 2,2,1,2-year
+        term,42275,John Koster,(Prefers Republican Party),11014 19th Ave SE Ste 8
+        #303,Everett,WA,98208,(425) 308-9609,repkoster@hotmail.com,,State,5/16/2016
+        7:22:00 PM,False,,False,0,True,True,144\r\n0,5,Legislative,147,Legislative
+        District 2,\"Pierce*, Thurston*\",232,State Representative Pos. 1,2,4,2-year
+        short and full term,42310,Andrew Barkis,(Prefers Republican Party),PO Box
+        8728,Lacey,WA,98509,(253) 533-7410,Andrew.Barkis@electAndrewBarkis.org,,State,5/16/2016
+        7:56:00 PM,False,,False,0,True,True,32\r\n0,5,Legislative,63447,Legislative
+        District 42,Whatcom*,354,State Representative Pos. 2,2,1,2-year term,42330,Vincent
+        Buys,(Prefers Republican Party),PO Box 25,Lynden,WA,98264,(360) 389-2101,Vincent@VincentBuys.com,,State,5/16/2016
+        8:27:00 PM,False,,False,0,True,True,153\r\n0,5,Legislative,100,Legislative
+        District 1,\"King*, Snohomish*\",230,State Representative Pos. 2,2,1,2-year
+        term,42339,Shelley Kloba,(Prefers Democratic Party),PO Box 2991,Kirkland,WA,98083,(425)
+        823-9732,info@votekloba.com,,State,5/16/2016 8:37:00 PM,False,,False,0,True,True,30\r\n0,5,Legislative,63443,Legislative
+        District 38,Snohomish*,341,State Representative Pos. 1,2,1,2-year term,42350,June
+        Robinson,(Prefers Democratic Party),616 Wetmore Ave,Everett,WA,98201,(425)
+        923-7355,junegrobinson@gmail.com,,State,5/16/2016 8:51:00 PM,False,5/18/2016
+        9:31:00 AM,False,0,True,True,140\r\n0,5,Legislative,63444,Legislative District
+        39,\"King*, Skagit*, Snohomish*\",345,State Representative Pos. 2,2,1,2-year
+        term,42358,Ronda Metcalf,(Prefers Democratic Party),PO Box 194,Darrington,WA,98241,(360)
+        840-8191,committee2electronda@gmail.com,,State,5/16/2016 8:59:00 PM,False,,False,0,True,True,144\r\n0,6,Judicial,63601,\"Pacific,
+        Wahkiakum Superior Court\",\"Pacific, Wahkiakum\",64,Judge Position 1,4,1,4-year
+        term,42379,Douglas E. Goelz,,13506 Sandridge Rd,Long Beach,WA,98631,(360)
+        642-4504,douglas223@centurytel.net,,State,5/16/2016 9:19:00 PM,False,,False,0,False,True,323\r\n0,5,Legislative,63422,Legislative
+        District 17,Clark*,277,State Senator,4,1,4-year term,42382,Tim Probst,(Prefers
+        Independent Dem. Party),PO Box 87936,Vancouver,WA,98687,(360) 823-6300,Tim@ElectTimProbst.com,,State,5/16/2016
+        9:23:00 PM,False,,False,0,True,True,76\r\n0,5,Legislative,63437,Legislative
+        District 32,\"King*, Snohomish*\",324,State Representative Pos. 2,2,1,2-year
+        term,42384,Ruth Kagi,(Prefers Democratic Party),13504 8th Ave NW,Seattle,WA,98177,(206)
+        365-1137,kagi@seanet.com,,State,5/16/2016 9:23:00 PM,False,,False,0,True,True,123\r\n0,5,Legislative,157,Legislative
+        District 5,King*,240,State Senator,4,1,4-year term,43137,Chad Magendanz,(Prefers
+        Republican Party),PO Box 1362,Issaquah,WA,98027,(425) 395-4895,info@magendanz.com,,State,5/16/2016
+        9:25:00 PM,False,,False,0,True,True,40\r\n0,5,Legislative,63428,Legislative
+        District 23,Kitsap*,296,State Representative Pos. 1,2,1,2-year term,42387,Loretta
+        Byrnes,(Prefers Republican Party),PO Box 2037,Poulsbo,WA,98370,(360) 509-1751,loretta@lorettabyrnes.com,,State,5/16/2016
+        9:29:00 PM,False,,False,0,True,True,95\r\n0,6,Judicial,52,Supreme Court,Statewide,27,Justice
+        Position 6,6,1,6-year term,42426,Dave Larson,,PO Box 26491,Federal Way,WA,98093,(206)
+        257-2075,JudgeLarson@LarsonForJustice.org,,State,5/16/2016 10:11:00 PM,False,,False,0,False,True,180\r\n0,5,Legislative,63427,Legislative
+        District 22,Thurston*,293,State Representative Pos. 1,2,1,2-year term,42452,Laurie
+        Dolan,(Prefers Democratic Party),4315 78th Ave SW,Olympia,WA,98512,(360) 259-5508,lhdolan@comcast.net,,State,5/16/2016
+        10:49:00 PM,False,,False,0,True,True,92\r\n0,2,State Executive,55,Washington
+        State,Statewide,18,Attorney General,4,1,4-year term,42553,Bob Ferguson,(Prefers
+        Democratic Party),8255 2nd Ave NE,Seattle,WA,98115,(206) 486-2621,info@electbobferguson.com,,State,5/17/2016
+        7:45:00 AM,False,,False,0,True,True,13\r\n0,3,Congressional,103,Congressional
+        District 1,\"King*, Skagit*, Snohomish*, Whatcom*\",6,U.S. Representative,2,1,2-year
+        term,42789,Robert J. Sutherland,(Prefers Republican Party),PO Box 1945,Granite
+        Falls,WA,98252,(425) 512-7784,robert@sutherlandusa.com,,State,5/17/2016 8:15:00
+        AM,False,,False,0,True,True,17\r\n0,5,Legislative,63442,Legislative District
+        37,King*,338,State Representative Pos. 1,2,1,2-year term,43162,John Dickinson,(States
+        No Party Preference),5242 S Fontanelle Pl,Seattle,WA,98118,(206) 721-3113,John@JohnDickinson.info,,State,5/17/2016
+        8:19:00 AM,False,,False,0,True,True,137\r\n0,5,Legislative,63438,Legislative
+        District 33,King*,327,State Representative Pos. 2,2,1,2-year term,43170,Pamela
+        Pollock,(Prefers Republican Party),PO Box 13323,Des Moines,WA,98198,(206)
+        356-8186,pam@pampollock.com,,State,5/17/2016 8:20:00 AM,False,,False,0,True,True,126\r\n0,5,Legislative,63426,Legislative
+        District 21,Snohomish*,291,State Representative Pos. 2,2,1,2-year term,42583,Jeff
+        Scherrer,(Prefers Republican Party),PO Box 1094,Lynnwood,WA,98046,(425) 778-7082,Jeff@Jeff4State.com,,State,5/17/2016
+        8:21:00 AM,False,,False,0,True,True,90\r\n0,5,Legislative,63450,Legislative
+        District 45,King*,362,State Representative Pos. 1,2,1,2-year term,43182,Ramiro
+        Valderrama,(Prefers GOP Party),704 228th Ave NE PMB #735,Sammamish,WA,98074,(425)
+        898-9777,ramiro@votevalderrama.com,,State,5/17/2016 8:22:00 AM,False,,False,0,True,True,161\r\n0,5,Legislative,63452,Legislative
+        District 47,King*,369,State Representative Pos. 2,2,1,2-year term,43191,Pat
+        Sullivan,(Prefers Democratic Party),26513 168th Pl SE,Covington,WA,98042,(253)
+        740-6772,pat@votepatsullivan.com,,State,5/17/2016 8:41:00 AM,False,,False,0,True,True,168\r\n0,5,Legislative,162,Legislative
+        District 8,Benton*,252,State Representative Pos. 2,2,1,2-year term,42613,Larry
+        Haler,(Prefers Republican Party),PO Box 1319,Richland,WA,99352,(509) 308-1957,le.haler@gmail.com,,State,5/17/2016
+        8:43:00 AM,False,,False,0,True,True,51\r\n0,6,Judicial,63601,\"Pacific, Wahkiakum
+        Superior Court\",\"Pacific, Wahkiakum\",64,Judge Position 1,4,1,4-year term,42647,Michael
+        S. Turner,,556 Balch Rd,Raymond,WA,98577,(360) 942-4804,electturnerjudge@reachone.com,,State,5/17/2016
+        9:03:00 AM,False,,False,0,False,True,323\r\n0,5,Legislative,158,Legislative
+        District 6,Spokane*,244,State Representative Pos. 1,2,1,2-year term,42654,Mike
+        Volz,(Prefers Republican Party),PO Box 10163,Spokane,WA,99209,(509) 951-8190,votemikevolz@gmail.com,,State,5/17/2016
+        9:10:00 AM,False,,False,0,True,True,44\r\n0,6,Judicial,63593,King Superior
+        Court,King,7738,Judge Position 52,4,1,4-year term,43163,Kristin Richardson,,PO
+        Box 51019,Seattle,WA,98115,(206) 659-0611,info@richardsonforjudge.com,,State,5/17/2016
+        9:11:00 AM,False,,False,0,False,True,301\r\n0,5,Legislative,147,Legislative
+        District 2,\"Pierce*, Thurston*\",233,State Representative Pos. 2,2,1,2-year
+        term,42667,JT Wilcox,(Prefers Republican Party),PO Box 747,McKenna,WA,98558,(253)
+        229-1467,JT@JTWilcox.org,,State,5/17/2016 9:17:00 AM,False,,False,0,True,True,33\r\n0,5,Legislative,63414,Legislative
+        District 9,\"Adams, Asotin, Franklin*, Garfield, Spokane*, Whitman\",253,State
+        Senator,4,1,4-year term,42675,Mark G. Schoesler,(Prefers G.O.P Party),1588
+        E Rosenoff Rd,Ritzville,WA,99169,(509) 659-1909,mschoesler@yahoo.com,,State,5/17/2016
+        9:17:00 AM,False,,False,0,True,True,52\r\n0,5,Legislative,63425,Legislative
+        District 20,\"Clark*, Cowlitz*, Lewis*, Thurston*\",287,State Representative
+        Pos. 1,2,1,2-year term,42676,Richard DeBolt,(Prefers GOP Party),558 Chilvers
+        Rd,Chehalis,WA,98532,(360) 740-0266,richardcdebolt@gmail.com,,State,5/17/2016
+        9:24:00 AM,False,,False,0,True,True,86\r\n0,5,Legislative,63440,Legislative
+        District 35,\"Kitsap*, Mason, Thurston*\",333,State Representative Pos. 2,2,1,2-year
+        term,42701,Craig Patti,(Prefers Independent Dem. Party),330 E Sterling Dr,Allyn,WA,98524,(360)
+        790-1472,votecraigpatti@outlook.com,,State,5/17/2016 9:51:00 AM,False,,False,0,True,True,132\r\n0,5,Legislative,147,Legislative
+        District 2,\"Pierce*, Thurston*\",231,State Senator,4,1,4-year term,42705,Randi
+        Becker,(Prefers Republican Party),44106 14th Ave E,Eatonville,WA,98328,(253)
+        208-6500,rbecker44106@gmail.com,,State,5/17/2016 9:55:00 AM,False,,False,0,True,True,31\r\n0,5,Legislative,63434,Legislative
+        District 29,Pierce*,315,State Representative Pos. 2,2,1,2-year term,42744,Jessica
+        Garcia,(Prefers Republican Party),2908 S 10th St,Tacoma,WA,98405,(253) 289-2970,votejessicagarcia2016@gmail.com,,State,5/17/2016
+        10:18:00 AM,False,,False,0,True,True,114\r\n0,5,Legislative,63446,Legislative
+        District 41,King*,349,State Senator,4,1,4-year term,43167,Lisa Wellman,(Prefers
+        Democratic Party),PO Box 1725,Mercer Island,WA,98040,(206) 236-0354,info@wellmanforwasenate.org,,State,5/17/2016
+        10:19:00 AM,False,,False,0,True,True,148\r\n0,5,Legislative,161,Legislative
+        District 7,\"Ferry, Okanogan*, Pend Oreille, Spokane*, Stevens\",248,State
+        Representative Pos. 2,2,1,2-year term,42770,Joel Kretz,(Prefers Republican
+        Party),1014 Toroda Creek Rd,Wauconda,WA,98859,(509) 779-4105,kretzranch@gmail.com,,State,5/17/2016
+        10:32:00 AM,False,,False,0,True,True,48\r\n0,5,Legislative,63429,Legislative
+        District 24,\"Clallam, Grays Harbor*, Jefferson\",298,State Senator,4,1,4-year
+        term,42774,Danille Turissini,(Prefers Independent GOP Party),46 Village Way
+        PMB 179,Port Ludlow,WA,98365,(360) 301-4134,danille@danilleforsenate.com,,State,5/17/2016
+        10:36:00 AM,False,,False,0,True,True,97\r\n0,5,Legislative,63448,Legislative
+        District 43,King*,357,State Representative Pos. 2,2,1,2-year term,43144,Frank
+        Chopp,(Prefers Democratic Party),4209 Sunnyside Ave N,Seattle,WA,98103,(206)
+        381-1220,frankchopp@comcast.net,,State,5/17/2016 10:50:00 AM,False,,False,0,True,True,156\r\n0,5,Legislative,63434,Legislative
+        District 29,Pierce*,314,State Representative Pos. 1,2,1,2-year term,42815,Rick
+        Thomas,(Prefers Independent Rep Party),PO Box 1432,Tacoma,WA,98401,(253) 220-5590,Rick@VoteRickThomas.org,,State,5/17/2016
+        11:00:00 AM,False,,False,0,True,True,113\r\n0,5,Legislative,63419,Legislative
+        District 14,\"Clark*, Klickitat, Skamania, Yakima*\",268,State Senator,4,1,4-year
+        term,42851,Curtis King,(Prefers Republican Party),PO Box 10025,Yakima,WA,98909,(509)
+        952-4667,senatorking@charter.net,,State,5/17/2016 11:15:00 AM,False,,False,0,True,True,67\r\n0,3,Congressional,155,Congressional
+        District 9,\"King*, Pierce*\",10,U.S. Representative,2,1,2-year term,42859,Doug
+        Basler,(Prefers Republican Party),PO Box 6145,Kent,WA,98064,(877) 427-6534,candidate@dougbasler.com,,State,5/17/2016
+        11:23:00 AM,False,,False,0,True,True,26\r\n0,3,Congressional,148,Congressional
+        District 2,\"Island, San Juan, Skagit*, Snohomish*, Whatcom*\",8,U.S. Representative,2,1,2-year
+        term,42868,Rick Larsen,(Prefers Democratic Party),PO Box 326,Everett,WA,98206,(425)
+        259-1866,rick@ricklarsen.org,,State,5/17/2016 11:30:00 AM,False,,False,0,True,True,19\r\n0,5,Legislative,63426,Legislative
+        District 21,Snohomish*,291,State Representative Pos. 2,2,1,2-year term,42877,Lillian
+        Ortiz-Self,(Prefers Democratic Party),PO Box 581,Mukilteo,WA,98275,(425) 232-6615,lillianortizself@gmail.com,,State,5/17/2016
+        11:38:00 AM,False,,False,0,True,True,90\r\n0,6,Judicial,80296,San Juan Superior
+        Court,San Juan,9204,Judge Position 1,4,1,4-year term,42959,Donald E. Eaton,,483
+        Maple St,Friday Harbor,WA,98250,(360) 378-2420,reelectjudgeeaton@gmail.com,,State,5/17/2016
+        11:45:00 AM,False,,False,0,False,True,346\r\n0,5,Legislative,101,Legislative
+        District 3,Spokane*,235,State Representative Pos. 1,2,1,2-year term,42937,Randy
+        McGlenn II,(Prefers Libertarian Party),PO Box 632,Spokane,WA,99210,(509) 228-7405,info@mcglennforliberty.com,,State,5/17/2016
+        12:43:00 PM,False,,False,0,True,True,35\r\n0,5,Legislative,161,Legislative
+        District 7,\"Ferry, Okanogan*, Pend Oreille, Spokane*, Stevens\",247,State
+        Representative Pos. 1,2,1,2-year term,42946,Shelly Short,(Prefers Republican
+        Party),PO Box 37,Addy,WA,99101,(509) 994-7430,shelly@vote4shelly.com,,State,5/17/2016
+        12:44:00 PM,False,,False,0,True,True,47\r\n0,5,Legislative,63451,Legislative
+        District 46,King*,366,State Representative Pos. 2,2,1,2-year term,43155,Jessyn
+        Farrell,(Prefers Democratic Party),PO Box 20792,Seattle,WA,98102,(206) 856-1669,info@electjessyn.com,,State,5/17/2016
+        1:21:00 PM,False,,False,0,True,True,165\r\n0,5,Legislative,162,Legislative
+        District 8,Benton*,251,State Representative Pos. 1,2,1,2-year term,42975,Brad
+        Klippert,(Prefers Republican Party),PO Box 6478,Kennewick,WA,99336,(509) 294-1583,vote4klippert@gmail.com,,State,5/17/2016
+        1:29:00 PM,False,,False,0,True,True,50\r\n0,2,State Executive,55,Washington
+        State,Statewide,19,Commissioner of Public Lands,4,1,4-year term,43001,Steve
+        McLaughlin,(Prefers Republican Party),PO Box 1001,Seabeck,WA,98380,(509) 885-4541,Steve@mac4lands.org,,State,5/17/2016
+        2:02:00 PM,False,,False,0,True,True,14\r\n0,5,Legislative,63427,Legislative
+        District 22,Thurston*,292,State Senator,4,1,4-year term,43024,Steve Owens,(States
+        No Party Preference),120 State Ave NE #310,Olympia,WA,98501,(360) 561-6719,steve@electsteveowens.org,,State,5/17/2016
+        2:21:00 PM,False,,False,0,True,True,91\r\n0,5,Legislative,63431,Legislative
+        District 26,\"Kitsap*, Pierce*\",305,State Representative Pos. 1,2,1,2-year
+        term,43051,Larry Seaquist,(Prefers Indep't Democrat Party),PO Box 821,Gig
+        Harbor,WA,98335,(253) 225-0616,larry@larryseaquist.com,,State,5/17/2016 2:44:00
+        PM,False,,False,0,True,True,104\r\n0,2,State Executive,55,Washington State,Statewide,14,Lt.
+        Governor,4,1,4-year term,43058,Marty McClendon,(Prefers Republican Party),PMB
+        173 5500 Olympia Dr H105,Gig Harbor,WA,98335,(206) 818-4308,info@electmarty.com,,State,5/17/2016
+        2:56:00 PM,False,,False,0,True,True,9\r\n0,5,Legislative,63430,Legislative
+        District 25,Pierce*,302,State Representative Pos. 1,2,1,2-year term,43081,Jamie
+        Smith,(Prefers Democratic Party),PO Box 1342,Puyallup,WA,98371,(253) 286-9387,Info@VoteJamieSmith.com,,State,5/17/2016
+        3:15:00 PM,False,,False,0,True,True,101\r\n0,5,Legislative,63421,Legislative
+        District 16,\"Benton*, Columbia, Franklin*, Walla Walla*\",276,State Representative
+        Pos. 2,2,1,2-year term,43088,Terry R. Nealey,(Prefers Republican Party),227
+        N Cherry St,Dayton,WA,99328,(509) 520-8383,terrynealey65@gmail.com,,State,5/17/2016
+        3:19:00 PM,False,,False,0,True,True,75\r\n0,6,Judicial,63584,Clallam Superior
+        Court,Clallam,69,Judge Position 2,4,4,4-year short and full term,43089,Dave
+        Neupert,,PO Box 2784,Port Angeles,WA,98362,(360) 808-4489,electdaveneupert@gmail.com,,State,5/17/2016
+        3:19:00 PM,False,,False,0,False,True,219\r\n0,5,Legislative,63416,Legislative
+        District 11,King*,259,State Senator,4,1,4-year term,43516,Bob Hasegawa,(Prefers
+        Democratic Party),PO Box 84331,Seattle,WA,98124,(206) 322-4804,BobHasegawa2016@gmail.com,,State,5/17/2016
+        3:32:00 PM,False,,False,0,True,True,58\r\n0,5,Legislative,161,Legislative
+        District 7,\"Ferry, Okanogan*, Pend Oreille, Spokane*, Stevens\",248,State
+        Representative Pos. 2,2,1,2-year term,43133,Mike Foster,(Prefers Libertarian
+        Party),615 W Pine St Apt 20,Newport,WA,99156,(509) 280-6478,mbf.gbc@gmail.com,,State,5/17/2016
+        3:55:00 PM,False,,False,0,True,True,48\r\n0,5,Legislative,63450,Legislative
+        District 45,King*,362,State Representative Pos. 1,2,1,2-year term,43517,Roger
+        Goodman,(Prefers Democratic Party),218 Main St PMB 763,Kirkland,WA,98033,(425)
+        979-8584,roger@rogergoodman.org,,State,5/17/2016 3:56:00 PM,False,,False,0,True,True,161\r\n0,5,Legislative,63416,Legislative
+        District 11,King*,260,State Representative Pos. 1,2,1,2-year term,43141,Erin
+        Smith Aboudara,(Prefers Republican Party),17431 161st Ave SE,Renton,WA,98058,(425)
+        306-3883,erin@erinaboudara.com,,State,5/17/2016 4:04:00 PM,False,,False,0,True,True,59\r\n0,6,Judicial,63459,\"Court
+        of Appeals, Division 2, District 3\",\"Clark, Cowlitz, Lewis, Pacific, Skamania,
+        Wahkiakum\",47,Judge Position 2,6,1,6-year term,43168,Jill M. Johanson,,PO
+        Box 2339,Longview,WA,98632,(360) 430-9422,Justice-4-you@hotmail.com,,State,5/17/2016
+        4:23:00 PM,False,,False,0,False,True,200\r\n0,5,Legislative,63441,Legislative
+        District 36,King*,334,State Senator,2,5,2-year unexpired term,43179,Reuven
+        Carlyle,(Prefers Democratic Party),PO Box 9100,Seattle,WA,98109,(206) 286-9663,mail@reuvencarlyle.com,,State,5/17/2016
+        4:31:00 PM,False,,False,0,True,True,133\r\n0,5,Legislative,63454,Legislative
+        District 49,Clark*,374,State Representative Pos. 1,2,1,2-year term,43195,Kaitlyn
+        Beck,(Prefers Democratic Party),500 East 13th St Apt 21,Vancouver,WA,98660,(360)
+        281-2705,beck4clarkco@gmail.com,,State,5/17/2016 4:44:00 PM,False,,False,0,True,True,173\r\n0,5,Legislative,63435,Legislative
+        District 30,\"King*, Pierce*\",317,State Representative Pos. 1,2,1,2-year
+        term,43222,Mike Pellicciotti,(Prefers Democratic Party),PO Box 26236,Federal
+        Way,WA,98093,(253) 237-2838,Mike@electmikep.com,,State,5/17/2016 5:39:00 PM,False,,False,0,True,True,116\r\n0,5,Legislative,63441,Legislative
+        District 36,King*,336,State Representative Pos. 2,2,1,2-year term,43664,Gael
+        Tarleton,(Prefers Democratic Party),PO Box 9100,Seattle,WA,98109,(206) 619-1730,gael@gaeltarleton.com,,State,5/17/2016
+        6:49:00 PM,False,,False,0,True,True,135\r\n0,5,Legislative,63422,Legislative
+        District 17,Clark*,278,State Representative Pos. 1,2,1,2-year term,43293,Sam
+        Kim,(Prefers Independent Dem Party),PO Box 118,Brush Prairie,WA,98606,(360)
+        896-7119,sam@VoteSamKim.com,,State,5/17/2016 7:46:00 PM,False,,False,0,True,True,77\r\n0,5,Legislative,63430,Legislative
+        District 25,Pierce*,301,State Senator,4,1,4-year term,43334,Karl Mecklenburg,(Prefers
+        Democratic Party),1215 83rd St E,Tacoma,WA,98404,(253) 720-7859,electmeck@gmail.com,,State,5/17/2016
+        8:47:00 PM,False,,False,0,True,True,100\r\n0,5,Legislative,63438,Legislative
+        District 33,King*,326,State Representative Pos. 1,2,1,2-year term,43667,John
+        Potter,(Prefers Republican Party),11842 14th Ave S,Burien,WA,98168,(206) 293-0217,potterosa1@msn.com,,State,5/17/2016
+        10:07:00 PM,False,,False,0,True,True,125\r\n0,5,Legislative,63421,Legislative
+        District 16,\"Benton*, Columbia, Franklin*, Walla Walla*\",276,State Representative
+        Pos. 2,2,1,2-year term,43396,Gary Downing,(Prefers Democratic Party),1301
+        S Hawthorne St,Kennewick,WA,99337,(509) 528-5455,downing4change@gmail.com,,State,5/17/2016
+        10:41:00 PM,False,,False,0,True,True,75\r\n0,6,Judicial,63610,Yakima Superior
+        Court,Yakima,222,Judge Position 3,4,1,4-year term,43665,Alex Newhouse,,556
+        Luther Rd,Granger,WA,98932,(509) 837-2433,alex@electalexnewhouse.com,,State,5/18/2016
+        12:00:00 AM,False,,False,0,False,True,395\r\n0,5,Legislative,162,Legislative
+        District 8,Benton*,252,State Representative Pos. 2,2,1,2-year term,43430,Steve
+        Simmons,(Prefers Republican Party),6855 W Clearwater Ave  Ste A101-117,Kennewick,WA,99336,(509)
+        439-0339,electstevesimmons@gmail.com,,State,5/18/2016 5:58:00 AM,False,,False,0,True,True,51\r\n0,5,Legislative,63431,Legislative
+        District 26,\"Kitsap*, Pierce*\",306,State Representative Pos. 2,2,1,2-year
+        term,43442,Randy Spitzer,(Prefers Independent Dem. Party),PO Box 2161,Gig
+        Harbor,WA,98335,(360) 871-7251,Randy@ElectSpitzer.com,,State,5/18/2016 6:52:00
+        AM,False,,False,0,True,True,105\r\n0,5,Legislative,63415,Legislative District
+        10,\"Island, Skagit*, Snohomish*\",256,State Senator,4,1,4-year term,43486,Barbara
+        Bailey,(Prefers Republican Party),PO Box 374,Oak Harbor,WA,98277,(360) 240-0844,barbbailey10@gmail.com,,State,5/18/2016
+        8:46:00 AM,False,,False,0,True,True,55\r\n0,5,Legislative,63452,Legislative
+        District 47,King*,369,State Representative Pos. 2,2,1,2-year term,43653,Barry
+        Knowles,(Prefers Republican Party),16915 SE 272nd St #100-70,Covington,WA,98042,(206)
+        574-8232,electbarry@barryknowles.com,,State,5/18/2016 8:49:00 AM,False,,False,0,True,True,168\r\n0,5,Legislative,63445,Legislative
+        District 40,\"San Juan, Skagit*, Whatcom*\",348,State Representative Pos.
+        2,2,1,2-year term,43495,Jeff Morris,(Prefers Democratic Party),1004 Commercial
+        Ave 303,Anacortes,WA,98221,(360) 941-1734,rita@morriscampaign.com,,State,5/18/2016
+        8:55:00 AM,False,,False,0,True,True,147\r\n0,5,Legislative,147,Legislative
+        District 2,\"Pierce*, Thurston*\",233,State Representative Pos. 2,2,1,2-year
+        term,43505,Derek Maynes,(Prefers Democratic Party),PO Box 73142,Puyallup,WA,98373,(253)
+        441-1915,contact@derekmaynes.com,,State,5/18/2016 9:22:00 AM,False,,False,0,True,True,33\r\n0,5,Legislative,63451,Legislative
+        District 46,King*,365,State Representative Pos. 1,2,1,2-year term,43691,Stephanie
+        Heart Viskovich,(Prefers Libertarian Party),8005 Lake City Way NE,Seattle,WA,98115,(206)
+        605-6293,Viskovich2016@gmail.com,,State,5/18/2016 9:44:00 AM,False,,False,0,True,True,164\r\n0,5,Legislative,63444,Legislative
+        District 39,\"King*, Skagit*, Snohomish*\",344,State Representative Pos. 1,2,1,2-year
+        term,43535,Linda M. Wright,(Prefers Democrat Party),1242 State Ave Ste I PMB
+        223,Marysville,WA,98270,(425) 330-0849,electlindawright@gmail.com,,State,5/18/2016
+        10:14:00 AM,False,,False,0,True,True,143\r\n0,6,Judicial,63597,Lewis Superior
+        Court,Lewis,99,Judge Position 2,4,1,4-year term,43547,James W. Lawler,,147
+        Rosewood Dr,Chehalis,WA,98532,(360) 269-6218,lawlerje@gmail.com,,State,5/18/2016
+        10:33:00 AM,False,,False,0,False,True,315\r\n0,5,Legislative,63423,Legislative
+        District 18,Clark*,280,State Senator,4,1,4-year term,43571,Ann Rivers,(Prefers
+        Republican Party),PO Box 957,La Center,WA,98629,(360) 450-7994,annrivers18@comcast.net,,State,5/18/2016
+        10:52:00 AM,False,,False,0,True,True,79\r\n0,6,Judicial,52,Supreme Court,Statewide,26,Justice
+        Position 5,6,1,6-year term,43647,Greg Zempel,,110 West 6th Ave PMB 220,Ellensburg,WA,98926,(509)
+        436-7819,Greg.Zempel@ZempelForJustice.org,,State,5/18/2016 12:12:00 PM,False,,False,0,False,True,179\r\n0,6,Judicial,63597,Lewis
+        Superior Court,Lewis,100,Judge Position 3,4,1,4-year term,43669,Katherine
+        Gulmert,,1673 S Market Blvd PMB 118,Chehalis,WA,98532,(360) 880-1657,katherine@gulmertforjudge.com,,State,5/18/2016
+        12:46:00 PM,False,,False,0,False,True,316\r\n0,5,Legislative,63416,Legislative
+        District 11,King*,260,State Representative Pos. 1,2,1,2-year term,43695,Zack
+        Hudgins,(Prefers Democratic Party),4511 S 136th St,Tukwila,WA,98168,(206)
+        860-9809,zack@zackhudgins.info,,State,5/18/2016 1:19:00 PM,False,,False,0,True,True,59\r\n0,5,Legislative,158,Legislative
+        District 6,Spokane*,245,State Representative Pos. 2,2,1,2-year term,43714,Jeff
+        Holy,(Prefers Republican Party),PO Box 40285,Spokane,WA,99220,(509) 216-5935,votejeffholy@gmail.com,,State,5/18/2016
+        1:55:00 PM,False,,False,0,True,True,45\r\n0,5,Legislative,63448,Legislative
+        District 43,King*,356,State Representative Pos. 1,2,1,2-year term,44101,Nicole
+        Macri,(Prefers Democratic Party),PO Box 9100,Seattle,WA,98109,(206) 486-0085,info@votenicole.org,,State,5/18/2016
+        2:26:00 PM,False,,False,0,True,True,155\r\n0,6,Judicial,63588,\"Ferry, Pend
+        Oreille, Stevens Superior Court\",\"Ferry, Pend Oreille, Stevens\",59,Judge
+        Position 1,4,1,4-year term,43823,Patrick A. Monasmith,,PO Box 806,Chewelah,WA,99109,(509)
+        936-2669,reelectjudgemonasmith@gmail.com,,State,5/18/2016 3:59:00 PM,False,,False,0,False,True,237\r\n0,5,Legislative,63416,Legislative
+        District 11,King*,259,State Senator,4,1,4-year term,44236,Dennis Price,(Prefers
+        Libertarian Party),3788 NE 4th St #F210,Renton,WA,98056,(425) 529-8615,etdennisprice@outlook.com,,State,5/18/2016
+        4:50:00 PM,False,,False,0,True,True,58\r\n0,5,Legislative,63445,Legislative
+        District 40,\"San Juan, Skagit*, Whatcom*\",346,State Senator,4,1,4-year term,43859,Kevin
+        Ranker ,(Prefers Democratic Party),PO Box 92,Deer Harbor,WA,98243,(206) 420-3351,info@kevinranker.com,,State,5/18/2016
+        4:50:00 PM,False,,False,0,True,True,145\r\n0,5,Legislative,63444,Legislative
+        District 39,\"King*, Skagit*, Snohomish*\",344,State Representative Pos. 1,2,1,2-year
+        term,43865,Dan Kristiansen,(Prefers Republican Party),PO Box 2007,Snohomish,WA,98291,(425)
+        870-6902,dan.kristiansen39@gmail.com,,State,5/18/2016 5:13:00 PM,False,,False,0,True,True,143\r\n0,6,Judicial,63588,\"Ferry,
+        Pend Oreille, Stevens Superior Court\",\"Ferry, Pend Oreille, Stevens\",60,Judge
+        Position 2,4,1,4-year term,43907,Terry L. Williams,,842 E 1st Avenue,Colville,WA,99114,(509)
+        684-5276,williamsforjudge@outlook.com,,State,5/18/2016 7:25:00 PM,False,,False,0,False,True,238\r\n0,5,Legislative,63452,Legislative
+        District 47,King*,368,State Representative Pos. 1,2,1,2-year term,44253,Mark
+        Hargrove,(Prefers Republican Party),PO Box 7341,Covington,WA,98042,(253) 632-0736,Mark@MarkHargrove.org,,State,5/18/2016
+        7:28:00 PM,False,,False,0,True,True,167\r\n0,5,Legislative,157,Legislative
+        District 5,King*,242,State Representative Pos. 2,2,1,2-year term,44235,Darcy
+        Burner,(Prefers Democratic Party),PO Box 1300,Carnation,WA,98014,(425) 954-3538,info@darcyburner.com,,State,5/18/2016
+        8:20:00 PM,False,,False,0,True,True,42\r\n0,5,Legislative,157,Legislative
+        District 5,King*,241,State Representative Pos. 1,2,1,2-year term,44242,Jay
+        Rodne,(Prefers Republican Party),PO Box 2848,Issaquah,WA,98027,(425) 890-3336,jay_rodne@comcast.net,,State,5/18/2016
+        8:28:00 PM,False,,False,0,True,True,41\r\n0,5,Legislative,63415,Legislative
+        District 10,\"Island, Skagit*, Snohomish*\",258,State Representative Pos.
+        2,2,1,2-year term,43932,Dave Hayes,(Prefers Republican Party),26910 92 Ave
+        NW #C5-183,Stanwood,WA,98292,(425) 530-0490,electdavehayes@gmail.com,,State,5/18/2016
+        8:36:00 PM,False,,False,0,True,True,57\r\n0,5,Legislative,63415,Legislative
+        District 10,\"Island, Skagit*, Snohomish*\",258,State Representative Pos.
+        2,2,1,2-year term,43948,Doris Brevoort,(Prefers Democratic Party),114 S 5th
+        St,Mount Vernon,WA,98274,(360) 336-3453,votedorisrep@gmail.com,,State,5/18/2016
+        9:15:00 PM,False,,False,0,True,True,57\r\n0,5,Legislative,63449,Legislative
+        District 44,Snohomish*,360,State Representative Pos. 2,2,1,2-year term,43959,David
+        Corvin,(Prefers Democratic Party),723 Avenue D #D,Snohomish,WA,98290,(425)
+        610-4073,davidbcorvin@gmail.com,,State,5/18/2016 9:40:00 PM,True,5/23/2016
+        12:57:00 PM,False,0,True,True,159\r\n0,5,Legislative,63418,Legislative District
+        13,\"Grant*, Kittitas, Lincoln, Yakima*\",267,State Representative Pos. 2,2,1,2-year
+        term,43963,Jordan Webb,(Prefers Democratic Party),PO Box 1516,Moses Lake,WA,98837,(509)
+        770-4556,jwebb@webbforwashington.com,,State,5/18/2016 9:49:00 PM,False,,False,0,True,True,66\r\n0,6,Judicial,63593,King
+        Superior Court,King,139,Judge Position 26,4,1,4-year term,44853,John H. O'Rourke,,PO
+        Box 24063,Federal Way,WA,98093,(206) 824-2802,johnhorourke@comcast.net,,State,5/19/2016
+        8:15:00 AM,False,,False,0,False,True,275\r\n0,5,Legislative,157,Legislative
+        District 5,King*,241,State Representative Pos. 1,2,1,2-year term,44860,Jason
+        Ritchie,(Prefers Dem/Working Fmly Party),PO Box 2165,Issaquah,WA,98027,(425)
+        324-6888,jason@ritchieforwa.com,,State,5/19/2016 8:22:00 AM,False,,False,0,True,True,41\r\n0,5,Legislative,157,Legislative
+        District 5,King*,241,State Representative Pos. 1,2,1,2-year term,44259,Arien
+        Huckeba,(Prefers Democratic Party),400 NW Gilman Blvd,Issaquah,WA,98027,(425)
+        435-4019,Arien.Is.Working@gmail.com,,State,5/19/2016 8:23:00 AM,True,5/20/2016
+        12:00:00 AM,False,0,True,True,41\r\n0,6,Judicial,63588,\"Ferry, Pend Oreille,
+        Stevens Superior Court\",\"Ferry, Pend Oreille, Stevens\",59,Judge Position
+        1,4,1,4-year term,44066,C. Olivia Irwin,,344 E Birch Ave Ste 102,Colville,WA,99114,(509)
+        684-9252,Irwin4Judge2016@gmail.com,,State,5/19/2016 9:12:00 AM,False,,False,0,False,True,237\r\n0,3,Congressional,150,Congressional
+        District 4,\"Adams, Benton, Douglas*, Franklin, Grant, Okanogan, Walla Walla*,
+        Yakima\",7,U.S. Representative,2,1,2-year term,44073,Clint Didier,(Prefers
+        Republican Party),PO Box 157,Eltopia,WA,99330,(509) 380-7324,farmerdidier@gmail.com,,State,5/19/2016
+        9:23:00 AM,False,,False,0,True,True,21\r\n0,2,State Executive,55,Washington
+        State,Statewide,13,Governor,4,1,4-year term,44077,Bill Bryant,(Prefers Republican
+        Party),PO Box 2121,Tacoma,WA,98401,(253) 220-5051,info@billbryantforgovernor.com,,State,5/19/2016
+        9:28:00 AM,False,,False,0,True,True,8\r\n0,5,Legislative,63452,Legislative
+        District 47,King*,368,State Representative Pos. 1,2,1,2-year term,44227,Brooke
+        Valentine,(Prefers Democratic Party),27177 185th Ave SE Ste 111-189,Covington,WA,98042,(206)
+        271-5137,wavalentine@msn.com,,State,5/19/2016 9:41:00 AM,False,,False,0,True,True,167\r\n0,3,Congressional,154,Congressional
+        District 8,\"Chelan, Douglas*, King*, Kittitas, Pierce*\",12,U.S. Representative,2,1,2-year
+        term,44098,Tony Ventrella,(Prefers Democratic Party),PMB 2117 1420 NW Gilman
+        Blvd Ste 2,Issaquah,WA,98027,,team@teamventrella.com,,State,5/19/2016 10:00:00
+        AM,False,,False,0,True,True,25\r\n0,3,Congressional,153,Congressional District
+        7,\"King*, Snohomish*\",11,U.S. Representative,2,1,2-year term,44111,Pramila
+        Jayapal,(Prefers Democratic Party),PO Box 20753,Seattle,WA,98121,(206) 482-8420,info@pramilaforcongress.com,,State,5/19/2016
+        10:22:00 AM,False,,False,0,True,True,24\r\n0,6,Judicial,63606,Thurston Superior
+        Court,Thurston,213,Judge Position 1,4,1,4-year term,44140,Laura M. Murphy,,1226
+        State St NE,Olympia,WA,98506,(360) 357-2004,lauramurphyforjudge@gmail.com,,State,5/19/2016
+        11:06:00 AM,False,,False,0,False,True,378\r\n0,5,Legislative,63415,Legislative
+        District 10,\"Island, Skagit*, Snohomish*\",257,State Representative Pos.
+        1,2,1,2-year term,44172,Michael Scott,(Prefers Libertarian Party),370 N East
+        Camano Dr #5-45,Camano Island,WA,98282,(360) 436-6268,michaelscottelect@gmail.com,,State,5/19/2016
+        11:32:00 AM,False,,False,0,True,True,56\r\n0,5,Legislative,63415,Legislative
+        District 10,\"Island, Skagit*, Snohomish*\",257,State Representative Pos.
+        1,2,1,2-year term,44184,Norma Smith,(Prefers Republican Party),PO Box 270,Clinton,WA,98236,(360)
+        341-5171,office@votenormasmith.com,,State,5/19/2016 11:50:00 AM,False,,False,0,True,True,56\r\n0,5,Legislative,63443,Legislative
+        District 38,Snohomish*,342,State Representative Pos. 2,2,1,2-year term,44192,Bert
+        Johnson,(Prefers Independent Party),PO Box 1867,Marysville,WA,98270,(360)
+        572-1406,info@votebertjohnson.com,,State,5/19/2016 12:01:00 PM,False,,False,0,True,True,141\r\n0,5,Legislative,63429,Legislative
+        District 24,\"Clallam, Grays Harbor*, Jefferson\",299,State Representative
+        Pos. 1,2,1,2-year term,44199,George Vrable,(Prefers Republican Party),21 Topsail
+        Ln,Port Ludlow,WA,98365,(360) 437-0588,votegeorgev@gmail.com,,State,5/19/2016
+        12:10:00 PM,False,,False,0,True,True,98\r\n0,5,Legislative,156,Legislative
+        District 4,Spokane*,238,State Representative Pos. 1,2,1,2-year term,44202,Matt
+        Shea,(Prefers Republican Party),PO Box 142180,Spokane Valley,WA,99214,,matt@voteshea.com,,State,5/19/2016
+        12:11:00 PM,False,,False,0,True,True,38\r\n0,5,Legislative,156,Legislative
+        District 4,Spokane*,239,State Representative Pos. 2,2,1,2-year term,44201,Bob
+        McCaslin,(Prefers Republican Party),PO Box 1462,Spokane Valley,WA,99037,(509)
+        994-9836,asbestossuitbaby@gmail.com,,State,5/19/2016 12:11:00 PM,False,,False,0,True,True,39\r\n0,6,Judicial,52,Supreme
+        Court,Statewide,22,Justice Position 1,6,1,6-year term,44223,David DeWolf ,,PO
+        Box 7524,Spokane,WA,99207,(509) 315-2224,David@DeWolfForJustice.org,,State,5/19/2016
+        12:31:00 PM,False,,False,0,False,True,175\r\n0,6,Judicial,63593,King Superior
+        Court,King,127,Judge Position 14,4,1,4-year term,44864,David Greenspan,,PO
+        Box 27774,Seattle,WA,98165,(206) 877-3428,david@greenspanforjudge.com,,State,5/19/2016
+        1:28:00 PM,False,,False,0,False,True,263\r\n0,5,Legislative,63453,Legislative
+        District 48,King*,371,State Representative Pos. 1,2,4,2-year short and full
+        term,44866,Michelle Darnell,(Prefers Libertarian Party),830 Kirkland Way,Kirkland,WA,98033,(360)
+        720-6899,michelleforthehouse@gmail.com,,State,5/19/2016 2:37:00 PM,False,,False,0,True,True,170\r\n0,6,Judicial,63586,Cowlitz
+        Superior Court,Cowlitz,78,Judge Position 1,4,1,4-year term,44445,Joshua J.
+        Baldwin ,,1555 3rd Ave Suite E,Longview,WA,98632,(360) 703-5199,committee@baldwinforjudge.org,,State,5/19/2016
+        4:28:00 PM,False,,False,0,False,True,231\r\n0,5,Legislative,63424,Legislative
+        District 19,\"Cowlitz*, Grays Harbor*, Lewis*, Pacific, Wahkiakum\",283,State
+        Senator,4,4,4-year short and full term,44477,Sue Kuehl Pederson,(Prefers Independent
+        GOP Party),PO Box 86,Aberdeen,WA,98520,(360) 637-3507,Sue@CitizensforSue.org,,State,5/19/2016
+        4:56:00 PM,False,,False,0,True,True,82\r\n0,5,Legislative,63417,Legislative
+        District 12,\"Chelan, Douglas, Grant*, Okanogan*\",263,State Representative
+        Pos. 1,2,1,2-year term,44479,Dan Maher,(Prefers Democratic Party),1419 Saddlerock
+        Dr,Wenatchee,WA,98801,(509) 433-7336,dan@electmaher.org,,State,5/19/2016 5:05:00
+        PM,False,,False,0,True,True,62\r\n0,5,Legislative,101,Legislative District
+        3,Spokane*,234,State Senator,4,1,4-year term,44499,James R. Apker,(Prefers
+        Libertarian Party),PO Box 1172,Mead,WA,99021,(509) 638-7690,jamesrapker@gmail.com,,State,5/19/2016
+        5:37:00 PM,False,,False,0,True,True,34\r\n0,6,Judicial,63461,\"Court of Appeals,
+        Division 3, District 2\",\"Adams, Asotin, Benton, Columbia, Franklin, Garfield,
+        Grant, Walla Walla, Whitman\",50,Judge Position 1,6,1,6-year term,44508,Patrick
+        McBurney,,6855 W Clearwater Ave Ste A101-188,Kennewick,WA,99336,(509) 947-1198,PatrickMcBurneyforJudge@gmail.com,,State,5/19/2016
+        5:50:00 PM,False,,False,0,False,True,203\r\n0,5,Legislative,63449,Legislative
+        District 44,Snohomish*,360,State Representative Pos. 2,2,1,2-year term,44513,Katrina
+        Ondracek,(Prefers Democratic Party),1428 99th Ave SE,Lake Stevens,WA,98258,(425)
+        244-3174,katrinaondracek@gmail.com,,State,5/19/2016 5:56:00 PM,False,,False,0,True,True,159\r\n0,5,Legislative,63420,Legislative
+        District 15,Yakima*,273,State Representative Pos. 2,2,1,2-year term,45320,AJ
+        Cooper,(Prefers Democrat Party),331 GORE RD,SELAH,WA,98942,(509) 426-8740,aj.cooper@outlook.com,,State,5/20/2016
+        12:00:00 AM,False,,False,0,True,True,72\r\n0,5,Legislative,63439,Legislative
+        District 34,King*,329,State Representative Pos. 1,2,1,2-year term,45704,Matthew
+        Benson,(Prefers Republican Party),PO Box 16716,Seattle,WA,98116,,bensonforWAhouse@hotmail.com,,State,5/20/2016
+        3:58:00 AM,False,,False,0,True,True,128\r\n0,6,Judicial,63582,\"Benton, Franklin
+        Superior Court\",\"Benton, Franklin\",56,Judge Position 3,4,1,4-year term,44812,Alicia
+        Marie Berry,,PO Box 6685,Kennewick,WA,99336,(509) 521-6536,aliciaberry.wa@gmail.com,,State,5/20/2016
+        7:23:00 AM,False,,False,0,False,True,210\r\n0,3,Congressional,152,Congressional
+        District 6,\"Clallam, Grays Harbor, Jefferson, Kitsap, Mason*, Pierce*\",9,U.S.
+        Representative,2,1,2-year term,44837,Todd A. Bloom,(Prefers Republican Party),PO
+        Box 7482,Tacoma,WA,98417,(253) 213-1982,electtoddbloom@gmail.com,,State,5/20/2016
+        7:56:00 AM,False,,False,0,True,True,23\r\n0,3,Congressional,98412,Congressional
+        District 10,\"Mason*, Pierce*, Thurston*\",28824,U.S. Representative,2,1,2-year
+        term,44902,Denny Heck,(Prefers Democratic Party),PO Box 235,Olympia,WA,98507,(360)
+        359-1514,info@dennyheckforcongress.com,,State,5/20/2016 9:01:00 AM,False,,False,0,True,True,27\r\n0,2,State
+        Executive,55,Washington State,Statewide,18,Attorney General,4,1,4-year term,44927,Joshua
+        B. Trumbull,(Prefers Libertarian Party),106 E Gilman Ave,Arlington,WA,98223,(425)
+        309-7700,josh@joshuatrumbull.com,,State,5/20/2016 9:27:00 AM,False,,False,0,True,True,13\r\n0,5,Legislative,63424,Legislative
+        District 19,\"Cowlitz*, Grays Harbor*, Lewis*, Pacific, Wahkiakum\",284,State
+        Representative Pos. 1,2,4,2-year short and full term,44957,Teresa Purcell,(Prefers
+        Democratic Party),PO Box 1670,Longview,WA,98632,(206) 898-9271,Teresa@peopleforpurcell.com,,State,5/20/2016
+        9:39:00 AM,False,,False,0,True,True,83\r\n0,6,Judicial,63595,Kittitas Superior
+        Court,Kittitas,97,Judge Position 1,4,1,4-year term,44963,Chris Herion,,1512
+        Stonebrige St,Ellensburg,WA,98926,(888) 758-1769,chris@herionlaw.com,,State,5/20/2016
+        9:42:00 AM,False,,False,0,False,True,311\r\n0,3,Congressional,153,Congressional
+        District 7,\"King*, Snohomish*\",11,U.S. Representative,2,1,2-year term,44973,Brady
+        Pi\xF1ero Walkinshaw,(Prefers Democratic Party),119 1st Ave S Suite 320,Seattle,WA,98104,(206)
+        486-5551,Brady@BradyWalkinshaw.com,,State,5/20/2016 9:57:00 AM,False,,False,0,True,True,24\r\n0,5,Legislative,63454,Legislative
+        District 49,Clark*,373,State Senator,4,1,4-year term,44984,Annette Cleveland,(Prefers
+        Democratic Party),6400 NE Highway 99 Ste G340,Vancouver,WA,98665,(360) 449-9121,campaign@annettecleveland.com,,State,5/20/2016
+        10:00:00 AM,False,,False,0,True,True,172\r\n0,5,Legislative,101,Legislative
+        District 3,Spokane*,236,State Representative Pos. 2,2,1,2-year term,44991,Laura
+        Carder,(Prefers Republican Party),2211 E Rich Ave,Spokane,WA,99207,(509) 487-3216,laura_carder@juno.com,,State,5/20/2016
+        10:05:00 AM,False,,False,0,True,True,36\r\n0,5,Legislative,63447,Legislative
+        District 42,Whatcom*,353,State Representative Pos. 1,2,1,2-year term,45028,Sharlaine
+        LaClair,(Prefers Democratic Party),PO Box 1245,Ferndale,WA,98248,(360) 595-3716,info@sharlainelaclair.com,,State,5/20/2016
+        10:18:00 AM,False,,False,0,True,True,152\r\n0,5,Legislative,63439,Legislative
+        District 34,King*,330,State Representative Pos. 2,2,1,2-year term,45519,Andrew
+        Pilloud,(Prefers Republican Party),10229 35th Ave SW,Seattle,WA,98146,(206)
+        641-7654,andrew@andrewforhouse.com,,State,5/20/2016 10:19:00 AM,False,,False,0,True,True,129\r\n0,5,Legislative,63447,Legislative
+        District 42,Whatcom*,354,State Representative Pos. 2,2,1,2-year term,45096,Tracy
+        Atwood,(Prefers Democratic Party),637 W Horton Way Apt 226,Bellingham,WA,98226,(360)
+        610-7081,tracy@newdestinies.org,,State,5/20/2016 11:07:00 AM,False,,False,0,True,True,153\r\n0,5,Legislative,63423,Legislative
+        District 18,Clark*,281,State Representative Pos. 1,2,1,2-year term,45102,Karen
+        Jankowski,(Prefers Democratic Party),1432 NW Ilwaco Crt,Camas,WA,98607,(760)
+        685-4798,wagsca@gmail.com,,State,5/20/2016 11:09:00 AM,True,5/23/2016 1:44:00
+        PM,False,0,True,True,80\r\n0,5,Legislative,100,Legislative District 1,\"King*,
+        Snohomish*\",230,State Representative Pos. 2,2,1,2-year term,45157,Jim Langston,(Prefers
+        Republican Party),PO Box 1765,Bothell,WA,98041,(425) 350-0855,jim@electjimlangston.com,,State,5/20/2016
+        11:42:00 AM,False,,False,0,True,True,30\r\n0,6,Judicial,63593,King Superior
+        Court,King,10104,Judge Position 53,4,1,4-year term,45703,Thomas Cline,,2502
+        N 50th St Unit 100,Seattle,WA,98103,(206) 789-2777,tom@thomascline.com,,State,5/20/2016
+        12:00:00 PM,False,,False,0,False,True,302\r\n0,5,Legislative,63442,Legislative
+        District 37,King*,339,State Representative Pos. 2,2,1,2-year term,45708,Tamra
+        Smilanich,(Prefers Non-Partisan Party),4404 6th Ave,Tacoma,WA,98406,(253)
+        880-9200,electtamra@gmail.com,,State,5/20/2016 12:03:00 PM,False,,False,0,True,True,138\r\n0,5,Legislative,63422,Legislative
+        District 17,Clark*,278,State Representative Pos. 1,2,1,2-year term,45253,Melanie
+        Davis,(Prefers Democratic Party),PO Box 1025,Brush Prairie,WA,98606,(360)
+        869-6263,elect@meldavis.org,,State,5/20/2016 12:46:00 PM,True,5/23/2016 4:40:00
+        PM,False,0,True,True,77\r\n0,5,Legislative,63446,Legislative District 41,King*,351,State
+        Representative Pos. 2,2,1,2-year term,45711,Bill Stinson,(Prefers Republican
+        Party),422 98th Ave NE,Bellevue,WA,98004,(425) 442-7569,Billstinson11@gmail.com,,State,5/20/2016
+        12:51:00 PM,True,5/23/2016 1:17:00 PM,False,0,True,True,150\r\n0,5,Legislative,63427,Legislative
+        District 22,Thurston*,293,State Representative Pos. 1,2,1,2-year term,45265,Donald
+        Austin,(Prefers Republican Party),1103 Decatur St SW,Olympia,WA,98502,(360)
+        464-4106,donaldaustin22@gmail.com,,State,5/20/2016 12:55:00 PM,False,,False,0,True,True,92\r\n0,5,Legislative,156,Legislative
+        District 4,Spokane*,239,State Representative Pos. 2,2,1,2-year term,45280,Scott
+        V. Stucker,(Prefers Democratic Party),8314 E Mt Spokane Park Dr,Mead,WA,99021,(509)
+        863-3872,scottstucker@gmail.com,,State,5/20/2016 1:03:00 PM,True,5/20/2016
+        3:31:00 PM,False,0,True,True,39\r\n0,5,Legislative,63437,Legislative District
+        32,\"King*, Snohomish*\",324,State Representative Pos. 2,2,1,2-year term,45310,David
+        D. Schirle ,(Prefers Republican Party),4606 210th ST SW,Lynnwood ,WA,98036,(206)
+        658-5572,ddschirle@yahoo.com,,State,5/20/2016 1:20:00 PM,False,,False,0,True,True,123\r\n0,5,Legislative,63417,Legislative
+        District 12,\"Chelan, Douglas, Grant*, Okanogan*\",264,State Representative
+        Pos. 2,2,1,2-year term,45321,Jerry Paine,(Prefers Republican Party),630 Valley
+        Mall Pkwy #244,East Wenatchee,WA,98802,(509) 860-7696,electjerrypaine@gmail.com,,State,5/20/2016
+        1:27:00 PM,False,,False,0,True,True,63\r\n0,2,State Executive,55,Washington
+        State,Statewide,21,Insurance Commissioner,4,1,4-year term,45343,Richard Schrock,(Prefers
+        Republican Party),1430 N Lake Stickney Dr,Lynnwood,WA,98087,(425) 745-9380,Richard@commissionerschrock.com,,State,5/20/2016
+        1:45:00 PM,False,,False,0,True,True,16\r\n0,3,Congressional,149,Congressional
+        District 3,\"Clark, Cowlitz, Klickitat, Lewis, Pacific, Skamania, Thurston*,
+        Wahkiakum\",5,U.S. Representative,2,1,2-year term,45356,Jim Moeller,(Prefers
+        Democratic Party),1701 Broadway #328,Vancouver,WA,98663,(360) 903-5115,electjim@jimmoeller.org,,State,5/20/2016
+        1:53:00 PM,False,,False,0,True,True,20\r\n0,6,Judicial,63605,Spokane Superior
+        Court,Spokane,211,Judge Position 11,4,1,4-year term,45366,Tim Fennessy,,601
+        South Division Street,Spokane,WA,99202,(509) 455-8883,fennessyforsuperiorcourt@gmail.com,,State,5/20/2016
+        1:59:00 PM,False,,False,0,False,True,376\r\n0,5,Legislative,63419,Legislative
+        District 14,\"Clark*, Klickitat, Skamania, Yakima*\",268,State Senator,4,1,4-year
+        term,45400,Amanda Richards,(Prefers Independent GOP Party),PO Box 765,Lyle,WA,98635,(541)
+        595-8292,amanda4leg14@gmail.com,,State,5/20/2016 2:19:00 PM,False,,False,0,True,True,67\r\n0,5,Legislative,63423,Legislative
+        District 18,Clark*,281,State Representative Pos. 1,2,1,2-year term,45438,Justin
+        Oberg,(Prefers Democratic Party),PO Box 821791,Vancouver ,WA,98682,(360) 200-0997,contact@justinoberg.com,,State,5/20/2016
+        2:36:00 PM,False,,False,0,True,True,80\r\n0,6,Judicial,63605,Spokane Superior
+        Court,Spokane,210,Judge Position 10,4,1,4-year term,45456,Ward Andrews,,P.O.
+        Box 72,Spokane,WA,99210,(509) 844-5100,electwardandrews@gmail.com,,State,5/20/2016
+        2:44:00 PM,False,,False,0,False,True,375\r\n0,5,Legislative,63446,Legislative
+        District 41,King*,351,State Representative Pos. 2,2,1,2-year term,45709,Michael
+        Appleby,(Prefers Republican Party),16653 SE 69th Way,Bellevue,WA,98006,(206)
+        595-4961,info@voteappleby.com,,State,5/20/2016 2:51:00 PM,False,,False,0,True,True,150\r\n0,5,Legislative,63429,Legislative
+        District 24,\"Clallam, Grays Harbor*, Jefferson\",300,State Representative
+        Pos. 2,2,1,2-year term,45477,John D. Alger,(Prefers GOP/Independent Party),PO
+        Box 1027,Sequim,WA,98382,(360) 775-1327,johndalger@wavecable.com,,State,5/20/2016
+        2:52:00 PM,False,,False,0,True,True,99\r\n0,5,Legislative,63419,Legislative
+        District 14,\"Clark*, Klickitat, Skamania, Yakima*\",269,State Representative
+        Pos. 1,2,1,2-year term,45522,Susan Soto Palmer,(Prefers Democratic Party),PMB
+        664 732 Summitview Ave,Yakima,WA,98902,(509) 941-3764,electsusansotopalmer@gmail.com,,State,5/20/2016
+        3:11:00 PM,False,,False,0,True,True,68\r\n0,6,Judicial,63606,Thurston Superior
+        Court,Thurston,219,Judge Position 7,4,1,4-year term,45526,Jim Foley,,402 Capitol
+        Way S Ste 3,Olympia,WA,98501,(360) 259-4964,olyfoley@hotmail.com,,State,5/20/2016
+        3:12:00 PM,False,,False,0,False,True,384\r\n0,5,Legislative,63437,Legislative
+        District 32,\"King*, Snohomish*\",323,State Representative Pos. 1,2,1,2-year
+        term,45542,Alvin Rutledge,(Prefers Republican Party),7101 Lake Ballinger Way,Edmonds,WA,98026,(425)
+        776-7130,,,State,5/20/2016 3:21:00 PM,False,,False,0,True,True,122\r\n0,6,Judicial,63595,Kittitas
+        Superior Court,Kittitas,97,Judge Position 1,4,1,4-year term,45548,Candace
+        Hooper,,\"110 W. 6th Ave, #167\",ELLENSBURG,WA,98926,(509) 607-9811,hooperforjudge@gmail.com,,State,5/20/2016
+        3:21:00 PM,False,,False,0,False,True,311\r\n0,5,Legislative,156,Legislative
+        District 4,Spokane*,238,State Representative Pos. 1,2,1,2-year term,45572,Scott
+        V. Stucker,(Prefers Democratic Party),PO Box 15261,Spokane Valley,WA,99215,(509)
+        455-3817,4thLDforthepeople@scottstucker.com,,State,5/20/2016 3:32:00 PM,False,,False,0,True,True,38\r\n0,5,Legislative,63445,Legislative
+        District 40,\"San Juan, Skagit*, Whatcom*\",346,State Senator,4,1,4-year term,45567,Daniel
+        R. Miller,(Prefers Republican Party),PO Box 1743,Friday Harbor,WA,98250,(775)
+        223-3960,mountainsnow08@gmail.com,,State,5/20/2016 3:32:00 PM,False,,False,0,True,True,145\r\n0,6,Judicial,63604,Snohomish
+        Superior Court,Snohomish,189,Judge Position 3,4,1,4-year term,45622,Cindy
+        Larsen,,4805 Baker Dr,Everett,WA,98203,,cindylarsenforjudge@gmail.com,,State,5/20/2016
+        3:51:00 PM,False,,False,0,False,True,353\r\n0,5,Legislative,63454,Legislative
+        District 49,Clark*,373,State Senator,4,1,4-year term,45685,Lewis Gerhardt,(Prefers
+        Republican Party),9205 NE 14th Way,Vancouver,WA,98664,(360) 553-2316,lewis@lewis4senate.com,,State,5/20/2016
+        4:32:00 PM,False,,False,0,True,True,172\r\n0,5,Legislative,147,Legislative
+        District 2,\"Pierce*, Thurston*\",231,State Senator,4,1,4-year term,45687,Marilyn
+        Rasmussen,(Prefers Democratic Party),33419 Mountain Hwy E,Eatonville,WA,98328,(253)
+        847-3276,marilyn@rainierconnect.com,,State,5/20/2016 4:36:00 PM,False,,False,0,True,True,31\r\n0,6,Judicial,63604,Snohomish
+        Superior Court,Snohomish,189,Judge Position 3,4,1,4-year term,45688,Rico Tessandore,,2707
+        Colby Ave. #1003,Everett,WA,98201,(425) 312-4212,RicoforJudge@gmail.com,,State,5/20/2016
+        4:41:00 PM,False,,False,0,False,True,353\r\n0,5,Legislative,63446,Legislative
+        District 41,King*,350,State Representative Pos. 1,2,1,2-year term,45503,John
+        Pass,(Prefers Republican Party),15100 SE 38th St #712,Bellevue,WA,98006,(206)
+        960-3159,johnpass@johnjpass.com,,State,5/20/2016 9:14:00 PM,False,,False,0,True,True,149\r\n0,1,Federal,49,United
+        States,Statewide,1,President/Vice President,4,1,4-year term,45717,Alyson Kennedy
+        / Osborne Hart,Socialist Workers Party Nominees,\"227 W 29th St, 6th Floor\",New
+        York,NY,10001,(646) 922-8186,swp2016campaign@gmail.com,,State,7/7/2016 12:07:00
+        PM,False,,False,0,True,True,1\r\n0,1,Federal,49,United States,Statewide,1,President/Vice
+        President,4,1,4-year term,45718,Gloria Estela La Riva / Eugene Puryear,Socialism
+        & Liberation Party Nominees,1423 10th Ave,Seattle,WA,98122,(206) 367-3820,seattle@pslweb.org,,State,7/7/2016
+        12:15:00 PM,False,,False,0,True,True,1\r\n0,1,Federal,49,United States,Statewide,1,President/Vice
+        President,4,1,4-year term,45719,Jill Stein / Ajamu Baraka,Green Party Nominees,PO
+        Box 260197,Madison,WI,53726,(801) 303-7922,hq@jill2016.com,,State,7/7/2016
+        3:24:00 PM,False,,False,0,True,True,1\r\n0,1,Federal,49,United States,Statewide,1,President/Vice
+        President,4,1,4-year term,45727,Darrell L. Castle / Scott N. Bradley,Constitution
+        Party Nominees,9245 Poplar Ave STE 5 #156,Germantown,TN,38138,(901) 481-5441,info@castle2016.com,,State,8/4/2016
+        1:11:00 PM,False,,False,0,True,True,1\r\n0,1,Federal,49,United States,Statewide,1,President/Vice
+        President,4,1,4-year term,45728,Gary Johnson / Bill Weld,Libertarian Party
+        Nominees,PO Box 4422,Salt Lake City,UT,84110,,,,State,8/5/2016 11:47:00 AM,False,,False,0,True,True,1\r\n"
+    headers:
+      cache-control:
+      - private
+      cf-cache-status:
+      - DYNAMIC
+      cf-ray:
+      - a1c6c6263ad25939-PDX
+      connection:
+      - keep-alive
+      content-disposition:
+      - attachment; filename=Export_7_16_2026_22_16_xls.csv
+      content-length:
+      - '105520'
+      content-type:
+      - text/csv
+      date:
+      - Fri, 17 Jul 2026 05:16:21 GMT
+      server:
+      - cloudflare
+      strict-transport-security:
+      - max-age=2592000; preload
+      vary:
+      - Accept-Encoding
+      x-aspnet-version:
+      - 4.0.30319
+      x-aspnetmvc-version:
+      - '5.2'
+      x-powered-by:
+      - ASP.NET
+    status:
+      code: 200
+      message: OK
+version: 1

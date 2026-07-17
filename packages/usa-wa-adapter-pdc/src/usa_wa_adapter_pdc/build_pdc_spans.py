@@ -23,6 +23,7 @@ import argparse
 import asyncio
 import os
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -53,6 +54,7 @@ from usa_wa_adapter_pdc.normalize.pdc_matching import (
 )
 from usa_wa_adapter_pdc.normalize.pdc_observations import (
     KIND_HOUSE,
+    PositionFallback,
     build_house_position_observations,
     build_senate_identity_links,
 )
@@ -94,12 +96,18 @@ async def build_pdc_spans(
     current_biennium: str | None = None,
     restrict_to_biennium: str | None = None,
     max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
+    house_position_fallback: Callable[[int], PositionFallback | None] | None = None,
 ) -> PdcSpanResult:
     """Build + emit era-matched House Position spans + ``person_wa_pdc`` links; return counts.
 
     ``restrict_to_biennium`` scopes the House emission to members observed in that biennium (the
     daily re-drive passes the current biennium — each scoped member keeps their full span
-    history). ``None`` (the harvest path) rebuilds all."""
+    history). ``None`` (the harvest path) rebuilds all.
+
+    ``house_position_fallback`` (#100) maps an election year → a per-cohort
+    :data:`~usa_wa_adapter_pdc.normalize.pdc_observations.PositionFallback` supplying the ballot
+    Position PDC omitted before 2018 (the SOS join, injected by ``usa_wa_adapter_sos`` so this
+    module keeps no SOS dependency). ``None`` keeps the PDC-only path (2018+)."""
     jurisdiction = await resolve_jurisdiction(session)
     pdc_source = await get_or_create_pdc_source(session, jurisdiction)
     wsl_source = await get_or_create_wsl_source(session, jurisdiction)
@@ -143,6 +151,7 @@ async def build_pdc_spans(
             house_roster=house_roster,
             senate_roster=senate_roster,
             biennium=biennium,
+            position_fallback=house_position_fallback(year) if house_position_fallback else None,
         )
         observations.extend(proj.observations)
         identifiers.extend(proj.pdc_identifiers)

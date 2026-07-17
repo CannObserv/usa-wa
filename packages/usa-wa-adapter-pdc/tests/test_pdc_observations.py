@@ -114,6 +114,74 @@ def test_historical_mid_biennium_mover_infers_seat_and_cross_links():
     assert ("300", BIENNIUM) in proj.inferred_keys
 
 
+def test_position_absent_without_fallback_is_incomplete():
+    """A pre-2018 winner row (no ``position``) with no fallback is counted ``incomplete`` and
+    never matched — the unchanged 2018+ PDC-only path."""
+    house = build_house_roster([_sponsor(100, 5, "Rivers")])
+    row = _winner("900", 5, 1, "Ann Rivers")
+    row["position"] = ""  # PDC omitted position (pre-2018 dataset shape)
+    proj = build_house_position_observations(
+        [row], house_roster=house, senate_roster={}, biennium=BIENNIUM
+    )
+    assert proj.observations == []
+    assert proj.summary["incomplete"] == 1
+    assert proj.summary["missing_position"] == 0
+
+
+def test_position_absent_resolved_via_fallback_seats_member():
+    """With a #100 fallback, a position-less winner that matches a WSL member is seated at the
+    position the fallback supplies (keyed on the member's folded surname + party)."""
+    house = build_house_roster([_sponsor(100, 5, "Rivers", party="R")])
+    row = _winner("900", 5, 1, "Ann Rivers", party="REPUBLICAN")
+    row["position"] = ""
+
+    def fallback(ld, folded_last, party_slug):
+        assert (ld, folded_last, party_slug) == (5, "rivers", "republican")
+        return "Position 2"
+
+    proj = build_house_position_observations(
+        [row], house_roster=house, senate_roster={}, biennium=BIENNIUM, position_fallback=fallback
+    )
+    assert [o.discriminator for o in proj.observations] == ["ld-5-position-2"]
+    assert proj.pdc_identifiers == [("100", "900")]
+    assert proj.summary["direct_seated"] == 1
+
+
+def test_fallback_returns_none_counts_missing_position():
+    """A matched member the fallback can't position (SOS gap) is counted ``missing_position``,
+    not silently emitted with a wrong seat."""
+    house = build_house_roster([_sponsor(100, 5, "Rivers")])
+    row = _winner("900", 5, 1, "Ann Rivers")
+    row["position"] = ""
+    proj = build_house_position_observations(
+        [row],
+        house_roster=house,
+        senate_roster={},
+        biennium=BIENNIUM,
+        position_fallback=lambda ld, last, party: None,
+    )
+    assert proj.observations == []
+    assert proj.summary["missing_position"] == 1
+    assert proj.summary["direct_seated"] == 0
+
+
+def test_pdc_position_takes_precedence_over_fallback():
+    """When PDC carries a position, the fallback is not consulted (2018+ stays authoritative)."""
+    house = build_house_roster([_sponsor(100, 5, "Rivers")])
+
+    def fallback(ld, last, party):  # pragma: no cover - must not be called
+        raise AssertionError("fallback consulted despite a PDC position")
+
+    proj = build_house_position_observations(
+        [_winner("900", 5, 1, "Ann Rivers")],
+        house_roster=house,
+        senate_roster={},
+        biennium=BIENNIUM,
+        position_fallback=fallback,
+    )
+    assert [o.discriminator for o in proj.observations] == ["ld-5-position-1"]
+
+
 def test_double_match_same_member_skips_the_duplicate():
     """Two winner rows in one LD resolving to the *same* House member (e.g. a stray duplicate
     filer row) → the member is seated once; the second match is skipped, not double-emitted."""

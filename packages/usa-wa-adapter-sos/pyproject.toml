@@ -1,0 +1,26 @@
+[project]
+name = "usa-wa-adapter-sos"
+version = "0.1.0"
+description = "WA Secretary of State (votewa) adapter — archives the eledataweb candidate-filing export and supplies the House Position qualifier PDC's dataset lacks pre-2018 (#100). Sibling of usa-wa-adapter-pdc."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "clearinghouse-core",
+    "clearinghouse-domain-legislative",
+    "usa-wa-adapter-legislature",
+    "usa-wa-adapter-pdc",
+    "httpx>=0.27,<1",
+]
+
+[tool.uv.sources]
+clearinghouse-core = { workspace = true }
+clearinghouse-domain-legislative = { workspace = true }
+usa-wa-adapter-legislature = { workspace = true }
+usa-wa-adapter-pdc = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/usa_wa_adapter_sos"]

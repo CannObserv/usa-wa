@@ -160,6 +160,33 @@ python -m usa_wa_adapter_pdc.migrate_pdc_spans --dry-run
 python -m usa_wa_adapter_pdc.migrate_pdc_spans
 ```
 
+### SOS House Position backfill (#100)
+
+```bash
+# Fills the pre-2018 House state_representative Position seat gap #98 surfaced: PDC's Campaign
+# Finance Summary dataset OMITS the House `position` before the 2018 election, so build_pdc_spans
+# alone seats no House Position before 2019. WA SOS votewa (eledataweb.votewa.gov) carries the
+# ballot `Pos. 1/2` back to 2008, joined to the PDC winner by (LD, surname, party). PDC stays the
+# winner authority; SOS supplies ONLY the position qualifier. NOT wired into the daily refresh
+# (current House has PDC positions) — this is a run-once/occasional backfill.
+
+# Phase A — archive the votewa filing cohorts (archive-only; CSV wire hashed #54). Even general-
+# election years from the floor (2008) to current; closed years cache-hit on re-run. Central
+# pacing via --pause-seconds (votewa courtesy floor). A mid-sweep failure aborts (nothing
+# committed) — re-run from the floor.
+python -m usa_wa_adapter_sos.harvest_sos --dry-run
+python -m usa_wa_adapter_sos.harvest_sos --from-year 2008 --to-year 2016 --pause-seconds 1.0
+
+# Phase B — one coherent House rebuild: runs build_pdc_spans with the votewa position fallback
+# injected (PDC positions 2018+, SOS fallback 2008–2016). A pre-2018 winner matched to a WSL
+# member but position-less is seated at the SOS Pos. 1/2; one the SOS archive can't position is
+# counted missing_position (logged). DEPENDS ON Phase A + the PDC winner archive + the WSL sponsor
+# archive/Persons (#77) — run in the same window, SIDECAR PAUSED (a freshly-materialized span the
+# sidecar sees first mints its own PM assignment). Same #83 mass-close guard as build_pdc_spans.
+python -m usa_wa_adapter_sos.build_sos_house_spans --dry-run
+python -m usa_wa_adapter_sos.build_sos_house_spans
+```
+
 ## Reconcilers & validation (PM sync)
 
 Emit-only producer CLIs (PM stays the authority; they mirror curation back) plus
