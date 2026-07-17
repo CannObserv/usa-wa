@@ -2,8 +2,8 @@
 
 For each even general-election year in a range, archive the ``sos-whofiled:<YYYYMM>`` CSV cohort
 through the runner's archive-only seam (``AdapterRunner.archive_only``) — pristine wire + #54
-hash, no normalize. Phase B (:mod:`build_sos_house_spans`) derives the House ``Position``
-fallback from this archive offline.
+hash, no normalize. Phase B (:mod:`build_house_spans`) derives the House ``Position`` from this
+archive offline (the WSL+SOS House Position seat, #101).
 
 Floor **2008** — the PDC winner floor this fills against; earlier years have no PDC cohort to
 join. Cohorts of a closed year are cache hits on re-run.

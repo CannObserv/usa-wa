@@ -109,10 +109,14 @@ data floor and out of scope here.
 - **Driver placement** (RESOLVED 2026-07-17 — standalone): a new standalone SOS refresh oneshot
   + timer, ordered after `usa-wa-wsl-refresh`. Keeps SOS the composition root and the dependency
   direction clean (no SOS import in the WSL refresh entrypoint). Step 3 builds this unit.
-- **`source_id` discriminator parity**: the migration's simplicity rests on the new builder
-  emitting the byte-identical discriminator the PDC builder used (`ld-{n}-position-{p}`). If it
-  diverges, step 5 becomes a true collapse migration (map by `(person, role, window)`), not a
-  re-point. Confirm in step 1 before writing step 5.
+- **`source_id` divergence (RESOLVED — collapse, not re-point; found in CR)**: the *discriminator*
+  (`ld-{n}-position-{p}`) is identical, but the full 4-part `source_id`'s **`{start}`** component
+  **diverges** for the central cohort — PDC omits the pre-2018 position, so a cross-2018 incumbent's
+  existing PDC span is shallow (`…:2019-20`) while the SOS builder emits a deeper `…:2017-18`. So
+  step 5 is a true **covering-window collapse** (map by `(person, role)` + window, `_retire_onto`),
+  **and the deploy order is build → migrate** (the deep keeper must exist for the collapse). An
+  in-place flip would strand the shallow row's anchor on a superseded row and duplicate the PM
+  assignment (invisible to the #86 index). This is the `migrate_pdc_spans` #91/#97 pattern.
 - **Migration/sidecar race**: the anchor transfer must complete before the first
   `usa_wa_legislature` House build drains to PM, or the new row collides with the old
   `usa_wa_pdc` row on the #86 anchor unique index. Enforced by the paused-sidecar sequencing

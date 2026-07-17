@@ -188,21 +188,24 @@ python -m usa_wa_adapter_sos.harvest_sos --from-year 2008 --pause-seconds 1.0
 python -m usa_wa_adapter_sos.build_house_spans --dry-run
 python -m usa_wa_adapter_sos.build_house_spans
 
-# Migration — OWNER ROLE, one-shot. Re-homes existing usa_wa_pdc 4-part chamber-house rows ->
-# usa_wa_legislature. The new builder emits the IDENTICAL source_id, so the common case is an
-# in-place source flip (id + PM anchor + citations ride along; PM keys on (person, role, start),
-# unchanged). A pre-existing usa_wa_legislature row with the same source_id (new builder ran first)
-# collapses via the index-safe anchor transfer. 3-part legacy rows are migrate_pdc_spans's job
-# (skipped_legacy). Idempotent; --dry-run.
+# Migration — OWNER ROLE, one-shot, run AFTER build_house_spans. Retires existing usa_wa_pdc
+# 4-part chamber-house rows onto the usa_wa_legislature span that COVERS them (mapped by
+# (person, role) + validity window — NOT exact source_id: PDC omits the pre-2018 position, so a
+# cross-2018 incumbent's existing PDC span is shallow …:2019-20 while the SOS builder emits a
+# deeper …:2017-18, a different source_id). Transfers the PM anchor (PM keys on (person, role,
+# start), so the deep keeper IS that tenure), deletes the PDC row + its citations (owner-only #54).
+# A PDC row with no covering keeper (SOS couldn't position that member) is left as orphans_no_keeper.
+# 3-part legacy rows are migrate_pdc_spans's job (skipped_legacy). Idempotent; --dry-run.
 python -m usa_wa_adapter_sos.migrate_house_source --dry-run
 python -m usa_wa_adapter_sos.migrate_house_source
 
-# DEPLOY SEQUENCING (the whole historical backfill), SIDECAR PAUSED throughout:
+# DEPLOY SEQUENCING (the whole historical backfill), SIDECAR PAUSED throughout. Order matters:
+# build BEFORE migrate, so the deep usa_wa_legislature keeper spans exist for the migration to
+# collapse the stranded PDC rows onto (transferring their anchors) — before anything drains to PM.
 #   sudo systemctl stop usa-wa-sync-powermap
 #   python -m usa_wa_adapter_sos.harvest_sos --from-year 2008        # Phase A (SOS archive)
-#   python -m usa_wa_adapter_sos.migrate_house_source                # OWNER role: re-source in place
-#     (before the new builder mints any usa_wa_legislature House row, so anchors transfer cleanly)
 #   python -m usa_wa_adapter_sos.build_house_spans                   # Phase B: full-depth rebuild
+#   python -m usa_wa_adapter_sos.migrate_house_source                # OWNER role: collapse PDC->WSL
 #   sudo systemctl start usa-wa-sync-powermap                        # let the sidecar drain to PM
 ```
 

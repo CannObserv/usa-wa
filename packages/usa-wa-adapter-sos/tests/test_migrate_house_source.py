@@ -1,12 +1,11 @@
-"""One-shot #101 re-source migration — usa_wa_pdc House rows → usa_wa_legislature.
+"""One-shot #101 re-source migration — retire usa_wa_pdc House rows onto usa_wa_legislature spans.
 
 The re-partition makes the House Position seat ``usa_wa_legislature``-sourced (symmetric with the
-Senate). Existing prod rows built by the retired PDC House emission are ``usa_wa_pdc``-sourced;
-the new WSL+SOS builder emits the **identical** 4-part ``source_id`` discriminator, so the common
-case is an in-place ``source`` flip (PM anchor + citations ride along — PM keys on
-``(person, role, start)``, all unchanged). A pre-existing ``usa_wa_legislature`` row with the same
-``source_id`` (out-of-order: the new builder ran first) collapses via the index-safe anchor
-transfer.
+Senate). Existing prod rows built by the retired PDC House emission are ``usa_wa_pdc``-sourced; the
+new WSL+SOS builder emits a span whose ``{start}`` can be **deeper** (SOS positions back to 2008;
+PDC omits the position before 2018), so the migration maps each PDC row onto the covering
+``usa_wa_legislature`` span by ``(person, role)`` + validity window and transfers the PM anchor —
+NOT an exact-``source_id`` re-point. Run **after** ``build_house_spans``.
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ from clearinghouse_domain_legislative.identity import Assignment, Organization, 
 
 _PDC = "usa_wa_pdc"
 _WSL = "usa_wa_legislature"
-_KIND = "chamber-house"
 
 
 async def _person(session, mid):
@@ -56,15 +54,26 @@ async def _role(session, usa_wa, suffix):
     return role
 
 
-async def _assignment(session, *, source, source_id, person, role, anchor=None):
+async def _assignment(
+    session,
+    *,
+    source,
+    source_id,
+    person,
+    role,
+    anchor=None,
+    valid_from=date(2013, 1, 1),
+    valid_to=None,
+    is_active=True,
+):
     row = Assignment(
         source=source,
         source_id=source_id,
         person_id=person.id,
         role_id=role.id,
-        valid_from=date(2013, 1, 1),
-        valid_to=None,
-        is_active=True,
+        valid_from=valid_from,
+        valid_to=valid_to,
+        is_active=is_active,
         pm_assignment_id=anchor,
     )
     session.add(row)
@@ -99,67 +108,148 @@ async def _cite(session, usa_wa, assignment):
     await session.flush()
 
 
-async def test_resources_pdc_house_span_in_place(db_session, usa_wa):
-    """No usa_wa_legislature counterpart → the PDC row's source flips in place, keeping its id,
-    PM anchor, and citations."""
+async def test_collapses_shallow_pdc_onto_deep_legislature_keeper(db_session, usa_wa):
+    """The central #101 cohort: a cross-2018 incumbent's existing PDC span is SHALLOW
+    (…:2019-20 — PDC omits the pre-2018 position) while the SOS builder emits a DEEPER span
+    (…:2017-18). Different source_id → the migration must map by (person, role) + window, transfer
+    the anchor to the deep keeper, and delete the shallow PDC row (NOT flip it in place, which
+    would strand the anchor + duplicate the PM assignment)."""
     person = await _person(db_session, 100)
     role = await _role(db_session, usa_wa, "5-1")
     anchor = _ULID()
-    row = await _assignment(
+    # Existing shallow PDC row (open, anchored), start 2019-20.
+    pdc = await _assignment(
         db_session,
         source=_PDC,
-        source_id="100:chamber-house:ld-5-position-1:2013-14",
+        source_id="100:chamber-house:ld-5-position-1:2019-20",
         person=person,
         role=role,
         anchor=anchor,
+        valid_from=date(2019, 1, 1),
     )
-    await _cite(db_session, usa_wa, row)
-    row_id = row.id
+    await _cite(db_session, usa_wa, pdc)
+    pdc_id = pdc.id
+    # Deep legislature keeper built by build_house_spans (open, no anchor), start 2017-18.
+    keeper = await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-5-position-1:2017-18",
+        person=person,
+        role=role,
+        anchor=None,
+        valid_from=date(2017, 1, 1),
+    )
 
     result = await migrate_house_source(db_session)
 
-    assert result.resourced == 1 and result.collapsed == 0
-    await db_session.refresh(row)
-    assert row.id == row_id  # same row
-    assert row.source == _WSL
-    assert row.pm_assignment_id == anchor  # anchor rides along
-    assert (
-        await db_session.scalar(
-            select(func.count()).select_from(Citation).where(Citation.entity_id == row_id)
-        )
-        == 1
-    )  # citation preserved
-
-
-async def test_collapses_onto_existing_legislature_row(db_session, usa_wa):
-    """A usa_wa_legislature row with the same source_id already exists (new builder ran first) →
-    the PDC row's anchor transfers onto it, the PDC row + its citations are deleted."""
-    person = await _person(db_session, 100)
-    role = await _role(db_session, usa_wa, "5-1")
-    sid = "100:chamber-house:ld-5-position-1:2013-14"
-    anchor = _ULID()
-    pdc_row = await _assignment(
-        db_session, source=_PDC, source_id=sid, person=person, role=role, anchor=anchor
-    )
-    await _cite(db_session, usa_wa, pdc_row)
-    leg_row = await _assignment(
-        db_session, source=_WSL, source_id=sid, person=person, role=role, anchor=None
-    )
-    pdc_id = pdc_row.id
-
-    result = await migrate_house_source(db_session)
-
-    assert result.collapsed == 1 and result.anchors_transferred == 1 and result.resourced == 0
-    await db_session.refresh(leg_row)
-    assert leg_row.pm_assignment_id == anchor  # transferred
+    assert result.retired == 1 and result.anchors_transferred == 1 and result.orphans_no_keeper == 0
+    await db_session.refresh(keeper)
+    assert keeper.pm_assignment_id == anchor  # anchor moved onto the deep keeper
+    # The shallow PDC row + its citations are gone.
     assert (
         await db_session.execute(select(Assignment).where(Assignment.id == pdc_id))
-    ).scalar_one_or_none() is None  # PDC row deleted
+    ).scalar_one_or_none() is None
+    assert (
+        await db_session.scalar(
+            select(func.count()).select_from(Citation).where(Citation.entity_id == pdc_id)
+        )
+        == 0
+    )
+
+
+async def test_collapses_identical_source_id_keeper(db_session, usa_wa):
+    """A post-2018-only member: the PDC row and the legislature keeper share the same start
+    (SOS can't position them before they existed) — the covering-window match still collapses."""
+    person = await _person(db_session, 100)
+    role = await _role(db_session, usa_wa, "5-1")
+    sid = "100:chamber-house:ld-5-position-1:2021-22"
+    anchor = _ULID()
+    pdc = await _assignment(
+        db_session,
+        source=_PDC,
+        source_id=sid,
+        person=person,
+        role=role,
+        anchor=anchor,
+        valid_from=date(2021, 1, 1),
+    )
+    keeper = await _assignment(
+        db_session,
+        source=_WSL,
+        source_id=sid,
+        person=person,
+        role=role,
+        anchor=None,
+        valid_from=date(2021, 1, 1),
+    )
+    pdc_id = pdc.id
+
+    result = await migrate_house_source(db_session)
+
+    assert result.retired == 1 and result.anchors_transferred == 1
+    await db_session.refresh(keeper)
+    assert keeper.pm_assignment_id == anchor
+    assert (
+        await db_session.execute(select(Assignment).where(Assignment.id == pdc_id))
+    ).scalar_one_or_none() is None
+
+
+async def test_orphan_no_keeper_is_left_alone(db_session, usa_wa):
+    """A PDC row whose member the SOS builder couldn't position (no legislature keeper) is left
+    in place + counted — deleting it would orphan its live PM assignment."""
+    person = await _person(db_session, 100)
+    role = await _role(db_session, usa_wa, "5-1")
+    pdc = await _assignment(
+        db_session,
+        source=_PDC,
+        source_id="100:chamber-house:ld-5-position-1:2019-20",
+        person=person,
+        role=role,
+        anchor=_ULID(),
+        valid_from=date(2019, 1, 1),
+    )
+
+    result = await migrate_house_source(db_session)
+
+    assert result.retired == 0 and result.orphans_no_keeper == 1
+    await db_session.refresh(pdc)
+    assert pdc.source == _PDC  # untouched
+
+
+async def test_anchor_dropped_when_keeper_already_anchored(db_session, usa_wa):
+    """A keeper already carrying a different anchor can't adopt the PDC row's — the PDC row is
+    retired but its anchor is dropped (the #80 orphaned-upstream case)."""
+    person = await _person(db_session, 100)
+    role = await _role(db_session, usa_wa, "5-1")
+    await _assignment(
+        db_session,
+        source=_PDC,
+        source_id="100:chamber-house:ld-5-position-1:2019-20",
+        person=person,
+        role=role,
+        anchor=_ULID(),
+        valid_from=date(2019, 1, 1),
+    )
+    keeper = await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-5-position-1:2017-18",
+        person=person,
+        role=role,
+        anchor=_ULID(),  # already anchored to a DIFFERENT PM assignment
+        valid_from=date(2017, 1, 1),
+    )
+    keeper_anchor = keeper.pm_assignment_id
+
+    result = await migrate_house_source(db_session)
+
+    assert result.retired == 1 and result.anchors_dropped == 1 and result.anchors_transferred == 0
+    await db_session.refresh(keeper)
+    assert keeper.pm_assignment_id == keeper_anchor  # keeper keeps its own anchor
 
 
 async def test_leaves_legacy_3part_pdc_house_row(db_session, usa_wa):
-    """A pre-#79 3-part legacy row is migrate_pdc_spans's job — this migration skips it (its
-    source_id has no 4-part legislature counterpart the stale sweep would maintain)."""
+    """A pre-#79 3-part legacy row is migrate_pdc_spans's job — this migration skips it."""
     person = await _person(db_session, 100)
     role = await _role(db_session, usa_wa, "5-1")
     row = await _assignment(
@@ -172,7 +262,7 @@ async def test_leaves_legacy_3part_pdc_house_row(db_session, usa_wa):
 
     result = await migrate_house_source(db_session)
 
-    assert result.resourced == 0 and result.collapsed == 0 and result.skipped_legacy == 1
+    assert result.retired == 0 and result.skipped_legacy == 1
     await db_session.refresh(row)
     assert row.source == _PDC  # untouched
 
@@ -180,20 +270,29 @@ async def test_leaves_legacy_3part_pdc_house_row(db_session, usa_wa):
 async def test_idempotent(db_session, usa_wa):
     person = await _person(db_session, 100)
     role = await _role(db_session, usa_wa, "5-1")
-    row = await _assignment(
+    pdc = await _assignment(
         db_session,
         source=_PDC,
-        source_id="100:chamber-house:ld-5-position-1:2013-14",
+        source_id="100:chamber-house:ld-5-position-1:2019-20",
         person=person,
         role=role,
         anchor=_ULID(),
+        valid_from=date(2019, 1, 1),
     )
-    await _cite(db_session, usa_wa, row)
+    await _cite(db_session, usa_wa, pdc)  # citation deleted on retire; exercises the delete path
+    await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-5-position-1:2017-18",
+        person=person,
+        role=role,
+        valid_from=date(2017, 1, 1),
+    )
 
     await migrate_house_source(db_session)
     second = await migrate_house_source(db_session)
 
-    assert second.resourced == 0 and second.collapsed == 0 and second.pdc_house_found == 0
+    assert second.retired == 0 and second.pdc_house_found == 0
 
 
 async def test_main_requires_owner_role(monkeypatch, capsys):
