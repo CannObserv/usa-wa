@@ -94,6 +94,21 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
+    # SOS refresh (#101) drives the WSL+SOS House Position seat, reading the sitting
+    # roster from the WSL sponsor archive + binding to the WSL House Persons, so it
+    # additionally orders After the WSL refresh (best-effort; a missing predecessor
+    # just leaves an unmatched member logged, not wedged). Independent of the PDC
+    # refresh (PDC is identifier-only since #101).
+    "usa-wa-sos-refresh.service": {
+        "After": {
+            "network-online.target",
+            "postgresql.service",
+            "usa-wa-migrate.service",
+            "usa-wa-wsl-refresh.service",
+        },
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
     # DB-only sweep (#54) — re-hashes RawPayload vs content_hash. No WSL/PM
     # egress, so plain network.target (not network-online). Fails (exit 1) on a
     # mismatch → notify handler, since it IS the at-rest tamper detector.
@@ -123,6 +138,7 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     },
     "usa-wa-wsl-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-pdc-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
+    "usa-wa-sos-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-integrity-sweep.timer": {"After": set(), "Before": set(), "OnFailure": set()},
 }
 
