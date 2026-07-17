@@ -86,8 +86,10 @@ async def _main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--biennium",
         default=None,
-        help="scope the rebuild to members observed in this biennium (each keeps full span "
-        "history); e.g. 2025-26. Omit for a full historical rebuild",
+        help="the current operating biennium (e.g. 2025-26): scope the rebuild to its members "
+        "(each keeps full span history) AND treat it as the span open-end / stale-close "
+        "boundary. A restricted re-drive is for the current biennium only — omit for a full "
+        "historical rebuild",
     )
     parser.add_argument(
         "--max-close-fraction",
@@ -107,6 +109,10 @@ async def _main(argv: list[str] | None = None) -> int:
         async with AsyncSession(engine) as session:
             result = await build_sos_house_spans(
                 session,
+                # A restricted re-drive is for the current biennium, so --biennium is BOTH the
+                # scope and the span open-end / stale-close boundary (mirrors the PDC refresh's
+                # build_pdc_spans(current_biennium=b, restrict_to_biennium=b), #100 CR round 2).
+                current_biennium=args.biennium,
                 restrict_to_biennium=args.biennium,
                 max_close_fraction=args.max_close_fraction,
             )

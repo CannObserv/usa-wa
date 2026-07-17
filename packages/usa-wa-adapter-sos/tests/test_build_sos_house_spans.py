@@ -193,7 +193,9 @@ async def test_main_dry_run_rolls_back_and_threads_biennium(monkeypatch, capsys,
         code = await build_module._main(["--dry-run", "--biennium", "2025-26"])
 
     assert code == 0
-    assert seen["restrict_to_biennium"] == "2025-26"  # --biennium threads through (#100 CR)
+    # --biennium threads to BOTH scope and boundary (#100 CR round 2, finding 7).
+    assert seen["restrict_to_biennium"] == "2025-26"
+    assert seen["current_biennium"] == "2025-26"
     out = capsys.readouterr().out
     assert "house_spans=7" in out
     assert "dry-run, rolled back" in out
