@@ -1,9 +1,10 @@
-"""PDC refresh cycle (#79) — archive current cohorts + re-drive the span builder.
+"""PDC refresh cycle (#79; identifier-only since #101) — archive cohorts + re-drive links.
 
-The refresh is span-based now: it archives the current biennium's PDC winner cohorts and
-re-drives :func:`build_pdc_spans` scoped to the current biennium (House Position seat spans with
-the current biennium as the open end + ``person_wa_pdc`` links). The era roster is read
-archive-first from the WSL sponsor archive (pre-seeded here as the WSL refresh does in prod).
+The refresh archives the current biennium's PDC winner cohorts and re-drives
+:func:`build_pdc_spans` scoped to the current biennium — emitting the ``person_wa_pdc``
+identifier links only (the House Position seat is the WSL+SOS builder's since #101). The era
+roster is read archive-first from the WSL sponsor archive (pre-seeded here as the WSL refresh
+does in prod).
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from usa_wa_adapter_pdc.transport import WireFetch
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
-from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier, Role
+from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier
 from usa_wa_adapter_legislature.refresh import biennium_for_date
 
 BIENNIUM = "2025-26"
@@ -111,7 +112,9 @@ def _sponsor(mid, ld, last, agency="House"):
     }
 
 
-async def test_refresh_materializes_open_house_span(db_session, usa_wa, wsl_source):
+async def test_refresh_materializes_house_identifier_only(db_session, usa_wa, wsl_source):
+    """#101: the daily PDC refresh emits the House winner's person_wa_pdc link, NOT a House
+    Position Assignment (that seat is the WSL+SOS builder's, driven by the SOS refresh)."""
     await _add_ld(db_session, usa_wa, 42)
     await _add_person(db_session, 100, "Alicia Rule")
     await _archive_sponsors(db_session, wsl_source, BIENNIUM, [_sponsor(100, 42, "Rule")])
@@ -132,16 +135,17 @@ async def test_refresh_materializes_open_house_span(db_session, usa_wa, wsl_sour
     )
 
     assert outcome.cohorts_archived == 3  # house + 2 staggered senate cohorts
-    assert outcome.house_spans == 1
-    role = (
-        await db_session.execute(select(Role).where(Role.role_type == "state_representative"))
+    assert outcome.identifiers == 1
+    ident = (
+        await db_session.execute(
+            select(PersonIdentifier).where(PersonIdentifier.source_id == "900:wa_pdc")
+        )
     ).scalar_one()
-    assert role.qualifier == "Position 1"
-    assign = (
+    assert ident.person_id is not None
+    # No House Position Assignment is emitted by the PDC refresh anymore.
+    assert (
         await db_session.execute(select(Assignment).where(Assignment.source == "usa_wa_pdc"))
-    ).scalar_one()
-    assert assign.source_id == "100:chamber-house:ld-42-position-1:2025-26"
-    assert assign.valid_to is None and assign.is_active is True  # current → open end
+    ).scalars().all() == []
 
 
 async def test_refresh_materializes_senate_identifier_only(db_session, usa_wa, wsl_source):
