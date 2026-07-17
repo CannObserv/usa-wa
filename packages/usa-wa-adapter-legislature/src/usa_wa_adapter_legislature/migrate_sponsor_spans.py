@@ -33,11 +33,13 @@ a validity window covering the stranded row's ``valid_from``. The window check d
 member with non-contiguous tenure in one role (a dormancy gap yields two spans under the same
 ``(person, role)``, each a distinct PM assignment via its own ``start_date``).
 
-**Scope — party + Senate seat only.** The span builder emits only ``party`` + ``chamber-senate``
-observations. ``chamber-house`` (PDC/#79) and ``committee`` (#82) rows are **left untouched** —
-their span migrations belong to those issues. A stranded row with no covering span (e.g. an
-unsynced-LD Senate seat that never produced a span) is **left in place and logged**, never
-orphaned.
+**Scope — party + Senate seat only.** Two filters bound it: the ``live`` query selects only
+``source == 'usa_wa_legislature'`` rows, which already excludes PDC House Position spans
+entirely (those are ``source == 'usa_wa_pdc'``, migrated by #79's own CLI); and within the
+legislature source the dim checks match only ``party``/``chamber-senate``. So ``chamber-house``
+(PDC/#79) and ``committee`` (#82) rows are **left untouched** — their span migrations belong to
+those issues. A stranded row with no covering span (e.g. an unsynced-LD Senate seat that never
+produced a span) is **left in place and logged**, never orphaned.
 
 Idempotent: re-running finds no stranded rows (they were retired) and re-asserts the spans.
 
@@ -77,6 +79,7 @@ from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.provenance import Citation
 from clearinghouse_domain_legislative.identity import Assignment
 from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
+from usa_wa_adapter_legislature.span_emit import MAX_CLOSE_FRACTION_DEFAULT, close_fraction
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
 
 logger = get_logger(__name__)
@@ -205,13 +208,23 @@ async def migrate_sponsor_spans(
     *,
     current_biennium: str | None = None,
     sponsor_client=None,
+    max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
 ) -> MigrationResult:
     """Build the spans, then collapse each stranded legacy per-biennium (#78-3) or superseded
     4-part shallow (#97) party/Senate row onto its successor span (transfer the PM anchor +
-    retire the stranded row, index-safe). Idempotent."""
+    retire the stranded row, index-safe). Idempotent.
+
+    ``max_close_fraction`` is forwarded to :func:`build_sponsor_spans`' #83 stale-span sweep;
+    the full-depth backfill run doesn't trip the guard (the post-emit open set dilutes the
+    fraction), but a deliberate mass-close re-run can pass ``1.0`` to disable it."""
     current = current_biennium or biennium_for_date(datetime.now(UTC).date())
     spans_built = (
-        await build_sponsor_spans(session, sponsor_client=sponsor_client, current_biennium=current)
+        await build_sponsor_spans(
+            session,
+            sponsor_client=sponsor_client,
+            current_biennium=current,
+            max_close_fraction=max_close_fraction,
+        )
     ).emitted
 
     live = (
@@ -284,6 +297,13 @@ async def _main(argv: list[str] | None = None) -> int:
         description="Collapse stranded per-biennium/shallow sponsor Assignments into spans (#97)."
     )
     parser.add_argument("--dry-run", action="store_true", help="migrate but roll back (preview)")
+    parser.add_argument(
+        "--max-close-fraction",
+        type=close_fraction,
+        default=MAX_CLOSE_FRACTION_DEFAULT,
+        help="mass-close guard ceiling in (0, 1] forwarded to the #83 stale-span sweep; 1.0 "
+        "disables it for a deliberate mass close (the full-depth run doesn't trip the default)",
+    )
     args = parser.parse_args(argv)
 
     # Owner role: retiring a legacy row hard-deletes its citations, and the app role is
@@ -300,7 +320,9 @@ async def _main(argv: list[str] | None = None) -> int:
     engine = create_async_engine(database_url)
     try:
         async with AsyncSession(engine) as session:
-            result = await migrate_sponsor_spans(session)
+            result = await migrate_sponsor_spans(
+                session, max_close_fraction=args.max_close_fraction
+            )
             if args.dry_run:
                 await session.rollback()
             else:

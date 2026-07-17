@@ -472,6 +472,52 @@ async def test_disjoint_dormancy_4part_spans_both_kept(db_session, usa_wa, wsl_s
     assert await _count(db_session, Assignment, source_id="100:chamber-senate:5:2023-24") == 1
 
 
+async def test_legacy_and_superseded_coexist_retire_onto_surviving_keeper(
+    db_session, usa_wa, wsl_source
+):
+    """A legacy 3-part row AND a superseded 4-part shallow span for the SAME (person, role) both
+    retire onto the durable earlier-start keeper. The ``keepers_by_key`` exclusion keeps the
+    legacy row from mapping onto the superseded row that is itself about to be retired — so the
+    keeper (processed-first legacy anchor) survives, and the superseded's anchor drops."""
+    person, spans, _fe = await _setup_person_and_spans(db_session, usa_wa, wsl_source)
+    keeper = spans["chamber-senate"]  # 2023-24 span (open), unanchored — the durable keeper
+    pm_superseded, pm_legacy = _ULID(), _ULID()
+    await _add_span_row(
+        db_session,
+        source_id="100:chamber-senate:5:2025-26",  # superseded 4-part shallow
+        person_id=person.id,
+        role_id=keeper.role_id,
+        valid_from=date(2025, 1, 1),
+        valid_to=date(2025, 1, 1),
+        is_active=False,
+        pm_id=pm_superseded,
+    )
+    await _add_legacy(
+        db_session,
+        source_id="100:chamber-senate:2025-26",  # legacy 3-part (valid_from 2025-01-01)
+        person_id=person.id,
+        role_id=keeper.role_id,
+        pm_id=pm_legacy,
+    )
+
+    result = await migrate_sponsor_spans(
+        db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium=CURRENT
+    )
+
+    assert (result.legacy_found, result.legacy_retired) == (1, 1)
+    assert (result.superseded_found, result.superseded_retired) == (1, 1)
+    # both stranded rows gone; the keeper is the sole survivor
+    assert await _count(db_session, Assignment, source_id="100:chamber-senate:5:2025-26") == 0
+    assert await _count(db_session, Assignment, source_id="100:chamber-senate:2025-26") == 0
+    await db_session.refresh(keeper)
+    # legacy is processed first → its anchor lands on the keeper; the superseded anchor (a
+    # different value the keeper can no longer adopt) drops. Proves the legacy row retargeted
+    # the durable keeper, NOT the superseded row it would otherwise have covered.
+    assert keeper.pm_assignment_id == pm_legacy
+    assert (result.anchors_transferred, result.anchors_dropped) == (1, 1)
+    assert await _count(db_session, Assignment, pm_assignment_id=pm_legacy) == 1
+
+
 # --- CLI (_main) --------------------------------------------------------------
 
 
@@ -508,3 +554,28 @@ async def test_main_dry_run_rolls_back_and_returns_0(monkeypatch, capsys, test_e
     assert "legacy_found=2 legacy_retired=2" in out
     assert "superseded_found=0 superseded_retired=0" in out
     assert "dry-run, rolled back" in out
+
+
+async def test_main_forwards_max_close_fraction(monkeypatch, test_engine):
+    """--max-close-fraction is parsed and forwarded to migrate_sponsor_spans (→ the #83 sweep)."""
+    monkeypatch.setenv("DATABASE_URL_OWNER", os.environ["TEST_DATABASE_URL"])
+    seen = {}
+
+    async def _fake_migrate(session, **kwargs):
+        seen.update(kwargs)
+        return MigrationResult(
+            spans_built=0,
+            legacy_found=0,
+            anchors_transferred=0,
+            legacy_retired=0,
+            orphans_no_span=0,
+        )
+
+    with (
+        patch.object(migrate_module, "configure_logging"),
+        patch.object(migrate_module, "migrate_sponsor_spans", _fake_migrate),
+    ):
+        code = await migrate_module._main(["--dry-run", "--max-close-fraction", "1.0"])
+
+    assert code == 0
+    assert seen["max_close_fraction"] == 1.0
