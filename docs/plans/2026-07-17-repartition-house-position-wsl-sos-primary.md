@@ -120,3 +120,11 @@ data floor and out of scope here.
 - **Coverage change is intentional**: Position coverage becomes uniform 2008→present (SOS
   floor), *better* than the fallback model; pre-2008 House stays honestly position-less (party +
   committees still covered). No regression, but call it out in the deploy notes.
+- **Pre-2018 PDC `person_wa_pdc` identifier backfill (follow-up, not blocking)**: the retired
+  `build_sos_house_spans` was the only driver that injected the SOS fallback into
+  `build_pdc_spans`, which is what let a pre-2018 House winner match (the identifier link is
+  coupled to a resolved position). `build_pdc_spans` retains the `house_position_fallback` param,
+  so the capability survives, but no CLI currently injects it for a historical identifier
+  backfill. The daily 2018+ identifiers are unaffected (PDC has positions there). Pre-2018
+  historical `person_wa_pdc` links are an enrichment deferred to a follow-up run — noted so it is
+  not mistaken for a regression.
