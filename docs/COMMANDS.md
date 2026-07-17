@@ -368,21 +368,30 @@ python -m usa_wa_adapter_legislature.harvest_sponsors --from-biennium 1991-92 --
 python -m usa_wa_adapter_legislature.harvest_sponsor_spans --dry-run
 python -m usa_wa_adapter_legislature.harvest_sponsor_spans
 
-# Span MIGRATION — #78-3, RUN-ONCE on the 2c deploy. Collapse the pre-#78 per-biennium
+# Span MIGRATION — #78-3 + #97, OWNER ROLE (deletes citations, #54). Collapse STRANDED
 # party/chamber-senate Assignments (each carrying a pm_assignment_id) onto the merged span that
 # shares their (person_id, role_id) — PM's own structural assignment key. Transfers the PM anchor
-# to the span + hard-deletes the legacy row + its citations, so the local cache holds ONE row per
-# PM assignment (else the assignment descriptor's local_match scalar_one_or_none breaks). Builds
-# the spans first (idempotent), then collapses. Leaves chamber-house (PDC/#69) + committee (#82)
-# rows untouched; a legacy row with no successor span is left + counted (orphans_no_span). Since
-# PM matches structurally, the span updates the SAME PM assignment (no duplicate). Idempotent;
-# --dry-run rolls back. Prod: 202 legacy rows (151 party + 51 Senate), all 2025-26.
-# DEPLOY SEQUENCING: run this promptly after the 2c deploy, ideally with the sync sidecar
-# PAUSED (sudo systemctl stop usa-wa-sync-powermap). Between the deploy and this run, a span and
-# its legacy row briefly share one pm_assignment_id (PM's structural match), so an inbound feed
-# event for that assignment would trip the sidecar's local_match scalar_one_or_none. It is
-# transient + self-clearing (this migration removes the legacy row), but pausing the sidecar
-# avoids the error window. Restart the sidecar after: sudo systemctl start usa-wa-sync-powermap.
+# to the span + hard-deletes the stranded row + its citations, so the local cache holds ONE row per
+# PM assignment (else the assignment descriptor's local_match scalar_one_or_none / the #86 unique
+# index breaks). Builds the spans first (idempotent), then collapses. Two stranded shapes:
+#   (1) pre-#78 per-biennium 3-part rows ({member}:{dim}:{YYYY-YY}), #78-3; and
+#   (2) superseded 4-part shallow spans (#97) — the 2c daily path keys a span on the CURRENT
+#       biennium start; when the full-natural-depth backfill (harvest_sponsor_spans, no restrict)
+#       merges the same tenure into an EARLIER-start span, the current-start row is stranded (the
+#       same _superseded_pairs case #91 fixed for PDC House / #95 for committees). The #78-3 pass
+#       only handled shape 1, so on the 2c deploy the 202 4-part current rows were left uncollapsed
+#       as orphans_no_span — #97 closes that. Anchor transfer is index-safe (delete+flush before
+#       assign → runs under the live uq_assignments_pm_assignment_id #86 index).
+# Leaves chamber-house (PDC/#79) + committee (#82) rows untouched; a stranded row with no covering
+# span is left + counted (orphans_no_span); a keeper already carrying a different anchor drops the
+# stranded one (anchors_dropped + warned, the #80 orphaned-upstream case). Idempotent; --dry-run
+# rolls back. #97 run (full-depth Senate/party backfill): spans_built=920 superseded_retired=164
+# anchors_transferred=164 orphans=0 → Senate 241 spans (1991->2025) + party 679, all produced.
+# DEPLOY SEQUENCING: run in the SAME window as the backfill, sidecar PAUSED
+# (sudo systemctl stop usa-wa-sync-powermap). PM keys assignments on (person, role, start_date), so
+# a deepened span the sidecar anchors BEFORE this runs gets its own PM assignment, after which the
+# stranded anchor can only be dropped (anchors_dropped). Restart after:
+# sudo systemctl start usa-wa-sync-powermap.
 python -m usa_wa_adapter_legislature.migrate_sponsor_spans --dry-run
 python -m usa_wa_adapter_legislature.migrate_sponsor_spans
 
