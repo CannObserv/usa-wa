@@ -23,6 +23,7 @@ from usa_wa_adapter_pdc.normalize.pdc_observations import PositionFallback
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
+from usa_wa_adapter_legislature.span_emit import CitationTarget
 from usa_wa_adapter_sos.adapter import WHOFILED_RESOURCE_PREFIX, election_year_from_resource_id
 from usa_wa_adapter_sos.normalize.filings import HouseFiling, build_house_filings, position_for
 from usa_wa_adapter_sos.transport import parse_whofiled
@@ -59,6 +60,29 @@ class SosFilingCohortProvider:
             year = election_year_from_resource_id(resource_id)
             latest.setdefault(year, event_id)
         return latest
+
+    async def citation_events(self) -> dict[int, CitationTarget]:
+        """``{election_year: (fetch_event_id, fetched_at, resource_id)}`` for each year's latest
+        payload-bearing filing cohort — the per-biennium provenance the House-seat span emission
+        cites (#101, cite-every-biennium: the SOS filing is the Position authority, so it is what
+        the positioned seat traces to). Years with no archived cohort are omitted."""
+        rows = (
+            await self._session.execute(
+                select(FetchEvent.resource_id, FetchEvent.id, FetchEvent.fetched_at)
+                .join(RawPayload, RawPayload.fetch_event_id == FetchEvent.id)
+                .where(
+                    FetchEvent.source_id == self._source_id,
+                    FetchEvent.resource_id.like(f"{WHOFILED_RESOURCE_PREFIX}%"),
+                    FetchEvent.status == FetchStatus.ok,
+                )
+                .order_by(FetchEvent.fetched_at.desc(), FetchEvent.id.desc())  # newest first
+            )
+        ).all()
+        events: dict[int, CitationTarget] = {}
+        for resource_id, event_id, fetched_at in rows:
+            year = election_year_from_resource_id(resource_id)
+            events.setdefault(year, (event_id, fetched_at, resource_id))
+        return events
 
     async def house_filings(self) -> dict[int, HouseFilingsByLd]:
         """``{election_year: {LD: [HouseFiling]}}`` re-parsed offline from the archive."""

@@ -106,10 +106,9 @@ data floor and out of scope here.
 
 ## Open questions / risks
 
-- **Driver placement**: new standalone SOS refresh timer vs folding the House Position rebuild
-  into an extended step of the WSL refresh. Standalone keeps SOS the composition root and
-  dependency direction clean (recommended); folding avoids a new unit but pulls an SOS import
-  into the WSL refresh entrypoint. Decide in step 3.
+- **Driver placement** (RESOLVED 2026-07-17 — standalone): a new standalone SOS refresh oneshot
+  + timer, ordered after `usa-wa-wsl-refresh`. Keeps SOS the composition root and the dependency
+  direction clean (no SOS import in the WSL refresh entrypoint). Step 3 builds this unit.
 - **`source_id` discriminator parity**: the migration's simplicity rests on the new builder
   emitting the byte-identical discriminator the PDC builder used (`ld-{n}-position-{p}`). If it
   diverges, step 5 becomes a true collapse migration (map by `(person, role, window)`), not a

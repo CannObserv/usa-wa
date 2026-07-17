@@ -52,8 +52,15 @@ async def emit_house_position_spans(
     anchors: BootstrapAnchors,
     reliability: float,
     fetch_events: HouseCitationEvents,
+    assignment_source: str = PDC_SOURCE,
 ) -> int:
-    """Upsert one ``usa_wa_pdc`` Assignment per House Position span; return the count."""
+    """Upsert one Assignment per House Position span; return the count.
+
+    ``assignment_source`` selects the Assignment ``source`` (#101): the seat Role stays
+    ``usa_wa_legislature`` and the Person is WSL's regardless, but the seat *authority* moved
+    from PDC (``usa_wa_pdc``, the pre-#101 default) to the WSL+SOS builder
+    (``usa_wa_legislature``, symmetric with the Senate seat). The re-source migration flips the
+    existing rows; new rows are minted under whichever source the caller passes."""
 
     async def _resolve_role(session: AsyncSession, span: TenureSpan) -> Role | None:
         ld, qualifier = parse_house_span_discriminator(span.discriminator)
@@ -81,7 +88,7 @@ async def emit_house_position_spans(
         citation_target=_citation_target,
         reliability=reliability,
         person_source=_WSL_SOURCE,
-        assignment_source=PDC_SOURCE,
+        assignment_source=assignment_source,
     )
 
 
