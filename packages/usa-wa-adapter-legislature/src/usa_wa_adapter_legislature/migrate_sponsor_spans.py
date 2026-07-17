@@ -215,8 +215,8 @@ async def migrate_sponsor_spans(
     retire the stranded row, index-safe). Idempotent.
 
     ``max_close_fraction`` is forwarded to :func:`build_sponsor_spans`' #83 stale-span sweep;
-    the full-depth backfill run doesn't trip the guard (the post-emit open set dilutes the
-    fraction), but a deliberate mass-close re-run can pass ``1.0`` to disable it."""
+    the #97 full-depth run didn't trip the guard (the post-emit open set diluted the fraction),
+    but a deliberate mass-close re-run can pass ``1.0`` to disable it."""
     current = current_biennium or biennium_for_date(datetime.now(UTC).date())
     spans_built = (
         await build_sponsor_spans(

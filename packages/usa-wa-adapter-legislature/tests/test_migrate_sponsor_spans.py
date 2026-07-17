@@ -475,10 +475,13 @@ async def test_disjoint_dormancy_4part_spans_both_kept(db_session, usa_wa, wsl_s
 async def test_legacy_and_superseded_coexist_retire_onto_surviving_keeper(
     db_session, usa_wa, wsl_source
 ):
-    """A legacy 3-part row AND a superseded 4-part shallow span for the SAME (person, role) both
-    retire onto the durable earlier-start keeper. The ``keepers_by_key`` exclusion keeps the
-    legacy row from mapping onto the superseded row that is itself about to be retired — so the
-    keeper (processed-first legacy anchor) survives, and the superseded's anchor drops."""
+    """A legacy 3-part row AND a superseded 4-part shallow span for the SAME (person, role)
+    collapse together in one pass: both retire, the durable earlier-start keeper is the sole
+    survivor, and exactly ONE PM anchor lands on it (the descriptor's local_match invariant) —
+    the other is dropped. Verifies the combined legacy + superseded end-state; the exclusion
+    *identification* itself is unit-tested order-independently in
+    ``test_superseded_pairs_*`` below (a scan-order-dependent assertion can't reliably isolate
+    it here)."""
     person, spans, _fe = await _setup_person_and_spans(db_session, usa_wa, wsl_source)
     keeper = spans["chamber-senate"]  # 2023-24 span (open), unanchored — the durable keeper
     pm_superseded, pm_legacy = _ULID(), _ULID()
@@ -510,12 +513,45 @@ async def test_legacy_and_superseded_coexist_retire_onto_surviving_keeper(
     assert await _count(db_session, Assignment, source_id="100:chamber-senate:5:2025-26") == 0
     assert await _count(db_session, Assignment, source_id="100:chamber-senate:2025-26") == 0
     await db_session.refresh(keeper)
-    # legacy is processed first → its anchor lands on the keeper; the superseded anchor (a
-    # different value the keeper can no longer adopt) drops. Proves the legacy row retargeted
-    # the durable keeper, NOT the superseded row it would otherwise have covered.
-    assert keeper.pm_assignment_id == pm_legacy
+    # exactly one anchor survives on the keeper (one transferred, one dropped) — no double-anchor.
+    # Legacy is processed before the superseded pass, so its anchor is the one kept.
     assert (result.anchors_transferred, result.anchors_dropped) == (1, 1)
+    assert keeper.pm_assignment_id == pm_legacy
     assert await _count(db_session, Assignment, pm_assignment_id=pm_legacy) == 1
+    assert await _count(db_session, Assignment, pm_assignment_id=pm_superseded) == 0
+
+
+def test_superseded_pairs_identifies_shallow_covered_by_earlier_span():
+    """``_superseded_pairs`` pairs a later-start span with the earlier-start span that covers it,
+    order-independently — the pure core of the #97 supersession detection."""
+    deep = Assignment(source_id="100:chamber-senate:5:2013-14", valid_from=date(2013, 1, 1))
+    deep.id = _ULID()
+    shallow = Assignment(
+        source_id="100:chamber-senate:5:2025-26",
+        valid_from=date(2025, 1, 1),
+        valid_to=date(2025, 1, 1),
+    )
+    shallow.id = _ULID()
+    key = ("person", "role")
+    for ordering in ([deep, shallow], [shallow, deep]):  # scan order must not matter
+        pairs = migrate_module._superseded_pairs({key: list(ordering)})
+        assert len(pairs) == 1
+        row, keeper = pairs[0]
+        assert row is shallow and keeper is deep
+
+
+def test_superseded_pairs_keeps_disjoint_dormancy_tenures():
+    """Two spans with disjoint windows (a dormancy gap) are both real tenures — neither covers
+    the other's start, so ``_superseded_pairs`` returns nothing."""
+    early = Assignment(
+        source_id="100:chamber-senate:5:2013-14",
+        valid_from=date(2013, 1, 1),
+        valid_to=date(2014, 12, 31),  # closed before the later span starts
+    )
+    early.id = _ULID()
+    later = Assignment(source_id="100:chamber-senate:5:2019-20", valid_from=date(2019, 1, 1))
+    later.id = _ULID()
+    assert migrate_module._superseded_pairs({("person", "role"): [early, later]}) == []
 
 
 # --- CLI (_main) --------------------------------------------------------------
