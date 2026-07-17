@@ -1,0 +1,39 @@
+{
+  "artifacts": [
+    {
+      "name": "agent-guidelines",
+      "path": "./AGENTS.md",
+      "description": "Agent guidelines — project overview, TDD methodology, environment/tooling, the four-layer clearinghouse layout (framework/domain/adapters/API), per-package module map, infrastructure/systemd topology, DB role split, env vars, and code exploration policy. Source of truth for how the repo is organized."
+    },
+    {
+      "name": "architecture-design",
+      "path": "./docs/specs/2026-05-25-usa-wa-mvp-design.md",
+      "description": "MVP architecture design — the four-layer clearinghouse split (clearinghouse-core / domain-legislative / per-jurisdiction adapters / deployment API), provenance model, and adapter contract. Source of truth for the data model and high-level design decisions."
+    },
+    {
+      "name": "architecture-specs",
+      "path": "./docs/specs",
+      "description": "Architecture specs — jurisdiction decoupling, identity sync, Power Map sync sidecar, WSL SOAP transformation, committee historical backfill, merge-orphan self-heal, subscription sync, and more. Source of truth for design decisions per subsystem."
+    },
+    {
+      "name": "design-plans",
+      "path": "./docs/plans",
+      "description": "Per-phase implementation plans — foundation/discovery, hybrid legislative IA, jurisdiction decoupling, sync sidecar, outbox dead-letter, entity-event wiring, WSL adapter phases, and later backlog. Historical record of how each phase was built."
+    },
+    {
+      "name": "integration-contracts",
+      "path": "./docs/research",
+      "description": "Discovery outputs and integration contracts — Archiver/Watcher/Power Map contracts, multi-state legislative IA delta, jurisdictional information architecture, and Power Map reseed guidance."
+    },
+    {
+      "name": "commands",
+      "path": "./docs/COMMANDS.md",
+      "description": "Operational and backfill CLIs — full options, exit codes, and design rationale for the daily/weekly timers and run-once/ad-hoc backfill commands (refreshes, reconcilers, harvests, span builders, integrity sweep)."
+    },
+    {
+      "name": "skills",
+      "path": "./docs/SKILLS.md",
+      "description": "Agent skills directory — available skills, their locations (skills/ and .claude/skills/), and the agentskills.io discovery spec."
+    }
+  ]
+}
