@@ -87,3 +87,19 @@ async def test_latest_payload_bearing_event_wins(db_session, usa_wa):
     provider = SosFilingCohortProvider(session=db_session, source_id=source.id)
     factory = await provider.fallback_factory()
     assert factory(2016)(5, fold_token("Rivers"), "republican") == "Position 1"
+
+
+async def test_house_filings_is_memoized(db_session, usa_wa):
+    """The archive scan runs once — a second ``house_filings()`` returns the cached object
+    without re-querying (the memoization early-return, #100 CR finding 6)."""
+    source = await _sos_source(db_session, usa_wa)
+    await _archive(
+        db_session,
+        source,
+        "sos-whofiled:201611",
+        _csv(("State Representative Pos. 1", 5, "Ann Rivers", "(Prefers Republican Party)")),
+    )
+    provider = SosFilingCohortProvider(session=db_session, source_id=source.id)
+    first = await provider.house_filings()
+    second = await provider.house_filings()
+    assert first is second  # same object — the second call short-circuits on the memo

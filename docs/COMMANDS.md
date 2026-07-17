@@ -169,6 +169,13 @@ python -m usa_wa_adapter_pdc.migrate_pdc_spans
 # ballot `Pos. 1/2` back to 2008, joined to the PDC winner by (LD, surname, party). PDC stays the
 # winner authority; SOS supplies ONLY the position qualifier. NOT wired into the daily refresh
 # (current House has PDC positions) — this is a run-once/occasional backfill.
+#
+# ⚠ NOT prod-safe standalone yet (#100 CR finding 1 / #101). A member serving ACROSS the 2018
+# boundary builds an OPEN deep span here (…:2017-18); the daily usa_wa_adapter_pdc.refresh rebuilds
+# House spans WITHOUT this fallback -> a shallow …:2019-20 span, and the stale-span sweep closes the
+# un-asserted deep one within ~24h, truncating the backfill for continuing members. DO NOT run the
+# historical backfill in prod until the #101 re-partition (WSL+SOS-primary House Position, PDC
+# identifier-only, symmetric with the Senate) lands. Full-history --dry-run is safe for inspection.
 
 # Phase A — archive the votewa filing cohorts (archive-only; CSV wire hashed #54). Even general-
 # election years from the floor (2008) to current; closed years cache-hit on re-run. Central
@@ -184,7 +191,8 @@ python -m usa_wa_adapter_sos.harvest_sos --from-year 2008 --to-year 2016 --pause
 # archive/Persons (#77) — run in the same window, SIDECAR PAUSED (a freshly-materialized span the
 # sidecar sees first mints its own PM assignment). Same #83 mass-close guard as build_pdc_spans.
 python -m usa_wa_adapter_sos.build_sos_house_spans --dry-run
-python -m usa_wa_adapter_sos.build_sos_house_spans
+python -m usa_wa_adapter_sos.build_sos_house_spans              # ⚠ see warning above (#101)
+python -m usa_wa_adapter_sos.build_sos_house_spans --biennium 2025-26  # scope to current members
 ```
 
 ## Reconcilers & validation (PM sync)

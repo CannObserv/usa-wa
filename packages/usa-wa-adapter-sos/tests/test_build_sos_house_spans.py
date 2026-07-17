@@ -177,20 +177,23 @@ async def test_main_requires_database_url(monkeypatch, capsys):
     assert "DATABASE_URL is not set" in capsys.readouterr().err
 
 
-async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
+async def test_main_dry_run_rolls_back_and_threads_biennium(monkeypatch, capsys, test_engine):
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
     fake = PdcSpanResult(house_spans=7, identifiers=3)
+    seen = {}
 
-    async def _fake_build(session, **_kwargs):
+    async def _fake_build(session, **kwargs):
+        seen.update(kwargs)
         return fake
 
     with (
         patch.object(build_module, "configure_logging"),
         patch.object(build_module, "build_sos_house_spans", _fake_build),
     ):
-        code = await build_module._main(["--dry-run"])
+        code = await build_module._main(["--dry-run", "--biennium", "2025-26"])
 
     assert code == 0
+    assert seen["restrict_to_biennium"] == "2025-26"  # --biennium threads through (#100 CR)
     out = capsys.readouterr().out
     assert "house_spans=7" in out
     assert "dry-run, rolled back" in out

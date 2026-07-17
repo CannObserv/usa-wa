@@ -13,7 +13,17 @@ Depends on the SOS archive (:mod:`harvest_sos`), the PDC winner archive (``harve
 the WSL sponsor archive + Persons (#77). Run it in the same window as those harvests, sidecar
 paused (a freshly-materialized span the sidecar sees first mints its own PM assignment).
 
-    python -m usa_wa_adapter_sos.build_sos_house_spans [--dry-run]
+.. warning::
+
+   **NOT prod-safe standalone yet (#100 CR finding 1 / #101).** A member serving *across the
+   2018 boundary* gets an **open** deep span here (`…:2017-18`), but the daily
+   ``usa_wa_adapter_pdc.refresh`` rebuilds House spans **without** this SOS fallback → a shallow
+   `…:2019-20` span, and the stale-span sweep closes the un-asserted deep one on the next timer
+   fire (~24h) — truncating the backfill for continuing members. Do **not** run the historical
+   backfill in prod until the #101 re-partition (WSL+SOS-primary House Position, PDC
+   identifier-only) lands. A full-history ``--dry-run`` is safe for inspection.
+
+    python -m usa_wa_adapter_sos.build_sos_house_spans [--biennium 2025-26] [--dry-run]
 """
 
 from __future__ import annotations
@@ -74,6 +84,12 @@ async def _main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--dry-run", action="store_true", help="build but roll back (preview)")
     parser.add_argument(
+        "--biennium",
+        default=None,
+        help="scope the rebuild to members observed in this biennium (each keeps full span "
+        "history); e.g. 2025-26. Omit for a full historical rebuild",
+    )
+    parser.add_argument(
         "--max-close-fraction",
         type=close_fraction,
         default=MAX_CLOSE_FRACTION_DEFAULT,
@@ -90,7 +106,9 @@ async def _main(argv: list[str] | None = None) -> int:
     try:
         async with AsyncSession(engine) as session:
             result = await build_sos_house_spans(
-                session, max_close_fraction=args.max_close_fraction
+                session,
+                restrict_to_biennium=args.biennium,
+                max_close_fraction=args.max_close_fraction,
             )
             if args.dry_run:
                 await session.rollback()
