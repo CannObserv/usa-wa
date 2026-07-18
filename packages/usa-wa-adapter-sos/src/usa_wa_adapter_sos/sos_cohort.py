@@ -41,31 +41,12 @@ class SosFilingCohortProvider:
         self._source_id = source_id
         self._filings: dict[int, HouseFilingsByLd] | None = None
 
-    async def _latest_events(self) -> dict[int, _ULID]:
-        """Latest **payload-bearing** OK FetchEvent id per election year under the prefix."""
-        rows = (
-            await self._session.execute(
-                select(FetchEvent.resource_id, FetchEvent.id)
-                .join(RawPayload, RawPayload.fetch_event_id == FetchEvent.id)
-                .where(
-                    FetchEvent.source_id == self._source_id,
-                    FetchEvent.resource_id.like(f"{WHOFILED_RESOURCE_PREFIX}%"),
-                    FetchEvent.status == FetchStatus.ok,
-                )
-                .order_by(FetchEvent.fetched_at.desc(), FetchEvent.id.desc())  # newest first
-            )
-        ).all()
-        latest: dict[int, _ULID] = {}
-        for resource_id, event_id in rows:
-            year = election_year_from_resource_id(resource_id)
-            latest.setdefault(year, event_id)
-        return latest
-
     async def citation_events(self) -> dict[int, CitationTarget]:
         """``{election_year: (fetch_event_id, fetched_at, resource_id)}`` for each year's latest
-        payload-bearing filing cohort — the per-biennium provenance the House-seat span emission
-        cites (#101, cite-every-biennium: the SOS filing is the Position authority, so it is what
-        the positioned seat traces to). Years with no archived cohort are omitted."""
+        **payload-bearing** OK filing cohort under the prefix — the per-biennium provenance the
+        House-seat span emission cites (#101, cite-every-biennium: the SOS filing is the Position
+        authority, so it is what the positioned seat traces to). ``house_filings`` derives the
+        wire body from the same events. Years with no archived cohort are omitted."""
         rows = (
             await self._session.execute(
                 select(FetchEvent.resource_id, FetchEvent.id, FetchEvent.fetched_at)
@@ -89,7 +70,7 @@ class SosFilingCohortProvider:
         if self._filings is not None:
             return self._filings
         filings: dict[int, HouseFilingsByLd] = {}
-        for year, event_id in (await self._latest_events()).items():
+        for year, (event_id, _fetched_at, _rid) in (await self.citation_events()).items():
             wire = (
                 await self._session.execute(
                     select(RawPayload.body).where(RawPayload.fetch_event_id == event_id)

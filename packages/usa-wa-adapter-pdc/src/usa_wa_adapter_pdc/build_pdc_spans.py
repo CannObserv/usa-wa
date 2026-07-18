@@ -80,7 +80,6 @@ async def build_pdc_spans(
     session: AsyncSession,
     *,
     sponsor_client: WSLClient | None = None,
-    current_biennium: str | None = None,
     restrict_to_biennium: str | None = None,
     house_position_fallback: Callable[[int], PositionFallback | None] | None = None,
 ) -> PdcSpanResult:

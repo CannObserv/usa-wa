@@ -32,7 +32,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from usa_wa_adapter_pdc.adapter import election_year_for_biennium
 from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster
 from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
-from usa_wa_adapter_pdc.normalize.pdc_span_emit import emit_house_position_spans
 
 from clearinghouse_core.logging import configure_logging, get_logger
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
@@ -50,6 +49,7 @@ from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvide
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.tenure_spans import Observation, build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_adapter_sos.house_span_emit import emit_house_position_spans
 from usa_wa_adapter_sos.normalize.house_seats import build_house_seat_observations
 from usa_wa_adapter_sos.provisioning import get_or_create_source as get_or_create_sos_source
 from usa_wa_adapter_sos.sos_cohort import SosFilingCohortProvider

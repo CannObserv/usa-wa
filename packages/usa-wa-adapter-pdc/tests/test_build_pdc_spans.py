@@ -142,9 +142,7 @@ async def test_era_matched_house_identifier_built_from_archive(
         db_session, wsl_source, "sponsors:2013-14", _sponsor_wire((100, 5, "Smith", "House"))
     )
 
-    result = await build_pdc_spans(
-        db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
-    )
+    result = await build_pdc_spans(db_session, sponsor_client=_StubSponsorClient())
 
     assert result.identifiers == 1
     # No House Position Assignment is emitted by PDC anymore.
@@ -168,9 +166,7 @@ async def test_senate_cohort_emits_identifier_only(db_session, usa_wa, wsl_sourc
         db_session, wsl_source, "sponsors:2013-14", _sponsor_wire((200, 8, "Jones", "Senate"))
     )
 
-    result = await build_pdc_spans(
-        db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
-    )
+    result = await build_pdc_spans(db_session, sponsor_client=_StubSponsorClient())
 
     assert result.identifiers == 1
     assert (await db_session.execute(select(func.count()).select_from(Assignment))).scalar() == 0
@@ -186,9 +182,7 @@ async def test_absent_person_yields_no_identifier(db_session, usa_wa, wsl_source
         db_session, wsl_source, "sponsors:2013-14", _sponsor_wire((100, 5, "Smith", "House"))
     )
 
-    result = await build_pdc_spans(
-        db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
-    )
+    result = await build_pdc_spans(db_session, sponsor_client=_StubSponsorClient())
 
     assert result.identifiers == 0  # absent Person → no identifier
     assert (await db_session.execute(select(func.count()).select_from(Assignment))).scalar() == 0
@@ -212,7 +206,6 @@ async def test_daily_redrive_matches_staggered_senate_against_current_roster(
     result = await build_pdc_spans(
         db_session,
         sponsor_client=_StubSponsorClient(),
-        current_biennium=CURRENT,
         restrict_to_biennium=CURRENT,
     )
 
@@ -253,7 +246,6 @@ async def test_daily_redrive_scopes_identifiers_to_current_members(
     result = await build_pdc_spans(
         db_session,
         sponsor_client=_StubSponsorClient(),
-        current_biennium=CURRENT,
         restrict_to_biennium=CURRENT,
     )
 
@@ -286,9 +278,7 @@ async def test_mid_biennium_mover_cross_links_onto_senate_person(
         _sponsor_wire((300, 5, "Replacement", "House"), (100, 5, "Rivers", "Senate")),
     )
 
-    result = await build_pdc_spans(
-        db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
-    )
+    result = await build_pdc_spans(db_session, sponsor_client=_StubSponsorClient())
 
     assert result.identifiers == 1  # the mover's cross-link
     assert (await db_session.execute(select(func.count()).select_from(Assignment))).scalar() == 0
@@ -301,9 +291,7 @@ async def test_mid_biennium_mover_cross_links_onto_senate_person(
 
 
 async def test_no_archive_emits_nothing(db_session, usa_wa, wsl_source, pdc_source):
-    result = await build_pdc_spans(
-        db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
-    )
+    result = await build_pdc_spans(db_session, sponsor_client=_StubSponsorClient())
     assert result.identifiers == 0
 
 

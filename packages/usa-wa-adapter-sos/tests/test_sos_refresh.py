@@ -14,14 +14,14 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from ulid import ULID as _ULID
 from usa_wa_adapter_sos import refresh as refresh_module
 from usa_wa_adapter_sos.refresh import run_refresh
 from usa_wa_adapter_sos.transport import WireFetch
 
 from clearinghouse_core.jurisdictions import Jurisdiction
-from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
+from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person
 
 BIENNIUM = "2025-26"
@@ -126,6 +126,40 @@ async def test_refresh_archives_cohort_and_materializes_house_seat(db_session, u
     ).scalar_one()
     assert row.source_id == "100:chamber-house:ld-42-position-1:2025-26"
     assert row.valid_to is None and row.is_active is True  # current → open end
+
+
+async def test_refresh_is_idempotent_across_two_cycles(db_session, usa_wa, wsl_source):
+    """Two consecutive refresh cycles converge — one Assignment, a stable citation count, no
+    duplicate rows (the property the daily unit relies on)."""
+    await _add_ld(db_session, usa_wa, 42)
+    await _add_person(db_session, 100, "Alicia Rule")
+    await _archive_sponsors(db_session, wsl_source, BIENNIUM, [_sponsor(100, 42, "Rule")])
+    sos = FakeSOSClient(
+        [("State Representative Pos. 1", 42, "Alicia Rule", "(Prefers Democratic Party)")]
+    )
+
+    first = await run_refresh(
+        db_session, biennium=BIENNIUM, sponsor_client=_StubSponsorClient(), sos_client=sos
+    )
+    second = await run_refresh(
+        db_session, biennium=BIENNIUM, sponsor_client=_StubSponsorClient(), sos_client=sos
+    )
+
+    assert first.house_spans == 1 and second.house_spans == 1
+    rows = (
+        (
+            await db_session.execute(
+                select(Assignment).where(Assignment.source == "usa_wa_legislature")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1  # converged, not duplicated
+    citations = await db_session.scalar(
+        select(func.count()).select_from(Citation).where(Citation.entity_id == rows[0].id)
+    )
+    assert citations == 1  # one biennium cited, not re-appended per cycle
 
 
 async def test_refresh_warns_on_noncurrent_biennium(db_session, usa_wa, wsl_source, caplog):

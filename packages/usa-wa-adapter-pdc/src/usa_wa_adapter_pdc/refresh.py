@@ -113,7 +113,6 @@ async def run_refresh(
     result = await build_pdc_spans(
         session,
         sponsor_client=sponsor_client,
-        current_biennium=biennium,
         restrict_to_biennium=biennium,
     )
     outcome = PdcRefreshOutcome(cohorts_archived=archived, identifiers=result.identifiers)
