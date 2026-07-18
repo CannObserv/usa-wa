@@ -359,6 +359,65 @@ async def test_orphan_is_stable_across_reruns(db_session, usa_wa):
     assert second.pdc_house_found == 1 and second.orphans_no_keeper == 1 and second.retired == 0
 
 
+async def test_disambiguates_two_keepers_by_window(db_session, usa_wa):
+    """A member who served, left, and returned has TWO disjoint usa_wa_legislature tenures of the
+    same seat. Each stranded PDC row must retire onto the keeper whose window contains ITS start —
+    the covering-window match, not a blind first-of-list keeper."""
+    person = await _person(db_session, 100)
+    role = await _role(db_session, usa_wa, "5-1")
+    early_anchor, late_anchor = _ULID(), _ULID()
+    # Two PDC rows: an early closed tenure + a later open tenure of the same seat.
+    await _assignment(
+        db_session,
+        source=_PDC,
+        source_id="100:chamber-house:ld-5-position-1:2013-14",
+        person=person,
+        role=role,
+        anchor=early_anchor,
+        valid_from=date(2013, 1, 1),
+        valid_to=date(2016, 12, 31),
+        is_active=False,
+    )
+    await _assignment(
+        db_session,
+        source=_PDC,
+        source_id="100:chamber-house:ld-5-position-1:2021-22",
+        person=person,
+        role=role,
+        anchor=late_anchor,
+        valid_from=date(2021, 1, 1),
+    )
+    # Two matching legislature keepers with disjoint windows (neither contains the other's start).
+    early_keeper = await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-5-position-1:2013-14",
+        person=person,
+        role=role,
+        anchor=None,
+        valid_from=date(2013, 1, 1),
+        valid_to=date(2016, 12, 31),
+        is_active=False,
+    )
+    late_keeper = await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-5-position-1:2021-22",
+        person=person,
+        role=role,
+        anchor=None,
+        valid_from=date(2021, 1, 1),
+    )
+
+    result = await migrate_house_source(db_session)
+
+    assert result.retired == 2 and result.anchors_transferred == 2
+    await db_session.refresh(early_keeper)
+    await db_session.refresh(late_keeper)
+    assert early_keeper.pm_assignment_id == early_anchor  # each anchor lands in its own window
+    assert late_keeper.pm_assignment_id == late_anchor
+
+
 async def test_main_requires_owner_role(monkeypatch, capsys):
     monkeypatch.delenv("DATABASE_URL_OWNER", raising=False)
     with patch.object(migrate_module, "configure_logging"):
