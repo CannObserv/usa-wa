@@ -295,6 +295,70 @@ async def test_idempotent(db_session, usa_wa):
     assert second.retired == 0 and second.pdc_house_found == 0
 
 
+async def test_collapses_closed_historical_row_onto_closed_keeper(db_session, usa_wa):
+    """The prod-dominant case: a departed member's PDC House seat is CLOSED (is_active=False,
+    valid_to set). It still collapses onto the equally-closed usa_wa_legislature keeper by the
+    valid_to-bounded window — the migration is is_active-agnostic (window match, not liveness)."""
+    person = await _person(db_session, 100)
+    role = await _role(db_session, usa_wa, "5-1")
+    anchor = _ULID()
+    pdc = await _assignment(
+        db_session,
+        source=_PDC,
+        source_id="100:chamber-house:ld-5-position-1:2013-14",
+        person=person,
+        role=role,
+        anchor=anchor,
+        valid_from=date(2013, 1, 1),
+        valid_to=date(2016, 12, 31),
+        is_active=False,
+    )
+    pdc_id = pdc.id
+    keeper = await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-5-position-1:2011-12",
+        person=person,
+        role=role,
+        anchor=None,
+        valid_from=date(2011, 1, 1),
+        valid_to=date(2016, 12, 31),  # window contains the PDC row's 2013 start
+        is_active=False,
+    )
+
+    result = await migrate_house_source(db_session)
+
+    assert result.retired == 1 and result.anchors_transferred == 1
+    await db_session.refresh(keeper)
+    assert keeper.pm_assignment_id == anchor  # anchor moved onto the closed keeper
+    assert (
+        await db_session.execute(select(Assignment).where(Assignment.id == pdc_id))
+    ).scalar_one_or_none() is None
+
+
+async def test_orphan_is_stable_across_reruns(db_session, usa_wa):
+    """A no-keeper orphan is re-left, not retired, on every run — idempotency is convergence
+    (retired=0), NOT "pdc_house_found drops to 0" (the #101 CR round 3 docstring fix)."""
+    person = await _person(db_session, 100)
+    role = await _role(db_session, usa_wa, "5-1")
+    await _assignment(
+        db_session,
+        source=_PDC,
+        source_id="100:chamber-house:ld-5-position-1:2019-20",
+        person=person,
+        role=role,
+        anchor=_ULID(),
+        valid_from=date(2019, 1, 1),
+    )  # no usa_wa_legislature keeper → orphan
+
+    first = await migrate_house_source(db_session)
+    second = await migrate_house_source(db_session)
+
+    assert first.orphans_no_keeper == 1 and first.retired == 0
+    # Re-run: the orphan is found again (pdc_house_found stays 1) but nothing new is retired.
+    assert second.pdc_house_found == 1 and second.orphans_no_keeper == 1 and second.retired == 0
+
+
 async def test_main_requires_owner_role(monkeypatch, capsys):
     monkeypatch.delenv("DATABASE_URL_OWNER", raising=False)
     with patch.object(migrate_module, "configure_logging"):
