@@ -1,19 +1,22 @@
 """WA PDC refresh — ``python -m usa_wa_adapter_pdc.refresh``.
 
-Daily counterpart to the WSL refresh, now **span-based** (#79). It:
+Daily counterpart to the WSL refresh, **identifier-only since #101**. It:
 
 1. Archives the current biennium's PDC winner cohorts (``house-winners:<Y>`` +
    both staggered ``senate-winners:<Y>``) through the runner's archive-only seam (#54), and
-2. Re-drives the archive-first span builder (:func:`build_pdc_spans`) scoped to the current
-   biennium — materializing House Position seat **spans** (the current biennium as the open
-   end) + ``person_wa_pdc`` identifiers, era-matched.
+2. Re-drives the archive-first identifier builder (:func:`build_pdc_spans`) scoped to the current
+   biennium — emitting the ``person_wa_pdc`` cross-source identifier links (House winners + the
+   #74 movers + the #75 Senate cohort), era-matched.
 
-This replaces the pre-#79 per-biennium normalize path (retired with its normalizers): PDC seats
-are merged Assignment spans, consistent with the sponsor (#78) and committee (#82) models. The
-era roster comes archive-first from the WSL sponsor archive (``sponsors:<biennium>``, written by
-the WSL refresh, which runs first); a live ``GetSponsors`` fallback covers an un-archived
-biennium. Runs **after** the WSL refresh so the Persons it binds to exist. An optional
-``USA_WA_PDC_APP_TOKEN`` raises Socrata's rate limit.
+**The House Position seat is no longer PDC's (#101).** It is built by the WSL+SOS builder
+(:func:`usa_wa_adapter_sos.build_house_spans.build_house_position_spans`,
+``usa_wa_legislature``-sourced, symmetric with the Senate seat), driven daily by the SOS refresh.
+PDC is demoted to the identifier link only — which removes the #100 CR finding-1 two-builder
+depth mismatch (this refresh no longer rebuilds a shallow ``usa_wa_pdc`` House span for a sweep
+to close). The era roster comes archive-first from the WSL sponsor archive (``sponsors:<biennium>``,
+written by the WSL refresh, which runs first); a live ``GetSponsors`` fallback covers an
+un-archived biennium. Runs **after** the WSL refresh so the Persons it binds to exist. An
+optional ``USA_WA_PDC_APP_TOKEN`` raises Socrata's rate limit.
 """
 
 from __future__ import annotations
@@ -50,10 +53,9 @@ _JURISDICTION_SLUG = "usa-wa"
 
 @dataclass(frozen=True)
 class PdcRefreshOutcome:
-    """Counts from one PDC refresh cycle."""
+    """Counts from one PDC refresh cycle (identifier-only since #101)."""
 
     cohorts_archived: int
-    house_spans: int
     identifiers: int
 
 
@@ -105,26 +107,21 @@ async def run_refresh(
         if await runner.archive_only(resource_id, force=True):
             archived += 1
 
-    # 2. Re-drive the span builder scoped to the current biennium (each scoped member keeps
-    #    their full cross-biennium span history; the current biennium is the open end).
+    # 2. Re-drive the identifier builder scoped to the current biennium (#101: identifier-only —
+    #    the House Position seat is the WSL+SOS builder's, driven by the SOS refresh; PDC emits
+    #    only the person_wa_pdc cross-links here).
     result = await build_pdc_spans(
         session,
         sponsor_client=sponsor_client,
-        current_biennium=biennium,
         restrict_to_biennium=biennium,
     )
-    outcome = PdcRefreshOutcome(
-        cohorts_archived=archived,
-        house_spans=result.house_spans,
-        identifiers=result.identifiers,
-    )
+    outcome = PdcRefreshOutcome(cohorts_archived=archived, identifiers=result.identifiers)
     logger.info(
         "pdc_refresh_complete",
         extra={
             "biennium": biennium,
             "election_year": election_year,
             "cohorts_archived": archived,
-            "house_spans": result.house_spans,
             "identifiers": result.identifiers,
         },
     )
@@ -147,7 +144,7 @@ async def _main() -> int:
             return 1
         print(
             f"PDC refresh: cohorts_archived={outcome.cohorts_archived} "
-            f"house_spans={outcome.house_spans} identifiers={outcome.identifiers}"
+            f"identifiers={outcome.identifiers}"
         )
         return 0
     finally:

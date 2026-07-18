@@ -1,16 +1,10 @@
-"""PDC House-position span emission + identifier links (#79).
+"""PDC ``person_wa_pdc`` identifier links (#79; identifier-only since #101).
 
-Binds the House-position :class:`~usa_wa_adapter_legislature.tenure_spans.TenureSpan`s to the
-generic emitter (:mod:`usa_wa_adapter_legislature.span_emit`) with the **PDC source split**: a
-House seat Assignment is ``usa_wa_pdc``-sourced (PDC is the authority for the ballot Position)
-but binds the **WSL**-sourced :class:`Person`. The seat Role (``state_representative``, keyed
-on ``(LD, Position)``) is get-or-created ``usa_wa_legislature`` — a seat is legislature
-structure, symmetric with the Senate seat Role P1b emits.
-
-Each biennium of a span cites that biennium's ``house-winners:<Y>`` cohort (the driver maps
-biennium → the archived cohort's FetchEvent). ``person_wa_pdc`` identifiers are emitted
-separately (:func:`emit_pdc_identifiers`) — they are per-Person, not per-tenure, so they don't
-flow through the span builder.
+The idempotent ``person_wa_pdc`` child-identifier upsert — PDC's demoted contribution since the
+#101 re-partition: a cross-source link attaching a PDC filer id to the WSL-sourced :class:`Person`
+(the #69/#74/#75 links). The House Position **seat** emission moved to
+:mod:`usa_wa_adapter_sos.house_span_emit` when SOS became the seat authority (#101); PDC no longer
+emits the seat.
 """
 
 from __future__ import annotations
@@ -21,68 +15,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.logging import get_logger
-from clearinghouse_domain_legislative.identity import PersonIdentifier, Role
-from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors
-from usa_wa_adapter_legislature.normalize.members import get_or_create_role, resolve_ld_jurisdiction
-from usa_wa_adapter_legislature.span_emit import CitationTarget, emit_spans, resolve_person
-from usa_wa_adapter_legislature.tenure_spans import TenureSpan
+from clearinghouse_domain_legislative.identity import PersonIdentifier
+from usa_wa_adapter_legislature.span_emit import resolve_person
 from usa_wa_adapter_pdc.normalize.positions import (
     PDC_PERSON_ID_SCHEME,
     PDC_SOURCE,
-    house_seat_role_source_id,
-    parse_house_span_discriminator,
     pdc_person_identifier_source_id,
 )
 
 logger = get_logger(__name__)
 
 _WSL_SOURCE = "usa_wa_legislature"
-_HOUSE_SEAT_ROLE_TYPE = "state_representative"
-_HOUSE_SEAT_ROLE_NAME = "State Representative"
-
-#: ``biennium -> (fetch_event_id, fetched_at, resource_id)`` — the ``house-winners:<Y>`` cohort
-#: attesting one biennium of a House Position span.
-HouseCitationEvents = dict[str, CitationTarget]
-
-
-async def emit_house_position_spans(
-    session: AsyncSession,
-    spans: list[TenureSpan],
-    *,
-    anchors: BootstrapAnchors,
-    reliability: float,
-    fetch_events: HouseCitationEvents,
-) -> int:
-    """Upsert one ``usa_wa_pdc`` Assignment per House Position span; return the count."""
-
-    async def _resolve_role(session: AsyncSession, span: TenureSpan) -> Role | None:
-        ld, qualifier = parse_house_span_discriminator(span.discriminator)
-        jurisdiction = await resolve_ld_jurisdiction(session, ld)
-        if jurisdiction is None:
-            logger.warning("pdc_span_unsynced_ld", extra={"ld": ld, "member_id": span.member_id})
-            return None
-        return await get_or_create_role(
-            session,
-            source_id=house_seat_role_source_id(ld, qualifier),
-            organization_id=anchors.house_id,
-            name=_HOUSE_SEAT_ROLE_NAME,
-            role_type=_HOUSE_SEAT_ROLE_TYPE,
-            jurisdiction_id=jurisdiction.id,
-            qualifier=qualifier,
-        )
-
-    def _citation_target(_span: TenureSpan, biennium: str) -> CitationTarget | None:
-        return fetch_events.get(biennium)
-
-    return await emit_spans(
-        session,
-        spans,
-        resolve_role=_resolve_role,
-        citation_target=_citation_target,
-        reliability=reliability,
-        person_source=_WSL_SOURCE,
-        assignment_source=PDC_SOURCE,
-    )
 
 
 async def emit_pdc_identifiers(session: AsyncSession, links: Iterable[tuple[str, str]]) -> int:

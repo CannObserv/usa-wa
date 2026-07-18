@@ -9,6 +9,11 @@ status: draft
 Tracks usa-wa#101. Supersedes the #100 transitional fallback wiring (not a plan file — a
 code path). Related: power-map#302 (at-large seat-model gap, out of scope here).
 
+**Implementation note (2026-07-18).** The composition-root builder shipped as
+`usa_wa_adapter_sos.build_house_spans` (`build_house_position_spans`), driven daily by a
+standalone `usa_wa_adapter_sos.refresh` oneshot + timer — **not** `build_sos_house_spans`, which
+was retired. Mentions of `build_sos_house_spans` below are the pre-implementation name.
+
 ## Problem
 
 Post-#100, the WA House Position seat is built by two builders that mint the **same span
@@ -106,14 +111,17 @@ data floor and out of scope here.
 
 ## Open questions / risks
 
-- **Driver placement**: new standalone SOS refresh timer vs folding the House Position rebuild
-  into an extended step of the WSL refresh. Standalone keeps SOS the composition root and
-  dependency direction clean (recommended); folding avoids a new unit but pulls an SOS import
-  into the WSL refresh entrypoint. Decide in step 3.
-- **`source_id` discriminator parity**: the migration's simplicity rests on the new builder
-  emitting the byte-identical discriminator the PDC builder used (`ld-{n}-position-{p}`). If it
-  diverges, step 5 becomes a true collapse migration (map by `(person, role, window)`), not a
-  re-point. Confirm in step 1 before writing step 5.
+- **Driver placement** (RESOLVED 2026-07-17 — standalone): a new standalone SOS refresh oneshot
+  + timer, ordered after `usa-wa-wsl-refresh`. Keeps SOS the composition root and the dependency
+  direction clean (no SOS import in the WSL refresh entrypoint). Step 3 builds this unit.
+- **`source_id` divergence (RESOLVED — collapse, not re-point; found in CR)**: the *discriminator*
+  (`ld-{n}-position-{p}`) is identical, but the full 4-part `source_id`'s **`{start}`** component
+  **diverges** for the central cohort — PDC omits the pre-2018 position, so a cross-2018 incumbent's
+  existing PDC span is shallow (`…:2019-20`) while the SOS builder emits a deeper `…:2017-18`. So
+  step 5 is a true **covering-window collapse** (map by `(person, role)` + window, `_retire_onto`),
+  **and the deploy order is build → migrate** (the deep keeper must exist for the collapse). An
+  in-place flip would strand the shallow row's anchor on a superseded row and duplicate the PM
+  assignment (invisible to the #86 index). This is the `migrate_pdc_spans` #91/#97 pattern.
 - **Migration/sidecar race**: the anchor transfer must complete before the first
   `usa_wa_legislature` House build drains to PM, or the new row collides with the old
   `usa_wa_pdc` row on the #86 anchor unique index. Enforced by the paused-sidecar sequencing
@@ -121,3 +129,11 @@ data floor and out of scope here.
 - **Coverage change is intentional**: Position coverage becomes uniform 2008→present (SOS
   floor), *better* than the fallback model; pre-2008 House stays honestly position-less (party +
   committees still covered). No regression, but call it out in the deploy notes.
+- **Pre-2018 PDC `person_wa_pdc` identifier backfill (follow-up, not blocking)**: a pre-2018
+  House winner can only match (and so cross-link a `person_wa_pdc` identifier) when the SOS ballot
+  Position is injected into the PDC match — the link is coupled to a resolved position. The
+  retired `build_sos_house_spans` was the only driver that wired that injection into
+  `build_pdc_spans`; its `house_position_fallback` param was **removed as dead code** (CR round 2,
+  finding 6) once that driver was deleted. The daily 2018+ identifiers are unaffected (PDC has
+  positions there). A pre-2018 historical `person_wa_pdc` backfill is deferred to a follow-up that
+  re-adds the SOS→PDC position injection — noted so its absence is not mistaken for a regression.

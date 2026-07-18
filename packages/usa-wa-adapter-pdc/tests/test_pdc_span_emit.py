@@ -1,39 +1,22 @@
-"""PDC House-position span emission (#79) — observations → merged usa_wa_pdc Assignments.
+"""PDC ``person_wa_pdc`` identifier links (#79; identifier-only since #101).
 
-Binds the House-position spans to the generic emitter with the PDC source split (WSL Person,
-PDC Assignment), resolving the ``state_representative`` seat Role from the span discriminator
-and citing each biennium's ``house-winners:<Y>`` cohort. Also the idempotent
-``person_wa_pdc`` identifier upsert.
+The idempotent ``person_wa_pdc`` child-identifier upsert — PDC's demoted contribution. The House
+Position seat emission moved to :mod:`usa_wa_adapter_sos.house_span_emit` (#101); see
+``packages/usa-wa-adapter-sos/tests/test_house_span_emit.py``.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 
-import pytest
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
-from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster
-from usa_wa_adapter_pdc.normalize.pdc_observations import build_house_position_observations
-from usa_wa_adapter_pdc.normalize.pdc_span_emit import (
-    emit_house_position_spans,
-    emit_pdc_identifiers,
-)
+from usa_wa_adapter_pdc.normalize.pdc_span_emit import emit_pdc_identifiers
 
 from clearinghouse_core.jurisdictions import Jurisdiction
-from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
-from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier, Role
-from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
+from clearinghouse_domain_legislative.identity import Person, PersonIdentifier
 
 CURRENT = "2025-26"
-
-
-@pytest.fixture
-async def anchors(db_session, usa_wa):
-    return await bootstrap_synthetic_anchors(
-        db_session, biennium=CURRENT, jurisdiction_id=usa_wa.id
-    )
 
 
 async def _add_ld(session, usa_wa, n):
@@ -56,50 +39,6 @@ async def _add_person(session, mid):
     return row
 
 
-async def _house_winner_events(session, usa_wa, years):
-    """One archived house-winners:<Y> FetchEvent per election year; return {biennium: target}."""
-    source = Source(jurisdiction_id=usa_wa.id, name="PDC", slug="usa_wa_pdc", kind="rest")
-    session.add(source)
-    await session.flush()
-    out = {}
-    for year, biennium in years.items():
-        rid = f"house-winners:{year}"
-        ev = FetchEvent(
-            source_id=source.id,
-            resource_id=rid,
-            url="https://x",
-            fetched_at=datetime.now(UTC),
-            http_status=200,
-            content_hash=b"\x01" * 32,
-            status=FetchStatus.ok,
-        )
-        session.add(ev)
-        await session.flush()
-        out[biennium] = (ev.id, ev.fetched_at, rid)
-    return out
-
-
-def _winner(pdc_id, ld, position, filer):
-    return {
-        "person_id": pdc_id,
-        "legislative_district": str(ld),
-        "position": str(position),
-        "filer_name": filer,
-        "party_code": "DEMOCRAT",
-    }
-
-
-def _sponsor(mid, ld, last):
-    return {
-        "Id": mid,
-        "FirstName": "Ann",
-        "LastName": last,
-        "District": str(ld),
-        "Agency": "House",
-        "Party": "D",
-    }
-
-
 async def _count(session, model, **where):
     stmt = select(func.count()).select_from(model)
     for k, v in where.items():
@@ -107,62 +46,7 @@ async def _count(session, model, **where):
     return (await session.execute(stmt)).scalar()
 
 
-async def test_house_span_is_pdc_sourced_on_a_wsl_person_seat_role(db_session, usa_wa, anchors):
-    """A member seated LD5 Pos1 across two bienniums → one merged, open, usa_wa_pdc Assignment
-    bound to the WSL Person and the state_representative seat Role, citing both cohorts."""
-    await _add_ld(db_session, usa_wa, 5)
-    person = await _add_person(db_session, 100)
-    events = await _house_winner_events(db_session, usa_wa, {2022: "2023-24", 2024: CURRENT})
-    house = build_house_roster([_sponsor(100, 5, "Rivers")])
-    obs = []
-    for biennium in ("2023-24", CURRENT):
-        obs += build_house_position_observations(
-            [_winner("900", 5, 1, "Ann Rivers")],
-            house_roster=house,
-            senate_roster={},
-            biennium=biennium,
-        ).observations
-    spans = build_tenure_spans(obs, current_biennium=CURRENT)
-
-    emitted = await emit_house_position_spans(
-        db_session, spans, anchors=anchors, reliability=1.0, fetch_events=events
-    )
-
-    assert emitted == 1
-    row = (
-        await db_session.execute(
-            select(Assignment).where(
-                Assignment.source_id == "100:chamber-house:ld-5-position-1:2023-24"
-            )
-        )
-    ).scalar_one()
-    assert row.source == "usa_wa_pdc"
-    assert row.person_id == person.id
-    assert row.valid_from == date(2023, 1, 1) and row.valid_to is None and row.is_active is True
-    role = (await db_session.execute(select(Role).where(Role.id == row.role_id))).scalar_one()
-    assert role.role_type == "state_representative" and role.qualifier == "Position 1"
-    assert role.organization_id == anchors.house_id
-    assert await _count(db_session, Citation, entity_id=row.id) == 2  # cite every biennium
-
-
-async def test_unsynced_ld_skips_the_span(db_session, usa_wa, anchors):
-    await _add_person(db_session, 100)  # LD 5 jurisdiction NOT added
-    events = await _house_winner_events(db_session, usa_wa, {2024: CURRENT})
-    house = build_house_roster([_sponsor(100, 5, "Rivers")])
-    obs = build_house_position_observations(
-        [_winner("900", 5, 1, "Ann Rivers")], house_roster=house, senate_roster={}, biennium=CURRENT
-    ).observations
-    spans = build_tenure_spans(obs, current_biennium=CURRENT)
-
-    emitted = await emit_house_position_spans(
-        db_session, spans, anchors=anchors, reliability=1.0, fetch_events=events
-    )
-
-    assert emitted == 0
-    assert await _count(db_session, Assignment) == 0
-
-
-async def test_emit_pdc_identifiers_idempotent(db_session, usa_wa, anchors):
+async def test_emit_pdc_identifiers_idempotent(db_session, usa_wa):
     person = await _add_person(db_session, 100)
     added = await emit_pdc_identifiers(db_session, [("100", "900"), ("100", "900")])
     again = await emit_pdc_identifiers(db_session, [("100", "900")])
@@ -176,7 +60,7 @@ async def test_emit_pdc_identifiers_idempotent(db_session, usa_wa, anchors):
     assert row.person_id == person.id and row.scheme == "wa_pdc" and row.value == "900"
 
 
-async def test_emit_pdc_identifiers_skips_absent_person(db_session, usa_wa, anchors):
+async def test_emit_pdc_identifiers_skips_absent_person(db_session, usa_wa):
     added = await emit_pdc_identifiers(db_session, [("999", "900")])  # no such WSL Person
     assert added == 0
     assert await _count(db_session, PersonIdentifier) == 0

@@ -1,0 +1,39 @@
+[Unit]
+Description=usa-wa — SOS votewa refresh (WSL+SOS House Position seat) one-shot
+# usa-wa-migrate.service: schema must be at head before the DML-only refresh runs.
+# usa-wa-wsl-refresh.service: the House Position seat reads the sitting roster from the
+# WSL sponsor archive and binds to the WSL House Persons, so the WSL refresh must have
+# written sponsors:<biennium> + materialized the Persons first. Ordering only — a
+# failed/absent predecessor must not wedge the timer on an already-populated box (the
+# builder logs span_person_absent / house_seat_cohort and skips an unmatched member).
+After=network-online.target postgresql.service usa-wa-migrate.service usa-wa-wsl-refresh.service
+Wants=network-online.target
+# Alert the operator on a failed/timed-out refresh (#49).
+OnFailure=usa-wa-notify-failure@%n.service
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/usa-wa
+
+# Refuse to start off a non-main checkout (#87): the enforcement behind the
+# "main is the deployed code" convention, which #84 showed is not self-enforcing.
+ExecStartPre=/home/exedev/usa-wa/scripts/assert-main-checkout.sh
+
+# Pin PATH so `uv` resolves regardless of the inherited systemd default.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# App role only (DML — no DDL). USA_WA_SOS_MIN_REQUEST_INTERVAL (optional) sets the
+# votewa courtesy floor; absent is fine. Later EnvironmentFiles override earlier ones.
+EnvironmentFile=/etc/usa-wa/.env
+EnvironmentFile=-/home/exedev/usa-wa/.env
+
+# --frozen --no-sync: run against the installed venv as-is; never re-lock or sync
+# at unit start (AGENTS.md § Server Lifecycle, #30).
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_adapter_sos.refresh
+
+# Bound the votewa CSV GET + the WSL GetSponsors fallback so a hung endpoint fails
+# deterministically; the timer retries on the next fire.
+TimeoutStartSec=300
+
+# This unit is started by usa-wa-sos-refresh.timer; no [Install] WantedBy.

@@ -109,17 +109,23 @@ surface. Pair with `USA_WA_BIENNIUM` to target a non-current biennium.
 # (#65 — additive, never clobbers PM-curated rows).
 python -m usa_wa_adapter_legislature.refresh
 
-# PDC refresh (#69 + #75, span-based since #79) — source WA House members' ballot Position (1/2),
-# which WSL doesn't expose, from the PDC Campaign Finance Summary Socrata dataset (3h9x-7bvm) on
-# data.wa.gov, as merged House state_representative Position seat SPANS. Archives the current
-# biennium's winner cohorts (house-winners:<Y> + both staggered senate-winners:<Y>) via the
-# runner's archive_only seam, then re-drives build_pdc_spans scoped to the current biennium: House
-# Position seat spans (current biennium = the open end) + person_wa_pdc identifiers, era-matched
-# against the biennium's sponsor roster (archive-first from the WSL sponsor archive, which the WSL
-# refresh writes first). Senate is identifier-only (#75 — WSL owns the Senate seat). Prod runs this
-# daily at 06:30 UTC (after the WSL refresh) via usa-wa-pdc-refresh.timer; the form below is the
-# manual surface (pair with USA_WA_BIENNIUM). USA_WA_PDC_APP_TOKEN (optional) raises Socrata's rate.
+# PDC refresh (#69 + #75; IDENTIFIER-ONLY since #101) — emits the person_wa_pdc cross-source
+# identifier links (House winners + #74 movers + #75 Senate), archive-first from the PDC Campaign
+# Finance Summary Socrata dataset (3h9x-7bvm) on data.wa.gov. Archives the current biennium's winner
+# cohorts (house-winners:<Y> + both staggered senate-winners:<Y>) via archive_only, then re-drives
+# build_pdc_spans scoped to the current biennium for the links. The House Position SEAT is no longer
+# PDC's — it is the WSL+SOS builder's (usa-wa-sos-refresh, below), usa_wa_legislature-sourced and
+# symmetric with the Senate seat (#101). Prod runs this daily at 06:30 UTC (after the WSL refresh)
+# via usa-wa-pdc-refresh.timer; the form below is the manual surface. USA_WA_PDC_APP_TOKEN (optional).
 python -m usa_wa_adapter_pdc.refresh
+
+# SOS refresh (#101) — the daily driver of the WSL+SOS House state_representative Position seat.
+# Archives the current election's votewa filing cohort (sos-whofiled:<YYYYMM>) via archive_only,
+# then re-drives build_house_position_spans scoped to the current biennium -> usa_wa_legislature
+# Position seat spans (current biennium = the open end). Reads the sitting roster archive-first from
+# the WSL sponsor archive (who sits) + the SOS archive (the Position). Prod runs this daily at 06:45
+# UTC (after the WSL refresh) via usa-wa-sos-refresh.timer; independent of the PDC refresh.
+python -m usa_wa_adapter_sos.refresh
 ```
 
 ### PDC historical backfill (#79)
@@ -137,16 +143,11 @@ python -m usa_wa_adapter_pdc.refresh
 python -m usa_wa_adapter_pdc.harvest_pdc --dry-run
 python -m usa_wa_adapter_pdc.harvest_pdc --from-year 2008 --pause-seconds 0.5
 
-# Phase B — era-matched span build (archive-first, no live PDC pull): each cohort pairs with its
-# seating biennium's sponsor roster (2012 → 2013-14), projects House Position observations + links,
-# merges across years into usa_wa_pdc seat spans + person_wa_pdc identifiers. Idempotent.
-# Ends with the #83 stale-span sweep (chamber-house): open spans the rebuild no longer asserts are
-# closed (departed members / superseded-wire orphans) — closed_stale in the completion log, one
-# stale_span_closed line per row; closed_stale > 0 on an unrestricted run = stranded rows repaired.
-# Mass-close guard: an empty span set is a no-op, and stale rows exceeding 50% of the open cohort
-# (only past 5 candidates) abort with stale_span_sweep_aborted_mass_close + sweep_aborted=true in
-# the completion log. A LEGITIMATE mass close (wholesale re-key) needs --max-close-fraction 1.0
-# (the flag is validated to (0, 1]; 1.0 disables the guard).
+# Phase B — era-matched IDENTIFIER build (archive-first, no live PDC pull; identifier-only since
+# #101): each cohort pairs with its seating biennium's sponsor roster (2012 → 2013-14), matches each
+# winner to a WSL Person, emits person_wa_pdc links. The House Position SEAT is no longer built here
+# (that is build_house_spans, below). Idempotent. (A pre-2018 identifier backfill needs the SOS
+# position fallback to resolve the match — driven via build_house_spans' shared window, below.)
 python -m usa_wa_adapter_pdc.build_pdc_spans --dry-run
 python -m usa_wa_adapter_pdc.build_pdc_spans
 
@@ -160,39 +161,52 @@ python -m usa_wa_adapter_pdc.migrate_pdc_spans --dry-run
 python -m usa_wa_adapter_pdc.migrate_pdc_spans
 ```
 
-### SOS House Position backfill (#100)
+### WSL+SOS House Position backfill (#101)
 
 ```bash
-# Fills the pre-2018 House state_representative Position seat gap #98 surfaced: PDC's Campaign
-# Finance Summary dataset OMITS the House `position` before the 2018 election, so build_pdc_spans
-# alone seats no House Position before 2019. WA SOS votewa (eledataweb.votewa.gov) carries the
-# ballot `Pos. 1/2` back to 2008, joined to the PDC winner by (LD, surname, party). PDC stays the
-# winner authority; SOS supplies ONLY the position qualifier. NOT wired into the daily refresh
-# (current House has PDC positions) — this is a run-once/occasional backfill.
-#
-# ⚠ NOT prod-safe standalone yet (#100 CR finding 1 / #101). A member serving ACROSS the 2018
-# boundary builds an OPEN deep span here (…:2017-18); the daily usa_wa_adapter_pdc.refresh rebuilds
-# House spans WITHOUT this fallback -> a shallow …:2019-20 span, and the stale-span sweep closes the
-# un-asserted deep one within ~24h, truncating the backfill for continuing members. DO NOT run the
-# historical backfill in prod until the #101 re-partition (WSL+SOS-primary House Position, PDC
-# identifier-only, symmetric with the Senate) lands. Full-history --dry-run is safe for inspection.
+# The re-partition (#101): the WA House state_representative Position seat is now
+# usa_wa_legislature-sourced (symmetric with the Senate seat, #75). WSL drives membership (who
+# sits, the sponsor roster); WA SOS votewa (eledataweb.votewa.gov) drives the ballot Position 1/2
+# (back to 2008); PDC is demoted to the person_wa_pdc identifier link. ONE builder drives both the
+# daily re-drive (usa-wa-sos-refresh) and this historical backfill, so a member serving ACROSS the
+# 2018 boundary builds the same deep span either way — the #100 CR finding-1 depth mismatch cannot
+# recur. Coverage: Position 2008->present (votewa floor); pre-2008 stays honestly position-less.
 
 # Phase A — archive the votewa filing cohorts (archive-only; CSV wire hashed #54). Even general-
 # election years from the floor (2008) to current; closed years cache-hit on re-run. Central
-# pacing via --pause-seconds (votewa courtesy floor). A mid-sweep failure aborts (nothing
-# committed) — re-run from the floor.
+# pacing via --pause-seconds (votewa courtesy floor). A mid-sweep failure aborts — re-run from floor.
 python -m usa_wa_adapter_sos.harvest_sos --dry-run
-python -m usa_wa_adapter_sos.harvest_sos --from-year 2008 --to-year 2016 --pause-seconds 1.0
+python -m usa_wa_adapter_sos.harvest_sos --from-year 2008 --pause-seconds 1.0
 
-# Phase B — one coherent House rebuild: runs build_pdc_spans with the votewa position fallback
-# injected (PDC positions 2018+, SOS fallback 2008–2016). A pre-2018 winner matched to a WSL
-# member but position-less is seated at the SOS Pos. 1/2; one the SOS archive can't position is
-# counted missing_position (logged). DEPENDS ON Phase A + the PDC winner archive + the WSL sponsor
-# archive/Persons (#77) — run in the same window, SIDECAR PAUSED (a freshly-materialized span the
-# sidecar sees first mints its own PM assignment). Same #83 mass-close guard as build_pdc_spans.
-python -m usa_wa_adapter_sos.build_sos_house_spans --dry-run
-python -m usa_wa_adapter_sos.build_sos_house_spans              # ⚠ see warning above (#101)
-python -m usa_wa_adapter_sos.build_sos_house_spans --biennium 2025-26  # scope to current members
+# Phase B — WSL+SOS House Position span build (archive-first, no live pull): the sitting House
+# roster (WSL sponsor archive) x the SOS filing archive (the Position) -> merged usa_wa_legislature
+# state_representative Position seat spans, cite-every-biennium onto sos-whofiled:<Y>. A sitting
+# member with no resolvable SOS position gets no seat (OQ1: emit nothing, counted missing_position).
+# DEPENDS ON Phase A + the WSL sponsor archive/Persons (#77). Ends with the #83 stale-span sweep
+# (usa_wa_legislature, chamber-house); same mass-close guard (--max-close-fraction, (0,1], 1.0
+# disables). --biennium scopes to a biennium's current members (each keeps full history).
+python -m usa_wa_adapter_sos.build_house_spans --dry-run
+python -m usa_wa_adapter_sos.build_house_spans
+
+# Migration — OWNER ROLE, one-shot, run AFTER build_house_spans. Retires existing usa_wa_pdc
+# 4-part chamber-house rows onto the usa_wa_legislature span that COVERS them (mapped by
+# (person, role) + validity window — NOT exact source_id: PDC omits the pre-2018 position, so a
+# cross-2018 incumbent's existing PDC span is shallow …:2019-20 while the SOS builder emits a
+# deeper …:2017-18, a different source_id). Transfers the PM anchor (PM keys on (person, role,
+# start), so the deep keeper IS that tenure), deletes the PDC row + its citations (owner-only #54).
+# A PDC row with no covering keeper (SOS couldn't position that member) is left as orphans_no_keeper.
+# 3-part legacy rows are migrate_pdc_spans's job (skipped_legacy). Idempotent; --dry-run.
+python -m usa_wa_adapter_sos.migrate_house_source --dry-run
+python -m usa_wa_adapter_sos.migrate_house_source
+
+# DEPLOY SEQUENCING (the whole historical backfill), SIDECAR PAUSED throughout. Order matters:
+# build BEFORE migrate, so the deep usa_wa_legislature keeper spans exist for the migration to
+# collapse the stranded PDC rows onto (transferring their anchors) — before anything drains to PM.
+#   sudo systemctl stop usa-wa-sync-powermap
+#   python -m usa_wa_adapter_sos.harvest_sos --from-year 2008        # Phase A (SOS archive)
+#   python -m usa_wa_adapter_sos.build_house_spans                   # Phase B: full-depth rebuild
+#   python -m usa_wa_adapter_sos.migrate_house_source                # OWNER role: collapse PDC->WSL
+#   sudo systemctl start usa-wa-sync-powermap                        # let the sidecar drain to PM
 ```
 
 ## Reconcilers & validation (PM sync)

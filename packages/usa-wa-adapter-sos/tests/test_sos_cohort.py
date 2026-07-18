@@ -1,10 +1,11 @@
-"""Archive-first SOS filing-cohort provider (#100) — offline re-parse + fallback factory."""
+"""Archive-first SOS filing-cohort provider (#100/#101) — offline re-parse + memoized scans."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
 from usa_wa_adapter_pdc.normalize.positions import fold_token
+from usa_wa_adapter_sos.normalize.filings import position_for
 from usa_wa_adapter_sos.sos_cohort import SosFilingCohortProvider
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
@@ -47,7 +48,9 @@ def _csv(*rows):
     return (header + body).encode()
 
 
-async def test_fallback_factory_resolves_position_from_archive(db_session, usa_wa):
+async def test_house_filings_resolves_position_from_archive(db_session, usa_wa):
+    """The offline re-parse yields a ``{year: {LD: [HouseFiling]}}`` map the position lookup
+    resolves against; a year with no archived cohort is absent."""
     source = await _sos_source(db_session, usa_wa)
     await _archive(
         db_session,
@@ -57,13 +60,10 @@ async def test_fallback_factory_resolves_position_from_archive(db_session, usa_w
     )
 
     provider = SosFilingCohortProvider(session=db_session, source_id=source.id)
-    factory = await provider.fallback_factory()
+    filings = await provider.house_filings()
 
-    fallback = factory(2016)
-    assert fallback is not None
-    assert fallback(5, fold_token("Rivers"), "republican") == "Position 1"
-    # A year with no archived cohort → no fallback.
-    assert factory(2012) is None
+    assert position_for(filings[2016], 5, fold_token("Rivers"), "republican") == "Position 1"
+    assert 2012 not in filings  # no archived cohort that year
 
 
 async def test_latest_payload_bearing_event_wins(db_session, usa_wa):
@@ -85,8 +85,9 @@ async def test_latest_payload_bearing_event_wins(db_session, usa_wa):
     )
 
     provider = SosFilingCohortProvider(session=db_session, source_id=source.id)
-    factory = await provider.fallback_factory()
-    assert factory(2016)(5, fold_token("Rivers"), "republican") == "Position 1"
+    filings = await provider.house_filings()
+    # the older payload-bearing wire was parsed, not the newer empty one
+    assert position_for(filings[2016], 5, fold_token("Rivers"), "republican") == "Position 1"
 
 
 async def test_house_filings_is_memoized(db_session, usa_wa):
@@ -102,4 +103,20 @@ async def test_house_filings_is_memoized(db_session, usa_wa):
     provider = SosFilingCohortProvider(session=db_session, source_id=source.id)
     first = await provider.house_filings()
     second = await provider.house_filings()
+    assert first is second  # same object — the second call short-circuits on the memo
+
+
+async def test_citation_events_is_memoized(db_session, usa_wa):
+    """``citation_events()`` caches too (#101 CR round 2, finding 9) — the builder calls it
+    directly *and* via ``house_filings``, so the scan must run once."""
+    source = await _sos_source(db_session, usa_wa)
+    await _archive(
+        db_session,
+        source,
+        "sos-whofiled:201611",
+        _csv(("State Representative Pos. 1", 5, "Ann Rivers", "(Prefers Republican Party)")),
+    )
+    provider = SosFilingCohortProvider(session=db_session, source_id=source.id)
+    first = await provider.citation_events()
+    second = await provider.citation_events()
     assert first is second  # same object — the second call short-circuits on the memo

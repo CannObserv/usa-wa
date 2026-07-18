@@ -1,0 +1,18 @@
+[Unit]
+Description=usa-wa — daily SOS votewa refresh (WSL+SOS House Position seat)
+Documentation=https://github.com/CannObserv/usa-wa/issues/101
+
+[Timer]
+# Daily at 06:45 UTC — after the WSL refresh (06:00) so the sitting House roster
+# (sponsors:<biennium>) + Persons the seat binds to already exist. Independent of the
+# PDC refresh (06:30) — PDC is identifier-only since #101. Same-day re-runs are safe:
+# the filing pull cache-hits within the Source's cache_ttl_days (no live GET, no new
+# rows), and the span builder upserts idempotently.
+OnCalendar=*-*-* 06:45:00 UTC
+# Run on next boot if the box was down at the scheduled time.
+Persistent=true
+# Jitter to avoid hammering votewa on the dot.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

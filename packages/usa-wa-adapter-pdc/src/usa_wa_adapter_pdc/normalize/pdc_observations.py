@@ -28,7 +28,6 @@ Outputs (:class:`HousePositionProjection`):
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from usa_wa_adapter_legislature.normalize.members import canonicalize_party, district_number
@@ -44,12 +43,6 @@ from usa_wa_adapter_pdc.normalize.positions import (
     house_span_discriminator,
     surname_match_set,
 )
-
-#: A House-position fallback: given a matched WSL member's ``(ld, folded_last, party_slug)``,
-#: return the ballot ``Position 1/2`` qualifier PDC's dataset omitted (pre-2018), or ``None``.
-#: Supplied by :mod:`usa_wa_adapter_sos` (#100), bound to the cohort's election year by the
-#: driver; ``None`` here keeps the pure PDC-only path (2018+) unchanged.
-PositionFallback = Callable[[int, str, str | None], str | None]
 
 
 @dataclass
@@ -102,10 +95,10 @@ KIND_HOUSE = "chamber-house"
 class _Deferred:
     """A PDC winner that matched no House roster member — a #74 mover-inference candidate.
 
-    ``qualifier`` is ``None`` when PDC omitted the position (pre-2018) and no fallback resolved
-    it yet; phase 2 tries the fallback against the *inferred* member before giving up."""
+    ``qualifier`` is the PDC ballot position (always present — a position-less winner is
+    ``incomplete`` in phase 1 and never deferred); phase 2 re-seats it onto the inferred member."""
 
-    qualifier: str | None
+    qualifier: str
     filer_name: str
     pdc_person_id: str
 
@@ -126,38 +119,25 @@ def build_house_position_observations(
     house_roster: dict[int, list[HouseRosterEntry]],
     senate_roster: dict[int, list[SenateEntry]],
     biennium: str,
-    position_fallback: PositionFallback | None = None,
 ) -> HousePositionProjection:
     """Project one election cohort's winners against ``biennium``'s WSL roster (pure).
 
-    ``position_fallback`` (#100) supplies the ballot ``Position`` for a matched member when PDC
-    omitted it (pre-2018), keyed on the member's clean folded surname + party. When ``None``
-    (the 2018+ PDC-only path) a position-less winner is counted ``incomplete`` exactly as
-    before; a matched member the fallback still can't position is counted ``missing_position``."""
+    PDC-only since #101 (the seat is the WSL+SOS builder's; this projector runs only for the
+    ``pdc_identifiers`` links). A winner PDC didn't position (pre-2018) is counted ``incomplete``
+    and never matched — the SOS→PDC position fallback that once seated those was removed with
+    ``build_sos_house_spans`` (#101)."""
     proj = HousePositionProjection()
     seen_members: set[str] = set()
     deferred: dict[int, list[_Deferred]] = {}
     direct_seated = inferred_seated = movers_linked = unresolved = incomplete = 0
-    missing_position = 0
-
-    def _resolve_qualifier(
-        entry: HouseRosterEntry, ld: int, pdc_qualifier: str | None
-    ) -> str | None:
-        """PDC position first, else the SOS fallback keyed on the matched member (#100)."""
-        if pdc_qualifier is not None:
-            return pdc_qualifier
-        if position_fallback is None:
-            return None
-        return position_fallback(ld, entry.folded_last, entry.party_slug)
 
     # Phase 1 — direct within-LD match of each winner to a House roster member.
     for row in winners:
         pdc_id = str(row.get("person_id") or "").strip()
         pdc_qualifier = canonical_position(row.get("position"))
         ld = district_number(row.get("legislative_district"))
-        # Without a fallback a position-less winner can't be keyed → incomplete (2018+ path,
-        # unchanged). With a fallback we still try to match + resolve the position below.
-        if not pdc_id or ld is None or (pdc_qualifier is None and position_fallback is None):
+        # A position-less winner (pre-2018, PDC omitted it) can't be keyed → incomplete.
+        if not pdc_id or ld is None or pdc_qualifier is None:
             incomplete += 1
             continue
         match = match_house_member(
@@ -177,15 +157,11 @@ def build_house_position_observations(
             continue
         if match.member_id in seen_members:
             continue  # a member already seated this cohort (double-match) — skip the dup
-        qualifier = _resolve_qualifier(match, ld, pdc_qualifier)
-        if qualifier is None:
-            missing_position += 1  # matched a member but neither PDC nor SOS gives a position
-            continue
         proj.observations.append(
             Observation(
                 member_id=match.member_id,
                 kind=KIND_HOUSE,
-                discriminator=house_span_discriminator(ld, qualifier),
+                discriminator=house_span_discriminator(ld, pdc_qualifier),
                 biennium=biennium,
             )
         )
@@ -207,15 +183,12 @@ def build_house_position_observations(
             movers_linked += 1
 
         attempted = len(deferrals) == 1 and len(unmatched) == 1 and len(movers) == 1
-        qualifier = (
-            _resolve_qualifier(unmatched[0], ld, deferrals[0].qualifier) if attempted else None
-        )
-        if attempted and qualifier is not None:
+        if attempted:
             proj.observations.append(
                 Observation(
                     member_id=unmatched[0].member_id,
                     kind=KIND_HOUSE,
-                    discriminator=house_span_discriminator(ld, qualifier),
+                    discriminator=house_span_discriminator(ld, deferrals[0].qualifier),
                     biennium=biennium,
                 )
             )
@@ -232,6 +205,5 @@ def build_house_position_observations(
         "movers_linked": movers_linked,
         "unresolved": unresolved,
         "incomplete": incomplete,
-        "missing_position": missing_position,
     }
     return proj
