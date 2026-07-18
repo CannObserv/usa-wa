@@ -28,7 +28,6 @@ import argparse
 import asyncio
 import os
 import sys
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -48,7 +47,6 @@ from usa_wa_adapter_pdc.normalize.pdc_matching import (
     build_senate_roster,
 )
 from usa_wa_adapter_pdc.normalize.pdc_observations import (
-    PositionFallback,
     build_house_position_observations,
     build_senate_identity_links,
 )
@@ -81,20 +79,15 @@ async def build_pdc_spans(
     *,
     sponsor_client: WSLClient | None = None,
     restrict_to_biennium: str | None = None,
-    house_position_fallback: Callable[[int], PositionFallback | None] | None = None,
 ) -> PdcSpanResult:
     """Emit era-matched ``person_wa_pdc`` identifier links; return counts (identifier-only #101).
 
     ``restrict_to_biennium`` scopes the links to members observed in that biennium (the daily
     re-drive passes the current biennium). ``None`` (the harvest path) rebuilds all.
 
-    ``house_position_fallback`` (#100) maps an election year → a per-cohort
-    :data:`~usa_wa_adapter_pdc.normalize.pdc_observations.PositionFallback` supplying the ballot
-    Position PDC omitted before 2018 (the SOS join, injected by ``usa_wa_adapter_sos`` so this
-    module keeps no SOS dependency). It is retained **only** so a pre-2018 identifier backfill can
-    resolve a matched member's position (the House match couples the identifier to a resolved
-    position); the seat itself is no longer emitted here. ``None`` (the daily 2018+ path) keeps
-    the PDC-only match, unchanged."""
+    The House match runs PDC-only (a position-less pre-2018 winner is ``incomplete`` → no link);
+    a pre-2018 ``person_wa_pdc`` backfill that needs the SOS ballot position to match must re-add
+    the SOS→PDC injection retired with ``build_sos_house_spans`` (#101; deferred follow-up)."""
     jurisdiction = await resolve_jurisdiction(session)
     pdc_source = await get_or_create_pdc_source(session, jurisdiction)
     wsl_source = await get_or_create_wsl_source(session, jurisdiction)
@@ -133,7 +126,6 @@ async def build_pdc_spans(
             house_roster=house_roster,
             senate_roster=senate_roster,
             biennium=biennium,
-            position_fallback=house_position_fallback(year) if house_position_fallback else None,
         )
         identifiers.extend(proj.pdc_identifiers)
         result.coverage[year] = proj.summary

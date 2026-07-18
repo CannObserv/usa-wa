@@ -1,31 +1,28 @@
-"""Archive-first SOS filing-cohort provider (#100, Phase B).
+"""Archive-first SOS filing-cohort provider (#100/#101, Phase B).
 
-Turns the archived votewa filing cohorts into the House-position **fallback** the PDC span
-builder consumes: ``{election_year: {LD: [HouseFiling]}}`` re-parsed **offline** from each
-``sos-whofiled:<YYYYMM>`` :class:`RawPayload` (written by :mod:`harvest_sos`) — no votewa
-re-pull. :meth:`fallback_factory` closes over the loaded filings and returns a sync
-``year -> PositionFallback`` the builder calls per cohort; a year with no archived cohort maps
-to ``None`` (no fallback — those winners stay ``missing_position``).
+Turns the archived votewa filing cohorts into the House **Position** the WSL+SOS builder
+(:func:`usa_wa_adapter_sos.build_house_spans.build_house_position_spans`) consumes:
+:meth:`house_filings` yields ``{election_year: {LD: [HouseFiling]}}`` re-parsed **offline** from
+each ``sos-whofiled:<YYYYMM>`` :class:`RawPayload` (written by :mod:`harvest_sos`) — no votewa
+re-pull — and :meth:`citation_events` yields the per-year attesting FetchEvent the positioned
+seat cites (SOS is the Position authority since #101).
 
 **"Latest" = latest payload-bearing event** — as in :class:`PdcWinnerCohortProvider`: a forced
 re-pull re-records a payload-less FetchEvent when the wire is byte-identical, so both reads join
-``RawPayload`` and tie-break on the (monotonic ULID) event id. The scan is memoized.
+``RawPayload`` and tie-break on the (monotonic ULID) event id. Both scans are memoized.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID as _ULID
-from usa_wa_adapter_pdc.normalize.pdc_observations import PositionFallback
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
 from usa_wa_adapter_legislature.span_emit import CitationTarget
 from usa_wa_adapter_sos.adapter import WHOFILED_RESOURCE_PREFIX, election_year_from_resource_id
-from usa_wa_adapter_sos.normalize.filings import HouseFiling, build_house_filings, position_for
+from usa_wa_adapter_sos.normalize.filings import HouseFiling, build_house_filings
 from usa_wa_adapter_sos.transport import parse_whofiled
 
 logger = get_logger(__name__)
@@ -40,13 +37,17 @@ class SosFilingCohortProvider:
         self._session = session
         self._source_id = source_id
         self._filings: dict[int, HouseFilingsByLd] | None = None
+        self._events: dict[int, CitationTarget] | None = None
 
     async def citation_events(self) -> dict[int, CitationTarget]:
         """``{election_year: (fetch_event_id, fetched_at, resource_id)}`` for each year's latest
         **payload-bearing** OK filing cohort under the prefix — the per-biennium provenance the
         House-seat span emission cites (#101, cite-every-biennium: the SOS filing is the Position
         authority, so it is what the positioned seat traces to). ``house_filings`` derives the
-        wire body from the same events. Years with no archived cohort are omitted."""
+        wire body from the same events. Years with no archived cohort are omitted. Memoized — the
+        builder calls this directly *and* via ``house_filings``, so the scan runs once."""
+        if self._events is not None:
+            return self._events
         rows = (
             await self._session.execute(
                 select(FetchEvent.resource_id, FetchEvent.id, FetchEvent.fetched_at)
@@ -63,6 +64,7 @@ class SosFilingCohortProvider:
         for resource_id, event_id, fetched_at in rows:
             year = election_year_from_resource_id(resource_id)
             events.setdefault(year, (event_id, fetched_at, resource_id))
+        self._events = events
         return events
 
     async def house_filings(self) -> dict[int, HouseFilingsByLd]:
@@ -80,20 +82,3 @@ class SosFilingCohortProvider:
         self._filings = filings
         logger.info("sos_filings_loaded", extra={"years": len(filings)})
         return filings
-
-    async def fallback_factory(self) -> Callable[[int], PositionFallback | None]:
-        """A sync ``election_year -> PositionFallback | None`` closed over the loaded archive —
-        the callable :func:`~usa_wa_adapter_pdc.build_pdc_spans.build_pdc_spans` injects (#100)."""
-        filings = await self.house_filings()
-
-        def factory(year: int) -> PositionFallback | None:
-            by_ld = filings.get(year)
-            if not by_ld:
-                return None
-
-            def fallback(ld: int, folded_last: str, party_slug: str | None) -> str | None:
-                return position_for(by_ld, ld, folded_last, party_slug)
-
-            return fallback
-
-        return factory

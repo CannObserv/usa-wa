@@ -9,6 +9,11 @@ status: draft
 Tracks usa-wa#101. Supersedes the #100 transitional fallback wiring (not a plan file — a
 code path). Related: power-map#302 (at-large seat-model gap, out of scope here).
 
+**Implementation note (2026-07-18).** The composition-root builder shipped as
+`usa_wa_adapter_sos.build_house_spans` (`build_house_position_spans`), driven daily by a
+standalone `usa_wa_adapter_sos.refresh` oneshot + timer — **not** `build_sos_house_spans`, which
+was retired. Mentions of `build_sos_house_spans` below are the pre-implementation name.
+
 ## Problem
 
 Post-#100, the WA House Position seat is built by two builders that mint the **same span
@@ -124,11 +129,11 @@ data floor and out of scope here.
 - **Coverage change is intentional**: Position coverage becomes uniform 2008→present (SOS
   floor), *better* than the fallback model; pre-2008 House stays honestly position-less (party +
   committees still covered). No regression, but call it out in the deploy notes.
-- **Pre-2018 PDC `person_wa_pdc` identifier backfill (follow-up, not blocking)**: the retired
-  `build_sos_house_spans` was the only driver that injected the SOS fallback into
-  `build_pdc_spans`, which is what let a pre-2018 House winner match (the identifier link is
-  coupled to a resolved position). `build_pdc_spans` retains the `house_position_fallback` param,
-  so the capability survives, but no CLI currently injects it for a historical identifier
-  backfill. The daily 2018+ identifiers are unaffected (PDC has positions there). Pre-2018
-  historical `person_wa_pdc` links are an enrichment deferred to a follow-up run — noted so it is
-  not mistaken for a regression.
+- **Pre-2018 PDC `person_wa_pdc` identifier backfill (follow-up, not blocking)**: a pre-2018
+  House winner can only match (and so cross-link a `person_wa_pdc` identifier) when the SOS ballot
+  Position is injected into the PDC match — the link is coupled to a resolved position. The
+  retired `build_sos_house_spans` was the only driver that wired that injection into
+  `build_pdc_spans`; its `house_position_fallback` param was **removed as dead code** (CR round 2,
+  finding 6) once that driver was deleted. The daily 2018+ identifiers are unaffected (PDC has
+  positions there). A pre-2018 historical `person_wa_pdc` backfill is deferred to a follow-up that
+  re-adds the SOS→PDC position injection — noted so its absence is not mistaken for a regression.

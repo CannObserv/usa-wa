@@ -142,7 +142,8 @@ async def _retire_onto(
 async def migrate_house_source(session: AsyncSession) -> MigrationResult:
     """Retire ``usa_wa_pdc`` House Position span rows onto their covering ``usa_wa_legislature``
     span, transferring the PM anchor (#101). Run **after** ``build_house_spans``. Idempotent —
-    a second run finds no ``usa_wa_pdc`` chamber-house span rows."""
+    a second run retires nothing new (``retired=0``); any residual ``pdc_house_found`` is the
+    ``orphans_no_keeper`` set (PDC rows with no covering keeper), re-left untouched."""
     pdc_rows = (
         (
             await session.execute(

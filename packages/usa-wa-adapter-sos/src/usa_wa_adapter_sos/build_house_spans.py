@@ -115,6 +115,12 @@ async def build_house_position_spans(
         if event is not None:
             fetch_events[biennium] = event
 
+    # Daily re-drive: "observed" keys on a *resolved SOS position*, not mere roster presence
+    # (unlike the sponsor/PDC re-drives), so a current member the SOS archive can't position drops
+    # out here and their open seat is swept closed below. Safe only because the SOS filing archive
+    # is immutable within a biennium and the WSL folded surname is stable → position_for is
+    # deterministic across daily runs (a genuine flip is a real data change); max_close_fraction
+    # bounds any mass close.
     if restrict_to_biennium is not None:
         observed = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
         observations = [o for o in observations if o.member_id in observed]
