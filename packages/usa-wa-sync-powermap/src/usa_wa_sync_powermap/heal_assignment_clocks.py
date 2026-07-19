@@ -36,7 +36,7 @@ from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.queries import live_only
-from clearinghouse_sync_powermap.client import DeliveryBlockedError
+from clearinghouse_sync_powermap.client import DeliveryBlockedError, RetryableClientError
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import AssignmentDescriptor
 from usa_wa_sync_powermap.registry import build_pm_client
@@ -45,6 +45,27 @@ logger = get_logger(__name__)
 
 #: Exit code for a guardrail abort (empty cohort).
 EXIT_ABORTED = 3
+
+#: Foreground backoff schedule (seconds) on a 429/5xx — small, like ``validate_committees``, so a
+#: transient rate-limit doesn't stall the read-heavy heal. #102 deploys this against a PM that is
+#: *actively* 429-ing, so a single throttled GET must retry, not crash the whole run. Exhausting
+#: the budget re-raises so a persistent outage surfaces (idempotent — re-run resumes at parity).
+_BACKOFF_SECONDS = (1, 2, 4, 8)
+
+
+async def _fetch_record(
+    descriptor: Any, client: Any, pm_id: Any, *, sleep=asyncio.sleep
+) -> dict | None:
+    """Fetch one PM record via the descriptor, retrying :class:`RetryableClientError` (429/5xx) on
+    the bounded :data:`_BACKOFF_SECONDS` schedule (the PM client surfaces but does not retry it).
+    Re-raises after the budget is spent."""
+    for delay in _BACKOFF_SECONDS:
+        try:
+            return await descriptor.fetch_record(client, pm_id)
+        except RetryableClientError:
+            logger.warning("heal_pm_retry", extra={"pm_id": str(pm_id), "backoff_s": delay})
+            await sleep(delay)
+    return await descriptor.fetch_record(client, pm_id)
 
 
 async def _anchored_cohort(session: AsyncSession) -> list[Assignment]:
@@ -86,7 +107,7 @@ async def heal_assignment_clocks(session: AsyncSession, descriptor: Any, client:
     healed = at_parity = pending_change = skipped_missing = 0
     for row in cohort:
         pm_id = descriptor.anchor_value(row)
-        record = await descriptor.fetch_record(client, pm_id)
+        record = await _fetch_record(descriptor, client, pm_id)
         if record is None:
             skipped_missing += 1
             logger.warning("heal_pm_missing", extra={"source_id": row.source_id})

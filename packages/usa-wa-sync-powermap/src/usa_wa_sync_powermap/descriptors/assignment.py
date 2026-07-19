@@ -124,5 +124,13 @@ class AssignmentDescriptor(EntityDescriptor):
 
         Builds the observation we would send and compares its mutable fields to PM's record. When
         they match, ``apply_record`` adopts PM's clock instead of enqueuing an identical payload
-        forever — and the one-shot heal uses the same test."""
+        forever — and the one-shot heal uses the same test.
+
+        Guards with :meth:`dependencies_ready` first (CR #102): the gate now calls
+        ``to_observation`` on the reconcile hot path, where a deps-not-ready row would either build
+        a garbage observation (``person_id="None"`` on an un-anchored person) or raise on a missing
+        person/role. Not-ready → ``False`` (enqueue as before; ``_deliver`` then defers at drain),
+        never a spurious noop nor a mid-reconcile crash."""
+        if not await self.dependencies_ready(session, existing):
+            return False
         return self.observation_matches_record(await self.to_observation(session, existing), record)

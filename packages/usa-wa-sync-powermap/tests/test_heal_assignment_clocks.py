@@ -14,6 +14,7 @@ from datetime import UTC, date, datetime
 from ulid import ULID
 
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
+from clearinghouse_sync_powermap.client import RetryableClientError
 from usa_wa_sync_powermap import heal_assignment_clocks as heal
 from usa_wa_sync_powermap.descriptors import AssignmentDescriptor
 
@@ -151,6 +152,52 @@ async def test_heal_skips_pm_404(db_session):
 async def test_heal_empty_cohort_aborts(db_session):
     result = await heal.heal_assignment_clocks(db_session, AssignmentDescriptor(), _FakeClient({}))
     assert result["aborted"] == "empty_cohort"
+
+
+async def test_heal_is_idempotent(db_session):
+    """CR finding 4: a second run of a mutating CLI must be a no-op. After healing, local == PM,
+    so the row reads at_parity — healed=0 on the re-run (unlike the committee heal, which
+    force-adopts unconditionally and re-reports healed)."""
+    anchor = ULID()
+    await _add_assignment(db_session, anchor=anchor, updated_at=datetime(2031, 1, 1, tzinfo=UTC))
+    client = _FakeClient({str(anchor): _pm_record(anchor)})
+    descriptor = AssignmentDescriptor()
+
+    first = await heal.heal_assignment_clocks(db_session, descriptor, client)
+    assert first["healed"] == 1
+    second = await heal.heal_assignment_clocks(db_session, descriptor, client)
+    assert second["healed"] == 0 and second["at_parity"] == 1
+
+
+class _RetryOnceClient:
+    """get_entity raises RetryableClientError (a 429) once, then succeeds — for the backoff test."""
+
+    def __init__(self, record):
+        self._record = record
+        self.calls = 0
+
+    async def get_entity(self, _path, pm_id):
+        self.calls += 1
+        if self.calls == 1:
+            raise RetryableClientError("PM 429")
+        return self._record
+
+
+async def test_fetch_record_retries_retryable_error_then_succeeds():
+    """CR finding 2: the heal deploys against a 429-ing PM, so a transient RetryableClientError
+    must be retried on the bounded schedule, not crash the whole run."""
+    slept: list[float] = []
+
+    async def _sleep(delay):
+        slept.append(delay)
+
+    anchor = ULID()
+    client = _RetryOnceClient({"id": str(anchor)})
+    record = await heal._fetch_record(AssignmentDescriptor(), client, anchor, sleep=_sleep)
+
+    assert record == {"id": str(anchor)}
+    assert client.calls == 2  # first 429 retried
+    assert slept == [heal._BACKOFF_SECONDS[0]]  # one backoff before the successful retry
 
 
 def test_observation_matches_record_compares_mutable_fields():

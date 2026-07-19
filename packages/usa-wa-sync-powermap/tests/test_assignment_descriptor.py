@@ -172,3 +172,21 @@ async def test_last_updated_row_and_record(db_session, descriptor):
     assert descriptor.last_updated({"updated_at": "2026-06-02T00:00:00Z"}) == datetime(
         2026, 6, 2, tzinfo=UTC
     )
+
+
+async def test_local_newer_is_noop_guards_unready_dependencies(db_session, descriptor):
+    """#102 (CR finding 1): the gate calls to_observation on the reconcile hot path. On a
+    deps-not-ready row that builds a GARBAGE observation (str(None) → person_id="None" on an
+    un-anchored person) whose mutable fields still "match" PM — so without the guard it wrongly
+    reports a noop and skips the enqueue for a row that was never properly produced (and a missing
+    person/role would raise). local_newer_is_noop must guard with dependencies_ready → False."""
+    a, _p, _r = await _scaffold(db_session, role_anchor=ULID())  # role anchored, person NOT
+    record = {"is_current": True, "start_date": "2025-01-01", "end_date": None}
+    assert await descriptor.local_newer_is_noop(db_session, a, record) is False
+
+
+async def test_local_newer_is_noop_true_when_ready_and_payload_matches(db_session, descriptor):
+    """The happy path the guard must preserve: deps ready + PM reflects the same tenure → noop."""
+    a, _p, _r = await _scaffold(db_session, person_anchor=ULID(), role_anchor=ULID())
+    record = {"is_current": True, "start_date": "2025-01-01", "end_date": None}
+    assert await descriptor.local_newer_is_noop(db_session, a, record) is True
