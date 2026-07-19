@@ -15,8 +15,8 @@ from unittest.mock import patch
 
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
-from usa_wa_adapter_sos import migrate_house_source as migrate_module
-from usa_wa_adapter_sos.migrate_house_source import migrate_house_source
+from usa_wa_adapter_sos.house import migrate as migrate_module
+from usa_wa_adapter_sos.house.migrate import migrate_house_source
 
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role

@@ -18,16 +18,14 @@ so the archived wire is the durable record and the endpoint shape is pinned by a
 
 from __future__ import annotations
 
-import asyncio
 import csv
 import io
-import os
-import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
+
+from usa_wa_adapter_sos.ratelimit import AsyncRateLimiter, env_float
 
 #: The votewa election-data host.
 SOS_BASE_URL = "https://eledataweb.votewa.gov"
@@ -69,52 +67,17 @@ def parse_whofiled(wire: bytes) -> list[dict[str, Any]]:
     return list(csv.DictReader(io.StringIO(text)))
 
 
-class _AsyncRateLimiter:
-    """Async min-interval gate. :meth:`acquire` reserves the next evenly-spaced slot under a
-    lock, then sleeps (outside the lock) until it, so sequential callers are spaced by
-    ``min_interval``. ``monotonic``/``sleep`` are injectable for deterministic tests."""
-
-    def __init__(
-        self,
-        min_interval: float,
-        *,
-        monotonic: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], Any] = asyncio.sleep,
-    ) -> None:
-        self._min = max(0.0, min_interval)
-        self._monotonic = monotonic
-        self._sleep = sleep
-        self._lock = asyncio.Lock()
-        self._next = 0.0
-
-    def set_interval(self, min_interval: float) -> None:
-        self._min = max(0.0, min_interval)
-
-    async def acquire(self) -> None:
-        if self._min <= 0:
-            return
-        async with self._lock:
-            slot = max(self._monotonic(), self._next)
-            self._next = slot + self._min
-            delay = slot - self._monotonic()
-        if delay > 0:
-            await self._sleep(delay)
+#: Back-compat alias — the gate now lives in the shared :mod:`usa_wa_adapter_sos.ratelimit`.
+_AsyncRateLimiter = AsyncRateLimiter
 
 
 def _env_min_interval() -> float:
-    """Read ``USA_WA_SOS_MIN_REQUEST_INTERVAL``, falling back to the default on a malformed
-    value — a bad env var must not crash every votewa caller with an import-time ValueError."""
-    raw = os.environ.get("USA_WA_SOS_MIN_REQUEST_INTERVAL")
-    if raw is None:
-        return DEFAULT_SOS_MIN_REQUEST_INTERVAL
-    try:
-        return float(raw)
-    except ValueError:
-        return DEFAULT_SOS_MIN_REQUEST_INTERVAL
+    """Read ``USA_WA_SOS_MIN_REQUEST_INTERVAL`` (default on unset/malformed)."""
+    return env_float("USA_WA_SOS_MIN_REQUEST_INTERVAL", DEFAULT_SOS_MIN_REQUEST_INTERVAL)
 
 
 #: The one shared limiter every votewa GET passes through (the #77 central-governor pattern).
-_SOS_LIMITER = _AsyncRateLimiter(_env_min_interval())
+_SOS_LIMITER = AsyncRateLimiter(_env_min_interval())
 
 
 def configure_sos_rate_limit(min_interval: float) -> None:
@@ -129,7 +92,7 @@ def general_election_date(election_year: int) -> str:
     return f"{election_year}11"
 
 
-class SOSClient:
+class SOSFilingsClient:
     """Thin async votewa reader for the candidate-filing CSV export."""
 
     def __init__(

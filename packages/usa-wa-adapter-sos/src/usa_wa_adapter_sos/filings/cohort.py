@@ -1,7 +1,7 @@
 """Archive-first SOS filing-cohort provider (#100/#101, Phase B).
 
 Turns the archived votewa filing cohorts into the House **Position** the WSL+SOS builder
-(:func:`usa_wa_adapter_sos.build_house_spans.build_house_position_spans`) consumes:
+(:func:`usa_wa_adapter_sos.house.build.build_house_position_spans`) consumes:
 :meth:`house_filings` yields ``{election_year: {LD: [HouseFiling]}}`` re-parsed **offline** from
 each ``sos-whofiled:<YYYYMM>`` :class:`RawPayload` (written by :mod:`harvest_sos`) — no votewa
 re-pull — and :meth:`citation_events` yields the per-year attesting FetchEvent the positioned
@@ -21,9 +21,12 @@ from ulid import ULID as _ULID
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
 from usa_wa_adapter_legislature.span_emit import CitationTarget
-from usa_wa_adapter_sos.adapter import WHOFILED_RESOURCE_PREFIX, election_year_from_resource_id
-from usa_wa_adapter_sos.normalize.filings import HouseFiling, build_house_filings
-from usa_wa_adapter_sos.transport import parse_whofiled
+from usa_wa_adapter_sos.filings.adapter import (
+    WHOFILED_RESOURCE_PREFIX,
+    election_year_from_resource_id,
+)
+from usa_wa_adapter_sos.filings.normalize import HouseFiling, build_house_filings
+from usa_wa_adapter_sos.filings.transport import parse_whofiled
 
 logger = get_logger(__name__)
 

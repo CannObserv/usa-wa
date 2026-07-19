@@ -8,7 +8,7 @@ archive offline (the WSL+SOS House Position seat, #101).
 Floor **2008** — the PDC winner floor this fills against; earlier years have no PDC cohort to
 join. Cohorts of a closed year are cache hits on re-run.
 
-    python -m usa_wa_adapter_sos.harvest_sos --from-year 2008 --to-year 2016 [--dry-run]
+    python -m usa_wa_adapter_sos.filings.harvest --from-year 2008 --to-year 2016 [--dry-run]
 """
 
 from __future__ import annotations
@@ -27,9 +27,9 @@ from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 from usa_wa_adapter_legislature.refresh import biennium_for_date
-from usa_wa_adapter_sos.adapter import SOSAdapter, whofiled_resource_id
+from usa_wa_adapter_sos.filings.adapter import SOSAdapter, whofiled_resource_id
+from usa_wa_adapter_sos.filings.transport import SOSFilingsClient, configure_sos_rate_limit
 from usa_wa_adapter_sos.provisioning import get_or_create_source
-from usa_wa_adapter_sos.transport import SOSClient, configure_sos_rate_limit
 
 logger = get_logger(__name__)
 
@@ -57,7 +57,7 @@ async def harvest_sos(
     session: AsyncSession,
     *,
     years: list[int],
-    sos_client: SOSClient | None = None,
+    sos_client: SOSFilingsClient | None = None,
     dry_run: bool = False,
     force: bool = False,
 ) -> HarvestSummary:
@@ -66,7 +66,7 @@ async def harvest_sos(
     re-run from the floor — closed years cache-hit, so it resumes cheaply."""
     jurisdiction = await resolve_jurisdiction(session)
     source = await get_or_create_source(session, jurisdiction)
-    adapter = SOSAdapter(election_years=years, client=sos_client or SOSClient())
+    adapter = SOSAdapter(election_years=years, client=sos_client or SOSFilingsClient())
     runner = AdapterRunner(
         adapter,
         session,

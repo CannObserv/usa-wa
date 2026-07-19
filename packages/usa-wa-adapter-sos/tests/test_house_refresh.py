@@ -16,9 +16,9 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
-from usa_wa_adapter_sos import refresh as refresh_module
-from usa_wa_adapter_sos.refresh import run_refresh
-from usa_wa_adapter_sos.transport import WireFetch
+from usa_wa_adapter_sos.house import refresh as refresh_module
+from usa_wa_adapter_sos.house.refresh import run_refresh
+from usa_wa_adapter_sos.results.transport import WireFetch
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
@@ -39,14 +39,14 @@ class FakeSOSClient:
     def __init__(self, csv_rows=None):
         self._rows = csv_rows or []
 
-    async def fetch_whofiled(self, election_year):
-        header = "RaceName,RaceJurisdictionName,BallotName,PartyName\r\n"
+    async def fetch_legislative_results(self, election_year):
+        header = '"Race","Candidate","Party"\r\n'
         body = "".join(
-            f"{race},Legislative District {ld},{ballot},{party}\r\n"
+            f'"LEGISLATIVE DISTRICT {ld} - {race}","{ballot}","{party}"\r\n'
             for race, ld, ballot, party in self._rows
         )
         wire = (header + body).encode()
-        return WireFetch(records=[], wire=wire, content_type="text/csv")
+        return WireFetch(records=[], wire=wire, content_type="application/octet-stream")
 
 
 @pytest.fixture

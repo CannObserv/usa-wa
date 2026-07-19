@@ -13,10 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import RetentionPolicy, Source
-from usa_wa_adapter_sos.transport import SOS_BASE_URL
+from usa_wa_adapter_sos.filings.transport import SOS_BASE_URL
+from usa_wa_adapter_sos.results.transport import RESULTS_BASE_URL
 
-#: The SOS source slug — matches :attr:`SOSAdapter.source_slug` and the ``Source`` row.
+#: The filings source slug — matches :attr:`SOSAdapter.source_slug` and its ``Source`` row.
 SOS_SOURCE_SLUG = "usa_wa_sos"
+
+#: The results source slug — matches :attr:`ResultsAdapter.source_slug` and its ``Source`` row.
+RESULTS_SOURCE_SLUG = "usa_wa_sos_results"
 
 
 async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction) -> Source:
@@ -36,6 +40,29 @@ async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction
         cache_ttl_days=1,
         # The archived filing CSV (#54) is a long-lived provenance record, not an operational
         # cache — exempt from any future RawPayload GC.
+        retention_policy=RetentionPolicy.archival,
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def get_or_create_results_source(session: AsyncSession, jurisdiction: Jurisdiction) -> Source:
+    """Get-or-create the ``usa_wa_sos_results`` REST :class:`Source` (idempotent) — the results
+    source's own provenance root, distinct from the filings ``usa_wa_sos`` Source (#101)."""
+    existing = (
+        await session.execute(select(Source).where(Source.slug == RESULTS_SOURCE_SLUG))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    row = Source(
+        jurisdiction_id=jurisdiction.id,
+        name="WA Secretary of State (election results)",
+        slug=RESULTS_SOURCE_SLUG,
+        kind="rest",
+        base_url=RESULTS_BASE_URL,
+        reliability=1.0,
+        cache_ttl_days=1,
         retention_policy=RetentionPolicy.archival,
     )
     session.add(row)

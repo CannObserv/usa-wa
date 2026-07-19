@@ -7,7 +7,7 @@ Re-recording is a deliberate one-shot dev workflow. To re-record a cassette, del
 target file and run its test with ``SOS_RECORD=1`` set, e.g.::
 
     SOS_RECORD=1 uv run pytest --no-cov \
-        packages/usa-wa-adapter-sos/tests/test_transport.py -k fetch_whofiled
+        packages/usa-wa-adapter-sos/tests/test_filings_transport.py -k fetch_whofiled
 
 which flips the fixture to ``record_mode='once'`` for that run (hits live votewa once).
 """
@@ -19,15 +19,17 @@ from pathlib import Path
 
 import pytest
 import vcr
-from usa_wa_adapter_sos.transport import configure_sos_rate_limit
+from usa_wa_adapter_sos.filings.transport import configure_sos_rate_limit
+from usa_wa_adapter_sos.results.transport import configure_results_rate_limit
 
 CASSETTE_DIR = Path(__file__).parent / "cassettes"
 
 
 @pytest.fixture(autouse=True)
 def _zero_sos_rate_limit() -> None:
-    """Disable the central votewa courtesy gate so tests never sleep on it."""
+    """Disable both WA SOS courtesy gates (filings + results hosts) so tests never sleep."""
     configure_sos_rate_limit(0)
+    configure_results_rate_limit(0)
 
 
 @pytest.fixture

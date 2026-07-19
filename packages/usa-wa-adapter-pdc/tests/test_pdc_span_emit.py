@@ -1,7 +1,7 @@
 """PDC ``person_wa_pdc`` identifier links (#79; identifier-only since #101).
 
 The idempotent ``person_wa_pdc`` child-identifier upsert — PDC's demoted contribution. The House
-Position seat emission moved to :mod:`usa_wa_adapter_sos.house_span_emit` (#101); see
+Position seat emission moved to :mod:`usa_wa_adapter_sos.house.emit` (#101); see
 ``packages/usa-wa-adapter-sos/tests/test_house_span_emit.py``.
 """
 

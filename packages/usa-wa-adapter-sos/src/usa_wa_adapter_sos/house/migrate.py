@@ -2,7 +2,7 @@
 
 The re-partition makes the House Position seat ``usa_wa_legislature``-sourced (symmetric with the
 Senate seat), built by the WSL+SOS builder
-(:func:`usa_wa_adapter_sos.build_house_spans.build_house_position_spans`). Existing prod rows were
+(:func:`usa_wa_adapter_sos.house.build.build_house_position_spans`). Existing prod rows were
 built by the retired PDC House emission and are ``usa_wa_pdc``-sourced; this migration retires each
 onto the ``usa_wa_legislature`` span that covers it, transferring the PM anchor — so the local
 cache holds ONE row per PM assignment and the anchor stays valid (PM keys assignments on

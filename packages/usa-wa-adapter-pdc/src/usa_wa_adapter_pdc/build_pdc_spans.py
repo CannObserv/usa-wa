@@ -7,7 +7,7 @@ matches each winner to a WSL :class:`Person`, and emits the ``person_wa_pdc`` cr
 identifier links (House winners + the #74 mid-biennium movers + the #75 Senate cohort).
 
 **PDC is identifier-only (#101).** The House Position **seat** is now built by the WSL+SOS
-builder (:func:`usa_wa_adapter_sos.build_house_spans.build_house_position_spans`,
+builder (:func:`usa_wa_adapter_sos.house.build.build_house_position_spans`,
 ``usa_wa_legislature``-sourced, symmetric with the Senate seat) — PDC no longer emits or sweeps
 House Position Assignments. This builder keeps only PDC's demoted contribution: the
 ``person_wa_pdc`` identifier linking a WSL Person to their PDC filer id. Retiring the House span

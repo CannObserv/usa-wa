@@ -1,4 +1,4 @@
-"""Transport tests — votewa ``SOSClient`` against a recorded cassette.
+"""Transport tests — votewa ``SOSFilingsClient`` against a recorded cassette.
 
 The round-trip test replays a real votewa CSV export and pins the field names + House row
 shape the position resolver depends on, and proves the offline re-parser recovers the live
@@ -8,10 +8,10 @@ parse from the archived wire (the #56 cache path).
 from __future__ import annotations
 
 import pytest
-from usa_wa_adapter_sos.transport import (
+from usa_wa_adapter_sos.filings.transport import (
     ALL_COUNTIES,
     DEFAULT_SOS_MIN_REQUEST_INTERVAL,
-    SOSClient,
+    SOSFilingsClient,
     _AsyncRateLimiter,
     _env_min_interval,
     general_election_date,
@@ -28,7 +28,7 @@ def test_general_election_date_is_november() -> None:
 
 
 def test_whofiled_params_select_statewide_election() -> None:
-    params = SOSClient.whofiled_params("201611")
+    params = SOSFilingsClient.whofiled_params("201611")
     assert params["electionDate"] == "201611"
     assert params["countyCode"] == ALL_COUNTIES
 
@@ -49,7 +49,7 @@ def test_parse_whofiled_tolerates_utf8_bom() -> None:
 @pytest.mark.asyncio
 async def test_fetch_whofiled_round_trip(sos_vcr) -> None:
     with sos_vcr.use_cassette("whofiled_2016.yaml"):
-        fetch = await SOSClient().fetch_whofiled(ELECTION_YEAR)
+        fetch = await SOSFilingsClient().fetch_whofiled(ELECTION_YEAR)
 
     assert fetch.records, "expected candidate filings"
     assert fetch.wire, "expected pristine archival CSV bytes"
