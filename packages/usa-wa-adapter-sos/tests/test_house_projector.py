@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster
 from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
-from usa_wa_adapter_sos.normalize.filings import build_house_filings
-from usa_wa_adapter_sos.normalize.house_seats import build_house_seat_observations
+from usa_wa_adapter_sos.filings.normalize import build_house_filings
+from usa_wa_adapter_sos.house.projector import build_house_seat_observations
 
 from usa_wa_adapter_legislature.tenure_spans import Observation
 

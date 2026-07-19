@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 from usa_wa_adapter_pdc.normalize.positions import fold_token, surname_match_set
-from usa_wa_adapter_sos.normalize.filings import (
+from usa_wa_adapter_sos.filings.normalize import (
     HouseFiling,
     build_house_filings,
     filing_ld,
@@ -17,7 +17,7 @@ from usa_wa_adapter_sos.normalize.filings import (
     position_for,
     sos_party_slug,
 )
-from usa_wa_adapter_sos.transport import SOSClient
+from usa_wa_adapter_sos.filings.transport import SOSFilingsClient
 
 
 def _row(race, ld, ballot, party="(Prefers Democratic Party)"):
@@ -102,7 +102,7 @@ async def test_real_2016_cohort_resolves_a_known_seat(sos_vcr) -> None:
     """Lock the projector to the real votewa CSV shape: parse the recorded 2016 cohort and
     resolve a known LD-15 seat (Bruce Chandler, Pos. 1)."""
     with sos_vcr.use_cassette("whofiled_2016.yaml"):
-        fetch = await SOSClient().fetch_whofiled(2016)
+        fetch = await SOSFilingsClient().fetch_whofiled(2016)
     filings = build_house_filings(fetch.records)
     assert filings, "expected House filings parsed from the real cohort"
     assert position_for(filings, 15, fold_token("Chandler"), "republican") == "Position 1"

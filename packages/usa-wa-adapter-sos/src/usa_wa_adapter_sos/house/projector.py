@@ -23,7 +23,7 @@ from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 from usa_wa_adapter_pdc.normalize.positions import house_span_discriminator
 
 from usa_wa_adapter_legislature.tenure_spans import Observation
-from usa_wa_adapter_sos.normalize.filings import HouseFiling, position_for
+from usa_wa_adapter_sos.filings.normalize import HouseFiling, position_for
 
 
 @dataclass(frozen=True)

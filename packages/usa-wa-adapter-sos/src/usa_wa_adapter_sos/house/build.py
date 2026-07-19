@@ -49,10 +49,10 @@ from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvide
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.tenure_spans import Observation, build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
-from usa_wa_adapter_sos.house_span_emit import emit_house_position_spans
-from usa_wa_adapter_sos.normalize.house_seats import build_house_seat_observations
+from usa_wa_adapter_sos.filings.cohort import SosFilingCohortProvider
+from usa_wa_adapter_sos.house.emit import emit_house_position_spans
+from usa_wa_adapter_sos.house.projector import build_house_seat_observations
 from usa_wa_adapter_sos.provisioning import get_or_create_source as get_or_create_sos_source
-from usa_wa_adapter_sos.sos_cohort import SosFilingCohortProvider
 
 logger = get_logger(__name__)
 

@@ -9,7 +9,7 @@ Daily counterpart to the WSL refresh, **identifier-only since #101**. It:
    #74 movers + the #75 Senate cohort), era-matched.
 
 **The House Position seat is no longer PDC's (#101).** It is built by the WSL+SOS builder
-(:func:`usa_wa_adapter_sos.build_house_spans.build_house_position_spans`,
+(:func:`usa_wa_adapter_sos.house.build.build_house_position_spans`,
 ``usa_wa_legislature``-sourced, symmetric with the Senate seat), driven daily by the SOS refresh.
 PDC is demoted to the identifier link only — which removes the #100 CR finding-1 two-builder
 depth mismatch (this refresh no longer rebuilds a shallow ``usa_wa_pdc`` House span for a sweep

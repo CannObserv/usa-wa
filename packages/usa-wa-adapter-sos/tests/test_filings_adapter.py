@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from usa_wa_adapter_sos.adapter import (
+from usa_wa_adapter_sos.filings.adapter import (
     SOSAdapter,
     election_year_from_resource_id,
     whofiled_resource_id,
 )
-from usa_wa_adapter_sos.transport import SOSClient
+from usa_wa_adapter_sos.filings.transport import SOSFilingsClient
 
 ELECTION_YEAR = 2016
 
@@ -26,14 +26,14 @@ def test_election_year_from_unknown_resource_id_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_discover_yields_a_cohort_per_configured_year() -> None:
-    adapter = SOSAdapter(election_years=[2008, 2016], client=SOSClient())
+    adapter = SOSAdapter(election_years=[2008, 2016], client=SOSFilingsClient())
     refs = [ref.resource_id async for ref in adapter.discover(None)]
     assert refs == ["sos-whofiled:200811", "sos-whofiled:201611"]
 
 
 @pytest.mark.asyncio
 async def test_fetch_one_archives_pristine_csv_with_stamped_url(sos_vcr) -> None:
-    adapter = SOSAdapter(election_years=[ELECTION_YEAR], client=SOSClient())
+    adapter = SOSAdapter(election_years=[ELECTION_YEAR], client=SOSFilingsClient())
     with sos_vcr.use_cassette("whofiled_2016.yaml"):
         payload = await adapter.fetch_one("sos-whofiled:201611")
 
@@ -48,6 +48,6 @@ async def test_fetch_one_archives_pristine_csv_with_stamped_url(sos_vcr) -> None
 
 @pytest.mark.asyncio
 async def test_normalize_is_guarded_archive_only() -> None:
-    adapter = SOSAdapter(election_years=[ELECTION_YEAR], client=SOSClient())
+    adapter = SOSAdapter(election_years=[ELECTION_YEAR], client=SOSFilingsClient())
     with pytest.raises(NotImplementedError, match="archive-only"):
         await adapter.normalize(None)  # type: ignore[arg-type]

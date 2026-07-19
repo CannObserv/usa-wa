@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from ulid import ULID as _ULID
 from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster
 from usa_wa_adapter_pdc.normalize.pdc_observations import build_house_position_observations
-from usa_wa_adapter_sos.house_span_emit import emit_house_position_spans
+from usa_wa_adapter_sos.house.emit import emit_house_position_spans
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source

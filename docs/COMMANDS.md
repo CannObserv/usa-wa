@@ -125,7 +125,7 @@ python -m usa_wa_adapter_pdc.refresh
 # Position seat spans (current biennium = the open end). Reads the sitting roster archive-first from
 # the WSL sponsor archive (who sits) + the SOS archive (the Position). Prod runs this daily at 06:45
 # UTC (after the WSL refresh) via usa-wa-sos-refresh.timer; independent of the PDC refresh.
-python -m usa_wa_adapter_sos.refresh
+python -m usa_wa_adapter_sos.house.refresh
 ```
 
 ### PDC historical backfill (#79)
@@ -175,8 +175,8 @@ python -m usa_wa_adapter_pdc.migrate_pdc_spans
 # Phase A — archive the votewa filing cohorts (archive-only; CSV wire hashed #54). Even general-
 # election years from the floor (2008) to current; closed years cache-hit on re-run. Central
 # pacing via --pause-seconds (votewa courtesy floor). A mid-sweep failure aborts — re-run from floor.
-python -m usa_wa_adapter_sos.harvest_sos --dry-run
-python -m usa_wa_adapter_sos.harvest_sos --from-year 2008 --pause-seconds 1.0
+python -m usa_wa_adapter_sos.filings.harvest --dry-run
+python -m usa_wa_adapter_sos.filings.harvest --from-year 2008 --pause-seconds 1.0
 
 # Phase B — WSL+SOS House Position span build (archive-first, no live pull): the sitting House
 # roster (WSL sponsor archive) x the SOS filing archive (the Position) -> merged usa_wa_legislature
@@ -185,8 +185,8 @@ python -m usa_wa_adapter_sos.harvest_sos --from-year 2008 --pause-seconds 1.0
 # DEPENDS ON Phase A + the WSL sponsor archive/Persons (#77). Ends with the #83 stale-span sweep
 # (usa_wa_legislature, chamber-house); same mass-close guard (--max-close-fraction, (0,1], 1.0
 # disables). --biennium scopes to a biennium's current members (each keeps full history).
-python -m usa_wa_adapter_sos.build_house_spans --dry-run
-python -m usa_wa_adapter_sos.build_house_spans
+python -m usa_wa_adapter_sos.house.build --dry-run
+python -m usa_wa_adapter_sos.house.build
 
 # Migration — OWNER ROLE, one-shot, run AFTER build_house_spans. Retires existing usa_wa_pdc
 # 4-part chamber-house rows onto the usa_wa_legislature span that COVERS them (mapped by
@@ -196,16 +196,16 @@ python -m usa_wa_adapter_sos.build_house_spans
 # start), so the deep keeper IS that tenure), deletes the PDC row + its citations (owner-only #54).
 # A PDC row with no covering keeper (SOS couldn't position that member) is left as orphans_no_keeper.
 # 3-part legacy rows are migrate_pdc_spans's job (skipped_legacy). Idempotent; --dry-run.
-python -m usa_wa_adapter_sos.migrate_house_source --dry-run
-python -m usa_wa_adapter_sos.migrate_house_source
+python -m usa_wa_adapter_sos.house.migrate --dry-run
+python -m usa_wa_adapter_sos.house.migrate
 
 # DEPLOY SEQUENCING (the whole historical backfill), SIDECAR PAUSED throughout. Order matters:
 # build BEFORE migrate, so the deep usa_wa_legislature keeper spans exist for the migration to
 # collapse the stranded PDC rows onto (transferring their anchors) — before anything drains to PM.
 #   sudo systemctl stop usa-wa-sync-powermap
-#   python -m usa_wa_adapter_sos.harvest_sos --from-year 2008        # Phase A (SOS archive)
-#   python -m usa_wa_adapter_sos.build_house_spans                   # Phase B: full-depth rebuild
-#   python -m usa_wa_adapter_sos.migrate_house_source                # OWNER role: collapse PDC->WSL
+#   python -m usa_wa_adapter_sos.filings.harvest --from-year 2008        # Phase A (SOS archive)
+#   python -m usa_wa_adapter_sos.house.build                   # Phase B: full-depth rebuild
+#   python -m usa_wa_adapter_sos.house.migrate                # OWNER role: collapse PDC->WSL
 #   sudo systemctl start usa-wa-sync-powermap                        # let the sidecar drain to PM
 ```
 

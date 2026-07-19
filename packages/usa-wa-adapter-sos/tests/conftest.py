@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 import vcr
-from usa_wa_adapter_sos.transport import configure_sos_rate_limit
+from usa_wa_adapter_sos.filings.transport import configure_sos_rate_limit
 
 CASSETTE_DIR = Path(__file__).parent / "cassettes"
 

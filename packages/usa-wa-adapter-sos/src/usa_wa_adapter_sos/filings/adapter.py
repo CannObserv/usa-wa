@@ -3,8 +3,9 @@
 Fetches a general election's candidate-filing cohort from the votewa CSV export —
 ``sos-whofiled:<YYYYMM>`` — and archives the pristine CSV (#54). It does **not** normalize:
 the SOS contribution (the House ``Position 1/2`` qualifier that PDC lacks pre-2018) is derived
-**archive-first** by the Phase B position provider (:mod:`usa_wa_adapter_sos.sos_cohort`), joined
-to the PDC winner cohort by ``(LD, surname, party)``. The historical harvest drives this adapter
+**archive-first** by the Phase B position provider
+(:mod:`usa_wa_adapter_sos.filings.cohort`), joined to the PDC winner cohort by
+``(LD, surname, party)``. The historical harvest drives this adapter
 through :meth:`~clearinghouse_core.runner.AdapterRunner.archive_only`; :meth:`normalize` is
 therefore unused and raises — symmetric with :class:`~usa_wa_adapter_pdc.adapter.PDCAdapter`.
 """
@@ -15,10 +16,10 @@ from collections.abc import AsyncIterable
 from datetime import UTC, datetime
 
 from clearinghouse_core.adapter import BaseAdapter, FetchedPayload, NormalizedBatch, ResourceRef
-from usa_wa_adapter_sos.transport import (
+from usa_wa_adapter_sos.filings.transport import (
     SOS_BASE_URL,
     WHOFILED_EXPORT_PATH,
-    SOSClient,
+    SOSFilingsClient,
     general_election_date,
 )
 
@@ -45,7 +46,7 @@ def election_year_from_resource_id(resource_id: str) -> int:
 
 def _query(election_year: int) -> str:
     """The export query string stamped onto ``FetchEvent.url`` (provenance of the pull)."""
-    params = SOSClient.whofiled_params(general_election_date(election_year))
+    params = SOSFilingsClient.whofiled_params(general_election_date(election_year))
     return "&".join(f"{k}={v}" for k, v in params.items())
 
 
@@ -56,9 +57,11 @@ class SOSAdapter(BaseAdapter):
     schema_name = "usa_wa_sos"
     jurisdiction_slug = "usa-wa"
 
-    def __init__(self, *, election_years: list[int], client: SOSClient | None = None) -> None:
+    def __init__(
+        self, *, election_years: list[int], client: SOSFilingsClient | None = None
+    ) -> None:
         self.election_years = election_years
-        self._client = client or SOSClient()
+        self._client = client or SOSFilingsClient()
 
     async def discover(self, since: datetime | None) -> AsyncIterable[ResourceRef]:
         """Yield a filing cohort per configured election year. Callers archive these via
@@ -82,7 +85,7 @@ class SOSAdapter(BaseAdapter):
 
     async def normalize(self, payload: FetchedPayload) -> NormalizedBatch:
         """Unused — SOS is archive-only (#100). The House position qualifier is joined to the
-        PDC winner cohort by :mod:`usa_wa_adapter_sos.sos_cohort`, not emitted here. Drive this
+        PDC winner cohort by :mod:`usa_wa_adapter_sos.filings.cohort`, not emitted here. Drive this
         adapter through ``AdapterRunner.archive_only``, not ``fetch_and_normalize``."""
         raise NotImplementedError(
             "SOSAdapter is archive-only (#100); derive positions via sos_cohort, not normalize"

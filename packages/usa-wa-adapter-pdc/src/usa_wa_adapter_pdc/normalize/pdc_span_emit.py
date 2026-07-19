@@ -3,7 +3,7 @@
 The idempotent ``person_wa_pdc`` child-identifier upsert — PDC's demoted contribution since the
 #101 re-partition: a cross-source link attaching a PDC filer id to the WSL-sourced :class:`Person`
 (the #69/#74/#75 links). The House Position **seat** emission moved to
-:mod:`usa_wa_adapter_sos.house_span_emit` when SOS became the seat authority (#101); PDC no longer
+:mod:`usa_wa_adapter_sos.house.emit` when SOS became the seat authority (#101); PDC no longer
 emits the seat.
 """
 

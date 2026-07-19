@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import RetentionPolicy, Source
-from usa_wa_adapter_sos.transport import SOS_BASE_URL
+from usa_wa_adapter_sos.filings.transport import SOS_BASE_URL
 
 #: The SOS source slug — matches :attr:`SOSAdapter.source_slug` and the ``Source`` row.
 SOS_SOURCE_SLUG = "usa_wa_sos"

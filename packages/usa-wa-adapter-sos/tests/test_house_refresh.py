@@ -16,9 +16,9 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
-from usa_wa_adapter_sos import refresh as refresh_module
-from usa_wa_adapter_sos.refresh import run_refresh
-from usa_wa_adapter_sos.transport import WireFetch
+from usa_wa_adapter_sos.filings.transport import WireFetch
+from usa_wa_adapter_sos.house import refresh as refresh_module
+from usa_wa_adapter_sos.house.refresh import run_refresh
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source

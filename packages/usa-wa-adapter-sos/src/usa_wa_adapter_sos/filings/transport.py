@@ -129,7 +129,7 @@ def general_election_date(election_year: int) -> str:
     return f"{election_year}11"
 
 
-class SOSClient:
+class SOSFilingsClient:
     """Thin async votewa reader for the candidate-filing CSV export."""
 
     def __init__(
