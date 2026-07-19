@@ -50,7 +50,7 @@ usa_wa_adapter_<target>/
     adapter.py          #   BaseAdapter: discover / fetch_one / (archive-only or normalize)
     normalize.py        #   pure wire -> typed rows
     cohort.py           #   archive-first provider: {key: [rows]} re-parsed from RawPayload (#56/#82)
-    harvest.py          #   Phase A CLI: sweep the range, archive each wire, per-year resilient
+    harvest.py          #   Phase A CLI: sweep the range, archive each wire, resilient (see note)
   <source_b>/           # another feed from the same target — its own everything
     ...
   provisioning.py       # get-or-create every Source row this package owns
@@ -75,8 +75,14 @@ swept, and reasoned about in isolation:
   (a live fetch is a fallback for an un-archived key only). Joining `RawPayload` is load-bearing:
   a forced daily re-pull re-records a payload-less `FetchEvent`, so "latest" means *latest
   payload-bearing* event (#82).
-- **Resilient harvest** — a Phase A sweep skips-and-logs a year the target 404s/500s and commits
-  the years it reached; one bad year must not roll back the sweep.
+- **Resilient harvest** — how a Phase A sweep handles a bad year depends on the range. A source
+  with **unheld or future years** (e.g. `results`, which 404s a not-yet-certified election)
+  skips-and-logs the bad year in its own SAVEPOINT and commits the years it reached — one bad year
+  must not roll back the sweep, and a *whole-source* outage (every year skipped) raises a distinct
+  signal rather than reading as "nothing to do". A source whose range is **frozen and closed**
+  (e.g. `filings`, retired at 2018 — every year either exists or the feed is dead) may instead
+  deliberately abort-and-resume (a mid-sweep failure rolls back; re-run from the floor, closed
+  years cache-hit): with no future years to skip past, all-or-nothing costs nothing.
 
 ### What makes the application "source-agnostic"
 
@@ -121,7 +127,8 @@ real seats.
 
 1. New `<source>/` subpackage: `transport` (+ offline re-parser, courtesy limiter), `adapter`
    (`BaseAdapter`; archive-only unless the fact is single-cohort-derivable), `normalize` (pure),
-   `cohort` (archive-first), `harvest` (per-year resilient).
+   `cohort` (archive-first), `harvest` (resilient — per-year skip for unheld/future years, else
+   abort-and-resume for a frozen closed range; see *Resilient harvest* above).
 2. A new `Source`/`source_slug` in `provisioning.py`; a non-colliding archive-key scheme.
 3. Audit the feed across its range first; encode every gap/variant as a test.
 4. Point (or add) the application's cohort provider — do **not** widen an application module to

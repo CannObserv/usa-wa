@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from unittest.mock import patch
 
@@ -84,6 +85,25 @@ async def test_harvest_survives_transport_error(db_session, usa_wa):
     assert summary.cohorts_archived == 2 and summary.cohorts_skipped == 1
     rids = {r for (r,) in (await db_session.execute(select(FetchEvent.resource_id))).all()}
     assert rids == {"sos-legresults:20121106", "sos-legresults:20241105"}
+
+
+async def test_harvest_warns_distinctly_on_total_outage(db_session, usa_wa, caplog):
+    """When *every* reached year is skipped (a whole-source outage, not one bad year), a single
+    distinct warning fires so the run doesn't read as 'nothing to do'. Per-year resilience keeps
+    the harvest exit 0 (no year crashed it), but the whole-source failure stays loud in the logs."""
+    client = _FakeResultsClient(transport_fail_years=[2012, 2024])
+    with caplog.at_level(logging.WARNING):
+        summary = await harvest_results(db_session, years=[2012, 2024], results_client=client)
+
+    assert summary.cohorts_archived == 0 and summary.cohorts_skipped == 2
+    messages = [r.message for r in caplog.records]
+    assert "results_harvest_total_outage" in messages
+    # a partial outage (some archived) does NOT fire the total-outage signal
+    ok_client = _FakeResultsClient(transport_fail_years=[2012])
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        await harvest_results(db_session, years=[2012, 2024], results_client=ok_client)
+    assert "results_harvest_total_outage" not in [r.message for r in caplog.records]
 
 
 async def test_main_requires_database_url(monkeypatch, capsys):

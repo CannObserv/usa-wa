@@ -105,6 +105,14 @@ async def harvest_results(
             skipped += 1
             logger.warning("results_cohort_year_skipped", extra={"year": year, "error": str(exc)})
 
+    if archived == 0 and skipped > 0:
+        # Every reached year was skipped — a whole-source outage, not one bad year in a good run.
+        # Per-year resilience keeps this exit 0 (no year crashed the sweep), so raise a single
+        # distinct signal above the per-year skips lest "archived=0" read as "nothing to do".
+        logger.warning(
+            "results_harvest_total_outage", extra={"years": len(years), "skipped": skipped}
+        )
+
     return HarvestSummary(
         years=len(years), cohorts_archived=archived, cohorts_skipped=skipped, dry_run=dry_run
     )
