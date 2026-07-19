@@ -204,6 +204,58 @@ async def test_member_without_position_gets_no_seat(db_session, usa_wa):
     assert (await db_session.execute(select(func.count()).select_from(Assignment))).scalar() == 0
 
 
+async def test_appointee_is_seated_by_elimination_and_cites_the_roster(db_session, usa_wa):
+    """#103 end-to-end: a mid-biennium appointee absent from the SOS ballot is seated by
+    within-LD elimination (the LD's other member is ballot-matched, so the remaining position is
+    theirs), and their span cites the WSL sponsor roster — the wire that names them — while the
+    ballot-matched member keeps citing the SOS cohort. Coverage surfaces the inference."""
+    wsl, sos = await _sources(db_session, usa_wa)
+    await _add_ld(db_session, usa_wa, 33)
+    await _add_person(db_session, 100)
+    await _add_person(db_session, 101)
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2025-26",
+        _sponsor_wire((100, 33, "Gregerson", "House"), (101, 33, "Obras", "House")),
+    )
+    # The 2024 ballot: Gregerson won Pos 2; Pos 1's winner (Orwall) departed and is blanked out
+    # of the roster; her appointed successor (Obras) is on no ballot line.
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20241105",
+        _sos_csv(
+            ("State Representative Pos. 1", 33, "Tina Orwall", "(Prefers Democratic Party)"),
+            ("State Representative Pos. 2", 33, "Mia Gregerson", "(Prefers Democratic Party)"),
+        ),
+    )
+
+    result = await build_house_position_spans(
+        db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
+    )
+
+    assert result.house_spans == 2
+    assert result.coverage[CURRENT]["inferred"] == 1
+
+    async def _cited_resource(source_id):
+        row = (
+            await db_session.execute(select(Assignment).where(Assignment.source_id == source_id))
+        ).scalar_one()
+        cite = (
+            await db_session.execute(select(Citation).where(Citation.entity_id == row.id))
+        ).scalar_one()
+        ev = (
+            await db_session.execute(select(FetchEvent).where(FetchEvent.id == cite.fetch_event_id))
+        ).scalar_one()
+        return ev.resource_id
+
+    inferred = await _cited_resource("101:chamber-house:ld-33-position-1:2025-26")
+    assert inferred == "sponsors:2025-26"  # the wire that names the appointee (#103)
+    matched = await _cited_resource("100:chamber-house:ld-33-position-2:2025-26")
+    assert matched == "sos-legresults:20241105"
+
+
 async def test_departed_member_open_span_is_closed_by_the_sweep(db_session, usa_wa):
     """#83, House: a member who departed at the boundary keeps no observation in the restricted
     rebuild → their open chamber-house span closes at the prior biennium end."""
