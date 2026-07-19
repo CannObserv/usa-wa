@@ -222,6 +222,9 @@ python -m usa_wa_adapter_sos.house.migrate
 #   python -m usa_wa_adapter_sos.house.build                   # Phase B: full-depth rebuild
 #   python -m usa_wa_adapter_sos.house.migrate                # OWNER role: superseded + PDC->WSL
 #   sudo systemctl start usa-wa-sync-powermap                        # let the sidecar drain to PM
+# If the 06:45 timer beats this window: the daily build emits the new spans first and the sidecar
+# parks the colliding entries UNAVAILABLE (#86 anchor conflict, operator alert) — expected and
+# recoverable: run the migrate, then redrive (python -m usa_wa_api.cli.redrive).
 ```
 
 ## Reconcilers & validation (PM sync)

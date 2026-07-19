@@ -261,7 +261,8 @@ async def migrate_house_source(session: AsyncSession) -> MigrationResult:
 async def _main(argv: list[str] | None = None) -> int:
     configure_logging()
     parser = argparse.ArgumentParser(
-        description="Retire usa_wa_pdc House Position rows onto usa_wa_legislature spans (#101)."
+        description="Collapse superseded usa_wa_legislature House rows (#103), then retire "
+        "usa_wa_pdc House Position rows onto usa_wa_legislature spans (#101)."
     )
     parser.add_argument("--dry-run", action="store_true", help="migrate but roll back (preview)")
     args = parser.parse_args(argv)

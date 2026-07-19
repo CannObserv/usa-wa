@@ -8,6 +8,7 @@ authority since #101), citing each biennium's driving SOS cohort — except an *
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 
 import pytest
@@ -214,6 +215,41 @@ async def test_inferred_biennium_cites_the_sponsor_roster_not_the_sos_cohort(
         ).scalars()
     )
     assert cited == {sos_events["2023-24"][0], roster_events[CURRENT][0]}
+
+
+async def test_inferred_citation_fallback_to_sos_is_loud(db_session, usa_wa, anchors, caplog):
+    """CR round 1 (#103 finding 1): an inferred biennium with NO archived roster event falls back
+    to the SOS cohort — re-creating the mis-attestation #103 removes — so it must warn."""
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_person(db_session, 100)
+    sos_events = await _sos_events(db_session, usa_wa, {2024: CURRENT})
+    obs = [Observation("100", KIND_HOUSE, "ld-5-position-1", CURRENT)]
+    spans = build_tenure_spans(obs, current_biennium=CURRENT)
+
+    with caplog.at_level(logging.WARNING):
+        emitted = await emit_house_position_spans(
+            db_session,
+            spans,
+            anchors=anchors,
+            reliability=1.0,
+            fetch_events=sos_events,
+            roster_events={},  # roster never archived for this biennium
+            inferred_keys={("100", CURRENT)},
+        )
+
+    assert emitted == 1
+    row = (
+        await db_session.execute(
+            select(Assignment).where(
+                Assignment.source_id == f"100:chamber-house:ld-5-position-1:{CURRENT}"
+            )
+        )
+    ).scalar_one()
+    cite = (
+        await db_session.execute(select(Citation).where(Citation.entity_id == row.id))
+    ).scalar_one()
+    assert cite.fetch_event_id == sos_events[CURRENT][0]  # the fallback still cites SOS
+    assert "house_inferred_citation_fallback" in [r.message for r in caplog.records]
 
 
 async def test_unsynced_ld_skips_the_span(db_session, usa_wa, anchors):

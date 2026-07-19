@@ -88,7 +88,15 @@ async def emit_house_position_spans(
 
     def _citation_target(span: TenureSpan, biennium: str) -> CitationTarget | None:
         if (span.member_id, biennium) in inferred:
-            return rosters.get(biennium) or fetch_events.get(biennium)
+            roster = rosters.get(biennium)
+            if roster is not None:
+                return roster
+            # The SOS wire doesn't name an inferred member — citing it is the mis-attestation
+            # #103 removes, so the (rare, un-archived-roster) fallback must be loud.
+            logger.warning(
+                "house_inferred_citation_fallback",
+                extra={"member_id": span.member_id, "biennium": biennium},
+            )
         return fetch_events.get(biennium)
 
     return await emit_spans(

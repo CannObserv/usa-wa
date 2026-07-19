@@ -1,11 +1,14 @@
-"""One-shot #101 re-source migration — retire usa_wa_pdc House rows onto usa_wa_legislature spans.
+"""One-shot #101/#103 migration — superseded collapse + retire usa_wa_pdc House rows onto spans.
 
 The re-partition makes the House Position seat ``usa_wa_legislature``-sourced (symmetric with the
 Senate). Existing prod rows built by the retired PDC House emission are ``usa_wa_pdc``-sourced; the
 new WSL+SOS builder emits a span whose ``{start}`` can be **deeper** (SOS positions back to 2008;
 PDC omits the position before 2018), so the migration maps each PDC row onto the covering
 ``usa_wa_legislature`` span by ``(person, role)`` + validity window and transfers the PM anchor —
-NOT an exact-``source_id`` re-point. Run **after** ``build_house_spans``.
+NOT an exact-``source_id`` re-point. Since #103 it first collapses **within-source superseded**
+``usa_wa_legislature`` rows (elimination-deepened tenures strand their shallower-start rows) onto
+the deeper keepers — the ``superseded_*`` tests cover that pass. Run **after**
+``build_house_spans``.
 """
 
 from __future__ import annotations
