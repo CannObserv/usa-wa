@@ -9,8 +9,11 @@ seat (#75); PDC was the pre-#101 authority (``usa_wa_pdc``) and the re-source mi
 rows.
 
 Each biennium of a span cites that biennium's attesting cohort, supplied by the driver via
-``fetch_events`` — the WSL+SOS builder passes the ``sos-whofiled:<YYYYMM>`` filing cohort (the
-Position authority). ``person_wa_pdc`` identifier links are a *separate* concern that stays in
+``fetch_events`` — the WSL+SOS builder passes the ``sos-legresults:<YYYYMMDD>`` results cohort
+(the Position authority) — **except** an elimination-inferred ``(member, biennium)`` (#103),
+which cites the WSL sponsor roster (``roster_events``) instead: the SOS wire never names an
+appointee, so the roster is the document that actually places the member in the LD.
+``person_wa_pdc`` identifier links are a *separate* concern that stays in
 :mod:`usa_wa_adapter_pdc.normalize.pdc_span_emit` (they are PDC's, per-Person, not per-tenure).
 
 Homed in the SOS package because SOS owns the House Position seat since #101; it reuses the PDC
@@ -40,7 +43,8 @@ _HOUSE_SEAT_ROLE_TYPE = "state_representative"
 _HOUSE_SEAT_ROLE_NAME = "State Representative"
 
 #: ``biennium -> (fetch_event_id, fetched_at, resource_id)`` — the cohort attesting one biennium
-#: of a House Position span (``sos-whofiled:<YYYYMM>`` for the WSL+SOS builder).
+#: of a House Position span (``sos-legresults:<YYYYMMDD>`` for the WSL+SOS builder; the sponsor
+#: roster ``sponsors:<biennium>`` for an inferred biennium, #103).
 HouseCitationEvents = dict[str, CitationTarget]
 
 
@@ -51,12 +55,17 @@ async def emit_house_position_spans(
     anchors: BootstrapAnchors,
     reliability: float,
     fetch_events: HouseCitationEvents,
+    roster_events: HouseCitationEvents | None = None,
+    inferred_keys: set[tuple[str, str]] | None = None,
     assignment_source: str = _HOUSE_ASSIGNMENT_SOURCE,
 ) -> int:
     """Upsert one Assignment per House Position span; return the count.
 
     ``assignment_source`` defaults to ``usa_wa_legislature`` (the seat's authority since #101);
-    the seat Role stays ``usa_wa_legislature`` and the Person is WSL's regardless."""
+    the seat Role stays ``usa_wa_legislature`` and the Person is WSL's regardless. An
+    ``inferred_keys`` ``(member_id, biennium)`` pair cites that biennium's ``roster_events``
+    entry instead of ``fetch_events`` (#103 — the roster wire is the one naming the member),
+    falling back to the SOS cohort only if the roster wasn't archived."""
 
     async def _resolve_role(session: AsyncSession, span: TenureSpan) -> Role | None:
         ld, qualifier = parse_house_span_discriminator(span.discriminator)
@@ -74,7 +83,12 @@ async def emit_house_position_spans(
             qualifier=qualifier,
         )
 
-    def _citation_target(_span: TenureSpan, biennium: str) -> CitationTarget | None:
+    inferred = inferred_keys or frozenset()
+    rosters = roster_events or {}
+
+    def _citation_target(span: TenureSpan, biennium: str) -> CitationTarget | None:
+        if (span.member_id, biennium) in inferred:
+            return rosters.get(biennium) or fetch_events.get(biennium)
         return fetch_events.get(biennium)
 
     return await emit_spans(

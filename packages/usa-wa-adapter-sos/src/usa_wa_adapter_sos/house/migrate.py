@@ -32,6 +32,16 @@ historical PDC seat; deleting it would orphan its PM assignment).
 partial unique index is never transiently violated. A keeper already carrying a *different* anchor
 drops the stranded one (``anchors_dropped`` + warned — the #80 orphaned-upstream case).
 
+**Within-source superseded pass (#103), run BEFORE the PDC pass.** The elimination inference
+deepens some members' tenures (an inferred earlier biennium merges in), so an existing anchored
+``usa_wa_legislature`` row can be superseded by a new deeper-start row of the same seat — the
+same shape #97 fixed for sponsor spans. Each superseded row collapses onto its earlier-start
+covering keeper (``_superseded_pairs``); disjoint tenures (served → left → returned) are two real
+runs and stay. It runs first so the PDC pass maps onto **surviving** keepers only — never onto a
+row about to be deleted. A keeper that merged in place (the member's earliest-start row extended)
+already carries its own anchor, so the superseded row's anchor is dropped + warned (one PM
+assignment orphaned upstream, the #80 class).
+
 A **3-part legacy** PDC House row (``{member}:chamber-house:{biennium}``) is
 :mod:`usa_wa_adapter_pdc.migrate_pdc_spans`'s job — run that first; here it is left + counted
 ``skipped_legacy``.
@@ -69,10 +79,11 @@ _ASSIGNMENT_CITATION_TYPE = "assignment"
 
 @dataclass(frozen=True)
 class MigrationResult:
-    """Counts from one re-source pass."""
+    """Counts from one re-source pass. ``superseded_retired`` is the #103 within-source pass."""
 
     pdc_house_found: int
     retired: int
+    superseded_retired: int
     anchors_transferred: int
     anchors_dropped: int
     orphans_no_keeper: int
@@ -98,13 +109,33 @@ def _is_legacy_house(source_id: str) -> bool:
 
 
 def _covering_span(spans: Sequence[Assignment], stranded_valid_from: date) -> Assignment | None:
-    """The ``usa_wa_legislature`` keeper whose validity window contains a stranded PDC row's
+    """The ``usa_wa_legislature`` keeper whose validity window contains a stranded row's
     start (``Assignment.valid_from`` is non-nullable, so the start is always present)."""
     for span in spans:
         upper = span.valid_to or date.max
         if span.valid_from <= stranded_valid_from <= upper:
             return span
     return None
+
+
+def _superseded_pairs(
+    seats: dict[tuple, list[Assignment]],
+) -> list[tuple[Assignment, Assignment]]:
+    """``(superseded_row, keeper)`` for every ``usa_wa_legislature`` House span covered by an
+    **earlier-start** span of the same ``(person, role)`` seat (#103 — elimination deepens
+    tenures, stranding the shallower-start rows; the #97 within-source pattern). A disjoint pair
+    — neither window covering the other's start — yields nothing (two real tenures). The
+    earliest-start row is never superseded."""
+    pairs: list[tuple[Assignment, Assignment]] = []
+    for rows in seats.values():
+        if len(rows) < 2:
+            continue
+        by_start = sorted(rows, key=lambda r: r.valid_from)
+        for i, row in enumerate(by_start):
+            keeper = _covering_span(by_start[:i], row.valid_from)  # strictly-earlier starts only
+            if keeper is not None:
+                pairs.append((row, keeper))
+    return pairs
 
 
 async def _retire_onto(
@@ -141,9 +172,11 @@ async def _retire_onto(
 
 async def migrate_house_source(session: AsyncSession) -> MigrationResult:
     """Retire ``usa_wa_pdc`` House Position span rows onto their covering ``usa_wa_legislature``
-    span, transferring the PM anchor (#101). Run **after** ``build_house_spans``. Idempotent —
-    a second run retires nothing new (``retired=0``); any residual ``pdc_house_found`` is the
-    ``orphans_no_keeper`` set (PDC rows with no covering keeper), re-left untouched."""
+    span, transferring the PM anchor (#101), after first collapsing **within-source superseded**
+    ``usa_wa_legislature`` rows onto their deeper keepers (#103). Run **after**
+    ``build_house_spans``. Idempotent — a second run retires nothing new (``retired=0``,
+    ``superseded_retired=0``); any residual ``pdc_house_found`` is the ``orphans_no_keeper`` set
+    (PDC rows with no covering keeper), re-left untouched."""
     pdc_rows = (
         (
             await session.execute(
@@ -158,23 +191,46 @@ async def migrate_house_source(session: AsyncSession) -> MigrationResult:
     span_rows = [r for r in pdc_rows if _is_span_house(r.source_id)]
     skipped_legacy = sum(1 for r in pdc_rows if _is_legacy_house(r.source_id))
 
-    keepers = (
-        (
-            await session.execute(
-                select(Assignment).where(
-                    Assignment.source == _WSL_SOURCE, Assignment.deleted_at.is_(None)
+    wsl_rows = [
+        r
+        for r in (
+            (
+                await session.execute(
+                    select(Assignment).where(
+                        Assignment.source == _WSL_SOURCE, Assignment.deleted_at.is_(None)
+                    )
                 )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
+        if _is_span_house(r.source_id)
+    ]
+    by_seat: dict[tuple, list[Assignment]] = defaultdict(list)
+    for k in wsl_rows:
+        by_seat[(k.person_id, k.role_id)].append(k)
+
+    # #103 pass 1 — within-source superseded collapse, BEFORE the PDC pass so PDC rows map onto
+    # surviving keepers only.
+    counters = _Counters()
+    superseded_retired = 0
+    retired_ids: set = set()
+    for row, keeper in _superseded_pairs(by_seat):
+        if keeper.id in retired_ids:
+            # A >2-row chain retired this keeper first; the deferred row collapses onto the
+            # surviving root on the next (idempotent) run.
+            logger.warning("house_superseded_chain_deferred", extra={"source_id": row.source_id})
+            continue
+        await _retire_onto(session, row, keeper, counters)
+        retired_ids.add(row.id)
+        superseded_retired += 1
+
     keepers_by_seat: dict[tuple, list[Assignment]] = defaultdict(list)
-    for k in keepers:
-        if _is_span_house(k.source_id):
+    for k in wsl_rows:
+        if k.id not in retired_ids:
             keepers_by_seat[(k.person_id, k.role_id)].append(k)
 
-    counters = _Counters()
+    # Pass 2 — the #101 PDC re-source collapse.
     retired = orphans = 0
     for row in span_rows:
         candidates = keepers_by_seat.get((row.person_id, row.role_id), ())
@@ -192,6 +248,7 @@ async def migrate_house_source(session: AsyncSession) -> MigrationResult:
     result = MigrationResult(
         pdc_house_found=len(span_rows),
         retired=retired,
+        superseded_retired=superseded_retired,
         anchors_transferred=counters.transferred,
         anchors_dropped=counters.dropped,
         orphans_no_keeper=orphans,
@@ -234,7 +291,8 @@ async def _main(argv: list[str] | None = None) -> int:
 
     print(
         f"House source migration: pdc_house_found={result.pdc_house_found} "
-        f"retired={result.retired} anchors_transferred={result.anchors_transferred} "
+        f"retired={result.retired} superseded_retired={result.superseded_retired} "
+        f"anchors_transferred={result.anchors_transferred} "
         f"anchors_dropped={result.anchors_dropped} orphans_no_keeper={result.orphans_no_keeper} "
         f"skipped_legacy={result.skipped_legacy} "
         f"{'(dry-run, rolled back)' if args.dry_run else '(committed)'}"
