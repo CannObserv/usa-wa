@@ -1,11 +1,14 @@
-"""One-shot #101 re-source migration — retire usa_wa_pdc House rows onto usa_wa_legislature spans.
+"""One-shot #101/#103 migration — superseded collapse + retire usa_wa_pdc House rows onto spans.
 
 The re-partition makes the House Position seat ``usa_wa_legislature``-sourced (symmetric with the
 Senate). Existing prod rows built by the retired PDC House emission are ``usa_wa_pdc``-sourced; the
 new WSL+SOS builder emits a span whose ``{start}`` can be **deeper** (SOS positions back to 2008;
 PDC omits the position before 2018), so the migration maps each PDC row onto the covering
 ``usa_wa_legislature`` span by ``(person, role)`` + validity window and transfers the PM anchor —
-NOT an exact-``source_id`` re-point. Run **after** ``build_house_spans``.
+NOT an exact-``source_id`` re-point. Since #103 it first collapses **within-source superseded**
+``usa_wa_legislature`` rows (elimination-deepened tenures strand their shallower-start rows) onto
+the deeper keepers — the ``superseded_*`` tests cover that pass. Run **after**
+``build_house_spans``.
 """
 
 from __future__ import annotations
@@ -416,6 +419,180 @@ async def test_disambiguates_two_keepers_by_window(db_session, usa_wa):
     await db_session.refresh(late_keeper)
     assert early_keeper.pm_assignment_id == early_anchor  # each anchor lands in its own window
     assert late_keeper.pm_assignment_id == late_anchor
+
+
+async def test_collapses_superseded_shallow_legislature_row_onto_deeper_keeper(db_session, usa_wa):
+    """#103: elimination deepens an existing member's tenure (an inferred earlier biennium merges
+    in) → the shallower-start ``usa_wa_legislature`` row is superseded by the new deeper row
+    (different ``{start}`` → different ``source_id``). The within-source pass (#97 pattern)
+    collapses it onto the deeper keeper, transferring the PM anchor. Idempotent."""
+    person = await _person(db_session, 100)
+    role = await _role(db_session, usa_wa, "31-2")
+    anchor = _ULID()
+    stranded = await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-31-position-2:2019-20",
+        person=person,
+        role=role,
+        anchor=anchor,
+        valid_from=date(2019, 1, 1),
+        valid_to=date(2020, 12, 31),
+        is_active=False,
+    )
+    stranded_id = stranded.id
+    keeper = await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-31-position-2:2017-18",
+        person=person,
+        role=role,
+        anchor=None,
+        valid_from=date(2017, 1, 1),
+        valid_to=date(2020, 12, 31),
+        is_active=False,
+    )
+
+    result = await migrate_house_source(db_session)
+
+    assert result.superseded_retired == 1 and result.anchors_transferred == 1
+    await db_session.refresh(keeper)
+    assert keeper.pm_assignment_id == anchor
+    assert (
+        await db_session.execute(select(Assignment).where(Assignment.id == stranded_id))
+    ).scalar_one_or_none() is None
+    second = await migrate_house_source(db_session)
+    assert second.superseded_retired == 0
+
+
+async def test_superseded_anchor_dropped_when_keeper_already_anchored(db_session, usa_wa):
+    """The Mosbrucker shape: the deepened tenure merges INTO an existing anchored row (the
+    member's earliest-start row extends in place), so the superseded row's anchor can't
+    transfer — dropped + warned (one PM assignment orphaned upstream, the #80 class)."""
+    person = await _person(db_session, 100)
+    role = await _role(db_session, usa_wa, "14-2")
+    await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-14-position-2:2019-20",
+        person=person,
+        role=role,
+        anchor=_ULID(),
+        valid_from=date(2019, 1, 1),
+        valid_to=date(2024, 12, 31),
+        is_active=False,
+    )
+    keeper = await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-14-position-2:2015-16",
+        person=person,
+        role=role,
+        anchor=_ULID(),  # already anchored — the extended-in-place earliest row
+        valid_from=date(2015, 1, 1),
+        valid_to=date(2024, 12, 31),
+        is_active=False,
+    )
+    keeper_anchor = keeper.pm_assignment_id
+
+    result = await migrate_house_source(db_session)
+
+    assert result.superseded_retired == 1 and result.anchors_dropped == 1
+    assert result.anchors_transferred == 0
+    await db_session.refresh(keeper)
+    assert keeper.pm_assignment_id == keeper_anchor
+
+
+async def test_disjoint_legislature_tenures_are_not_superseded(db_session, usa_wa):
+    """A served→left→returned member holds two REAL disjoint tenures of the same seat — neither
+    window covers the other's start; both stay (#97's dormancy-gap semantics)."""
+    person = await _person(db_session, 100)
+    role = await _role(db_session, usa_wa, "5-1")
+    await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-5-position-1:2013-14",
+        person=person,
+        role=role,
+        anchor=_ULID(),
+        valid_from=date(2013, 1, 1),
+        valid_to=date(2016, 12, 31),
+        is_active=False,
+    )
+    await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-5-position-1:2021-22",
+        person=person,
+        role=role,
+        anchor=_ULID(),
+        valid_from=date(2021, 1, 1),
+    )
+
+    result = await migrate_house_source(db_session)
+
+    assert result.superseded_retired == 0
+    assert (
+        await db_session.scalar(
+            select(func.count()).select_from(Assignment).where(Assignment.source == _WSL)
+        )
+        == 2
+    )
+
+
+async def test_pdc_row_lands_its_anchor_on_the_surviving_keeper(db_session, usa_wa):
+    """Composite: the superseded pass runs BEFORE the PDC pass, so a PDC row whose window is
+    covered by both a soon-to-be-deleted superseded row and the deep keeper retires onto the
+    survivor — its anchor must end up on the keeper, never on a deleted row."""
+    person = await _person(db_session, 100)
+    role = await _role(db_session, usa_wa, "48-1")
+    pdc_anchor = _ULID()
+    pdc = await _assignment(
+        db_session,
+        source=_PDC,
+        source_id="100:chamber-house:ld-48-position-1:2019-20",
+        person=person,
+        role=role,
+        anchor=pdc_anchor,
+        valid_from=date(2019, 1, 1),
+    )
+    pdc_id = pdc.id
+    # Superseded shallow WSL row (unanchored — never produced) covering the PDC row's start.
+    await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-48-position-1:2019-20",
+        person=person,
+        role=role,
+        anchor=None,
+        valid_from=date(2019, 1, 1),
+    )
+    keeper = await _assignment(
+        db_session,
+        source=_WSL,
+        source_id="100:chamber-house:ld-48-position-1:2017-18",
+        person=person,
+        role=role,
+        anchor=None,
+        valid_from=date(2017, 1, 1),
+    )
+
+    result = await migrate_house_source(db_session)
+
+    assert result.superseded_retired == 1 and result.retired == 1
+    assert result.anchors_transferred == 1
+    await db_session.refresh(keeper)
+    assert keeper.pm_assignment_id == pdc_anchor
+    assert (
+        await db_session.execute(select(Assignment).where(Assignment.id == pdc_id))
+    ).scalar_one_or_none() is None
+    # Only the deep keeper survives on the WSL side.
+    survivors = (
+        (await db_session.execute(select(Assignment).where(Assignment.source == _WSL)))
+        .scalars()
+        .all()
+    )
+    assert [s.source_id for s in survivors] == ["100:chamber-house:ld-48-position-1:2017-18"]
 
 
 async def test_main_requires_owner_role(monkeypatch, capsys):

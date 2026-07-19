@@ -15,8 +15,10 @@ positions, so a member serving across the 2018 boundary builds ONE deep span eit
 
 **Coverage.** Position 2008→present (the votewa floor); a sitting member with no resolvable SOS
 position (pre-2008, or a match miss) gets no House Position seat (OQ1 — a positioned seat's
-absence is honest, not a position-less ``state_representative``, which PM rejects). Depends on
-#77 (Persons + sponsor archive) and the SOS harvest (#100 Phase A).
+absence is honest, not a position-less ``state_representative``, which PM rejects) — unless the
+projector's within-LD elimination (#103) resolves it (a mid-biennium appointee or a
+ballot↔roster name change; inferred bienniums cite the sponsor roster, not the SOS cohort).
+Depends on #77 (Persons + sponsor archive) and the SOS harvest (#100 Phase A).
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster
 from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 
 from clearinghouse_core.logging import configure_logging, get_logger
+from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
@@ -99,7 +102,12 @@ async def build_house_position_spans(
     citation_events = await sos.citation_events()
     bienniums = await sponsors.archived_bienniums()
 
+    roster_events: dict[str, CitationTarget] = {
+        biennium: (event_id, fetched_at, f"{SPONSORS_RESOURCE_PREFIX}{biennium}")
+        for biennium, (event_id, fetched_at) in (await sponsors.fetch_event_map(bienniums)).items()
+    }
     observations: list[Observation] = []
+    inferred_keys: set[tuple[str, str]] = set()
     fetch_events: dict[str, CitationTarget] = {}
     result = HouseSpanResult(bienniums=len(bienniums))
     for biennium in bienniums:
@@ -109,8 +117,19 @@ async def build_house_position_spans(
             house_roster, positions.get(election_year, {}), biennium=biennium
         )
         observations.extend(proj.observations)
+        inferred_keys.update(proj.inferred_keys)
         result.coverage[biennium] = proj.summary
         logger.info("house_seat_cohort", extra={"biennium": biennium, **proj.summary})
+        if proj.inferred_keys:
+            # #103: name the elimination-seated members so the inference is operator-auditable
+            # (the PDC #74 precedent — the merged span carries no per-biennium confidence).
+            logger.info(
+                "house_seat_inferred",
+                extra={
+                    "biennium": biennium,
+                    "members": sorted(member for member, _ in proj.inferred_keys),
+                },
+            )
         event = citation_events.get(election_year)
         if event is not None:
             fetch_events[biennium] = event
@@ -120,7 +139,10 @@ async def build_house_position_spans(
     # out here and their open seat is swept closed below. Safe only because the SOS results archive
     # is immutable within a biennium and the WSL folded surname is stable → position_for is
     # deterministic across daily runs (a genuine flip is a real data change); max_close_fraction
-    # bounds any mass close.
+    # bounds any mass close. The elimination pass (#103) adds a roster-composition dependence: a
+    # second same-LD mid-biennium departure blanks the ballot-matched member, retracting the
+    # earlier inference — the appointee's seat then sweeps closed until data improves (rare,
+    # self-limiting, no worse than the pre-#103 gap).
     if restrict_to_biennium is not None:
         observed = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
         observations = [o for o in observations if o.member_id in observed]
@@ -132,6 +154,8 @@ async def build_house_position_spans(
         anchors=anchors,
         reliability=sos_source.reliability,
         fetch_events=fetch_events,
+        roster_events=roster_events,
+        inferred_keys=inferred_keys,
         assignment_source=_HOUSE_ASSIGNMENT_SOURCE,
     )
     # #83: a departed member keeps no observation in the (possibly restricted) rebuilt set, so
