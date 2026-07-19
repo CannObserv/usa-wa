@@ -120,7 +120,7 @@ python -m usa_wa_adapter_legislature.refresh
 python -m usa_wa_adapter_pdc.refresh
 
 # SOS refresh (#101) — the daily driver of the WSL+SOS House state_representative Position seat.
-# Archives the current election's votewa filing cohort (sos-whofiled:<YYYYMM>) via archive_only,
+# Archives the current election's results cohort (sos-legresults:<YYYYMMDD>) via archive_only,
 # then re-drives build_house_position_spans scoped to the current biennium -> usa_wa_legislature
 # Position seat spans (current biennium = the open end). Reads the sitting roster archive-first from
 # the WSL sponsor archive (who sits) + the SOS archive (the Position). Prod runs this daily at 06:45
@@ -166,21 +166,22 @@ python -m usa_wa_adapter_pdc.migrate_pdc_spans
 ```bash
 # The re-partition (#101): the WA House state_representative Position seat is now
 # usa_wa_legislature-sourced (symmetric with the Senate seat, #75). WSL drives membership (who
-# sits, the sponsor roster); WA SOS votewa (eledataweb.votewa.gov) drives the ballot Position 1/2
-# (back to 2008); PDC is demoted to the person_wa_pdc identifier link. ONE builder drives both the
-# daily re-drive (usa-wa-sos-refresh) and this historical backfill, so a member serving ACROSS the
-# 2018 boundary builds the same deep span either way — the #100 CR finding-1 depth mismatch cannot
-# recur. Coverage: Position 2008->present (votewa floor); pre-2008 stays honestly position-less.
+# sits, the sponsor roster); WA SOS results.vote.wa.gov drives the ballot Position 1/2 (back to
+# 2008); PDC is demoted to the person_wa_pdc identifier link. ONE builder drives both the daily
+# re-drive (usa-wa-sos-refresh) and this historical backfill, so a member serving ACROSS the 2018
+# boundary builds the same deep span either way — the #100 CR finding-1 depth mismatch cannot recur.
+# Coverage: Position 2008->present (the results floor); pre-2008 stays honestly position-less.
 
-# Phase A — archive the votewa filing cohorts (archive-only; CSV wire hashed #54). Even general-
-# election years from the floor (2008) to current; closed years cache-hit on re-run. Central
-# pacing via --pause-seconds (votewa courtesy floor). A mid-sweep failure aborts — re-run from floor.
-python -m usa_wa_adapter_sos.filings.harvest --dry-run
-python -m usa_wa_adapter_sos.filings.harvest --from-year 2008 --pause-seconds 1.0
+# Phase A — archive the results.vote.wa.gov legislative cohorts (archive-only; CSV wire hashed #54,
+# discovered via each election's export.html). Even general-election years from the floor (2008) to
+# current; closed years cache-hit on re-run; pacing via --pause-seconds. PER-YEAR RESILIENT: a year
+# the source 404s/500s or has no Legislative CSV is skipped-and-logged and the reached years commit.
+python -m usa_wa_adapter_sos.results.harvest --dry-run
+python -m usa_wa_adapter_sos.results.harvest --from-year 2008 --pause-seconds 1.0
 
 # Phase B — WSL+SOS House Position span build (archive-first, no live pull): the sitting House
-# roster (WSL sponsor archive) x the SOS filing archive (the Position) -> merged usa_wa_legislature
-# state_representative Position seat spans, cite-every-biennium onto sos-whofiled:<Y>. A sitting
+# roster (WSL sponsor archive) x the SOS results archive (the Position) -> merged usa_wa_legislature
+# state_representative Position seat spans, cite-every-biennium onto sos-legresults:<Y>. A sitting
 # member with no resolvable SOS position gets no seat (OQ1: emit nothing, counted missing_position).
 # DEPENDS ON Phase A + the WSL sponsor archive/Persons (#77). Ends with the #83 stale-span sweep
 # (usa_wa_legislature, chamber-house); same mass-close guard (--max-close-fraction, (0,1], 1.0
@@ -203,7 +204,7 @@ python -m usa_wa_adapter_sos.house.migrate
 # build BEFORE migrate, so the deep usa_wa_legislature keeper spans exist for the migration to
 # collapse the stranded PDC rows onto (transferring their anchors) — before anything drains to PM.
 #   sudo systemctl stop usa-wa-sync-powermap
-#   python -m usa_wa_adapter_sos.filings.harvest --from-year 2008        # Phase A (SOS archive)
+#   python -m usa_wa_adapter_sos.results.harvest --from-year 2008        # Phase A (SOS results archive)
 #   python -m usa_wa_adapter_sos.house.build                   # Phase B: full-depth rebuild
 #   python -m usa_wa_adapter_sos.house.migrate                # OWNER role: collapse PDC->WSL
 #   sudo systemctl start usa-wa-sync-powermap                        # let the sidecar drain to PM

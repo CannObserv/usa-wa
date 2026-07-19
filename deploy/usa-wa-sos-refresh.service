@@ -1,5 +1,5 @@
 [Unit]
-Description=usa-wa — SOS votewa refresh (WSL+SOS House Position seat) one-shot
+Description=usa-wa — SOS results refresh (WSL+SOS House Position seat) one-shot
 # usa-wa-migrate.service: schema must be at head before the DML-only refresh runs.
 # usa-wa-wsl-refresh.service: the House Position seat reads the sitting roster from the
 # WSL sponsor archive and binds to the WSL House Persons, so the WSL refresh must have
@@ -23,8 +23,9 @@ ExecStartPre=/home/exedev/usa-wa/scripts/assert-main-checkout.sh
 # Pin PATH so `uv` resolves regardless of the inherited systemd default.
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
-# App role only (DML — no DDL). USA_WA_SOS_MIN_REQUEST_INTERVAL (optional) sets the
-# votewa courtesy floor; absent is fine. Later EnvironmentFiles override earlier ones.
+# App role only (DML — no DDL). USA_WA_SOS_RESULTS_MIN_REQUEST_INTERVAL (optional) sets
+# the results.vote.wa.gov courtesy floor; absent is fine. Later EnvironmentFiles override
+# earlier ones.
 EnvironmentFile=/etc/usa-wa/.env
 EnvironmentFile=-/home/exedev/usa-wa/.env
 
@@ -32,7 +33,7 @@ EnvironmentFile=-/home/exedev/usa-wa/.env
 # at unit start (AGENTS.md § Server Lifecycle, #30).
 ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_adapter_sos.house.refresh
 
-# Bound the votewa CSV GET + the WSL GetSponsors fallback so a hung endpoint fails
+# Bound the results.vote.wa.gov GET + the WSL GetSponsors fallback so a hung endpoint fails
 # deterministically; the timer retries on the next fire.
 TimeoutStartSec=300
 

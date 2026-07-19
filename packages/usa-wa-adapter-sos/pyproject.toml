@@ -1,7 +1,7 @@
 [project]
 name = "usa-wa-adapter-sos"
 version = "0.1.0"
-description = "WA Secretary of State (votewa) adapter — archives the eledataweb candidate-filing export and supplies the House Position qualifier PDC's dataset lacks pre-2018 (#100). Sibling of usa-wa-adapter-pdc."
+description = "WA Secretary of State adapter — bundles the SOS data sources (votewa candidate filings + results.vote.wa.gov election results) as self-contained archives, and owns the WSL+SOS House Position seat (#100/#101). Sibling of usa-wa-adapter-pdc."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
