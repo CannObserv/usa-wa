@@ -20,14 +20,16 @@ from pathlib import Path
 import pytest
 import vcr
 from usa_wa_adapter_sos.filings.transport import configure_sos_rate_limit
+from usa_wa_adapter_sos.results.transport import configure_results_rate_limit
 
 CASSETTE_DIR = Path(__file__).parent / "cassettes"
 
 
 @pytest.fixture(autouse=True)
 def _zero_sos_rate_limit() -> None:
-    """Disable the central votewa courtesy gate so tests never sleep on it."""
+    """Disable both WA SOS courtesy gates (filings + results hosts) so tests never sleep."""
     configure_sos_rate_limit(0)
+    configure_results_rate_limit(0)
 
 
 @pytest.fixture
