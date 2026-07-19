@@ -14,10 +14,9 @@ from usa_wa_adapter_sos.filings.normalize import (
     build_house_filings,
     filing_ld,
     house_position_qualifier,
-    position_for,
-    sos_party_slug,
 )
 from usa_wa_adapter_sos.filings.transport import SOSFilingsClient
+from usa_wa_adapter_sos.positions import position_for, sos_party_slug
 
 
 def _row(race, ld, ballot, party="(Prefers Democratic Party)"):

@@ -23,7 +23,7 @@ from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 from usa_wa_adapter_pdc.normalize.positions import house_span_discriminator
 
 from usa_wa_adapter_legislature.tenure_spans import Observation
-from usa_wa_adapter_sos.filings.normalize import HouseFiling, position_for
+from usa_wa_adapter_sos.positions import HousePosition, position_for
 
 
 @dataclass(frozen=True)
@@ -37,7 +37,7 @@ class HouseSeatProjection:
 
 def build_house_seat_observations(
     house_roster: dict[int, list[HouseRosterEntry]],
-    sos_filings: dict[int, list[HouseFiling]],
+    sos_filings: dict[int, list[HousePosition]],
     *,
     biennium: str,
 ) -> HouseSeatProjection:

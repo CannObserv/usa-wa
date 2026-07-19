@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from usa_wa_adapter_pdc.normalize.positions import fold_token
 from usa_wa_adapter_sos.filings.cohort import SosFilingCohortProvider
-from usa_wa_adapter_sos.filings.normalize import position_for
+from usa_wa_adapter_sos.positions import position_for
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 
