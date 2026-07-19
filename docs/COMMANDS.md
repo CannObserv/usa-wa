@@ -181,31 +181,46 @@ python -m usa_wa_adapter_sos.results.harvest --from-year 2008 --pause-seconds 1.
 # Phase B — WSL+SOS House Position span build (archive-first, no live pull): the sitting House
 # roster (WSL sponsor archive) x the SOS results archive (the Position) -> merged usa_wa_legislature
 # state_representative Position seat spans, cite-every-biennium onto sos-legresults:<Y>. A sitting
-# member with no resolvable SOS position gets no seat (OQ1: emit nothing, counted missing_position).
-# DEPENDS ON Phase A + the WSL sponsor archive/Persons (#77). Ends with the #83 stale-span sweep
-# (usa_wa_legislature, chamber-house); same mass-close guard (--max-close-fraction, (0,1], 1.0
-# disables). --biennium scopes to a biennium's current members (each keeps full history).
+# member with no resolvable SOS position gets no seat (OQ1: emit nothing, counted missing_position)
+# — UNLESS within-LD elimination (#103) resolves it: an LD with exactly 2 sitting members, exactly
+# 1 ballot-claimed seat, and exactly 1 unmatched member gives that member the remaining position
+# (a mid-biennium appointee, or a ballot<->roster name change). Inferred (member, biennium) pairs
+# cite the WSL sponsor roster (the wire that names them), are logged (house_seat_inferred), and
+# surface as coverage["inferred"]. DEPENDS ON Phase A + the WSL sponsor archive/Persons (#77).
+# Ends with the #83 stale-span sweep (usa_wa_legislature, chamber-house); same mass-close guard
+# (--max-close-fraction, (0,1], 1.0 disables). --biennium scopes to a biennium's current members
+# (each keeps full history).
 python -m usa_wa_adapter_sos.house.build --dry-run
 python -m usa_wa_adapter_sos.house.build
 
-# Migration — OWNER ROLE, one-shot, run AFTER usa_wa_adapter_sos.house.build. Retires existing usa_wa_pdc
-# 4-part chamber-house rows onto the usa_wa_legislature span that COVERS them (mapped by
-# (person, role) + validity window — NOT exact source_id: PDC omits the pre-2018 position, so a
-# cross-2018 incumbent's existing PDC span is shallow …:2019-20 while the SOS builder emits a
-# deeper …:2017-18, a different source_id). Transfers the PM anchor (PM keys on (person, role,
-# start), so the deep keeper IS that tenure), deletes the PDC row + its citations (owner-only #54).
-# A PDC row with no covering keeper (SOS couldn't position that member) is left as orphans_no_keeper.
-# 3-part legacy rows are migrate_pdc_spans's job (skipped_legacy). Idempotent; --dry-run.
+# Migration — OWNER ROLE, one-shot, run AFTER usa_wa_adapter_sos.house.build. TWO passes:
+# (1) #103 within-source superseded collapse FIRST — elimination deepens some tenures, so an
+# existing anchored usa_wa_legislature row can be superseded by a new deeper-start row of the same
+# seat (the #97 sponsor pattern); each collapses onto its earlier-start covering keeper
+# (superseded_retired), transferring the anchor — a keeper that merged in place already carries its
+# own anchor, so the superseded one is dropped + warned (one PM assignment orphaned upstream, #80).
+# (2) The #101 PDC re-source collapse: retires existing usa_wa_pdc 4-part chamber-house rows onto
+# the SURVIVING usa_wa_legislature span that COVERS them (mapped by (person, role) + validity
+# window — NOT exact source_id: PDC omits the pre-2018 position, so a cross-2018 incumbent's
+# existing PDC span is shallow …:2019-20 while the SOS builder emits a deeper …:2017-18). Transfers
+# the PM anchor (PM keys on (person, role, start), so the deep keeper IS that tenure), deletes the
+# retired row + its citations (owner-only #54). A PDC row with no covering keeper is left as
+# orphans_no_keeper. 3-part legacy rows are migrate_pdc_spans's job (skipped_legacy).
+# Idempotent; --dry-run.
 python -m usa_wa_adapter_sos.house.migrate --dry-run
 python -m usa_wa_adapter_sos.house.migrate
 
-# DEPLOY SEQUENCING (the whole historical backfill), SIDECAR PAUSED throughout. Order matters:
-# build BEFORE migrate, so the deep usa_wa_legislature keeper spans exist for the migration to
-# collapse the stranded PDC rows onto (transferring their anchors) — before anything drains to PM.
+# DEPLOY SEQUENCING (the whole historical backfill — and any build that changes span depth, e.g.
+# enabling #103 elimination), SIDECAR PAUSED throughout, completed before the next 06:45 SOS timer
+# fire. Order matters: build BEFORE migrate, so the deep usa_wa_legislature keeper spans exist for
+# the migration to collapse the stranded PDC + superseded rows onto (transferring their anchors) —
+# before anything drains to PM. Draining first would let PM dedup-match a new span onto a
+# still-anchored old row's assignment ((person, role, start_date)) and park the entry UNAVAILABLE
+# (#86 anchor conflict + operator alert).
 #   sudo systemctl stop usa-wa-sync-powermap
 #   python -m usa_wa_adapter_sos.results.harvest --from-year 2008        # Phase A (SOS results archive)
 #   python -m usa_wa_adapter_sos.house.build                   # Phase B: full-depth rebuild
-#   python -m usa_wa_adapter_sos.house.migrate                # OWNER role: collapse PDC->WSL
+#   python -m usa_wa_adapter_sos.house.migrate                # OWNER role: superseded + PDC->WSL
 #   sudo systemctl start usa-wa-sync-powermap                        # let the sidecar drain to PM
 ```
 
