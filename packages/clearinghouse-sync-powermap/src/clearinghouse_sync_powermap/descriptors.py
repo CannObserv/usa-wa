@@ -502,3 +502,16 @@ class EntityDescriptor(ABC):
         while LWW compares another and the write-back loop silently returns.
         """
         obj.updated_at = value
+
+    async def local_newer_is_noop(self, session: Any, existing: Any, record: dict) -> bool:
+        """Whether a local row reading "newer" than PM's ``record`` is a *spurious*
+        clock skew — i.e. re-producing it would leave PM unchanged.
+
+        Default ``False``: the engine enqueues the local-newer UPDATE as before.
+        A descriptor whose observation is a pure function of a few mutable fields
+        (the assignment cluster) overrides this to compare the observation it would
+        send against PM's freshly-fetched record; when they match, ``apply_record``
+        adopts PM's clock instead of re-POSTing an identical payload every reconcile
+        (the usa-wa#102 churn). Opt-in, so every other descriptor is unaffected.
+        """
+        return False
