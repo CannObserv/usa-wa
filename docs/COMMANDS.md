@@ -146,8 +146,7 @@ python -m usa_wa_adapter_pdc.harvest_pdc --from-year 2008 --pause-seconds 0.5
 # Phase B — era-matched IDENTIFIER build (archive-first, no live PDC pull; identifier-only since
 # #101): each cohort pairs with its seating biennium's sponsor roster (2012 → 2013-14), matches each
 # winner to a WSL Person, emits person_wa_pdc links. The House Position SEAT is no longer built here
-# (that is build_house_spans, below). Idempotent. (A pre-2018 identifier backfill needs the SOS
-# position fallback to resolve the match — driven via build_house_spans' shared window, below.)
+# (that is usa_wa_adapter_sos.house.build, below). Idempotent.
 python -m usa_wa_adapter_pdc.build_pdc_spans --dry-run
 python -m usa_wa_adapter_pdc.build_pdc_spans
 
@@ -189,7 +188,7 @@ python -m usa_wa_adapter_sos.results.harvest --from-year 2008 --pause-seconds 1.
 python -m usa_wa_adapter_sos.house.build --dry-run
 python -m usa_wa_adapter_sos.house.build
 
-# Migration — OWNER ROLE, one-shot, run AFTER build_house_spans. Retires existing usa_wa_pdc
+# Migration — OWNER ROLE, one-shot, run AFTER usa_wa_adapter_sos.house.build. Retires existing usa_wa_pdc
 # 4-part chamber-house rows onto the usa_wa_legislature span that COVERS them (mapped by
 # (person, role) + validity window — NOT exact source_id: PDC omits the pre-2018 position, so a
 # cross-2018 incumbent's existing PDC span is shallow …:2019-20 while the SOS builder emits a

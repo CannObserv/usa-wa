@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from unittest.mock import patch
 
+import httpx
 from sqlalchemy import func, select
 from usa_wa_adapter_sos.results import harvest as harvest_module
 from usa_wa_adapter_sos.results.harvest import (
@@ -19,14 +20,17 @@ from clearinghouse_domain_legislative.identity import Assignment
 
 
 class _FakeResultsClient:
-    def __init__(self, fail_years=()):
+    def __init__(self, fail_years=(), transport_fail_years=()):
         self.calls: list[int] = []
         self._fail = set(fail_years)
+        self._transport_fail = set(transport_fail_years)
 
     async def fetch_legislative_results(self, year):
         self.calls.append(year)
         if year in self._fail:
             raise LegislativeExportNotFound(f"no Legislative CSV for {year}")
+        if year in self._transport_fail:
+            raise httpx.ConnectTimeout(f"connection timed out for {year}")
         body = (
             b'"Race","Candidate"\r\n'
             b'"LEGISLATIVE DISTRICT 1 - State Representative Pos. 1","M'
@@ -65,6 +69,20 @@ async def test_harvest_is_per_year_resilient(db_session, usa_wa):
     assert summary.cohorts_archived == 2 and summary.cohorts_skipped == 1
     rids = {r for (r,) in (await db_session.execute(select(FetchEvent.resource_id))).all()}
     # 2012 + 2024 persisted; 2020 rolled back to its savepoint (no event), not the whole sweep.
+    assert rids == {"sos-legresults:20121106", "sos-legresults:20241105"}
+
+
+async def test_harvest_survives_transport_error(db_session, usa_wa):
+    """A transport error (connect/read timeout, reset) — the likeliest 'outage' symptom against a
+    low-QPS government host — is skipped-and-logged per year like an HTTP status error; the reached
+    years still archive. Regression guard: an ``HTTPStatusError``-only except let a timeout escape
+    and roll the whole sweep back (the all-or-nothing failure this design exists to prevent)."""
+    client = _FakeResultsClient(transport_fail_years=[2020])
+    summary = await harvest_results(db_session, years=[2012, 2020, 2024], results_client=client)
+
+    assert client.calls == [2012, 2020, 2024]  # all attempted, timeout didn't abort the sweep
+    assert summary.cohorts_archived == 2 and summary.cohorts_skipped == 1
+    rids = {r for (r,) in (await db_session.execute(select(FetchEvent.resource_id))).all()}
     assert rids == {"sos-legresults:20121106", "sos-legresults:20241105"}
 
 

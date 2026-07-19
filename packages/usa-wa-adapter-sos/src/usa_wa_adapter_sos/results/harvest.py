@@ -74,9 +74,11 @@ async def harvest_results(
 ) -> HarvestSummary:
     """Archive each year's legislative-results cohort (archive-only), **per-year resilient**.
 
-    Each year runs in its own SAVEPOINT: a source HTTP error or a missing Legislative CSV rolls
-    back *that year* and is counted ``cohorts_skipped``; the reached years persist. Operates in
-    the caller's transaction (the CLI commits, or rolls back on ``dry_run``)."""
+    Each year runs in its own SAVEPOINT: any source-side HTTP failure — a status error (an unheld
+    year 404s, an outage 500s), a **transport error** (connect/read timeout, reset — the likeliest
+    outage symptom against a low-QPS government host), or a missing Legislative CSV — rolls back
+    *that year* and is counted ``cohorts_skipped``; the reached years persist. Operates in the
+    caller's transaction (the CLI commits, or rolls back on ``dry_run``)."""
     jurisdiction = await resolve_jurisdiction(session)
     source = await get_or_create_results_source(session, jurisdiction)
     adapter = ResultsAdapter(election_years=years, client=results_client or SOSResultsClient())
@@ -96,7 +98,10 @@ async def harvest_results(
                 if await runner.archive_only(legresults_resource_id(year), force=force):
                     archived += 1
             logger.info("results_cohort_year_harvested", extra={"year": year})
-        except (httpx.HTTPStatusError, LegislativeExportNotFound) as exc:
+        except (httpx.HTTPError, LegislativeExportNotFound) as exc:
+            # httpx.HTTPError is the common base of HTTPStatusError (4xx/5xx) and TransportError
+            # (timeouts/connect resets): both mean the source couldn't serve this year, so skip
+            # the year not the sweep. A DB/SQLAlchemy error is not an httpx error, so it aborts.
             skipped += 1
             logger.warning("results_cohort_year_skipped", extra={"year": year, "error": str(exc)})
 

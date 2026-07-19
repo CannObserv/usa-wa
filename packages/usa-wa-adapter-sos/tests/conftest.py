@@ -7,7 +7,7 @@ Re-recording is a deliberate one-shot dev workflow. To re-record a cassette, del
 target file and run its test with ``SOS_RECORD=1`` set, e.g.::
 
     SOS_RECORD=1 uv run pytest --no-cov \
-        packages/usa-wa-adapter-sos/tests/test_transport.py -k fetch_whofiled
+        packages/usa-wa-adapter-sos/tests/test_filings_transport.py -k fetch_whofiled
 
 which flips the fixture to ``record_mode='once'`` for that run (hits live votewa once).
 """
