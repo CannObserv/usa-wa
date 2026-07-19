@@ -1,6 +1,6 @@
 """WSL+SOS House Position span builder (#101, Phase B) — the re-partition core.
 
-Reads the WSL sponsor roster (who sits — LD + party, archive-first) and the SOS votewa filing
+Reads the WSL sponsor roster (who sits — LD + party, archive-first) and the SOS election-results
 archive (the ballot Position 1/2) **offline**, joins them per biennium into positioned tenure
 observations (:mod:`normalize.house_seats`), merges those across biennia into
 :class:`~usa_wa_adapter_legislature.tenure_spans.TenureSpan`s, and emits one
@@ -49,10 +49,10 @@ from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvide
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.tenure_spans import Observation, build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
-from usa_wa_adapter_sos.filings.cohort import SosFilingCohortProvider
 from usa_wa_adapter_sos.house.emit import emit_house_position_spans
 from usa_wa_adapter_sos.house.projector import build_house_seat_observations
-from usa_wa_adapter_sos.provisioning import get_or_create_source as get_or_create_sos_source
+from usa_wa_adapter_sos.provisioning import get_or_create_results_source
+from usa_wa_adapter_sos.results.cohort import SosResultsCohortProvider
 
 logger = get_logger(__name__)
 
@@ -85,7 +85,7 @@ async def build_house_position_spans(
     ``None`` (the historical backfill) rebuilds all archived bienniums."""
     jurisdiction = await resolve_jurisdiction(session)
     wsl_source = await get_or_create_wsl_source(session, jurisdiction)
-    sos_source = await get_or_create_sos_source(session, jurisdiction)
+    sos_source = await get_or_create_results_source(session, jurisdiction)
     current = current_biennium or biennium_for_date(datetime.now(UTC).date())
     anchors = await bootstrap_synthetic_anchors(
         session, biennium=current, jurisdiction_id=jurisdiction.id
@@ -94,8 +94,8 @@ async def build_house_position_spans(
     sponsors = SponsorRosterCohortProvider(
         sponsor_client or WSLClient("SponsorService"), session=session, source_id=wsl_source.id
     )
-    sos = SosFilingCohortProvider(session=session, source_id=sos_source.id)
-    filings = await sos.house_filings()
+    sos = SosResultsCohortProvider(session=session, source_id=sos_source.id)
+    positions = await sos.house_positions()
     citation_events = await sos.citation_events()
     bienniums = await sponsors.archived_bienniums()
 
@@ -106,7 +106,7 @@ async def build_house_position_spans(
         election_year = election_year_for_biennium(biennium)
         house_roster = build_house_roster(await sponsors.cohort(biennium))
         proj = build_house_seat_observations(
-            house_roster, filings.get(election_year, {}), biennium=biennium
+            house_roster, positions.get(election_year, {}), biennium=biennium
         )
         observations.extend(proj.observations)
         result.coverage[biennium] = proj.summary
@@ -117,7 +117,7 @@ async def build_house_position_spans(
 
     # Daily re-drive: "observed" keys on a *resolved SOS position*, not mere roster presence
     # (unlike the sponsor/PDC re-drives), so a current member the SOS archive can't position drops
-    # out here and their open seat is swept closed below. Safe only because the SOS filing archive
+    # out here and their open seat is swept closed below. Safe only because the SOS results archive
     # is immutable within a biennium and the WSL folded surname is stable → position_for is
     # deterministic across daily runs (a genuine flip is a real data change); max_close_fraction
     # bounds any mass close.

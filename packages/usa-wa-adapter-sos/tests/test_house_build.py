@@ -1,6 +1,6 @@
 """End-to-end WSL+SOS House Position span build (#101), fully offline.
 
-The re-partition builder: WSL sponsor roster (who sits) + SOS filing archive (the ballot
+The re-partition builder: WSL sponsor roster (who sits) + SOS results archive (the ballot
 Position) → merged ``state_representative`` Position seat **spans**, ``usa_wa_legislature``-sourced
 (symmetric with the Senate seat). One builder drives the daily re-drive AND the historical
 backfill, so a member serving across the 2018 boundary builds ONE deep span whether restricted
@@ -81,9 +81,10 @@ def _sponsor_wire(*rows):
 
 
 def _sos_csv(*rows):
-    header = "RaceName,RaceJurisdictionName,BallotName,PartyName\r\n"
+    header = '"Race","Candidate","Party"\r\n'
     body = "".join(
-        f"{race},Legislative District {ld},{ballot},{party}\r\n" for race, ld, ballot, party in rows
+        f'"LEGISLATIVE DISTRICT {ld} - {race}","{ballot}","{party}"\r\n'
+        for race, ld, ballot, party in rows
     )
     return (header + body).encode()
 
@@ -98,7 +99,7 @@ class _StubSponsorClient:
 
 async def _sources(db_session, usa_wa):
     wsl = await _source(db_session, usa_wa, "usa_wa_legislature", "soap")
-    sos = await _source(db_session, usa_wa, "usa_wa_sos", "rest")
+    sos = await _source(db_session, usa_wa, "usa_wa_sos_results", "rest")
     return wsl, sos
 
 
@@ -112,7 +113,7 @@ async def test_house_seat_is_legislature_sourced_on_seat_role(db_session, usa_wa
     await _archive(
         db_session,
         sos,
-        "sos-whofiled:202211",
+        "sos-legresults:20221108",
         _sos_csv(("State Representative Pos. 1", 5, "Ann Rivers", "(Prefers Democratic Party)")),
     )
 
@@ -150,13 +151,13 @@ async def test_cross_2018_member_builds_one_deep_open_span_even_when_restricted(
     await _archive(
         db_session,
         sos,
-        "sos-whofiled:201611",
+        "sos-legresults:20161108",
         _sos_csv(("State Representative Pos. 1", 5, "Ann Rivers", "(Prefers Democratic Party)")),
     )
     await _archive(
         db_session,
         sos,
-        "sos-whofiled:201811",
+        "sos-legresults:20181106",
         _sos_csv(("State Representative Pos. 1", 5, "Ann Rivers", "(Prefers Democratic Party)")),
     )
 
@@ -220,7 +221,7 @@ async def test_departed_member_open_span_is_closed_by_the_sweep(db_session, usa_
     await _archive(
         db_session,
         sos,
-        "sos-whofiled:202211",
+        "sos-legresults:20221108",
         _sos_csv(
             ("State Representative Pos. 1", 5, "Ann Rivers", "(Prefers Democratic Party)"),
             ("State Representative Pos. 1", 9, "Ann Jones", "(Prefers Democratic Party)"),
@@ -244,7 +245,7 @@ async def test_departed_member_open_span_is_closed_by_the_sweep(db_session, usa_
     await _archive(
         db_session,
         sos,
-        "sos-whofiled:202411",
+        "sos-legresults:20241105",
         _sos_csv(("State Representative Pos. 1", 5, "Ann Rivers", "(Prefers Democratic Party)")),
     )
     result = await build_house_position_spans(
