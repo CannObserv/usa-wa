@@ -1138,7 +1138,13 @@ class SyncEngine:
                 if pm_id is not None:
                     descriptor.set_anchor(existing, pm_id)
             if descriptor.write_enabled:
-                await self._enqueue(session, descriptor, existing, OP_UPDATE)
+                if await descriptor.local_newer_is_noop(session, existing, record):
+                    # #102: local is "newer" only by a spurious clock skew — re-producing this
+                    # row would not change PM. Adopt PM's clock (parity) instead of enqueuing an
+                    # identical observation the reconcile would re-send every cycle forever.
+                    self._adopt_remote_clock(descriptor, existing, record)
+                else:
+                    await self._enqueue(session, descriptor, existing, OP_UPDATE)
             return APPLY_KEPT_LOCAL
 
         row = await descriptor.upsert_from_pm(session, record, existing=existing)

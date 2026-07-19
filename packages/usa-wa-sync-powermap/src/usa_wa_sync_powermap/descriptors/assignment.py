@@ -103,3 +103,26 @@ class AssignmentDescriptor(EntityDescriptor):
         if isinstance(obj, Assignment):
             return obj.updated_at
         return parse_pm_timestamp(obj.get("updated_at"))
+
+    def observation_matches_record(self, observation: dict, record: dict) -> bool:
+        """Whether re-producing ``observation`` would leave PM's ``record`` unchanged.
+
+        For an anchored assignment PM's match key ``(person, role, start_date)`` is
+        immutable, so only ``is_current`` and the ``start_date``/``end_date`` window
+        can drift. When all three agree, re-observing is a PM no-op — so a local row
+        reading "newer" than PM on an *identical* payload may adopt PM's clock instead
+        of re-POSTing forever (the usa-wa#102 churn). Consumed by the one-shot heal and
+        the ``apply_record`` local-newer gate."""
+        return (
+            bool(observation.get("is_current")) == bool(record.get("is_current"))
+            and _parse_date(observation.get("start_date")) == _parse_date(record.get("start_date"))
+            and _parse_date(observation.get("end_date")) == _parse_date(record.get("end_date"))
+        )
+
+    async def local_newer_is_noop(self, session: Any, existing: Any, record: dict) -> bool:
+        """#102: a local-newer assignment is spurious when re-producing it wouldn't change PM.
+
+        Builds the observation we would send and compares its mutable fields to PM's record. When
+        they match, ``apply_record`` adopts PM's clock instead of enqueuing an identical payload
+        forever — and the one-shot heal uses the same test."""
+        return self.observation_matches_record(await self.to_observation(session, existing), record)

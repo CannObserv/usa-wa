@@ -299,6 +299,19 @@ python -m usa_wa_sync_powermap.validate_committees --json   # machine-readable
 python -m usa_wa_sync_powermap.heal_committee_curation --dry-run
 python -m usa_wa_sync_powermap.heal_committee_curation
 
+# Heal LWW-skewed assignment clocks (#102) — one-shot, the assignment analog of the committee
+# heal above. A 2026-07-06 span backfill bumped ~4,300 anchored assignments' local updated_at
+# ahead of PM, so the reconcile re-POSTs an IDENTICAL observation every cycle forever (PM no-ops
+# it without advancing its clock → 429s). For each anchored assignment whose local clock is ahead
+# of PM AND whose observation wouldn't change PM (local_newer_is_noop), adopt PM's clock ONLY (not
+# PM's fields — for assignments WE are the authority) → LWW parity, churn stops. A genuine pending
+# change (observation differs) is LEFT for the reconcile. App-role local write; read-only PM.
+# The durable backstop is the apply_record local-newer no-op gate (deployed with the sidecar);
+# this one-shot converges the EXISTING skew before the sidecar resumes. Idempotent (no-op at
+# parity). Exit 0 clean / 2 auth / 3 empty-cohort abort.
+python -m usa_wa_sync_powermap.heal_assignment_clocks --dry-run
+python -m usa_wa_sync_powermap.heal_assignment_clocks
+
 # Subscription prune (#73 Axis 1 step 6) — one-shot reclaim. build_reconciler narrowed the
 # subscription set to the mirror set (jurisdiction lineage ∪ OUR anchored producer rows), but
 # sync_subscriptions is additive, so the ~1,000 PM-only strangers the old whole-subtree walk

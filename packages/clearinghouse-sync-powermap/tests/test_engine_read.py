@@ -147,6 +147,32 @@ async def test_lww_local_newer_keeps_local_and_enqueues_update(db_session, fake_
     assert entry.status == STATUS_PENDING
 
 
+class _NoopGateDescriptor(FakeDescriptor):
+    """Opts into the #102 local-newer no-op gate — pretends re-producing is a PM no-op."""
+
+    async def local_newer_is_noop(self, session, existing, record):
+        return True
+
+
+async def test_lww_local_newer_spurious_adopts_clock_and_skips_enqueue(db_session):
+    """#102: when a descriptor reports the local-newer row is a spurious clock skew (re-producing
+    wouldn't change PM), apply_record adopts PM's clock and does NOT enqueue — stopping the churn.
+    Default descriptors (base returns False) keep the enqueue behaviour above, so no regression."""
+    descriptor = _NoopGateDescriptor()
+    await _add_entity(db_session, source_id="1", name="FreshLocal")
+    engine = SyncEngine([descriptor], FakeClient())
+
+    outcome = await engine.apply_record(
+        db_session, descriptor, _record("1", "StalePM", updated_at="2000-01-01T00:00:00Z")
+    )
+
+    assert outcome == APPLY_KEPT_LOCAL
+    assert (await db_session.execute(select(OutboxEntry))).first() is None  # no churn enqueue
+    row = (await db_session.execute(select(FakeEntity))).scalar_one()
+    assert row.name == "FreshLocal"  # data untouched
+    assert row.updated_at == datetime(2000, 1, 1, tzinfo=UTC)  # PM's clock adopted → parity
+
+
 async def test_lww_local_newer_captures_pm_anchor(db_session, fake_descriptor):
     """Keeping the newer local row still captures the PM anchor we just learned."""
     await _add_entity(db_session, source_id="1", name="FreshLocal")  # unanchored
