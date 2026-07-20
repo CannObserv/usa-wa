@@ -22,6 +22,30 @@ is exactly what an identical observation fails to cause. Observed cost: 26,990
 assignment deliveries in 10 days (#102, which 429'd PM), ~932 persons/day (#104),
 610 roles/day (#109).
 
+### Where step 1's skew came from — the systemic re-arm
+
+Step 1 was assumed to be a *bulk-backfill* accident, which is why the gate was added
+reactively per cohort. It was not only that. **Every row we created was born skewed**,
+by the delivery itself: `_deliver` stamps the PM anchor with `set_anchor`, a plain
+attribute write, and the flush that persisted it pushed `updated_at` to `now()` —
+landing the local row ahead of PM's own creation clock by exactly the POST round-trip.
+The chronic org row of the #109 audit sat **228ms** ahead of PM for 11 days on nothing
+else. That is why a cohort could go quiet for weeks and then churn forever after one
+create.
+
+`_deliver` now preserves the row's clock across the anchor stamp, so a new row lands
+*older* than PM → the next reconcile takes the PM-wins branch, mirrors, adopts PM's
+clock → parity. Self-correcting instead of self-arming.
+
+**The SQLAlchemy trap in that fix**: `updated_at` carries an `onupdate` callable, which
+SQLAlchemy applies to any UPDATE whose SET clause omits the column — and assigning a
+value *equal to the loaded one* registers no net attribute change, so the column drops
+out of the SET clause and the onupdate overwrites the stamp with `now()`. A "preserve
+this clock" write is by definition a no-change write, so it silently did nothing.
+`set_last_updated` therefore `flag_modified`s the column. **A test asserting the value
+right after the assignment passes even with the bug** — the divergence only appears
+after the flush, so any regression guard here must flush.
+
 ## The precondition
 
 ```

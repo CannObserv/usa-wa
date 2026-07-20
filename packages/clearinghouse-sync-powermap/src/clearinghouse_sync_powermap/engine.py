@@ -799,7 +799,21 @@ class SyncEngine:
                     f"anchor conflict: {descriptor.anchor_column}={result.pm_id}",
                 )
                 return True
+            # Preserve the row's clock across the anchor stamp (usa-wa#109). ``set_anchor``
+            # is a plain attribute write, so the flush that persists it would otherwise
+            # push ``updated_at`` to *now* — landing the local row a few hundred ms ahead
+            # of PM's own creation clock (the POST round-trip). Since PM no-ops an
+            # identical re-observation **without advancing its clock**, that skew never
+            # resolves: every row we create was born into a permanent re-send loop (the
+            # systemic re-arm behind the #102/#104/#109 cohort churn — the chronic org row
+            # sat exactly 228ms ahead of PM). Keeping the pre-stamp clock leaves us
+            # *older* than PM, so the next reconcile takes the PM-wins branch, mirrors,
+            # and adopts PM's clock → parity. A genuine local edit made before delivery
+            # keeps its own clock and still wins LWW, as it should.
+            preserved = descriptor.last_updated(row)
             descriptor.set_anchor(row, result.pm_id)
+            if preserved is not None:
+                descriptor.set_last_updated(row, preserved)
             entry.status = STATUS_DELIVERED
             entry.last_error = None
             await self._stamp_enrich_fingerprint(session, entry)

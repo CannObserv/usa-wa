@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from sqlalchemy import select
+from sqlalchemy.orm.attributes import flag_modified
 from ulid import ULID
 
 from clearinghouse_core.logging import get_logger
@@ -507,8 +508,19 @@ class EntityDescriptor(ABC):
         reads. Override **both or neither** — a descriptor whose local clock is
         not ``updated_at`` must override both, or the engine will write one column
         while LWW compares another and the write-back loop silently returns.
+
+        The write is **force-flagged dirty** (usa-wa#109). ``updated_at`` carries an
+        ``onupdate`` callable, which SQLAlchemy applies to any UPDATE whose SET clause
+        omits the column — and assigning a value *equal to the one already loaded*
+        registers no net attribute change, so the column would be omitted and the
+        onupdate would silently overwrite our stamp with ``now()``. That is exactly the
+        "preserve this clock" case (the anchor-stamp preserve in ``_deliver``), where
+        the intended write is a no-change write. ``flag_modified`` forces the column
+        into the SET clause so the explicit value wins. A descriptor overriding this
+        with a different column must flag that column itself.
         """
         obj.updated_at = value
+        flag_modified(obj, "updated_at")
 
     def observation_matches_record(self, observation: dict, record: dict) -> bool:
         """Whether re-producing ``observation`` would leave PM's ``record`` unchanged.
