@@ -222,6 +222,37 @@ async def test_upsert_adopts_display_name_and_anchor(db_session, descriptor):
     assert row.pm_person_id == pm_id
 
 
+async def test_local_newer_is_noop_true_when_name_and_identifiers_match(db_session, descriptor):
+    """#104: a local-newer person is spurious clock skew when re-producing its observation
+    would leave PM unchanged — name equals PM's display_name and every additional identifier
+    is already on PM's record. ``apply_record`` then adopts PM's clock instead of re-POSTing
+    an identical observation every reconcile forever."""
+    row = await _add_person(db_session, source_id="M-3", name="Jane Doe", anchor=ULID())
+    await _add_identifier(db_session, row, scheme="wa_pdc", value="159")
+    record = {
+        "display_name": "Jane Doe",
+        "identifiers": [{"type_slug": "person_wa_pdc", "value": "159"}],
+    }
+    assert await descriptor.local_newer_is_noop(db_session, row, record) is True
+
+
+async def test_local_newer_is_noop_false_on_local_rename(db_session, descriptor):
+    """A genuine local rename (name_full diverged from PM's display_name) must still enqueue —
+    re-observing it would change PM, so it is NOT a spurious no-op."""
+    row = await _add_person(db_session, source_id="M-3", name="Jane Q. Doe", anchor=ULID())
+    record = {"display_name": "Jane Doe", "identifiers": []}
+    assert await descriptor.local_newer_is_noop(db_session, row, record) is False
+
+
+async def test_local_newer_is_noop_false_on_new_additional_identifier(db_session, descriptor):
+    """A fresh cross-source identifier (e.g. a new ``wa_pdc`` link, #69) absent from PM's
+    ``identifiers[]`` must still enqueue — the observation would add it to PM."""
+    row = await _add_person(db_session, source_id="M-3", name="Jane Doe", anchor=ULID())
+    await _add_identifier(db_session, row, scheme="wa_pdc", value="159")
+    record = {"display_name": "Jane Doe", "identifiers": []}  # PM lacks the wa_pdc link
+    assert await descriptor.local_newer_is_noop(db_session, row, record) is False
+
+
 async def test_upsert_update_only_skips_unknown(db_session, descriptor):
     result = await descriptor.upsert_from_pm(
         db_session, {"id": str(ULID()), "display_name": "Ghost"}
