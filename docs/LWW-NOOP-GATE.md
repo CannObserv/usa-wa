@@ -33,9 +33,11 @@ The chronic org row of the #109 audit sat **228ms** ahead of PM for 11 days on n
 else. That is why a cohort could go quiet for weeks and then churn forever after one
 create.
 
-`_deliver` now preserves the row's clock across the anchor stamp, so a new row lands
-*older* than PM → the next reconcile takes the PM-wins branch, mirrors, adopts PM's
-clock → parity. Self-correcting instead of self-arming.
+Anchor stamping now goes through `SyncEngine._stamp_anchor`, which preserves the row's
+clock, so a new row lands *older* than PM → the next reconcile takes the PM-wins branch,
+mirrors, adopts PM's clock → parity. Self-correcting instead of self-arming. **Route every
+new anchor-stamp site through that helper** — the first cut fixed only `_deliver` and left
+the sweep's fallback stamp re-arming the identical defect.
 
 **The SQLAlchemy trap in that fix**: `updated_at` carries an `onupdate` callable, which
 SQLAlchemy applies to any UPDATE whose SET clause omits the column — and assigning a
@@ -45,6 +47,13 @@ this clock" write is by definition a no-change write, so it silently did nothing
 `set_last_updated` therefore `flag_modified`s the column. **A test asserting the value
 right after the assignment passes even with the bug** — the divergence only appears
 after the flush, so any regression guard here must flush.
+
+**And the trap inside *that* fix**: force-flagging on every call made `_adopt_remote_clock`
+— which runs for every record of every reconcile — emit a no-op UPDATE per already-converged
+row (~12.7k/day). It now skips when the row is at parity *and* otherwise unmodified. The
+equality test alone is wrong: when the row is dirty for other reasons while its clock
+already matches, omitting the column hands it back to the `onupdate`. Parity **and**
+`session.is_modified` are both required.
 
 ## The precondition
 
@@ -119,6 +128,13 @@ mid-reconcile on the hot path.
 **A divergent match key is a real change, not a safe skip.** Role's seat observation *is*
 its match key, which tempts a blanket `True`; but a drifted tuple would resolve to a
 different seat (or mint one), so it must still enqueue.
+
+**An absent key is not an asserted NULL.** A comparator must require the key's *presence*
+wherever the observation's value can legitimately be `None` (role's Senate-seat
+`qualifier`), or a record that simply omits it compares equal and yields a false no-op.
+Comparators assume a full detail record — both live paths fetch one, and only the
+`full_list` reconcile yields list-shaped records — but requiring the key keeps that
+coupling from becoming a silent trap if a gated descriptor ever switches modes.
 
 ## Convergence
 

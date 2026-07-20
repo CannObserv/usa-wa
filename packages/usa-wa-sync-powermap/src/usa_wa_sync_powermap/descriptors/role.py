@@ -213,6 +213,16 @@ class RoleDescriptor(EntityDescriptor):
             return "role_type" not in observation or observation["role_type"] == record.get(
                 "role_type_slug"
             )
+        # ``qualifier`` needs the key to be *present*, not merely to compare equal (CR-1):
+        # a Senate seat's qualifier is legitimately NULL, so a record that omits the key
+        # would match our None and — with the rest of the tuple agreeing — yield a false
+        # no-op, which **erases** the pending change rather than deferring it. Both live
+        # paths hand us a full ``RoleDetail``; only the ``full_list`` reconcile yields
+        # list-shaped records, and requiring the key keeps that latent coupling safe.
+        # The other two compare against non-None observation values, so an absent key
+        # already fails them.
+        if "qualifier" not in record:
+            return False
         return (
             observation.get("role_type") == record.get("role_type_slug")
             and observation.get("jurisdiction_id") == record.get("jurisdiction_id")

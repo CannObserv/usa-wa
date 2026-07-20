@@ -323,8 +323,12 @@ python -m usa_wa_sync_powermap.validate_committees --json   # machine-readable
 
 # Force-adopt PM curation for LWW-locked committees (#65 Part 2) — one-shot heal. For the
 # anchored produced cohort, re-fetch each PM OrgDetail and force-apply it (upsert_from_pm +
-# clock-parity stamp), bypassing LWW. Unsticks committees the pre-fill-only refresh locked
-# out of PM's curation. Idempotent (no-op at parity). App-role local write.
+# clock-parity stamp), bypassing LWW. Idempotent (no-op at parity). App-role local write.
+# Remedies TWO skew sources: the pre-fill-only refresh (#65) and the anchor-stamp bump
+# (#109) — pre-fix, every created row landed ahead of PM by the delivery round-trip, so
+# reach for this after an anchor-stamp-era org skew as well (org is deliberately ungated,
+# so nothing else converges it). Reported counter is force-adopts attempted, NOT rows
+# changed.
 python -m usa_wa_sync_powermap.heal_committee_curation --dry-run
 python -m usa_wa_sync_powermap.heal_committee_curation
 
