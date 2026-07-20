@@ -16,6 +16,16 @@ exists).
 
 Read is ``feed`` update-only (adopt PM's ``is_current``/dates; skip assignments we
 never produced; ``local_match`` keys on the anchor).
+
+Write is **dual-mode** (#111 / power-map#311). An *unanchored* row observes by natural
+key ``(person_id, role_id, start_date, …)`` to create/attach. Once *anchored*
+(``pm_assignment_id`` set), :meth:`to_observation` switches to the PM-native
+``identifier_type="pm_assignment_id"`` channel — PM's authoritative
+``update_assignment_fields`` — so a corrected ``start_date`` moves the bound in place
+instead of minting a duplicate (natural-key start is PM's match key, the #108 orphan
+mechanism), and ``end_date``/``is_current`` deltas apply instead of being silently
+dropped on auto-attach (#311b). PM echoes any withheld natural-key delta in
+``ObservationResult.unapplied``, which the engine surfaces as a WARNING + a drain tally.
 """
 
 from datetime import date, datetime
@@ -64,15 +74,31 @@ class AssignmentDescriptor(EntityDescriptor):
         return role is not None and role.pm_role_id is not None
 
     async def to_observation(self, session: Any, row: Any) -> dict:
-        # dependencies_ready guarantees both anchors exist before delivery.
+        window = {
+            "start_date": row.valid_from.isoformat() if row.valid_from else None,
+            "end_date": row.valid_to.isoformat() if row.valid_to else None,
+            "is_current": row.is_active,
+        }
+        if row.pm_assignment_id is not None:
+            # PM-native update channel (power-map#311): the row is already anchored, so
+            # address it by id rather than by natural key. A natural-key re-observe whose
+            # start_date moved would MINT a duplicate (start is in PM's match key, the #108
+            # orphan mechanism), and one whose end_date/is_current drifted would auto-attach
+            # without applying the delta (the #311b churn). ``update_assignment_fields``
+            # instead moves the bound in place and applies every delta. Person/role FKs are
+            # not required in this mode, so omit them.
+            return {
+                "identifier_type": "pm_assignment_id",
+                "identifier_value": str(row.pm_assignment_id),
+                **window,
+            }
+        # Unanchored → natural-key create. dependencies_ready guarantees both anchors exist.
         person = await session.get(Person, row.person_id)
         role = await session.get(Role, row.role_id)
         return {
             "person_id": str(person.pm_person_id),
             "role_id": str(role.pm_role_id),
-            "start_date": row.valid_from.isoformat() if row.valid_from else None,
-            "end_date": row.valid_to.isoformat() if row.valid_to else None,
-            "is_current": row.is_active,
+            **window,
         }
 
     async def local_match(self, session: Any, record: dict) -> Any | None:

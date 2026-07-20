@@ -530,7 +530,15 @@ class GeneratedPowerMapClient:
         )
         entity_id = getattr(body, "entity_id", None)
         pm_id = as_ulid(entity_id) if isinstance(entity_id, str) else None
-        return ObservationResult(disposition=body.disposition, pm_id=pm_id, raw=body.to_dict())
+        raw = body.to_dict()
+        # ``unapplied`` (power-map#311b) is not yet a typed field on the vendored
+        # ``ObservationResponse``, so it arrives in ``additional_properties`` and surfaces
+        # via ``to_dict()``. Read it defensively — absent/None/non-list all collapse to ().
+        unapplied = raw.get("unapplied")
+        unapplied = tuple(unapplied) if isinstance(unapplied, list) else ()
+        return ObservationResult(
+            disposition=body.disposition, pm_id=pm_id, raw=raw, unapplied=unapplied
+        )
 
     async def aclose(self) -> None:
         await self._client.get_async_httpx_client().aclose()

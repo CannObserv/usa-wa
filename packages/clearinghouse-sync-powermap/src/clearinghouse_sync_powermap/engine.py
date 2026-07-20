@@ -261,6 +261,11 @@ class DrainStats:
     #: Number of in-place anchor overwrites this drain (each = one orphaned PM id,
     #: recorded in :class:`~clearinghouse_sync_powermap.models.AnchorReanchor`).
     reanchors: int = 0
+    #: Number of deliveries this drain that came back with a non-empty ``unapplied`` set
+    #: (power-map#311b — PM matched but withheld an ``end_date``/``is_current`` delta). With
+    #: anchored assignments delivered id-addressed this should stay 0; a rise means a delta
+    #: PM refused on a natural-key path.
+    unapplied: int = 0
 
 
 class SyncEngine:
@@ -818,6 +823,23 @@ class SyncEngine:
 
         entry.last_disposition = result.disposition
         self._last_drain_stats.dispositions[result.disposition] += 1
+        if result.unapplied:
+            # PM matched the observation but withheld a delta (power-map#311b): it applies
+            # the one safe mutation (closing an open tenure) and echoes the rest here. With
+            # anchored rows delivered id-addressed this should not happen; when it does, an
+            # operator needs to see which field PM refused (a merged-state conflict, or an
+            # escalation the producer isn't making).
+            self._last_drain_stats.unapplied += 1
+            logger.warning(
+                "observation_deltas_unapplied",
+                extra={
+                    "entity_type": descriptor.entity_type,
+                    "local_id": str(row.id),
+                    "source_id": getattr(row, "source_id", None),
+                    "disposition": result.disposition,
+                    "unapplied": list(result.unapplied),
+                },
+            )
         if result.anchored:
             if await self._anchor_taken(session, descriptor, row, result.pm_id):
                 # A *different* local row already holds this PM anchor — the

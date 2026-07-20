@@ -17,7 +17,11 @@ from clearinghouse_sync_powermap.client import (
     PayloadRejectedError,
     RetryableClientError,
 )
-from clearinghouse_sync_powermap.models import DISPOSITION_NEW, DISPOSITION_REJECTED
+from clearinghouse_sync_powermap.models import (
+    DISPOSITION_AUTO_ATTACHED,
+    DISPOSITION_NEW,
+    DISPOSITION_REJECTED,
+)
 from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 
 BASE = "https://pm.test"
@@ -408,6 +412,55 @@ async def test_post_observation_rejected(client):
     assert result.rejected
     assert result.pm_id is None
     assert not result.anchored
+
+
+@respx.mock
+async def test_post_observation_parses_unapplied(client):
+    """power-map#311b: ``unapplied`` (not yet a typed response field) arrives via the
+    generated model's ``additional_properties`` and must surface on the result."""
+    pm_id = ULID()
+    respx.post(f"{BASE}/api/v1/assignments/observations").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "disposition": DISPOSITION_AUTO_ATTACHED,
+                "entity_id": str(pm_id),
+                "entity_type": "role_assignment",
+                "unapplied": ["end_date", "is_current"],
+            },
+        )
+    )
+
+    result = await client.post_observation(
+        "/api/v1/assignments/observations",
+        {"identifier_type": "pm_assignment_id", "identifier_value": str(pm_id)},
+    )
+
+    assert result.disposition == DISPOSITION_AUTO_ATTACHED
+    assert result.unapplied == ("end_date", "is_current")
+
+
+@respx.mock
+async def test_post_observation_no_unapplied_defaults_empty(client):
+    """A clean attach (no ``unapplied`` key) yields an empty tuple, not None."""
+    pm_id = ULID()
+    respx.post(f"{BASE}/api/v1/assignments/observations").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "disposition": DISPOSITION_AUTO_ATTACHED,
+                "entity_id": str(pm_id),
+                "entity_type": "role_assignment",
+            },
+        )
+    )
+
+    result = await client.post_observation(
+        "/api/v1/assignments/observations",
+        {"identifier_type": "pm_assignment_id", "identifier_value": str(pm_id)},
+    )
+
+    assert result.unapplied == ()
 
 
 @respx.mock

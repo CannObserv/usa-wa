@@ -995,6 +995,7 @@ async def test_cycle_summary_surfaces_drain_dispositions_and_reanchors(db_sessio
     record = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
     assert record.dispositions == {DISPOSITION_NEW: 71, DISPOSITION_AUTO_ATTACHED: 2}
     assert record.reanchors == 71
+    assert record.unapplied == 0
 
 
 async def test_rejected_alert_skipped_when_no_alert_wired(db_session, caplog):

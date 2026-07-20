@@ -1352,3 +1352,45 @@ async def test_drain_stats_tally_dispositions_and_reanchors(db_session):
     assert stats.dispositions[DISPOSITION_NEW] == 2  # fresh + reanchored
     assert stats.dispositions[DISPOSITION_AUTO_ATTACHED] == 1  # stable
     assert stats.reanchors == 1  # only the overwrite
+
+
+# --- unapplied delta surfacing (usa-wa#111 / power-map#311b) -----------------
+
+
+async def test_unapplied_deltas_logged_and_tallied(db_session, caplog):
+    """power-map#311b: a natural-key auto-attach that withholds a delta echoes the field
+    names in ``ObservationResult.unapplied``. The drain surfaces a non-empty set as a
+    WARNING + a ``DrainStats.unapplied`` tally so an operator sees a delta PM refused
+    (with anchored rows now id-addressed it should stay empty; a rise is the signal)."""
+    await _add_entity(db_session, source_id="1", name="Drift")
+    client = FakeClient(
+        observation_result=ObservationResult(
+            DISPOSITION_AUTO_ATTACHED, ULID(), {}, unapplied=("end_date", "is_current")
+        )
+    )
+    descriptor = FakeDescriptor()
+    engine = SyncEngine([descriptor], client)
+    await engine.sweep_unanchored(db_session, descriptor)
+
+    with caplog.at_level("WARNING"):
+        await engine.drain_outbox(db_session, now=NOW)
+
+    warn = next(r for r in caplog.records if r.msg == "observation_deltas_unapplied")
+    assert warn.levelname == "WARNING"
+    assert set(warn.unapplied) == {"end_date", "is_current"}
+    assert engine.last_drain_stats.unapplied == 1
+
+
+async def test_clean_attach_records_no_unapplied(db_session, caplog):
+    """A clean attach (empty ``unapplied``) logs nothing and tallies zero."""
+    await _add_entity(db_session, source_id="1", name="Clean")
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_AUTO_ATTACHED, ULID(), {}))
+    descriptor = FakeDescriptor()
+    engine = SyncEngine([descriptor], client)
+    await engine.sweep_unanchored(db_session, descriptor)
+
+    with caplog.at_level("WARNING"):
+        await engine.drain_outbox(db_session, now=NOW)
+
+    assert not any(r.msg == "observation_deltas_unapplied" for r in caplog.records)
+    assert engine.last_drain_stats.unapplied == 0

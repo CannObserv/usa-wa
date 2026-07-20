@@ -71,6 +71,13 @@ class ObservationResult:
     disposition: str
     pm_id: ULID | None
     raw: dict
+    #: Field names PM matched but **withheld** on a natural-key auto-attach (power-map#311b):
+    #: it applies the one safe mutation (closing an open tenure) and echoes every other
+    #: refused delta here so the producer stops retrying and escalates to a PM-native
+    #: (``pm_assignment_id``) update. ``None``/empty on a clean attach, a create, or any
+    #: non-assignment observation. Read from the response's additional properties, so it
+    #: is populated without a client regen.
+    unapplied: tuple[str, ...] = ()
 
     @property
     def anchored(self) -> bool:
