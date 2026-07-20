@@ -1162,3 +1162,70 @@ async def test_delivery_preserves_a_local_edit_made_before_the_stamp(db_session)
 
     assert row.pm_fake_id == pm_id
     assert row.updated_at == edited_at  # the edit's clock survives the stamp
+
+
+# --- CR round 1: every anchor-stamp site preserves the clock (usa-wa#109) ----
+
+
+class _MatchNoDetailDescriptor(FakeDescriptor):
+    """``pm_match`` resolves, but the follow-up detail fetch returns None — the sweep's
+    "matched but detail fetch failed" fallback, which still captures the anchor."""
+
+    def __init__(self, pm_id) -> None:
+        self._pm_id = pm_id
+
+    async def pm_match(self, client, session, row):  # noqa: ARG002
+        return self._pm_id
+
+    async def fetch_record(self, client, pm_id):  # noqa: ARG002
+        return None
+
+
+async def test_sweep_fallback_anchor_stamp_preserves_local_clock(db_session):
+    """usa-wa#109 CR-1: the sweep's fallback anchor stamp must preserve the clock too.
+
+    ``_deliver`` was fixed, but this second stamp site was left bumping ``updated_at`` to
+    ``now()`` — re-arming exactly the born-skewed permanent re-send loop the #109 fix
+    claimed to close systemically. Narrow path (``pm_match`` hit, detail fetch failed),
+    but nothing downstream self-corrects it for an ungated cohort."""
+    settled = datetime(2020, 1, 1, tzinfo=UTC)
+    row = await _add_entity(db_session, source_id="s1", name="Adapter")
+    row.updated_at = settled
+    await db_session.flush()
+
+    pm_id = ULID()
+    descriptor = _MatchNoDetailDescriptor(pm_id)
+    engine = SyncEngine([descriptor], FakeClient())
+
+    await engine.sweep_unanchored(db_session, descriptor)
+    await db_session.flush()
+
+    assert row.pm_fake_id == pm_id  # the anchor is still captured
+    assert row.updated_at == settled  # ...without arming a skew
+
+
+async def test_local_newer_anchor_capture_preserves_local_clock(db_session):
+    """The third stamp site: ``apply_record``'s local-newer branch captures the anchor it
+    just learned. The row is legitimately newer than PM, so this is not a skew — but the
+    stamp should not *inflate* the clock further past PM either."""
+    settled = datetime(2050, 1, 1, tzinfo=UTC)  # genuinely ahead of PM
+    row = await _add_entity(db_session, source_id="s2", name="LocalEdit")
+    row.updated_at = settled
+    await db_session.flush()
+
+    pm_id = ULID()
+    descriptor = FakeDescriptor()
+    engine = SyncEngine([descriptor], FakeClient())
+
+    record = {
+        "source": "wsl",
+        "source_id": "s2",
+        "name": "PM",
+        "id": str(pm_id),
+        "updated_at": "2000-01-01T00:00:00Z",
+    }
+    await engine.apply_record(db_session, descriptor, record)
+    await db_session.flush()
+
+    assert row.pm_fake_id == pm_id
+    assert row.updated_at == settled  # own clock kept, not pushed to now()
