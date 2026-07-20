@@ -44,7 +44,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
-from clearinghouse_sync_powermap.engine import SyncEngine, outbox_backlog, rejected_breakdown
+from clearinghouse_sync_powermap.engine import (
+    DrainStats,
+    SyncEngine,
+    outbox_backlog,
+    rejected_breakdown,
+)
 from clearinghouse_sync_powermap.models import SyncState
 from clearinghouse_sync_powermap.retry import backoff
 from clearinghouse_sync_powermap.subscriptions import SubscriptionReconciler
@@ -108,6 +113,11 @@ class Sidecar:
         # pile emails once (and once more per restart — deliberate: a pile needs a
         # data fix, and a process that never saw it should say so).
         self._last_rejected_count = 0
+        # Last drain's disposition + re-anchor tallies (usa-wa#108), captured off the
+        # engine at the end of each tick and surfaced in the cycle summary — so a burst
+        # of `new` dispositions / anchor overwrites (orphan mints) is countable at a
+        # glance. Empty default so a summary before the first tick is safe.
+        self._last_drain_stats = DrainStats()
         self._clock = clock
 
     async def tick(
@@ -133,6 +143,11 @@ class Sidecar:
         (#85), so a discovery/PM failure or one poison entity cannot roll back or
         starve the feed/sweep/drain in this transaction.
         """
+        # Reset the drain tallies up front (usa-wa#108): if this tick raises after a
+        # partial drain, the cycle summary must report *this* cycle (empty) rather than
+        # attribute the previous cycle's mint counts to a failed one. The end-of-tick
+        # capture overwrites with the real drain stats on success.
+        self._last_drain_stats = DrainStats()
         # Read: the incremental feed (the real-time path).
         await self._engine.process_feed(session, now=now)
         # Writes: enqueue un-anchored rows, then deliver.
@@ -149,6 +164,9 @@ class Sidecar:
             commit=commit,
             chunk_size=self._outbox_commit_chunk_size,
         )
+        # Capture this drain's tallies for the cycle summary (usa-wa#108). The summary
+        # runs later in its own session, so it reads the stashed value, not the engine.
+        self._last_drain_stats = self._engine.last_drain_stats
 
     async def run_cycle(self) -> bool:
         """Run one isolated cycle; return the cycle verdict (True = fully clean).
@@ -204,6 +222,7 @@ class Sidecar:
         """
         backlog = await outbox_backlog(session, now=now)
         reasons = await rejected_breakdown(session)
+        stats = self._last_drain_stats
         logger.info(
             "sidecar_cycle_summary",
             extra={
@@ -213,6 +232,11 @@ class Sidecar:
                 "unavailable": backlog.unavailable,
                 "oldest_pending_age_seconds": backlog.oldest_pending_age_seconds,
                 "rejected_reasons": reasons,
+                # Last drain's PM verdicts + orphan-mint count (usa-wa#108): a plain dict
+                # so it renders in the structured log; ``reanchors`` > 0 = orphaned PM ids
+                # this cycle (each recorded in ``powermap_anchor_reanchor``).
+                "dispositions": dict(stats.dispositions),
+                "reanchors": stats.reanchors,
             },
         )
         if backlog.rejected > self._last_rejected_count:

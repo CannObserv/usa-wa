@@ -80,8 +80,9 @@ Write-path drain detail (:meth:`drain_outbox`):
 import asyncio
 import hashlib
 import json
+from collections import Counter
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -93,6 +94,7 @@ from ulid import ULID
 from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.client import (
     DeliveryBlockedError,
+    ObservationResult,
     PayloadRejectedError,
     PowerMapClient,
     RetryableClientError,
@@ -106,6 +108,7 @@ from clearinghouse_sync_powermap.models import (
     STATUS_PENDING,
     STATUS_REJECTED,
     STATUS_UNAVAILABLE,
+    AnchorReanchor,
     EnrichFingerprint,
     OutboxEntry,
     SyncState,
@@ -240,6 +243,26 @@ class OutboxBacklog:
     oldest_pending_age_seconds: float | None
 
 
+@dataclass
+class DrainStats:
+    """Per-drain observability tallies (usa-wa#108).
+
+    88 orphaned PM assignments were minted in 24h with *no operator-visible number
+    changing* — the disposition of each delivery and the fact of an in-place anchor
+    overwrite were both invisible. The drain accumulates these here and the sidecar
+    reads them off :attr:`SyncEngine.last_drain_stats` for the cycle summary. Reset at
+    the start of every :meth:`SyncEngine.drain_outbox` so it reflects one drain only.
+    """
+
+    #: Count of settled deliveries by PM disposition (``new`` / ``auto-attached`` /
+    #: ``rejected``). Only deliveries that got a PM result are counted (a deferral has
+    #: none). A rise in ``new`` for an anchored cohort is the orphan-mint signal.
+    dispositions: Counter[str] = field(default_factory=Counter)
+    #: Number of in-place anchor overwrites this drain (each = one orphaned PM id,
+    #: recorded in :class:`~clearinghouse_sync_powermap.models.AnchorReanchor`).
+    reanchors: int = 0
+
+
 class SyncEngine:
     """Per-cycle sync work over a fixed descriptor registry."""
 
@@ -282,6 +305,15 @@ class SyncEngine:
         #: warns once per wedged row rather than every reconcile cycle (#36). Same
         #: throttle shape as ``_warned_stuck``; a restart re-warns once (acceptable).
         self._warned_dead_anchors: set = set()
+        #: Per-drain observability tallies (usa-wa#108), reset at each drain start and
+        #: read by the sidecar's cycle summary. Defaults so a caller that reads it before
+        #: any drain gets an empty, safe value.
+        self._last_drain_stats = DrainStats()
+
+    @property
+    def last_drain_stats(self) -> DrainStats:
+        """Disposition + re-anchor tallies from the most recent :meth:`drain_outbox`."""
+        return self._last_drain_stats
 
     def descriptor_for(self, entity_type: str) -> EntityDescriptor | None:
         return self._by_type.get(entity_type)
@@ -715,6 +747,7 @@ class SyncEngine:
         """
         if chunk_size < 1:
             raise ValueError("chunk_size must be >= 1")
+        self._last_drain_stats = DrainStats()  # per-drain tallies (usa-wa#108)
         touched: list[OutboxEntry] = []
         since_commit = 0
         for entry in await self._due_entries(session, now):
@@ -784,6 +817,7 @@ class SyncEngine:
             return True
 
         entry.last_disposition = result.disposition
+        self._last_drain_stats.dispositions[result.disposition] += 1
         if result.anchored:
             if await self._anchor_taken(session, descriptor, row, result.pm_id):
                 # A *different* local row already holds this PM anchor — the
@@ -803,6 +837,7 @@ class SyncEngine:
                     f"anchor conflict: {descriptor.anchor_column}={result.pm_id}",
                 )
                 return True
+            await self._record_reanchor(session, descriptor, row, result)
             self._stamp_anchor(descriptor, row, result.pm_id)
             entry.status = STATUS_DELIVERED
             entry.last_error = None
@@ -814,6 +849,59 @@ class SyncEngine:
             # can see it and it cannot loop forever.
             self._fail_attempt(entry, now, f"unexpected disposition: {result.disposition!r}")
         return True
+
+    async def _record_reanchor(
+        self,
+        session: AsyncSession,
+        descriptor: EntityDescriptor,
+        row: Any,
+        result: ObservationResult,
+    ) -> None:
+        """Capture an in-place anchor **overwrite** before it destroys the old id (#108).
+
+        PM dedups assignments on ``(person, role, start_date)``, so a producer's
+        start-date correction re-produces an observation that no longer matches the
+        stored key: PM mints a *fresh* assignment (disposition ``new``) and returns its
+        id, while the assignment our anchor still points at is silently orphaned upstream.
+        :meth:`_stamp_anchor` then overwrites ``pm_*_id`` in place — so the old id, the
+        only handle on the orphan, is gone the instant the stamp lands.
+
+        This runs *before* that stamp whenever the delivered id differs from the anchor
+        the row already carries, and does two things the overwrite would otherwise lose:
+        a WARNING (the alert) and a durable :class:`AnchorReanchor` ledger row (the
+        queryable, retained record the orphan-reconcile cleanup reads once power-map#311
+        ships). A first-time stamp (row had no anchor — an ordinary CREATE) is not an
+        overwrite and is skipped; a re-delivery returning the *same* id is a no-op.
+
+        Generic across entity types: any anchored row re-resolving to a different id is
+        an orphan-minting overwrite, whatever the match semantics that caused it.
+        """
+        old = descriptor.anchor_value(row)
+        if old is None or old == result.pm_id:
+            return  # first anchor, or an unchanged re-observe — no orphan
+        source_id = getattr(row, "source_id", None)
+        logger.warning(
+            "anchor_reanchored",
+            extra={
+                "entity_type": descriptor.entity_type,
+                "local_id": str(row.id),
+                "source_id": source_id,
+                "old_pm_id": str(old),
+                "new_pm_id": str(result.pm_id),
+                "disposition": result.disposition,
+            },
+        )
+        session.add(
+            AnchorReanchor(
+                entity_type=descriptor.entity_type,
+                local_id=row.id,
+                source_id=source_id,
+                old_pm_id=old,
+                new_pm_id=result.pm_id,
+                disposition=result.disposition,
+            )
+        )
+        self._last_drain_stats.reanchors += 1
 
     async def _anchor_taken(
         self,

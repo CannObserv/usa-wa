@@ -246,6 +246,31 @@ async def test_tick_drains_against_a_fresh_clock(db_session, state_type):
     assert all(e.status == STATUS_DELIVERED for e in delivered)
 
 
+async def test_tick_resets_drain_stats_before_running(db_session):
+    """usa-wa#108 (CR-1): the drain tallies reset at tick *start*, so a tick that raises
+    after a partial drain reports *this* cycle (empty) rather than attributing the
+    previous cycle's mint counts to a failed one. Here the feed read raises before the
+    end-of-tick capture, and the stale pre-seeded stats must already be cleared."""
+    from clearinghouse_sync_powermap.engine import DrainStats
+
+    sidecar, _ = _sidecar(FakeClient())
+    stale = DrainStats()
+    stale.reanchors = 5
+    stale.dispositions[DISPOSITION_NEW] = 5
+    sidecar._last_drain_stats = stale
+
+    async def _boom(session, *, now):  # noqa: ARG001
+        raise RuntimeError("feed failed")
+
+    sidecar._engine.process_feed = _boom
+
+    with pytest.raises(RuntimeError):
+        await sidecar.tick(db_session, now=NOW)
+
+    assert sidecar._last_drain_stats.reanchors == 0
+    assert dict(sidecar._last_drain_stats.dispositions) == {}
+
+
 # --- run_cycle isolation (CR #13) ----------------------------------------------
 
 
@@ -948,6 +973,28 @@ async def test_rejected_rise_alerts_once_and_rearms_on_new_rise(db_session):
     await sidecar.report_cycle_summary(db_session, now=NOW)  # 1 → 2: alert again
     assert len(alerts) == 2
     assert "qualifier_required" in alerts[1][1]
+
+
+async def test_cycle_summary_surfaces_drain_dispositions_and_reanchors(db_session, caplog):
+    """usa-wa#108: 88 orphaned PM assignments were minted with no operator-visible
+    number changing. The cycle summary surfaces the last drain's per-disposition counts
+    and its re-anchor (orphan-mint) tally so the mints are countable at a glance."""
+    from clearinghouse_sync_powermap.engine import DrainStats
+    from clearinghouse_sync_powermap.models import DISPOSITION_AUTO_ATTACHED, DISPOSITION_NEW
+
+    sidecar = _summary_sidecar()
+    stats = DrainStats()
+    stats.dispositions[DISPOSITION_NEW] = 71
+    stats.dispositions[DISPOSITION_AUTO_ATTACHED] = 2
+    stats.reanchors = 71
+    sidecar._last_drain_stats = stats
+
+    with caplog.at_level("INFO"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    record = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
+    assert record.dispositions == {DISPOSITION_NEW: 71, DISPOSITION_AUTO_ATTACHED: 2}
+    assert record.reanchors == 71
 
 
 async def test_rejected_alert_skipped_when_no_alert_wired(db_session, caplog):

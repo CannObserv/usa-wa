@@ -18,6 +18,13 @@ registry, so no concrete entity names are baked in here.
   per source row. The engine re-enriches an already-anchored row when the carry
   payload it holds drifts from this stamp (#34 detection gap), so a payload-shape
   correction reaches the existing cohort without a manual backfill.
+- :class:`AnchorReanchor` — an append-only ledger of every in-place ``pm_*_id``
+  overwrite (usa-wa#108). When a delivery resolves to a *different* PM id than the
+  row's existing anchor (PM dedups assignments on ``(person, role, start_date)``,
+  so a start-date correction mints a fresh assignment and orphans the old one), the
+  old id is otherwise destroyed by the overwrite and unrecoverable. This row is the
+  only durable record of the orphaned PM id — journald is not a queryable retained
+  ledger, and the orphan-reconcile cleanup (blocked on power-map#311) reads it.
 """
 
 from datetime import datetime
@@ -151,3 +158,32 @@ class EnrichFingerprint(Base, TimestampMixin):
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     local_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False)
     payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class AnchorReanchor(Base, TimestampMixin):
+    """An append-only record of one in-place PM-anchor overwrite (usa-wa#108).
+
+    Written by :meth:`SyncEngine._deliver` whenever a delivery's ``pm_id`` differs
+    from the anchor the row already carries. The stamp overwrites ``pm_*_id`` in
+    place, so ``old_pm_id`` — the now-orphaned upstream assignment — survives *only*
+    here. The paired WARNING log alerts; this table is the queryable, retained
+    record the orphan-reconcile cleanup consumes (power-map#311). Never updated or
+    deleted: one row per overwrite event, ``created_at`` (TimestampMixin) is the
+    observation time.
+    """
+
+    __tablename__ = "powermap_anchor_reanchor"
+    __table_args__ = (
+        Index("ix_powermap_anchor_reanchor_old", "old_pm_id"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    local_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False)
+    #: The source row's natural key when it exposes one (canonical tables carry
+    #: ``source_id``) — nullable for triage convenience, not identity.
+    source_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    old_pm_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False)
+    new_pm_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False)
+    disposition: Mapped[str | None] = mapped_column(String(32), nullable=True)
