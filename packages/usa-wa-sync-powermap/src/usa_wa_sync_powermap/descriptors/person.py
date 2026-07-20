@@ -183,6 +183,13 @@ class PersonDescriptor(EntityDescriptor):
         is equal; a genuine local rename diverges). Identifiers match when every additional one
         is already on PM's ``identifiers[]`` — a fresh cross-source link (e.g. a new ``wa_pdc``)
         is absent and must still enqueue. Consumed by the ``apply_record`` local-newer gate (#104).
+
+        ``display_name`` is a **deliberate proxy** for "PM already holds our name as evidence":
+        we never assert ``is_canonical`` and PM no-ops the re-observation of a name it already
+        shows (the observed steady-state churn is the evidence). Comparing PM's ``names[]`` by
+        ``name_type`` instead would be *stricter* and could refuse a safe clock-adopt (hurting
+        convergence) when PM stores the canonical name under a non-``legal`` type — so the
+        display-name proxy is the right axis here, not a shortcut (see #109 for the shared pattern).
         """
         names = observation.get("names") or []
         observed_name = names[0]["name"] if names else None

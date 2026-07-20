@@ -8,6 +8,8 @@ from ulid import ULID
 
 from clearinghouse_domain_legislative.identity import Person, PersonIdentifier
 from clearinghouse_sync_powermap.client import EntityPage
+from clearinghouse_sync_powermap.engine import APPLY_KEPT_LOCAL, SyncEngine
+from clearinghouse_sync_powermap.models import OP_UPDATE, STATUS_PENDING, OutboxEntry
 from clearinghouse_sync_powermap.testing import FakeClient
 from usa_wa_sync_powermap.descriptors import PersonDescriptor
 from usa_wa_sync_powermap.descriptors.person import identifier_type_for
@@ -246,11 +248,62 @@ async def test_local_newer_is_noop_false_on_local_rename(db_session, descriptor)
 
 async def test_local_newer_is_noop_false_on_new_additional_identifier(db_session, descriptor):
     """A fresh cross-source identifier (e.g. a new ``wa_pdc`` link, #69) absent from PM's
-    ``identifiers[]`` must still enqueue — the observation would add it to PM."""
+    ``identifiers[]`` must still enqueue — the observation would add it to PM.
+
+    This single-absent case fully covers the loop's False path:
+    ``uq_person_identifiers_person_scheme`` caps a person at one identifier per scheme, and the
+    two-entry scheme map always demotes one to the primary, so ``additional_identifiers`` holds
+    **at most one** entry — a "partial of many" mismatch is unreachable by design."""
     row = await _add_person(db_session, source_id="M-3", name="Jane Doe", anchor=ULID())
     await _add_identifier(db_session, row, scheme="wa_pdc", value="159")
     record = {"display_name": "Jane Doe", "identifiers": []}  # PM lacks the wa_pdc link
     assert await descriptor.local_newer_is_noop(db_session, row, record) is False
+
+
+async def test_apply_record_person_noop_adopts_clock_and_skips_enqueue(db_session, descriptor):
+    """Seam test (#104): a real ``PersonDescriptor`` flowing through ``engine.apply_record``'s
+    local-newer branch — a clock-skewed row whose observation PM already reflects adopts PM's
+    clock and enqueues nothing (the churn fix, end-to-end, not just the isolated gate)."""
+    pm_id = ULID()
+    row = await _add_person(db_session, source_id="M-3", name="Jane Doe", anchor=pm_id)
+    row.updated_at = datetime(2050, 1, 1, tzinfo=UTC)  # local clock ahead of PM
+    await db_session.flush()
+    engine = SyncEngine([descriptor], FakeClient())
+
+    record = {
+        "id": str(pm_id),
+        "display_name": "Jane Doe",  # PM already reflects our name
+        "identifiers": [],
+        "updated_at": "2000-01-01T00:00:00Z",  # PM's clock is older → local is "newer"
+    }
+    outcome = await engine.apply_record(db_session, descriptor, record)
+
+    assert outcome == APPLY_KEPT_LOCAL
+    assert (await db_session.execute(select(OutboxEntry))).first() is None  # no churn enqueue
+    assert row.updated_at == datetime(2000, 1, 1, tzinfo=UTC)  # PM's clock adopted → parity
+
+
+async def test_apply_record_person_real_change_still_enqueues(db_session, descriptor):
+    """The seam's other direction: a genuine local rename (name_full ≠ PM's display_name) on a
+    clock-newer row is NOT a no-op → apply_record keeps local and enqueues the UPDATE."""
+    pm_id = ULID()
+    row = await _add_person(db_session, source_id="M-3", name="Jane Q. Doe", anchor=pm_id)
+    row.updated_at = datetime(2050, 1, 1, tzinfo=UTC)
+    await db_session.flush()
+    engine = SyncEngine([descriptor], FakeClient())
+
+    record = {
+        "id": str(pm_id),
+        "display_name": "Jane Doe",  # diverges from our local name_full → real change
+        "identifiers": [],
+        "updated_at": "2000-01-01T00:00:00Z",
+    }
+    outcome = await engine.apply_record(db_session, descriptor, record)
+
+    assert outcome == APPLY_KEPT_LOCAL
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert entry.op == OP_UPDATE
+    assert entry.status == STATUS_PENDING
 
 
 async def test_upsert_update_only_skips_unknown(db_session, descriptor):
