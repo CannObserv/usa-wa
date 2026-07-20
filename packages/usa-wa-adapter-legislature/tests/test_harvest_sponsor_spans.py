@@ -17,6 +17,7 @@ from ulid import ULID as _ULID
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
+from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
 
 
@@ -312,3 +313,95 @@ async def test_max_close_fraction_threads_through_the_builder(
     assert result.sweep_aborted is False and result.closed_stale == 6
     assert all(not r.is_active for r in stale)
     assert all(r.valid_to == date(2024, 12, 31) for r in stale)
+
+
+class _WireMappingMemberClient:
+    """Committee roster per wire: ``b"<r:100,200/>"`` names member ids (or ``<r:/>`` empty)."""
+
+    async def parse_historical_committee_members(self, wire):
+        ids = wire.decode().removeprefix("<r:").removesuffix("/>")
+        return [{"Id": int(i), "FirstName": "A", "LastName": "B"} for i in ids.split(",") if i]
+
+
+async def _archive_committee_roster(db_session, source, biennium, cid, wire):
+    resource_id = committee_members_hist_resource_id(biennium, cid, "House", "Appropriations")
+    ev = FetchEvent(
+        source_id=source.id,
+        resource_id=resource_id,
+        url="https://x",
+        fetched_at=datetime.now(UTC),
+        http_status=200,
+        content_hash=bytes([hash(resource_id) & 0xFF]) * 32,
+        status=FetchStatus.ok,
+    )
+    db_session.add(ev)
+    await db_session.flush()
+    db_session.add(
+        RawPayload(fetch_event_id=ev.id, content_type="text/xml", body=wire, size_bytes=len(wire))
+    )
+    await db_session.flush()
+
+
+async def test_stale_named_row_party_span_ends_at_committee_departure(
+    db_session, usa_wa, wsl_source
+):
+    """#105 (b) end-to-end: the Kilduff shape. A departed member stays fully named in later
+    sponsor wires, but drops off every committee roster at the departure boundary — the
+    committee-corroborated exclusion ends their party span there instead of leaving it open,
+    while the sitting member's spans stay open."""
+    await _add_ld(db_session, usa_wa, 5)
+    for mid, name in ((100, "Member 100"), (900, "Chris Kilduff")):
+        db_session.add(Person(source="usa_wa_legislature", source_id=str(mid), name_full=name))
+    await db_session.flush()
+
+    rosters = {
+        "2019-20": [_member(100), _member(900, agency="House", district="28")],
+        # Kilduff left Dec 2020 — still named in the 2021-22 wire (the ghost row).
+        "2021-22": [_member(100), _member(900, agency="House", district="28")],
+    }
+    for biennium in rosters:
+        await _archive(db_session, wsl_source, biennium, f"<b:{biennium}>".encode())
+    # Committee archive: both on committees in 2019-20; only 100 in 2021-22.
+    await _archive_committee_roster(db_session, wsl_source, "2019-20", "888", b"<r:100,900/>")
+    await _archive_committee_roster(db_session, wsl_source, "2021-22", "888", b"<r:100/>")
+
+    result = await build_sponsor_spans(
+        db_session,
+        sponsor_client=_WireMappingSponsorClient(rosters),
+        member_client=_WireMappingMemberClient(),
+        current_biennium="2021-22",
+        stale_min_coverage=0.5,
+    )
+
+    assert result.emitted >= 3
+    ghost_party = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "900:party:democratic:2019-20")
+        )
+    ).scalar_one()
+    # Ends at the departure boundary (2020-12-31) — not open on the ghost row.
+    assert ghost_party.is_active is False and ghost_party.valid_to == date(2020, 12, 31)
+    live_party = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "100:party:democratic:2019-20")
+        )
+    ).scalar_one()
+    assert live_party.is_active is True and live_party.valid_to is None
+
+
+async def test_missing_committee_archive_excludes_nothing(db_session, usa_wa, wsl_source):
+    """Guardrail wiring: with no committee archive at all (pre-1999-00 / fresh deploy), the
+    exclusion is a silent no-op — spans build exactly as before #105."""
+    await _add_ld(db_session, usa_wa, 5)
+    db_session.add(Person(source="usa_wa_legislature", source_id="100", name_full="Ann Rivers"))
+    await db_session.flush()
+    await _archive(db_session, wsl_source, "2025-26", b"<b:2025-26>")
+
+    result = await build_sponsor_spans(
+        db_session,
+        sponsor_client=_WireMappingSponsorClient({"2025-26": [_member(100)]}),
+        member_client=_WireMappingMemberClient(),
+        current_biennium="2025-26",
+    )
+
+    assert result.emitted == 2  # party + Senate seat — nothing excluded

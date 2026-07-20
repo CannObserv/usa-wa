@@ -70,3 +70,21 @@ def test_projects_across_multiple_biennia():
     assert Observation("100", KIND_SENATE, "5", "2023-24") in obs
     assert Observation("100", KIND_SENATE, "5", "2025-26") in obs
     assert len(obs) == 4  # party + seat, twice
+
+
+def test_excluded_member_emits_nothing_in_that_biennium_only():
+    """#105 (b): a committee-corroborated stale member (Kilduff/Senn/Nguyen) is excluded
+    per-biennium — their party AND chamber-senate observations drop for the stale bienniums,
+    while their genuinely-served bienniums still emit (so the merged span ends at the real
+    departure boundary)."""
+    members_by_biennium = {
+        "2019-20": [_member(100)],
+        "2021-22": [_member(100)],
+    }
+    obs = build_sponsor_observations(
+        members_by_biennium, exclude_ids_by_biennium={"2021-22": {"100"}}
+    )
+    assert obs == [
+        Observation("100", KIND_PARTY, "democratic", "2019-20"),
+        Observation("100", KIND_SENATE, "5", "2019-20"),
+    ]

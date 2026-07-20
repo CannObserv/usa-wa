@@ -189,7 +189,16 @@ python -m usa_wa_adapter_sos.results.harvest --from-year 2008 --pause-seconds 1.
 # surface as coverage["inferred"]. DEPENDS ON Phase A + the WSL sponsor archive/Persons (#77).
 # Ends with the #83 stale-span sweep (usa_wa_legislature, chamber-house); same mass-close guard
 # (--max-close-fraction, (0,1], 1.0 disables). --biennium scopes to a biennium's current members
-# (each keeps full history).
+# (each keeps full history). ROSTER HYGIENE (#105): each biennium's roster sheds (a) mover rows
+# — a House row whose Id also appears in a named Senate row of the same wire (Alvarado/Hunt;
+# house_roster_mover_excluded) — and (b) committee-corroborated stale rows — a named member
+# absent from that biennium's committee-roster archive (Senn/Kilduff ghosts;
+# sponsor_stale_row_excluded), guarded by --stale-min-coverage (default 0.9: a biennium whose
+# committee cohort names <90% of the wire's named members skips the exclusion —
+# stale_exclusion_skipped_low_coverage — so a thin archive never reads as mass departure; >1
+# disables entirely). Both un-block the #103 elimination (the LD reads 2-member again) and drop
+# the ghost's seat assertion so the sweep closes it. Audit historically: --dry-run + read the
+# exclusion log lines before an unrestricted rebuild.
 python -m usa_wa_adapter_sos.house.build --dry-run
 python -m usa_wa_adapter_sos.house.build
 
@@ -444,7 +453,12 @@ python -m usa_wa_adapter_legislature.harvest_sponsors --from-biennium 1991-92 --
 # asserts are closed (departed members) — closed_stale in the completion log; closed_stale > 0 on
 # an unrestricted run = previously-stranded rows repaired. Guarded against empty/mass closes
 # (sweep_aborted=true in the completion log); --max-close-fraction 1.0 (validated to (0, 1])
-# permits a deliberate one.
+# permits a deliberate one. STALE-ROW EXCLUSION (#105 (b)): each biennium's named rows are
+# screened against that biennium's committee-roster archive (roster_hygiene) — a departed-but-
+# still-named ghost (Kilduff/Senn/Nguyen) emits no party/Senate observations for its stale
+# bienniums, so the merged span ends at the real departure boundary (sponsor_stale_row_excluded
+# per exclusion; --stale-min-coverage floor, default 0.9, skips a thin committee cohort —
+# stale_exclusion_skipped_low_coverage; >1 disables).
 python -m usa_wa_adapter_legislature.harvest_sponsor_spans --dry-run
 python -m usa_wa_adapter_legislature.harvest_sponsor_spans
 

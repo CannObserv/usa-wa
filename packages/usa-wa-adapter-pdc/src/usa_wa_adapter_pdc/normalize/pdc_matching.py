@@ -8,11 +8,15 @@ access — everything here operates on the injected WSL rosters (``{LD: [entry]}
 
 from __future__ import annotations
 
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import Any
 
+from clearinghouse_core.logging import get_logger
 from usa_wa_adapter_legislature.normalize.members import canonicalize_party, district_number
 from usa_wa_adapter_pdc.normalize.positions import fold_token, surname_match_set
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -35,11 +39,30 @@ class SenateEntry:
     folded_last: str
 
 
-def build_house_roster(sponsor_members: list[dict[str, Any]]) -> dict[int, list[HouseRosterEntry]]:
+def build_house_roster(
+    sponsor_members: list[dict[str, Any]],
+    exclude_ids: AbstractSet[str] = frozenset(),
+) -> dict[int, list[HouseRosterEntry]]:
     """Group WSL ``GetSponsors`` **House** rows by LD number for the winner match.
 
     Only House rows with a parseable district + last name participate (Senate rows,
-    name-blanked stubs, and blank districts are skipped — they can't seat a House member)."""
+    name-blanked stubs, and blank districts are skipped — they can't seat a House member).
+
+    **Mover exclusion (#105 (a)).** A mid-biennium House→Senate mover keeps a fully-named
+    House row under the *same* stable ``Id`` as their Senate row (Alvarado ``34024``, Hunt
+    ``35410`` — the same wire identifies the move), so any House row whose ``Id`` also appears
+    in a named Senate row is dropped: the LD then reads 2-member and the #103 elimination can
+    seat the real appointed replacement. Id-keyed (no name folding), so it survives a mover who
+    also changed LDs. Directional by design — WA mid-biennium chamber moves are House→Senate
+    appointments; the per-exclusion log line is the tripwire if the reverse ever appears.
+
+    ``exclude_ids`` drops additional member ids the caller has corroborated as stale
+    (:func:`usa_wa_adapter_legislature.roster_hygiene.stale_member_ids`, #105 (b))."""
+    senate_ids = {
+        str(member["Id"])
+        for member in sponsor_members
+        if member.get("Agency") == "Senate" and (member.get("LastName") or "").strip()
+    }
     roster: dict[int, list[HouseRosterEntry]] = {}
     for member in sponsor_members:
         if member.get("Agency") != "House":
@@ -47,6 +70,15 @@ def build_house_roster(sponsor_members: list[dict[str, Any]]) -> dict[int, list[
         last = (member.get("LastName") or "").strip()
         ld = district_number(member.get("District"))
         if not last or ld is None:
+            continue
+        member_id = str(member["Id"])
+        if member_id in senate_ids:
+            logger.info(
+                "house_roster_mover_excluded",
+                extra={"member_id": member_id, "member_name": member.get("Name"), "ld": ld},
+            )
+            continue
+        if member_id in exclude_ids:
             continue
         roster.setdefault(ld, []).append(
             HouseRosterEntry(

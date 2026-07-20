@@ -152,7 +152,9 @@ async def run_refresh(
     )
     meetings_upserted = await _discover_current_meeting_window(runner, biennium)
     members_upserted = await _discover_members(runner, session, biennium, anchors)
-    member_spans = await _rebuild_member_spans(session, biennium, current, sponsor_client)
+    member_spans = await _rebuild_member_spans(
+        session, biennium, current, sponsor_client, member_client
+    )
     committee_spans = await _rebuild_committee_member_spans(
         session, biennium, current, member_client
     )
@@ -193,7 +195,11 @@ async def _rebuild_committee_member_spans(
 
 
 async def _rebuild_member_spans(
-    session: AsyncSession, biennium: str, current: str, sponsor_client: WSLClient | None
+    session: AsyncSession,
+    biennium: str,
+    current: str,
+    sponsor_client: WSLClient | None,
+    member_client: WSLClient | None,
 ) -> int:
     """Re-drive the Phase B span builder (#78-2c) so the daily refresh materializes merged
     party/Senate-seat Assignment **spans** from the sponsor archive — the current biennium
@@ -216,6 +222,7 @@ async def _rebuild_member_spans(
             result = await build_sponsor_spans(
                 session,
                 sponsor_client=sponsor_client,
+                member_client=member_client,
                 current_biennium=current,
                 restrict_to_biennium=current,
             )

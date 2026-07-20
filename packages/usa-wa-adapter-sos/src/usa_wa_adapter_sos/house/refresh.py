@@ -60,11 +60,12 @@ async def run_refresh(
     *,
     biennium: str | None = None,
     sponsor_client: WSLClient | None = None,
+    member_client: WSLClient | None = None,
     sos_client: SOSResultsClient | None = None,
 ) -> SosRefreshOutcome:
     """Execute one SOS refresh cycle: archive the current results cohort, then re-drive the
     House-Position span builder scoped to the current biennium. ``sponsor_client`` /
-    ``sos_client`` are injectable for tests."""
+    ``member_client`` / ``sos_client`` are injectable for tests."""
     if biennium is None:
         biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
     current = biennium_for_date(datetime.now(UTC).date())
@@ -103,6 +104,7 @@ async def run_refresh(
     result = await build_house_position_spans(
         session,
         sponsor_client=sponsor_client,
+        member_client=member_client,
         current_biennium=biennium,
         restrict_to_biennium=biennium,
     )

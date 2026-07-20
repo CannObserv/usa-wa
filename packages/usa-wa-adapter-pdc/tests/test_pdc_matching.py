@@ -81,6 +81,38 @@ def test_build_senate_roster_skips_unparseable_rows():
     assert roster == {}
 
 
+def test_build_house_roster_excludes_same_wire_senate_mover():
+    """#105 (a): a mid-biennium House→Senate mover keeps a named House row under the SAME
+    stable Id as their Senate row (Alvarado 34024, Hunt 35410 — verified in the 2025-26 wire).
+    The House row is stale — drop it so the LD reads 2-member and the #103 elimination can
+    seat the real appointed replacement."""
+    roster = build_house_roster(
+        [
+            _sponsor(100, 34, "Alvarado"),
+            _sponsor(100, 34, "Alvarado", agency="Senate"),
+            _sponsor(200, 34, "Fitzgibbon"),
+        ]
+    )
+    assert {e.member_id for e in roster[34]} == {"200"}
+
+
+def test_build_house_roster_mover_exclusion_survives_ld_change():
+    """Id-keyed, not within-LD: a mover whose Senate seat is a different LD still drops."""
+    roster = build_house_roster(
+        [_sponsor(100, 5, "Hunt"), _sponsor(100, 7, "Hunt", agency="Senate")]
+    )
+    assert 5 not in roster
+
+
+def test_build_house_roster_exclude_ids_drops_stale_member():
+    """#105 (b): a caller-supplied exclusion set (committee-corroborated stale members —
+    Senn/Kilduff) removes the row; ids are matched as strings against the wire Id."""
+    roster = build_house_roster(
+        [_sponsor(100, 41, "Senn"), _sponsor(200, 41, "Thai")], exclude_ids={"100"}
+    )
+    assert {e.member_id for e in roster[41]} == {"200"}
+
+
 # --- match_house_member --------------------------------------------------------------------
 
 
