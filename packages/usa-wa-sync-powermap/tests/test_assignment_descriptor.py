@@ -219,3 +219,27 @@ async def test_local_newer_is_noop_true_when_ready_and_payload_matches(db_sessio
     a, _p, _r = await _scaffold(db_session, person_anchor=ULID(), role_anchor=ULID())
     record = {"is_current": True, "start_date": "2025-01-01", "end_date": None}
     assert await descriptor.local_newer_is_noop(db_session, a, record) is True
+
+
+async def test_local_newer_is_noop_holds_for_anchored_id_addressed_row(db_session, descriptor):
+    """#111: an *anchored* row builds an id-addressed observation, but the no-op gate compares
+    only the mutable window (start/end/is_current) — so an unchanged anchored row still reads as
+    a no-op (adopt PM's clock, no re-send). This is what keeps the id-address switch from mass
+    re-sending all 5k anchored assignments on the first post-deploy reconcile."""
+    a, _p, _r = await _scaffold(db_session, person_anchor=ULID(), role_anchor=ULID())
+    a.pm_assignment_id = ULID()
+    await db_session.flush()
+    record = {"is_current": True, "start_date": "2025-01-01", "end_date": None}
+    assert await descriptor.local_newer_is_noop(db_session, a, record) is True
+
+
+async def test_local_newer_not_noop_when_anchored_window_drifts(db_session, descriptor):
+    """#111: a drifted anchored row (PM shows a different end_date) is NOT a no-op — it must
+    enqueue and deliver id-addressed so ``update_assignment_fields`` applies the correction
+    (the case natural-key auto-attach used to silently drop, power-map#311b)."""
+    a, _p, _r = await _scaffold(db_session, person_anchor=ULID(), role_anchor=ULID())
+    a.pm_assignment_id = ULID()
+    a.valid_to = date(2024, 12, 31)  # local closed the tenure
+    await db_session.flush()
+    record = {"is_current": True, "start_date": "2025-01-01", "end_date": None}  # PM still open
+    assert await descriptor.local_newer_is_noop(db_session, a, record) is False
