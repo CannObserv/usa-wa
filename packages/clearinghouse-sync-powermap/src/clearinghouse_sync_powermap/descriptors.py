@@ -140,6 +140,13 @@ class EntityDescriptor(ABC):
     reconcile_mode: ReconcileMode = "none"
     #: Whether the outbox worker may push this entity. Dormant types stay False.
     write_enabled: bool = False
+    #: Opt into the LWW no-op gate (usa-wa#102/#104/#109). A ``write_enabled`` +
+    #: ``anchored_cohort`` descriptor whose local clock can drift ahead of PM's
+    #: re-sends an identical observation every reconcile forever; setting this True
+    #: **and** overriding :meth:`observation_matches_record` lets ``apply_record``
+    #: adopt PM's clock instead. Any new producer descriptor with that precondition
+    #: should consider it — see the LWW no-op gate section in AGENTS.md.
+    local_newer_noop_gate: bool = False
     #: PM-native internal identifier type for enrich-on-match (power-map#198) — e.g.
     #: ``"pm_org_id"``. When set, a row matched to an identifier-less PM record *by
     #: name* enqueues an enrich observation that attaches our identifiers/names to
@@ -503,15 +510,44 @@ class EntityDescriptor(ABC):
         """
         obj.updated_at = value
 
+    def observation_matches_record(self, observation: dict, record: dict) -> bool:
+        """Whether re-producing ``observation`` would leave PM's ``record`` unchanged.
+
+        The **pure** half of the LWW no-op gate (usa-wa#109) — a descriptor that opts in
+        (``local_newer_noop_gate = True``) overrides this to compare its own mutable
+        observation surface against PM's freshly-fetched record. Default ``False``
+        (nothing is ever a no-op), so a descriptor that flips the flag without supplying
+        a comparator degrades to the pre-gate behaviour rather than adopting clocks blind.
+
+        **Hazard — a false ``True`` erases, it does not defer.** The gate's resolution is
+        to adopt PM's clock, which *drops* the pending local change rather than delaying
+        it. So a comparator must return ``False`` on every surface it cannot positively
+        confirm PM already reflects. Compare narrowly and err toward enqueuing.
+        """
+        return False
+
     async def local_newer_is_noop(self, session: Any, existing: Any, record: dict) -> bool:
         """Whether a local row reading "newer" than PM's ``record`` is a *spurious*
         clock skew — i.e. re-producing it would leave PM unchanged.
 
-        Default ``False``: the engine enqueues the local-newer UPDATE as before.
-        A descriptor whose observation is a pure function of a few mutable fields
-        (the assignment cluster) overrides this to compare the observation it would
-        send against PM's freshly-fetched record; when they match, ``apply_record``
-        adopts PM's clock instead of re-POSTing an identical payload every reconcile
-        (the usa-wa#102 churn). Opt-in, so every other descriptor is unaffected.
+        The template of the LWW no-op gate (usa-wa#102/#104/#109): guard on
+        :meth:`dependencies_ready`, build the observation we would send, and hand it to
+        :meth:`observation_matches_record`. When they match, ``apply_record`` adopts PM's
+        clock instead of re-POSTing an identical payload every reconcile forever.
+
+        Opt-in via ``local_newer_noop_gate`` — a descriptor that hasn't flipped it returns
+        ``False`` **without** building an observation, so the non-participating cohorts pay
+        no DB cost on the local-newer path.
+
+        The deps guard is part of the template on purpose (the #102 CR lesson): the gate
+        runs on the reconcile hot path, where a deps-not-ready row would build a garbage
+        observation (``organization_id="None"`` on an un-anchored org) that could compare
+        equal by accident, or raise mid-reconcile. Not ready → ``False`` (enqueue as
+        before; ``_deliver`` defers at drain). Hoisting it here makes the guard structural
+        rather than something each new descriptor must remember (usa-wa#109).
         """
-        return False
+        if not self.local_newer_noop_gate:
+            return False
+        if not await self.dependencies_ready(session, existing):
+            return False
+        return self.observation_matches_record(await self.to_observation(session, existing), record)

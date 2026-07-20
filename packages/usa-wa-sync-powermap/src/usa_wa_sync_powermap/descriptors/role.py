@@ -58,6 +58,7 @@ class RoleDescriptor(EntityDescriptor):
     # backstop re-fetches only OUR anchored rows to recover dropped feed events (#13).
     reconcile_mode = "anchored_cohort"
     write_enabled = True
+    local_newer_noop_gate = True  # #109 — see observation_matches_record
 
     async def dependencies_ready(self, session: Any, row: Any) -> bool:
         """The role's org must be anchored — its PM id is the observation's key.
@@ -183,6 +184,40 @@ class RoleDescriptor(EntityDescriptor):
             if await self._is_catalog_role_type(session, row.role_type):
                 obs["role_type"] = row.role_type
         return obs
+
+    def observation_matches_record(self, observation: dict, record: dict) -> bool:
+        """Whether re-producing ``observation`` would leave PM's ``record`` unchanged (#109).
+
+        Role's observation is *entirely* PM's match key plus (for the title shape) the
+        persisted ``role_type`` classifier, so the comparison is the match key itself:
+
+        - **Seat shape** — ``(organization_id, role_type, jurisdiction_id, qualifier)``.
+          Title is absent by design (PM owns it, power-map#267), so an agreeing tuple means
+          the re-observation resolves to *this* PM seat and asserts nothing else: a true
+          no-op. A **divergent** tuple is not a blanket-safe skip — it would resolve to a
+          different seat (or mint one), which is a genuine re-key that must still enqueue.
+          Hence the comparison rather than an unconditional ``True``.
+        - **Title shape** — ``(organization_id, title)`` plus ``role_type`` when the catalog
+          knew the slug. A local title diverging from PM's curated one would match a
+          *different* role, so it must enqueue.
+
+        ``role_type`` is compared against PM's ``role_type_slug``; an observation that omits
+        it (non-catalog slug) asserts nothing and so is not compared. 305/306 anchored roles
+        were re-sent every reconcile before this gate — see the #109 audit.
+        """
+        if observation.get("organization_id") != record.get("organization_id"):
+            return False
+        if "title" in observation:  # non-seat: (org, title) key + persisted classifier
+            if observation["title"] != record.get("title"):
+                return False
+            return "role_type" not in observation or observation["role_type"] == record.get(
+                "role_type_slug"
+            )
+        return (
+            observation.get("role_type") == record.get("role_type_slug")
+            and observation.get("jurisdiction_id") == record.get("jurisdiction_id")
+            and observation.get("qualifier") == record.get("qualifier")
+        )
 
     async def local_match(self, session: Any, record: dict) -> Any | None:
         """Map a PM role to its local row by **anchor** (``pm_role_id``).

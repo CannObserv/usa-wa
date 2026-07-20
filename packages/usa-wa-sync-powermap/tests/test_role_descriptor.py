@@ -20,6 +20,9 @@ from ulid import ULID
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_domain_legislative.identity import Organization, Role
 from clearinghouse_domain_legislative.role_types import RoleType
+from clearinghouse_sync_powermap.engine import APPLY_KEPT_LOCAL, SyncEngine
+from clearinghouse_sync_powermap.models import OP_UPDATE, STATUS_PENDING, OutboxEntry
+from clearinghouse_sync_powermap.testing import FakeClient
 from usa_wa_sync_powermap.descriptors import RoleDescriptor
 
 
@@ -504,3 +507,157 @@ async def test_last_updated_row_and_record(db_session, descriptor):
     assert descriptor.last_updated({"updated_at": "2026-06-02T00:00:00Z"}) == datetime(
         2026, 6, 2, tzinfo=UTC
     )
+
+
+# --- LWW no-op gate (#109) -------------------------------------------------
+#
+# 305 of 306 anchored roles re-sent every reconcile (610 UPDATE deliveries/day, 100%
+# day-over-day overlap) because their local ``updated_at`` is frozen ahead of PM's at
+# the 2026-07-06 backfill and PM no-ops the identical observation without advancing its
+# clock. Same defect as #102 (assignment) / #104 (person).
+
+
+async def test_local_newer_is_noop_true_for_seat_matching_pm(db_session, descriptor):
+    """#109: an anchored seat whose structural tuple equals PM's is a pure no-op.
+
+    A seat observation carries *only* PM's match key ``(org, role_type, jurisdiction,
+    qualifier)`` — title is deliberately omitted (power-map#267) — so when the tuple agrees
+    with PM's record the re-observation resolves to this same seat and asserts nothing
+    else. ``apply_record`` may safely adopt PM's clock instead of re-POSTing forever."""
+    await _seed_role_type(db_session, slug="state_representative", expects_jurisdiction=True)
+    org = await _add_org(db_session, anchor=ULID())
+    district = await _add_district(db_session, anchor=ULID())
+    seat = await _add_seat(db_session, org=org, jurisdiction=district, anchor=ULID())
+    record = {
+        "organization_id": str(org.pm_organization_id),
+        "role_type_slug": "state_representative",
+        "jurisdiction_id": str(district.pm_jurisdiction_id),
+        "qualifier": "Position 1",
+        "title": "State Representative Position 1",  # PM-owned; not in the match key
+    }
+    assert await descriptor.local_newer_is_noop(db_session, seat, record) is True
+
+
+async def test_local_newer_is_noop_false_when_seat_qualifier_diverges(db_session, descriptor):
+    """A local seat whose qualifier drifted from PM's is **not** a no-op — re-observing
+    it would resolve to a *different* seat tuple (or mint one), so it must still enqueue.
+
+    This is why the seat branch compares the tuple rather than returning a blanket
+    ``True``: the observation is the match key, so a divergent key is a real re-key."""
+    await _seed_role_type(db_session, slug="state_representative", expects_jurisdiction=True)
+    org = await _add_org(db_session, anchor=ULID())
+    district = await _add_district(db_session, anchor=ULID())
+    seat = await _add_seat(db_session, org=org, jurisdiction=district, anchor=ULID())
+    record = {
+        "organization_id": str(org.pm_organization_id),
+        "role_type_slug": "state_representative",
+        "jurisdiction_id": str(district.pm_jurisdiction_id),
+        "qualifier": "Position 2",  # local says Position 1 → genuine divergence
+    }
+    assert await descriptor.local_newer_is_noop(db_session, seat, record) is False
+
+
+async def test_local_newer_is_noop_true_for_title_role_matching_pm(db_session, descriptor):
+    """A non-seat role keys on ``(org, title)`` and additionally persists its catalog
+    ``role_type`` classifier (power-map#269) — both agreeing with PM is a no-op."""
+    await _seed_role_type(db_session, slug="member", expects_jurisdiction=False)
+    org = await _add_org(db_session, anchor=ULID())
+    role = await _add_role(db_session, org=org, name="Member", role_type="member", anchor=ULID())
+    record = {
+        "organization_id": str(org.pm_organization_id),
+        "title": "Member",
+        "role_type_slug": "member",
+    }
+    assert await descriptor.local_newer_is_noop(db_session, role, record) is True
+
+
+async def test_local_newer_is_noop_false_on_title_divergence(db_session, descriptor):
+    """A local title differing from PM's curated one must still enqueue — the observation
+    would match a *different* ``(org, title)`` role in PM, not update this one."""
+    await _seed_role_type(db_session, slug="member", expects_jurisdiction=False)
+    org = await _add_org(db_session, anchor=ULID())
+    role = await _add_role(
+        db_session, org=org, name="Vice Chair", role_type="member", anchor=ULID()
+    )
+    record = {
+        "organization_id": str(org.pm_organization_id),
+        "title": "Vice-Chair",  # PM's curated form differs → real change
+        "role_type_slug": "member",
+    }
+    assert await descriptor.local_newer_is_noop(db_session, role, record) is False
+
+
+async def test_local_newer_is_noop_false_when_dependencies_not_ready(db_session, descriptor):
+    """The deps guard (#102's CR lesson, and the trap #109's audit flagged): role has real
+    ``dependencies_ready`` prerequisites, so an un-anchored org would build a garbage
+    observation (``organization_id="None"``) that could spuriously compare equal. Not
+    ready → ``False`` (enqueue as before; ``_deliver`` defers at drain), never a bogus
+    clock-adopt. Unlike ``PersonDescriptor``, which has no dependencies."""
+    await _seed_role_type(db_session, slug="state_representative", expects_jurisdiction=True)
+    org = await _add_org(db_session, anchor=None)  # org NOT anchored → deps not ready
+    district = await _add_district(db_session, anchor=ULID())
+    seat = await _add_seat(db_session, org=org, jurisdiction=district, anchor=ULID())
+    record = {
+        "organization_id": "None",
+        "role_type_slug": "state_representative",
+        "jurisdiction_id": str(district.pm_jurisdiction_id),
+        "qualifier": "Position 1",
+    }
+    assert await descriptor.local_newer_is_noop(db_session, seat, record) is False
+
+
+async def test_apply_record_role_noop_adopts_clock_and_skips_enqueue(db_session, descriptor):
+    """Seam test (#109): a real ``RoleDescriptor`` through ``engine.apply_record``'s
+    local-newer branch — the clock-skewed anchored seat adopts PM's clock and enqueues
+    nothing. This is the 610-writes/day churn, fixed end-to-end."""
+    await _seed_role_type(db_session, slug="state_representative", expects_jurisdiction=True)
+    org = await _add_org(db_session, anchor=ULID())
+    district = await _add_district(db_session, anchor=ULID())
+    pm_id = ULID()
+    seat = await _add_seat(db_session, org=org, jurisdiction=district, anchor=pm_id)
+    seat.updated_at = datetime(2050, 1, 1, tzinfo=UTC)  # local clock ahead of PM
+    await db_session.flush()
+    engine = SyncEngine([descriptor], FakeClient())
+
+    record = {
+        "id": str(pm_id),
+        "organization_id": str(org.pm_organization_id),
+        "role_type_slug": "state_representative",
+        "jurisdiction_id": str(district.pm_jurisdiction_id),
+        "qualifier": "Position 1",
+        "title": "State Representative Position 1",
+        "updated_at": "2000-01-01T00:00:00Z",  # PM's clock older → local reads "newer"
+    }
+    outcome = await engine.apply_record(db_session, descriptor, record)
+
+    assert outcome == APPLY_KEPT_LOCAL
+    assert (await db_session.execute(select(OutboxEntry))).first() is None  # no churn enqueue
+    assert seat.updated_at == datetime(2000, 1, 1, tzinfo=UTC)  # PM's clock adopted → parity
+
+
+async def test_apply_record_role_real_change_still_enqueues(db_session, descriptor):
+    """The seam's other direction: a genuinely diverged seat tuple on a clock-newer row is
+    NOT a no-op → apply_record keeps local and enqueues the UPDATE."""
+    await _seed_role_type(db_session, slug="state_representative", expects_jurisdiction=True)
+    org = await _add_org(db_session, anchor=ULID())
+    district = await _add_district(db_session, anchor=ULID())
+    pm_id = ULID()
+    seat = await _add_seat(db_session, org=org, jurisdiction=district, anchor=pm_id)
+    seat.updated_at = datetime(2050, 1, 1, tzinfo=UTC)
+    await db_session.flush()
+    engine = SyncEngine([descriptor], FakeClient())
+
+    record = {
+        "id": str(pm_id),
+        "organization_id": str(org.pm_organization_id),
+        "role_type_slug": "state_representative",
+        "jurisdiction_id": str(district.pm_jurisdiction_id),
+        "qualifier": "Position 2",  # diverges from local Position 1 → real change
+        "updated_at": "2000-01-01T00:00:00Z",
+    }
+    outcome = await engine.apply_record(db_session, descriptor, record)
+
+    assert outcome == APPLY_KEPT_LOCAL
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert (entry.op, entry.status) == (OP_UPDATE, STATUS_PENDING)
+    assert seat.updated_at == datetime(2050, 1, 1, tzinfo=UTC)  # local clock preserved

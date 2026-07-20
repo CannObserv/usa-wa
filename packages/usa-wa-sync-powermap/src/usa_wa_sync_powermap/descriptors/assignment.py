@@ -49,6 +49,7 @@ class AssignmentDescriptor(EntityDescriptor):
     # backstop re-fetches only OUR anchored rows to recover dropped feed events (#13).
     reconcile_mode = "anchored_cohort"
     write_enabled = True
+    local_newer_noop_gate = True  # #102 — see observation_matches_record
 
     async def dependencies_ready(self, session: Any, row: Any) -> bool:
         """Both the person and the role must be anchored — the observation keys on
@@ -119,18 +120,6 @@ class AssignmentDescriptor(EntityDescriptor):
             and _parse_date(observation.get("end_date")) == _parse_date(record.get("end_date"))
         )
 
-    async def local_newer_is_noop(self, session: Any, existing: Any, record: dict) -> bool:
-        """#102: a local-newer assignment is spurious when re-producing it wouldn't change PM.
-
-        Builds the observation we would send and compares its mutable fields to PM's record. When
-        they match, ``apply_record`` adopts PM's clock instead of enqueuing an identical payload
-        forever — and the one-shot heal uses the same test.
-
-        Guards with :meth:`dependencies_ready` first (CR #102): the gate now calls
-        ``to_observation`` on the reconcile hot path, where a deps-not-ready row would either build
-        a garbage observation (``person_id="None"`` on an un-anchored person) or raise on a missing
-        person/role. Not-ready → ``False`` (enqueue as before; ``_deliver`` then defers at drain),
-        never a spurious noop nor a mid-reconcile crash."""
-        if not await self.dependencies_ready(session, existing):
-            return False
-        return self.observation_matches_record(await self.to_observation(session, existing), record)
+    # ``local_newer_is_noop`` is the base template (#109): deps guard → build → compare.
+    # The deps guard this cohort needed (#102 CR — an un-anchored person would build a
+    # ``person_id="None"`` observation) is now structural for every gated descriptor.
