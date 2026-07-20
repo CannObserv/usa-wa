@@ -1103,3 +1103,62 @@ async def test_drain_skips_dormant_type(db_session, fake_descriptor):
     assert client.posted == []
     entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
     assert entry.status == STATUS_PENDING
+
+
+# --- anchor stamp must not bump the local clock (usa-wa#109) ----------------
+
+
+async def test_delivery_anchor_stamp_preserves_local_clock(db_session):
+    """usa-wa#109: stamping the PM anchor after a delivery must NOT bump ``updated_at``.
+
+    ``set_anchor`` is a plain attribute write, so the flush that persists it used to push
+    ``updated_at`` to *now* — landing the local row a few hundred ms **ahead of PM's own
+    creation clock** (the PM round-trip). Every row we create was therefore born
+    clock-skewed, and since PM no-ops an identical re-observation *without advancing its
+    clock*, the skew never resolved: the anchored-cohort reconcile re-sent it every cycle
+    forever. This was the systemic re-arm behind #102/#104/#109 — the chronic org row
+    (usa-wa#109) sat exactly 228ms ahead of PM for 11 days.
+
+    Preserving the pre-stamp clock leaves the row *older* than PM, so the next reconcile
+    takes the PM-wins branch, mirrors, and adopts PM's clock → parity. Self-correcting,
+    instead of a permanent write loop.
+    """
+    row = await _add_entity(db_session, source_id="c1", name="Adapter")
+    row.updated_at = datetime(2020, 1, 1, tzinfo=UTC)  # a settled pre-delivery clock
+    await db_session.flush()
+
+    pm_id = ULID()
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, pm_id, {}))
+    descriptor = FakeDescriptor()
+    engine = SyncEngine([descriptor], client)
+    await engine.sweep_unanchored(db_session, descriptor)
+
+    await engine.drain_outbox(db_session, now=NOW)
+    await db_session.flush()
+
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert entry.status == STATUS_DELIVERED
+    assert row.pm_fake_id == pm_id  # the anchor still lands
+    assert row.updated_at == datetime(2020, 1, 1, tzinfo=UTC)  # ...without moving the clock
+
+
+async def test_delivery_preserves_a_local_edit_made_before_the_stamp(db_session):
+    """The preserve must restore the clock as of the *delivery*, not an older snapshot —
+    a genuine local edit still has to read as newer than it was, or we would lose the
+    fact that the row changed."""
+    row = await _add_entity(db_session, source_id="c2", name="Adapter")
+    pm_id = ULID()
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, pm_id, {}))
+    descriptor = FakeDescriptor()
+    engine = SyncEngine([descriptor], client)
+    await engine.sweep_unanchored(db_session, descriptor)
+
+    row.name = "Edited after enqueue, before delivery"
+    await db_session.flush()
+    edited_at = row.updated_at
+
+    await engine.drain_outbox(db_session, now=NOW)
+    await db_session.flush()
+
+    assert row.pm_fake_id == pm_id
+    assert row.updated_at == edited_at  # the edit's clock survives the stamp

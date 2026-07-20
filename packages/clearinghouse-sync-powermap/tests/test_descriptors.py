@@ -323,3 +323,29 @@ async def test_gated_descriptor_without_comparator_never_noops():
     row = FakeEntity(source="s", source_id="X-1", name="Widget", pm_fake_id=ULID())
 
     assert await _FlagOnly().local_newer_is_noop(None, row, {"name": "Widget"}) is False
+
+
+async def test_set_last_updated_survives_flush_when_value_is_unchanged(db_session):
+    """usa-wa#109: stamping the clock with the value it *already* holds must still land.
+
+    ``updated_at`` carries an ``onupdate`` callable, and SQLAlchemy applies it to any
+    UPDATE whose SET clause omits the column. Assigning a value equal to the loaded one
+    registers **no net attribute change**, so without ``flag_modified`` the column drops
+    out of the SET clause and the onupdate silently overwrites the stamp with ``now()``.
+
+    That no-change write is precisely the "preserve this clock" case the anchor-stamp
+    preserve depends on, so this is the guard for it: a plain equality assertion right
+    after the assignment would pass even with the bug — the divergence only appears
+    after the flush.
+    """
+    settled = datetime(2020, 1, 1, tzinfo=UTC)
+    row = FakeEntity(source="wsl", source_id="clock-1", name="Widget", updated_at=settled)
+    db_session.add(row)
+    await db_session.flush()
+
+    descriptor = FakeDescriptor()
+    row.name = "Widget edited"  # dirty the row so a real UPDATE is emitted
+    descriptor.set_last_updated(row, settled)  # ...restamping the SAME clock
+    await db_session.flush()
+
+    assert row.updated_at == settled  # not clobbered by onupdate's now()
