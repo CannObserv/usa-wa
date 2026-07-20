@@ -246,6 +246,31 @@ async def test_tick_drains_against_a_fresh_clock(db_session, state_type):
     assert all(e.status == STATUS_DELIVERED for e in delivered)
 
 
+async def test_tick_resets_drain_stats_before_running(db_session):
+    """usa-wa#108 (CR-1): the drain tallies reset at tick *start*, so a tick that raises
+    after a partial drain reports *this* cycle (empty) rather than attributing the
+    previous cycle's mint counts to a failed one. Here the feed read raises before the
+    end-of-tick capture, and the stale pre-seeded stats must already be cleared."""
+    from clearinghouse_sync_powermap.engine import DrainStats
+
+    sidecar, _ = _sidecar(FakeClient())
+    stale = DrainStats()
+    stale.reanchors = 5
+    stale.dispositions[DISPOSITION_NEW] = 5
+    sidecar._last_drain_stats = stale
+
+    async def _boom(session, *, now):  # noqa: ARG001
+        raise RuntimeError("feed failed")
+
+    sidecar._engine.process_feed = _boom
+
+    with pytest.raises(RuntimeError):
+        await sidecar.tick(db_session, now=NOW)
+
+    assert sidecar._last_drain_stats.reanchors == 0
+    assert dict(sidecar._last_drain_stats.dispositions) == {}
+
+
 # --- run_cycle isolation (CR #13) ----------------------------------------------
 
 

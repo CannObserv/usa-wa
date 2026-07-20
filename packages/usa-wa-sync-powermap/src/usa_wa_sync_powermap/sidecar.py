@@ -143,6 +143,11 @@ class Sidecar:
         (#85), so a discovery/PM failure or one poison entity cannot roll back or
         starve the feed/sweep/drain in this transaction.
         """
+        # Reset the drain tallies up front (usa-wa#108): if this tick raises after a
+        # partial drain, the cycle summary must report *this* cycle (empty) rather than
+        # attribute the previous cycle's mint counts to a failed one. The end-of-tick
+        # capture overwrites with the real drain stats on success.
+        self._last_drain_stats = DrainStats()
         # Read: the incremental feed (the real-time path).
         await self._engine.process_feed(session, now=now)
         # Writes: enqueue un-anchored rows, then deliver.

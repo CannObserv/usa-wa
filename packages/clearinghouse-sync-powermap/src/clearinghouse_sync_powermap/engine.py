@@ -837,7 +837,7 @@ class SyncEngine:
                     f"anchor conflict: {descriptor.anchor_column}={result.pm_id}",
                 )
                 return True
-            await self._record_reanchor(session, descriptor, row, entry, result)
+            await self._record_reanchor(session, descriptor, row, result)
             self._stamp_anchor(descriptor, row, result.pm_id)
             entry.status = STATUS_DELIVERED
             entry.last_error = None
@@ -855,7 +855,6 @@ class SyncEngine:
         session: AsyncSession,
         descriptor: EntityDescriptor,
         row: Any,
-        entry: OutboxEntry,
         result: ObservationResult,
     ) -> None:
         """Capture an in-place anchor **overwrite** before it destroys the old id (#108).
