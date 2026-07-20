@@ -18,6 +18,10 @@ from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
+from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
+from usa_wa_adapter_legislature.harvest_committee_member_spans import (
+    build_committee_member_spans,
+)
 from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
 
 
@@ -405,3 +409,36 @@ async def test_missing_committee_archive_excludes_nothing(db_session, usa_wa, ws
     )
 
     assert result.emitted == 2  # party + Senate seat — nothing excluded
+
+
+async def test_builders_accept_a_shared_member_cohort(db_session, usa_wa, wsl_source):
+    """#105 CR-1: a caller (the daily refresh) can pass ONE CommitteeMemberCohortProvider to
+    both span builders; combined with the provider's memoized archive scan, the committee
+    wires are parsed exactly once across both builds."""
+    await _add_ld(db_session, usa_wa, 5)
+    db_session.add(Person(source="usa_wa_legislature", source_id="100", name_full="Ann Rivers"))
+    await db_session.flush()
+    await _archive(db_session, wsl_source, "2025-26", b"<b:2025-26>")
+    await _archive_committee_roster(db_session, wsl_source, "2025-26", "888", b"<r:100/>")
+
+    class _CountingMemberClient(_WireMappingMemberClient):
+        parse_calls = 0
+
+        async def parse_historical_committee_members(self, wire):
+            _CountingMemberClient.parse_calls += 1
+            return await super().parse_historical_committee_members(wire)
+
+    client = _CountingMemberClient()
+    provider = CommitteeMemberCohortProvider(client, session=db_session, source_id=wsl_source.id)
+
+    await build_sponsor_spans(
+        db_session,
+        sponsor_client=_WireMappingSponsorClient({"2025-26": [_member(100)]}),
+        member_cohort=provider,
+        current_biennium="2025-26",
+    )
+    await build_committee_member_spans(
+        db_session, member_cohort=provider, current_biennium="2025-26"
+    )
+
+    assert _CountingMemberClient.parse_calls == 1

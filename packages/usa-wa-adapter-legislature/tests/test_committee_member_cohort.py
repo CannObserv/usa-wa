@@ -227,3 +227,36 @@ async def test_latest_events_is_memoized_across_both_reads(db_session, usa_wa, w
         event.remove(sync_engine, "before_cursor_execute", _count)
 
     assert scans == 1  # the second accessor reads the memoized result
+
+
+class _CountingClient(_WireEchoClient):
+    """Echo client that counts offline re-parses (#105 CR-1: the scan must be memoized)."""
+
+    def __init__(self) -> None:
+        self.parse_calls = 0
+
+    async def parse_historical_committee_members(self, wire: bytes) -> list[dict]:
+        self.parse_calls += 1
+        return await super().parse_historical_committee_members(wire)
+
+
+async def test_archived_rosters_is_memoized(db_session, usa_wa, wsl_source):
+    """#105 CR-1: `archived_rosters` re-parses each wire at most once per provider instance —
+    the daily cadence reads the archive from several builders, and the zeep re-parse of the
+    whole archive is the expensive step."""
+    await _event(
+        db_session,
+        wsl_source,
+        CURRENT,
+        fetched_at=datetime.now(UTC),
+        content_hash=b"\x01" * 32,
+        body=b"<r:100,200/>",
+    )
+    client = _CountingClient()
+    provider = CommitteeMemberCohortProvider(client, session=db_session, source_id=wsl_source.id)
+
+    first = await provider.archived_rosters()
+    second = await provider.archived_rosters()
+
+    assert first == second
+    assert client.parse_calls == 1
