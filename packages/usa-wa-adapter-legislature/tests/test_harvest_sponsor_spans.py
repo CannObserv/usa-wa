@@ -422,10 +422,11 @@ async def test_builders_accept_a_shared_member_cohort(db_session, usa_wa, wsl_so
     await _archive_committee_roster(db_session, wsl_source, "2025-26", "888", b"<r:100/>")
 
     class _CountingMemberClient(_WireMappingMemberClient):
-        parse_calls = 0
+        def __init__(self):
+            self.parse_calls = 0
 
         async def parse_historical_committee_members(self, wire):
-            _CountingMemberClient.parse_calls += 1
+            self.parse_calls += 1
             return await super().parse_historical_committee_members(wire)
 
     client = _CountingMemberClient()
@@ -441,4 +442,4 @@ async def test_builders_accept_a_shared_member_cohort(db_session, usa_wa, wsl_so
         db_session, member_cohort=provider, current_biennium="2025-26"
     )
 
-    assert _CountingMemberClient.parse_calls == 1
+    assert client.parse_calls == 1
