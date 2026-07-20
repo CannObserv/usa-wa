@@ -84,6 +84,7 @@ async def test_dependencies_not_ready_without_person_id(db_session, descriptor):
 
 
 async def test_to_observation_keys_on_person_and_role_pm_ids(db_session, descriptor):
+    """Unanchored (no ``pm_assignment_id``) → natural-key create payload."""
     person_pm, role_pm = ULID(), ULID()
     a, _p, _r = await _scaffold(db_session, person_anchor=person_pm, role_anchor=role_pm)
 
@@ -95,6 +96,34 @@ async def test_to_observation_keys_on_person_and_role_pm_ids(db_session, descrip
         "start_date": "2025-01-01",
         "end_date": None,
         "is_current": True,
+    }
+
+
+async def test_to_observation_anchored_row_is_id_addressed(db_session, descriptor):
+    """Anchored (has ``pm_assignment_id``) → PM-native update payload (power-map#311).
+
+    A natural-key observation whose ``start_date`` moved would *mint* a duplicate (start
+    is in PM's match key), and one whose ``end_date``/``is_current`` drifted would
+    auto-attach without applying the delta. Addressing the exact row by
+    ``identifier_type="pm_assignment_id"`` routes to PM's authoritative update channel:
+    start moves in place (no mint), end/currency deltas apply. Person/role FKs are not
+    required in PM-native mode, so we omit them."""
+    pm_id = ULID()
+    a, _p, _r = await _scaffold(db_session, person_anchor=ULID(), role_anchor=ULID())
+    a.pm_assignment_id = pm_id
+    a.valid_from = date(2017, 1, 1)
+    a.valid_to = date(2024, 12, 31)
+    a.is_active = False
+    await db_session.flush()
+
+    obs = await descriptor.to_observation(db_session, a)
+
+    assert obs == {
+        "identifier_type": "pm_assignment_id",
+        "identifier_value": str(pm_id),
+        "start_date": "2017-01-01",
+        "end_date": "2024-12-31",
+        "is_current": False,
     }
 
 
@@ -190,3 +219,27 @@ async def test_local_newer_is_noop_true_when_ready_and_payload_matches(db_sessio
     a, _p, _r = await _scaffold(db_session, person_anchor=ULID(), role_anchor=ULID())
     record = {"is_current": True, "start_date": "2025-01-01", "end_date": None}
     assert await descriptor.local_newer_is_noop(db_session, a, record) is True
+
+
+async def test_local_newer_is_noop_holds_for_anchored_id_addressed_row(db_session, descriptor):
+    """#111: an *anchored* row builds an id-addressed observation, but the no-op gate compares
+    only the mutable window (start/end/is_current) — so an unchanged anchored row still reads as
+    a no-op (adopt PM's clock, no re-send). This is what keeps the id-address switch from mass
+    re-sending all 5k anchored assignments on the first post-deploy reconcile."""
+    a, _p, _r = await _scaffold(db_session, person_anchor=ULID(), role_anchor=ULID())
+    a.pm_assignment_id = ULID()
+    await db_session.flush()
+    record = {"is_current": True, "start_date": "2025-01-01", "end_date": None}
+    assert await descriptor.local_newer_is_noop(db_session, a, record) is True
+
+
+async def test_local_newer_not_noop_when_anchored_window_drifts(db_session, descriptor):
+    """#111: a drifted anchored row (PM shows a different end_date) is NOT a no-op — it must
+    enqueue and deliver id-addressed so ``update_assignment_fields`` applies the correction
+    (the case natural-key auto-attach used to silently drop, power-map#311b)."""
+    a, _p, _r = await _scaffold(db_session, person_anchor=ULID(), role_anchor=ULID())
+    a.pm_assignment_id = ULID()
+    a.valid_to = date(2024, 12, 31)  # local closed the tenure
+    await db_session.flush()
+    record = {"is_current": True, "start_date": "2025-01-01", "end_date": None}  # PM still open
+    assert await descriptor.local_newer_is_noop(db_session, a, record) is False

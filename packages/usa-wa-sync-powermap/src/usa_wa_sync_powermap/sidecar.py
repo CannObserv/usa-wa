@@ -237,6 +237,9 @@ class Sidecar:
                 # this cycle (each recorded in ``powermap_anchor_reanchor``).
                 "dispositions": dict(stats.dispositions),
                 "reanchors": stats.reanchors,
+                # Deltas PM withheld on a natural-key auto-attach (usa-wa#111/power-map#311b);
+                # should stay 0 now anchored rows are id-addressed, a rise is the signal.
+                "unapplied": stats.unapplied,
             },
         )
         if backlog.rejected > self._last_rejected_count:
