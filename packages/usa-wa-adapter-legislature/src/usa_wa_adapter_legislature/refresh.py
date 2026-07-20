@@ -45,6 +45,7 @@ from usa_wa_adapter_legislature.adapter import (
     committee_members_hist_resource_id,
 )
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors, bootstrap_synthetic_anchors
+from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.harvest_committee_member_spans import build_committee_member_spans
 from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
 from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
@@ -152,11 +153,17 @@ async def run_refresh(
     )
     meetings_upserted = await _discover_current_meeting_window(runner, biennium)
     members_upserted = await _discover_members(runner, session, biennium, anchors)
+    # One shared, memoized committee-cohort provider for both span re-drives (#105 CR-1) —
+    # each archived roster wire is re-parsed once per refresh, not once per builder. Lazy:
+    # it reads the archive only when the first re-drive runs (after the fan-out archived it).
+    member_cohort = CommitteeMemberCohortProvider(
+        member_client or WSLClient("CommitteeService"), session=session, source_id=source.id
+    )
     member_spans = await _rebuild_member_spans(
-        session, biennium, current, sponsor_client, member_client
+        session, biennium, current, sponsor_client, member_cohort
     )
     committee_spans = await _rebuild_committee_member_spans(
-        session, biennium, current, member_client
+        session, biennium, current, member_cohort
     )
     return RefreshOutcome(
         committees=summary,
@@ -168,7 +175,10 @@ async def run_refresh(
 
 
 async def _rebuild_committee_member_spans(
-    session: AsyncSession, biennium: str, current: str, member_client: WSLClient | None
+    session: AsyncSession,
+    biennium: str,
+    current: str,
+    member_cohort: CommitteeMemberCohortProvider,
 ) -> int:
     """Re-drive the committee-membership span builder (#82) so the daily refresh materializes
     merged membership **spans** from the roster archive — the current biennium is a span's
@@ -184,7 +194,7 @@ async def _rebuild_committee_member_spans(
         async with session.begin_nested():
             result = await build_committee_member_spans(
                 session,
-                member_client=member_client,
+                member_cohort=member_cohort,
                 current_biennium=current,
                 restrict_to_biennium=current,
             )
@@ -199,7 +209,7 @@ async def _rebuild_member_spans(
     biennium: str,
     current: str,
     sponsor_client: WSLClient | None,
-    member_client: WSLClient | None,
+    member_cohort: CommitteeMemberCohortProvider,
 ) -> int:
     """Re-drive the Phase B span builder (#78-2c) so the daily refresh materializes merged
     party/Senate-seat Assignment **spans** from the sponsor archive — the current biennium
@@ -222,7 +232,7 @@ async def _rebuild_member_spans(
             result = await build_sponsor_spans(
                 session,
                 sponsor_client=sponsor_client,
-                member_client=member_client,
+                member_cohort=member_cohort,
                 current_biennium=current,
                 restrict_to_biennium=current,
             )
