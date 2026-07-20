@@ -173,6 +173,38 @@ class PersonDescriptor(EntityDescriptor):
             additional.append({"identifier_type_slug": slug, "identifier_value": ident.value})
         return additional
 
+    def observation_matches_record(self, observation: dict, record: dict) -> bool:
+        """Whether re-producing ``observation`` would leave PM's ``record`` unchanged.
+
+        The primary identifier is the immutable ``(source, source_id)`` match key, so only
+        two observation surfaces can drift: the ``legal`` name evidence and the #69
+        ``additional_identifiers``. Name matches when it equals PM's curated ``display_name``
+        (``upsert_from_pm`` round-trips that field verbatim into ``name_full``, so a synced row
+        is equal; a genuine local rename diverges). Identifiers match when every additional one
+        is already on PM's ``identifiers[]`` — a fresh cross-source link (e.g. a new ``wa_pdc``)
+        is absent and must still enqueue. Consumed by the ``apply_record`` local-newer gate (#104).
+        """
+        names = observation.get("names") or []
+        observed_name = names[0]["name"] if names else None
+        if observed_name != record.get("display_name"):
+            return False
+        for ident in observation.get("additional_identifiers") or []:
+            if not self.record_has_identifier(
+                record, ident["identifier_type_slug"], ident["identifier_value"]
+            ):
+                return False
+        return True
+
+    async def local_newer_is_noop(self, session: Any, existing: Any, record: dict) -> bool:
+        """#104: a local-newer person is spurious when re-producing it wouldn't change PM.
+
+        Builds the observation we would send and compares its mutable surface (name +
+        ``additional_identifiers``) to PM's record. When they match, ``apply_record`` adopts
+        PM's clock instead of enqueuing an identical payload every reconcile forever — the
+        person-cohort instance of the #102 churn. Person has no PM dependencies
+        (``dependencies_ready`` defaults ``True``), so no pre-guard is needed."""
+        return self.observation_matches_record(await self.to_observation(session, existing), record)
+
     async def local_match(self, session: Any, record: dict) -> Any | None:
         """Map a PM person to its local row by **anchor** (``pm_person_id``).
 
