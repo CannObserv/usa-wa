@@ -88,7 +88,6 @@ from typing import Any
 import httpx
 from sqlalchemy import ColumnElement, case, exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import object_session
 from ulid import ULID
 
 from clearinghouse_core.logging import get_logger
@@ -1203,21 +1202,17 @@ class SyncEngine:
         pm_ts = descriptor.last_updated(record)
         if pm_ts is None:
             return
-        # Skip the stamp when the row is *already* at parity and nothing else about it
-        # changed (CR-1). ``set_last_updated`` force-flags the column dirty so the
-        # anchor-stamp preserve — a deliberate no-change write — survives the flush; but
-        # this runs on the PM-wins/tie branch for every record of every reconcile, so
-        # unconditionally flagging turned each already-converged row into a no-op UPDATE
-        # writing an identical value (~12.7k/day across the anchored cohorts).
+        # Skip the stamp at parity (CR-1). ``set_last_updated`` force-flags the column
+        # dirty so the anchor-stamp preserve — a deliberate no-change write — survives the
+        # flush; but this runs on the PM-wins/tie branch for every record of every
+        # reconcile, so flagging unconditionally turned each already-converged row into a
+        # no-op UPDATE writing an identical value (~12.7k/day across the anchored cohorts).
         #
-        # The equality test alone is NOT sufficient, hence the modified check: when the
-        # row is dirty for other reasons (PM changed a field while its clock happens to
-        # match ours), omitting ``updated_at`` from the SET clause lets the ``onupdate``
-        # clobber it to ``now()`` — re-arming the very skew this method exists to prevent.
-        session = object_session(row)
-        if descriptor.last_updated(row) == pm_ts and not (
-            session is not None and session.is_modified(row, include_collections=False)
-        ):
+        # Equality is a sufficient test here because ``upsert_from_pm`` flushes before
+        # returning: a row PM actually changed has already had ``updated_at`` bumped to
+        # ``now()`` by the ``onupdate``, so it no longer equals ``pm_ts`` and we stamp it.
+        # Parity therefore means "converged and untouched", the only case worth skipping.
+        if descriptor.last_updated(row) == pm_ts:
             return
         descriptor.set_last_updated(row, pm_ts)
 

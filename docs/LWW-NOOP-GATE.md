@@ -50,10 +50,10 @@ after the flush, so any regression guard here must flush.
 
 **And the trap inside *that* fix**: force-flagging on every call made `_adopt_remote_clock`
 — which runs for every record of every reconcile — emit a no-op UPDATE per already-converged
-row (~12.7k/day). It now skips when the row is at parity *and* otherwise unmodified. The
-equality test alone is wrong: when the row is dirty for other reasons while its clock
-already matches, omitting the column hands it back to the `onupdate`. Parity **and**
-`session.is_modified` are both required.
+row (~12.7k/day; a forced 519-row production reconcile now moves `n_tup_upd` by 0). It skips
+at parity. Equality is the right test *because* `upsert_from_pm` flushes before returning:
+a row PM actually changed has already had its clock bumped to `now()` by the `onupdate`, so
+it no longer matches and is stamped. Parity therefore means "converged and untouched".
 
 ## The precondition
 
