@@ -661,3 +661,36 @@ async def test_apply_record_role_real_change_still_enqueues(db_session, descript
     entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
     assert (entry.op, entry.status) == (OP_UPDATE, STATUS_PENDING)
     assert seat.updated_at == datetime(2050, 1, 1, tzinfo=UTC)  # local clock preserved
+
+
+async def test_local_newer_is_noop_false_when_record_omits_qualifier(db_session, descriptor):
+    """#109 CR-1: an *absent* ``qualifier`` key must not read as an explicit NULL match.
+
+    A Senate seat's qualifier is legitimately ``None``, so a record that omits the key
+    entirely compares equal to our ``None`` and — with the rest of the tuple agreeing —
+    would yield a false no-op. Latent today (both live paths fetch a full ``RoleDetail``;
+    only the ``full_list`` reconcile yields list-shaped records, which no gated descriptor
+    uses), but a false no-op **erases** the pending change rather than deferring it, so
+    the comparator must require positive evidence of the key rather than infer it."""
+    await _seed_role_type(db_session, slug="state_senator", expects_jurisdiction=True)
+    org = await _add_org(db_session, anchor=ULID())
+    district = await _add_district(db_session, anchor=ULID())
+    seat = await _add_seat(
+        db_session,
+        org=org,
+        jurisdiction=district,
+        qualifier=None,  # Senate seats carry a NULL qualifier
+        role_type="state_senator",
+        name="State Senator",
+        anchor=ULID(),
+    )
+    record = {
+        "organization_id": str(org.pm_organization_id),
+        "role_type_slug": "state_senator",
+        "jurisdiction_id": str(district.pm_jurisdiction_id),
+        # "qualifier" deliberately absent — not the same as an asserted NULL
+    }
+    assert await descriptor.local_newer_is_noop(db_session, seat, record) is False
+
+    record["qualifier"] = None  # PM positively asserts the NULL → genuine no-op
+    assert await descriptor.local_newer_is_noop(db_session, seat, record) is True

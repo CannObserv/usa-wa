@@ -88,6 +88,7 @@ from typing import Any
 import httpx
 from sqlalchemy import ColumnElement, case, exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import object_session
 from ulid import ULID
 
 from clearinghouse_core.logging import get_logger
@@ -421,8 +422,9 @@ class SyncEngine:
                 # we hold and future syncs match by identifier.
                 await self._maybe_enqueue_enrich(session, descriptor, record, row)
             else:
-                # Matched but detail fetch failed — still capture the anchor.
-                descriptor.set_anchor(row, pm_id)
+                # Matched but detail fetch failed — still capture the anchor (clock
+                # preserved: this row is not yet synced, so it must not read newer).
+                self._stamp_anchor(descriptor, row, pm_id)
             return False
         return await self._enqueue(session, descriptor, row, OP_CREATE) is not None
 
@@ -629,7 +631,10 @@ class SyncEngine:
             )
             return
         old = descriptor.anchor_value(row)
-        descriptor.set_anchor(row, winner)
+        # Clock-preserving (CR-1): when the winner's detail fetch 404s (a merge chain)
+        # no apply_record follows to adopt PM's clock, so a bumped clock would strand
+        # this row local-newer against the winner.
+        self._stamp_anchor(descriptor, row, winner)
         # fetch_record can 404 here if the named winner was itself later merged away (a
         # merge chain). We've re-anchored to it regardless, so the row is briefly a fresh
         # dead anchor — harmless: the next feed deleted(winner) / reconcile 404 re-heals
@@ -799,21 +804,7 @@ class SyncEngine:
                     f"anchor conflict: {descriptor.anchor_column}={result.pm_id}",
                 )
                 return True
-            # Preserve the row's clock across the anchor stamp (usa-wa#109). ``set_anchor``
-            # is a plain attribute write, so the flush that persists it would otherwise
-            # push ``updated_at`` to *now* — landing the local row a few hundred ms ahead
-            # of PM's own creation clock (the POST round-trip). Since PM no-ops an
-            # identical re-observation **without advancing its clock**, that skew never
-            # resolves: every row we create was born into a permanent re-send loop (the
-            # systemic re-arm behind the #102/#104/#109 cohort churn — the chronic org row
-            # sat exactly 228ms ahead of PM). Keeping the pre-stamp clock leaves us
-            # *older* than PM, so the next reconcile takes the PM-wins branch, mirrors,
-            # and adopts PM's clock → parity. A genuine local edit made before delivery
-            # keeps its own clock and still wins LWW, as it should.
-            preserved = descriptor.last_updated(row)
-            descriptor.set_anchor(row, result.pm_id)
-            if preserved is not None:
-                descriptor.set_last_updated(row, preserved)
+            self._stamp_anchor(descriptor, row, result.pm_id)
             entry.status = STATUS_DELIVERED
             entry.last_error = None
             await self._stamp_enrich_fingerprint(session, entry)
@@ -1150,7 +1141,9 @@ class SyncEngine:
             if descriptor.anchor_value(existing) is None:
                 pm_id = descriptor.pm_id_from_record(record)
                 if pm_id is not None:
-                    descriptor.set_anchor(existing, pm_id)
+                    # The row is legitimately newer than PM here, so this is not a skew —
+                    # but capturing the anchor must not inflate its clock further either.
+                    self._stamp_anchor(descriptor, existing, pm_id)
             if descriptor.write_enabled:
                 if await descriptor.local_newer_is_noop(session, existing, record):
                     # #102: local is "newer" only by a spurious clock skew — re-producing this
@@ -1164,6 +1157,35 @@ class SyncEngine:
         row = await descriptor.upsert_from_pm(session, record, existing=existing)
         self._adopt_remote_clock(descriptor, row, record)
         return APPLY_UPDATED
+
+    def _stamp_anchor(self, descriptor: EntityDescriptor, row: object, pm_id: Any) -> None:
+        """Stamp the PM anchor onto ``row`` **without letting the flush bump its clock**.
+
+        ``set_anchor`` is a plain attribute write, so the flush that persists it would
+        push ``updated_at`` to ``now()`` — landing the row ahead of PM's own clock by the
+        POST round-trip. Since PM no-ops an identical re-observation *without advancing
+        its clock*, that skew never resolves: the row is born into a permanent re-send
+        loop (usa-wa#109 — the chronic org row sat exactly 228ms ahead of PM for 11 days
+        on nothing else). Keeping the pre-stamp clock leaves the row *older* than PM, so
+        the next reconcile takes the PM-wins branch, mirrors, and reaches parity.
+
+        Every anchor-stamp site routes through here (CR-1): fixing only ``_deliver`` left
+        the sweep's fallback stamp re-arming the same defect. A genuine local edit made
+        before the stamp keeps its own clock and still wins LWW, as it should.
+
+        A descriptor whose ``last_updated`` yields None for a row (the base default —
+        i.e. it never overrode the pair) gets the anchor but no preserve; that is logged
+        rather than silent, since LWW is already inoperable for such a descriptor.
+        """
+        preserved = descriptor.last_updated(row)
+        descriptor.set_anchor(row, pm_id)
+        if preserved is None:
+            logger.debug(
+                "anchor_stamp_clock_not_preserved",
+                extra={"entity_type": descriptor.entity_type, "pm_id": str(pm_id)},
+            )
+            return
+        descriptor.set_last_updated(row, preserved)
 
     def _adopt_remote_clock(
         self, descriptor: EntityDescriptor, row: object | None, record: dict
@@ -1179,8 +1201,25 @@ class SyncEngine:
         if row is None:
             return
         pm_ts = descriptor.last_updated(record)
-        if pm_ts is not None:
-            descriptor.set_last_updated(row, pm_ts)
+        if pm_ts is None:
+            return
+        # Skip the stamp when the row is *already* at parity and nothing else about it
+        # changed (CR-1). ``set_last_updated`` force-flags the column dirty so the
+        # anchor-stamp preserve — a deliberate no-change write — survives the flush; but
+        # this runs on the PM-wins/tie branch for every record of every reconcile, so
+        # unconditionally flagging turned each already-converged row into a no-op UPDATE
+        # writing an identical value (~12.7k/day across the anchored cohorts).
+        #
+        # The equality test alone is NOT sufficient, hence the modified check: when the
+        # row is dirty for other reasons (PM changed a field while its clock happens to
+        # match ours), omitting ``updated_at`` from the SET clause lets the ``onupdate``
+        # clobber it to ``now()`` — re-arming the very skew this method exists to prevent.
+        session = object_session(row)
+        if descriptor.last_updated(row) == pm_ts and not (
+            session is not None and session.is_modified(row, include_collections=False)
+        ):
+            return
+        descriptor.set_last_updated(row, pm_ts)
 
     # --- read path: reconcile backstops --------------------------------------
 

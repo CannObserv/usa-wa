@@ -1391,3 +1391,75 @@ async def test_anchored_cohort_read_retry_budget_exhausted_reraises(db_session):
         await engine.reconcile(db_session, descriptor, now=NOW)
 
     assert sleeps == [1.0, 2.0, 4.0, 8.0]  # the whole budget, then re-raise
+
+
+# --- CR round 1: no pointless UPDATE at parity (usa-wa#109) ------------------
+
+
+def _updates_recorded(sync_conn, sink):
+    from sqlalchemy import event
+
+    @event.listens_for(sync_conn, "before_cursor_execute")
+    def _rec(conn, cursor, statement, parameters, context, executemany):  # noqa: ARG001
+        if statement.strip().upper().startswith("UPDATE"):
+            sink.append(statement)
+
+
+async def test_apply_record_at_parity_emits_no_update(db_session):
+    """usa-wa#109 CR-1: a row already at clock parity with PM must not be re-UPDATEd.
+
+    ``set_last_updated`` force-flags ``updated_at`` dirty so the anchor-stamp *preserve*
+    (a deliberate no-change write) survives the flush. But ``_adopt_remote_clock`` calls
+    it unconditionally on the PM-wins/tie branch — i.e. for every record of every
+    reconcile — so the flag turned each already-converged row into a no-op UPDATE
+    writing an identical value. Measured before the guard: 1 UPDATE at pure parity
+    (~12.7k/day across the anchored cohorts), where there had been 0."""
+    pm_id = ULID()
+    ts = datetime(2026, 1, 1, tzinfo=UTC)
+    row = FakeEntity(source="wsl", source_id="p1", name="Same", pm_fake_id=pm_id, updated_at=ts)
+    db_session.add(row)
+    await db_session.flush()
+
+    seen: list[str] = []
+    _updates_recorded((await db_session.connection()).sync_connection, seen)
+
+    descriptor = FakeDescriptor()
+    engine = SyncEngine([descriptor], FakeClient())
+    record = {
+        "source": "wsl",
+        "source_id": "p1",
+        "name": "Same",
+        "id": str(pm_id),
+        "updated_at": "2026-01-01T00:00:00Z",
+    }
+    await engine.apply_record(db_session, descriptor, record)
+    await db_session.flush()
+
+    assert seen == []  # nothing changed → nothing written
+
+
+async def test_apply_record_stamps_clock_when_row_otherwise_changed(db_session):
+    """The other side of that guard, and why it cannot be a plain equality check: when PM
+    changed a *field* while its clock happens to equal ours, the row is dirty for other
+    reasons — so ``updated_at`` must still be written explicitly, or it drops out of the
+    SET clause and the ``onupdate`` clobbers it to ``now()``, re-arming the skew."""
+    pm_id = ULID()
+    ts = datetime(2026, 1, 1, tzinfo=UTC)
+    row = FakeEntity(source="wsl", source_id="p2", name="Old", pm_fake_id=pm_id, updated_at=ts)
+    db_session.add(row)
+    await db_session.flush()
+
+    descriptor = FakeDescriptor()
+    engine = SyncEngine([descriptor], FakeClient())
+    record = {
+        "source": "wsl",
+        "source_id": "p2",
+        "name": "Renamed by PM",  # a real field change → row dirties
+        "id": str(pm_id),
+        "updated_at": "2026-01-01T00:00:00Z",  # ...but the clock is already at parity
+    }
+    await engine.apply_record(db_session, descriptor, record)
+    await db_session.flush()
+
+    assert row.name == "Renamed by PM"
+    assert row.updated_at == ts  # not clobbered to now() by onupdate
