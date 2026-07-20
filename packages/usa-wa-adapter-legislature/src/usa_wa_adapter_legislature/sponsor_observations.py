@@ -32,16 +32,26 @@ KIND_SENATE = "chamber-senate"
 
 def build_sponsor_observations(
     members_by_biennium: dict[str, list[dict]],
+    exclude_ids_by_biennium: dict[str, set[str]] | None = None,
 ) -> list[Observation]:
     """Project ``{biennium: [member rows]}`` into party + Senate-seat :class:`Observation`s.
 
-    Order-preserving over the input; the span builder groups/sorts, so callers need not."""
+    Order-preserving over the input; the span builder groups/sorts, so callers need not.
+
+    ``exclude_ids_by_biennium`` (#105 (b)) drops a member's observations for the bienniums a
+    caller has corroborated as stale (:mod:`roster_hygiene` — the departed-but-still-named
+    Kilduff/Senn/Nguyen rows), so their party / Senate-seat spans end at the real departure
+    boundary instead of staying open on ghost rows."""
+    exclusions = exclude_ids_by_biennium or {}
     observations: list[Observation] = []
     for biennium, members in members_by_biennium.items():
+        excluded = exclusions.get(biennium, set())
         for member in members:
             if not is_person(member):
                 continue
             member_id = str(member["Id"])
+            if member_id in excluded:
+                continue
             party_slug = canonicalize_party(member.get("Party"))
             if party_slug is not None:
                 observations.append(Observation(member_id, KIND_PARTY, party_slug, biennium))

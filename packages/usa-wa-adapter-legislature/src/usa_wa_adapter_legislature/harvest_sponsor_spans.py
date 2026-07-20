@@ -24,7 +24,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
+from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
+from usa_wa_adapter_legislature.roster_hygiene import (
+    STALE_MIN_COVERAGE_DEFAULT,
+    committee_member_ids_by_biennium,
+    stale_member_ids,
+)
 from usa_wa_adapter_legislature.span_emit import (
     MAX_CLOSE_FRACTION_DEFAULT,
     SOURCE,
@@ -50,9 +56,11 @@ async def build_sponsor_spans(
     session: AsyncSession,
     *,
     sponsor_client: WSLClient | None = None,
+    member_client: WSLClient | None = None,
     current_biennium: str | None = None,
     restrict_to_biennium: str | None = None,
     max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
+    stale_min_coverage: float = STALE_MIN_COVERAGE_DEFAULT,
 ) -> SpanBuildResult:
     """Build + emit merged-span Assignments from the local sponsor archive; return the result.
 
@@ -69,7 +77,13 @@ async def build_sponsor_spans(
 
     Either way, spans the rebuilt set no longer asserts are **closed** (#83,
     :func:`~usa_wa_adapter_legislature.span_emit.close_stale_spans`) — a departed member's
-    open row must not stay ``is_active`` forever."""
+    open row must not stay ``is_active`` forever.
+
+    **Stale-row exclusion (#105 (b)).** Some departed members stay fully named in later wires
+    (Kilduff/Senn/Nguyen); each biennium's rows are screened against that biennium's
+    committee-roster archive (:mod:`roster_hygiene`, guarded by ``stale_min_coverage``) before
+    projection, so a ghost row's party / Senate-seat span ends at the real departure boundary.
+    ``member_client`` re-parses the committee archive offline (no WSL pull)."""
     jurisdiction = await resolve_jurisdiction(session)
     source = await get_or_create_source(session, jurisdiction)
     current = current_biennium or biennium_for_date(datetime.now(UTC).date())
@@ -84,7 +98,20 @@ async def build_sponsor_spans(
         logger.warning("sponsor_span_build_no_archive")
         return SpanBuildResult(emitted=0)
     roster = await provider.roster_map(bienniums)
-    observations = build_sponsor_observations(roster)
+    member_cohort = CommitteeMemberCohortProvider(
+        member_client or WSLClient("CommitteeService"), session=session, source_id=source.id
+    )
+    committee_ids = committee_member_ids_by_biennium(await member_cohort.archived_rosters())
+    exclusions = {
+        biennium: stale_member_ids(
+            rows,
+            committee_ids.get(biennium, set()),
+            biennium=biennium,
+            min_coverage=stale_min_coverage,
+        )
+        for biennium, rows in roster.items()
+    }
+    observations = build_sponsor_observations(roster, exclusions)
     if restrict_to_biennium is not None:
         scoped = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
         observations = [o for o in observations if o.member_id in scoped]
@@ -128,6 +155,13 @@ async def _main(argv: list[str] | None = None) -> int:
         help="mass-close guard ceiling in (0, 1] (#83); 1.0 disables the guard for a "
         "deliberate mass close (e.g. a wholesale WSL committee-Id re-key)",
     )
+    parser.add_argument(
+        "--stale-min-coverage",
+        type=float,
+        default=STALE_MIN_COVERAGE_DEFAULT,
+        help="committee-roster coverage floor for the #105 stale-row exclusion; a biennium "
+        "under it is skipped. >1 disables the exclusion entirely (audit via --dry-run logs)",
+    )
     args = parser.parse_args(argv)
 
     database_url = os.environ.get("DATABASE_URL")
@@ -138,7 +172,11 @@ async def _main(argv: list[str] | None = None) -> int:
     engine = create_async_engine(database_url)
     try:
         async with AsyncSession(engine) as session:
-            result = await build_sponsor_spans(session, max_close_fraction=args.max_close_fraction)
+            result = await build_sponsor_spans(
+                session,
+                max_close_fraction=args.max_close_fraction,
+                stale_min_coverage=args.stale_min_coverage,
+            )
             if args.dry_run:
                 await session.rollback()
             else:

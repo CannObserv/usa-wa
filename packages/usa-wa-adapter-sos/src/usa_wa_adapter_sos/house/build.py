@@ -38,10 +38,16 @@ from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 from clearinghouse_core.logging import configure_logging, get_logger
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
+from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
 )
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
+from usa_wa_adapter_legislature.roster_hygiene import (
+    STALE_MIN_COVERAGE_DEFAULT,
+    committee_member_ids_by_biennium,
+    stale_member_ids,
+)
 from usa_wa_adapter_legislature.span_emit import (
     MAX_CLOSE_FRACTION_DEFAULT,
     CitationTarget,
@@ -77,15 +83,25 @@ async def build_house_position_spans(
     session: AsyncSession,
     *,
     sponsor_client: WSLClient | None = None,
+    member_client: WSLClient | None = None,
     current_biennium: str | None = None,
     restrict_to_biennium: str | None = None,
     max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
+    stale_min_coverage: float = STALE_MIN_COVERAGE_DEFAULT,
 ) -> HouseSpanResult:
     """Build + emit ``usa_wa_legislature`` House Position seat spans; return counts.
 
     ``restrict_to_biennium`` scopes the emission to members observed in that biennium (the daily
     re-drive passes the current biennium — each scoped member keeps their full span history).
-    ``None`` (the historical backfill) rebuilds all archived bienniums."""
+    ``None`` (the historical backfill) rebuilds all archived bienniums.
+
+    **Roster hygiene (#105).** Before projection each biennium's roster sheds (a) mover rows —
+    a House row whose Id also appears in a named Senate row of the same wire (the
+    ``build_house_roster`` Id exclusion), and (b) committee-corroborated stale rows — a named
+    member absent from that biennium's committee-roster archive (:mod:`roster_hygiene`, guarded
+    by ``stale_min_coverage``). Both turn a ghost-blocked 3-member LD back into the 2-member
+    shape the #103 elimination can seat an appointee in, and drop the ghost's seat assertion so
+    the #83 sweep closes it. ``member_client`` re-parses the committee archive offline."""
     jurisdiction = await resolve_jurisdiction(session)
     wsl_source = await get_or_create_wsl_source(session, jurisdiction)
     sos_source = await get_or_create_results_source(session, jurisdiction)
@@ -97,6 +113,10 @@ async def build_house_position_spans(
     sponsors = SponsorRosterCohortProvider(
         sponsor_client or WSLClient("SponsorService"), session=session, source_id=wsl_source.id
     )
+    member_cohort = CommitteeMemberCohortProvider(
+        member_client or WSLClient("CommitteeService"), session=session, source_id=wsl_source.id
+    )
+    committee_ids = committee_member_ids_by_biennium(await member_cohort.archived_rosters())
     sos = SosResultsCohortProvider(session=session, source_id=sos_source.id)
     positions = await sos.house_positions()
     citation_events = await sos.citation_events()
@@ -112,7 +132,14 @@ async def build_house_position_spans(
     result = HouseSpanResult(bienniums=len(bienniums))
     for biennium in bienniums:
         election_year = election_year_for_biennium(biennium)
-        house_roster = build_house_roster(await sponsors.cohort(biennium))
+        rows = await sponsors.cohort(biennium)
+        stale = stale_member_ids(
+            rows,
+            committee_ids.get(biennium, set()),
+            biennium=biennium,
+            min_coverage=stale_min_coverage,
+        )
+        house_roster = build_house_roster(rows, exclude_ids=stale)
         proj = build_house_seat_observations(
             house_roster, positions.get(election_year, {}), biennium=biennium
         )
@@ -202,6 +229,13 @@ async def _main(argv: list[str] | None = None) -> int:
         default=MAX_CLOSE_FRACTION_DEFAULT,
         help="mass-close guard ceiling in (0, 1] (#83); 1.0 disables the guard",
     )
+    parser.add_argument(
+        "--stale-min-coverage",
+        type=float,
+        default=STALE_MIN_COVERAGE_DEFAULT,
+        help="committee-roster coverage floor for the #105 stale-row exclusion; a biennium "
+        "under it is skipped. >1 disables the exclusion entirely (audit via --dry-run logs)",
+    )
     args = parser.parse_args(argv)
 
     database_url = os.environ.get("DATABASE_URL")
@@ -217,6 +251,7 @@ async def _main(argv: list[str] | None = None) -> int:
                 current_biennium=args.biennium,
                 restrict_to_biennium=args.biennium,
                 max_close_fraction=args.max_close_fraction,
+                stale_min_coverage=args.stale_min_coverage,
             )
             if args.dry_run:
                 await session.rollback()

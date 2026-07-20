@@ -19,6 +19,7 @@ from usa_wa_adapter_sos.house.build import HouseSpanResult, build_house_position
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person
+from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 
 CURRENT = "2025-26"
 
@@ -310,3 +311,147 @@ async def test_departed_member_open_span_is_closed_by_the_sweep(db_session, usa_
     assert result.closed_stale == 1
     assert departed.is_active is False and departed.valid_to == date(2024, 12, 31)
     assert isinstance(result, HouseSpanResult)
+
+
+class _StubMemberClient:
+    """Committee roster per wire: ``b"<r:100,200/>"`` names member ids."""
+
+    async def parse_historical_committee_members(self, wire):
+        ids = wire.decode().removeprefix("<r:").removesuffix("/>")
+        return [{"Id": int(i), "FirstName": "A", "LastName": "B"} for i in ids.split(",") if i]
+
+
+async def _archive_committee_roster(db_session, wsl, biennium, wire):
+    resource_id = committee_members_hist_resource_id(biennium, "888", "House", "Appropriations")
+    await _archive(db_session, wsl, resource_id, wire)
+
+
+async def test_mover_house_row_is_excluded_and_appointee_seated(db_session, usa_wa):
+    """#105 (a) end-to-end: the Alvarado shape. A mid-biennium House→Senate mover keeps a named
+    House row (same Id as their Senate row) that still ballot-matches their old position — the
+    LD reads 3-member and the #103 elimination declines, leaving the appointed replacement
+    unseated and the mover's House span open. With the same-wire Id exclusion the LD reads
+    2-member: the appointee is seated by elimination and the mover's House span closes."""
+    wsl, sos = await _sources(db_session, usa_wa)
+    await _add_ld(db_session, usa_wa, 34)
+    for mid in (100, 200, 300):
+        await _add_person(db_session, mid)
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2023-24",
+        _sponsor_wire((100, 34, "Alvarado", "House"), (200, 34, "Fitzgibbon", "House")),
+    )
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20221108",
+        _sos_csv(
+            ("State Representative Pos. 1", 34, "Emily Alvarado", "(Prefers Democratic Party)"),
+            ("State Representative Pos. 2", 34, "Joe Fitzgibbon", "(Prefers Democratic Party)"),
+        ),
+    )
+    # 2025-26: Alvarado won Pos 1 on the 2024 ballot, then moved to the LD's Senate seat; the
+    # wire carries BOTH her rows (same Id) + her appointed replacement (Thomas, no ballot line).
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2025-26",
+        _sponsor_wire(
+            (100, 34, "Alvarado", "House"),
+            (100, 34, "Alvarado", "Senate"),
+            (200, 34, "Fitzgibbon", "House"),
+            (300, 34, "Thomas", "House"),
+        ),
+    )
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20241105",
+        _sos_csv(
+            ("State Representative Pos. 1", 34, "Emily Alvarado", "(Prefers Democratic Party)"),
+            ("State Representative Pos. 2", 34, "Joe Fitzgibbon", "(Prefers Democratic Party)"),
+        ),
+    )
+
+    result = await build_house_position_spans(
+        db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
+    )
+
+    assert result.coverage[CURRENT]["inferred"] == 1
+    # The appointee holds Pos 1 (inferred), open.
+    appointee = (
+        await db_session.execute(
+            select(Assignment).where(
+                Assignment.source_id == "300:chamber-house:ld-34-position-1:2025-26"
+            )
+        )
+    ).scalar_one()
+    assert appointee.is_active is True
+    # The mover's House span ends at the prior biennium — not open alongside their Senate seat.
+    mover = (
+        await db_session.execute(
+            select(Assignment).where(
+                Assignment.source_id == "100:chamber-house:ld-34-position-1:2023-24"
+            )
+        )
+    ).scalar_one()
+    assert mover.is_active is False and mover.valid_to == date(2024, 12, 31)
+
+
+async def test_stale_named_row_is_excluded_and_appointee_seated(db_session, usa_wa):
+    """#105 (b) end-to-end: the Senn shape. A resigned member stays fully named AND
+    ballot-matched (she won the seating election), blocking the elimination — the
+    committee-corroborated exclusion drops her, the LD reads 2-member, and the appointed
+    replacement (committee-active, no ballot line) is seated."""
+    wsl, sos = await _sources(db_session, usa_wa)
+    await _add_ld(db_session, usa_wa, 41)
+    for mid in (100, 200, 300):
+        await _add_person(db_session, mid)
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2025-26",
+        _sponsor_wire(
+            (100, 41, "Senn", "House"),
+            (200, 41, "Thai", "House"),
+            (300, 41, "Zahn", "House"),
+        ),
+    )
+    # Committee rosters name the sitting members (Thai, Zahn) — not Senn.
+    await _archive_committee_roster(db_session, wsl, CURRENT, b"<r:200,300/>")
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20241105",
+        _sos_csv(
+            ("State Representative Pos. 1", 41, "Tana Senn", "(Prefers Democratic Party)"),
+            ("State Representative Pos. 2", 41, "My-Linh Thai", "(Prefers Democratic Party)"),
+        ),
+    )
+
+    result = await build_house_position_spans(
+        db_session,
+        sponsor_client=_StubSponsorClient(),
+        member_client=_StubMemberClient(),
+        current_biennium=CURRENT,
+        stale_min_coverage=0.5,
+    )
+
+    assert result.coverage[CURRENT]["members"] == 2  # Senn excluded pre-projection
+    assert result.coverage[CURRENT]["inferred"] == 1
+    zahn = (
+        await db_session.execute(
+            select(Assignment).where(
+                Assignment.source_id == "300:chamber-house:ld-41-position-1:2025-26"
+            )
+        )
+    ).scalar_one()
+    assert zahn.is_active is True
+    # Senn gets no seat at all this biennium.
+    senn = (
+        (await db_session.execute(select(Assignment).where(Assignment.source_id.like("100:%"))))
+        .scalars()
+        .all()
+    )
+    assert senn == []
