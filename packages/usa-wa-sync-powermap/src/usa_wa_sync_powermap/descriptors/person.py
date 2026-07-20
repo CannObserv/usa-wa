@@ -78,6 +78,7 @@ class PersonDescriptor(EntityDescriptor):
     # backstop re-fetches only OUR anchored rows to recover dropped feed events (#13).
     reconcile_mode = "anchored_cohort"
     write_enabled = True
+    local_newer_noop_gate = True  # #104 — see observation_matches_record
     enrich_identifier_type = "pm_person_id"  # enrich-on-match (#198)
 
     def __init__(self, *, search_match_cap: int | None = None) -> None:
@@ -202,15 +203,8 @@ class PersonDescriptor(EntityDescriptor):
                 return False
         return True
 
-    async def local_newer_is_noop(self, session: Any, existing: Any, record: dict) -> bool:
-        """#104: a local-newer person is spurious when re-producing it wouldn't change PM.
-
-        Builds the observation we would send and compares its mutable surface (name +
-        ``additional_identifiers``) to PM's record. When they match, ``apply_record`` adopts
-        PM's clock instead of enqueuing an identical payload every reconcile forever — the
-        person-cohort instance of the #102 churn. Person has no PM dependencies
-        (``dependencies_ready`` defaults ``True``), so no pre-guard is needed."""
-        return self.observation_matches_record(await self.to_observation(session, existing), record)
+    # ``local_newer_is_noop`` is the base template (#109). Person has no PM dependencies
+    # (``dependencies_ready`` defaults True), so the template's guard is a free pass here.
 
     async def local_match(self, session: Any, record: dict) -> Any | None:
         """Map a PM person to its local row by **anchor** (``pm_person_id``).

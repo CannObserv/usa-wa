@@ -253,3 +253,73 @@ async def test_to_enrich_observation_honours_narrowed_carry_set():
     ]
     assert obs["names"] == [{"name": "Gadget", "name_type": "legal"}]
     assert "extra" not in obs
+
+
+# --- LWW no-op gate template (usa-wa#109) ----------------------------------
+
+
+class _GatedDescriptor(FakeDescriptor):
+    """Opts into the gate and declares a comparator over the observation's ``name``."""
+
+    local_newer_noop_gate = True
+
+    def observation_matches_record(self, observation: dict, record: dict) -> bool:
+        return observation.get("name") == record.get("name")
+
+
+class _DepsNotReadyDescriptor(_GatedDescriptor):
+    """Gated, but its PM prerequisites are unmet."""
+
+    async def dependencies_ready(self, session, row) -> bool:
+        return False
+
+
+class _ExplodingObservationDescriptor(FakeDescriptor):
+    """Un-gated; raises if the template ever builds its observation."""
+
+    async def to_observation(self, session, row) -> dict:
+        raise AssertionError("to_observation must not be called for an un-gated descriptor")
+
+
+async def test_local_newer_is_noop_default_is_opt_in_and_builds_nothing():
+    """The gate stays opt-in (usa-wa#102's contract): a descriptor that hasn't set
+    ``local_newer_noop_gate`` returns False **without** building an observation, so
+    non-participating cohorts pay no DB cost on the local-newer path."""
+    row = FakeEntity(source="s", source_id="X-1", name="Widget", pm_fake_id=ULID())
+
+    assert await _ExplodingObservationDescriptor().local_newer_is_noop(None, row, {}) is False
+
+
+async def test_local_newer_is_noop_template_compares_when_gated():
+    """Gated + comparator: the template builds the observation and delegates the verdict."""
+    row = FakeEntity(source="s", source_id="X-1", name="Widget", pm_fake_id=ULID())
+    descriptor = _GatedDescriptor()
+
+    assert await descriptor.local_newer_is_noop(None, row, {"name": "Widget"}) is True
+    assert await descriptor.local_newer_is_noop(None, row, {"name": "Gadget"}) is False
+
+
+async def test_local_newer_is_noop_template_guards_on_dependencies():
+    """The deps guard is structural (usa-wa#109), not per-descriptor: a gated row whose PM
+    prerequisites are unmet is never a no-op, even when the comparator would say otherwise.
+
+    Without this a deps-not-ready row would build a garbage observation (``"None"`` anchors)
+    that could compare equal by accident and adopt PM's clock — silently erasing a pending
+    change rather than deferring it."""
+    row = FakeEntity(source="s", source_id="X-1", name="Widget", pm_fake_id=ULID())
+
+    assert (
+        await _DepsNotReadyDescriptor().local_newer_is_noop(None, row, {"name": "Widget"}) is False
+    )
+
+
+async def test_gated_descriptor_without_comparator_never_noops():
+    """Flipping the flag but forgetting the comparator degrades to the pre-gate behaviour
+    (base ``observation_matches_record`` → False), never a blind clock-adopt."""
+
+    class _FlagOnly(FakeDescriptor):
+        local_newer_noop_gate = True
+
+    row = FakeEntity(source="s", source_id="X-1", name="Widget", pm_fake_id=ULID())
+
+    assert await _FlagOnly().local_newer_is_noop(None, row, {"name": "Widget"}) is False
