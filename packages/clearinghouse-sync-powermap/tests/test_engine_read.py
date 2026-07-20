@@ -902,6 +902,52 @@ async def test_dead_anchor_reanchors_to_winner_and_enqueues_enrich(db_session):
     assert entry.op == OP_ENRICH  # carry fields re-pushed to the winner
 
 
+async def test_dead_anchor_reanchor_adopts_winner_fields_and_clock(db_session):
+    """usa-wa#109 CR-1: the merge re-anchor stamp is clock-preserving, which is what lets
+    the winner's record actually be adopted.
+
+    Routing this site through ``_stamp_anchor`` changed downstream behaviour, so assert it
+    rather than leave it implied: the row keeps its own (older) clock across the stamp, so
+    the ``apply_record`` that follows takes the **PM-wins** branch and adopts the winner's
+    canonical fields + clock. Previously the stamp bumped ``updated_at`` to ``now()``,
+    which could make the row read local-newer than the very winner it had just re-anchored
+    to — keeping our stale fields and enqueuing a write-back instead."""
+    loser, winner = ULID(), ULID()
+    row = await _add_anchored(db_session, source_id="x", name="Stale", pm_id=loser, updated_at=NOW)
+    descriptor = RematchCohortDescriptor()
+    descriptor.rematch_result = winner
+    client = FakeClient(
+        entities={winner: _record("x", "Winner", pm_id=winner, updated_at=_PM_NEWER)}
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.pm_fake_id == winner
+    assert row.name == "Winner"  # the winner's canonical fields were adopted
+    # ...at parity with the winner's clock (_PM_NEWER parsed), not a local now().
+    assert row.updated_at == datetime(2050, 1, 1, tzinfo=UTC)
+
+
+async def test_dead_anchor_reanchor_preserves_clock_when_winner_unresolvable(db_session):
+    """The case with no ``apply_record`` behind it: when the winner's own detail fetch
+    404s (a merge chain), nothing follows the stamp to adopt a clock — so the stamp itself
+    must not bump one, or the row is stranded reading newer than the winner forever."""
+    loser, winner = ULID(), ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=loser, updated_at=NOW)
+    descriptor = RematchCohortDescriptor()
+    descriptor.rematch_result = winner
+    client = FakeClient(entities={})  # winner itself is gone → fetch_record returns None
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.pm_fake_id == winner  # re-anchored regardless (the row self-heals later)
+    assert row.updated_at == NOW  # own clock kept — no spurious local-newer skew
+
+
 async def test_dead_anchor_retires_when_no_winner(db_session):
     """A dead anchor with no surviving identifier winner is a genuine delete → retire
     locally (tombstone), leaving the anchor untouched."""
@@ -1396,32 +1442,27 @@ async def test_anchored_cohort_read_retry_budget_exhausted_reraises(db_session):
 # --- CR round 1: no pointless UPDATE at parity (usa-wa#109) ------------------
 
 
-def _updates_recorded(sync_conn, sink):
-    from sqlalchemy import event
-
-    @event.listens_for(sync_conn, "before_cursor_execute")
-    def _rec(conn, cursor, statement, parameters, context, executemany):  # noqa: ARG001
-        if statement.strip().upper().startswith("UPDATE"):
-            sink.append(statement)
-
-
 async def test_apply_record_at_parity_emits_no_update(db_session):
     """usa-wa#109 CR-1: a row already at clock parity with PM must not be re-UPDATEd.
 
     ``set_last_updated`` force-flags ``updated_at`` dirty so the anchor-stamp *preserve*
     (a deliberate no-change write) survives the flush. But ``_adopt_remote_clock`` calls
-    it unconditionally on the PM-wins/tie branch — i.e. for every record of every
-    reconcile — so the flag turned each already-converged row into a no-op UPDATE
-    writing an identical value. Measured before the guard: 1 UPDATE at pure parity
-    (~12.7k/day across the anchored cohorts), where there had been 0."""
+    it on the PM-wins/tie branch — i.e. for every record of every reconcile — so flagging
+    unconditionally turned each already-converged row into a no-op UPDATE writing an
+    identical value (~12.7k/day across the anchored cohorts, measured 1 per parity apply
+    where there had been 0; a forced production reconcile of 519 anchored rows now moves
+    ``pg_stat_user_tables.n_tup_upd`` by 0).
+
+    Asserted via the session's dirty state rather than by spying on emitted SQL: a
+    ``before_cursor_execute`` listener is registered on a **pooled** connection and would
+    outlive this test, slowing every later query (it broke an unrelated timing assertion
+    in ``test_pmclient``). ``is_modified`` is the same signal one step earlier — a row
+    SQLAlchemy considers unmodified emits no UPDATE at flush."""
     pm_id = ULID()
     ts = datetime(2026, 1, 1, tzinfo=UTC)
     row = FakeEntity(source="wsl", source_id="p1", name="Same", pm_fake_id=pm_id, updated_at=ts)
     db_session.add(row)
     await db_session.flush()
-
-    seen: list[str] = []
-    _updates_recorded((await db_session.connection()).sync_connection, seen)
 
     descriptor = FakeDescriptor()
     engine = SyncEngine([descriptor], FakeClient())
@@ -1433,16 +1474,21 @@ async def test_apply_record_at_parity_emits_no_update(db_session):
         "updated_at": "2026-01-01T00:00:00Z",
     }
     await engine.apply_record(db_session, descriptor, record)
-    await db_session.flush()
 
-    assert seen == []  # nothing changed → nothing written
+    # Nothing changed → the row is not dirty → the flush emits no UPDATE.
+    assert db_session.is_modified(row, include_collections=False) is False
+    assert row.updated_at == ts
 
 
 async def test_apply_record_stamps_clock_when_row_otherwise_changed(db_session):
-    """The other side of that guard, and why it cannot be a plain equality check: when PM
-    changed a *field* while its clock happens to equal ours, the row is dirty for other
-    reasons — so ``updated_at`` must still be written explicitly, or it drops out of the
-    SET clause and the ``onupdate`` clobbers it to ``now()``, re-arming the skew."""
+    """The other side of that guard: a row PM actually changed must still end at PM's clock.
+
+    The mechanism is worth stating, because it is what makes the plain equality test in
+    ``_adopt_remote_clock`` sufficient: ``upsert_from_pm`` flushes before returning, and
+    that flush lets the ``onupdate`` bump ``updated_at`` to ``now()``. So by the time the
+    guard runs, a genuinely-changed row no longer matches ``pm_ts`` and is stamped —
+    while an untouched one still matches and is skipped. Without the stamp the row would
+    keep that ``now()`` value and read local-newer forever (the #109 skew)."""
     pm_id = ULID()
     ts = datetime(2026, 1, 1, tzinfo=UTC)
     row = FakeEntity(source="wsl", source_id="p2", name="Old", pm_fake_id=pm_id, updated_at=ts)

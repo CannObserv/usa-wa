@@ -868,15 +868,20 @@ async def test_min_request_interval_spaces_calls():
 @respx.mock
 async def test_min_request_interval_default_off(client):
     """The default client is unpaced — pacing is the deployment's knob
-    (SidecarSettings.powermap_min_request_interval), not a library tax."""
-    import time
+    (SidecarSettings.powermap_min_request_interval), not a library tax.
 
+    Asserted on the gate's configured interval and its reservation state rather than on
+    wall-clock elapsed time (CR-2). A `< 50ms for three calls` budget is a load-sensitive
+    tripwire: it flaked at 59ms when an unrelated test left an event listener on a pooled
+    connection, and the failure pointed at the rate limiter rather than the real cause.
+    An unpaced gate is one that never reserves a slot, which is directly observable."""
     pm_id = ULID()
     respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(return_value=httpx.Response(404))
 
-    start = time.monotonic()
+    assert client._gate._min == 0.0  # configured off — the library default
+
     for _ in range(3):
         await client.get_entity("/api/v1/jurisdictions", pm_id)
-    elapsed = time.monotonic() - start
 
-    assert elapsed < 0.05
+    # A disabled gate returns before reserving, so its slot cursor never advances.
+    assert client._gate._next_at == 0.0
