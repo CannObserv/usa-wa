@@ -196,7 +196,9 @@ python -m usa_wa_adapter_sos.results.harvest --from-year 2008 --pause-seconds 1.
 # sponsor_stale_row_excluded), guarded by --stale-min-coverage (default 0.9: a biennium whose
 # committee cohort names <90% of the wire's named members skips the exclusion —
 # stale_exclusion_skipped_low_coverage — so a thin archive never reads as mass departure; >1
-# disables entirely). Both un-block the #103 elimination (the LD reads 2-member again) and drop
+# disables entirely) AND by the tail rule (excluded only when committee-absent in that biennium
+# and every later one — later presence = archive gap, rescued:
+# stale_exclusion_rescued_by_later_presence). Both un-block the #103 elimination (the LD reads 2-member again) and drop
 # the ghost's seat assertion so the sweep closes it. Audit historically: --dry-run + read the
 # exclusion log lines before an unrestricted rebuild.
 python -m usa_wa_adapter_sos.house.build --dry-run

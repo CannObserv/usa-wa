@@ -29,7 +29,7 @@ from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolv
 from usa_wa_adapter_legislature.roster_hygiene import (
     STALE_MIN_COVERAGE_DEFAULT,
     committee_member_ids_by_biennium,
-    stale_member_ids,
+    stale_exclusions_by_biennium,
 )
 from usa_wa_adapter_legislature.span_emit import (
     MAX_CLOSE_FRACTION_DEFAULT,
@@ -102,15 +102,9 @@ async def build_sponsor_spans(
         member_client or WSLClient("CommitteeService"), session=session, source_id=source.id
     )
     committee_ids = committee_member_ids_by_biennium(await member_cohort.archived_rosters())
-    exclusions = {
-        biennium: stale_member_ids(
-            rows,
-            committee_ids.get(biennium, set()),
-            biennium=biennium,
-            min_coverage=stale_min_coverage,
-        )
-        for biennium, rows in roster.items()
-    }
+    exclusions = stale_exclusions_by_biennium(
+        roster, committee_ids, min_coverage=stale_min_coverage
+    )
     observations = build_sponsor_observations(roster, exclusions)
     if restrict_to_biennium is not None:
         scoped = {o.member_id for o in observations if o.biennium == restrict_to_biennium}

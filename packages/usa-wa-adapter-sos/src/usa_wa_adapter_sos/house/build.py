@@ -46,7 +46,7 @@ from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 from usa_wa_adapter_legislature.roster_hygiene import (
     STALE_MIN_COVERAGE_DEFAULT,
     committee_member_ids_by_biennium,
-    stale_member_ids,
+    stale_exclusions_by_biennium,
 )
 from usa_wa_adapter_legislature.span_emit import (
     MAX_CLOSE_FRACTION_DEFAULT,
@@ -130,16 +130,15 @@ async def build_house_position_spans(
     inferred_keys: set[tuple[str, str]] = set()
     fetch_events: dict[str, CitationTarget] = {}
     result = HouseSpanResult(bienniums=len(bienniums))
+    rows_by_biennium = {biennium: await sponsors.cohort(biennium) for biennium in bienniums}
+    exclusions = stale_exclusions_by_biennium(
+        rows_by_biennium, committee_ids, min_coverage=stale_min_coverage
+    )
     for biennium in bienniums:
         election_year = election_year_for_biennium(biennium)
-        rows = await sponsors.cohort(biennium)
-        stale = stale_member_ids(
-            rows,
-            committee_ids.get(biennium, set()),
-            biennium=biennium,
-            min_coverage=stale_min_coverage,
+        house_roster = build_house_roster(
+            rows_by_biennium[biennium], exclude_ids=exclusions.get(biennium, set())
         )
-        house_roster = build_house_roster(rows, exclude_ids=stale)
         proj = build_house_seat_observations(
             house_roster, positions.get(election_year, {}), biennium=biennium
         )

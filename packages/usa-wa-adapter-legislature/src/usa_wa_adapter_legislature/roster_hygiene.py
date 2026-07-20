@@ -7,11 +7,20 @@ committee-roster archive (#82): a departed member drops off every committee rost
 departure boundary, while every sitting member — including a fresh mid-biennium appointee — is
 committee-active (verified against 1999-00→2025-26; the Speaker sits on Rules).
 
-:func:`stale_member_ids` applies that rule per biennium, guarded by a **coverage floor**: when
-the biennium's committee cohort names fewer than ``min_coverage`` of the wire's named members,
-the exclusion is skipped entirely — a thin/partial committee archive must not read as mass
-departure (the #44/#56 floor pattern; 1999-00's archive-floor coverage is ~79% and auto-skips,
-as does any pre-1999-00 biennium with no committee archive at all).
+:func:`stale_exclusions_by_biennium` is the consumer entry point. Two guardrails:
+
+- **Coverage floor** (per biennium): when the committee cohort names fewer than ``min_coverage``
+  of the wire's named members, that biennium contributes no exclusions — a thin/partial
+  committee archive must not read as mass departure (the #44/#56 floor pattern; 1999-00's
+  archive-floor coverage is ~79% and auto-skips, as does any pre-1999-00 biennium with no
+  committee archive at all).
+- **Tail rule** (cross-biennium): a member is excluded in biennium B only when they are
+  committee-absent in B **and every later biennium** — a genuine departure is terminal, while a
+  mid-tenure absence is a WSL archive gap (the audit's Shewmake case: a sitting 2019-2022 House
+  member missing, by Id and name, from every archived House-era roster, yet committee-present
+  after her 2023 Senate move). The rule also guarantees an exclusion only ever trims the *tail*
+  of a tenure — it can never punch a mid-tenure hole, so no span is split into a new-start
+  duplicate row (no superseded rows, no migration).
 
 The sibling mover exclusion (#105 (a)) needs no external data and lives in
 ``usa_wa_adapter_pdc.normalize.pdc_matching.build_house_roster``.
@@ -54,9 +63,12 @@ def stale_member_ids(
     *,
     biennium: str,
     min_coverage: float = STALE_MIN_COVERAGE_DEFAULT,
+    log: bool = True,
 ) -> set[str]:
-    """Named sponsor-row member ids absent from the biennium's committee rosters — the
-    presumed-departed stale rows (#105 (b)). Empty when the coverage guardrail trips."""
+    """Named sponsor-row member ids absent from the biennium's committee rosters — stale
+    *candidates* (#105 (b)); :func:`stale_exclusions_by_biennium` then applies the tail rule.
+    Empty when the coverage guardrail trips. ``log=False`` defers the per-row exclusion log to
+    the caller (which may rescue a candidate)."""
     named = {str(m["Id"]): m for m in members if is_person(m)}
     if not named:
         return set()
@@ -79,8 +91,15 @@ def stale_member_ids(
         )
         return set()
     stale = set(named) - committee_active_ids
+    if log:
+        _log_exclusions(named, stale, biennium)
+    return stale
+
+
+def _log_exclusions(named: dict[str, dict[str, Any]], stale: set[str], biennium: str) -> None:
+    """One operator-audit INFO line per excluded row (#105 verification surface)."""
     for member_id in sorted(stale):
-        row = named[member_id]
+        row = named.get(member_id, {})
         logger.info(
             "sponsor_stale_row_excluded",
             extra={
@@ -91,4 +110,42 @@ def stale_member_ids(
                 "district": row.get("District"),
             },
         )
-    return stale
+
+
+def stale_exclusions_by_biennium(
+    members_by_biennium: dict[str, list[dict[str, Any]]],
+    committee_ids_by_biennium: dict[str, set[str]],
+    *,
+    min_coverage: float = STALE_MIN_COVERAGE_DEFAULT,
+) -> dict[str, set[str]]:
+    """The consumer entry point: per-biennium stale exclusions with the **tail rule** applied.
+
+    A per-biennium candidate (:func:`stale_member_ids`) is excluded only when the member has no
+    committee presence in any *later* biennium either — later presence marks the absence as an
+    archive gap, not a departure (see the module docstring). Biennium labels compare
+    chronologically as strings (``YYYY-YY``)."""
+    last_seen: dict[str, str] = {}
+    for biennium, ids in committee_ids_by_biennium.items():
+        for member_id in ids:
+            if biennium > last_seen.get(member_id, ""):
+                last_seen[member_id] = biennium
+    exclusions: dict[str, set[str]] = {}
+    for biennium, members in members_by_biennium.items():
+        candidates = stale_member_ids(
+            members,
+            committee_ids_by_biennium.get(biennium, set()),
+            biennium=biennium,
+            min_coverage=min_coverage,
+            log=False,
+        )
+        stale = {m for m in candidates if last_seen.get(m, "") <= biennium}
+        rescued = candidates - stale
+        if rescued:
+            logger.info(
+                "stale_exclusion_rescued_by_later_presence",
+                extra={"biennium": biennium, "member_ids": sorted(rescued)},
+            )
+        named = {str(m["Id"]): m for m in members if is_person(m)}
+        _log_exclusions(named, stale, biennium)
+        exclusions[biennium] = stale
+    return exclusions

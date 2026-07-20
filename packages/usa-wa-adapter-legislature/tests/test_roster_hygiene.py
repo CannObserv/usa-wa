@@ -16,6 +16,7 @@ import logging
 from usa_wa_adapter_legislature.roster_hygiene import (
     STALE_MIN_COVERAGE_DEFAULT,
     committee_member_ids_by_biennium,
+    stale_exclusions_by_biennium,
     stale_member_ids,
 )
 
@@ -107,3 +108,62 @@ def test_full_coverage_boundary_is_not_skipped():
     active = {str(i) for i in range(100, 109)}  # 9/10
     assert STALE_MIN_COVERAGE_DEFAULT == 0.9
     assert stale_member_ids(members, active, biennium="2025-26") == {"109"}
+
+
+# --- stale_exclusions_by_biennium (the tail rule) ------------------------------------------
+
+
+def test_tail_rule_rescues_archive_gap_member():
+    """The Shewmake case: a sitting member missing from her House-era committee rosters (a
+    WSL archive gap) but committee-present in a LATER biennium is NOT stale — a genuine
+    departure is terminal. Only tail-absence excludes, so an exclusion can never punch a
+    mid-tenure hole (no span splits, no superseded rows)."""
+    members = {
+        "2019-20": [_member(100), _member(200, last="Shewmake")],
+        "2021-22": [_member(100), _member(200, last="Shewmake")],
+        "2023-24": [_member(100), _member(200, last="Shewmake")],
+    }
+    committee_ids = {
+        "2019-20": {"100"},
+        "2021-22": {"100"},
+        "2023-24": {"100", "200"},  # present later → the earlier absences are archive gaps
+    }
+    exclusions = stale_exclusions_by_biennium(members, committee_ids, min_coverage=0.5)
+    assert exclusions == {"2019-20": set(), "2021-22": set(), "2023-24": set()}
+
+
+def test_tail_rule_keeps_terminal_ghosts_excluded():
+    """The Kilduff case: named in every wire after departure, committee-absent in the stale
+    bienniums AND all later ones → excluded there; the genuinely-served bienniums keep her."""
+    members = {
+        "2019-20": [_member(100), _member(900, last="Kilduff")],
+        "2021-22": [_member(100), _member(900, last="Kilduff")],
+        "2023-24": [_member(100), _member(900, last="Kilduff")],
+    }
+    committee_ids = {
+        "2019-20": {"100", "900"},
+        "2021-22": {"100"},
+        "2023-24": {"100"},
+    }
+    exclusions = stale_exclusions_by_biennium(members, committee_ids, min_coverage=0.5)
+    assert exclusions == {"2019-20": set(), "2021-22": {"900"}, "2023-24": {"900"}}
+
+
+def test_tail_rule_excludes_never_present_ghost():
+    """A row whose member has NO committee presence in any biennium (Roulstone/'Marlo Braun'
+    pure ghosts) is excluded wherever coverage permits."""
+    members = {"2013-14": [_member(100), _member(500, last="Roulstone")]}
+    exclusions = stale_exclusions_by_biennium(members, {"2013-14": {"100"}}, min_coverage=0.5)
+    assert exclusions == {"2013-14": {"500"}}
+
+
+def test_tail_rule_respects_per_biennium_coverage_floor():
+    """A thin-coverage biennium contributes no exclusions even when the tail rule fires."""
+    members = {
+        "1999-00": [_member(100), _member(200), _member(300)],
+        "2001-02": [_member(100), _member(200), _member(300)],
+    }
+    committee_ids = {"1999-00": {"100"}, "2001-02": {"100", "200"}}
+    exclusions = stale_exclusions_by_biennium(members, committee_ids, min_coverage=0.6)
+    assert exclusions["1999-00"] == set()  # 1/3 coverage < 0.6 → skipped
+    assert exclusions["2001-02"] == {"300"}  # 2/3 ≥ 0.6, 300 never committee-present
