@@ -950,6 +950,28 @@ async def test_rejected_rise_alerts_once_and_rearms_on_new_rise(db_session):
     assert "qualifier_required" in alerts[1][1]
 
 
+async def test_cycle_summary_surfaces_drain_dispositions_and_reanchors(db_session, caplog):
+    """usa-wa#108: 88 orphaned PM assignments were minted with no operator-visible
+    number changing. The cycle summary surfaces the last drain's per-disposition counts
+    and its re-anchor (orphan-mint) tally so the mints are countable at a glance."""
+    from clearinghouse_sync_powermap.engine import DrainStats
+    from clearinghouse_sync_powermap.models import DISPOSITION_AUTO_ATTACHED, DISPOSITION_NEW
+
+    sidecar = _summary_sidecar()
+    stats = DrainStats()
+    stats.dispositions[DISPOSITION_NEW] = 71
+    stats.dispositions[DISPOSITION_AUTO_ATTACHED] = 2
+    stats.reanchors = 71
+    sidecar._last_drain_stats = stats
+
+    with caplog.at_level("INFO"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    record = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
+    assert record.dispositions == {DISPOSITION_NEW: 71, DISPOSITION_AUTO_ATTACHED: 2}
+    assert record.reanchors == 71
+
+
 async def test_rejected_alert_skipped_when_no_alert_wired(db_session, caplog):
     """No alert callable → the rise is still logged (never crashes)."""
     sidecar = _summary_sidecar(alerts=None)

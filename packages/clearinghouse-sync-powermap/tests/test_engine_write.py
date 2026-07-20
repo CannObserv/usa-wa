@@ -1229,3 +1229,126 @@ async def test_local_newer_anchor_capture_preserves_local_clock(db_session):
 
     assert row.pm_fake_id == pm_id
     assert row.updated_at == settled  # own clock kept, not pushed to now()
+
+
+# --- in-place re-anchor ledger + loud logging (usa-wa#108) ------------------
+
+
+async def _add_entry(session, *, entity_type, local_id, op, status=STATUS_PENDING):
+    entry = OutboxEntry(entity_type=entity_type, local_id=local_id, op=op, status=status)
+    session.add(entry)
+    await session.flush()
+    return entry
+
+
+async def test_reanchor_logs_loudly_and_records_orphan(db_session, caplog):
+    """usa-wa#108: a delivery resolving to a *different* pm_id than the row already
+    carries orphans the old PM assignment (PM dedups on ``(person, role, start_date)``,
+    so a start-date correction mints a fresh id). The overwrite destroys the old id,
+    so it must be captured: a WARNING **and** a durable ``AnchorReanchor`` ledger row."""
+    from clearinghouse_sync_powermap.models import OP_UPDATE, AnchorReanchor
+
+    old_pm = ULID()
+    row = await _add_entity(db_session, source_id="1", name="Slatter", anchor=old_pm)
+    await _add_entry(db_session, entity_type="fake", local_id=row.id, op=OP_UPDATE)
+
+    new_pm = ULID()
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, new_pm, {}))
+    descriptor = FakeDescriptor()
+    engine = SyncEngine([descriptor], client)
+
+    with caplog.at_level("WARNING"):
+        await engine.drain_outbox(db_session, now=NOW)
+
+    # Anchor overwritten to the new id.
+    assert (await db_session.get(FakeEntity, row.id)).pm_fake_id == new_pm
+
+    # Loud WARNING carrying both ids + the disposition.
+    warn = next(r for r in caplog.records if r.msg == "anchor_reanchored")
+    assert warn.levelname == "WARNING"
+    assert str(old_pm) in (str(warn.old_pm_id), str(getattr(warn, "old_pm_id", "")))
+    assert warn.new_pm_id == str(new_pm)
+    assert warn.disposition == DISPOSITION_NEW
+
+    # Durable ledger row — the only surviving record of the orphaned old id.
+    ledger = (await db_session.execute(select(AnchorReanchor))).scalars().all()
+    assert len(ledger) == 1
+    rec = ledger[0]
+    assert rec.entity_type == "fake"
+    assert rec.local_id == row.id
+    assert rec.source_id == "1"
+    assert rec.old_pm_id == old_pm
+    assert rec.new_pm_id == new_pm
+    assert rec.disposition == DISPOSITION_NEW
+
+
+async def test_same_anchor_redelivery_records_no_reanchor(db_session, caplog):
+    """A delivery returning the SAME pm_id the row already holds (the ordinary
+    re-observe / auto-attach case) is not a re-anchor: no WARNING, no ledger row."""
+    from clearinghouse_sync_powermap.models import OP_UPDATE, AnchorReanchor
+
+    pm = ULID()
+    row = await _add_entity(db_session, source_id="1", name="Stable", anchor=pm)
+    await _add_entry(db_session, entity_type="fake", local_id=row.id, op=OP_UPDATE)
+
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_AUTO_ATTACHED, pm, {}))
+    engine = SyncEngine([FakeDescriptor()], client)
+
+    with caplog.at_level("WARNING"):
+        await engine.drain_outbox(db_session, now=NOW)
+
+    assert not any(r.msg == "anchor_reanchored" for r in caplog.records)
+    assert (await db_session.execute(select(AnchorReanchor))).scalars().all() == []
+
+
+async def test_first_anchor_is_not_a_reanchor(db_session, caplog):
+    """A fresh CREATE (row had no anchor) stamps its first id — not an overwrite,
+    so no orphan and no ledger row."""
+    from clearinghouse_sync_powermap.models import AnchorReanchor
+
+    await _add_entity(db_session, source_id="1", name="New")  # anchor=None
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_NEW, ULID(), {}))
+    descriptor = FakeDescriptor()
+    engine = SyncEngine([descriptor], client)
+    await engine.sweep_unanchored(db_session, descriptor)
+
+    with caplog.at_level("WARNING"):
+        await engine.drain_outbox(db_session, now=NOW)
+
+    assert not any(r.msg == "anchor_reanchored" for r in caplog.records)
+    assert (await db_session.execute(select(AnchorReanchor))).scalars().all() == []
+
+
+async def test_drain_stats_tally_dispositions_and_reanchors(db_session):
+    """usa-wa#108: the drain exposes per-cycle disposition counts + a re-anchor tally
+    (88 orphan mints happened with no operator-visible number changing). The cycle
+    summary reads these off the engine after the drain."""
+    from clearinghouse_sync_powermap.models import OP_UPDATE
+
+    # One fresh CREATE (new), one re-anchor overwrite (new + reanchor), one stable
+    # re-observe (auto-attached).
+    await _add_entity(db_session, source_id="1", name="Fresh")
+    reanchored = await _add_entity(db_session, source_id="2", name="Re", anchor=ULID())
+    stable_pm = ULID()
+    stable = await _add_entity(db_session, source_id="3", name="Stable", anchor=stable_pm)
+
+    descriptor = FakeDescriptor()
+    await _add_entry(db_session, entity_type="fake", local_id=reanchored.id, op=OP_UPDATE)
+    await _add_entry(db_session, entity_type="fake", local_id=stable.id, op=OP_UPDATE)
+
+    def _result(payload):
+        name = payload["name"]
+        if name == "Stable":
+            return ObservationResult(DISPOSITION_AUTO_ATTACHED, stable_pm, {})
+        return ObservationResult(DISPOSITION_NEW, ULID(), {})
+
+    client = FakeClient(observation_result=_result)
+    engine = SyncEngine([descriptor], client)
+    await engine.sweep_unanchored(db_session, descriptor)  # enqueues CREATE for `fresh`
+
+    await engine.drain_outbox(db_session, now=NOW)
+
+    stats = engine.last_drain_stats
+    assert stats.dispositions[DISPOSITION_NEW] == 2  # fresh + reanchored
+    assert stats.dispositions[DISPOSITION_AUTO_ATTACHED] == 1  # stable
+    assert stats.reanchors == 1  # only the overwrite
