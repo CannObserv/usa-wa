@@ -66,6 +66,7 @@ class CommitteeMemberCohortProvider:
         self._session = session
         self._source_id = source_id
         self._events: dict[RosterKey, CitationTarget] | None = None
+        self._rosters: dict[RosterKey, list[dict[str, Any]]] | None = None
 
     async def _load_latest_events(self) -> dict[RosterKey, CitationTarget]:
         """Latest **payload-bearing** OK FetchEvent per (biennium, committee_id).
@@ -108,7 +109,13 @@ class CommitteeMemberCohortProvider:
         return dict(await self._latest_events())
 
     async def archived_rosters(self) -> dict[RosterKey, list[dict[str, Any]]]:
-        """``{(biennium, committee_id): [member rows]}`` re-parsed offline from the archive."""
+        """``{(biennium, committee_id): [member rows]}`` re-parsed offline from the archive.
+
+        Memoized per provider instance (#105 CR-1): the zeep re-parse of the whole archive is
+        the expensive step, and one daily cycle reads it from several builders — the refresh
+        shares one provider across its member + committee span re-drives."""
+        if self._rosters is not None:
+            return self._rosters
         rosters: dict[RosterKey, list[dict[str, Any]]] = {}
         for key, (event_id, _fetched_at, resource_id) in (await self._latest_events()).items():
             wire = await self._payload_bytes(event_id)
@@ -119,6 +126,7 @@ class CommitteeMemberCohortProvider:
                 continue
             rosters[key] = await self._client.parse_historical_committee_members(wire)
         logger.info("committee_member_cohort_loaded", extra={"rosters": len(rosters)})
+        self._rosters = rosters
         return rosters
 
     async def _payload_bytes(self, event_id: _ULID) -> bytes | None:

@@ -57,6 +57,7 @@ async def build_sponsor_spans(
     *,
     sponsor_client: WSLClient | None = None,
     member_client: WSLClient | None = None,
+    member_cohort: CommitteeMemberCohortProvider | None = None,
     current_biennium: str | None = None,
     restrict_to_biennium: str | None = None,
     max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
@@ -83,7 +84,9 @@ async def build_sponsor_spans(
     (Kilduff/Senn/Nguyen); each biennium's rows are screened against that biennium's
     committee-roster archive (:mod:`roster_hygiene`, guarded by ``stale_min_coverage``) before
     projection, so a ghost row's party / Senate-seat span ends at the real departure boundary.
-    ``member_client`` re-parses the committee archive offline (no WSL pull)."""
+    ``member_client`` re-parses the committee archive offline (no WSL pull); a caller running
+    several builders per cycle passes a shared, memoized ``member_cohort`` provider instead so
+    the archive is scanned once (#105 CR-1 — the daily refresh does)."""
     jurisdiction = await resolve_jurisdiction(session)
     source = await get_or_create_source(session, jurisdiction)
     current = current_biennium or biennium_for_date(datetime.now(UTC).date())
@@ -98,7 +101,7 @@ async def build_sponsor_spans(
         logger.warning("sponsor_span_build_no_archive")
         return SpanBuildResult(emitted=0)
     roster = await provider.roster_map(bienniums)
-    member_cohort = CommitteeMemberCohortProvider(
+    member_cohort = member_cohort or CommitteeMemberCohortProvider(
         member_client or WSLClient("CommitteeService"), session=session, source_id=source.id
     )
     committee_ids = committee_member_ids_by_biennium(await member_cohort.archived_rosters())

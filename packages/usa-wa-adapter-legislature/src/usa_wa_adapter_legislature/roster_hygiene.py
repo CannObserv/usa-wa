@@ -57,19 +57,21 @@ def committee_member_ids_by_biennium(
     return ids
 
 
-def stale_member_ids(
-    members: list[dict[str, Any]],
+def _named_members(members: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The wire's real people keyed by stringified ``Id`` (name-blanked stubs dropped) — the
+    single definition of "named" both the candidate screen and the exclusion log share."""
+    return {str(m["Id"]): m for m in members if is_person(m)}
+
+
+def _stale_candidates(
+    named: dict[str, dict[str, Any]],
     committee_active_ids: set[str],
     *,
     biennium: str,
-    min_coverage: float = STALE_MIN_COVERAGE_DEFAULT,
-    log: bool = True,
+    min_coverage: float,
 ) -> set[str]:
-    """Named sponsor-row member ids absent from the biennium's committee rosters — stale
-    *candidates* (#105 (b)); :func:`stale_exclusions_by_biennium` then applies the tail rule.
-    Empty when the coverage guardrail trips. ``log=False`` defers the per-row exclusion log to
-    the caller (which may rescue a candidate)."""
-    named = {str(m["Id"]): m for m in members if is_person(m)}
+    """Named member ids absent from the biennium's committee rosters — stale *candidates*
+    (#105 (b)); the tail rule then decides. Empty when the coverage guardrail trips."""
     if not named:
         return set()
     if not committee_active_ids:
@@ -90,9 +92,23 @@ def stale_member_ids(
             },
         )
         return set()
-    stale = set(named) - committee_active_ids
-    if log:
-        _log_exclusions(named, stale, biennium)
+    return set(named) - committee_active_ids
+
+
+def stale_member_ids(
+    members: list[dict[str, Any]],
+    committee_active_ids: set[str],
+    *,
+    biennium: str,
+    min_coverage: float = STALE_MIN_COVERAGE_DEFAULT,
+) -> set[str]:
+    """Single-biennium candidate screen (coverage-guarded, logged). Consumers use
+    :func:`stale_exclusions_by_biennium`, which adds the cross-biennium tail rule."""
+    named = _named_members(members)
+    stale = _stale_candidates(
+        named, committee_active_ids, biennium=biennium, min_coverage=min_coverage
+    )
+    _log_exclusions(named, stale, biennium)
     return stale
 
 
@@ -131,12 +147,12 @@ def stale_exclusions_by_biennium(
                 last_seen[member_id] = biennium
     exclusions: dict[str, set[str]] = {}
     for biennium, members in members_by_biennium.items():
-        candidates = stale_member_ids(
-            members,
+        named = _named_members(members)
+        candidates = _stale_candidates(
+            named,
             committee_ids_by_biennium.get(biennium, set()),
             biennium=biennium,
             min_coverage=min_coverage,
-            log=False,
         )
         stale = {m for m in candidates if last_seen.get(m, "") <= biennium}
         rescued = candidates - stale
@@ -145,7 +161,6 @@ def stale_exclusions_by_biennium(
                 "stale_exclusion_rescued_by_later_presence",
                 extra={"biennium": biennium, "member_ids": sorted(rescued)},
             )
-        named = {str(m["Id"]): m for m in members if is_person(m)}
         _log_exclusions(named, stale, biennium)
         exclusions[biennium] = stale
     return exclusions

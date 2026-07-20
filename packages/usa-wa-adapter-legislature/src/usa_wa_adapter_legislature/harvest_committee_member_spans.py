@@ -51,6 +51,7 @@ async def build_committee_member_spans(
     session: AsyncSession,
     *,
     member_client: WSLClient | None = None,
+    member_cohort: CommitteeMemberCohortProvider | None = None,
     current_biennium: str | None = None,
     restrict_to_biennium: str | None = None,
     max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
@@ -58,6 +59,8 @@ async def build_committee_member_spans(
     """Build + emit merged committee-membership Assignment spans from the archive.
 
     ``current_biennium`` decides which spans stay open (defaults to the date-current one).
+    ``member_cohort`` (#105 CR-1) is an optional shared, memoized cohort provider so a caller
+    running several builders per cycle scans the archive once.
 
     ``restrict_to_biennium`` scopes the rebuild to the **(member, committee) pairs observed
     in that biennium's rosters** — the daily refresh passes the current biennium so it
@@ -72,7 +75,7 @@ async def build_committee_member_spans(
     source = await get_or_create_source(session, jurisdiction)
     current = current_biennium or biennium_for_date(datetime.now(UTC).date())
 
-    provider = CommitteeMemberCohortProvider(
+    provider = member_cohort or CommitteeMemberCohortProvider(
         member_client or WSLClient("CommitteeService"), session=session, source_id=source.id
     )
     rosters = await provider.archived_rosters()

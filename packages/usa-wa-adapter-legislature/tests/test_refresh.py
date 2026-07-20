@@ -74,12 +74,14 @@ class _FakeMembersClient:
     def __init__(self, records: list[dict] | None = None) -> None:
         self._records = records or []
         self.calls: list[tuple[str, str, str]] = []
+        self.parse_calls = 0
 
     async def fetch_historical_committee_members(self, biennium, agency, name) -> WireFetch:  # noqa: ANN001
         self.calls.append((biennium, agency, name))
         return WireFetch(records=self._records, wire=b"<members/>", content_type="text/xml")
 
     async def parse_historical_committee_members(self, wire) -> list[dict]:  # noqa: ANN001
+        self.parse_calls += 1
         return self._records
 
 
@@ -747,3 +749,34 @@ async def test_main_returns_1_when_run_refresh_raises(monkeypatch, capsys, test_
     # The success-path summary line must not have printed.
     captured = capsys.readouterr()
     assert "WSL refresh:" not in captured.out
+
+
+async def test_refresh_parses_committee_archive_once(db_session, usa_wa):
+    """#105 CR-1: the two span re-drives (member + committee) share ONE memoized committee
+    cohort provider, so each archived roster wire is re-parsed exactly once per refresh —
+    not once per builder."""
+    recorder = vcr.VCR(
+        cassette_library_dir=str(CASSETTE_DIR),
+        record_mode="none",
+        match_on=["method", "scheme", "host", "port", "path"],
+        decode_compressed_response=True,
+    )
+    member_client = _FakeMembersClient()
+    with (
+        recorder.use_cassette(CASSETTE),
+        patch(
+            "usa_wa_adapter_legislature.refresh.biennium_for_date",
+            return_value="2025-26",
+        ),
+    ):
+        await run_refresh(
+            db_session,
+            biennium="2025-26",
+            meeting_client=_FakeMeetingClient(_jtc_docket()),
+            sponsor_client=_FakeSponsorClient(),
+            member_client=member_client,
+        )
+
+    # One offline re-parse per archived roster wire (the fan-out archived one per committee).
+    assert member_client.calls, "fan-out should have archived rosters"
+    assert member_client.parse_calls == len(member_client.calls)
