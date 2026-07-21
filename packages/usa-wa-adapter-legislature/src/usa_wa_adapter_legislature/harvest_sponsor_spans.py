@@ -129,13 +129,22 @@ async def build_sponsor_spans(
     if restrict_to_biennium is not None:
         scoped = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
         observations = [o for o in observations if o.member_id in scoped]
-    spans = build_tenure_spans(observations, current_biennium=current)
+    built_spans = build_tenure_spans(observations, current_biennium=current)
     spans = apply_operator_events(
-        spans, events, current_biennium=current, owned_kinds={KIND_PARTY, KIND_SENATE}
+        built_spans, events, current_biennium=current, owned_kinds={KIND_PARTY, KIND_SENATE}
     )
+    # Operator-synthesized spans (an appointee the wire hasn't listed) — their biennium roster
+    # doesn't name them, so skip the entity-level roster citation (#107 CR finding 9); the
+    # operator field citation below is their sole, correct attestation.
+    synthesized_ids = {s.source_id for s in spans} - {s.source_id for s in built_spans}
     fetch_events = await provider.fetch_event_map(bienniums)
     emitted = await emit_sponsor_spans(
-        session, spans, anchors=anchors, reliability=source.reliability, fetch_events=fetch_events
+        session,
+        spans,
+        anchors=anchors,
+        reliability=source.reliability,
+        fetch_events=fetch_events,
+        skip_citation_ids=synthesized_ids,
     )
     operator_cites = 0
     if event_rows:

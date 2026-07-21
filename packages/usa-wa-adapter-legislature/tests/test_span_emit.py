@@ -129,6 +129,42 @@ async def test_assignment_source_differs_from_person_lookup_source(db_session, u
     assert row.person_id == person.id  # but bound to the WSL Person
 
 
+async def test_skip_citation_ids_suppresses_the_entity_citation(db_session, usa_wa, wsl_source):
+    """A span whose source_id is in skip_citation_ids is upserted but gets no roster citation
+    (#107: an operator-synthesized span's biennium roster doesn't attest it)."""
+    person = Person(source="usa_wa_legislature", source_id="100", name_full="Ann Rivers")
+    db_session.add(person)
+    await db_session.flush()
+    role = await _add_role(db_session, usa_wa)
+    ev = await _fetch_event(db_session, wsl_source)
+
+    async def _resolve_role(_session, _span):
+        return role
+
+    def _citation_target(_span, biennium):
+        return (ev.id, ev.fetched_at, f"house-winners:{biennium[:4]}")
+
+    span = _span()
+    emitted = await emit_spans(
+        db_session,
+        [span],
+        resolve_role=_resolve_role,
+        citation_target=_citation_target,
+        reliability=1.0,
+        skip_citation_ids={span.source_id},
+    )
+    assert emitted == 1
+    assignment = (
+        await db_session.execute(select(Assignment).where(Assignment.source_id == span.source_id))
+    ).scalar_one()
+    cite_count = (
+        (await db_session.execute(select(Citation).where(Citation.entity_id == assignment.id)))
+        .scalars()
+        .all()
+    )
+    assert cite_count == []  # skipped — no roster citation
+
+
 async def test_person_resolved_under_the_given_person_source(db_session, usa_wa, wsl_source):
     """resolve_person honours an explicit person_source distinct from the assignment source."""
     person = Person(source="usa_wa_legislature", source_id="100", name_full="Ann Rivers")

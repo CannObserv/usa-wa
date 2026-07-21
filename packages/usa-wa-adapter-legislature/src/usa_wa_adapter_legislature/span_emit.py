@@ -102,6 +102,7 @@ async def emit_spans(
     reliability: float,
     person_source: str = SOURCE,
     assignment_source: str = SOURCE,
+    skip_citation_ids: Collection[str] = (),
 ) -> int:
     """Upsert an :class:`Assignment` per span (+ per-biennium citations); return the count.
 
@@ -112,7 +113,13 @@ async def emit_spans(
     **WSL-sourced** Person (``person_source='usa_wa_legislature'``) yet writes a **PDC-sourced**
     Assignment (``assignment_source='usa_wa_pdc'``), because PDC is the authority for the
     ballot Position. Both default to ``usa_wa_legislature``, so sponsor + committee callers are
-    unchanged."""
+    unchanged.
+
+    ``skip_citation_ids`` names span ``source_id``\\s for which the entity-level roster citation
+    is skipped — used for an operator-**synthesized** span (an appointee the wire hasn't listed
+    yet, #107): the biennium roster does not name them, so citing it would falsely imply it
+    attests them; the operator field-level citation is the sole, correct attestation."""
+    skip = set(skip_citation_ids)
     emitted = 0
     for span in spans:
         person = await resolve_person(session, span.member_id, source=person_source)
@@ -127,7 +134,8 @@ async def emit_spans(
             )
             continue
         assignment = await _upsert_assignment(session, span, person, role, assignment_source)
-        await _ensure_citations(session, assignment, span, reliability, citation_target)
+        if span.source_id not in skip:
+            await _ensure_citations(session, assignment, span, reliability, citation_target)
         emitted += 1
     return emitted
 

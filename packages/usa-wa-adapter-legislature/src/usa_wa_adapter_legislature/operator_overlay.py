@@ -125,12 +125,25 @@ def apply_operator_events(
     owned = set(owned_kinds)
     result = list(spans)
     for event in events:
+        _warn_if_predates(result, event)
         if event.kind == KIND_DEPARTED:
+            hit = False
             for i, span in enumerate(result):
                 if span.member_id == event.member_id and _is_open_through(
                     span, event.effective_date
                 ):
                     result[i] = _close(span, event.effective_date)
+                    hit = True
+            if not hit:
+                # No open span to close in this builder — a bad member id, an inverted date,
+                # or the member is already fully closed here. Never silent (CR finding 10).
+                logger.info(
+                    "operator_departed_no_open_span",
+                    extra={
+                        "member_id": event.member_id,
+                        "effective_date": event.effective_date.isoformat(),
+                    },
+                )
         elif event.kind == KIND_VACATED:
             if event.seat_kind not in owned:
                 continue
@@ -155,6 +168,32 @@ def apply_operator_events(
             if not hit:
                 result.append(_synthesize(event, current_biennium))
     return result
+
+
+def _warn_if_predates(spans: list[TenureSpan], event: SuccessionEvent) -> None:
+    """Log an inverted-date event (``effective_date`` before a matching span's ``valid_from``).
+
+    Post window-matching the overlay simply *skips* such an event (it matches no covering span),
+    so a malformed date would otherwise apply nothing with no signal (CR finding 10). This makes
+    the inversion loud rather than silent; the CLI's member/date validation is the primary guard."""
+    for span in spans:
+        if span.member_id != event.member_id:
+            continue
+        if event.kind in (KIND_VACATED, KIND_SEATED) and (
+            span.kind != event.seat_kind or span.discriminator != event.seat_discriminator
+        ):
+            continue
+        if event.effective_date < span.valid_from:
+            logger.warning(
+                "operator_event_predates_span",
+                extra={
+                    "member_id": event.member_id,
+                    "kind": event.kind,
+                    "effective_date": event.effective_date.isoformat(),
+                    "span_valid_from": span.valid_from.isoformat(),
+                },
+            )
+            return
 
 
 def _is_open_through(span: TenureSpan, effective_date: date) -> bool:
