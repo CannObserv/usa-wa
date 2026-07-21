@@ -42,6 +42,7 @@ class SenateEntry:
 def build_house_roster(
     sponsor_members: list[dict[str, Any]],
     exclude_ids: AbstractSet[str] = frozenset(),
+    keep_ids: AbstractSet[str] = frozenset(),
 ) -> dict[int, list[HouseRosterEntry]]:
     """Group WSL ``GetSponsors`` **House** rows by LD number for the winner match.
 
@@ -57,7 +58,12 @@ def build_house_roster(
     appointments; the per-exclusion log line is the tripwire if the reverse ever appears.
 
     ``exclude_ids`` drops additional member ids the caller has corroborated as stale
-    (:func:`usa_wa_adapter_legislature.roster_hygiene.stale_member_ids`, #105 (b))."""
+    (:func:`usa_wa_adapter_legislature.roster_hygiene.stale_member_ids`, #105 (b)).
+
+    ``keep_ids`` **exempts** ids from BOTH the mover and stale exclusions — used for members
+    carrying an operator-succession event (#107): the overlay dates their House seat precisely
+    (a ``vacated`` closing Hunt's House span at her real move date), which needs the span built,
+    so the automatic mover/elimination heuristics must not drop them here."""
     senate_ids = {
         str(member["Id"])
         for member in sponsor_members
@@ -72,13 +78,13 @@ def build_house_roster(
         if not last or ld is None:
             continue
         member_id = str(member["Id"])
-        if member_id in senate_ids:
+        if member_id not in keep_ids and member_id in senate_ids:
             logger.info(
                 "house_roster_mover_excluded",
                 extra={"member_id": member_id, "member_name": member.get("Name"), "ld": ld},
             )
             continue
-        if member_id in exclude_ids:
+        if member_id not in keep_ids and member_id in exclude_ids:
             continue
         roster.setdefault(ld, []).append(
             HouseRosterEntry(
