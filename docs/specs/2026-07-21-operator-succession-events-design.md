@@ -88,12 +88,12 @@ Consumed by: [`harvest_sponsor_spans.build_sponsor_spans`](../../packages/usa-wa
 
 ### 5. Invariant alerts — daily backstop
 
-A new oneshot + timer (`usa-wa-succession-invariants`) — or folded into an existing refresh — asserting, against the live open-span cohort:
+A dedicated oneshot + timer (`usa-wa-succession-invariants.service`/`.timer`, scheduled after the daily refreshes so it checks the freshly-rebuilt cohort), carrying the `assert-main-checkout` + `OnFailure=usa-wa-notify-failure@` guards every other oneshot has, asserting against the live open-span cohort:
 
 - **Chamber-count invariant** — open `state_senator` seats == 49, open `state_representative` seats == 98 (147 total). A high count (50/99) ⇒ ghost-open predecessor (missing `departed`); low (48/97) ⇒ over-closed / unfilled seat (missing `seated`).
 - **Duplicate-occupancy** — no seat `(chamber, ld, position)` with two open occupants; no member with two open same-chamber seats.
 
-On violation, email `USA_WA_ALERT_EMAIL` via the existing `alerts`/`notify-failure` gateway path, naming the offending seats/members. Exit non-zero so the `OnFailure=` handler also fires. This is both the operational drift alarm and the acceptance oracle for the #107 fix.
+On violation, exit non-zero so the `OnFailure=usa-wa-notify-failure@` handler emails `USA_WA_ALERT_EMAIL` (naming the offending seats/members in the log the handler surfaces). This is both the operational drift alarm and the acceptance oracle for the #107 fix. It runs read-only (app role, no writes), so it needs no owner/operator token.
 
 ### 6. Degenerate-span fix (independent, land first)
 
