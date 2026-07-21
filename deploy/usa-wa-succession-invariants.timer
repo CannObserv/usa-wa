@@ -1,0 +1,16 @@
+[Unit]
+Description=usa-wa — daily succession invariant check
+Documentation=https://github.com/CannObserv/usa-wa/issues/107
+
+[Timer]
+# Daily 07:15 UTC — after the three daily refreshes (WSL 06:00, PDC 06:30, SOS 06:45) have
+# rebuilt the current-biennium spans, so the check reads that morning's cohort. The check is
+# read-only + idempotent — a missed-then-caught run is safe.
+OnCalendar=*-*-* 07:15:00 UTC
+# Run on next boot if the box was down at the scheduled time.
+Persistent=true
+# Jitter to avoid firing on the dot.
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
