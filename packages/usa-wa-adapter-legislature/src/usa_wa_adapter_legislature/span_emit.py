@@ -271,6 +271,56 @@ async def _upsert_assignment(
     return row
 
 
+async def add_field_citation(
+    session: AsyncSession,
+    *,
+    entity_type: str,
+    entity_id: _ULID,
+    field_path: str,
+    target: CitationTarget,
+    confidence: float,
+) -> bool:
+    """Append-only **field-level** citation — "*this field* came from this source".
+
+    The general field-level sibling of :func:`_ensure_citations` (which is entity-level:
+    ``field_path=None``, "the row was observed"). A field-level citation records that a
+    single field (e.g. an Assignment's ``valid_to``) was asserted by a specific
+    :class:`FetchEvent` — the shape the operator-succession overlay (#107) needs, and the
+    general pattern for any multi-source row where one source refines a field another
+    asserted. Idempotency dedups on ``(entity_id, field_path, resource_id)`` so a daily
+    re-drive doesn't append a duplicate. Returns True if a row was added."""
+    fetch_event_id, fetched_at, resource_id = target
+    already = set(
+        (
+            await session.execute(
+                select(FetchEvent.resource_id)
+                .join(Citation, Citation.fetch_event_id == FetchEvent.id)
+                .where(
+                    Citation.entity_type == entity_type,
+                    Citation.entity_id == entity_id,
+                    Citation.field_path == field_path,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if resource_id in already:
+        return False
+    session.add(
+        Citation(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            fetch_event_id=fetch_event_id,
+            field_path=field_path,
+            confidence=confidence,
+            asserted_at=fetched_at,
+        )
+    )
+    await session.flush()
+    return True
+
+
 async def _ensure_citations(
     session: AsyncSession,
     assignment: Assignment,

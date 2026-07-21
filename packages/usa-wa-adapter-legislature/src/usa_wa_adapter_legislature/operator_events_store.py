@@ -34,6 +34,7 @@ from clearinghouse_core.provenance import (
     RetentionPolicy,
     Source,
 )
+from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.operator_events import (
     KIND_DEPARTED,
     KIND_SEATED,
@@ -41,9 +42,8 @@ from clearinghouse_domain_legislative.operator_events import (
     OperatorEvent,
     event_source_id,
 )
-
-#: Citation entity_type for the assignment rows the overlay attests (matches span_emit).
-ASSIGNMENT_CITATION_TYPE = "assignment"
+from usa_wa_adapter_legislature.span_emit import ASSIGNMENT_CITATION_TYPE, add_field_citation
+from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
 
 async def get_or_create_operator_source(
@@ -232,6 +232,66 @@ async def supersede_event(
         prior.superseded_by_id = corrected.id
         await session.flush()
     return corrected
+
+
+async def cite_operator_events(
+    session: AsyncSession,
+    event_rows: Iterable[OperatorEvent],
+    spans: Iterable[TenureSpan],
+    *,
+    owned_kinds: Iterable[str],
+    assignment_source: str,
+    confidence: float,
+) -> int:
+    """Attach a **field-level** :class:`Citation` to every Assignment the overlay corrected,
+    pointing at the operator attestation — so a corrected boundary traces to *why* (#107/#54).
+
+    The field cited follows the event scope: ``valid_to`` for ``departed``/``vacated`` (an end),
+    ``valid_from`` for ``seated`` (a start). Seat-scoped events are filtered by ``owned_kinds``
+    (this builder's span kinds). Idempotent across re-drives (``add_field_citation`` dedups).
+    Returns the number of citations added."""
+    owned = set(owned_kinds)
+    span_list = list(spans)
+    added = 0
+    for row in event_rows:
+        target = await citation_target_for_event(session, row)
+        if target is None:
+            continue
+        if row.kind == KIND_DEPARTED:
+            affected = [s for s in span_list if s.member_id == row.member_id]
+            field_path = "valid_to"
+        else:  # seated / vacated — seat-scoped
+            if row.seat_kind not in owned:
+                continue
+            affected = [
+                s
+                for s in span_list
+                if s.member_id == row.member_id
+                and s.kind == row.seat_kind
+                and s.discriminator == row.seat_discriminator
+            ]
+            field_path = "valid_from" if row.kind == KIND_SEATED else "valid_to"
+        for span in affected:
+            assignment = (
+                await session.execute(
+                    select(Assignment).where(
+                        Assignment.source == assignment_source,
+                        Assignment.source_id == span.source_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if assignment is None:
+                continue
+            if await add_field_citation(
+                session,
+                entity_type=ASSIGNMENT_CITATION_TYPE,
+                entity_id=assignment.id,
+                field_path=field_path,
+                target=target,
+                confidence=confidence,
+            ):
+                added += 1
+    return added
 
 
 async def current_events(
