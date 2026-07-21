@@ -238,6 +238,69 @@ python -m usa_wa_adapter_sos.house.migrate
 # recoverable: run the migrate, then redrive (python -m usa_wa_api.cli.redrive).
 ```
 
+## Operator succession (#107)
+
+Mid-biennium successions (death, resignation, appointment) are invisible to every
+wire signal — the cumulative WSL wire keeps a departed member named + committee-listed,
+so their tenure span stays ghost-open, and an appointee's span starts at the biennium
+floor, not the appointment date. Operators know these facts (news-first) and **interject**
+them as `OperatorEvent`s. Each event is applied as an authoritative **overlay** by all
+three span builders (sponsor / SOS-house / committee) after `build_tenure_spans`, before
+emit; the daily refreshes re-drive the builders, so the overlay re-applies every run and
+the wire can never win back a corrected span (self-durable). Provenance is first-class:
+each write appends a hashed `FetchEvent` + `RawPayload` under the `usa_wa_operator` Source
+(integrity-sweep covered, #54) and the touched span carries a field-level `Citation`.
+
+```bash
+# Record operator succession events (#107) — the live interjection surface. Three kinds
+# split by scope so a chamber move never touches the party span:
+#   departed (person-scoped, no seat) — the member stops serving entirely; every open span
+#     (seat + party + committee) closes at the date. Death, full resignation, expulsion.
+#   vacated  (seat-scoped) — ONE named seat's span closes at the date; party + committees
+#     untouched. A chamber move's old seat, or a single-seat resignation.
+#   seated   (seat-scoped) — one named seat's span opens at the date (instead of the
+#     biennium floor), synthesized if the wire built none. Appointment, swearing-in.
+# A chamber move = vacated(old seat) + seated(new seat) on the same member, each applied by
+# the builder that owns that seat kind. seat_kind/seat_discriminator name the seat the same
+# way the builders key it: chamber-senate + LD, chamber-house + ld-{n}-position-{p},
+# committee + the WSL committee id. Validates kind/reason/seat shape AND that member_id
+# resolves to a usa_wa_legislature Person (a typo would be a silent no-op overlay).
+# App-role DML (writes operator_events + provenance); shell access is the trust boundary,
+# as with the redrive CLI. Provenance is append-only — a date-correction is --supersede
+# (a NEW row stamping the prior one's superseded_by_id), never a mutation (#54).
+# --dry-run validates + writes, then rolls back. Exit 2 on a validation failure.
+python -m usa_wa_adapter_legislature.operator_events \
+    --member-id 29091 --kind departed --reason died \
+    --effective-date 2025-04-19 --evidence-url https://... --dry-run
+python -m usa_wa_adapter_legislature.operator_events \
+    --member-id 35410 --kind seated --reason appointed \
+    --seat-kind chamber-senate --seat-discriminator 5 \
+    --effective-date 2025-06-03 --evidence-url https://...
+python -m usa_wa_adapter_legislature.operator_events --file events.json   # JSON-array batch
+python -m usa_wa_adapter_legislature.operator_events --supersede <id> \
+    --member-id 35410 --kind seated --reason appointed \
+    --seat-kind chamber-senate --seat-discriminator 5 \
+    --effective-date 2025-06-10 --evidence-url https://...   # date-correction of <id>
+python -m usa_wa_adapter_legislature.operator_events --list               # current events
+
+# Succession invariant check (#107) — read-only anti-drift backstop + the #107 acceptance
+# oracle. A MISSING operator event is silent (a member dies, nobody records it → a ghost-open
+# span inflates the chamber for up to a biennium); this oneshot makes that loud. Against the
+# live open-seat cohort it asserts:
+#   chamber-count — open state_senator == 49, open state_representative == 98 (147 total).
+#     High (50/99) ⇒ a ghost-open predecessor (a missing departed/vacated); low (48/97) ⇒
+#     an over-closed / unfilled seat (a missing seated).
+#   duplicate-occupancy — no seat Role with two open occupants, and no member holding two
+#     open seats in the same chamber (the "two open senators in LD5" shape).
+# Read-only (app role, no writes). Exit 0 clean / 1 on any violation (the offending
+# seats/members named in the succession_invariants_violation log line) — the exit 1 is what
+# the OnFailure=usa-wa-notify-failure@ handler emails the operator on. Prod runs this daily
+# at 07:15 UTC via usa-wa-succession-invariants.timer, AFTER the WSL 06:00 / PDC 06:30 /
+# SOS 06:45 refreshes rebuild the current-biennium cohort. --expected-senate/--expected-house
+# override the WA chamber constants for a redistricting count change.
+python -m usa_wa_adapter_legislature.succession_invariants
+```
+
 ## Reconcilers & validation (PM sync)
 
 Emit-only producer CLIs (PM stays the authority; they mirror curation back) plus
