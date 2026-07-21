@@ -48,9 +48,12 @@ def upgrade() -> None:
         sa.Column('superseded_by_id', clearinghouse_core.db.ulid.ULID(), nullable=True),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.CheckConstraint("kind IN ('departed', 'seated')", name='ck_operator_events_kind'),
         sa.CheckConstraint(
-            "(kind = 'seated' AND seat_kind IS NOT NULL AND seat_discriminator IS NOT NULL)"
+            "kind IN ('departed', 'vacated', 'seated')", name='ck_operator_events_kind'
+        ),
+        sa.CheckConstraint(
+            "(kind IN ('seated', 'vacated')"
+            " AND seat_kind IS NOT NULL AND seat_discriminator IS NOT NULL)"
             " OR (kind = 'departed' AND seat_kind IS NULL AND seat_discriminator IS NULL)",
             name='ck_operator_events_seat_shape',
         ),

@@ -8,9 +8,21 @@ than the appointment date. No wire supplies the intra-biennium dates; operators 
 these facts (news-first) and interject them here.
 
 An :class:`OperatorEvent` is **event-shaped** — the operator states what happened
-(``departed`` / ``seated`` on a date), and the span builders derive the effects
-(close the predecessor's open spans at the date, open the successor's seat at the
-date). It is backed by a first-class ``usa_wa_operator`` provenance ``Source``: each
+(``departed`` / ``vacated`` / ``seated`` on a date), and the span builders derive the
+effects. Three kinds, split by scope so a chamber move never touches the party span:
+
+- ``departed`` (no seat) — **person-scoped** terminal end: the member stops serving
+  entirely, so *every* open span (seat + party + committee) closes at the date. Death,
+  full resignation, expulsion. [Ramos: Senate seat + party both end 2025-04-19]
+- ``vacated`` (seat) — **seat-scoped** end: *one* named seat's span closes at the date;
+  party + committees untouched. A chamber move or a single-seat resignation. [Hunt: her
+  House seat ends 2025-06-03 while her party continues]
+- ``seated`` (seat) — **seat-scoped** start: one named seat's span opens at the date
+  (instead of the biennium floor). Appointment, swearing-in. [Hunt: Senate from 2025-06-03]
+
+A chamber move is thus modeled exactly as ``vacated`` (old seat) + ``seated`` (new seat)
+on the same member, each applied by the builder that owns that seat kind. It is backed by
+a first-class ``usa_wa_operator`` provenance ``Source``: each
 CLI write also appends a ``FetchEvent`` + ``RawPayload`` (the serialized event, hashed
 — so the integrity sweep covers operator facts), and the spans the overlay touches
 carry a ``Citation`` to the attestation. Corrections **append** a new row and stamp
@@ -34,17 +46,23 @@ from clearinghouse_domain_legislative.identity import SCHEMA, _new_ulid
 #: The provenance ``Source.source_slug`` every operator attestation is written under.
 OPERATOR_SOURCE_SLUG = "usa_wa_operator"
 
-#: Event kinds. ``departed`` is terminal (closes every open span for the member at the
-#: effective date); ``seated`` opens the named seat's span at the effective date.
+#: Event kinds. ``departed`` (person-scoped) closes every open span for the member;
+#: ``vacated`` (seat-scoped) closes one named seat; ``seated`` (seat-scoped) opens one.
 KIND_DEPARTED = "departed"
+KIND_VACATED = "vacated"
 KIND_SEATED = "seated"
-KINDS = (KIND_DEPARTED, KIND_SEATED)
+KINDS = (KIND_DEPARTED, KIND_VACATED, KIND_SEATED)
 
-#: Reason sub-tags per kind (evidence classification, not behaviour — both departed
-#: reasons close spans identically; both seated reasons open identically).
+#: The seat-scoped kinds carry a ``(seat_kind, seat_discriminator)``; ``departed`` does not.
+SEAT_SCOPED_KINDS = (KIND_VACATED, KIND_SEATED)
+
+#: Reason sub-tags per kind (evidence classification, not behaviour — reasons within a kind
+#: apply identically). ``resigned`` is valid for both a whole-legislature ``departed`` and a
+#: single-seat ``vacated``; the kind disambiguates.
 DEPARTED_REASONS = ("died", "resigned", "expelled")
+VACATED_REASONS = ("moved", "resigned")
 SEATED_REASONS = ("appointed", "sworn_in")
-REASONS = DEPARTED_REASONS + SEATED_REASONS
+REASONS = tuple(dict.fromkeys(DEPARTED_REASONS + VACATED_REASONS + SEATED_REASONS))
 
 
 def event_source_id(
@@ -57,10 +75,10 @@ def event_source_id(
 ) -> str:
     """Deterministic natural-key ``source_id`` for an event — so re-ingesting the same
     attestation is an idempotent upsert, while a corrected date is a *distinct* event
-    (superseding the prior one). A ``seated`` event keys on its seat; a ``departed``
-    event (which closes everything) does not."""
+    (superseding the prior one). A seat-scoped event (``seated``/``vacated``) keys on its
+    seat; a ``departed`` event (which closes everything) does not."""
     parts = [member_id, kind]
-    if kind == KIND_SEATED:
+    if kind in SEAT_SCOPED_KINDS:
         parts += [seat_kind or "-", seat_discriminator or "-"]
     parts.append(effective_date.isoformat())
     return ":".join(parts)
@@ -79,12 +97,13 @@ class OperatorEvent(Base, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("source", "source_id", name="uq_operator_events_natural_key"),
         CheckConstraint(
-            f"kind IN ('{KIND_DEPARTED}', '{KIND_SEATED}')",
+            f"kind IN ('{KIND_DEPARTED}', '{KIND_VACATED}', '{KIND_SEATED}')",
             name="ck_operator_events_kind",
         ),
         CheckConstraint(
-            # A seated event names a seat; a departed event must not.
-            f"(kind = '{KIND_SEATED}' AND seat_kind IS NOT NULL AND seat_discriminator IS NOT NULL)"
+            # A seat-scoped event (seated/vacated) names a seat; departed must not.
+            f"(kind IN ('{KIND_SEATED}', '{KIND_VACATED}')"
+            " AND seat_kind IS NOT NULL AND seat_discriminator IS NOT NULL)"
             f" OR (kind = '{KIND_DEPARTED}' AND seat_kind IS NULL AND seat_discriminator IS NULL)",
             name="ck_operator_events_seat_shape",
         ),
