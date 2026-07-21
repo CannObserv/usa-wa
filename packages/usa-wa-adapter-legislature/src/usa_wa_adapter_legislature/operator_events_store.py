@@ -257,9 +257,16 @@ async def cite_operator_events(
         target = await citation_target_for_event(session, row)
         if target is None:
             continue
+        # Cite only the spans whose boundary the event actually set (post-overlay), keyed on
+        # the boundary == effective_date — so an already-closed prior-tenure span or a foreign
+        # tenure is never spuriously cited (CR findings 1/4).
+        field_path = "valid_from" if row.kind == KIND_SEATED else "valid_to"
         if row.kind == KIND_DEPARTED:
-            affected = [s for s in span_list if s.member_id == row.member_id]
-            field_path = "valid_to"
+            affected = [
+                s
+                for s in span_list
+                if s.member_id == row.member_id and s.valid_to == row.effective_date
+            ]
         else:  # seated / vacated — seat-scoped
             if row.seat_kind not in owned:
                 continue
@@ -269,8 +276,8 @@ async def cite_operator_events(
                 if s.member_id == row.member_id
                 and s.kind == row.seat_kind
                 and s.discriminator == row.seat_discriminator
+                and getattr(s, field_path) == row.effective_date
             ]
-            field_path = "valid_from" if row.kind == KIND_SEATED else "valid_to"
         for span in affected:
             assignment = (
                 await session.execute(
@@ -311,12 +318,20 @@ async def current_events(
 async def citation_target_for_event(session: AsyncSession, event: OperatorEvent) -> tuple | None:
     """``(fetch_event_id, fetched_at, resource_id)`` for the latest attestation of ``event`` —
     the span_emit citation target so an overlay-touched Assignment cites the operator fact.
-    The event's ``source_id`` is the operator-namespaced FetchEvent ``resource_id``. None if no
-    provenance is on record (shouldn't happen for a recorded event)."""
+    The event's ``source_id`` is the operator-namespaced FetchEvent ``resource_id``. Scoped to
+    the ``usa_wa_operator`` Source so a resource_id collision with another source can't select
+    the wrong FetchEvent. None if no provenance is on record (shouldn't happen for a recorded
+    event)."""
+    operator_source_id = (
+        select(Source.id).where(Source.slug == OPERATOR_SOURCE_SLUG).scalar_subquery()
+    )
     row = (
         await session.execute(
             select(FetchEvent.id, FetchEvent.fetched_at, FetchEvent.resource_id)
-            .where(FetchEvent.resource_id == event.source_id)
+            .where(
+                FetchEvent.resource_id == event.source_id,
+                FetchEvent.source_id == operator_source_id,
+            )
             .order_by(FetchEvent.fetched_at.desc(), FetchEvent.id.desc())
         )
     ).first()

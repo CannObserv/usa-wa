@@ -102,6 +102,29 @@ def test_foreign_seat_kind_ignored():
     assert out == []
 
 
+def test_seated_targets_the_covering_tenure_not_a_later_one():
+    """Gap-and-return: a stale seated event dates the tenure whose window it falls in, never a
+    later same-seat tenure (CR finding 1). Member served 2019-20 (gap) then returned 2025-26."""
+    early = _span(
+        "35410",
+        "chamber-senate",
+        "5",
+        start="2019-20",
+        frm=date(2019, 1, 1),
+        to=date(2020, 12, 31),
+        active=False,
+    )
+    late = _span("35410", "chamber-senate", "5", start="2025-26", frm=date(2025, 1, 1))
+    events = [SuccessionEvent("35410", "seated", date(2019, 3, 1), "chamber-senate", "5")]
+
+    out = apply_operator_events(
+        [early, late], events, current_biennium=CURRENT, owned_kinds={"chamber-senate"}
+    )
+    got = {s.start_biennium: s for s in out}
+    assert got["2019-20"].valid_from == date(2019, 3, 1)  # the covering tenure is dated
+    assert got["2025-26"].valid_from == date(2025, 1, 1)  # the later tenure is untouched
+
+
 def test_event_member_ids():
     events = [
         SuccessionEvent("29091", "departed", date(2025, 4, 19)),

@@ -71,11 +71,22 @@ def event_member_ids(events: Iterable[SuccessionEvent]) -> set[str]:
     return {e.member_id for e in events}
 
 
+def _span_covers(span: TenureSpan, effective_date: date) -> bool:
+    """The span's validity window contains ``effective_date`` (open end = unbounded)."""
+    return span.valid_from <= effective_date and (
+        span.valid_to is None or effective_date <= span.valid_to
+    )
+
+
 def _matches_seat(span: TenureSpan, event: SuccessionEvent) -> bool:
+    """Seat identity **and** the event's date falling inside the span's window — so a
+    seat-scoped event applies to the *tenure it dates*, not merely any open span in that seat
+    (a gap-and-return member has two spans in one seat; only the covering one is the target)."""
     return (
         span.member_id == event.member_id
         and span.kind == event.seat_kind
         and span.discriminator == event.seat_discriminator
+        and _span_covers(span, event.effective_date)
     )
 
 
@@ -125,7 +136,7 @@ def apply_operator_events(
                 continue
             hit = False
             for i, span in enumerate(result):
-                if _matches_seat(span, event) and span.is_active:
+                if _matches_seat(span, event):
                     result[i] = _close(span, event.effective_date)
                     hit = True
             if not hit:
@@ -138,7 +149,7 @@ def apply_operator_events(
                 continue
             hit = False
             for i, span in enumerate(result):
-                if _matches_seat(span, event) and span.is_active:
+                if _matches_seat(span, event):
                     result[i] = replace(span, valid_from=event.effective_date)
                     hit = True
             if not hit:

@@ -41,7 +41,15 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.db.ulid import ULID
 from clearinghouse_core.models import Base, TimestampMixin
-from clearinghouse_domain_legislative.identity import SCHEMA, _new_ulid
+
+# SCHEMA + _new_ulid are defined locally per the domain-model convention (see bills.py /
+# sessions.py), rather than reaching into identity.py's module-private helpers.
+SCHEMA = "canonical"
+
+
+def _new_ulid() -> _ULID:
+    return _ULID()
+
 
 #: The provenance ``Source.source_slug`` every operator attestation is written under.
 OPERATOR_SOURCE_SLUG = "usa_wa_operator"

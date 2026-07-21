@@ -25,7 +25,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging, get_logger
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
-from usa_wa_adapter_legislature.operator_events_store import cite_operator_events, current_events
+from usa_wa_adapter_legislature.operator_events_store import (
+    cite_operator_events,
+    current_events,
+    get_or_create_operator_source,
+)
 from usa_wa_adapter_legislature.operator_overlay import (
     apply_operator_events,
     event_member_ids,
@@ -133,14 +137,17 @@ async def build_sponsor_spans(
     emitted = await emit_sponsor_spans(
         session, spans, anchors=anchors, reliability=source.reliability, fetch_events=fetch_events
     )
-    operator_cites = await cite_operator_events(
-        session,
-        event_rows,
-        spans,
-        owned_kinds={KIND_PARTY, KIND_SENATE},
-        assignment_source=SOURCE,
-        confidence=source.reliability,
-    )
+    operator_cites = 0
+    if event_rows:
+        operator_source = await get_or_create_operator_source(session, jurisdiction)
+        operator_cites = await cite_operator_events(
+            session,
+            event_rows,
+            spans,
+            owned_kinds={KIND_PARTY, KIND_SENATE},
+            assignment_source=SOURCE,
+            confidence=operator_source.reliability,
+        )
     sweep = await close_stale_spans(
         session,
         assignment_source=SOURCE,
