@@ -14,8 +14,14 @@ from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
+from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.harvest_committee_member_spans import build_committee_member_spans
+from usa_wa_adapter_legislature.operator_events_store import (
+    get_or_create_operator_source,
+    record_operator_event,
+)
+from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 
 CURRENT = "2025-26"
 CID = "31635"
@@ -125,6 +131,44 @@ async def test_phase_b_builds_merged_membership_spans_from_archive(db_session, u
             select(func.count()).select_from(Citation).where(Citation.entity_id == row.id)
         )
     ).scalar() == 2
+
+
+async def test_operator_departed_closes_committee_membership(db_session, usa_wa, wsl_source):
+    """#107: a departed event closes the member's committee membership span at the death date
+    with a field-level operator citation (a dead member leaves every committee)."""
+    await _add_committee(db_session, usa_wa)
+    await _add_person(db_session, 100)
+    await _archive(db_session, wsl_source, CURRENT)
+    client = _WireMappingMemberClient({(CURRENT, CID): [_member(100)]})
+
+    juris = await resolve_jurisdiction(db_session)
+    op_source = await get_or_create_operator_source(db_session, juris)
+    await record_operator_event(
+        db_session,
+        op_source,
+        member_id="100",
+        kind=KIND_DEPARTED,
+        reason="died",
+        effective_date=date(2025, 4, 19),
+        evidence_url="https://example.gov/member",
+    )
+
+    await build_committee_member_spans(db_session, member_client=client, current_biennium=CURRENT)
+
+    row = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == f"100:committee:{CID}:2025-26")
+        )
+    ).scalar_one()
+    assert row.valid_to == date(2025, 4, 19) and row.is_active is False
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(Citation)
+            .where(Citation.entity_id == row.id, Citation.field_path == "valid_to")
+        )
+        == 1
+    )
 
 
 async def test_phase_b_no_archive_emits_nothing(db_session, usa_wa, wsl_source):
