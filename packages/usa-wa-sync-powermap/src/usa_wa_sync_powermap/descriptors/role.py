@@ -290,6 +290,11 @@ class RoleDescriptor(EntityDescriptor):
 
         slug = record.get("role_type_slug")
         if await self._is_seat_role_type(session, slug):
+            # Seat-only by design (usa-wa#110): a **non-seat** ``role_type`` (``member``/
+            # ``committee_member``/``party_member``) is producer-owned — the emitters set it and
+            # ``get_or_create_role`` reconciles it (finding 2). Adopting PM's non-seat slug here
+            # too would ping-pong with that producer write every refresh. The seat slug is safe
+            # to mirror because PM curates the seat and the producer sends the same catalog value.
             row.role_type = slug
         if "qualifier" in record:
             row.qualifier = record.get("qualifier")
