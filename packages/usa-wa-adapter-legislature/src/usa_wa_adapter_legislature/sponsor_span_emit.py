@@ -35,7 +35,10 @@ from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 logger = get_logger(__name__)
 
 _MEMBER_ROLE_NAME = "Member"
-_MEMBER_ROLE_TYPE = "member"
+# The party-membership Role's PM classifier is `party_member`, not the generic `member`
+# (power-map#268 catalog). Emitting `member` diverged it from PM's `role_type_slug` and
+# armed the #109 no-op-gate churn (usa-wa#110); emit the catalog slug so the gate converges.
+_MEMBER_ROLE_TYPE = "party_member"
 _SENATE_SEAT_ROLE_NAME = "State Senator"
 _SENATE_SEAT_ROLE_TYPE = "state_senator"
 

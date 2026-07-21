@@ -167,7 +167,7 @@ async def test_unsynced_ld_senate_span_is_skipped(db_session, usa_wa, anchors):
     role = (
         await db_session.execute(select(Role).join(Assignment, Assignment.role_id == Role.id))
     ).scalar_one()
-    assert role.role_type == "member"  # the party Role
+    assert role.role_type == "party_member"  # the party Role (PM catalog slug, #110)
 
 
 async def test_citations_are_append_only_across_a_fresh_fetch_event(db_session, usa_wa, anchors):

@@ -440,6 +440,7 @@ timers (see § Server Lifecycle); the rest are run-once / ad-hoc. Pair backfills
 | `python -m usa_wa_adapter_legislature.harvest_committee_members` | Historical committee rosters — Persons only, Phase A (#82) |
 | `python -m usa_wa_adapter_legislature.harvest_committee_member_spans` | Merged committee-membership spans, Phase B (#82) |
 | `python -m usa_wa_adapter_legislature.migrate_committee_spans` | Retire per-biennium committee rows stranded by deeper spans (#82) |
+| `python -m usa_wa_adapter_legislature.migrate_member_role_types` | Reclassify generic `member` Roles → PM catalog slugs (`committee_member`/`party_member`) to stop the #110 no-op-gate churn |
 | `python -m usa_wa_adapter_legislature.harvest_committees` | Committee historical backfill, Phase A (sub-project 3) |
 | `python -m usa_wa_sync_powermap.reconcile_committee_name_chain` | Full committee rename-chain emit, Phase B (sub-project 3) |
 | `python -m usa_wa_adapter_pdc.harvest_pdc` | Historical PDC winner cohorts — archive-only, Phase A (#79) |
