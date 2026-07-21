@@ -219,6 +219,25 @@ async def get_or_create_role(
         )
     ).scalar_one_or_none()
     if existing is not None:
+        # Reconcile the producer-owned classifier (usa-wa#110 finding 2): if a caller now
+        # asserts a different ``role_type`` than the stored one (e.g. the emitters moved from
+        # the generic ``member`` to PM's ``committee_member``/``party_member`` catalog slug),
+        # adopt it so the row stops diverging from PM's ``role_type_slug`` and the #109 no-op
+        # gate converges. Guarded on a genuine difference, so it is a **one-time** write per
+        # role — no repeated ``updated_at`` bump on subsequent refreshes (the differ-guard is
+        # the safe bound; no time-based memo needed). ``name`` is deliberately *not* touched:
+        # it is PM-curated and the read mirror owns it, unlike ``role_type`` which we produce.
+        if existing.role_type != role_type:
+            logger.info(
+                "role_type_reconciled",
+                extra={
+                    "source_id": source_id,
+                    "from": existing.role_type,
+                    "to": role_type,
+                },
+            )
+            existing.role_type = role_type
+            await session.flush()
         return existing
     role = Role(
         source=_SOURCE,

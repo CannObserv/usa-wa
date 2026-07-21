@@ -536,6 +536,20 @@ python -m usa_wa_adapter_legislature.harvest_committee_member_spans
 python -m usa_wa_adapter_legislature.migrate_committee_spans --dry-run
 python -m usa_wa_adapter_legislature.migrate_committee_spans
 
+# Reclassify generic `member` Roles → PM catalog slugs (#110). Two emitters historically
+# stamped every membership Role with role_type='member', but PM's role_types catalog refines
+# that into `committee_member` / `party_member` (power-map#268). The classifier sat permanently
+# diverged from PM's role_type_slug, so the #109 no-op gate read a genuine diff and re-enqueued
+# ~305 roles every reconcile forever. The emitters now stamp the catalog slug on NEW rows; this
+# reclassifies EXISTING ones by source_id prefix (committee-member-role: → committee_member,
+# party-role: → party_member) — get_or_create_role never rewrites an existing classifier and
+# the daily refresh only re-drives the current cohort, so historical rows need this one-shot.
+# Reclassifying makes to_observation send the matching slug → the next reconcile's gate reads a
+# true no-op and adopts PM's clock, stopping the churn. APP role (role_type is a plain canonical
+# column). Idempotent; --dry-run rolls back. No sidecar pause needed (local reclassify only).
+python -m usa_wa_adapter_legislature.migrate_member_role_types --dry-run
+python -m usa_wa_adapter_legislature.migrate_member_role_types
+
 # Committee historical backfill (sub-project 3, Phase A) — sweep GetCommittees(biennium)
 # over a range through AdapterRunner(fill_only=True): archive the full-roster wire under
 # committees-roster:<biennium> + materialize standing committees by stable Id WITHOUT

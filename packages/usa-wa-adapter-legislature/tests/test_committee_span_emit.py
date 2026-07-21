@@ -158,7 +158,7 @@ async def test_emits_merged_membership_span_with_per_roster_citations(
     assert row.valid_to is None and row.is_active is True  # reaches current → open
     # bound to the committee's shared `member` Role
     role = (await db_session.execute(select(Role).where(Role.id == row.role_id))).scalar_one()
-    assert role.role_type == "member" and role.organization_id == committee.id
+    assert role.role_type == "committee_member" and role.organization_id == committee.id
     # cite-every-biennium, keyed per (biennium, committee) roster
     assert await _count(db_session, Citation, entity_id=row.id) == 2
 

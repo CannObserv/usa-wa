@@ -32,7 +32,12 @@ from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 logger = get_logger(__name__)
 
 _MEMBER_ROLE_NAME = "Member"
-_MEMBER_ROLE_TYPE = "member"
+# PM's role_types catalog refines the generic `member` into per-kind slugs; a committee
+# membership is `committee_member` (power-map#268). Emitting the generic `member` left the
+# role's classifier permanently diverged from PM's `role_type_slug`, so the #109 no-op gate
+# read a genuine diff and re-enqueued every reconcile forever (usa-wa#110). Emit the catalog
+# slug so the observation matches PM and the gate converges.
+_MEMBER_ROLE_TYPE = "committee_member"
 
 #: ``(biennium, committee_source_id) -> (fetch_event_id, fetched_at, resource_id)``
 CommitteeCitationEvents = dict[tuple[str, str], CitationTarget]
