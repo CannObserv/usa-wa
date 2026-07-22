@@ -40,6 +40,7 @@ from clearinghouse_domain_legislative.operator_events import (
     KIND_SEATED,
     KIND_VACATED,
     KINDS,
+    SEAT_KINDS,
     SEAT_SCOPED_KINDS,
     SEATED_REASONS,
     VACATED_REASONS,
@@ -98,6 +99,13 @@ def _validate(spec: EventSpec) -> None:
         )
     if not seat_scoped and (spec.seat_kind is not None or spec.seat_discriminator is not None):
         raise OperatorEventError(f"kind {spec.kind!r} must not carry a seat")
+    if seat_scoped and spec.seat_kind not in SEAT_KINDS:
+        # A seat_kind no builder owns would record an event the overlay silently no-ops
+        # everywhere (the member-id-typo failure mode, for the seat).
+        raise OperatorEventError(
+            f"seat_kind {spec.seat_kind!r} is not a known seat kind "
+            f"(expected one of {sorted(SEAT_KINDS)})"
+        )
 
 
 async def validate_and_record(session: AsyncSession, source, spec: EventSpec) -> OperatorEvent:
@@ -120,6 +128,26 @@ async def validate_and_record(session: AsyncSession, source, spec: EventSpec) ->
         ).scalar_one_or_none()
         if prior is None:
             raise OperatorEventError(f"--supersede id {spec.supersede_id!r} not found")
+        # supersede_event derives kind/member/seat from `prior` and applies only the new
+        # reason/date/url — so a passed --kind/--member-id/--seat-* that disagrees with prior
+        # would be silently ignored, and (worse) spec.reason validated against spec.kind would
+        # be written under prior.kind, breaking the kind↔reason pairing (no DB constraint on
+        # reason). Reject a mismatch rather than silently mis-apply.
+        if spec.kind != prior.kind:
+            raise OperatorEventError(
+                f"--supersede: kind {spec.kind!r} differs from the prior event's {prior.kind!r} "
+                "(a supersede corrects the date/reason/url, not the kind)"
+            )
+        if spec.member_id != prior.member_id:
+            raise OperatorEventError(
+                f"--supersede: member_id {spec.member_id!r} differs from the prior event's "
+                f"{prior.member_id!r}"
+            )
+        if spec.seat_kind != prior.seat_kind or spec.seat_discriminator != prior.seat_discriminator:
+            raise OperatorEventError(
+                "--supersede: seat differs from the prior event's "
+                f"{prior.seat_kind}:{prior.seat_discriminator}"
+            )
         return await supersede_event(
             session,
             source,

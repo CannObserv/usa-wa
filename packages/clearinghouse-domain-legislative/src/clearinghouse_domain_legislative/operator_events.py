@@ -64,6 +64,12 @@ KINDS = (KIND_DEPARTED, KIND_VACATED, KIND_SEATED)
 #: The seat-scoped kinds carry a ``(seat_kind, seat_discriminator)``; ``departed`` does not.
 SEAT_SCOPED_KINDS = (KIND_VACATED, KIND_SEATED)
 
+#: The valid ``seat_kind`` values — the span ``kind``\\s the builders own (Senate seat, House
+#: seat, committee membership). A seat-scoped event MUST name one of these; a typo would
+#: otherwise record an event the overlay silently no-ops in every builder (no owned_kinds
+#: match), which is exactly the member-id-typo failure the CLI guards against.
+SEAT_KINDS = ("chamber-senate", "chamber-house", "committee")
+
 #: Reason sub-tags per kind (evidence classification, not behaviour — reasons within a kind
 #: apply identically). ``resigned`` is valid for both a whole-legislature ``departed`` and a
 #: single-seat ``vacated``; the kind disambiguates.

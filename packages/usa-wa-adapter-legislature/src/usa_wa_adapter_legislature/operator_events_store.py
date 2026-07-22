@@ -42,7 +42,11 @@ from clearinghouse_domain_legislative.operator_events import (
     OperatorEvent,
     event_source_id,
 )
-from usa_wa_adapter_legislature.span_emit import ASSIGNMENT_CITATION_TYPE, add_field_citation
+from usa_wa_adapter_legislature.span_emit import (
+    ASSIGNMENT_CITATION_TYPE,
+    CitationTarget,
+    add_field_citation,
+)
 from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
 
@@ -254,6 +258,10 @@ async def cite_operator_events(
     span_list = list(spans)
     added = 0
     for row in event_rows:
+        # Skip a seat-scoped event for a foreign kind before the target DB query — another
+        # builder owns it (CR finding 3: don't query per non-owned event every re-drive).
+        if row.kind != KIND_DEPARTED and row.seat_kind not in owned:
+            continue
         target = await citation_target_for_event(session, row)
         if target is None:
             continue
@@ -268,8 +276,6 @@ async def cite_operator_events(
                 if s.member_id == row.member_id and s.valid_to == row.effective_date
             ]
         else:  # seated / vacated — seat-scoped
-            if row.seat_kind not in owned:
-                continue
             affected = [
                 s
                 for s in span_list
@@ -315,7 +321,9 @@ async def current_events(
     return (await session.execute(stmt.order_by(OperatorEvent.effective_date))).scalars().all()
 
 
-async def citation_target_for_event(session: AsyncSession, event: OperatorEvent) -> tuple | None:
+async def citation_target_for_event(
+    session: AsyncSession, event: OperatorEvent
+) -> CitationTarget | None:
     """``(fetch_event_id, fetched_at, resource_id)`` for the latest attestation of ``event`` —
     the span_emit citation target so an overlay-touched Assignment cites the operator fact.
     The event's ``source_id`` is the operator-namespaced FetchEvent ``resource_id``. Scoped to

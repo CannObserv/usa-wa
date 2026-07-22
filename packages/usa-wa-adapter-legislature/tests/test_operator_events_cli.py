@@ -93,6 +93,70 @@ async def test_departed_with_seat_rejected(db_session, usa_wa):
         await validate_and_record(db_session, source, bad)
 
 
+async def test_unknown_seat_kind_rejected(db_session, usa_wa):
+    await _person(db_session, "100")
+    source = await _source(db_session)
+    bad = EventSpec(
+        member_id="100",
+        kind="seated",
+        reason="appointed",
+        effective_date=date(2025, 6, 3),
+        evidence_url="https://x",
+        seat_kind="chamber-hosue",  # typo — no builder owns it
+        seat_discriminator="5",
+    )
+    with pytest.raises(OperatorEventError, match="not a known seat kind"):
+        await validate_and_record(db_session, source, bad)
+
+
+async def test_supersede_with_mismatched_kind_rejected(db_session, usa_wa):
+    await _person(db_session, "100")
+    source = await _source(db_session)
+    prior = await validate_and_record(db_session, source, _departed(d=date(2025, 4, 19)))
+    mismatched = EventSpec(
+        member_id="100",
+        kind="vacated",  # differs from prior's departed — would silently apply reason to prior.kind
+        reason="moved",
+        effective_date=date(2025, 4, 20),
+        evidence_url="https://x",
+        seat_kind="chamber-senate",
+        seat_discriminator="5",
+        supersede_id=str(prior.id),
+    )
+    with pytest.raises(OperatorEventError, match="differs from the prior"):
+        await validate_and_record(db_session, source, mismatched)
+
+
+async def test_supersede_with_mismatched_seat_rejected(db_session, usa_wa):
+    await _person(db_session, "100")
+    source = await _source(db_session)
+    prior = await validate_and_record(
+        db_session,
+        source,
+        EventSpec(
+            member_id="100",
+            kind="seated",
+            reason="appointed",
+            effective_date=date(2025, 6, 3),
+            evidence_url="https://x",
+            seat_kind="chamber-senate",
+            seat_discriminator="5",
+        ),
+    )
+    mismatched = EventSpec(
+        member_id="100",
+        kind="seated",
+        reason="appointed",
+        effective_date=date(2025, 6, 4),
+        evidence_url="https://x",
+        seat_kind="chamber-senate",
+        seat_discriminator="6",  # differs from prior's LD 5
+        supersede_id=str(prior.id),
+    )
+    with pytest.raises(OperatorEventError, match="seat differs"):
+        await validate_and_record(db_session, source, mismatched)
+
+
 async def test_supersede_records_correction(db_session, usa_wa):
     await _person(db_session, "100")
     source = await _source(db_session)
