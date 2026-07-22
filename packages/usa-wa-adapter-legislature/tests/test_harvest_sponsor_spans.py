@@ -17,12 +17,18 @@ from ulid import ULID as _ULID
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
+from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED, KIND_SEATED
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.harvest_committee_member_spans import (
     build_committee_member_spans,
 )
 from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
+from usa_wa_adapter_legislature.operator_events_store import (
+    get_or_create_operator_source,
+    record_operator_event,
+)
+from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 
 
 class _FakeSponsorClient:
@@ -122,6 +128,100 @@ async def test_phase_b_builds_merged_spans_from_archive(db_session, usa_wa, wsl_
             select(func.count()).select_from(Citation).where(Citation.entity_id == seat.id)
         )
     ).scalar() == 2
+
+
+async def test_operator_departed_closes_spans_through_builder(db_session, usa_wa, wsl_source):
+    """A departed operator event (Ramos-shaped) closes the member's Senate seat AND party spans
+    at the effective date through the full builder, with a field-level operator citation (#107)."""
+    await _add_ld(db_session, usa_wa, 5)
+    db_session.add(Person(source="usa_wa_legislature", source_id="100", name_full="Ann Rivers"))
+    await db_session.flush()
+    await _archive(db_session, wsl_source, "2025-26", b"<r25/>")
+
+    juris = await resolve_jurisdiction(db_session)
+    op_source = await get_or_create_operator_source(db_session, juris)
+    await record_operator_event(
+        db_session,
+        op_source,
+        member_id="100",
+        kind=KIND_DEPARTED,
+        reason="died",
+        effective_date=date(2025, 4, 19),
+        evidence_url="https://example.gov/rivers",
+    )
+
+    await build_sponsor_spans(
+        db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium="2025-26"
+    )
+
+    seat = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "100:chamber-senate:5:2025-26")
+        )
+    ).scalar_one()
+    party = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "100:party:democratic:2025-26")
+        )
+    ).scalar_one()
+    assert seat.valid_to == date(2025, 4, 19) and seat.is_active is False
+    assert party.valid_to == date(2025, 4, 19) and party.is_active is False
+    # field-level operator citation on the closed boundary
+    field_cites = (
+        await db_session.execute(
+            select(func.count())
+            .select_from(Citation)
+            .where(Citation.entity_id == seat.id, Citation.field_path == "valid_to")
+        )
+    ).scalar()
+    assert field_cites == 1
+
+
+async def test_operator_seated_synthesizes_appointee_without_roster_citation(
+    db_session, usa_wa, wsl_source
+):
+    """A seated event for an appointee the wire hasn't listed yet → the overlay synthesizes an
+    open Senate span, emitted with ONLY the operator field citation (no false roster citation,
+    #107 CR finding 9)."""
+    await _add_ld(db_session, usa_wa, 5)
+    # The wire names member 100 only; 999 is a fresh appointee not yet in the roster.
+    db_session.add(Person(source="usa_wa_legislature", source_id="100", name_full="Sitting"))
+    db_session.add(Person(source="usa_wa_legislature", source_id="999", name_full="Appointee"))
+    await db_session.flush()
+    await _archive(db_session, wsl_source, "2025-26", b"<r25/>")
+
+    juris = await resolve_jurisdiction(db_session)
+    op_source = await get_or_create_operator_source(db_session, juris)
+    await record_operator_event(
+        db_session,
+        op_source,
+        member_id="999",
+        kind=KIND_SEATED,
+        reason="appointed",
+        effective_date=date(2025, 6, 3),
+        evidence_url="https://example.gov/appointee",
+        seat_kind="chamber-senate",
+        seat_discriminator="5",
+    )
+
+    await build_sponsor_spans(
+        db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium="2025-26"
+    )
+
+    synth = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "999:chamber-senate:5:2025-26")
+        )
+    ).scalar_one()
+    assert synth.valid_from == date(2025, 6, 3) and synth.is_active is True
+    cites = (
+        (await db_session.execute(select(Citation).where(Citation.entity_id == synth.id)))
+        .scalars()
+        .all()
+    )
+    # exactly one citation, field-level (valid_from) to the operator event — no roster citation
+    assert len(cites) == 1
+    assert cites[0].field_path == "valid_from"
 
 
 async def test_phase_b_no_archive_emits_nothing(db_session, usa_wa, wsl_source):

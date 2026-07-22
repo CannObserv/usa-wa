@@ -16,6 +16,8 @@ See :mod:`span_emit` for the append-only, write-once provenance contract (#54).
 
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,8 +51,10 @@ async def emit_committee_spans(
     *,
     reliability: float,
     fetch_events: CommitteeCitationEvents,
+    skip_citation_ids: Collection[str] = (),
 ) -> int:
-    """Upsert an :class:`Assignment` per committee-membership span; return the count."""
+    """Upsert an :class:`Assignment` per committee-membership span; return the count.
+    ``skip_citation_ids`` forwards to :func:`emit_spans` (operator-synthesized spans, #107)."""
 
     def _citation_target(span: TenureSpan, biennium: str) -> CitationTarget | None:
         return fetch_events.get((biennium, span.discriminator))
@@ -61,6 +65,7 @@ async def emit_committee_spans(
         resolve_role=_resolve_committee_role,
         citation_target=_citation_target,
         reliability=reliability,
+        skip_citation_ids=skip_citation_ids,
     )
 
 

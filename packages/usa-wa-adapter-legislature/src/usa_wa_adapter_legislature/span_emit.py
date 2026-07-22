@@ -102,6 +102,7 @@ async def emit_spans(
     reliability: float,
     person_source: str = SOURCE,
     assignment_source: str = SOURCE,
+    skip_citation_ids: Collection[str] = (),
 ) -> int:
     """Upsert an :class:`Assignment` per span (+ per-biennium citations); return the count.
 
@@ -112,7 +113,13 @@ async def emit_spans(
     **WSL-sourced** Person (``person_source='usa_wa_legislature'``) yet writes a **PDC-sourced**
     Assignment (``assignment_source='usa_wa_pdc'``), because PDC is the authority for the
     ballot Position. Both default to ``usa_wa_legislature``, so sponsor + committee callers are
-    unchanged."""
+    unchanged.
+
+    ``skip_citation_ids`` names span ``source_id``\\s for which the entity-level roster citation
+    is skipped — used for an operator-**synthesized** span (an appointee the wire hasn't listed
+    yet, #107): the biennium roster does not name them, so citing it would falsely imply it
+    attests them; the operator field-level citation is the sole, correct attestation."""
+    skip = set(skip_citation_ids)
     emitted = 0
     for span in spans:
         person = await resolve_person(session, span.member_id, source=person_source)
@@ -127,7 +134,8 @@ async def emit_spans(
             )
             continue
         assignment = await _upsert_assignment(session, span, person, role, assignment_source)
-        await _ensure_citations(session, assignment, span, reliability, citation_target)
+        if span.source_id not in skip:
+            await _ensure_citations(session, assignment, span, reliability, citation_target)
         emitted += 1
     return emitted
 
@@ -269,6 +277,56 @@ async def _upsert_assignment(
     session.add(row)
     await session.flush()
     return row
+
+
+async def add_field_citation(
+    session: AsyncSession,
+    *,
+    entity_type: str,
+    entity_id: _ULID,
+    field_path: str,
+    target: CitationTarget,
+    confidence: float,
+) -> bool:
+    """Append-only **field-level** citation — "*this field* came from this source".
+
+    The general field-level sibling of :func:`_ensure_citations` (which is entity-level:
+    ``field_path=None``, "the row was observed"). A field-level citation records that a
+    single field (e.g. an Assignment's ``valid_to``) was asserted by a specific
+    :class:`FetchEvent` — the shape the operator-succession overlay (#107) needs, and the
+    general pattern for any multi-source row where one source refines a field another
+    asserted. Idempotency dedups on ``(entity_id, field_path, resource_id)`` so a daily
+    re-drive doesn't append a duplicate. Returns True if a row was added."""
+    fetch_event_id, fetched_at, resource_id = target
+    already = set(
+        (
+            await session.execute(
+                select(FetchEvent.resource_id)
+                .join(Citation, Citation.fetch_event_id == FetchEvent.id)
+                .where(
+                    Citation.entity_type == entity_type,
+                    Citation.entity_id == entity_id,
+                    Citation.field_path == field_path,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if resource_id in already:
+        return False
+    session.add(
+        Citation(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            fetch_event_id=fetch_event_id,
+            field_path=field_path,
+            confidence=confidence,
+            asserted_at=fetched_at,
+        )
+    )
+    await session.flush()
+    return True
 
 
 async def _ensure_citations(

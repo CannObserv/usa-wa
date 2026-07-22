@@ -9,6 +9,7 @@ discover them.
 from clearinghouse_domain_legislative import (  # noqa: F401
     bills,
     identity,
+    operator_events,
     pdc,
     role_types,
     sessions,
@@ -16,4 +17,13 @@ from clearinghouse_domain_legislative import (  # noqa: F401
     votes,
 )
 
-__all__ = ["identity", "sessions", "bills", "votes", "statutes", "pdc", "role_types"]
+__all__ = [
+    "identity",
+    "sessions",
+    "bills",
+    "votes",
+    "statutes",
+    "pdc",
+    "role_types",
+    "operator_events",
+]

@@ -19,7 +19,13 @@ from usa_wa_adapter_sos.house.build import HouseSpanResult, build_house_position
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person
+from clearinghouse_domain_legislative.operator_events import KIND_VACATED
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
+from usa_wa_adapter_legislature.operator_events_store import (
+    get_or_create_operator_source,
+    record_operator_event,
+)
+from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 
 CURRENT = "2025-26"
 
@@ -255,6 +261,61 @@ async def test_appointee_is_seated_by_elimination_and_cites_the_roster(db_sessio
     assert inferred == "sponsors:2025-26"  # the wire that names the appointee (#103)
     matched = await _cited_resource("100:chamber-house:ld-33-position-2:2025-26")
     assert matched == "sos-legresults:20241105"
+
+
+async def test_operator_vacated_closes_a_mover_house_seat_at_the_move_date(db_session, usa_wa):
+    """#107: a House→Senate mover (Hunt-shaped) is normally mover-excluded, but an operator
+    `vacated` event keeps her House row (keep_ids) so the span builds, then closes it at her real
+    chamber-move date — with a field-level operator citation. Her party/Senate are the sponsor
+    builder's concern; here only the House seat is affected."""
+    wsl, sos = await _sources(db_session, usa_wa)
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_person(db_session, 35410)
+    # Same Id in House and Senate rows = a mid-biennium mover (would be mover-excluded).
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2025-26",
+        _sponsor_wire((35410, 5, "Hunt", "House"), (35410, 5, "Hunt", "Senate")),
+    )
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20241105",
+        _sos_csv(("State Representative Pos. 1", 5, "Victoria Hunt", "(Prefers Democratic Party)")),
+    )
+    juris = await resolve_jurisdiction(db_session)
+    op_source = await get_or_create_operator_source(db_session, juris)
+    await record_operator_event(
+        db_session,
+        op_source,
+        member_id="35410",
+        kind=KIND_VACATED,
+        reason="moved",
+        effective_date=date(2025, 6, 3),
+        evidence_url="https://example.gov/hunt",
+        seat_kind="chamber-house",
+        seat_discriminator="ld-5-position-1",
+    )
+
+    await build_house_position_spans(
+        db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
+    )
+
+    row = (
+        await db_session.execute(
+            select(Assignment).where(
+                Assignment.source_id == "35410:chamber-house:ld-5-position-1:2025-26"
+            )
+        )
+    ).scalar_one()
+    assert row.valid_to == date(2025, 6, 3) and row.is_active is False
+    field_cites = await db_session.scalar(
+        select(func.count())
+        .select_from(Citation)
+        .where(Citation.entity_id == row.id, Citation.field_path == "valid_to")
+    )
+    assert field_cites == 1
 
 
 async def test_departed_member_open_span_is_closed_by_the_sweep(db_session, usa_wa):

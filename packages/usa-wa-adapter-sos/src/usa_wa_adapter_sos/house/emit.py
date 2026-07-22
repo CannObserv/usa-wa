@@ -22,6 +22,8 @@ seat-Role source-id / discriminator helpers (a Layer-3 sibling import, one-direc
 
 from __future__ import annotations
 
+from collections.abc import Collection
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from usa_wa_adapter_pdc.normalize.positions import (
     house_seat_role_source_id,
@@ -58,6 +60,7 @@ async def emit_house_position_spans(
     roster_events: HouseCitationEvents | None = None,
     inferred_keys: set[tuple[str, str]] | None = None,
     assignment_source: str = _HOUSE_ASSIGNMENT_SOURCE,
+    skip_citation_ids: Collection[str] = (),
 ) -> int:
     """Upsert one Assignment per House Position span; return the count.
 
@@ -107,4 +110,5 @@ async def emit_house_position_spans(
         reliability=reliability,
         person_source=_PERSON_SOURCE,
         assignment_source=assignment_source,
+        skip_citation_ids=skip_citation_ids,
     )

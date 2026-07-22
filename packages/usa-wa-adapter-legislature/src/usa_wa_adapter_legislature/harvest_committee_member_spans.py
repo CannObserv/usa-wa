@@ -32,6 +32,12 @@ from usa_wa_adapter_legislature.committee_membership_observations import (
     build_committee_membership_observations,
 )
 from usa_wa_adapter_legislature.committee_span_emit import emit_committee_spans
+from usa_wa_adapter_legislature.operator_events_store import (
+    cite_operator_events,
+    current_events,
+    get_or_create_operator_source,
+)
+from usa_wa_adapter_legislature.operator_overlay import apply_operator_events, from_rows
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
 from usa_wa_adapter_legislature.span_emit import (
     MAX_CLOSE_FRACTION_DEFAULT,
@@ -92,11 +98,33 @@ async def build_committee_member_spans(
         }
         observations = [o for o in observations if (o.member_id, o.discriminator) in scoped]
 
-    spans = build_tenure_spans(observations, current_biennium=current)
+    built_spans = build_tenure_spans(observations, current_biennium=current)
+    # Operator-succession overlay (#107): departed closes every committee membership at the death
+    # date; vacated/seated adjust one committee tenure. Synthesized spans skip the roster citation.
+    event_rows = list(await current_events(session))
+    events = from_rows(event_rows)
+    spans = apply_operator_events(
+        built_spans, events, current_biennium=current, owned_kinds={KIND_COMMITTEE}
+    )
+    synthesized_ids = {s.source_id for s in spans} - {s.source_id for s in built_spans}
     fetch_events = await provider.fetch_event_map()
     emitted = await emit_committee_spans(
-        session, spans, reliability=source.reliability, fetch_events=fetch_events
+        session,
+        spans,
+        reliability=source.reliability,
+        fetch_events=fetch_events,
+        skip_citation_ids=synthesized_ids,
     )
+    if event_rows:
+        operator_source = await get_or_create_operator_source(session, jurisdiction)
+        await cite_operator_events(
+            session,
+            event_rows,
+            spans,
+            owned_kinds={KIND_COMMITTEE},
+            assignment_source=SOURCE,
+            confidence=operator_source.reliability,
+        )
     sweep = await close_stale_spans(
         session,
         assignment_source=SOURCE,
@@ -111,6 +139,7 @@ async def build_committee_member_spans(
             "rosters": len(rosters),
             "spans": len(spans),
             "emitted": emitted,
+            "operator_events": len(events),
             "closed_stale": sweep.closed,
             "sweep_aborted": sweep.aborted,
             "restricted": restrict_to_biennium,

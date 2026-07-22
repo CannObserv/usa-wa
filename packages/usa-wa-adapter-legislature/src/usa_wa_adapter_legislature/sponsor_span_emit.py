@@ -13,6 +13,7 @@ The Assignment source stays ``usa_wa_legislature`` (a legislature-structural fac
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,11 +51,14 @@ async def emit_sponsor_spans(
     anchors: BootstrapAnchors,
     reliability: float,
     fetch_events: dict[str, tuple[_ULID, datetime]],
+    skip_citation_ids: Collection[str] = (),
 ) -> int:
     """Upsert an :class:`Assignment` per party/Senate-seat span; return the count.
 
     ``fetch_events`` maps ``biennium → (fetch_event_id, fetched_at)`` (from the cohort
-    provider) — each biennium's ``sponsors:<biennium>`` roster attests the span."""
+    provider) — each biennium's ``sponsors:<biennium>`` roster attests the span.
+    ``skip_citation_ids`` forwards to :func:`emit_spans` — the source_ids of operator-synthesized
+    spans whose biennium roster must not be cited (#107)."""
 
     async def _resolve_role(session: AsyncSession, span: TenureSpan) -> Role | None:
         return await _resolve_sponsor_role(session, span, anchors)
@@ -72,6 +76,7 @@ async def emit_sponsor_spans(
         resolve_role=_resolve_role,
         citation_target=_citation_target,
         reliability=reliability,
+        skip_citation_ids=skip_citation_ids,
     )
 
 

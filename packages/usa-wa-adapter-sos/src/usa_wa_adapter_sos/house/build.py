@@ -39,6 +39,16 @@ from clearinghouse_core.logging import configure_logging, get_logger
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
+from usa_wa_adapter_legislature.operator_events_store import (
+    cite_operator_events,
+    current_events,
+    get_or_create_operator_source,
+)
+from usa_wa_adapter_legislature.operator_overlay import (
+    apply_operator_events,
+    event_member_ids,
+    from_rows,
+)
 from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
 )
@@ -134,10 +144,18 @@ async def build_house_position_spans(
     exclusions = stale_exclusions_by_biennium(
         rows_by_biennium, committee_ids, min_coverage=stale_min_coverage
     )
+    # Operator-succession overlay (#107): a member with an operator event is exempt from the
+    # #105 mover + stale exclusions (keep_ids) so their House span is built for the overlay to
+    # date — e.g. Hunt's House seat, closed by a `vacated` at her real chamber-move date.
+    event_rows = list(await current_events(session))
+    events = from_rows(event_rows)
+    event_members = event_member_ids(events)
     for biennium in bienniums:
         election_year = election_year_for_biennium(biennium)
         house_roster = build_house_roster(
-            rows_by_biennium[biennium], exclude_ids=exclusions.get(biennium, set())
+            rows_by_biennium[biennium],
+            exclude_ids=exclusions.get(biennium, set()),
+            keep_ids=event_members,
         )
         proj = build_house_seat_observations(
             house_roster, positions.get(election_year, {}), biennium=biennium
@@ -173,7 +191,13 @@ async def build_house_position_spans(
         observed = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
         observations = [o for o in observations if o.member_id in observed]
 
-    spans = build_tenure_spans(observations, current_biennium=current)
+    built_spans = build_tenure_spans(observations, current_biennium=current)
+    spans = apply_operator_events(
+        built_spans, events, current_biennium=current, owned_kinds={KIND_HOUSE}
+    )
+    # Operator-synthesized spans (a House appointee the ballot/roster hasn't positioned) skip
+    # the roster/ballot citation — the operator field citation is their sole attestation (#107).
+    synthesized_ids = {s.source_id for s in spans} - {s.source_id for s in built_spans}
     result.house_spans = await emit_house_position_spans(
         session,
         spans,
@@ -183,7 +207,18 @@ async def build_house_position_spans(
         roster_events=roster_events,
         inferred_keys=inferred_keys,
         assignment_source=_HOUSE_ASSIGNMENT_SOURCE,
+        skip_citation_ids=synthesized_ids,
     )
+    if event_rows:
+        operator_source = await get_or_create_operator_source(session, jurisdiction)
+        await cite_operator_events(
+            session,
+            event_rows,
+            spans,
+            owned_kinds={KIND_HOUSE},
+            assignment_source=_HOUSE_ASSIGNMENT_SOURCE,
+            confidence=operator_source.reliability,
+        )
     # #83: a departed member keeps no observation in the (possibly restricted) rebuilt set, so
     # their open chamber-house span would stay is_active forever — close it.
     sweep = await close_stale_spans(

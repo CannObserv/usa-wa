@@ -117,6 +117,20 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
+    # Daily succession invariant check (#107): after the three refreshes rebuild the current
+    # cohort, assert chamber counts + seat occupancy. Read-only; exit 1 → notify handler.
+    "usa-wa-succession-invariants.service": {
+        "After": {
+            "network.target",
+            "postgresql.service",
+            "usa-wa-migrate.service",
+            "usa-wa-wsl-refresh.service",
+            "usa-wa-pdc-refresh.service",
+            "usa-wa-sos-refresh.service",
+        },
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
     # The notify handler is itself a oneshot; it carries no ordering and must NOT
     # set OnFailure on itself (a failed alert send must not recurse).
     "usa-wa-notify-failure@.service": {"After": set(), "Before": set(), "OnFailure": set()},
@@ -140,6 +154,7 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     "usa-wa-pdc-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-sos-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-integrity-sweep.timer": {"After": set(), "Before": set(), "OnFailure": set()},
+    "usa-wa-succession-invariants.timer": {"After": set(), "Before": set(), "OnFailure": set()},
 }
 
 

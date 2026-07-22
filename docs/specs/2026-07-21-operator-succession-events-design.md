@@ -42,17 +42,17 @@ Five units, each independently testable.
 
 A new `operator_events` table (ULID PK, `TimestampMixin`). Columns:
 
-- `source` / `source_id` — the `usa_wa_operator` Source + a deterministic event key (`{member_id}:{kind}:{seat_or_none}:{effective_date}`), so a re-ingest of the same event is an idempotent upsert.
+- `source` / `source_id` — the `usa_wa_operator` Source + a deterministic event key (`{member_id}:{kind}[:{seat_kind}:{seat_discriminator}]:{effective_date}` — seat segment only for the seat-scoped kinds), so a re-ingest of the same event is an idempotent upsert.
 - `member_id` — the WSL `Id` (`Person.source_id` under `usa_wa_legislature`).
-- `kind` — enum `departed | seated`.
-- `reason` — sub-tag: for `departed`, `died | resigned | expelled`; for `seated`, `appointed | sworn_in`.
-- `seat` — the target seat descriptor, **required for `seated`, null for `departed`** (a death ends everything; an arrival names one seat). Encoded as the span discriminator the builders already use (`chamber-senate:{ld}`, `chamber-house:ld-{n}-position-{p}`, `committee:{id}`) plus a `kind` tag identifying which builder owns it.
+- `kind` — **three** kinds, split by scope: `departed` (person-scoped, no seat), `vacated` (seat-scoped end), `seated` (seat-scoped start).
+- `reason` — sub-tag: `departed` `died | resigned | expelled`; `vacated` `moved | resigned`; `seated` `appointed | sworn_in`.
+- `seat_kind` / `seat_discriminator` — the target seat, **required for `seated`/`vacated`, both null for `departed`** (a death ends everything; a seat-scoped event names one seat). The `kind` tag + discriminator the builders already use (`chamber-senate` + LD, `chamber-house` + `ld-{n}-position-{p}`, `committee` + WSL id). Two check constraints enforce the kind set and the seat shape.
 - `effective_date` — the succession boundary.
 - `evidence_url` — operator's cited source (news/official).
-- `entered_by`, `entered_at` — audit (live table, git is not the trail).
-- `superseded_by_id` — self-FK; a correction appends a new row and points the old one at it. The overlay reads only non-superseded rows.
+- `entered_by` + `created_at` (`TimestampMixin`) — audit (live table, git is not the trail).
+- `superseded_by_id` — self-FK; a date-correction appends a new row (distinct natural key) and points the old one at it. The overlay reads only non-superseded rows.
 
-The model is legislative-domain (it references members and seats), so it lives beside `identity.py`. Migration adds the table + `grants.sql` DML for the app role.
+The model is legislative-domain (it references members and seats), so it lives beside `identity.py`. Migration adds the table; the `canonical` schema auto-grants app-role DML (`ALTER DEFAULT PRIVILEGES`), so no `grants.sql` change.
 
 ### 2. Provenance write — operator Source
 
@@ -66,13 +66,18 @@ A correction re-runs (1)–(3) appending fresh provenance and stamping `supersed
 
 ### 3. Overlay — pure, in `usa-wa-adapter-legislature`
 
-`operator_overlay.apply_operator_events(spans, events, *, current_biennium) -> list[TenureSpan]` — a pure function run **after** `build_tenure_spans` and **before** `emit_spans` in all three builders. It is authoritative over both wire projection **and** #105 hygiene:
+`operator_overlay.apply_operator_events(spans, events, *, current_biennium, owned_kinds) -> list[TenureSpan]` — a pure function run **after** `build_tenure_spans` and **before** `emit_spans` in each builder. `owned_kinds` scopes the seat-scoped events to the span `kind`s that builder produces (a `seated chamber-house` event is the SOS House builder's, not the sponsor builder's — no cross-builder leak). It is authoritative over both wire projection **and** #105 hygiene:
 
-- **`departed`** — for every open span of `member_id`, set `valid_to = effective_date`, `is_active = False`. Terminal: closes seat + party + all committee spans at the death/resignation date.
-- **`seated`** — for the span matching `member_id` + `seat`, set `valid_from = effective_date`. If the wire produced no such span (or #105 dropped it), **synthesize** the span from the seat descriptor so the arrival is recorded.
-- **Hygiene override** — a member named in any operator event is exempt from the mover/stale exclusions for the affected seat, so Hunt's real House tenure (`floor → 2025-06-03`) is re-instated rather than collapsed to a one-day span, and her Senate span starts `2025-06-03`.
+- **`departed`** — for every open span of `member_id` in this builder's set, set `valid_to = effective_date`, `is_active = False`. The three builders together close a dead member's seat + party + committees.
+- **`vacated`** — for the one open span matching `member_id` + seat (owned kind), set `valid_to = effective_date`, `is_active = False`. Party/committees untouched — a chamber move's old-seat close.
+- **`seated`** — for the open span matching `member_id` + seat, set `valid_from = effective_date`. If the wire produced no such span (or #105 dropped it), **synthesize** the span from the seat descriptor.
+- **Hygiene override** — a member named in any operator event (`event_member_ids`) is exempt from the builder's mover/stale exclusions, so Hunt's real House tenure is **built** as `[floor, open]` for the `vacated` event to close at `2025-06-03` (a real closed span, **not** a tombstone), and her Senate span (`seated`) starts `2025-06-03`.
 
-Because the daily refresh re-drives every builder and the overlay re-applies each run, the wire can never win back a corrected span. The overlay carries the `citation_target` for affected spans through to `emit_spans` so the closed/opened Assignment cites the operator attestation (via the injected `CitationLocator`, extended to resolve operator events to their `FetchEvent`).
+Because the daily refresh re-drives every builder and the overlay re-applies each run, the wire can never win back a corrected span. The overlay carries the operator `citation_target` (`operator_events_store.citation_target_for_event`) through to `emit_spans` so the closed/opened Assignment cites the operator attestation.
+
+**Relation to the degenerate-span tombstone (PR #113):** tombstoning is the **no-operator-data fallback**. With a `vacated`/`departed` event the overlay produces a *real* dated window, so the span is asserted (not stale) and never tombstoned. Tombstoning only catches a genuinely *unexplained* degenerate single-biennium span (a mover with no event yet) — better than a false one-day window until the operator records the event. The two are complementary.
+
+**One residual, out of scope:** the *routine* term-start precision (every member's ~Jan-13 swearing-in vs the Jan-1 biennium floor) — a systematic session-convene-date lookup affecting all 147 members equally, not a succession event. Deferred to a clean follow-up. The succession boundaries themselves are modeled exactly.
 
 Consumed by: [`harvest_sponsor_spans.build_sponsor_spans`](../../packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/harvest_sponsor_spans.py) (party + Senate seat), [`usa_wa_adapter_sos.house.build`](../../packages/usa-wa-adapter-sos/src/usa_wa_adapter_sos/house/build.py) (House Position seat), [`harvest_committee_member_spans`](../../packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/harvest_committee_member_spans.py) (committee membership). Each daily refresh re-drive passes the current, non-superseded events.
 
@@ -125,7 +130,7 @@ daily invariants oneshot ──> open-cohort counts ──> chamber-count + dupl
 
 - **Model/migration** — table + grants; `superseded_by_id` self-FK.
 - **Provenance** — a CLI write appends exactly one `FetchEvent`+`RawPayload`, `content_hash` matches, integrity sweep passes; a `--supersede` appends a second and stamps the first.
-- **Overlay (pure, table-driven)** — the three LD5 rows are the golden fixtures: Ramos `departed 2025-04-19` closes seat+party at that date; Hunt `seated chamber-senate:5 2025-06-03` starts Senate there and re-instates House `floor → 2025-06-03` (no degenerate span); a member with no events is untouched.
+- **Overlay (pure, table-driven)** — the three LD5 rows are the golden fixtures: Ramos `departed 2025-04-19` closes seat+party at that date; Hunt `seated chamber-senate:5 2025-06-03` starts Senate there, Hunt `vacated chamber-house:ld-5-position-1 2025-06-03` closes her House span at that date (a real closed span, no degenerate one-day window); a member with no events is untouched.
 - **Builder integration** — each of the three builders applies the overlay and cites the attestation.
 - **Invariants** — 49/98 passes; a synthetic ghost-open drives 50/98 → non-zero exit + alert; a duplicate seat occupancy is caught.
 - **Degenerate-span fix** — a fully-excluded single-biennium span no longer emits `valid_from == valid_to`.
@@ -138,6 +143,6 @@ daily invariants oneshot ──> open-cohort counts ──> chamber-count + dupl
 ## Out of scope / documented residuals
 
 - **Sub-session start precision** (Hunt's real 2025-01-12 swearing-in vs the 2025-01-01 biennium floor) — a general coarseness affecting *every* member, not succession-specific. Deferred.
-- **Raw span-override escape hatch** — deferred until an event the `departed`/`seated` vocabulary can't express appears.
+- **Raw span-override escape hatch** — deferred until an event the `departed`/`vacated`/`seated` vocabulary can't express appears.
 - **External news/roster feed cross-check** (proactive detection) — separate project; the invariant alerts are the chosen backstop.
 - **#106 odd-year ballot evidence** — orthogonal; supplies the successor's *elected-vs-appointed* citation, not succession dates. Tracked separately.

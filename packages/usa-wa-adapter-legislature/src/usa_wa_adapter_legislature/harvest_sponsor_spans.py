@@ -25,6 +25,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging, get_logger
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
+from usa_wa_adapter_legislature.operator_events_store import (
+    cite_operator_events,
+    current_events,
+    get_or_create_operator_source,
+)
+from usa_wa_adapter_legislature.operator_overlay import (
+    apply_operator_events,
+    event_member_ids,
+    from_rows,
+)
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
 from usa_wa_adapter_legislature.roster_hygiene import (
     STALE_MIN_COVERAGE_DEFAULT,
@@ -108,15 +118,45 @@ async def build_sponsor_spans(
     exclusions = stale_exclusions_by_biennium(
         roster, committee_ids, min_coverage=stale_min_coverage
     )
+    # Operator-succession overlay (#107): a member with an operator event is exempt from the
+    # #105 stale exclusion (so their span is built for the overlay to date), then the events
+    # apply precise sub-biennium boundaries the wire can't supply.
+    event_rows = list(await current_events(session))
+    events = from_rows(event_rows)
+    event_members = event_member_ids(events)
+    exclusions = {b: (ids - event_members) for b, ids in exclusions.items()}
     observations = build_sponsor_observations(roster, exclusions)
     if restrict_to_biennium is not None:
         scoped = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
         observations = [o for o in observations if o.member_id in scoped]
-    spans = build_tenure_spans(observations, current_biennium=current)
+    built_spans = build_tenure_spans(observations, current_biennium=current)
+    spans = apply_operator_events(
+        built_spans, events, current_biennium=current, owned_kinds={KIND_PARTY, KIND_SENATE}
+    )
+    # Operator-synthesized spans (an appointee the wire hasn't listed) — their biennium roster
+    # doesn't name them, so skip the entity-level roster citation (#107 CR finding 9); the
+    # operator field citation below is their sole, correct attestation.
+    synthesized_ids = {s.source_id for s in spans} - {s.source_id for s in built_spans}
     fetch_events = await provider.fetch_event_map(bienniums)
     emitted = await emit_sponsor_spans(
-        session, spans, anchors=anchors, reliability=source.reliability, fetch_events=fetch_events
+        session,
+        spans,
+        anchors=anchors,
+        reliability=source.reliability,
+        fetch_events=fetch_events,
+        skip_citation_ids=synthesized_ids,
     )
+    operator_cites = 0
+    if event_rows:
+        operator_source = await get_or_create_operator_source(session, jurisdiction)
+        operator_cites = await cite_operator_events(
+            session,
+            event_rows,
+            spans,
+            owned_kinds={KIND_PARTY, KIND_SENATE},
+            assignment_source=SOURCE,
+            confidence=operator_source.reliability,
+        )
     sweep = await close_stale_spans(
         session,
         assignment_source=SOURCE,
@@ -132,6 +172,8 @@ async def build_sponsor_spans(
             "spans": len(spans),
             "emitted": emitted,
             "closed_stale": sweep.closed,
+            "operator_events": len(events),
+            "operator_cites": operator_cites,
             "sweep_aborted": sweep.aborted,
             "restricted": restrict_to_biennium,
         },
