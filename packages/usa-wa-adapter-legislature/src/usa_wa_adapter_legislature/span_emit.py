@@ -29,7 +29,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,9 +55,12 @@ MAX_CLOSE_FRACTION_DEFAULT = 0.5
 @dataclass(frozen=True)
 class StaleSweepOutcome:
     """What :func:`close_stale_spans` did — ``aborted`` distinguishes a mass-close abort
-    from a clean nothing-to-close run (#83 CR: the builders surface it in their logs)."""
+    from a clean nothing-to-close run (#83 CR: the builders surface it in their logs).
+    ``tombstoned`` counts the degenerate single-biennium spans soft-deleted instead of
+    closed (#107) — a subset acted-on distinct from the real ``closed`` count."""
 
     closed: int = 0
+    tombstoned: int = 0
     aborted: bool = False
 
 
@@ -158,10 +161,12 @@ async def close_stale_spans(
     closes every ``is_active`` Assignment of ``assignment_source`` whose span ``source_id``
     (4-part ``{member}:{kind}:{discriminator}:{start}``) carries one of the builder's
     ``kinds`` but was **not** in this run's built span set — set ``is_active=False`` and
-    ``valid_to`` = Dec 31 of the biennium before ``current_biennium`` (clamped to
-    ``valid_from`` for a span that started in the current biennium). ``current_biennium``
-    must be the biennium the asserted span set was built against — a mismatched pair would
-    close everything outside the wrong cohort.
+    ``valid_to`` = Dec 31 of the biennium before ``current_biennium``. A span that started
+    **in** the current biennium has no valid past close date (that Dec 31 precedes its own
+    ``valid_from``); rather than emit a degenerate ``valid_from == valid_to`` one-day window,
+    such a span is **tombstoned** (``deleted_at``, #107) — see ``StaleSweepOutcome.tombstoned``.
+    ``current_biennium`` must be the biennium the asserted span set was built against — a
+    mismatched pair would close everything outside the wrong cohort.
 
     The valid_to derivation rests on the daily cadence: a member's last rebuilt biennium is
     ``current - 1``. If the re-drive skipped a boundary, the close date lands late — the next
@@ -217,16 +222,30 @@ async def close_stale_spans(
             },
         )
         return StaleSweepOutcome(aborted=True)
+    now = datetime.now(UTC)
+    closed = 0
+    tombstoned = 0
     for row in stale:
         row.is_active = False
-        row.valid_to = max(prior_end, row.valid_from)
+        if row.valid_from > prior_end:
+            # Degenerate: the span's only asserted biennium is the current one, so there is
+            # no valid past close date (prior_end precedes valid_from). A one-day
+            # valid_from == valid_to window reads as "served one day"; instead soft-delete the
+            # row (#107) — hidden from live reads + dropped from sync. PM convergence for such
+            # a row comes later from the operator-succession overlay, not this sweep.
+            row.deleted_at = now
+            tombstoned += 1
+            logger.info("stale_span_tombstoned", extra={"source_id": row.source_id})
+            continue
+        row.valid_to = prior_end
+        closed += 1
         logger.info(
             "stale_span_closed",
             extra={"source_id": row.source_id, "valid_to": row.valid_to.isoformat()},
         )
     if stale:
         await session.flush()
-    return StaleSweepOutcome(closed=len(stale))
+    return StaleSweepOutcome(closed=closed, tombstoned=tombstoned)
 
 
 async def resolve_person(

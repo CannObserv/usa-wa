@@ -288,9 +288,12 @@ async def test_close_stale_spans_leaves_asserted_closed_other_kind_and_other_sou
     assert legacy_3part.is_active is True
 
 
-async def test_close_stale_spans_clamps_valid_to_at_valid_from(db_session, usa_wa):
-    """A span that started in the current biennium and vanished (superseded-wire orphan)
-    closes at its own valid_from, never before it."""
+async def test_close_stale_spans_tombstones_degenerate_single_biennium_span(db_session, usa_wa):
+    """A stale span whose only asserted biennium is the current one has no valid past close
+    date (the prior-biennium end precedes its own valid_from). Rather than emit a degenerate
+    valid_from == valid_to one-day window (which reads as 'served one day'), it is tombstoned
+    (deleted_at) — hidden from live reads, dropped from sync (#107). PM convergence for such a
+    row comes later from the operator-succession overlay, not from this sweep."""
     row = await _open_assignment(
         db_session, usa_wa, "100:party:democratic:2027-28", frm=date(2027, 1, 1)
     )
@@ -303,8 +306,11 @@ async def test_close_stale_spans_clamps_valid_to_at_valid_from(db_session, usa_w
         current_biennium="2027-28",
     )
 
-    assert result.closed == 1
-    assert row.valid_to == date(2027, 1, 1)  # clamped to valid_from, not 2026-12-31
+    assert result.tombstoned == 1
+    assert result.closed == 0
+    assert row.is_active is False
+    assert row.deleted_at is not None
+    assert row.valid_to is None  # never a one-day span
 
 
 async def test_close_stale_spans_empty_assertion_set_is_a_guarded_noop(db_session, usa_wa):
