@@ -53,11 +53,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.provenance import Citation
 from clearinghouse_domain_legislative.identity import Assignment
+from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 
 logger = get_logger(__name__)
 
 _PDC_SOURCE = "usa_wa_pdc"
-_KIND_HOUSE = "chamber-house"
 _ASSIGNMENT_CITATION_TYPE = "assignment"
 
 
@@ -89,13 +89,13 @@ class _Counters:
 def _is_legacy_house(source_id: str) -> bool:
     """``{member}:chamber-house:{biennium}`` — 3 parts, the pre-#79 per-biennium key."""
     parts = source_id.split(":")
-    return len(parts) == 3 and parts[1] == _KIND_HOUSE
+    return len(parts) == 3 and parts[1] == KIND_HOUSE
 
 
 def _is_span_house(source_id: str) -> bool:
     """``{member}:chamber-house:{ld}-position-{p}:{start}`` — 4 parts, the #79 span key."""
     parts = source_id.split(":")
-    return len(parts) == 4 and parts[1] == _KIND_HOUSE
+    return len(parts) == 4 and parts[1] == KIND_HOUSE
 
 
 def _covering_span(spans: Sequence[Assignment], stranded_valid_from: date) -> Assignment | None:

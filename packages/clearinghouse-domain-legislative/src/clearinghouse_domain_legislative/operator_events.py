@@ -41,6 +41,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.db.ulid import ULID
 from clearinghouse_core.models import Base, TimestampMixin
+from clearinghouse_domain_legislative.span_kinds import SEAT_KINDS  # noqa: F401 (re-export)
 
 # SCHEMA + _new_ulid are defined locally per the domain-model convention (see bills.py /
 # sessions.py), rather than reaching into identity.py's module-private helpers.
@@ -64,11 +65,10 @@ KINDS = (KIND_DEPARTED, KIND_VACATED, KIND_SEATED)
 #: The seat-scoped kinds carry a ``(seat_kind, seat_discriminator)``; ``departed`` does not.
 SEAT_SCOPED_KINDS = (KIND_VACATED, KIND_SEATED)
 
-#: The valid ``seat_kind`` values — the span ``kind``\\s the builders own (Senate seat, House
-#: seat, committee membership). A seat-scoped event MUST name one of these; a typo would
-#: otherwise record an event the overlay silently no-ops in every builder (no owned_kinds
-#: match), which is exactly the member-id-typo failure the CLI guards against.
-SEAT_KINDS = ("chamber-senate", "chamber-house", "committee")
+# ``SEAT_KINDS`` — the valid ``seat_kind`` values a seat-scoped event may name — is the
+# canonical span-kind subset owned by the builders. It is re-exported from
+# :mod:`clearinghouse_domain_legislative.span_kinds` (imported above) so the domain guard
+# and the Layer-3 builders share one definition and cannot drift (#114).
 
 #: Reason sub-tags per kind (evidence classification, not behaviour — reasons within a kind
 #: apply identically). ``resigned`` is valid for both a whole-legislature ``departed`` and a
