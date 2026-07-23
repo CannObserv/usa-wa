@@ -89,11 +89,6 @@ def build_senate_identity_links(
     return links
 
 
-# Tenure ``kind`` for a House Position seat is the canonical domain span kind (imported
-# above so this package and the domain guard cannot drift, #114); it matches the legacy
-# per-biennium dimension so the migration (#79 inc4) can recognise the rows it supersedes.
-
-
 @dataclass(frozen=True)
 class _Deferred:
     """A PDC winner that matched no House roster member — a #74 mover-inference candidate.

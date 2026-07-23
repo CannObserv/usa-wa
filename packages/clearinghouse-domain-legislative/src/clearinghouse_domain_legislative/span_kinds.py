@@ -22,7 +22,11 @@ KIND_SENATE = "chamber-senate"
 #: House seat span (two seats per LD; ``qualifier`` Position 1/2).
 KIND_HOUSE = "chamber-house"
 
-#: Committee-membership span (discriminated by the committee's stable WSL ``Id``).
+#: Committee-membership span (discriminated by the committee's stable WSL ``Id``). This is
+#: the tenure-span ``kind`` — a **distinct** concept from the ``Organization.org_type ==
+#: "committee"`` column value (the sync reconcilers' ``_ORG_TYPE``), which happens to share
+#: the literal. Do not couple the two: an org-type is what a body *is*, a span kind is what a
+#: tenure *tracks*.
 KIND_COMMITTEE = "committee"
 
 #: The seat-scoped span kinds — the seats the builders own (Senate, House, committee).
