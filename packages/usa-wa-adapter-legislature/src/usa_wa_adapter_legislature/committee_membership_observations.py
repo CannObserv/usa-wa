@@ -21,11 +21,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from clearinghouse_domain_legislative.span_kinds import (
+    KIND_COMMITTEE,  # noqa: F401 (re-export for this package's builders/tests)
+)
 from usa_wa_adapter_legislature.normalize.members import is_person
 from usa_wa_adapter_legislature.tenure_spans import Observation
 
-#: Tenure ``kind`` for committee membership (the span builder is generic over kinds).
-KIND_COMMITTEE = "committee"
+# Tenure ``kind`` for committee membership is the canonical domain span kind
+# (imported above so this package and the domain guard cannot drift, #114).
 
 
 def build_committee_membership_observations(

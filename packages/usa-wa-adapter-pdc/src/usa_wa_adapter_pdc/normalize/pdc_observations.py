@@ -30,6 +30,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from clearinghouse_domain_legislative.span_kinds import (
+    KIND_HOUSE,  # noqa: F401 (re-export for this package's builders/tests)
+)
 from usa_wa_adapter_legislature.normalize.members import canonicalize_party, district_number
 from usa_wa_adapter_legislature.tenure_spans import Observation
 from usa_wa_adapter_pdc.normalize.pdc_matching import (
@@ -86,9 +89,9 @@ def build_senate_identity_links(
     return links
 
 
-#: Tenure ``kind`` for a House Position seat — matches the legacy per-biennium dimension so
-#: the migration (#79 inc4) can recognise the rows it supersedes.
-KIND_HOUSE = "chamber-house"
+# Tenure ``kind`` for a House Position seat is the canonical domain span kind (imported
+# above so this package and the domain guard cannot drift, #114); it matches the legacy
+# per-biennium dimension so the migration (#79 inc4) can recognise the rows it supersedes.
 
 
 @dataclass(frozen=True)

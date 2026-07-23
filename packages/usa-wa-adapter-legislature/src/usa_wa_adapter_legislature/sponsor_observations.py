@@ -18,6 +18,10 @@ builder's note on redistricting).
 
 from __future__ import annotations
 
+from clearinghouse_domain_legislative.span_kinds import (
+    KIND_PARTY,  # noqa: F401 (re-export for this package's builders/tests)
+    KIND_SENATE,  # noqa: F401 (re-export for this package's builders/tests)
+)
 from usa_wa_adapter_legislature.normalize.members import (
     canonicalize_party,
     district_number,
@@ -25,9 +29,8 @@ from usa_wa_adapter_legislature.normalize.members import (
 )
 from usa_wa_adapter_legislature.tenure_spans import Observation
 
-#: Tenure ``kind`` discriminators emitted here (the span builder is generic over them).
-KIND_PARTY = "party"
-KIND_SENATE = "chamber-senate"
+# Tenure ``kind`` discriminators emitted here are the canonical domain span kinds
+# (imported above so this package and the domain guard cannot drift, #114).
 
 
 def build_sponsor_observations(
