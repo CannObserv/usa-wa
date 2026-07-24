@@ -120,6 +120,17 @@ on any surface it cannot positively confirm PM already reflects. Compare narrowl
 toward enqueuing. This is why a wide, weakly-verified comparator (the org case) is worse
 than no gate at all on a cohort that isn't actually churning.
 
+**Leaving a cohort ungated is detected, not silent (#112).** The non-convergence backstop
+counts consecutive identical `auto-attached` re-sends per row and, past a threshold,
+surfaces the row in the cycle summary and emails on a rise. So the cost of *declining* to
+gate is a bounded, operator-visible signal — whereas the cost of a false `True` is an
+erased change with no signal at all. That asymmetry is the argument for erring toward
+no-gate on a surface you cannot verify narrowly, and it is why the deliberately-ungated
+org cohort is acceptable. The gates and the backstop are complementary: the gates converge
+the clean clock-skew cases instantly; the backstop catches what they *cannot* — a genuine
+local↔PM diff PM refuses to apply (the #110 role classifier), which no clock comparison
+can see.
+
 **The deps guard is not optional** — it is in the template precisely so no new descriptor
 has to remember it. Without it, a row whose PM prerequisites are unmet builds a garbage
 observation (`organization_id="None"`) that can compare equal by accident, or raises
@@ -147,4 +158,6 @@ did not need one.
 
 #65 (clock preservation on import — the root cause, plus `heal_committee_curation`),
 #102 (assignment gate + heal), #104 (person gate), #109 (audit, role gate, this note),
-#85 (`POWERMAP_MIN_REQUEST_INTERVAL` — the backstop that keeps churn from 429ing PM).
+#85 (`POWERMAP_MIN_REQUEST_INTERVAL` — the backstop that keeps churn from 429ing PM),
+#112 (the non-convergence backstop — the *detection* counterpart: what the gates cannot
+catch, because it is a real diff PM refuses rather than a clock skew).

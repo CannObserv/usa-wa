@@ -86,6 +86,10 @@ class Sidecar:
         catalog_sync_cadence: timedelta = timedelta(hours=1),
         alert: Callable[[str, str], Awaitable[None]] | None = None,
         failure_alert_threshold: int = 5,
+        # Must MATCH the engine's ``nonconvergence_threshold`` (#112 CR-13): the engine flags
+        # rows at its own value while this one drives the standing query, so a divergence
+        # would make the cycle summary and the per-row WARNINGs disagree. ``__main__`` passes
+        # ``settings.nonconvergence_threshold`` to both; nothing structurally enforces it.
         nonconvergence_threshold: int = DEFAULT_NONCONVERGENCE_THRESHOLD,
         clock: Callable[[], datetime] = _utcnow,
     ) -> None:
