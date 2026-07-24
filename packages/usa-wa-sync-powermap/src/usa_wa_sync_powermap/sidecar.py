@@ -89,6 +89,12 @@ class Sidecar:
         nonconvergence_threshold: int = DEFAULT_NONCONVERGENCE_THRESHOLD,
         clock: Callable[[], datetime] = _utcnow,
     ) -> None:
+        if nonconvergence_threshold < 1:
+            # Mirrors the engine's guard (#112 CR-1/CR-11). Production builds the engine
+            # first, so a bad env already fails there — this keeps a bare Sidecar (a test, a
+            # future caller) from silently getting the inverted standing query, where
+            # ``count >= 0`` matches every *reset* row and the rise-alert names the cohort.
+            raise ValueError("nonconvergence_threshold must be >= 1")
         self._engine = engine
         self._descriptors = list(descriptors)
         self._session_factory = session_factory
@@ -311,8 +317,10 @@ class Sidecar:
             f"The PM sync has {non_converging} row(s) PM keeps auto-attach-matching\n"
             f"without applying our diff — an identical observation re-sent every reconcile\n"
             f"cycle (threshold {self._nonconvergence_threshold} consecutive re-sends). Each\n"
-            f"is a silent producer→PM non-convergence: grep the journal for\n"
-            f"`observation_not_converging` to see which rows + what field PM refuses.\n"
+            f"is a silent producer→PM non-convergence.\n\n"
+            f"Grep the journal for `observation_not_converging` (logged once per row when it\n"
+            f"is first flagged) and `observation_still_not_converging` (the throttled INFO\n"
+            f"repeat every drain thereafter) to see which rows + what field PM refuses.\n"
             f"No repeat email while the count is static.\n"
         )
         try:

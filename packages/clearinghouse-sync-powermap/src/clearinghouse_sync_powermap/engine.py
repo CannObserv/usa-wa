@@ -1024,6 +1024,7 @@ class SyncEngine:
             if state is not None and state.count != 0:
                 state.count = 0
                 state.payload_hash = None
+                self._rearm_nonconverging(row)
             return
         fingerprint = enrich_fingerprint(payload)
         if state is None:
@@ -1040,6 +1041,7 @@ class SyncEngine:
             # Changed payload = a genuine new local edit (the re-arm): reset + re-baseline.
             state.payload_hash = fingerprint
             state.count = 1
+            self._rearm_nonconverging(row)
         if state.count < self._nonconvergence_threshold:
             return
         self._last_drain_stats.non_converging += 1
@@ -1061,6 +1063,20 @@ class SyncEngine:
             return
         self._warned_nonconverging.add(row.id)
         logger.warning("observation_not_converging", extra=extra)
+
+    def _rearm_nonconverging(self, row: Any) -> None:
+        """Re-arm the per-row WARNING throttle when a row's counter resets (#112 CR-9).
+
+        Unlike ``_warned_stuck`` — whose subject genuinely cannot recover, so warning once
+        per process is the whole point — a non-convergence *can* clear and recur: the
+        operator fixes the diff, the payload changes, the counter resets. A second episode
+        is a genuinely new event, and the standing count already treats it as one (it drops
+        to 0 and the next rise re-alerts). Without this discard the throttle would keep that
+        second episode at INFO, so the rise email would tell the operator to grep for a
+        ``observation_not_converging`` line that only exists from the *first* episode, with
+        a misleading timestamp. Keeping the alert and its evidence in agreement is the point.
+        """
+        self._warned_nonconverging.discard(row.id)
 
     async def _anchor_taken(
         self,

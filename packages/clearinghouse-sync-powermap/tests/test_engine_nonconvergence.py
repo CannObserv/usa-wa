@@ -192,6 +192,34 @@ async def test_flag_warning_is_throttled_per_row(db_session, fake_descriptor, ca
     assert (await _state(db_session, row)).count == 4
 
 
+async def test_flag_warning_rearms_after_the_row_converges(db_session, fake_descriptor, caplog):
+    """CR-9: the throttle must RE-ARM. A row that churns → is flagged → gets fixed → churns
+    again on a new payload is a second, genuinely-new episode and must WARN again — the
+    standing count re-arms (0 → 1 rise → email), and that email tells the operator to grep
+    for the WARNING, so the two must not disagree."""
+    pm_id = ULID()
+    row = await _anchored_entity(db_session, name="x", anchor=pm_id)
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_AUTO_ATTACHED, pm_id, {}))
+    engine = SyncEngine([fake_descriptor], client, nonconvergence_threshold=3)
+
+    with caplog.at_level("INFO"):
+        for _ in range(3):  # episode 1 → flagged
+            await _enqueue_update(db_session, row)
+            await engine.drain_outbox(db_session, now=NOW)
+        # Operator fixes the diff: a changed payload resets the counter (and the throttle).
+        row.name = "y"
+        await db_session.flush()
+        await _enqueue_update(db_session, row)
+        await engine.drain_outbox(db_session, now=NOW)
+        assert (await _state(db_session, row)).count == 1
+        for _ in range(2):  # episode 2 on the NEW payload → flagged again
+            await _enqueue_update(db_session, row)
+            await engine.drain_outbox(db_session, now=NOW)
+
+    warnings = [r for r in caplog.records if r.message == "observation_not_converging"]
+    assert len(warnings) == 2, "a re-armed non-convergence must WARN again, not stay throttled"
+
+
 async def test_new_disposition_does_not_accrue(db_session, fake_descriptor):
     """A ``new`` disposition mints a PM record (genuine change) — never futile churn."""
     pm_id = ULID()

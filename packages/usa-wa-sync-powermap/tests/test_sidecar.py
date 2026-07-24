@@ -1039,6 +1039,34 @@ async def test_nonconverging_rise_alerts_once_and_rearms(db_session):
     assert len(alerts) == 2
 
 
+async def test_nonconverging_alert_body_names_both_log_events(db_session):
+    """CR-10: the WARNING is throttled to once per row per process, so a standing pile is
+    mostly INFO repeats — the body must point at BOTH event names or it under-describes
+    where the evidence actually lives."""
+    alerts: list[tuple[str, str]] = []
+    sidecar = _summary_sidecar(alerts)
+    await _add_nonconverging(db_session, count=3)
+
+    await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    body = alerts[0][1]
+    assert "observation_not_converging" in body
+    assert "observation_still_not_converging" in body
+
+
+def test_sidecar_threshold_below_one_is_rejected():
+    """CR-11: mirror the engine's CR-1 guard — a bare Sidecar built with a 0/negative
+    threshold would otherwise get the inverted standing query (every reset row counted)."""
+    for bad in (0, -1):
+        with pytest.raises(ValueError, match="nonconvergence_threshold"):
+            Sidecar(
+                engine=None,
+                descriptors=[],
+                session_factory=lambda: None,
+                nonconvergence_threshold=bad,
+            )
+
+
 async def test_summary_alert_send_failures_are_swallowed(db_session, caplog):
     """CR-8: both rise-alert senders swallow a failing ``alert`` callable — the summary is
     observability, and a dead email gateway must never crash the cycle it is reporting on.
