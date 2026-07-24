@@ -57,6 +57,22 @@ def seating_biennium_for_election_year(election_year: int) -> str:
     return f"{start}-{(start + 1) % 100:02d}"
 
 
+def election_years_for_biennium(biennium: str) -> list[int]:
+    """Every general-election year a biennium's membership can be decided by (#106).
+
+    WA holds a general election **every** November, not only in even years: the even ``start-1``
+    cycle seats the chamber, and the odd ``start`` November fills mid-biennium vacancies by
+    special (Nov 2025 seated Hunt in the LD5 Senate and four House appointees). November of
+    ``start+1`` is deliberately excluded — it seats the *next* biennium.
+
+    The seating year leads, so a consumer archiving in list order writes the even cohort first.
+    This is the shared era helper both odd-year sweeps derive from (the SOS results harvest here;
+    the PDC harvest in the sibling issue), so "every general election year" is a property of the
+    layer rather than a per-source patch."""
+    start_year, _ = parse_biennium(biennium)
+    return [start_year - 1, start_year]
+
+
 def senate_election_years_for_biennium(biennium: str) -> tuple[int, int]:
     """The two general-election years whose winners sit in a biennium's Senate (#75).
 

@@ -43,8 +43,11 @@ async def _archive(session, source, resource_id, body, *, fetched_at=None, with_
 
 
 def _csv(*races):
-    header = '"Race","Candidate","Party"\r\n'
-    body = "".join(f'"{race}","{cand}","{party}"\r\n' for race, cand, party in races)
+    """Rows are ``(race, candidate, party[, votes])`` — votes default to a placeholder count."""
+    header = '"Race","Candidate","Party","Votes"\r\n'
+    body = "".join(
+        f'"{row[0]}","{row[1]}","{row[2]}",{row[3] if len(row) > 3 else "100"}\r\n' for row in races
+    )
     return (header + body).encode()
 
 
@@ -81,6 +84,38 @@ async def test_latest_payload_bearing_event_wins(db_session, usa_wa):
     assert position_for(positions[2016], 5, fold_token("Rivers"), "republican") == "Position 1"
 
 
+async def test_senate_winners_resolve_from_archive(db_session, usa_wa):
+    """A′ (#106): the provider exposes the Senate half of the wire too — the archive is one CSV
+    carrying both chambers, and parsing only the House left the Senate ballot evidence invisible
+    (the *yes-and* rule in ARCHITECTURE.md). Real 2025 LD5 special."""
+    source = await _results_source(db_session, usa_wa)
+    await _archive(
+        db_session,
+        source,
+        "sos-legresults:20251104",
+        _csv(
+            (
+                "LEGISLATIVE DISTRICT 5 - State Senator",
+                "Victoria Hunt",
+                "(Prefers Democratic Party)",
+                "28466",
+            ),
+            (
+                "LEGISLATIVE DISTRICT 5 - State Senator",
+                "Chad Magendanz",
+                "(Prefers Republican Party)",
+                "22063",
+            ),
+        ),
+    )
+
+    provider = SosResultsCohortProvider(session=db_session, source_id=source.id)
+    winners = await provider.senate_winners()
+
+    assert winners[2025][5].ballot_name == "Victoria Hunt"
+    assert fold_token("Hunt") in winners[2025][5].name_keys
+
+
 async def test_scans_are_memoized(db_session, usa_wa):
     source = await _results_source(db_session, usa_wa)
     await _archive(db_session, source, "sos-legresults:20161108", _csv(_RIVERS))
@@ -88,3 +123,4 @@ async def test_scans_are_memoized(db_session, usa_wa):
 
     assert await provider.house_positions() is await provider.house_positions()
     assert await provider.citation_events() is await provider.citation_events()
+    assert await provider.senate_winners() is await provider.senate_winners()

@@ -28,9 +28,10 @@ import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from usa_wa_adapter_pdc.adapter import election_year_for_biennium
+from usa_wa_adapter_pdc.adapter import election_years_for_biennium
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import configure_logging, get_logger
@@ -40,7 +41,7 @@ from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_adapter_sos.house.build import build_house_position_spans
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.adapter import ResultsAdapter, legresults_resource_id
-from usa_wa_adapter_sos.results.transport import SOSResultsClient
+from usa_wa_adapter_sos.results.transport import LegislativeExportNotFound, SOSResultsClient
 
 logger = get_logger(__name__)
 
@@ -75,15 +76,13 @@ async def run_refresh(
             extra={"biennium": biennium, "current_biennium": current},
         )
 
-    election_year = election_year_for_biennium(biennium)
+    election_years = election_years_for_biennium(biennium)
     jurisdiction = (
         await session.execute(select(Jurisdiction).where(Jurisdiction.slug == _JURISDICTION_SLUG))
     ).scalar_one()
     source = await get_or_create_results_source(session, jurisdiction)
 
-    adapter = ResultsAdapter(
-        election_years=[election_year], client=sos_client or SOSResultsClient()
-    )
+    adapter = ResultsAdapter(election_years=election_years, client=sos_client or SOSResultsClient())
     runner = AdapterRunner(
         adapter,
         session,
@@ -93,11 +92,23 @@ async def run_refresh(
         fill_only=True,
     )
 
-    # 1. Archive the current cohort. Forced past the freshness TTL for daily determinism (the
-    #    dedup guard still bounds RawPayload growth on a byte-identical re-pull).
-    archived = (
-        1 if await runner.archive_only(legresults_resource_id(election_year), force=True) else 0
-    )
+    # 1. Archive every general a biennium's membership can be decided by (#106): the even seating
+    #    year and the odd mid-biennium special (Nov 2025 seated Hunt + four House appointees). Each
+    #    cohort archives in its OWN SAVEPOINT — an odd-year cohort 404s from January until the
+    #    November election is certified, and a race-less year carries no Legislative CSV; either
+    #    would otherwise fail the daily unit (and page the operator via OnFailure=). Forced past the
+    #    freshness TTL for daily determinism (the dedup guard still bounds RawPayload growth on a
+    #    byte-identical re-pull).
+    archived = 0
+    for year in election_years:
+        try:
+            async with session.begin_nested():
+                if await runner.archive_only(legresults_resource_id(year), force=True):
+                    archived += 1
+        except (httpx.HTTPError, LegislativeExportNotFound) as exc:
+            logger.warning(
+                "sos_refresh_cohort_year_skipped", extra={"year": year, "error": str(exc)}
+            )
 
     # 2. Re-drive the House-Position span builder scoped to the current biennium (each scoped
     #    member keeps their full cross-biennium span history; the current biennium is the open end).
@@ -112,7 +123,7 @@ async def run_refresh(
         "sos_refresh_complete",
         extra={
             "biennium": biennium,
-            "election_year": election_year,
+            "election_years": election_years,
             "cohorts_archived": archived,
             "house_spans": result.house_spans,
             "closed_stale": result.closed_stale,

@@ -13,12 +13,13 @@ import logging
 from datetime import UTC, datetime
 from unittest.mock import patch
 
+import httpx
 import pytest
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
 from usa_wa_adapter_sos.house import refresh as refresh_module
 from usa_wa_adapter_sos.house.refresh import run_refresh
-from usa_wa_adapter_sos.results.transport import WireFetch
+from usa_wa_adapter_sos.results.transport import LegislativeExportNotFound, WireFetch
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
@@ -36,14 +37,23 @@ class _StubSponsorClient:
 
 
 class FakeSOSClient:
-    def __init__(self, csv_rows=None):
+    def __init__(self, csv_rows=None, *, rows_by_year=None, fail_years=(), absent_years=()):
         self._rows = csv_rows or []
+        self._rows_by_year = rows_by_year or {}
+        self._fail = set(fail_years)
+        self._absent = set(absent_years)
+        self.calls: list[int] = []
 
     async def fetch_legislative_results(self, election_year):
+        self.calls.append(election_year)
+        if election_year in self._fail:
+            raise httpx.ConnectTimeout(f"connection timed out for {election_year}")
+        if election_year in self._absent:
+            raise LegislativeExportNotFound(f"no Legislative CSV for {election_year}")
         header = '"Race","Candidate","Party"\r\n'
         body = "".join(
             f'"LEGISLATIVE DISTRICT {ld} - {race}","{ballot}","{party}"\r\n'
-            for race, ld, ballot, party in self._rows
+            for race, ld, ballot, party in self._rows_by_year.get(election_year, self._rows)
         )
         wire = (header + body).encode()
         return WireFetch(records=[], wire=wire, content_type="application/octet-stream")
@@ -117,7 +127,9 @@ async def test_refresh_archives_cohort_and_materializes_house_seat(db_session, u
         db_session, biennium=BIENNIUM, sponsor_client=_StubSponsorClient(), sos_client=sos
     )
 
-    assert outcome.cohorts_archived == 1
+    # Both the seating (2024) and odd-year special (2025) cohorts archive (#106); the fake serves
+    # the same rows for either. The dedicated odd-year cases below pin the resource ids.
+    assert outcome.cohorts_archived == 2
     assert outcome.house_spans == 1
     row = (
         await db_session.execute(
@@ -160,6 +172,73 @@ async def test_refresh_is_idempotent_across_two_cycles(db_session, usa_wa, wsl_s
         select(func.count()).select_from(Citation).where(Citation.entity_id == rows[0].id)
     )
     assert citations == 1  # one biennium cited, not re-appended per cycle
+
+
+async def test_refresh_archives_the_odd_year_special_cohort(db_session, usa_wa, wsl_source):
+    """#106: the daily refresh archives **both** general elections a biennium's membership can be
+    decided by — the even seating year and the odd mid-biennium special (Nov 2025 seated Obras /
+    Salahuddin / Zahn / Thomas in the House and Hunt in the Senate)."""
+    await _add_ld(db_session, usa_wa, 42)
+    await _add_person(db_session, 100, "Alicia Rule")
+    await _archive_sponsors(db_session, wsl_source, BIENNIUM, [_sponsor(100, 42, "Rule")])
+    sos = FakeSOSClient(
+        [("State Representative Pos. 1", 42, "Alicia Rule", "(Prefers Democratic Party)")]
+    )
+
+    outcome = await run_refresh(
+        db_session, biennium=BIENNIUM, sponsor_client=_StubSponsorClient(), sos_client=sos
+    )
+
+    assert sos.calls == [2024, 2025]  # seating year first, then the mid-biennium special
+    assert outcome.cohorts_archived == 2
+    rids = {
+        r
+        for (r,) in (
+            await db_session.execute(
+                select(FetchEvent.resource_id).where(
+                    FetchEvent.resource_id.like("sos-legresults:%")
+                )
+            )
+        ).all()
+    }
+    assert rids == {"sos-legresults:20241105", "sos-legresults:20251104"}
+
+
+@pytest.mark.parametrize(
+    "kwargs", [{"fail_years": [2025]}, {"absent_years": [2025]}], ids=["http_error", "no_csv"]
+)
+async def test_refresh_survives_an_unserved_odd_year_cohort(db_session, usa_wa, wsl_source, kwargs):
+    """An odd-year cohort 404s from January until the November election is certified, and a year
+    with no legislative special never carries a Legislative CSV at all. Either would fail the
+    daily unit (and page the operator via ``OnFailure=``) if it escaped — each cohort archives in
+    its own SAVEPOINT and is skipped-and-logged, so the seating cohort and the span re-drive still
+    complete."""
+    await _add_ld(db_session, usa_wa, 42)
+    await _add_person(db_session, 100, "Alicia Rule")
+    await _archive_sponsors(db_session, wsl_source, BIENNIUM, [_sponsor(100, 42, "Rule")])
+    sos = FakeSOSClient(
+        [("State Representative Pos. 1", 42, "Alicia Rule", "(Prefers Democratic Party)")],
+        **kwargs,
+    )
+
+    outcome = await run_refresh(
+        db_session, biennium=BIENNIUM, sponsor_client=_StubSponsorClient(), sos_client=sos
+    )
+
+    assert sos.calls == [2024, 2025]
+    assert outcome.cohorts_archived == 1  # the seating cohort still landed
+    assert outcome.house_spans == 1  # …and the seat still materialized
+    rids = {
+        r
+        for (r,) in (
+            await db_session.execute(
+                select(FetchEvent.resource_id).where(
+                    FetchEvent.resource_id.like("sos-legresults:%")
+                )
+            )
+        ).all()
+    }
+    assert rids == {"sos-legresults:20241105"}  # the failed year rolled back to its savepoint
 
 
 async def test_refresh_warns_on_noncurrent_biennium(db_session, usa_wa, wsl_source, caplog):
