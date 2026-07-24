@@ -45,8 +45,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.engine import (
+    DEFAULT_NONCONVERGENCE_THRESHOLD,
     DrainStats,
     SyncEngine,
+    nonconverging_count,
     outbox_backlog,
     rejected_breakdown,
 )
@@ -84,8 +86,19 @@ class Sidecar:
         catalog_sync_cadence: timedelta = timedelta(hours=1),
         alert: Callable[[str, str], Awaitable[None]] | None = None,
         failure_alert_threshold: int = 5,
+        # Must MATCH the engine's ``nonconvergence_threshold`` (#112 CR-13): the engine flags
+        # rows at its own value while this one drives the standing query, so a divergence
+        # would make the cycle summary and the per-row WARNINGs disagree. ``__main__`` passes
+        # ``settings.nonconvergence_threshold`` to both; nothing structurally enforces it.
+        nonconvergence_threshold: int = DEFAULT_NONCONVERGENCE_THRESHOLD,
         clock: Callable[[], datetime] = _utcnow,
     ) -> None:
+        if nonconvergence_threshold < 1:
+            # Mirrors the engine's guard (#112 CR-1/CR-11). Production builds the engine
+            # first, so a bad env already fails there — this keeps a bare Sidecar (a test, a
+            # future caller) from silently getting the inverted standing query, where
+            # ``count >= 0`` matches every *reset* row and the rise-alert names the cohort.
+            raise ValueError("nonconvergence_threshold must be >= 1")
         self._engine = engine
         self._descriptors = list(descriptors)
         self._session_factory = session_factory
@@ -113,6 +126,13 @@ class Sidecar:
         # pile emails once (and once more per restart — deliberate: a pile needs a
         # data fix, and a process that never saw it should say so).
         self._last_rejected_count = 0
+        # Non-convergence backstop (usa-wa#112): the threshold of consecutive identical
+        # auto-attached re-sends that flags a row, and the last observed standing count of
+        # flagged rows. The cycle summary alerts on a RISE past this (the #85 pattern), so
+        # a churning cohort that went unnoticed for days is now surfaced + emailed on
+        # arrival; a static set does not re-spam.
+        self._nonconvergence_threshold = nonconvergence_threshold
+        self._last_nonconverging_count = 0
         # Last drain's disposition + re-anchor tallies (usa-wa#108), captured off the
         # engine at the end of each tick and surfaced in the cycle summary — so a burst
         # of `new` dispositions / anchor overwrites (orphan mints) is countable at a
@@ -222,6 +242,9 @@ class Sidecar:
         """
         backlog = await outbox_backlog(session, now=now)
         reasons = await rejected_breakdown(session)
+        non_converging = await nonconverging_count(
+            session, threshold=self._nonconvergence_threshold
+        )
         stats = self._last_drain_stats
         logger.info(
             "sidecar_cycle_summary",
@@ -240,11 +263,18 @@ class Sidecar:
                 # Deltas PM withheld on a natural-key auto-attach (usa-wa#111/power-map#311b);
                 # should stay 0 now anchored rows are id-addressed, a rise is the signal.
                 "unapplied": stats.unapplied,
+                # Rows PM keeps auto-attach-matching without applying our diff (usa-wa#112):
+                # the standing count at/over the threshold — an identical payload re-sent
+                # every reconcile cycle. Alerts on a rise, like the REJECTED pile.
+                "non_converging": non_converging,
             },
         )
         if backlog.rejected > self._last_rejected_count:
             await self._send_rejected_alert(backlog.rejected, reasons)
         self._last_rejected_count = backlog.rejected
+        if non_converging > self._last_nonconverging_count:
+            await self._send_nonconverging_alert(non_converging)
+        self._last_nonconverging_count = non_converging
 
     async def _send_rejected_alert(self, rejected: int, reasons: dict[str, int]) -> None:
         """Email the operator about a REJECTED-count rise; swallow send failures."""
@@ -266,6 +296,43 @@ class Sidecar:
             await self._alert(subject, body)
         except Exception:
             logger.exception("sidecar_rejected_alert_failed", extra={"rejected": rejected})
+
+    async def _send_nonconverging_alert(self, non_converging: int) -> None:
+        """Email the operator about a rise in non-converging rows; swallow send failures.
+
+        A non-converging row (usa-wa#112) is one PM keeps ``auto-attached``-matching without
+        applying our diff — an identical observation re-sent every reconcile cycle forever.
+        The #110 audit found three such cohorts, each unnoticed for days until a manual
+        outbox scan. This surfaces a fourth on arrival. Detection-only: the row keeps
+        delivering (no park), so the fix is to investigate the diff PM refuses (a classifier
+        drift, a merged-state conflict) — the ``observation_not_converging`` WARNING names
+        each offending row.
+        """
+        if self._alert is None:
+            logger.warning(
+                "sidecar_nonconverging_rise_unalerted", extra={"non_converging": non_converging}
+            )
+            return
+        subject = (
+            f"[usa-wa] sidecar non-converging rows: {non_converging}"
+            f" (rose from {self._last_nonconverging_count})"
+        )
+        body = (
+            f"The PM sync has {non_converging} row(s) PM keeps auto-attach-matching\n"
+            f"without applying our diff — an identical observation re-sent every reconcile\n"
+            f"cycle (threshold {self._nonconvergence_threshold} consecutive re-sends). Each\n"
+            f"is a silent producer→PM non-convergence.\n\n"
+            f"Grep the journal for `observation_not_converging` (logged once per row when it\n"
+            f"is first flagged) and `observation_still_not_converging` (the throttled INFO\n"
+            f"repeat every drain thereafter) to see which rows + what field PM refuses.\n"
+            f"No repeat email while the count is static.\n"
+        )
+        try:
+            await self._alert(subject, body)
+        except Exception:
+            logger.exception(
+                "sidecar_nonconverging_alert_failed", extra={"non_converging": non_converging}
+            )
 
     async def _run_reconciles(self, now: datetime) -> bool:
         """Run each due descriptor's reconcile in its own session + error boundary.

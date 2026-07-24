@@ -998,6 +998,95 @@ async def test_cycle_summary_surfaces_drain_dispositions_and_reanchors(db_sessio
     assert record.unapplied == 0
 
 
+async def _add_nonconverging(session, *, count: int) -> None:
+    from clearinghouse_sync_powermap.models import NonConvergenceState
+
+    session.add(
+        NonConvergenceState(entity_type="role", local_id=ULID(), payload_hash="h" * 64, count=count)
+    )
+    await session.flush()
+
+
+async def test_cycle_summary_surfaces_nonconverging_count(db_session, caplog):
+    """usa-wa#112: rows PM keeps auto-attach-matching without applying the diff are
+    surfaced as a standing count so the churn is operator-visible, not audit-only."""
+    await _add_nonconverging(db_session, count=3)  # at threshold → counted
+    await _add_nonconverging(db_session, count=5)  # over threshold → counted
+    await _add_nonconverging(db_session, count=1)  # below → not counted
+    sidecar = _summary_sidecar()
+
+    with caplog.at_level("INFO"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    record = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
+    assert record.non_converging == 2
+
+
+async def test_nonconverging_rise_alerts_once_and_rearms(db_session):
+    """A rise in the non-converging standing count emails once; a static set does not
+    re-spam; a further rise alerts again (the #85 rejection-rise pattern, reused)."""
+    alerts: list[tuple[str, str]] = []
+    sidecar = _summary_sidecar(alerts)
+
+    await _add_nonconverging(db_session, count=3)
+    await sidecar.report_cycle_summary(db_session, now=NOW)  # 0 → 1: alert
+    await sidecar.report_cycle_summary(db_session, now=NOW)  # static: no repeat
+    assert len(alerts) == 1
+    assert "converg" in alerts[0][0].lower()
+
+    await _add_nonconverging(db_session, count=4)
+    await sidecar.report_cycle_summary(db_session, now=NOW)  # 1 → 2: alert again
+    assert len(alerts) == 2
+
+
+async def test_nonconverging_alert_body_names_both_log_events(db_session):
+    """CR-10: the WARNING is throttled to once per row per process, so a standing pile is
+    mostly INFO repeats — the body must point at BOTH event names or it under-describes
+    where the evidence actually lives."""
+    alerts: list[tuple[str, str]] = []
+    sidecar = _summary_sidecar(alerts)
+    await _add_nonconverging(db_session, count=3)
+
+    await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    body = alerts[0][1]
+    assert "observation_not_converging" in body
+    assert "observation_still_not_converging" in body
+
+
+def test_sidecar_threshold_below_one_is_rejected():
+    """CR-11: mirror the engine's CR-1 guard — a bare Sidecar built with a 0/negative
+    threshold would otherwise get the inverted standing query (every reset row counted)."""
+    for bad in (0, -1):
+        with pytest.raises(ValueError, match="nonconvergence_threshold"):
+            Sidecar(
+                engine=None,
+                descriptors=[],
+                session_factory=lambda: None,
+                nonconvergence_threshold=bad,
+            )
+
+
+async def test_summary_alert_send_failures_are_swallowed(db_session, caplog):
+    """CR-8: both rise-alert senders swallow a failing ``alert`` callable — the summary is
+    observability, and a dead email gateway must never crash the cycle it is reporting on.
+    The failure is still logged so a dropped alert is not silent."""
+
+    async def _boom(subject: str, body: str) -> None:
+        raise RuntimeError("gateway down")
+
+    sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: None, alert=_boom)
+    await _add_rejected(db_session, reason="identifier_conflict")
+    await _add_nonconverging(db_session, count=3)
+
+    with caplog.at_level("ERROR"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)  # must NOT raise
+
+    logged = {r.message for r in caplog.records}
+    assert "sidecar_rejected_alert_failed" in logged
+    assert "sidecar_nonconverging_alert_failed" in logged
+
+
 async def test_rejected_alert_skipped_when_no_alert_wired(db_session, caplog):
     """No alert callable → the rise is still logged (never crashes)."""
     sidecar = _summary_sidecar(alerts=None)

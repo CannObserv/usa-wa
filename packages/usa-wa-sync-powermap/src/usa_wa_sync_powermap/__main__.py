@@ -29,7 +29,9 @@ async def _amain() -> None:
 
     descriptors = build_descriptors(settings)
     client = build_pm_client(settings)
-    engine = SyncEngine(descriptors, client)
+    engine = SyncEngine(
+        descriptors, client, nonconvergence_threshold=settings.nonconvergence_threshold
+    )
     reconciler = build_reconciler(client, engine, settings)
     # Failure-streak alerting (#85): fail-closed like notify-failure.sh — no
     # recipient disables the email path, loudly, rather than silently dropping it.
@@ -50,6 +52,7 @@ async def _amain() -> None:
         catalog_sync=lambda session: sync_role_type_catalog(session, client),
         alert=alert,
         failure_alert_threshold=settings.failure_alert_threshold,
+        nonconvergence_threshold=settings.nonconvergence_threshold,
     )
     try:
         await sidecar.run_forever()

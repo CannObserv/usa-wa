@@ -160,6 +160,55 @@ class EnrichFingerprint(Base, TimestampMixin):
     payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
+class NonConvergenceState(Base, TimestampMixin):
+    """Per-row consecutive-identical-``auto-attached`` re-send counter (usa-wa#112).
+
+    The generic non-convergence backstop. An anchored row whose reconcile
+    re-observation PM keeps ``auto-attached`` *without applying our diff* (the #110
+    role-classifier churn, power-map#311b before #111) re-sends an identical
+    observation every reconcile cycle forever — the per-cohort no-op gates
+    (#102/#104/#109) only catch pure clock skew (byte-identical payload → adopt PM's
+    clock), not a genuine local↔PM diff PM refuses. Each reconcile mints a *fresh*
+    ``DELIVERED`` :class:`OutboxEntry`, so the counter cannot live on the entry; it is
+    keyed on ``(entity_type, local_id)`` here (twin of :class:`EnrichFingerprint`).
+
+    :meth:`SyncEngine._track_convergence` bumps ``count`` on a *stable re-observe* — an
+    ``auto-attached`` delivery whose ``pm_id`` equals the anchor the row already carried
+    and whose payload hash matches the last one — and resets it on a genuine change (a
+    first attach, a re-anchor #108, a ``new`` disposition, or a changed ``payload_hash``,
+    the re-arm). Past the configured threshold the row is surfaced in the cycle summary
+    and alerts on a rise (#85 reuse). Local-only observability state, never sent to PM.
+
+    Rows are written on the first stable re-observe and never pruned, so a row that pushed
+    one legitimate update keeps a permanent ``count = 0`` entry (#112 CR-6). **Table size is
+    therefore not a proxy for churn volume** — it is bounded by the produced-cohort size (the
+    unique constraint caps it at one row per local row); only ``count >= threshold`` counts
+    as a problem, which is what :func:`~clearinghouse_sync_powermap.engine.nonconverging_count`
+    reads.
+    """
+
+    __tablename__ = "powermap_nonconvergence_state"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "local_id", name="uq_powermap_nonconvergence_state_row"),
+        # Kept deliberately for future growth, not for today's plan (#112 CR-5): the unique
+        # constraint bounds this table to the produced-cohort size (single-digit thousands),
+        # where a seq scan already serves the once-per-cycle ``count >= threshold`` read. The
+        # index costs a write on every accrual/reset — a mild net-negative accepted so the
+        # standing query stays flat if the cohort grows an order of magnitude.
+        Index("ix_powermap_nonconvergence_state_count", "count"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    local_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False)
+    #: Hash of the last delivered observation payload. Nullable so a reset (row
+    #: converged) can zero the counter without carrying a stale hash forward.
+    payload_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Consecutive identical stable re-observes; 0 once the row converges.
+    count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
 class AnchorReanchor(Base, TimestampMixin):
     """An append-only record of one in-place PM-anchor overwrite (usa-wa#108).
 

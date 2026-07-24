@@ -63,6 +63,11 @@ class SidecarSettings(BaseSettings):
     #: exponential backoff schedule (60s base, doubling, 1h cap), 5 ≈ ~30 min of
     #: continuous failure before the email.
     failure_alert_threshold: int = 5
+    #: Non-convergence backstop (usa-wa#112): consecutive identical ``auto-attached``
+    #: re-sends of an already-anchored row before it is flagged as non-converging (PM
+    #: keeps matching without applying our diff). Re-enqueue is reconcile-gated (12h), so
+    #: 3 ≈ ~1.5 days of proven-futile churn before an operator-visible flag + rise email.
+    nonconvergence_threshold: int = 3
     #: Recipient for the failure-streak alert (#85) — the same ``USA_WA_ALERT_EMAIL``
     #: the #49 oneshot handler reads (`/etc/usa-wa/.env`). Unset = alerting disabled;
     #: the daemon warns loudly at startup (fail-closed, like notify-failure.sh).
