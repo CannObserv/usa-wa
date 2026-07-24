@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import httpx
@@ -43,9 +44,12 @@ class _FakeResultsClient:
         )
 
 
-def test_general_election_years_are_even_and_inclusive():
-    assert general_election_years(2008, 2016) == [2008, 2010, 2012, 2014, 2016]
-    assert general_election_years(2009, 2016) == [2010, 2012, 2014, 2016]
+def test_general_election_years_include_odd_years():
+    """WA holds a general election EVERY November (#106): an odd-year general seats legislators
+    via specials (Hunt won the LD5 Senate seat in Nov 2025), so an even-only sweep never archives
+    their ballot evidence."""
+    assert general_election_years(2008, 2013) == [2008, 2009, 2010, 2011, 2012, 2013]
+    assert general_election_years(2009, 2011) == [2009, 2010, 2011]
 
 
 async def test_harvest_archives_each_year(db_session, usa_wa):
@@ -67,7 +71,7 @@ async def test_harvest_is_per_year_resilient(db_session, usa_wa):
     summary = await harvest_results(db_session, years=[2012, 2020, 2024], results_client=client)
 
     assert client.calls == [2012, 2020, 2024]  # all attempted
-    assert summary.cohorts_archived == 2 and summary.cohorts_skipped == 1
+    assert summary.cohorts_archived == 2 and summary.cohorts_absent == 1
     rids = {r for (r,) in (await db_session.execute(select(FetchEvent.resource_id))).all()}
     # 2012 + 2024 persisted; 2020 rolled back to its savepoint (no event), not the whole sweep.
     assert rids == {"sos-legresults:20121106", "sos-legresults:20241105"}
@@ -106,6 +110,43 @@ async def test_harvest_warns_distinctly_on_total_outage(db_session, usa_wa, capl
     assert "results_harvest_total_outage" not in [r.message for r in caplog.records]
 
 
+async def test_absent_legislative_csv_is_not_an_outage(db_session, usa_wa, caplog):
+    """A year whose general was held but ran no legislative race (2021 + 2023 — no specials) has
+    no Legislative CSV in its export index. That is an **expected** outcome once the sweep covers
+    odd years (#106), not a source failure: it is tallied separately and must not fire the
+    whole-source outage warning even when every reached year is such a year."""
+    client = _FakeResultsClient(fail_years=[2021, 2023])
+    with caplog.at_level(logging.WARNING):
+        summary = await harvest_results(db_session, years=[2021, 2023], results_client=client)
+
+    assert summary.cohorts_archived == 0
+    assert summary.cohorts_absent == 2 and summary.cohorts_skipped == 0
+    assert "results_harvest_total_outage" not in [r.message for r in caplog.records]
+
+
+async def test_main_defaults_through_the_current_calendar_year(monkeypatch, capsys, test_engine):
+    """The default ``--to-year`` must be the current calendar year, not the biennium's *seating*
+    election year: in 2025-26 the latter is 2024, so the odd-year sweep would stop before the very
+    cohort #106 exists to archive."""
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    captured: dict[str, list[int]] = {}
+
+    async def _fake_harvest(session, *, years, **_kwargs):
+        captured["years"] = years
+        return HarvestSummary(
+            years=len(years), cohorts_archived=0, cohorts_absent=0, cohorts_skipped=0, dry_run=True
+        )
+
+    with (
+        patch.object(harvest_module, "configure_logging"),
+        patch.object(harvest_module, "harvest_results", _fake_harvest),
+    ):
+        code = await harvest_module._main(["--from-year", "2024", "--dry-run"])
+
+    assert code == 0
+    assert captured["years"][-1] == datetime.now(UTC).year
+
+
 async def test_main_requires_database_url(monkeypatch, capsys):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     with patch.object(harvest_module, "configure_logging"):
@@ -116,7 +157,9 @@ async def test_main_requires_database_url(monkeypatch, capsys):
 
 async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
-    fake = HarvestSummary(years=2, cohorts_archived=2, cohorts_skipped=0, dry_run=True)
+    fake = HarvestSummary(
+        years=2, cohorts_archived=2, cohorts_absent=0, cohorts_skipped=0, dry_run=True
+    )
 
     async def _fake_harvest(session, **_kwargs):
         return fake

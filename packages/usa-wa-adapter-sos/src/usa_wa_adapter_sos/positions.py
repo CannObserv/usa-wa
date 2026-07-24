@@ -1,11 +1,12 @@
-"""Shared House-position interface for the WA SOS sources (source-agnostic).
+"""Shared ballot interfaces for the WA SOS sources (source-agnostic).
 
-The ``house/`` application consumes this; each SOS **source** produces it. A :class:`HousePosition`
-row (ballot ``qualifier`` + folded ballot-name keys + party slug) and the within-LD
-:func:`position_for` lookup that resolves a WSL member's clean folded surname + party to their
-ballot Position. A source's ``normalize`` turns its own wire into ``{LD: [HousePosition]}``; the
-projector consumes that map without knowing which source produced it. Also the shared
-``(Prefers X Party)`` party canonicaliser both sources' CSVs carry.
+The ``house/`` application consumes these; each SOS **source** produces them. A
+:class:`HousePosition` row (ballot ``qualifier`` + folded ballot-name keys + party slug) and the
+within-LD :func:`position_for` lookup that resolves a WSL member's clean folded surname + party to
+their ballot Position. A source's ``normalize`` turns its own wire into ``{LD: [HousePosition]}``;
+the projector consumes that map without knowing which source produced it. Also the shared
+``(Prefers X Party)`` party canonicaliser both sources' CSVs carry, and :class:`SenateWinner` —
+the Senate half of a legislative-results wire (#106 A′), attestation rather than structure.
 """
 
 from __future__ import annotations
@@ -45,6 +46,24 @@ class HousePosition:
     qualifier: str
     name_keys: frozenset[str]
     party_slug: str | None
+
+
+@dataclass(frozen=True)
+class SenateWinner:
+    """The winning Senate candidacy of one LD in one general election (#106 A′).
+
+    The Senate seat carries no ballot ``qualifier`` (one seat per LD, ``Role.qualifier`` NULL), so
+    unlike :class:`HousePosition` this supplies no *structural* fact — it is **attestation**: the
+    ballot evidence that a sitting senator was elected (an odd-year special winner such as Hunt,
+    LD5, Nov 2025), and the independent signal that a senator seated by an operator succession
+    event is corroborated upstream. Consumed by Phase B; produced by any SOS source whose wire
+    names Senate contests."""
+
+    ld: int
+    ballot_name: str
+    name_keys: frozenset[str]
+    party_slug: str | None
+    votes: int | None
 
 
 def position_for(

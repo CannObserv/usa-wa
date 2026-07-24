@@ -13,6 +13,7 @@ import pytest
 from usa_wa_adapter_pdc.adapter import (
     PDCAdapter,
     election_year_for_biennium,
+    election_years_for_biennium,
     seating_biennium_for_election_year,
     senate_election_years_for_biennium,
 )
@@ -53,6 +54,17 @@ def test_seating_biennium_for_election_year_is_inverse() -> None:
 
 def test_senate_election_years_for_biennium() -> None:
     assert senate_election_years_for_biennium("2025-26") == (2024, 2022)
+
+
+def test_election_years_for_biennium_spans_the_seating_and_special_generals() -> None:
+    """Every general-election year a biennium's membership can be decided by (#106): the even
+    ``start-1`` that seated it, plus the odd ``start`` whose November general fills mid-biennium
+    vacancies by special (Hunt, LD5 Senate, Nov 2025). November of ``start+1`` is *excluded* — it
+    seats the NEXT biennium, not this one."""
+    assert election_years_for_biennium("2025-26") == [2024, 2025]
+    assert election_years_for_biennium("2013-14") == [2012, 2013]
+    # the seating year always leads, so a consumer archiving in order writes the even cohort first
+    assert election_years_for_biennium("2025-26")[0] == election_year_for_biennium("2025-26")
 
 
 def test_adapter_class_vars() -> None:

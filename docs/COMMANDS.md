@@ -172,9 +172,13 @@ python -m usa_wa_adapter_pdc.migrate_pdc_spans
 # Coverage: Position 2008->present (the results floor); pre-2008 stays honestly position-less.
 
 # Phase A — archive the results.vote.wa.gov legislative cohorts (archive-only; CSV wire hashed #54,
-# discovered via each election's export.html). Even general-election years from the floor (2008) to
-# current; closed years cache-hit on re-run; pacing via --pause-seconds. PER-YEAR RESILIENT: a year
-# the source 404s/500s or has no Legislative CSV is skipped-and-logged and the reached years commit.
+# discovered via each election's export.html). EVERY general-election year from the floor (2008) to
+# current (#106: odd years too — a WA general runs each November and an odd-year special seats
+# legislators, e.g. Hunt LD5 Senate Nov 2025; default --to-year = current calendar year); closed
+# years cache-hit on re-run; pacing via --pause-seconds. PER-YEAR RESILIENT: an HTTP 404/500 year is
+# `skipped` (only this raises the whole-source outage warning), a no-legislative-race year with no
+# CSV (2021/2023) is the expected `no_legislative_race`, each rolled back to its SAVEPOINT while the
+# reached years commit.
 python -m usa_wa_adapter_sos.results.harvest --dry-run
 python -m usa_wa_adapter_sos.results.harvest --from-year 2008 --pause-seconds 1.0
 
