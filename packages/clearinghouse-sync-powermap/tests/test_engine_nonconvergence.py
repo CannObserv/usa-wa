@@ -12,6 +12,7 @@ genuine new local edit — resets the counter and re-arms.
 
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy import select
 from ulid import ULID
 
@@ -153,6 +154,42 @@ async def test_first_attach_does_not_accrue(db_session, fake_descriptor):
     assert row.pm_fake_id == pm_id
     assert await _state(db_session, row) is None
     assert engine.last_drain_stats.non_converging == 0
+
+
+async def test_threshold_below_one_is_rejected(fake_descriptor):
+    """CR-1: a ``0``/negative threshold would flag on the first stable re-observe AND make
+    ``nonconverging_count``'s ``count >= threshold`` match every *reset* (count 0) row —
+    turning the rise-alert into a per-cycle flood naming converged rows. Validated at
+    construction like the sibling ``sweep_batch_size`` knob."""
+    for bad in (0, -1):
+        with pytest.raises(ValueError, match="nonconvergence_threshold"):
+            SyncEngine([fake_descriptor], FakeClient(), nonconvergence_threshold=bad)
+
+
+async def test_flag_warning_is_throttled_per_row(db_session, fake_descriptor, caplog):
+    """CR-3: a flagged row re-flags on every drain, so the WARNING is emitted once per row
+    per process (the ``_warned_stuck``/``_warned_dead_anchors`` convention) — one actionable
+    signal, not 305 lines a drain for a #110-sized cohort. The per-drain stat still counts
+    every occurrence (it is a volume tally), and the standing count stays visible."""
+    pm_id = ULID()
+    row = await _anchored_entity(db_session, anchor=pm_id)
+    client = FakeClient(observation_result=ObservationResult(DISPOSITION_AUTO_ATTACHED, pm_id, {}))
+    engine = SyncEngine([fake_descriptor], client, nonconvergence_threshold=3)
+
+    with caplog.at_level("INFO"):
+        for _ in range(4):  # drains 3 and 4 both flag; only the first WARNs
+            await _enqueue_update(db_session, row)
+            await engine.drain_outbox(db_session, now=NOW)
+
+    warnings = [r for r in caplog.records if r.message == "observation_not_converging"]
+    assert len(warnings) == 1
+    assert warnings[0].levelname == "WARNING"
+    # The 4th drain still flagged — throttled to INFO, not dropped.
+    repeats = [r for r in caplog.records if r.message == "observation_still_not_converging"]
+    assert len(repeats) == 1
+    assert repeats[0].levelname == "INFO"
+    assert engine.last_drain_stats.non_converging == 1  # per-drain tally unaffected
+    assert (await _state(db_session, row)).count == 4
 
 
 async def test_new_disposition_does_not_accrue(db_session, fake_descriptor):

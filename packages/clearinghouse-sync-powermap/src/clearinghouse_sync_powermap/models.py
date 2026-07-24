@@ -178,11 +178,23 @@ class NonConvergenceState(Base, TimestampMixin):
     first attach, a re-anchor #108, a ``new`` disposition, or a changed ``payload_hash``,
     the re-arm). Past the configured threshold the row is surfaced in the cycle summary
     and alerts on a rise (#85 reuse). Local-only observability state, never sent to PM.
+
+    Rows are written on the first stable re-observe and never pruned, so a row that pushed
+    one legitimate update keeps a permanent ``count = 0`` entry (#112 CR-6). **Table size is
+    therefore not a proxy for churn volume** — it is bounded by the produced-cohort size (the
+    unique constraint caps it at one row per local row); only ``count >= threshold`` counts
+    as a problem, which is what :func:`~clearinghouse_sync_powermap.engine.nonconverging_count`
+    reads.
     """
 
     __tablename__ = "powermap_nonconvergence_state"
     __table_args__ = (
         UniqueConstraint("entity_type", "local_id", name="uq_powermap_nonconvergence_state_row"),
+        # Kept deliberately for future growth, not for today's plan (#112 CR-5): the unique
+        # constraint bounds this table to the produced-cohort size (single-digit thousands),
+        # where a seq scan already serves the once-per-cycle ``count >= threshold`` read. The
+        # index costs a write on every accrual/reset — a mild net-negative accepted so the
+        # standing query stays flat if the cohort grows an order of magnitude.
         Index("ix_powermap_nonconvergence_state_count", "count"),
         {"schema": SCHEMA},
     )

@@ -1039,6 +1039,26 @@ async def test_nonconverging_rise_alerts_once_and_rearms(db_session):
     assert len(alerts) == 2
 
 
+async def test_summary_alert_send_failures_are_swallowed(db_session, caplog):
+    """CR-8: both rise-alert senders swallow a failing ``alert`` callable — the summary is
+    observability, and a dead email gateway must never crash the cycle it is reporting on.
+    The failure is still logged so a dropped alert is not silent."""
+
+    async def _boom(subject: str, body: str) -> None:
+        raise RuntimeError("gateway down")
+
+    sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: None, alert=_boom)
+    await _add_rejected(db_session, reason="identifier_conflict")
+    await _add_nonconverging(db_session, count=3)
+
+    with caplog.at_level("ERROR"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)  # must NOT raise
+
+    logged = {r.message for r in caplog.records}
+    assert "sidecar_rejected_alert_failed" in logged
+    assert "sidecar_nonconverging_alert_failed" in logged
+
+
 async def test_rejected_alert_skipped_when_no_alert_wired(db_session, caplog):
     """No alert callable → the rise is still logged (never crashes)."""
     sidecar = _summary_sidecar(alerts=None)

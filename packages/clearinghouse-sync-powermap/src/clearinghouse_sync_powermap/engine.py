@@ -299,6 +299,12 @@ class SyncEngine:
     ) -> None:
         if sweep_batch_size < 1:
             raise ValueError("sweep_batch_size must be >= 1")
+        if nonconvergence_threshold < 1:
+            # A 0/negative threshold flags on the first stable re-observe AND makes
+            # ``nonconverging_count``'s ``count >= threshold`` match every *reset* (count 0)
+            # row — inverting the standing query into "the whole cohort" and turning the
+            # rise-alert into a per-cycle flood naming converged rows (#112 CR-1).
+            raise ValueError("nonconvergence_threshold must be >= 1")
         self._by_type = {d.entity_type: d for d in descriptors}
         #: Drain priority per entity type = its index in the (dependency-first)
         #: descriptor registry order. Lower drains first, so a dependency **root**
@@ -326,6 +332,13 @@ class SyncEngine:
         #: warns once per wedged row rather than every reconcile cycle (#36). Same
         #: throttle shape as ``_warned_stuck``; a restart re-warns once (acceptable).
         self._warned_dead_anchors: set = set()
+        #: Local row ids already surfaced as non-converging this process (#112 CR-3). A
+        #: flagged row re-flags on EVERY drain (the churn is by definition repeating), so
+        #: without this the #110-sized cohort (305 rows) would emit 305 WARNINGs per drain
+        #: and bury the signal. Same throttle shape as ``_warned_stuck``: WARNING once per
+        #: row, INFO thereafter; a restart re-warns once (acceptable). The per-drain
+        #: ``DrainStats.non_converging`` tally and the standing count stay unthrottled.
+        self._warned_nonconverging: set = set()
         #: Per-drain observability tallies (usa-wa#108), reset at each drain start and
         #: read by the sidecar's cycle summary. Defaults so a caller that reads it before
         #: any drain gets an empty, safe value.
@@ -966,13 +979,24 @@ class SyncEngine:
         standing count (:class:`~clearinghouse_sync_powermap.models.NonConvergenceState`).
 
         Accrues ONLY on a *stable re-observe*: disposition ``auto-attached`` **and** the row
-        was already anchored to this same id (``old_anchor == result.pm_id``). A first attach
-        (``old_anchor is None``) is not a re-send; a re-anchor (``old != pm_id``) is a #108
-        genuine change; a ``new`` disposition mints a record — all three converge the row and
-        reset. A **changed** ``payload_hash`` also resets to 1 (the re-arm — a real new local
-        edit still propagates; only the provably-futile identical re-send is caught). ENRICH
-        cannot reach a stable churn (``EnrichFingerprint`` bars an unchanged re-enqueue), so
-        only ``OP_UPDATE`` re-observes climb.
+        was already anchored to this same id (``old_anchor == result.pm_id``). A re-anchor
+        (``old != pm_id``) is a #108 genuine change and a ``new`` disposition mints a record —
+        both converge the row and reset it. A **changed** ``payload_hash`` also resets to 1
+        (the re-arm — a real new local edit still propagates; only the provably-futile
+        identical re-send is caught).
+
+        A first attach (``old_anchor is None``) returns **before** the state query (#112
+        CR-2): it can neither accrue (it is not a re-send) nor have prior state to reset (a
+        state row is only ever written for an anchored row), and the bulk-produce CREATE path
+        delivers thousands of such rows — paying a SELECT + an extra autoflush on each would
+        regress a path deliberately tuned by #92/#93/#96.
+
+        Both ``OP_UPDATE`` and ``OP_ENRICH`` can climb. An enrich re-enqueues whenever
+        :meth:`_maybe_enqueue_enrich` sees ``identifier_missing`` — that trigger is *not*
+        fingerprint-gated, so a row whose identifier PM persistently fails to adopt re-sends
+        an identical enrich payload every reconcile and is flagged. That is intended coverage,
+        not a false positive: it is a genuine non-convergence. A *drift*-triggered enrich
+        cannot climb, since a changed payload resets the counter by construction.
 
         Detection-only (usa-wa#112 Phase A): the row keeps delivering, so no ``UNAVAILABLE``
         park and no false-park risk — the re-POST cost is already bounded by the PM
@@ -981,10 +1005,12 @@ class SyncEngine:
         Phase B, warranted only if the standing count ever shows a cohort large enough for
         the governed cost to matter.
         """
+        if old_anchor is None:
+            # First attach — nothing to accrue, and no state row can exist yet. Return before
+            # the query so the bulk-produce CREATE path pays neither a SELECT nor an autoflush.
+            return
         stable_reobserve = (
-            result.disposition == DISPOSITION_AUTO_ATTACHED
-            and old_anchor is not None
-            and old_anchor == result.pm_id
+            result.disposition == DISPOSITION_AUTO_ATTACHED and old_anchor == result.pm_id
         )
         state = await session.scalar(
             select(NonConvergenceState).where(
@@ -1014,20 +1040,27 @@ class SyncEngine:
             # Changed payload = a genuine new local edit (the re-arm): reset + re-baseline.
             state.payload_hash = fingerprint
             state.count = 1
-        if state.count >= self._nonconvergence_threshold:
-            self._last_drain_stats.non_converging += 1
-            logger.warning(
-                "observation_not_converging",
-                extra={
-                    "entity_type": descriptor.entity_type,
-                    "local_id": str(row.id),
-                    "source_id": getattr(row, "source_id", None),
-                    "pm_id": str(result.pm_id),
-                    "consecutive": state.count,
-                    "op": entry.op,
-                    "disposition": result.disposition,
-                },
-            )
+        if state.count < self._nonconvergence_threshold:
+            return
+        self._last_drain_stats.non_converging += 1
+        extra = {
+            "entity_type": descriptor.entity_type,
+            "local_id": str(row.id),
+            "source_id": getattr(row, "source_id", None),
+            "pm_id": str(result.pm_id),
+            "consecutive": state.count,
+            "op": entry.op,
+            "disposition": result.disposition,
+        }
+        # Throttled per row per process (#112 CR-3): the churn repeats by definition, so a
+        # flagged row would otherwise WARN on every drain — 305 lines a drain for a
+        # #110-sized cohort. One actionable WARNING, then INFO. The rise-alert and the
+        # standing count (both unthrottled) remain the always-visible operator surface.
+        if row.id in self._warned_nonconverging:
+            logger.info("observation_still_not_converging", extra=extra)
+            return
+        self._warned_nonconverging.add(row.id)
+        logger.warning("observation_not_converging", extra=extra)
 
     async def _anchor_taken(
         self,
