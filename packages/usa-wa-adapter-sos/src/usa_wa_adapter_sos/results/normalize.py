@@ -67,7 +67,12 @@ def parse_house_race(race: str) -> tuple[int, str] | None:
 def parse_senate_race(race: str) -> int | None:
     """The ``LD`` of a ``State Senator`` contest, else ``None`` — the mirror of
     :func:`parse_house_race` (a House contest, a non-legislative office, or a blank returns
-    ``None``). The Senate seat has no ballot position, so this yields the LD alone."""
+    ``None``). The Senate seat has no ballot position, so this yields the LD alone.
+
+    NOTE (#123): keys on the ``"senator"`` substring, consistent with ``parse_house_race``'s Senate
+    exclusion but **not** audited across the odd-year cohorts the way the House labels were (#101).
+    Audit Senate labels 2009→2019 before Phase B relies on this — a variant like ``"State Senate"``
+    would silently drop the seat (the ARCHITECTURE.md exact-string anti-pattern)."""
     lowered = race.lower()
     if "senator" not in lowered or "representative" in lowered:
         return None  # House / statewide / judicial / other office
@@ -79,10 +84,11 @@ def build_senate_winners(rows: list[dict[str, Any]]) -> dict[int, SenateWinner]:
     """Group a legislative-results cohort's **Senate** rows by LD → the winning candidacy (#106).
 
     The wire lists every candidacy, not just the winner (as it does for the House), so the winner
-    is the top-``Votes`` non-write-in row of each LD. An LD whose winner is ambiguous — a vote tie,
-    or unparseable/absent counts on more than one candidacy — is **omitted** rather than guessed
-    (the :func:`position_for` discipline); a single uncontested candidacy is unambiguous with no
-    vote counts at all. ``WRITE-IN`` rows, House / other offices, and blank-name rows are skipped.
+    is the top-``Votes`` non-write-in row of each LD. An LD whose winner is ambiguous is **omitted**
+    rather than guessed (the :func:`position_for` discipline): a **tie** on the top count, or — for
+    a *contested* LD — a missing/unparseable count on **any** candidacy (a blank could be the real
+    top, so no ranking is trustworthy). A single **uncontested** candidacy is unambiguous with no
+    vote count at all. ``WRITE-IN`` rows, House / other offices, and blank-name rows are skipped.
 
     Unlike the House map this carries no structural fact (the Senate seat is unqualified) — it is
     attestation the Phase B consumer uses to cite an elected senator and corroborate a succession
@@ -110,15 +116,17 @@ def build_senate_winners(rows: list[dict[str, Any]]) -> dict[int, SenateWinner]:
 
     winners: dict[int, SenateWinner] = {}
     for ld, candidacies in by_ld.items():
-        if len(candidacies) == 1:
-            winners[ld] = candidacies[0][0]  # uncontested — unambiguous without vote counts
+        entries = [winner for winner, _ in candidacies]
+        if len(entries) == 1:
+            winners[ld] = entries[0]  # uncontested — unambiguous without a vote count
             continue
-        # Contested: the winner needs a vote count, and a tie on the top count is unresolvable.
-        counted = [w for w, has_votes in candidacies if has_votes]
-        if not counted:
+        # Contested: rank only if EVERY candidacy carries a parseable count — a missing count on any
+        # row makes the ranking untrustworthy (the blank could be the real top), so omit rather than
+        # risk naming a losing candidacy. A tie on the top count is likewise unresolvable.
+        if not all(has_votes for _, has_votes in candidacies):
             continue
-        top = max(w.votes for w in counted)
-        leaders = [w for w in counted if w.votes == top]
+        top = max(winner.votes for winner in entries)
+        leaders = [winner for winner in entries if winner.votes == top]
         if len(leaders) == 1:
             winners[ld] = leaders[0]
     return winners

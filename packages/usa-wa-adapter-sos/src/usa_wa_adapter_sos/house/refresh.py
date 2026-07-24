@@ -100,15 +100,20 @@ async def run_refresh(
     #    freshness TTL for daily determinism (the dedup guard still bounds RawPayload growth on a
     #    byte-identical re-pull).
     archived = 0
+    seating_year = election_years[0]  # the even seating cohort — see election_years_for_biennium
     for year in election_years:
         try:
             async with session.begin_nested():
                 if await runner.archive_only(legresults_resource_id(year), force=True):
                     archived += 1
         except (httpx.HTTPError, LegislativeExportNotFound) as exc:
-            logger.warning(
-                "sos_refresh_cohort_year_skipped", extra={"year": year, "error": str(exc)}
-            )
+            # Mirror the harvest's INFO/WARNING split (#106 A3), so a routine miss isn't a daily
+            # alert (this project alerts on WARNING rises, #85). The odd special cohort is EXPECTED
+            # absent for most of the biennium — it 404s from January until that November's election
+            # is certified, and a race-less year carries no CSV — so its miss is INFO. Only the even
+            # SEATING cohort (a past election that should serve) failing is a genuine WARNING.
+            level = logger.warning if year == seating_year else logger.info
+            level("sos_refresh_cohort_year_skipped", extra={"year": year, "error": str(exc)})
 
     # 2. Re-drive the House-Position span builder scoped to the current biennium (each scoped
     #    member keeps their full cross-biennium span history; the current biennium is the open end).

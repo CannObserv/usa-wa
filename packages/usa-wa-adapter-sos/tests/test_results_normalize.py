@@ -146,6 +146,14 @@ def test_build_senate_winners_declines_an_unresolvable_race() -> None:
     ]
     assert build_senate_winners(unparseable) == {}
 
+    # Mixed: a contested LD where only one row's count parses is untrustworthy — the blank could be
+    # the real top — so it is omitted, not resolved to the single counted (possibly losing) row.
+    mixed = [
+        _row("LEGISLATIVE DISTRICT 10 - State Senator", "Counted", votes="500"),
+        _row("LEGISLATIVE DISTRICT 10 - State Senator", "Blank", votes=""),
+    ]
+    assert build_senate_winners(mixed) == {}
+
     sole = [_row("LEGISLATIVE DISTRICT 9 - State Senator", "Sole Candidate", votes="")]
     assert build_senate_winners(sole)[9].ballot_name == "Sole Candidate"
 

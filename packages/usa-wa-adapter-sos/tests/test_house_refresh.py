@@ -207,12 +207,15 @@ async def test_refresh_archives_the_odd_year_special_cohort(db_session, usa_wa, 
 @pytest.mark.parametrize(
     "kwargs", [{"fail_years": [2025]}, {"absent_years": [2025]}], ids=["http_error", "no_csv"]
 )
-async def test_refresh_survives_an_unserved_odd_year_cohort(db_session, usa_wa, wsl_source, kwargs):
+async def test_refresh_survives_an_unserved_odd_year_cohort(
+    db_session, usa_wa, wsl_source, kwargs, caplog
+):
     """An odd-year cohort 404s from January until the November election is certified, and a year
     with no legislative special never carries a Legislative CSV at all. Either would fail the
     daily unit (and page the operator via ``OnFailure=``) if it escaped — each cohort archives in
     its own SAVEPOINT and is skipped-and-logged, so the seating cohort and the span re-drive still
-    complete."""
+    complete. The odd cohort's miss is EXPECTED for most of the biennium, so it logs at **INFO**,
+    not a daily WARNING the #85 rise alert would fire on."""
     await _add_ld(db_session, usa_wa, 42)
     await _add_person(db_session, 100, "Alicia Rule")
     await _archive_sponsors(db_session, wsl_source, BIENNIUM, [_sponsor(100, 42, "Rule")])
@@ -221,9 +224,10 @@ async def test_refresh_survives_an_unserved_odd_year_cohort(db_session, usa_wa, 
         **kwargs,
     )
 
-    outcome = await run_refresh(
-        db_session, biennium=BIENNIUM, sponsor_client=_StubSponsorClient(), sos_client=sos
-    )
+    with caplog.at_level(logging.INFO):
+        outcome = await run_refresh(
+            db_session, biennium=BIENNIUM, sponsor_client=_StubSponsorClient(), sos_client=sos
+        )
 
     assert sos.calls == [2024, 2025]
     assert outcome.cohorts_archived == 1  # the seating cohort still landed
@@ -239,6 +243,30 @@ async def test_refresh_survives_an_unserved_odd_year_cohort(db_session, usa_wa, 
         ).all()
     }
     assert rids == {"sos-legresults:20241105"}  # the failed year rolled back to its savepoint
+    # the odd-cohort miss is INFO, never WARNING (its absence is routine, not an alert)
+    skips = [r for r in caplog.records if r.message == "sos_refresh_cohort_year_skipped"]
+    assert [r.levelno for r in skips] == [logging.INFO]
+
+
+async def test_refresh_warns_when_the_seating_cohort_fails(db_session, usa_wa, wsl_source, caplog):
+    """The even SEATING cohort is a past election that *should* serve — its failure is a genuine
+    WARNING (the daily seat materialization is now running on a stale archive), unlike the routine
+    odd-cohort miss above."""
+    await _add_ld(db_session, usa_wa, 42)
+    await _add_person(db_session, 100, "Alicia Rule")
+    await _archive_sponsors(db_session, wsl_source, BIENNIUM, [_sponsor(100, 42, "Rule")])
+    sos = FakeSOSClient(
+        [("State Representative Pos. 1", 42, "Alicia Rule", "(Prefers Democratic Party)")],
+        fail_years=[2024],
+    )
+
+    with caplog.at_level(logging.INFO):
+        await run_refresh(
+            db_session, biennium=BIENNIUM, sponsor_client=_StubSponsorClient(), sos_client=sos
+        )
+
+    skips = [r for r in caplog.records if r.message == "sos_refresh_cohort_year_skipped"]
+    assert [(r.year, r.levelno) for r in skips] == [(2024, logging.WARNING)]
 
 
 async def test_refresh_warns_on_noncurrent_biennium(db_session, usa_wa, wsl_source, caplog):
