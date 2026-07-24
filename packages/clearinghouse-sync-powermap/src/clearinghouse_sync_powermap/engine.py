@@ -101,6 +101,7 @@ from clearinghouse_sync_powermap.client import (
 )
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor, as_ulid
 from clearinghouse_sync_powermap.models import (
+    DISPOSITION_AUTO_ATTACHED,
     OP_CREATE,
     OP_ENRICH,
     OP_UPDATE,
@@ -110,6 +111,7 @@ from clearinghouse_sync_powermap.models import (
     STATUS_UNAVAILABLE,
     AnchorReanchor,
     EnrichFingerprint,
+    NonConvergenceState,
     OutboxEntry,
     SyncState,
 )
@@ -160,6 +162,13 @@ def enrich_fingerprint(payload: dict) -> str:
 #: tolerance before an entry goes terminal. ``next_attempt_at`` deferrals
 #: (dependencies-not-ready) do not increment ``attempts``, so they never count.
 DEFAULT_MAX_ATTEMPTS = 60
+
+#: Consecutive identical ``auto-attached`` re-sends of an already-anchored row before
+#: the non-convergence backstop flags it (usa-wa#112). Re-enqueue is reconcile-gated
+#: (``RECONCILE_CADENCE`` default 12h; PM auto-attaches without advancing its clock so
+#: the feed never re-fires — #109), so 3 ≈ 1.5 days of proven-futile churn before an
+#: operator-visible flag. Configurable via ``SidecarSettings.nonconvergence_threshold``.
+DEFAULT_NONCONVERGENCE_THRESHOLD = 3
 
 #: How long an entry may sit deferred (PENDING, ``attempts == 0``) before each
 #: subsequent deferral escalates to a distinct WARNING (#15). A deps-not-ready
@@ -266,6 +275,11 @@ class DrainStats:
     #: anchored assignments delivered id-addressed this should stay 0; a rise means a delta
     #: PM refused on a natural-key path.
     unapplied: int = 0
+    #: Number of stable ``auto-attached`` re-observes this drain that reached the
+    #: non-convergence threshold (usa-wa#112) — a row PM keeps matching but not applying,
+    #: re-sending an identical payload every reconcile cycle. The standing set is queried
+    #: separately (:func:`nonconverging_count`) for the cycle summary + rise alert.
+    non_converging: int = 0
 
 
 class SyncEngine:
@@ -280,6 +294,7 @@ class SyncEngine:
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
         deferred_stuck_threshold: timedelta = DEFAULT_DEFERRED_STUCK_THRESHOLD,
         sweep_batch_size: int = DEFAULT_SWEEP_BATCH_SIZE,
+        nonconvergence_threshold: int = DEFAULT_NONCONVERGENCE_THRESHOLD,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         if sweep_batch_size < 1:
@@ -298,6 +313,7 @@ class SyncEngine:
         self._batch_limit = batch_limit
         self._max_attempts = max_attempts
         self._deferred_stuck_threshold = deferred_stuck_threshold
+        self._nonconvergence_threshold = nonconvergence_threshold
         self._sweep_batch_size = sweep_batch_size
         # Injectable for the transient-read retry tests (usa-wa#85); production sleeps.
         self._sleep = sleep
@@ -859,11 +875,15 @@ class SyncEngine:
                     f"anchor conflict: {descriptor.anchor_column}={result.pm_id}",
                 )
                 return True
+            old_anchor = descriptor.anchor_value(row)
             await self._record_reanchor(session, descriptor, row, result)
             self._stamp_anchor(descriptor, row, result.pm_id)
             entry.status = STATUS_DELIVERED
             entry.last_error = None
             await self._stamp_enrich_fingerprint(session, entry)
+            await self._track_convergence(
+                session, descriptor, row, entry, result, old_anchor, payload
+            )
         elif result.rejected:
             await self._reject(session, entry, str(result.raw), raw=result.raw)
         else:
@@ -924,6 +944,90 @@ class SyncEngine:
             )
         )
         self._last_drain_stats.reanchors += 1
+
+    async def _track_convergence(
+        self,
+        session: AsyncSession,
+        descriptor: EntityDescriptor,
+        row: Any,
+        entry: OutboxEntry,
+        result: ObservationResult,
+        old_anchor: Any,
+        payload: dict,
+    ) -> None:
+        """Accrue/reset the per-row consecutive-identical-``auto-attached`` counter (#112).
+
+        The generic non-convergence backstop. An anchored row whose reconcile
+        re-observation PM keeps ``auto-attached`` *without applying our diff* (the #110
+        role-classifier churn, power-map#311b before #111) re-sends an identical payload
+        every reconcile cycle forever — silent until a manual outbox audit. The per-cohort
+        no-op gates (#102/#104/#109) only catch pure clock skew, not a genuine local↔PM
+        diff PM refuses. This converts the silent churn into an operator-visible, alerting
+        standing count (:class:`~clearinghouse_sync_powermap.models.NonConvergenceState`).
+
+        Accrues ONLY on a *stable re-observe*: disposition ``auto-attached`` **and** the row
+        was already anchored to this same id (``old_anchor == result.pm_id``). A first attach
+        (``old_anchor is None``) is not a re-send; a re-anchor (``old != pm_id``) is a #108
+        genuine change; a ``new`` disposition mints a record — all three converge the row and
+        reset. A **changed** ``payload_hash`` also resets to 1 (the re-arm — a real new local
+        edit still propagates; only the provably-futile identical re-send is caught). ENRICH
+        cannot reach a stable churn (``EnrichFingerprint`` bars an unchanged re-enqueue), so
+        only ``OP_UPDATE`` re-observes climb.
+
+        Detection-only (usa-wa#112 Phase A): the row keeps delivering, so no ``UNAVAILABLE``
+        park and no false-park risk — the re-POST cost is already bounded by the PM
+        min-interval governor (#85) and the 12h reconcile cadence, and the harm the #110
+        audit found was *silence*, not cost. A park + enqueue-side re-arm is a deferred
+        Phase B, warranted only if the standing count ever shows a cohort large enough for
+        the governed cost to matter.
+        """
+        stable_reobserve = (
+            result.disposition == DISPOSITION_AUTO_ATTACHED
+            and old_anchor is not None
+            and old_anchor == result.pm_id
+        )
+        state = await session.scalar(
+            select(NonConvergenceState).where(
+                NonConvergenceState.entity_type == descriptor.entity_type,
+                NonConvergenceState.local_id == row.id,
+            )
+        )
+        if not stable_reobserve:
+            # A genuine change converged the row — clear any prior non-convergence so a
+            # later real edit that PM again refuses starts a fresh count.
+            if state is not None and state.count != 0:
+                state.count = 0
+                state.payload_hash = None
+            return
+        fingerprint = enrich_fingerprint(payload)
+        if state is None:
+            state = NonConvergenceState(
+                entity_type=descriptor.entity_type,
+                local_id=row.id,
+                payload_hash=fingerprint,
+                count=1,
+            )
+            session.add(state)
+        elif state.payload_hash == fingerprint:
+            state.count += 1
+        else:
+            # Changed payload = a genuine new local edit (the re-arm): reset + re-baseline.
+            state.payload_hash = fingerprint
+            state.count = 1
+        if state.count >= self._nonconvergence_threshold:
+            self._last_drain_stats.non_converging += 1
+            logger.warning(
+                "observation_not_converging",
+                extra={
+                    "entity_type": descriptor.entity_type,
+                    "local_id": str(row.id),
+                    "source_id": getattr(row, "source_id", None),
+                    "pm_id": str(result.pm_id),
+                    "consecutive": state.count,
+                    "op": entry.op,
+                    "disposition": result.disposition,
+                },
+            )
 
     async def _anchor_taken(
         self,
@@ -1740,6 +1844,24 @@ async def rejected_breakdown(session: AsyncSession) -> dict[str, int]:
         key = (reason or "(no reason recorded)")[:_REASON_PREFIX_LEN]
         breakdown[key] = breakdown.get(key, 0) + 1
     return breakdown
+
+
+async def nonconverging_count(session: AsyncSession, *, threshold: int) -> int:
+    """Rows currently at/over the non-convergence threshold (usa-wa#112).
+
+    The standing set of rows PM keeps ``auto-attached``-matching without applying our
+    diff — an identical payload re-sent every reconcile cycle. Free function like
+    :func:`rejected_breakdown` so the sidecar's cycle summary reads it without an engine
+    and alerts on a rise (the #85 pattern). A row converges (a real edit lands, or PM
+    finally applies) → its counter resets to 0 → it drops out of this count.
+    """
+    return (
+        await session.scalar(
+            select(func.count())
+            .select_from(NonConvergenceState)
+            .where(NonConvergenceState.count >= threshold)
+        )
+    ) or 0
 
 
 def _reconcile_stream(descriptor: EntityDescriptor) -> str:
