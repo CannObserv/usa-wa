@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -32,7 +32,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | IdentifyResponse | None:
+) -> Any | HTTPValidationError | IdentifyResponse | None:
     if response.status_code == 200:
         response_200 = IdentifyResponse.from_dict(response.json())
 
@@ -43,6 +43,10 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -51,7 +55,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | IdentifyResponse]:
+) -> Response[Any | HTTPValidationError | IdentifyResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -64,13 +68,14 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: IdentifyRequest,
-) -> Response[HTTPValidationError | IdentifyResponse]:
+) -> Response[Any | HTTPValidationError | IdentifyResponse]:
     """Identify Person
 
      Return the top-k persons whose stored embeddings best match the query vector.
 
     Returns ``matches: []`` when the model is unknown or has no active embeddings.
-    422 when the embedding dimension does not match the model's expected dimension.
+    422 when the embedding dimension does not match the model's expected
+    dimension, or the embedding is invalid (zero vector, non-finite values).
 
     Args:
         body (IdentifyRequest): Request body for POST /api/v1/people/identify.
@@ -80,7 +85,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | IdentifyResponse]
+        Response[Any | HTTPValidationError | IdentifyResponse]
     """
 
     kwargs = _get_kwargs(
@@ -98,13 +103,14 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: IdentifyRequest,
-) -> HTTPValidationError | IdentifyResponse | None:
+) -> Any | HTTPValidationError | IdentifyResponse | None:
     """Identify Person
 
      Return the top-k persons whose stored embeddings best match the query vector.
 
     Returns ``matches: []`` when the model is unknown or has no active embeddings.
-    422 when the embedding dimension does not match the model's expected dimension.
+    422 when the embedding dimension does not match the model's expected
+    dimension, or the embedding is invalid (zero vector, non-finite values).
 
     Args:
         body (IdentifyRequest): Request body for POST /api/v1/people/identify.
@@ -114,7 +120,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | IdentifyResponse
+        Any | HTTPValidationError | IdentifyResponse
     """
 
     return sync_detailed(
@@ -127,13 +133,14 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: IdentifyRequest,
-) -> Response[HTTPValidationError | IdentifyResponse]:
+) -> Response[Any | HTTPValidationError | IdentifyResponse]:
     """Identify Person
 
      Return the top-k persons whose stored embeddings best match the query vector.
 
     Returns ``matches: []`` when the model is unknown or has no active embeddings.
-    422 when the embedding dimension does not match the model's expected dimension.
+    422 when the embedding dimension does not match the model's expected
+    dimension, or the embedding is invalid (zero vector, non-finite values).
 
     Args:
         body (IdentifyRequest): Request body for POST /api/v1/people/identify.
@@ -143,7 +150,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | IdentifyResponse]
+        Response[Any | HTTPValidationError | IdentifyResponse]
     """
 
     kwargs = _get_kwargs(
@@ -159,13 +166,14 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: IdentifyRequest,
-) -> HTTPValidationError | IdentifyResponse | None:
+) -> Any | HTTPValidationError | IdentifyResponse | None:
     """Identify Person
 
      Return the top-k persons whose stored embeddings best match the query vector.
 
     Returns ``matches: []`` when the model is unknown or has no active embeddings.
-    422 when the embedding dimension does not match the model's expected dimension.
+    422 when the embedding dimension does not match the model's expected
+    dimension, or the embedding is invalid (zero vector, non-finite values).
 
     Args:
         body (IdentifyRequest): Request body for POST /api/v1/people/identify.
@@ -175,7 +183,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | IdentifyResponse
+        Any | HTTPValidationError | IdentifyResponse
     """
 
     return (

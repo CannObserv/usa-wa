@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
@@ -27,16 +27,24 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | JurisdictionResponse | None:
+) -> Any | HTTPValidationError | JurisdictionResponse | None:
     if response.status_code == 200:
         response_200 = JurisdictionResponse.from_dict(response.json())
 
         return response_200
 
+    if response.status_code == 304:
+        response_304 = cast(Any, None)
+        return response_304
+
     if response.status_code == 422:
         response_422 = HTTPValidationError.from_dict(response.json())
 
         return response_422
+
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -46,7 +54,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | JurisdictionResponse]:
+) -> Response[Any | HTTPValidationError | JurisdictionResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -59,7 +67,7 @@ def sync_detailed(
     jurisdiction_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[HTTPValidationError | JurisdictionResponse]:
+) -> Response[Any | HTTPValidationError | JurisdictionResponse]:
     """Get Jurisdiction
 
      Return a single jurisdiction by ULID or slug.
@@ -72,7 +80,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | JurisdictionResponse]
+        Response[Any | HTTPValidationError | JurisdictionResponse]
     """
 
     kwargs = _get_kwargs(
@@ -90,7 +98,7 @@ def sync(
     jurisdiction_id: str,
     *,
     client: AuthenticatedClient,
-) -> HTTPValidationError | JurisdictionResponse | None:
+) -> Any | HTTPValidationError | JurisdictionResponse | None:
     """Get Jurisdiction
 
      Return a single jurisdiction by ULID or slug.
@@ -103,7 +111,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | JurisdictionResponse
+        Any | HTTPValidationError | JurisdictionResponse
     """
 
     return sync_detailed(
@@ -116,7 +124,7 @@ async def asyncio_detailed(
     jurisdiction_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[HTTPValidationError | JurisdictionResponse]:
+) -> Response[Any | HTTPValidationError | JurisdictionResponse]:
     """Get Jurisdiction
 
      Return a single jurisdiction by ULID or slug.
@@ -129,7 +137,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | JurisdictionResponse]
+        Response[Any | HTTPValidationError | JurisdictionResponse]
     """
 
     kwargs = _get_kwargs(
@@ -145,7 +153,7 @@ async def asyncio(
     jurisdiction_id: str,
     *,
     client: AuthenticatedClient,
-) -> HTTPValidationError | JurisdictionResponse | None:
+) -> Any | HTTPValidationError | JurisdictionResponse | None:
     """Get Jurisdiction
 
      Return a single jurisdiction by ULID or slug.
@@ -158,7 +166,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | JurisdictionResponse
+        Any | HTTPValidationError | JurisdictionResponse
     """
 
     return (

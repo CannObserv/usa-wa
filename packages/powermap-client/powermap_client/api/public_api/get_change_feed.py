@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -35,7 +35,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ChangeFeedResponse | HTTPValidationError | None:
+) -> Any | ChangeFeedResponse | HTTPValidationError | None:
     if response.status_code == 200:
         response_200 = ChangeFeedResponse.from_dict(response.json())
 
@@ -46,6 +46,10 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -54,7 +58,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ChangeFeedResponse | HTTPValidationError]:
+) -> Response[Any | ChangeFeedResponse | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -68,7 +72,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     after: int,
     limit: int | Unset = 50,
-) -> Response[ChangeFeedResponse | HTTPValidationError]:
+) -> Response[Any | ChangeFeedResponse | HTTPValidationError]:
     """Get Changes
 
      Return subscribed entity changes with id > after.
@@ -88,7 +92,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ChangeFeedResponse | HTTPValidationError]
+        Response[Any | ChangeFeedResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -108,7 +112,7 @@ def sync(
     client: AuthenticatedClient,
     after: int,
     limit: int | Unset = 50,
-) -> ChangeFeedResponse | HTTPValidationError | None:
+) -> Any | ChangeFeedResponse | HTTPValidationError | None:
     """Get Changes
 
      Return subscribed entity changes with id > after.
@@ -128,7 +132,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ChangeFeedResponse | HTTPValidationError
+        Any | ChangeFeedResponse | HTTPValidationError
     """
 
     return sync_detailed(
@@ -143,7 +147,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     after: int,
     limit: int | Unset = 50,
-) -> Response[ChangeFeedResponse | HTTPValidationError]:
+) -> Response[Any | ChangeFeedResponse | HTTPValidationError]:
     """Get Changes
 
      Return subscribed entity changes with id > after.
@@ -163,7 +167,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ChangeFeedResponse | HTTPValidationError]
+        Response[Any | ChangeFeedResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -181,7 +185,7 @@ async def asyncio(
     client: AuthenticatedClient,
     after: int,
     limit: int | Unset = 50,
-) -> ChangeFeedResponse | HTTPValidationError | None:
+) -> Any | ChangeFeedResponse | HTTPValidationError | None:
     """Get Changes
 
      Return subscribed entity changes with id > after.
@@ -201,7 +205,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ChangeFeedResponse | HTTPValidationError
+        Any | ChangeFeedResponse | HTTPValidationError
     """
 
     return (

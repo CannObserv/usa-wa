@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -32,7 +32,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | ObservationResponse | None:
+) -> Any | HTTPValidationError | ObservationResponse | None:
     if response.status_code == 200:
         response_200 = ObservationResponse.from_dict(response.json())
 
@@ -43,6 +43,10 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -51,7 +55,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | ObservationResponse]:
+) -> Response[Any | HTTPValidationError | ObservationResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -64,7 +68,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: RoleObservationRequest,
-) -> Response[HTTPValidationError | ObservationResponse]:
+) -> Response[Any | HTTPValidationError | ObservationResponse]:
     """Submit Role Observation
 
      Submit a role observation; match by (organization_id, title) or by pm_role_id.
@@ -82,7 +86,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ObservationResponse]
+        Response[Any | HTTPValidationError | ObservationResponse]
     """
 
     kwargs = _get_kwargs(
@@ -100,7 +104,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: RoleObservationRequest,
-) -> HTTPValidationError | ObservationResponse | None:
+) -> Any | HTTPValidationError | ObservationResponse | None:
     """Submit Role Observation
 
      Submit a role observation; match by (organization_id, title) or by pm_role_id.
@@ -118,7 +122,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ObservationResponse
+        Any | HTTPValidationError | ObservationResponse
     """
 
     return sync_detailed(
@@ -131,7 +135,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: RoleObservationRequest,
-) -> Response[HTTPValidationError | ObservationResponse]:
+) -> Response[Any | HTTPValidationError | ObservationResponse]:
     """Submit Role Observation
 
      Submit a role observation; match by (organization_id, title) or by pm_role_id.
@@ -149,7 +153,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ObservationResponse]
+        Response[Any | HTTPValidationError | ObservationResponse]
     """
 
     kwargs = _get_kwargs(
@@ -165,7 +169,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: RoleObservationRequest,
-) -> HTTPValidationError | ObservationResponse | None:
+) -> Any | HTTPValidationError | ObservationResponse | None:
     """Submit Role Observation
 
      Submit a role observation; match by (organization_id, title) or by pm_role_id.
@@ -183,7 +187,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ObservationResponse
+        Any | HTTPValidationError | ObservationResponse
     """
 
     return (

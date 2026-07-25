@@ -15,6 +15,7 @@ def _get_kwargs(
     *,
     flash: None | str | Unset = UNSET,
     show_historical: bool | Unset = False,
+    show_archived_embeddings: bool | Unset = False,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -27,6 +28,8 @@ def _get_kwargs(
     params["flash"] = json_flash
 
     params["show_historical"] = show_historical
+
+    params["show_archived_embeddings"] = show_archived_embeddings
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -76,6 +79,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     flash: None | str | Unset = UNSET,
     show_historical: bool | Unset = False,
+    show_archived_embeddings: bool | Unset = False,
 ) -> Response[Any | HTTPValidationError]:
     """Person Detail
 
@@ -83,11 +87,14 @@ def sync_detailed(
 
     `show_historical=1` reveals legal_only / hidden rows on the names table;
     default keeps them collapsed behind the toggle (issue #123 Phase 2a Task 3).
+    `show_archived_embeddings=1` reveals archived rows in the Voice Embeddings
+    section (#284), mirroring the names-toggle pattern.
 
     Args:
         person_id (str):
         flash (None | str | Unset):
         show_historical (bool | Unset):  Default: False.
+        show_archived_embeddings (bool | Unset):  Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -101,6 +108,7 @@ def sync_detailed(
         person_id=person_id,
         flash=flash,
         show_historical=show_historical,
+        show_archived_embeddings=show_archived_embeddings,
     )
 
     response = client.get_httpx_client().request(
@@ -116,6 +124,7 @@ def sync(
     client: AuthenticatedClient | Client,
     flash: None | str | Unset = UNSET,
     show_historical: bool | Unset = False,
+    show_archived_embeddings: bool | Unset = False,
 ) -> Any | HTTPValidationError | None:
     """Person Detail
 
@@ -123,11 +132,14 @@ def sync(
 
     `show_historical=1` reveals legal_only / hidden rows on the names table;
     default keeps them collapsed behind the toggle (issue #123 Phase 2a Task 3).
+    `show_archived_embeddings=1` reveals archived rows in the Voice Embeddings
+    section (#284), mirroring the names-toggle pattern.
 
     Args:
         person_id (str):
         flash (None | str | Unset):
         show_historical (bool | Unset):  Default: False.
+        show_archived_embeddings (bool | Unset):  Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -142,6 +154,7 @@ def sync(
         client=client,
         flash=flash,
         show_historical=show_historical,
+        show_archived_embeddings=show_archived_embeddings,
     ).parsed
 
 
@@ -151,6 +164,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     flash: None | str | Unset = UNSET,
     show_historical: bool | Unset = False,
+    show_archived_embeddings: bool | Unset = False,
 ) -> Response[Any | HTTPValidationError]:
     """Person Detail
 
@@ -158,11 +172,14 @@ async def asyncio_detailed(
 
     `show_historical=1` reveals legal_only / hidden rows on the names table;
     default keeps them collapsed behind the toggle (issue #123 Phase 2a Task 3).
+    `show_archived_embeddings=1` reveals archived rows in the Voice Embeddings
+    section (#284), mirroring the names-toggle pattern.
 
     Args:
         person_id (str):
         flash (None | str | Unset):
         show_historical (bool | Unset):  Default: False.
+        show_archived_embeddings (bool | Unset):  Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -176,6 +193,7 @@ async def asyncio_detailed(
         person_id=person_id,
         flash=flash,
         show_historical=show_historical,
+        show_archived_embeddings=show_archived_embeddings,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -189,6 +207,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     flash: None | str | Unset = UNSET,
     show_historical: bool | Unset = False,
+    show_archived_embeddings: bool | Unset = False,
 ) -> Any | HTTPValidationError | None:
     """Person Detail
 
@@ -196,11 +215,14 @@ async def asyncio(
 
     `show_historical=1` reveals legal_only / hidden rows on the names table;
     default keeps them collapsed behind the toggle (issue #123 Phase 2a Task 3).
+    `show_archived_embeddings=1` reveals archived rows in the Voice Embeddings
+    section (#284), mirroring the names-toggle pattern.
 
     Args:
         person_id (str):
         flash (None | str | Unset):
         show_historical (bool | Unset):  Default: False.
+        show_archived_embeddings (bool | Unset):  Default: False.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -216,5 +238,6 @@ async def asyncio(
             client=client,
             flash=flash,
             show_historical=show_historical,
+            show_archived_embeddings=show_archived_embeddings,
         )
     ).parsed

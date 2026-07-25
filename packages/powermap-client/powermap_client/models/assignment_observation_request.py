@@ -34,7 +34,7 @@ class AssignmentObservationRequest:
             role_id (None | str | Unset):
             start_date (datetime.date | None | Unset):
             end_date (datetime.date | None | Unset):
-            is_current (bool | Unset):  Default: False.
+            is_current (bool | None | Unset):
             notes (None | str | Unset):
             links (list[ObservationLink] | Unset):
             contact_methods (list[ObservationContactMethod] | Unset):
@@ -47,7 +47,7 @@ class AssignmentObservationRequest:
     role_id: None | str | Unset = UNSET
     start_date: datetime.date | None | Unset = UNSET
     end_date: datetime.date | None | Unset = UNSET
-    is_current: bool | Unset = False
+    is_current: bool | None | Unset = UNSET
     notes: None | str | Unset = UNSET
     links: list[ObservationLink] | Unset = UNSET
     contact_methods: list[ObservationContactMethod] | Unset = UNSET
@@ -95,7 +95,11 @@ class AssignmentObservationRequest:
         else:
             end_date = self.end_date
 
-        is_current = self.is_current
+        is_current: bool | None | Unset
+        if isinstance(self.is_current, Unset):
+            is_current = UNSET
+        else:
+            is_current = self.is_current
 
         notes: None | str | Unset
         if isinstance(self.notes, Unset):
@@ -230,7 +234,14 @@ class AssignmentObservationRequest:
 
         end_date = _parse_end_date(d.pop("end_date", UNSET))
 
-        is_current = d.pop("is_current", UNSET)
+        def _parse_is_current(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        is_current = _parse_is_current(d.pop("is_current", UNSET))
 
         def _parse_notes(data: object) -> None | str | Unset:
             if data is None:

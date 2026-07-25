@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
@@ -46,7 +46,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> EmbeddingPatchResponse | HTTPValidationError | None:
+) -> Any | EmbeddingPatchResponse | HTTPValidationError | None:
     if response.status_code == 200:
         response_200 = EmbeddingPatchResponse.from_dict(response.json())
 
@@ -57,6 +57,10 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -65,7 +69,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[EmbeddingPatchResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingPatchResponse | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -81,7 +85,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: EmbeddingPatchRequest,
     model_id: str,
-) -> Response[EmbeddingPatchResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingPatchResponse | HTTPValidationError]:
     """Patch Person Embedding
 
      Update mutable metadata fields on an active voice embedding.
@@ -111,7 +115,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EmbeddingPatchResponse | HTTPValidationError]
+        Response[Any | EmbeddingPatchResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -135,7 +139,7 @@ def sync(
     client: AuthenticatedClient,
     body: EmbeddingPatchRequest,
     model_id: str,
-) -> EmbeddingPatchResponse | HTTPValidationError | None:
+) -> Any | EmbeddingPatchResponse | HTTPValidationError | None:
     """Patch Person Embedding
 
      Update mutable metadata fields on an active voice embedding.
@@ -165,7 +169,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EmbeddingPatchResponse | HTTPValidationError
+        Any | EmbeddingPatchResponse | HTTPValidationError
     """
 
     return sync_detailed(
@@ -184,7 +188,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: EmbeddingPatchRequest,
     model_id: str,
-) -> Response[EmbeddingPatchResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingPatchResponse | HTTPValidationError]:
     """Patch Person Embedding
 
      Update mutable metadata fields on an active voice embedding.
@@ -214,7 +218,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EmbeddingPatchResponse | HTTPValidationError]
+        Response[Any | EmbeddingPatchResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -236,7 +240,7 @@ async def asyncio(
     client: AuthenticatedClient,
     body: EmbeddingPatchRequest,
     model_id: str,
-) -> EmbeddingPatchResponse | HTTPValidationError | None:
+) -> Any | EmbeddingPatchResponse | HTTPValidationError | None:
     """Patch Person Embedding
 
      Update mutable metadata fields on an active voice embedding.
@@ -266,7 +270,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EmbeddingPatchResponse | HTTPValidationError
+        Any | EmbeddingPatchResponse | HTTPValidationError
     """
 
     return (

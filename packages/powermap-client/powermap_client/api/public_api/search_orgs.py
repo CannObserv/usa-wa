@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -65,7 +65,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | OrgSearchResponse | None:
+) -> Any | HTTPValidationError | OrgSearchResponse | None:
     if response.status_code == 200:
         response_200 = OrgSearchResponse.from_dict(response.json())
 
@@ -76,6 +76,10 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -84,7 +88,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | OrgSearchResponse]:
+) -> Response[Any | HTTPValidationError | OrgSearchResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -103,7 +107,7 @@ def sync_detailed(
     jurisdiction: None | str | Unset = UNSET,
     identifier_type: None | str | Unset = UNSET,
     identifier_value: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | OrgSearchResponse]:
+) -> Response[Any | HTTPValidationError | OrgSearchResponse]:
     """Search Orgs
 
      Search organizations by name, acronym, or name variant.
@@ -128,7 +132,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OrgSearchResponse]
+        Response[Any | HTTPValidationError | OrgSearchResponse]
     """
 
     kwargs = _get_kwargs(
@@ -158,7 +162,7 @@ def sync(
     jurisdiction: None | str | Unset = UNSET,
     identifier_type: None | str | Unset = UNSET,
     identifier_value: None | str | Unset = UNSET,
-) -> HTTPValidationError | OrgSearchResponse | None:
+) -> Any | HTTPValidationError | OrgSearchResponse | None:
     """Search Orgs
 
      Search organizations by name, acronym, or name variant.
@@ -183,7 +187,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OrgSearchResponse
+        Any | HTTPValidationError | OrgSearchResponse
     """
 
     return sync_detailed(
@@ -208,7 +212,7 @@ async def asyncio_detailed(
     jurisdiction: None | str | Unset = UNSET,
     identifier_type: None | str | Unset = UNSET,
     identifier_value: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | OrgSearchResponse]:
+) -> Response[Any | HTTPValidationError | OrgSearchResponse]:
     """Search Orgs
 
      Search organizations by name, acronym, or name variant.
@@ -233,7 +237,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OrgSearchResponse]
+        Response[Any | HTTPValidationError | OrgSearchResponse]
     """
 
     kwargs = _get_kwargs(
@@ -261,7 +265,7 @@ async def asyncio(
     jurisdiction: None | str | Unset = UNSET,
     identifier_type: None | str | Unset = UNSET,
     identifier_value: None | str | Unset = UNSET,
-) -> HTTPValidationError | OrgSearchResponse | None:
+) -> Any | HTTPValidationError | OrgSearchResponse | None:
     """Search Orgs
 
      Search organizations by name, acronym, or name variant.
@@ -286,7 +290,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OrgSearchResponse
+        Any | HTTPValidationError | OrgSearchResponse
     """
 
     return (

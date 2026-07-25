@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -57,7 +57,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | PersonSearchResponse | None:
+) -> Any | HTTPValidationError | PersonSearchResponse | None:
     if response.status_code == 200:
         response_200 = PersonSearchResponse.from_dict(response.json())
 
@@ -68,6 +68,10 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -76,7 +80,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | PersonSearchResponse]:
+) -> Response[Any | HTTPValidationError | PersonSearchResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -94,7 +98,7 @@ def sync_detailed(
     include_archived: bool | Unset = False,
     identifier_type: None | str | Unset = UNSET,
     identifier_value: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | PersonSearchResponse]:
+) -> Response[Any | HTTPValidationError | PersonSearchResponse]:
     """Search People
 
      Search people by display name or public name variant.
@@ -115,7 +119,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | PersonSearchResponse]
+        Response[Any | HTTPValidationError | PersonSearchResponse]
     """
 
     kwargs = _get_kwargs(
@@ -143,7 +147,7 @@ def sync(
     include_archived: bool | Unset = False,
     identifier_type: None | str | Unset = UNSET,
     identifier_value: None | str | Unset = UNSET,
-) -> HTTPValidationError | PersonSearchResponse | None:
+) -> Any | HTTPValidationError | PersonSearchResponse | None:
     """Search People
 
      Search people by display name or public name variant.
@@ -164,7 +168,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | PersonSearchResponse
+        Any | HTTPValidationError | PersonSearchResponse
     """
 
     return sync_detailed(
@@ -187,7 +191,7 @@ async def asyncio_detailed(
     include_archived: bool | Unset = False,
     identifier_type: None | str | Unset = UNSET,
     identifier_value: None | str | Unset = UNSET,
-) -> Response[HTTPValidationError | PersonSearchResponse]:
+) -> Response[Any | HTTPValidationError | PersonSearchResponse]:
     """Search People
 
      Search people by display name or public name variant.
@@ -208,7 +212,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | PersonSearchResponse]
+        Response[Any | HTTPValidationError | PersonSearchResponse]
     """
 
     kwargs = _get_kwargs(
@@ -234,7 +238,7 @@ async def asyncio(
     include_archived: bool | Unset = False,
     identifier_type: None | str | Unset = UNSET,
     identifier_value: None | str | Unset = UNSET,
-) -> HTTPValidationError | PersonSearchResponse | None:
+) -> Any | HTTPValidationError | PersonSearchResponse | None:
     """Search People
 
      Search people by display name or public name variant.
@@ -255,7 +259,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | PersonSearchResponse
+        Any | HTTPValidationError | PersonSearchResponse
     """
 
     return (

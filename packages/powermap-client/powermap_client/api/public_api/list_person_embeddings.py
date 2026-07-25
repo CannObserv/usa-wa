@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
@@ -16,6 +16,8 @@ def _get_kwargs(
     *,
     model_id: str,
     include_archived: bool | Unset = False,
+    source_job_id: None | str | Unset = UNSET,
+    source_segment: int | None | Unset = UNSET,
     limit: int | Unset = 100,
     offset: int | Unset = 0,
 ) -> dict[str, Any]:
@@ -25,6 +27,20 @@ def _get_kwargs(
     params["model_id"] = model_id
 
     params["include_archived"] = include_archived
+
+    json_source_job_id: None | str | Unset
+    if isinstance(source_job_id, Unset):
+        json_source_job_id = UNSET
+    else:
+        json_source_job_id = source_job_id
+    params["source_job_id"] = json_source_job_id
+
+    json_source_segment: int | None | Unset
+    if isinstance(source_segment, Unset):
+        json_source_segment = UNSET
+    else:
+        json_source_segment = source_segment
+    params["source_segment"] = json_source_segment
 
     params["limit"] = limit
 
@@ -45,7 +61,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> EmbeddingListResponse | HTTPValidationError | None:
+) -> Any | EmbeddingListResponse | HTTPValidationError | None:
     if response.status_code == 200:
         response_200 = EmbeddingListResponse.from_dict(response.json())
 
@@ -56,6 +72,10 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -64,7 +84,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[EmbeddingListResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingListResponse | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -79,21 +99,29 @@ def sync_detailed(
     client: AuthenticatedClient,
     model_id: str,
     include_archived: bool | Unset = False,
+    source_job_id: None | str | Unset = UNSET,
+    source_segment: int | None | Unset = UNSET,
     limit: int | Unset = 100,
     offset: int | Unset = 0,
-) -> Response[EmbeddingListResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingListResponse | HTTPValidationError]:
     """List Person Embeddings
 
      List voice embeddings for a person.
 
     By default returns only active (non-archived) rows.  Pass
-    ``include_archived=true`` to include archived rows.
+    ``include_archived=true`` to include archived rows.  Pass ``source_job_id``
+    to restrict the list to a single provenance job (index-backed; mirrors the
+    batch-delete surface) — omit it to enumerate the person's full set.  Pass
+    ``source_segment`` with ``source_job_id`` to pinpoint one provenance row
+    (#299 — e.g. finding the archived row behind a write 409 in a single call).
     404 if the person does not exist or is archived.
 
     Args:
         person_id (str):
         model_id (str):
         include_archived (bool | Unset):  Default: False.
+        source_job_id (None | str | Unset):
+        source_segment (int | None | Unset):
         limit (int | Unset):  Default: 100.
         offset (int | Unset):  Default: 0.
 
@@ -102,13 +130,15 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EmbeddingListResponse | HTTPValidationError]
+        Response[Any | EmbeddingListResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
         person_id=person_id,
         model_id=model_id,
         include_archived=include_archived,
+        source_job_id=source_job_id,
+        source_segment=source_segment,
         limit=limit,
         offset=offset,
     )
@@ -126,21 +156,29 @@ def sync(
     client: AuthenticatedClient,
     model_id: str,
     include_archived: bool | Unset = False,
+    source_job_id: None | str | Unset = UNSET,
+    source_segment: int | None | Unset = UNSET,
     limit: int | Unset = 100,
     offset: int | Unset = 0,
-) -> EmbeddingListResponse | HTTPValidationError | None:
+) -> Any | EmbeddingListResponse | HTTPValidationError | None:
     """List Person Embeddings
 
      List voice embeddings for a person.
 
     By default returns only active (non-archived) rows.  Pass
-    ``include_archived=true`` to include archived rows.
+    ``include_archived=true`` to include archived rows.  Pass ``source_job_id``
+    to restrict the list to a single provenance job (index-backed; mirrors the
+    batch-delete surface) — omit it to enumerate the person's full set.  Pass
+    ``source_segment`` with ``source_job_id`` to pinpoint one provenance row
+    (#299 — e.g. finding the archived row behind a write 409 in a single call).
     404 if the person does not exist or is archived.
 
     Args:
         person_id (str):
         model_id (str):
         include_archived (bool | Unset):  Default: False.
+        source_job_id (None | str | Unset):
+        source_segment (int | None | Unset):
         limit (int | Unset):  Default: 100.
         offset (int | Unset):  Default: 0.
 
@@ -149,7 +187,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EmbeddingListResponse | HTTPValidationError
+        Any | EmbeddingListResponse | HTTPValidationError
     """
 
     return sync_detailed(
@@ -157,6 +195,8 @@ def sync(
         client=client,
         model_id=model_id,
         include_archived=include_archived,
+        source_job_id=source_job_id,
+        source_segment=source_segment,
         limit=limit,
         offset=offset,
     ).parsed
@@ -168,21 +208,29 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     model_id: str,
     include_archived: bool | Unset = False,
+    source_job_id: None | str | Unset = UNSET,
+    source_segment: int | None | Unset = UNSET,
     limit: int | Unset = 100,
     offset: int | Unset = 0,
-) -> Response[EmbeddingListResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingListResponse | HTTPValidationError]:
     """List Person Embeddings
 
      List voice embeddings for a person.
 
     By default returns only active (non-archived) rows.  Pass
-    ``include_archived=true`` to include archived rows.
+    ``include_archived=true`` to include archived rows.  Pass ``source_job_id``
+    to restrict the list to a single provenance job (index-backed; mirrors the
+    batch-delete surface) — omit it to enumerate the person's full set.  Pass
+    ``source_segment`` with ``source_job_id`` to pinpoint one provenance row
+    (#299 — e.g. finding the archived row behind a write 409 in a single call).
     404 if the person does not exist or is archived.
 
     Args:
         person_id (str):
         model_id (str):
         include_archived (bool | Unset):  Default: False.
+        source_job_id (None | str | Unset):
+        source_segment (int | None | Unset):
         limit (int | Unset):  Default: 100.
         offset (int | Unset):  Default: 0.
 
@@ -191,13 +239,15 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EmbeddingListResponse | HTTPValidationError]
+        Response[Any | EmbeddingListResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
         person_id=person_id,
         model_id=model_id,
         include_archived=include_archived,
+        source_job_id=source_job_id,
+        source_segment=source_segment,
         limit=limit,
         offset=offset,
     )
@@ -213,21 +263,29 @@ async def asyncio(
     client: AuthenticatedClient,
     model_id: str,
     include_archived: bool | Unset = False,
+    source_job_id: None | str | Unset = UNSET,
+    source_segment: int | None | Unset = UNSET,
     limit: int | Unset = 100,
     offset: int | Unset = 0,
-) -> EmbeddingListResponse | HTTPValidationError | None:
+) -> Any | EmbeddingListResponse | HTTPValidationError | None:
     """List Person Embeddings
 
      List voice embeddings for a person.
 
     By default returns only active (non-archived) rows.  Pass
-    ``include_archived=true`` to include archived rows.
+    ``include_archived=true`` to include archived rows.  Pass ``source_job_id``
+    to restrict the list to a single provenance job (index-backed; mirrors the
+    batch-delete surface) — omit it to enumerate the person's full set.  Pass
+    ``source_segment`` with ``source_job_id`` to pinpoint one provenance row
+    (#299 — e.g. finding the archived row behind a write 409 in a single call).
     404 if the person does not exist or is archived.
 
     Args:
         person_id (str):
         model_id (str):
         include_archived (bool | Unset):  Default: False.
+        source_job_id (None | str | Unset):
+        source_segment (int | None | Unset):
         limit (int | Unset):  Default: 100.
         offset (int | Unset):  Default: 0.
 
@@ -236,7 +294,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EmbeddingListResponse | HTTPValidationError
+        Any | EmbeddingListResponse | HTTPValidationError
     """
 
     return (
@@ -245,6 +303,8 @@ async def asyncio(
             client=client,
             model_id=model_id,
             include_archived=include_archived,
+            source_job_id=source_job_id,
+            source_segment=source_segment,
             limit=limit,
             offset=offset,
         )

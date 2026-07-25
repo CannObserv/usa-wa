@@ -18,6 +18,7 @@ class ObservationEventItem:
     """A lifecycle event claim included in an observation.
 
     Attributes:
+        pm_event_id (None | str | Unset):
         event_type_id (None | str | Unset):
         event_type_slug (None | str | Unset):
         event_year (int | None | Unset):
@@ -34,6 +35,7 @@ class ObservationEventItem:
         visibility (ObservationEventItemVisibility | Unset):  Default: ObservationEventItemVisibility.PUBLIC.
     """
 
+    pm_event_id: None | str | Unset = UNSET
     event_type_id: None | str | Unset = UNSET
     event_type_slug: None | str | Unset = UNSET
     event_year: int | None | Unset = UNSET
@@ -51,6 +53,12 @@ class ObservationEventItem:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        pm_event_id: None | str | Unset
+        if isinstance(self.pm_event_id, Unset):
+            pm_event_id = UNSET
+        else:
+            pm_event_id = self.pm_event_id
+
         event_type_id: None | str | Unset
         if isinstance(self.event_type_id, Unset):
             event_type_id = UNSET
@@ -138,6 +146,8 @@ class ObservationEventItem:
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
+        if pm_event_id is not UNSET:
+            field_dict["pm_event_id"] = pm_event_id
         if event_type_id is not UNSET:
             field_dict["event_type_id"] = event_type_id
         if event_type_slug is not UNSET:
@@ -172,6 +182,15 @@ class ObservationEventItem:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+
+        def _parse_pm_event_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        pm_event_id = _parse_pm_event_id(d.pop("pm_event_id", UNSET))
 
         def _parse_event_type_id(data: object) -> None | str | Unset:
             if data is None:
@@ -306,6 +325,7 @@ class ObservationEventItem:
             visibility = ObservationEventItemVisibility(_visibility)
 
         observation_event_item = cls(
+            pm_event_id=pm_event_id,
             event_type_id=event_type_id,
             event_type_slug=event_type_slug,
             event_year=event_year,

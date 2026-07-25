@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
@@ -27,16 +27,24 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> AssignmentDetail | HTTPValidationError | None:
+) -> Any | AssignmentDetail | HTTPValidationError | None:
     if response.status_code == 200:
         response_200 = AssignmentDetail.from_dict(response.json())
 
         return response_200
 
+    if response.status_code == 304:
+        response_304 = cast(Any, None)
+        return response_304
+
     if response.status_code == 422:
         response_422 = HTTPValidationError.from_dict(response.json())
 
         return response_422
+
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -46,7 +54,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[AssignmentDetail | HTTPValidationError]:
+) -> Response[Any | AssignmentDetail | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -59,7 +67,7 @@ def sync_detailed(
     assignment_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[AssignmentDetail | HTTPValidationError]:
+) -> Response[Any | AssignmentDetail | HTTPValidationError]:
     """Get Assignment
 
      Return a full assignment record with links, contact methods, and addresses.
@@ -72,7 +80,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[AssignmentDetail | HTTPValidationError]
+        Response[Any | AssignmentDetail | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -90,7 +98,7 @@ def sync(
     assignment_id: str,
     *,
     client: AuthenticatedClient,
-) -> AssignmentDetail | HTTPValidationError | None:
+) -> Any | AssignmentDetail | HTTPValidationError | None:
     """Get Assignment
 
      Return a full assignment record with links, contact methods, and addresses.
@@ -103,7 +111,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        AssignmentDetail | HTTPValidationError
+        Any | AssignmentDetail | HTTPValidationError
     """
 
     return sync_detailed(
@@ -116,7 +124,7 @@ async def asyncio_detailed(
     assignment_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[AssignmentDetail | HTTPValidationError]:
+) -> Response[Any | AssignmentDetail | HTTPValidationError]:
     """Get Assignment
 
      Return a full assignment record with links, contact methods, and addresses.
@@ -129,7 +137,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[AssignmentDetail | HTTPValidationError]
+        Response[Any | AssignmentDetail | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -145,7 +153,7 @@ async def asyncio(
     assignment_id: str,
     *,
     client: AuthenticatedClient,
-) -> AssignmentDetail | HTTPValidationError | None:
+) -> Any | AssignmentDetail | HTTPValidationError | None:
     """Get Assignment
 
      Return a full assignment record with links, contact methods, and addresses.
@@ -158,7 +166,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        AssignmentDetail | HTTPValidationError
+        Any | AssignmentDetail | HTTPValidationError
     """
 
     return (
