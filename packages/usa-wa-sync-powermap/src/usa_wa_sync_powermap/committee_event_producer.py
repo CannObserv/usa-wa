@@ -253,7 +253,9 @@ async def produce_committee_events(
                 stats.updated += 1
             elif result.disposition != DISPOSITION_REJECTED and result.anchored:
                 stats.created += 1
-    logger.info("committee_events_produced", extra=stats.as_dict())
+    # Wrap under one key: as_dict() has a ``created`` field, which collides with the
+    # reserved ``LogRecord.created`` attribute and would raise once logging is configured.
+    logger.info("committee_events_produced", extra={"stats": stats.as_dict()})
     return stats
 
 

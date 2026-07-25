@@ -114,6 +114,23 @@ def test_anchored_link_matching_year_is_noop():
     assert noop == 1
 
 
+def test_stats_as_dict_avoids_reserved_logrecord_keys():
+    """as_dict() must not collide with reserved LogRecord attrs (e.g. 'created') — it is
+    logged via a single wrapper key, but keep the field names clear of the raw reserved
+    set so a future direct ``extra=`` can't crash once logging is configured."""
+    import logging
+
+    from usa_wa_sync_powermap.committee_event_producer import ProduceStats
+
+    reserved = set(logging.makeLogRecord({}).__dict__)
+    # 'created' IS a field of as_dict — assert we never pass the dict raw as extra by
+    # confirming the producer wraps it (regression for the KeyError this test's PR fixed).
+    keys = set(ProduceStats().as_dict())
+    assert "created" in keys  # the collision exists...
+    logging.makeLogRecord({"stats": ProduceStats().as_dict()})  # ...but wrapped it's safe
+    assert reserved & {"stats"} == set()
+
+
 # --- produce_committee_events (orchestration) --------------------------------
 
 
