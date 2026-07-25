@@ -269,6 +269,7 @@ from .observation_contact_method import ObservationContactMethod
 from .observation_contact_method_contact_type import ObservationContactMethodContactType
 from .observation_event_item import ObservationEventItem
 from .observation_event_item_linked_entity_type_type_0 import ObservationEventItemLinkedEntityTypeType0
+from .observation_event_item_op import ObservationEventItemOp
 from .observation_event_item_visibility import ObservationEventItemVisibility
 from .observation_jurisdiction_affiliation import ObservationJurisdictionAffiliation
 from .observation_link import ObservationLink
@@ -472,6 +473,7 @@ __all__ = (
     "ObservationContactMethodContactType",
     "ObservationEventItem",
     "ObservationEventItemLinkedEntityTypeType0",
+    "ObservationEventItemOp",
     "ObservationEventItemVisibility",
     "ObservationJurisdictionAffiliation",
     "ObservationLink",

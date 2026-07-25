@@ -74,15 +74,18 @@ def sync_detailed(
     client: AuthenticatedClient,
     body: OrgEventObservationsRequest,
 ) -> Response[Any | EventObservationsResponse | HTTPValidationError]:
-    """Submit Org Event Observations
+    r"""Submit Org Event Observations
 
-     Observe lifecycle events on an org, **partial-success** (#321).
+     Observe lifecycle events on an org, **partial-success** (#321/#322).
 
     The event-native producer surface: each event lands independently under its
     own savepoint, so one rejected event (e.g. a ``succeeded_by`` whose successor
     isn't anchored yet → ``linked_entity_unresolved``) never rolls back its
     siblings. ``pm_event_id`` refines an event in place; absent it, a natural
-    create with content dedup. Returns per-event dispositions + reason slugs.
+    create with content dedup. ``op=\"retract\"`` archives the ``pm_event_id``
+    event — the only correction for a dateless linked event, so a re-link is
+    create-new + retract-old in one batch (#322). Returns per-event dispositions
+    + reason slugs.
 
     Args:
         org_id (str):
@@ -115,15 +118,18 @@ def sync(
     client: AuthenticatedClient,
     body: OrgEventObservationsRequest,
 ) -> Any | EventObservationsResponse | HTTPValidationError | None:
-    """Submit Org Event Observations
+    r"""Submit Org Event Observations
 
-     Observe lifecycle events on an org, **partial-success** (#321).
+     Observe lifecycle events on an org, **partial-success** (#321/#322).
 
     The event-native producer surface: each event lands independently under its
     own savepoint, so one rejected event (e.g. a ``succeeded_by`` whose successor
     isn't anchored yet → ``linked_entity_unresolved``) never rolls back its
     siblings. ``pm_event_id`` refines an event in place; absent it, a natural
-    create with content dedup. Returns per-event dispositions + reason slugs.
+    create with content dedup. ``op=\"retract\"`` archives the ``pm_event_id``
+    event — the only correction for a dateless linked event, so a re-link is
+    create-new + retract-old in one batch (#322). Returns per-event dispositions
+    + reason slugs.
 
     Args:
         org_id (str):
@@ -151,15 +157,18 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     body: OrgEventObservationsRequest,
 ) -> Response[Any | EventObservationsResponse | HTTPValidationError]:
-    """Submit Org Event Observations
+    r"""Submit Org Event Observations
 
-     Observe lifecycle events on an org, **partial-success** (#321).
+     Observe lifecycle events on an org, **partial-success** (#321/#322).
 
     The event-native producer surface: each event lands independently under its
     own savepoint, so one rejected event (e.g. a ``succeeded_by`` whose successor
     isn't anchored yet → ``linked_entity_unresolved``) never rolls back its
     siblings. ``pm_event_id`` refines an event in place; absent it, a natural
-    create with content dedup. Returns per-event dispositions + reason slugs.
+    create with content dedup. ``op=\"retract\"`` archives the ``pm_event_id``
+    event — the only correction for a dateless linked event, so a re-link is
+    create-new + retract-old in one batch (#322). Returns per-event dispositions
+    + reason slugs.
 
     Args:
         org_id (str):
@@ -190,15 +199,18 @@ async def asyncio(
     client: AuthenticatedClient,
     body: OrgEventObservationsRequest,
 ) -> Any | EventObservationsResponse | HTTPValidationError | None:
-    """Submit Org Event Observations
+    r"""Submit Org Event Observations
 
-     Observe lifecycle events on an org, **partial-success** (#321).
+     Observe lifecycle events on an org, **partial-success** (#321/#322).
 
     The event-native producer surface: each event lands independently under its
     own savepoint, so one rejected event (e.g. a ``succeeded_by`` whose successor
     isn't anchored yet → ``linked_entity_unresolved``) never rolls back its
     siblings. ``pm_event_id`` refines an event in place; absent it, a natural
-    create with content dedup. Returns per-event dispositions + reason slugs.
+    create with content dedup. ``op=\"retract\"`` archives the ``pm_event_id``
+    event — the only correction for a dateless linked event, so a re-link is
+    create-new + retract-old in one batch (#322). Returns per-event dispositions
+    + reason slugs.
 
     Args:
         org_id (str):

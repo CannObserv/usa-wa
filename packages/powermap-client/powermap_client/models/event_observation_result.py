@@ -13,7 +13,7 @@ T = TypeVar("T", bound="EventObservationResult")
 
 @_attrs_define
 class EventObservationResult:
-    """Per-event outcome (#321). ``reason`` is a machine-readable slug on rejection.
+    """Per-event outcome (#321/#322). ``reason`` is a machine-readable slug on rejection.
 
     Attributes:
         disposition (str):
