@@ -74,11 +74,14 @@ Each PM event carries **exactly one** linked entity. Multi-way re-orgs are expre
 
 ## PM API contract (§ B) — the CannObserv/power-map issue
 
-> **Filed: [power-map#321](https://github.com/CannObserv/power-map/issues/321)** — producer event-write API + `succeeded_by` slug + `(source, source_id)` idempotency. usa-wa implementation (§ C) is blocked on it. Positioned as the producer-scale complement to power-map#307 (shipped org-lifespan model) / #313 (manual 9-org backfill).
+> **Filed: [power-map#321](https://github.com/CannObserv/power-map/issues/321)** — `succeeded_by` slug + `pm_event_id` refine-in-place + per-event response disposition. usa-wa implementation (§ C) is gated on it (except append-only window emission, partially unblocked today — see B2). Positioned as the producer-scale complement to power-map#307 (shipped org-lifespan model) / #313 (manual 9-org backfill).
 
-Events are read-only end-to-end today **for producers** (`list_org_events` / `list_person_events` / `list_entity_event_types`; `descriptors/events.py`: *"usa-wa does not yet produce entity events… no observation-embed path"*). Nothing in usa-wa proceeds until the following ship.
+**Scope corrected after the #321 maintainer review (2026-07-25).** Three assumptions in the original filing were wrong and the ask shrank accordingly:
+1. **Events are already producer-writable** — embedded in the org/person observation payload via `write_entity_events` (`POST /organizations/{id}/observations`). There is no missing "write API"; the channel exists.
+2. **A dedicated sub-resource would *not* decouple events from the org LWW clock.** `entity_events` has no outbox trigger; changes propagate only via `trg_touch_entity_on_event_change` bumping `organizations.updated_at` (which the org outbox trigger then emits). Both transports hit the same trigger — clock placement is a *trigger* decision, not a transport one.
+3. **Strict-identical re-emit is already a true no-op** — content-dedup on `(event_type, full partial-date, linked_entity)` (NULLs-equal) means an identical event never INSERTs, never touches, never emits an outbox row. The append-only no-op guarantee already holds.
 
-**Relationship to existing power-map work.** PM already models org lifespan via `founded`/`dissolved`/`merged_with` **entity events**, with a `v_org_lifespan` view, an assignment-must-fall-within-lifespan invariant, admin event-writing, and an audit/close script (power-map#307, shipped). power-map#313 is the *manual* backfill of that model for 9 defunct orgs — **blocked on human-supplied end dates entered in admin**, and it explicitly flags renamed-continuity committees (e.g. Senate LCTA, and the COG→RSG re-key of #305) as *"renamed continuity → re-home per #266, not dissolve."* This spec is the **producer-scale** complement: usa-wa supplies these events for all ~150 re-keyed WA committees from the roster archive instead of by hand, which requires (a) a producer event-write API — the missing piece below — and (b) a `succeeded_by` slug to model the renamed-continuity case #313 has no first-class link for.
+**Relationship to existing power-map work.** PM already models org lifespan via `founded`/`dissolved`/`merged_with` **entity events**, with a `v_org_lifespan` view, an assignment-must-fall-within-lifespan invariant, and an audit/close script (power-map#307, shipped). power-map#313 is the *manual* backfill of that model for 9 defunct orgs — blocked on human-supplied end dates — and flags renamed-continuity committees (Senate LCTA; the COG→RSG re-key of #305) as *"renamed continuity → re-home per #266, not dissolve."* This spec is the **producer-scale** complement: usa-wa supplies these events for all ~150 re-keyed WA committees from the roster archive instead of by hand.
 
 ### B1 — Catalog addition (one new org event type)
 
@@ -88,33 +91,31 @@ applies_to: organization   requires_linked_entity: true   requires_year: false
 direction convention: event lives on the PREDECESSOR; linked_entity → successor
 ```
 
-`founded` / `dissolved` (window) and `split_from` / `merged_with` (branches) already exist and are unchanged.
+`founded` / `dissolved` (window) and `split_from` / `merged_with` (branches) already exist and are unchanged. `succeeded_by` is the genuine gap — the dominant rename-re-key *continuation* has no linked-entity slug (#313 works around it via "re-home per #266").
 
-### B2 — Event write channel (the core missing piece)
+### B2 — Refine-in-place idempotency — anchor decision: **B (`pm_event_id` native update)**
 
-A producer path mirroring the existing observation pattern. Recommended: a **dedicated sub-resource observation** (keeps events off the parent org's own LWW clock — rejected embedding events in the org observation payload for that reason):
+The write channel exists; append-only identical re-emit already no-ops (see correction 3). The real gap content-dedup **can't** cover is letting a producer **refine** an event in place (year-only → full date, corrected date) without minting a duplicate — the same gap power-map#311 solved for assignments.
 
-```
-POST /api/v1/organizations/{org_id}/events/observations
-{
-  source, source_id,                       # producer natural key (idempotency anchor)
-  event_type_slug,                         # founded | dissolved | succeeded_by | split_from | merged_with
-  date: { year, month?, day? },            # PartialDate; year required for founded/dissolved
-  linked_entity_type, linked_entity_id,    # PM org ULID, when the slug requires it
-  notes?, visibility="public"
-}
-→ ObservationResult { disposition: new | auto-attached, event_id }
-```
+**Chosen anchor = B: `pm_event_id` native update-in-place** (the #311 pattern), gated on `source_key_id` provenance. Rejected **A (`(source, source_id)` producer natural key)** — A's only real advantage is a *stateless blind re-emit* contract, which usa-wa structurally does not use: our span/assignment producers already carry local anchored rows and address PM by `pm_*_id` (`descriptors/assignment.py` dual-mode). The event producer carries local rows the same way, so A's cost (a new 4th PM idempotency primitive) buys a statelessness we won't exploit. B reuses the exact assignment machinery + no-op gate; the `pm_event_id` anchor is free since we already mirror `/events` and store `pm_entity_event_id`, and the enriched write response returns the id at create time.
 
-### B3 — Idempotency + LWW-safety (hard requirement)
+**Hard rider:** the anchored update path must **diff-before-write and skip the UPDATE when unchanged** — an unchanged UPDATE bumps `updated_at` and re-arms the ping-pong repeatedly diagnosed in #65 / #102 / #109. Append-only gets this free; the id-addressed path must earn it (the `docs/LWW-NOOP-GATE.md` discipline).
 
-PM must dedup on `(source, source_id)` so a re-produced identical event is a **true no-op that does not advance PM's clock**. The usa-wa producer re-emits every refresh cycle; without this we re-arm the outbox ping-pong repeatedly diagnosed in #65 / #102 / #109. This is a blocking acceptance criterion for the PM feature, not a nicety.
+**Partial unblock:** because append-only embedded writes already no-op cleanly, the `founded`/`dissolved` **window emission is achievable today**; only refine-in-place (date sharpening) and `succeeded_by` truly gate on #321.
 
-### B4 — Read-back
+### B3 — Per-event response disposition (must-have)
 
-`GET /{id}/events` read-mirror already exists (`sync_entity_events`). Ask that produced events also surface in the **changes feed** so the reconcile path sees them without a full re-fetch. Nice-to-have — we already poll `/events` on the reconcile cadence — but preferred.
+The embedded writer returns nothing and silently skips dups. #321 must return **per-event disposition** (`new｜auto-attached｜updated｜rejected`) — our LWW no-op gate and non-convergence telemetry (#112) cannot function without it. Required regardless of transport.
 
-### B5 — No change for `active`
+### B4 — Transport (smaller choice): thin `POST /{id}/events/observations`, justified by failure isolation
+
+A dedicated sub-resource is **not** justified by LWW decoupling (correction 2) but is still worth it for **failure isolation** — the lineage backfill emits many linked-entity events across orgs, and one bad `succeeded_by` (e.g. a not-yet-anchored successor) should not roll back an org's whole single-transaction observation. Also conceptual clarity (a `succeeded_by` is a relationship, not an org attribute). If PM prefers to enrich the embedded surface instead, acceptable — we lose only the isolation.
+
+### B5 — Trigger/outbox: **no change** (do not decouple)
+
+Keep events on the `trg_touch_entity_on_event_change` → org-outbox path. That org-touch is **load-bearing for our `sync_entity_events` reconcile** (we re-fetch `/events` on org change); decoupling breaks a working path for a speculative benefit, and a genuine timeline change *should* propagate an org change. Event-granular feed propagation, if ever wanted, is additive (event outbox rows *alongside* the org touch), not now.
+
+### B6 — No change for `active`
 
 The `reconcile_committee_active` producer path already emits `active`; deactivation rides existing machinery. No PM change required for Axis 1.
 
@@ -132,7 +133,7 @@ The `reconcile_committee_active` producer path already emits `active`; deactivat
 
 ### C3 — Event producer (blocked on § B)
 
-A new descriptor path emitting the C1 windows + the C2 attested links through the B2 observation channel, with `(source, source_id)` idempotency + the LWW no-op gate (`docs/LWW-NOOP-GATE.md`). Read-mirror already exists (`descriptors/events.py` / `sync_entity_events`).
+A new descriptor path emitting the C1 windows + the C2 attested links through the event observation surface, carrying local anchored event rows and addressing PM by `pm_event_id` for refine-in-place (the `descriptors/assignment.py` dual-mode, per the B2 decision) + the diff-before-write LWW no-op gate (`docs/LWW-NOOP-GATE.md`). Read-mirror already exists (`descriptors/events.py` / `sync_entity_events`). Append-only window emission is achievable ahead of #321; refine-in-place + `succeeded_by` gate on it.
 
 ### C4 — Child-entity coherence validation (Roles / Assignments)
 
@@ -148,7 +149,8 @@ A read-only **lineage-candidate report** surfacing likely succession pairs by na
 
 ## Rollout order (all deferred)
 
-1. power-map ships B1 + B2 + B3 (+ B4).
+0. *(unblocked now)* Optionally emit append-only `founded`/`dissolved` windows via the existing embedded write (identical re-emit already no-ops) — but deferred with the rest per scope C.
+1. power-map ships B1 (`succeeded_by`) + B2 (`pm_event_id` refine-in-place) + B3 (per-event disposition) (+ B4 sub-resource).
 2. Regenerate the PM client; wire the event producer + descriptor (C3).
 3. Backfill `founded`/`dissolved` windows (C1) + the one-time ~150 deactivation run (C1 / OQ4).
 4. Stand up the operator attestation surface (C2) + the curation-assist report (C5); operator attests the succession links.
@@ -159,6 +161,8 @@ A read-only **lineage-candidate report** surfacing likely succession pairs by na
 - **Scope:** model + PM API contract only; defer both usa-wa phases until PM is ready (user choice "C").
 - **Lineage establishment:** hybrid — auto-derive objective facts (windows, current-vs-historical), operator-attest the succession links.
 - **Event vocabulary:** add `succeeded_by` linked slug for continuation; reuse `split_from`/`merged_with` for branches; `founded`/`dissolved` for windows.
+- **Idempotency anchor (#321 review):** **B — `pm_event_id` native update-in-place** (the #311 assignment pattern), not A (`(source, source_id)`) — usa-wa producers carry local anchors already, so A's stateless-blind-re-emit benefit is unused. Diff-before-write on the anchored path is mandatory.
+- **Trigger/outbox:** no decouple — events stay on the org-touch → outbox path (load-bearing for our `sync_entity_events` reconcile).
 - **OQ1 (`founded` vs archive floor):** emit `founded` only when first-observed is safely after the 1999-00 floor; otherwise omit and leave to operator attestation. `dissolved` is reliable.
 - **OQ2:** provide the advisory curation-assist report (C5).
 - **OQ3 (splits/merges):** PM allows exactly one linked entity per event; a split is 1→2 (parent potentially preserved), a merge is 2→1 (one predecessor potentially preserved), each expressed as pairwise single-link events. The per-Id `active` rule handles both naturally (both current children active; dissolved parent inactive).
@@ -166,6 +170,6 @@ A read-only **lineage-candidate report** surfacing likely succession pairs by na
 
 ## Open questions (carry into the implementation plan when unblocked)
 
-- Exact PM disposition semantics for the event observation (does `auto-attached` apply `date`/`notes` deltas, or only anchor? — the #108 lesson for assignments must be checked for events before we rely on updates).
 - Whether `succeeded_by` events should also carry an optional `date` (effective biennium boundary) for a richer timeline, given `requires_year=false`.
+- Confirm the enriched writer's `updated` disposition applies `date` deltas to the anchored event (the #108 assignment lesson — `auto-attached` dropped `end_date`/`is_current` deltas — must not recur for events; the B2 `pm_event_id` path is designed to avoid it, but verify against the shipped #321 behaviour).
 - Lineage identity for C4's "sole active in its lineage" assertion when a split yields two legitimately-active heads — the invariant must key on attested links, not on name.
