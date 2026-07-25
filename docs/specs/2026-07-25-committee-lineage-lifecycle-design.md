@@ -1,8 +1,9 @@
 # Committee Lineage & Lifecycle — data-model + PM API contract
 
 **Date:** 2026-07-25
-**Status:** Design approved; implementation deferred (blocked on a power-map API feature — see § PM contract).
-**Scope:** Model the coherent-timeline representation for re-keyed legislative committees, and specify the power-map API contract it depends on. **No usa-wa code is implemented under this spec** until power-map ships the event-write channel + `succeeded_by` catalog slug. The usa-wa design (§ C) is specified here so the PM contract is validated against a concrete consumer; it becomes its own plan/PR cycle once unblocked.
+**Tracking issue:** [usa-wa#124](https://github.com/CannObserv/usa-wa/issues/124).
+**Status:** Design approved. **Upstream dependency power-map#321 shipped (2026-07-25, app 0.13.1) — usa-wa build is now UNBLOCKED.** Next gate is PM-client regeneration (see § B). The event void/retract follow-up is power-map#322 (only the operator re-link correction path depends on it).
+**Scope:** Model the coherent-timeline representation for re-keyed legislative committees, and specify the power-map API contract it depended on (now delivered). The usa-wa design (§ C) is specified here so the PM contract was validated against a concrete consumer; it becomes its own plan/PR cycle under usa-wa#124.
 
 ## Problem
 
@@ -74,7 +75,9 @@ Each PM event carries **exactly one** linked entity. Multi-way re-orgs are expre
 
 ## PM API contract (§ B) — the CannObserv/power-map issue
 
-> **Filed: [power-map#321](https://github.com/CannObserv/power-map/issues/321)** — `succeeded_by` slug + `pm_event_id` refine-in-place + per-event response disposition. usa-wa implementation (§ C) is gated on it (except append-only window emission, partially unblocked today — see B2). Positioned as the producer-scale complement to power-map#307 (shipped org-lifespan model) / #313 (manual 9-org backfill).
+> **[power-map#321](https://github.com/CannObserv/power-map/issues/321) — SHIPPED & CLOSED (2026-07-25, app 0.13.1).** Delivered exactly as ratified: `succeeded_by` slug · `pm_event_id` refine-in-place · per-event dispositions + reason slugs · partial-success sub-resource · no trigger change. Consumption prerequisite: **regenerate the PM client** (the endpoint + response models are absent from `packages/powermap-client/`). Void/retract for dateless linked events → **[power-map#322](https://github.com/CannObserv/power-map/issues/322)**. Positioned as the producer-scale complement to power-map#307 / #313.
+>
+> **As-shipped notes that correct this section:** the endpoint path is **`/api/v1/orgs/{org_id}/events/observations`** (`/orgs/`, not `/organizations/`). Dispositions surface on **both** transports, but only the **sub-resource is partial-success**; the embedded `ObservationResponse.events` path is **all-or-nothing** — so C3 must use the sub-resource to get failure isolation. Reason slugs as landed: `linked_entity_unresolved` (transient), `identity_immutable` / `provenance_conflict` / `invalid` (terminal).
 
 **Scope corrected after the #321 maintainer review (2026-07-25).** Three assumptions in the original filing were wrong and the ask shrank accordingly:
 1. **Events are already producer-writable** — embedded in the org/person observation payload via `write_entity_events` (`POST /organizations/{id}/observations`). There is no missing "write API"; the channel exists.
@@ -167,8 +170,8 @@ A read-only **lineage-candidate report** surfacing likely succession pairs by na
 ## Rollout order (all deferred)
 
 0. *(unblocked now)* Optionally emit append-only `founded`/`dissolved` windows via the existing embedded write (identical re-emit already no-ops) — but deferred with the rest per scope C.
-1. power-map ships B1 (`succeeded_by`) + B2 (`pm_event_id` refine-in-place) + B3/B3a/B3b (per-event disposition + reason slug, partial-success batch, mutable-field boundary) (+ B4 sub-resource). Event void/retract is a tracked PM follow-up, not gating this rollout.
-2. Regenerate the PM client; wire the event producer + descriptor (C3).
+1. ~~power-map ships B1/B2/B3/B3a/B3b (+ B4)~~ **DONE — power-map#321 (app 0.13.1).** Event void/retract = power-map#322 (only the C2 re-link correction path depends on it).
+2. **Regenerate the PM client** (the event-observation endpoint + response models are absent today); extend `pmclient.py` + the `PowerMapClient` Protocol to expose event production via the partial-success sub-resource. Then wire the event producer + descriptor (C3).
 3. Backfill `founded`/`dissolved` windows (C1) + the one-time ~150 deactivation run (C1 / OQ4).
 4. Stand up the operator attestation surface (C2) + the curation-assist report (C5); operator attests the succession links.
 5. Add the C4 validation invariant + timer.
