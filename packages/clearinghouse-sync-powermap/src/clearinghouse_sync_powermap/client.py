@@ -18,10 +18,19 @@ from clearinghouse_sync_powermap.models import (
     DISPOSITION_AUTO_ATTACHED,
     DISPOSITION_NEW,
     DISPOSITION_REJECTED,
+    DISPOSITION_RETRACTED,
+    DISPOSITION_UPDATED,
 )
 
 #: Dispositions that successfully anchor a local row to a PM id.
 ANCHORING_DISPOSITIONS = frozenset({DISPOSITION_AUTO_ATTACHED, DISPOSITION_NEW})
+
+#: Event-observation dispositions carrying a usable ``event_id`` anchor (power-map#321/#322):
+#: a create (``new``), an idempotent re-observe (``auto-attached``), a refine-in-place
+#: (``updated``), or an archive (``retracted``). ``rejected`` alone carries no anchor.
+EVENT_ANCHORING_DISPOSITIONS = frozenset(
+    {DISPOSITION_NEW, DISPOSITION_AUTO_ATTACHED, DISPOSITION_UPDATED, DISPOSITION_RETRACTED}
+)
 
 
 class RetryableClientError(Exception):
@@ -83,6 +92,33 @@ class ObservationResult:
     def anchored(self) -> bool:
         """True when PM accepted the observation and returned a usable id."""
         return self.disposition in ANCHORING_DISPOSITIONS and self.pm_id is not None
+
+    @property
+    def rejected(self) -> bool:
+        return self.disposition == DISPOSITION_REJECTED
+
+
+@dataclass(frozen=True)
+class EventObservationResult:
+    """Outcome of one event in a ``POST /orgs/{id}/events/observations`` batch (power-map#321).
+
+    The partial-success sub-resource returns one of these per submitted event, in
+    request order. ``reason`` is the machine-readable slug on a ``rejected`` outcome
+    (``linked_entity_unresolved`` — transient, self-heals once the successor anchors;
+    ``identity_immutable`` / ``provenance_conflict`` / ``invalid`` — terminal), and
+    ``None`` otherwise. The producer routes ``reason`` into the #85 rejection-visibility
+    summary + #112 non-convergence tracking.
+    """
+
+    disposition: str
+    event_id: ULID | None
+    reason: str | None
+    raw: dict
+
+    @property
+    def anchored(self) -> bool:
+        """True when PM accepted the event and returned a usable ``event_id`` anchor."""
+        return self.disposition in EVENT_ANCHORING_DISPOSITIONS and self.event_id is not None
 
     @property
     def rejected(self) -> bool:
@@ -237,4 +273,16 @@ class PowerMapClient(Protocol):
 
     async def post_observation(self, observe_path: str, payload: dict) -> ObservationResult:
         """Submit an observation; return the disposition + anchored id."""
+        ...
+
+    async def submit_org_event_observations(
+        self, org_id: ULID, events: Sequence[dict]
+    ) -> list[EventObservationResult]:
+        """Submit a batch of org entity-event observations (power-map#321).
+
+        Partial-success: each event is applied under its own savepoint, so one
+        rejected event does not roll back its siblings. Returns one
+        :class:`EventObservationResult` per submitted event, in request order. Each
+        ``events`` dict maps onto PM's ``ObservationEventItem`` (``op`` defaults to
+        ``observe``; ``pm_event_id`` addresses a refine-in-place or ``retract``)."""
         ...
