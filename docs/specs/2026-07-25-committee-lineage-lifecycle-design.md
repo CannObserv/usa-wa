@@ -105,7 +105,24 @@ The write channel exists; append-only identical re-emit already no-ops (see corr
 
 ### B3 — Per-event response disposition (must-have)
 
-The embedded writer returns nothing and silently skips dups. #321 must return **per-event disposition** (`new｜auto-attached｜updated｜rejected`) — our LWW no-op gate and non-convergence telemetry (#112) cannot function without it. Required regardless of transport.
+The embedded writer returns nothing and silently skips dups. #321 must return **per-event disposition** (`new｜auto-attached｜updated｜rejected`) — our LWW no-op gate and non-convergence telemetry (#112) cannot function without it. Required regardless of transport. **`rejected` carries a machine-readable reason slug** (e.g. `linked_entity_unresolved` vs `identity_immutable` vs `invalid`) so a *transient* rejection (unanchored link, self-heals) is distinguishable from a *terminal* one and routed to the #85 rejection-visibility summary — otherwise a permanently-rejected event churns invisibly.
+
+### B3a — Partial-success (batch + per-event savepoint) — ratified
+
+The writer accepts a **list** of events, wraps each in its own savepoint, commits the good ones, and returns per-event outcomes — replacing today's all-or-nothing `ObservationRejected` rollback. This is the substance behind "failure isolation." **Benefit for us: ordering-tolerance for free** — a `succeeded_by` emitted before its successor is anchored comes back `rejected` while the org's `founded`/`dissolved`/`active` land, and self-heals next cycle. So the producer never has to strictly sequence successor-before-link emission; eventual consistency handles it.
+
+### B3b — Mutable field set on a `pm_event_id` update — ratified
+
+Identity vs. refinable, the exact #311 analog:
+
+| assignment (#311) | event |
+|---|---|
+| identity `(person, role)` | identity `(event_type, linked_entity)` |
+| mutable: `start_date`, `end_date`, `is_current` | mutable: `date` parts, `notes`, `place`, `visibility` |
+
+`linked_entity` is the relationship's *other endpoint* (changing it changes **what** the relationship is → `rejected`, never a silent reclassify); `date` is the refinable *when* (the `founded` 2013→2011 sharpening — the common refine). Immutable identity keeps the diff-before-write no-op comparator **narrow** (mutable set only) — the #109 lesson (a wide comparator risks a false no-op that *erases* a pending change).
+
+**Follow-up (not blocking): event retraction/void.** Under immutable identity, an operator *re-link* correction (wrong successor) is create-new + retract-old, not an in-place edit — and the linked events (`succeeded_by`/`split_from`/`merged_with`) are precisely the case with **no mutable field to refine**, so their only correction is retraction. Our C2 surface (append-only + supersede) produces these. Date-refine (`founded`/`dissolved`) is the common path and needs no void; mis-links are rare and admin-retractable (#313 precedent). Tracked as the PM follow-up that closes the correction loop for dateless linked events.
 
 ### B4 — Transport (smaller choice): thin `POST /{id}/events/observations`, justified by failure isolation
 
@@ -128,7 +145,7 @@ The `reconcile_committee_active` producer path already emits `active`; deactivat
 
 ### C2 — Operator attestation surface (judgment layer; new, modeled on #107 `operator_events`)
 
-- Append-only, `usa_wa_operator`-sourced store for `succeeded_by` / `split_from` / `merged_with` attestations, natural-keyed on `(predecessor Id, successor Id, slug, date)`; supersede-for-corrections (provenance never mutated, #54).
+- Append-only, `usa_wa_operator`-sourced store for `succeeded_by` / `split_from` / `merged_with` attestations, natural-keyed on `(predecessor Id, successor Id, slug, date)`; supersede-for-corrections (provenance never mutated, #54). A *re-link* correction (wrong successor) supersedes locally and, on the producer side, is create-new + retract-old — dependent on the PM event void/retract follow-up (B3b); a same-target date correction refines in place (B2).
 - A CLI interjection surface (direct-arg / `--file` batch / `--supersede <id>` / `--list` / `--dry-run`), validating that both ends resolve to committee Orgs before writing; app-role DML (shell access = trust boundary, like the #107 CLI).
 
 ### C3 — Event producer (blocked on § B)
@@ -150,7 +167,7 @@ A read-only **lineage-candidate report** surfacing likely succession pairs by na
 ## Rollout order (all deferred)
 
 0. *(unblocked now)* Optionally emit append-only `founded`/`dissolved` windows via the existing embedded write (identical re-emit already no-ops) — but deferred with the rest per scope C.
-1. power-map ships B1 (`succeeded_by`) + B2 (`pm_event_id` refine-in-place) + B3 (per-event disposition) (+ B4 sub-resource).
+1. power-map ships B1 (`succeeded_by`) + B2 (`pm_event_id` refine-in-place) + B3/B3a/B3b (per-event disposition + reason slug, partial-success batch, mutable-field boundary) (+ B4 sub-resource). Event void/retract is a tracked PM follow-up, not gating this rollout.
 2. Regenerate the PM client; wire the event producer + descriptor (C3).
 3. Backfill `founded`/`dissolved` windows (C1) + the one-time ~150 deactivation run (C1 / OQ4).
 4. Stand up the operator attestation surface (C2) + the curation-assist report (C5); operator attests the succession links.
@@ -163,6 +180,8 @@ A read-only **lineage-candidate report** surfacing likely succession pairs by na
 - **Event vocabulary:** add `succeeded_by` linked slug for continuation; reuse `split_from`/`merged_with` for branches; `founded`/`dissolved` for windows.
 - **Idempotency anchor (#321 review):** **B — `pm_event_id` native update-in-place** (the #311 assignment pattern), not A (`(source, source_id)`) — usa-wa producers carry local anchors already, so A's stateless-blind-re-emit benefit is unused. Diff-before-write on the anchored path is mandatory.
 - **Trigger/outbox:** no decouple — events stay on the org-touch → outbox path (load-bearing for our `sync_entity_events` reconcile).
+- **Partial-success (#321 Q1, ratified):** the writer takes a list, per-event savepoint, partial-success, `rejected` with a reason slug. Gives the producer ordering-tolerance (a link emitted before its successor anchors is `rejected` + self-heals), so no strict successor-before-link sequencing needed.
+- **Mutable field set (#321 Q2, ratified):** identity = `(event_type, linked_entity)` (immutable, changed → `rejected`); mutable = `date`/`notes`/`place`/`visibility`. The #311 analog (identity `(person, role)` / mutable dates). Event void/retract is a tracked PM follow-up for dateless-linked-event corrections (our C2 supersede model).
 - **OQ1 (`founded` vs archive floor):** emit `founded` only when first-observed is safely after the 1999-00 floor; otherwise omit and leave to operator attestation. `dissolved` is reliable.
 - **OQ2:** provide the advisory curation-assist report (C5).
 - **OQ3 (splits/merges):** PM allows exactly one linked entity per event; a split is 1→2 (parent potentially preserved), a merge is 2→1 (one predecessor potentially preserved), each expressed as pairwise single-link events. The per-Id `active` rule handles both naturally (both current children active; dissolved parent inactive).
@@ -171,5 +190,5 @@ A read-only **lineage-candidate report** surfacing likely succession pairs by na
 ## Open questions (carry into the implementation plan when unblocked)
 
 - Whether `succeeded_by` events should also carry an optional `date` (effective biennium boundary) for a richer timeline, given `requires_year=false`.
-- Confirm the enriched writer's `updated` disposition applies `date` deltas to the anchored event (the #108 assignment lesson — `auto-attached` dropped `end_date`/`is_current` deltas — must not recur for events; the B2 `pm_event_id` path is designed to avoid it, but verify against the shipped #321 behaviour).
+- Verify against shipped #321: the `updated` disposition actually applies `date` deltas to the anchored event (the #108 assignment lesson — `auto-attached` dropped `end_date`/`is_current` deltas — must not recur; B2/B3b are designed to avoid it).
 - Lineage identity for C4's "sole active in its lineage" assertion when a split yields two legitimately-active heads — the invariant must key on attested links, not on name.
