@@ -8,6 +8,7 @@ discover them.
 
 from clearinghouse_domain_legislative import (  # noqa: F401
     bills,
+    committee_succession,
     identity,
     operator_events,
     pdc,
@@ -26,4 +27,5 @@ __all__ = [
     "pdc",
     "role_types",
     "operator_events",
+    "committee_succession",
 ]
