@@ -74,7 +74,11 @@ Each PM event carries **exactly one** linked entity. Multi-way re-orgs are expre
 
 ## PM API contract (§ B) — the CannObserv/power-map issue
 
-Events are read-only end-to-end today (`list_org_events` / `list_person_events` / `list_entity_event_types`; `descriptors/events.py`: *"usa-wa does not yet produce entity events… no observation-embed path"*). Nothing in usa-wa proceeds until the following ship.
+> **Filed: [power-map#321](https://github.com/CannObserv/power-map/issues/321)** — producer event-write API + `succeeded_by` slug + `(source, source_id)` idempotency. usa-wa implementation (§ C) is blocked on it. Positioned as the producer-scale complement to power-map#307 (shipped org-lifespan model) / #313 (manual 9-org backfill).
+
+Events are read-only end-to-end today **for producers** (`list_org_events` / `list_person_events` / `list_entity_event_types`; `descriptors/events.py`: *"usa-wa does not yet produce entity events… no observation-embed path"*). Nothing in usa-wa proceeds until the following ship.
+
+**Relationship to existing power-map work.** PM already models org lifespan via `founded`/`dissolved`/`merged_with` **entity events**, with a `v_org_lifespan` view, an assignment-must-fall-within-lifespan invariant, admin event-writing, and an audit/close script (power-map#307, shipped). power-map#313 is the *manual* backfill of that model for 9 defunct orgs — **blocked on human-supplied end dates entered in admin**, and it explicitly flags renamed-continuity committees (e.g. Senate LCTA, and the COG→RSG re-key of #305) as *"renamed continuity → re-home per #266, not dissolve."* This spec is the **producer-scale** complement: usa-wa supplies these events for all ~150 re-keyed WA committees from the roster archive instead of by hand, which requires (a) a producer event-write API — the missing piece below — and (b) a `succeeded_by` slug to model the renamed-continuity case #313 has no first-class link for.
 
 ### B1 — Catalog addition (one new org event type)
 
