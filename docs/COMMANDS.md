@@ -337,6 +337,9 @@ python -m usa_wa_adapter_legislature.committee_succession --file links.json   # 
 python -m usa_wa_adapter_legislature.committee_succession --supersede <id> \
     --subject 14294 --linked 31000 --slug succeeded_by --year 2022 \
     --evidence-url https://...                                    # re-link / year correction
+python -m usa_wa_adapter_legislature.committee_succession --supersede <id> \
+    --subject 14294 --linked 28244 --slug succeeded_by --clear-year \
+    --evidence-url https://...                        # clear the year (vs omit --year = inherit)
 python -m usa_wa_adapter_legislature.committee_succession --list               # current links
 
 # C3 — emit the C1a windows + C2 links to PM as org entity events (create/refine, no-op
