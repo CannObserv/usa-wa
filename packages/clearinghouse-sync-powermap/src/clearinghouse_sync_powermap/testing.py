@@ -23,6 +23,7 @@ from clearinghouse_sync_powermap.client import (
     ChangePage,
     DiscoveredEntity,
     EntityPage,
+    EventObservationResult,
     ObservationResult,
     SubscriptionResult,
 )
@@ -126,6 +127,7 @@ class FakeClient:
         entity_pages: list[EntityPage] | None = None,
         entities: dict[Any, dict] | None = None,
         observation_result: ObservationResult | Any = None,
+        event_observation_result: Any = None,
         search_pages: list[EntityPage] | None = None,
         discovered: list[DiscoveredEntity] | None = None,
         subscribed: list[Any] | None = None,
@@ -136,6 +138,9 @@ class FakeClient:
         self._entity_pages = list(entity_pages or [])
         self._entities = entities or {}
         self._observation_result = observation_result
+        #: Preset event-observation response: a callable ``(org_id, events) -> list`` or a
+        #: fixed ``list[EventObservationResult]``; ``None`` → one anchoring result per event.
+        self._event_observation_result = event_observation_result
         self._search_pages = list(search_pages or [])
         self._discovered = list(discovered or [])
         #: Preset role_types catalog rows for list_role_types (power-map#268).
@@ -145,6 +150,8 @@ class FakeClient:
         #: Mutable subscription set (ULIDs). Preset to model already-registered subs.
         self.subscribed: list[Any] = list(subscribed or [])
         self.posted: list[tuple[str, dict]] = []
+        #: Recorded ``submit_org_event_observations`` calls (org_id, events).
+        self.posted_events: list[tuple[Any, list[dict]]] = []
         self.searched: list[dict] = []
         #: Recorded ``get_entity`` calls (read_path, pm_id) — lets a test assert WHICH
         #: ids a reconcile re-fetched (e.g. the anchored-cohort backstop, usa-wa#13).
@@ -235,3 +242,21 @@ class FakeClient:
         if result is None:
             return ObservationResult(disposition=DISPOSITION_NEW, pm_id=_ULID(), raw={})
         return result
+
+    async def submit_org_event_observations(
+        self, org_id: Any, events
+    ) -> list[EventObservationResult]:
+        events = list(events)
+        self.posted_events.append((org_id, events))
+        result = self._event_observation_result
+        if callable(result):
+            return list(result(org_id, events))
+        if result is not None:
+            return list(result)
+        # Default: one anchoring create per submitted event.
+        return [
+            EventObservationResult(
+                disposition=DISPOSITION_NEW, event_id=_ULID(), reason=None, raw={}
+            )
+            for _ in events
+        ]

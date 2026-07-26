@@ -21,6 +21,8 @@ from clearinghouse_sync_powermap.models import (
     DISPOSITION_AUTO_ATTACHED,
     DISPOSITION_NEW,
     DISPOSITION_REJECTED,
+    DISPOSITION_RETRACTED,
+    DISPOSITION_UPDATED,
 )
 from clearinghouse_sync_powermap.pmclient import GeneratedPowerMapClient
 
@@ -461,6 +463,112 @@ async def test_post_observation_no_unapplied_defaults_empty(client):
     )
 
     assert result.unapplied == ()
+
+
+@respx.mock
+async def test_submit_org_event_observations_maps_per_event_results(client):
+    """#321: the partial-success sub-resource returns a per-event result list; the
+    wrapper maps each to a portable EventObservationResult (disposition/event_id/reason)
+    and preserves order — one landed create alongside one transient rejection."""
+    org_id = ULID()
+    new_event_id = ULID()
+    route = respx.post(f"{BASE}/api/v1/orgs/{org_id}/events/observations").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"disposition": DISPOSITION_NEW, "event_id": str(new_event_id), "reason": None},
+                    {
+                        "disposition": DISPOSITION_REJECTED,
+                        "event_id": None,
+                        "reason": "linked_entity_unresolved",
+                    },
+                ]
+            },
+        )
+    )
+
+    results = await client.submit_org_event_observations(
+        org_id,
+        [
+            {"event_type_slug": "dissolved", "event_year": 2020},
+            {
+                "event_type_slug": "succeeded_by",
+                "linked_entity_type": "organization",
+                "linked_entity_id": str(ULID()),
+            },
+        ],
+    )
+
+    assert route.called
+    assert route.calls.last.request.headers["X-API-Key"] == "secret-key"
+    assert len(results) == 2
+    assert results[0].disposition == DISPOSITION_NEW
+    assert results[0].event_id == new_event_id
+    assert results[0].anchored
+    assert results[0].reason is None
+    assert results[1].rejected
+    assert results[1].event_id is None
+    assert results[1].reason == "linked_entity_unresolved"
+    assert not results[1].anchored
+
+
+@respx.mock
+async def test_submit_org_event_observations_sends_op_and_pm_event_id(client):
+    """A retract carries op=retract + the pm_event_id anchor; an unset op defaults to
+    observe. Verify the request body serializes both refine-in-place fields."""
+    org_id = ULID()
+    anchor = ULID()
+    route = respx.post(f"{BASE}/api/v1/orgs/{org_id}/events/observations").mock(
+        return_value=httpx.Response(
+            200,
+            json={"results": [{"disposition": DISPOSITION_RETRACTED, "event_id": str(anchor)}]},
+        )
+    )
+
+    results = await client.submit_org_event_observations(
+        org_id,
+        [{"op": "retract", "pm_event_id": str(anchor), "event_type_slug": "succeeded_by"}],
+    )
+
+    import json as _json
+
+    body = _json.loads(route.calls.last.request.content)
+    assert body["events"][0]["op"] == "retract"
+    assert body["events"][0]["pm_event_id"] == str(anchor)
+    assert results[0].disposition == DISPOSITION_RETRACTED
+
+
+@respx.mock
+async def test_submit_org_event_observations_empty_results(client):
+    """A defensive empty/absent results list yields an empty list, not a crash."""
+    org_id = ULID()
+    respx.post(f"{BASE}/api/v1/orgs/{org_id}/events/observations").mock(
+        return_value=httpx.Response(200, json={"results": []})
+    )
+
+    assert await client.submit_org_event_observations(org_id, []) == []
+
+
+@respx.mock
+async def test_submit_org_event_observations_updated_disposition_anchors(client):
+    """A refine-in-place returns `updated` with the same anchor — an anchoring
+    disposition (event_id present, not rejected)."""
+    org_id = ULID()
+    anchor = ULID()
+    respx.post(f"{BASE}/api/v1/orgs/{org_id}/events/observations").mock(
+        return_value=httpx.Response(
+            200,
+            json={"results": [{"disposition": DISPOSITION_UPDATED, "event_id": str(anchor)}]},
+        )
+    )
+
+    [result] = await client.submit_org_event_observations(
+        org_id, [{"pm_event_id": str(anchor), "event_type_slug": "founded", "event_year": 2011}]
+    )
+    assert result.disposition == DISPOSITION_UPDATED
+    assert result.event_id == anchor
+    assert result.anchored
 
 
 @respx.mock

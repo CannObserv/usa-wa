@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
@@ -63,7 +63,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | JurisdictionRelationshipsResponse | None:
+) -> Any | HTTPValidationError | JurisdictionRelationshipsResponse | None:
     if response.status_code == 200:
         response_200 = JurisdictionRelationshipsResponse.from_dict(response.json())
 
@@ -74,6 +74,10 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -82,7 +86,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | JurisdictionRelationshipsResponse]:
+) -> Response[Any | HTTPValidationError | JurisdictionRelationshipsResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -100,7 +104,7 @@ def sync_detailed(
     rel_type: None | str | Unset = UNSET,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
-) -> Response[HTTPValidationError | JurisdictionRelationshipsResponse]:
+) -> Response[Any | HTTPValidationError | JurisdictionRelationshipsResponse]:
     """List Jurisdiction Relationships
 
      Return relationships (edges) involving the given jurisdiction.
@@ -121,7 +125,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | JurisdictionRelationshipsResponse]
+        Response[Any | HTTPValidationError | JurisdictionRelationshipsResponse]
     """
 
     kwargs = _get_kwargs(
@@ -149,7 +153,7 @@ def sync(
     rel_type: None | str | Unset = UNSET,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
-) -> HTTPValidationError | JurisdictionRelationshipsResponse | None:
+) -> Any | HTTPValidationError | JurisdictionRelationshipsResponse | None:
     """List Jurisdiction Relationships
 
      Return relationships (edges) involving the given jurisdiction.
@@ -170,7 +174,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | JurisdictionRelationshipsResponse
+        Any | HTTPValidationError | JurisdictionRelationshipsResponse
     """
 
     return sync_detailed(
@@ -193,7 +197,7 @@ async def asyncio_detailed(
     rel_type: None | str | Unset = UNSET,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
-) -> Response[HTTPValidationError | JurisdictionRelationshipsResponse]:
+) -> Response[Any | HTTPValidationError | JurisdictionRelationshipsResponse]:
     """List Jurisdiction Relationships
 
      Return relationships (edges) involving the given jurisdiction.
@@ -214,7 +218,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | JurisdictionRelationshipsResponse]
+        Response[Any | HTTPValidationError | JurisdictionRelationshipsResponse]
     """
 
     kwargs = _get_kwargs(
@@ -240,7 +244,7 @@ async def asyncio(
     rel_type: None | str | Unset = UNSET,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
-) -> HTTPValidationError | JurisdictionRelationshipsResponse | None:
+) -> Any | HTTPValidationError | JurisdictionRelationshipsResponse | None:
     """List Jurisdiction Relationships
 
      Return relationships (edges) involving the given jurisdiction.
@@ -261,7 +265,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | JurisdictionRelationshipsResponse
+        Any | HTTPValidationError | JurisdictionRelationshipsResponse
     """
 
     return (

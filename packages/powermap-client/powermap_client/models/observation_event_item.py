@@ -7,6 +7,7 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..models.observation_event_item_linked_entity_type_type_0 import ObservationEventItemLinkedEntityTypeType0
+from ..models.observation_event_item_op import ObservationEventItemOp
 from ..models.observation_event_item_visibility import ObservationEventItemVisibility
 from ..types import UNSET, Unset
 
@@ -18,6 +19,8 @@ class ObservationEventItem:
     """A lifecycle event claim included in an observation.
 
     Attributes:
+        pm_event_id (None | str | Unset):
+        op (ObservationEventItemOp | Unset):  Default: ObservationEventItemOp.OBSERVE.
         event_type_id (None | str | Unset):
         event_type_slug (None | str | Unset):
         event_year (int | None | Unset):
@@ -34,6 +37,8 @@ class ObservationEventItem:
         visibility (ObservationEventItemVisibility | Unset):  Default: ObservationEventItemVisibility.PUBLIC.
     """
 
+    pm_event_id: None | str | Unset = UNSET
+    op: ObservationEventItemOp | Unset = ObservationEventItemOp.OBSERVE
     event_type_id: None | str | Unset = UNSET
     event_type_slug: None | str | Unset = UNSET
     event_year: int | None | Unset = UNSET
@@ -51,6 +56,16 @@ class ObservationEventItem:
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        pm_event_id: None | str | Unset
+        if isinstance(self.pm_event_id, Unset):
+            pm_event_id = UNSET
+        else:
+            pm_event_id = self.pm_event_id
+
+        op: str | Unset = UNSET
+        if not isinstance(self.op, Unset):
+            op = self.op.value
+
         event_type_id: None | str | Unset
         if isinstance(self.event_type_id, Unset):
             event_type_id = UNSET
@@ -138,6 +153,10 @@ class ObservationEventItem:
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
+        if pm_event_id is not UNSET:
+            field_dict["pm_event_id"] = pm_event_id
+        if op is not UNSET:
+            field_dict["op"] = op
         if event_type_id is not UNSET:
             field_dict["event_type_id"] = event_type_id
         if event_type_slug is not UNSET:
@@ -172,6 +191,22 @@ class ObservationEventItem:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+
+        def _parse_pm_event_id(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        pm_event_id = _parse_pm_event_id(d.pop("pm_event_id", UNSET))
+
+        _op = d.pop("op", UNSET)
+        op: ObservationEventItemOp | Unset
+        if isinstance(_op, Unset):
+            op = UNSET
+        else:
+            op = ObservationEventItemOp(_op)
 
         def _parse_event_type_id(data: object) -> None | str | Unset:
             if data is None:
@@ -306,6 +341,8 @@ class ObservationEventItem:
             visibility = ObservationEventItemVisibility(_visibility)
 
         observation_event_item = cls(
+            pm_event_id=pm_event_id,
+            op=op,
             event_type_id=event_type_id,
             event_type_slug=event_type_slug,
             event_year=event_year,

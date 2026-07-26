@@ -46,6 +46,14 @@ The narrowing that makes autonomous retirement safe (resolved in the spec's Open
   roster (``present_ids ∪ prior_ids``, the prior roster read archive-first). Deep-history
   Ids fall out before the diff (counted ``scoped_out``); a genuine prior-biennium
   retirement (in the prior roster, gone from the current) still fires.
+- **Bulk deactivation escape hatch (``--all-era``, usa-wa#124 C1b).** Live-era scoping
+  leaves those ~150 defunct-era Ids permanently ``active=true`` (never a candidate). The
+  ``--all-era`` flag disables scoping for a **deliberate one-time** whole-cohort diff that
+  retires them (pair with ``--max-absent-fraction 1.0``, the re-key precedent). Once
+  retired (``active=false``, mirrored back), they drop out of the active cohort, so routine
+  *scoped* weekly runs stay clean and the floor still guards partial pulls. A reappearing
+  Id reactivates as usual — the accepted representation of a committee that skipped a
+  biennium then reconvened.
 
 Thin operator surface — ``python -m usa_wa_sync_powermap.reconcile_committee_active``,
 no operator token (shell access is the trust boundary, as with the redrive and
@@ -58,6 +66,9 @@ Examples::
 
     python -m usa_wa_sync_powermap.reconcile_committee_active --dry-run
     python -m usa_wa_sync_powermap.reconcile_committee_active --biennium 2025-26
+    # C1b one-time bulk deactivation of the defunct-era backfill (usa-wa#124):
+    python -m usa_wa_sync_powermap.reconcile_committee_active --all-era \
+        --max-absent-fraction 1.0 --dry-run
 """
 
 import argparse
@@ -326,6 +337,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "high-turnover biennium."
         ),
     )
+    parser.add_argument(
+        "--all-era",
+        action="store_true",
+        help=(
+            "Disable #90 live-era scoping and diff the WHOLE produced cohort — the "
+            "deliberate one-time bulk deactivation of the ~150 defunct-era backfill "
+            "committees (usa-wa#124 C1b). Pair with --max-absent-fraction 1.0; routine "
+            "weekly runs must stay scoped (omit this flag)."
+        ),
+    )
     return parser
 
 
@@ -366,6 +387,12 @@ async def _run(args: argparse.Namespace) -> dict:
     settings = get_sidecar_settings()
     factory = get_session_factory()
     wsl_client = WSLClient("CommitteeService")
+
+    async def _provider(session: AsyncSession) -> CommitteeRosterCohortProvider | None:
+        # --all-era (C1b, #124): no scoping → whole-cohort diff for the deliberate bulk
+        # deactivation. Routine runs stay scoped (#90).
+        return None if args.all_era else await _build_roster_provider(session, wsl_client)
+
     if args.dry_run:
         async with factory() as session:
             return await reconcile_committee_active(
@@ -376,7 +403,7 @@ async def _run(args: argparse.Namespace) -> dict:
                 biennium=biennium,
                 dry_run=True,
                 max_absent_fraction=args.max_absent_fraction,
-                roster_provider=await _build_roster_provider(session, wsl_client),
+                roster_provider=await _provider(session),
             )
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — required to submit observations.")
@@ -390,7 +417,7 @@ async def _run(args: argparse.Namespace) -> dict:
                 pm_client,
                 biennium=biennium,
                 max_absent_fraction=args.max_absent_fraction,
-                roster_provider=await _build_roster_provider(session, wsl_client),
+                roster_provider=await _provider(session),
             )
     finally:
         await pm_client.aclose()

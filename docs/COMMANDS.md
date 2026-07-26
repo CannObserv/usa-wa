@@ -305,6 +305,62 @@ python -m usa_wa_adapter_legislature.operator_events --list               # curr
 python -m usa_wa_adapter_legislature.succession_invariants
 ```
 
+## Committee lineage & lifecycle (#124)
+
+WA re-keys standing committees across eras (new WSL `Id` ~each decade), so the same
+body appears as several `active=true` orgs with disparate dated names and no visible
+lifecycle. Three layers restore a coherent timeline. **Objective** facts auto-derive
+from the roster archive: each `Id`'s founded/dissolved window (C1a) + the `active` flag
+(C1b bulk deactivation of the ~150 defunct-era backfill Ids). The **judgment** layer is
+operator-attested succession links (C2) — which era-`Id` continued / split from / merged
+with which — emitted to PM as `succeeded_by` / `split_from` / `merged_with` entity events
+(C3). A daily **coherence** invariant (C4) + an advisory **candidate report** (C5) close
+the loop. See [`docs/specs/2026-07-25-committee-lineage-lifecycle-design.md`](specs/2026-07-25-committee-lineage-lifecycle-design.md).
+
+```bash
+# C1b — one-time bulk deactivation of the defunct-era backfill (see § Reconcilers below;
+# --all-era disables #90 live-era scoping). Pair with --max-absent-fraction 1.0.
+python -m usa_wa_sync_powermap.reconcile_committee_active --all-era \
+    --max-absent-fraction 1.0 --dry-run
+
+# C2 — record an operator-attested succession link (the judgment layer). Both --subject and
+# --linked are WSL committee Ids that must resolve to live usa_wa_legislature committee Orgs
+# (a typo is a hard error, not a silent no-op link). App-role DML (writes
+# committee_succession_events + provenance under usa_wa_operator); provenance is append-only.
+# A wrong-successor / year fix is --supersede (a NEW row stamping the prior's superseded_by_id).
+# On a supersede: --year sets, --clear-year clears, omitting both inherits the prior's year.
+# --dry-run validates + writes, then rolls back. Exit 2 on a validation failure.
+python -m usa_wa_adapter_legislature.committee_succession \
+    --subject 14294 --linked 28244 --slug succeeded_by --year 2021 \
+    --evidence-url https://... [--notes "renamed + re-scoped"]
+python -m usa_wa_adapter_legislature.committee_succession --file links.json   # JSON-array batch
+python -m usa_wa_adapter_legislature.committee_succession --supersede <id> \
+    --subject 14294 --linked 31000 --slug succeeded_by --year 2022 \
+    --evidence-url https://...                                    # re-link / year correction
+python -m usa_wa_adapter_legislature.committee_succession --supersede <id> \
+    --subject 14294 --linked 28244 --slug succeeded_by --clear-year \
+    --evidence-url https://...                        # clear the year (vs omit --year = inherit)
+python -m usa_wa_adapter_legislature.committee_succession --list               # current links
+
+# C3 — emit the C1a windows + C2 links to PM as org entity events (create/refine, no-op
+# gated; anchors read from the read-mirror, not a local producer row). --dry-run computes
+# the diff without posting. Exit 1 if any event rejected / 2 on a global auth block.
+python -m usa_wa_sync_powermap.committee_event_producer --dry-run
+
+# C4 — daily coherence invariant (read-only anti-drift backstop): INV1 no active=false
+# committee carries a live membership Assignment; INV2 the subject of a non-superseded
+# succeeded_by/merged_with link is active=false (split_from exempt). Exit 1 on any violation
+# → the OnFailure=usa-wa-notify-failure@ handler emails the operator. Prod runs it daily at
+# 07:30 UTC via usa-wa-committee-lineage-invariants.timer, AFTER the refreshes + reconcile
+# have deactivated defunct committees + closed their spans (else it pages on pre-existing drift).
+python -m usa_wa_adapter_legislature.committee_lineage_invariants
+
+# C5 — advisory candidate report (read-only; suggests which era-Id pairs to attest via C2).
+# Ranks same-chamber name-similar pairs by name Jaccard + adjacent windows + shared members.
+# Nothing is written — ground truth stays with the operator.
+python -m usa_wa_adapter_legislature.committee_lineage_suggest
+```
+
 ## Reconcilers & validation (PM sync)
 
 Emit-only producer CLIs (PM stays the authority; they mirror curation back) plus

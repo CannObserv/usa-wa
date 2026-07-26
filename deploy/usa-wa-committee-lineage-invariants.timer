@@ -1,0 +1,15 @@
+[Unit]
+Description=usa-wa — daily committee lineage invariant check (#124)
+Documentation=https://github.com/CannObserv/usa-wa/issues/124
+
+[Timer]
+# Daily 07:30 UTC — after the succession invariants (07:15) and the daily refreshes, so the
+# committee cohort is settled. Read-only + idempotent — a missed-then-caught run is safe.
+OnCalendar=*-*-* 07:30:00 UTC
+# Run on next boot if the box was down at the scheduled time.
+Persistent=true
+# Jitter to avoid firing on the dot.
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

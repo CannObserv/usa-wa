@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
@@ -39,7 +39,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> EmbeddingBatchArchiveResponse | HTTPValidationError | None:
+) -> Any | EmbeddingBatchArchiveResponse | HTTPValidationError | None:
     if response.status_code == 200:
         response_200 = EmbeddingBatchArchiveResponse.from_dict(response.json())
 
@@ -50,6 +50,10 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -58,7 +62,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[EmbeddingBatchArchiveResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingBatchArchiveResponse | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -73,7 +77,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     model_id: str,
     source_job_id: str,
-) -> Response[EmbeddingBatchArchiveResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingBatchArchiveResponse | HTTPValidationError]:
     """Batch Soft Delete Embeddings
 
      Batch soft-delete all active embeddings for ``person_id`` matching ``source_job_id``.
@@ -91,7 +95,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EmbeddingBatchArchiveResponse | HTTPValidationError]
+        Response[Any | EmbeddingBatchArchiveResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -113,7 +117,7 @@ def sync(
     client: AuthenticatedClient,
     model_id: str,
     source_job_id: str,
-) -> EmbeddingBatchArchiveResponse | HTTPValidationError | None:
+) -> Any | EmbeddingBatchArchiveResponse | HTTPValidationError | None:
     """Batch Soft Delete Embeddings
 
      Batch soft-delete all active embeddings for ``person_id`` matching ``source_job_id``.
@@ -131,7 +135,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EmbeddingBatchArchiveResponse | HTTPValidationError
+        Any | EmbeddingBatchArchiveResponse | HTTPValidationError
     """
 
     return sync_detailed(
@@ -148,7 +152,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     model_id: str,
     source_job_id: str,
-) -> Response[EmbeddingBatchArchiveResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingBatchArchiveResponse | HTTPValidationError]:
     """Batch Soft Delete Embeddings
 
      Batch soft-delete all active embeddings for ``person_id`` matching ``source_job_id``.
@@ -166,7 +170,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EmbeddingBatchArchiveResponse | HTTPValidationError]
+        Response[Any | EmbeddingBatchArchiveResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -186,7 +190,7 @@ async def asyncio(
     client: AuthenticatedClient,
     model_id: str,
     source_job_id: str,
-) -> EmbeddingBatchArchiveResponse | HTTPValidationError | None:
+) -> Any | EmbeddingBatchArchiveResponse | HTTPValidationError | None:
     """Batch Soft Delete Embeddings
 
      Batch soft-delete all active embeddings for ``person_id`` matching ``source_job_id``.
@@ -204,7 +208,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EmbeddingBatchArchiveResponse | HTTPValidationError
+        Any | EmbeddingBatchArchiveResponse | HTTPValidationError
     """
 
     return (

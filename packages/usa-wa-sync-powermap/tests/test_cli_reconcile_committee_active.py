@@ -118,7 +118,7 @@ async def test_run_dry_run_counts_without_pm_client(monkeypatch, db_session, usa
     # 200 is absent from the current roster but present in the prior — a live-era retire.
     _patch_wsl(monkeypatch, [{"Id": 100}], prior=[{"Id": 100}, {"Id": 200}])
 
-    args = SimpleNamespace(biennium="2025-26", dry_run=True, max_absent_fraction=1.0)
+    args = SimpleNamespace(biennium="2025-26", dry_run=True, max_absent_fraction=1.0, all_era=False)
     result = await cli._run(args)
 
     assert result["dry_run"] is True
@@ -131,7 +131,9 @@ async def test_run_requires_api_key_when_submitting(monkeypatch, db_session):
     _patch_settings(monkeypatch, api_key="")
     _patch_wsl(monkeypatch, [{"Id": 100}])
 
-    args = SimpleNamespace(biennium="2025-26", dry_run=False, max_absent_fraction=1.0)
+    args = SimpleNamespace(
+        biennium="2025-26", dry_run=False, max_absent_fraction=1.0, all_era=False
+    )
     with pytest.raises(RuntimeError, match="POWERMAP_API_KEY"):
         await cli._run(args)
 
@@ -159,7 +161,9 @@ async def test_run_submits_and_closes_client(monkeypatch, db_session, usa_wa):
 
     monkeypatch.setattr(cli, "build_pm_client", _FakePM)
 
-    args = SimpleNamespace(biennium="2025-26", dry_run=False, max_absent_fraction=1.0)
+    args = SimpleNamespace(
+        biennium="2025-26", dry_run=False, max_absent_fraction=1.0, all_era=False
+    )
     result = await cli._run(args)
 
     assert result["retired"] == 1

@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
@@ -27,16 +27,24 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | PersonDetail | None:
+) -> Any | HTTPValidationError | PersonDetail | None:
     if response.status_code == 200:
         response_200 = PersonDetail.from_dict(response.json())
 
         return response_200
 
+    if response.status_code == 304:
+        response_304 = cast(Any, None)
+        return response_304
+
     if response.status_code == 422:
         response_422 = HTTPValidationError.from_dict(response.json())
 
         return response_422
+
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -46,7 +54,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | PersonDetail]:
+) -> Response[Any | HTTPValidationError | PersonDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -59,7 +67,7 @@ def sync_detailed(
     person_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[HTTPValidationError | PersonDetail]:
+) -> Response[Any | HTTPValidationError | PersonDetail]:
     """Get Person
 
      Return full person record with public name variants and identifiers.
@@ -72,7 +80,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | PersonDetail]
+        Response[Any | HTTPValidationError | PersonDetail]
     """
 
     kwargs = _get_kwargs(
@@ -90,7 +98,7 @@ def sync(
     person_id: str,
     *,
     client: AuthenticatedClient,
-) -> HTTPValidationError | PersonDetail | None:
+) -> Any | HTTPValidationError | PersonDetail | None:
     """Get Person
 
      Return full person record with public name variants and identifiers.
@@ -103,7 +111,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | PersonDetail
+        Any | HTTPValidationError | PersonDetail
     """
 
     return sync_detailed(
@@ -116,7 +124,7 @@ async def asyncio_detailed(
     person_id: str,
     *,
     client: AuthenticatedClient,
-) -> Response[HTTPValidationError | PersonDetail]:
+) -> Response[Any | HTTPValidationError | PersonDetail]:
     """Get Person
 
      Return full person record with public name variants and identifiers.
@@ -129,7 +137,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | PersonDetail]
+        Response[Any | HTTPValidationError | PersonDetail]
     """
 
     kwargs = _get_kwargs(
@@ -145,7 +153,7 @@ async def asyncio(
     person_id: str,
     *,
     client: AuthenticatedClient,
-) -> HTTPValidationError | PersonDetail | None:
+) -> Any | HTTPValidationError | PersonDetail | None:
     """Get Person
 
      Return full person record with public name variants and identifiers.
@@ -158,7 +166,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | PersonDetail
+        Any | HTTPValidationError | PersonDetail
     """
 
     return (

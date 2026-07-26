@@ -38,6 +38,7 @@ from powermap_client.api.public_api import (
     search_people,
     submit_assignment_observation,
     submit_jurisdiction_observation,
+    submit_org_event_observations,
     submit_org_observation,
     submit_people_observation,
     submit_role_observation,
@@ -48,7 +49,9 @@ from powermap_client.models import (
     HTTPValidationError,
     JurisdictionObservationRequest,
     ListSubscriptionsEntityTypeType0,
+    ObservationEventItem,
     OrganizationObservationRequest,
+    OrgEventObservationsRequest,
     PeopleObservationRequest,
     RoleObservationRequest,
     SubscriptionBulkDeleteRequest,
@@ -63,6 +66,7 @@ from clearinghouse_sync_powermap.client import (
     DeliveryBlockedError,
     DiscoveredEntity,
     EntityPage,
+    EventObservationResult,
     ObservationResult,
     PayloadRejectedError,
     RetryableClientError,
@@ -539,6 +543,33 @@ class GeneratedPowerMapClient:
         return ObservationResult(
             disposition=body.disposition, pm_id=pm_id, raw=raw, unapplied=unapplied
         )
+
+    async def submit_org_event_observations(
+        self, org_id: Any, events: Sequence[dict]
+    ) -> list[EventObservationResult]:
+        body = await self._send(
+            submit_org_event_observations.asyncio_detailed(
+                org_id=str(org_id),
+                client=self._client,
+                body=OrgEventObservationsRequest(
+                    events=[ObservationEventItem.from_dict(e) for e in events]
+                ),
+            )
+        )
+        results = getattr(body, "results", None) or []
+        out: list[EventObservationResult] = []
+        for item in results:
+            event_id = getattr(item, "event_id", None)
+            reason = getattr(item, "reason", None)
+            out.append(
+                EventObservationResult(
+                    disposition=item.disposition,
+                    event_id=as_ulid(event_id) if isinstance(event_id, str) else None,
+                    reason=reason if isinstance(reason, str) else None,
+                    raw=item.to_dict(),
+                )
+            )
+        return out
 
     async def aclose(self) -> None:
         await self._client.get_async_httpx_client().aclose()

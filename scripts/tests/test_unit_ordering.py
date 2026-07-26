@@ -131,6 +131,18 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
+    # Daily committee lineage invariant check (#124): after the WSL refresh + migrate settle
+    # the committee cohort, assert dissolved-coherence + succession. Read-only; exit 1 → notify.
+    "usa-wa-committee-lineage-invariants.service": {
+        "After": {
+            "network.target",
+            "postgresql.service",
+            "usa-wa-migrate.service",
+            "usa-wa-wsl-refresh.service",
+        },
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
     # The notify handler is itself a oneshot; it carries no ordering and must NOT
     # set OnFailure on itself (a failed alert send must not recurse).
     "usa-wa-notify-failure@.service": {"After": set(), "Before": set(), "OnFailure": set()},
@@ -155,6 +167,11 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     "usa-wa-sos-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-integrity-sweep.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-succession-invariants.timer": {"After": set(), "Before": set(), "OnFailure": set()},
+    "usa-wa-committee-lineage-invariants.timer": {
+        "After": set(),
+        "Before": set(),
+        "OnFailure": set(),
+    },
 }
 
 

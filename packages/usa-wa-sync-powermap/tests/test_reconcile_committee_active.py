@@ -27,7 +27,10 @@ from clearinghouse_sync_powermap.client import (
 )
 from clearinghouse_sync_powermap.models import DISPOSITION_AUTO_ATTACHED, DISPOSITION_REJECTED
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
-from usa_wa_sync_powermap.reconcile_committee_active import reconcile_committee_active
+from usa_wa_sync_powermap.reconcile_committee_active import (
+    _build_parser,
+    reconcile_committee_active,
+)
 
 
 class _FakeWSL:
@@ -365,6 +368,44 @@ async def test_prior_roster_blank_name_still_scopes_in(db_session, usa_wa):
     assert summary["scoped_out"] == 0  # B not dropped despite the blank name
     assert summary["absent"] == 1
     assert summary["retired"] == 1
+
+
+async def test_all_era_bulk_deactivates_historical_cohort(db_session, usa_wa):
+    """C1b (#124): the deliberate bulk deactivation — no era scoping + floor override —
+    retires the whole defunct-era cohort (~150 historical Ids) that #90 scoping would
+    otherwise leave permanently ``active=true``. One current Id stays live."""
+    await _add_committee(db_session, source_id="CURRENT", anchor=ULID())  # present
+    for i in range(5):  # stand-ins for the ~150 harvest-created defunct-era orgs
+        await _add_committee(db_session, source_id=f"OLD{i}", anchor=ULID())
+    wsl, pm = _FakeWSL(_roster("CURRENT")), _FakePM()
+
+    # No roster_provider → full-cohort diff (era scoping off); floor override permits the
+    # legitimate mass close (the re-key precedent).
+    summary = await reconcile_committee_active(
+        db_session,
+        OrganizationDescriptor(),
+        wsl,
+        pm,
+        biennium="2025-26",
+        roster_provider=None,
+        max_absent_fraction=1.0,
+    )
+
+    assert summary["scoped_out"] == 0
+    assert summary["absent"] == 5
+    assert summary["retired"] == 5
+    # Every posted observation is active=false; the current Id is untouched.
+    assert all(payload["active"] is False for _path, payload in pm.posted)
+    assert len(pm.posted) == 5
+
+
+def test_build_parser_accepts_all_era_flag():
+    """C1b: the --all-era escape hatch is available for the deliberate bulk run."""
+    args = _build_parser().parse_args(["--all-era", "--max-absent-fraction", "1.0"])
+    assert args.all_era is True
+    assert args.max_absent_fraction == 1.0
+    # Default is scoped (era scoping stays on for routine weekly runs).
+    assert _build_parser().parse_args([]).all_era is False
 
 
 async def test_no_provider_leaves_cohort_unscoped(db_session, usa_wa):

@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -46,7 +46,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | RoleListResponse | None:
+) -> Any | HTTPValidationError | RoleListResponse | None:
     if response.status_code == 200:
         response_200 = RoleListResponse.from_dict(response.json())
 
@@ -57,6 +57,10 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -65,7 +69,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | RoleListResponse]:
+) -> Response[Any | HTTPValidationError | RoleListResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -81,7 +85,7 @@ def sync_detailed(
     include_archived: bool | Unset = False,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
-) -> Response[HTTPValidationError | RoleListResponse]:
+) -> Response[Any | HTTPValidationError | RoleListResponse]:
     """List Roles
 
      Return a paginated list of roles, optionally filtered by organization.
@@ -97,7 +101,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | RoleListResponse]
+        Response[Any | HTTPValidationError | RoleListResponse]
     """
 
     kwargs = _get_kwargs(
@@ -121,7 +125,7 @@ def sync(
     include_archived: bool | Unset = False,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
-) -> HTTPValidationError | RoleListResponse | None:
+) -> Any | HTTPValidationError | RoleListResponse | None:
     """List Roles
 
      Return a paginated list of roles, optionally filtered by organization.
@@ -137,7 +141,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | RoleListResponse
+        Any | HTTPValidationError | RoleListResponse
     """
 
     return sync_detailed(
@@ -156,7 +160,7 @@ async def asyncio_detailed(
     include_archived: bool | Unset = False,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
-) -> Response[HTTPValidationError | RoleListResponse]:
+) -> Response[Any | HTTPValidationError | RoleListResponse]:
     """List Roles
 
      Return a paginated list of roles, optionally filtered by organization.
@@ -172,7 +176,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | RoleListResponse]
+        Response[Any | HTTPValidationError | RoleListResponse]
     """
 
     kwargs = _get_kwargs(
@@ -194,7 +198,7 @@ async def asyncio(
     include_archived: bool | Unset = False,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
-) -> HTTPValidationError | RoleListResponse | None:
+) -> Any | HTTPValidationError | RoleListResponse | None:
     """List Roles
 
      Return a paginated list of roles, optionally filtered by organization.
@@ -210,7 +214,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | RoleListResponse
+        Any | HTTPValidationError | RoleListResponse
     """
 
     return (

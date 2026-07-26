@@ -11,8 +11,14 @@ from .body_acronym_create_admin_orgs_org_id_acronyms_post import BodyAcronymCrea
 from .body_acronym_edit_row_post_admin_orgs_org_id_acronyms_acronym_id_edit_row_post import (
     BodyAcronymEditRowPostAdminOrgsOrgIdAcronymsAcronymIdEditRowPost,
 )
+from .body_address_create_admin_jurisdictions_jurisdiction_id_addresses_post import (
+    BodyAddressCreateAdminJurisdictionsJurisdictionIdAddressesPost,
+)
 from .body_address_create_admin_orgs_org_id_addresses_post import BodyAddressCreateAdminOrgsOrgIdAddressesPost
 from .body_address_create_admin_people_person_id_addresses_post import BodyAddressCreateAdminPeoplePersonIdAddressesPost
+from .body_address_edit_row_post_admin_jurisdictions_jurisdiction_id_addresses_addr_id_edit_row_post import (
+    BodyAddressEditRowPostAdminJurisdictionsJurisdictionIdAddressesAddrIdEditRowPost,
+)
 from .body_address_edit_row_post_admin_orgs_org_id_addresses_addr_id_edit_row_post import (
     BodyAddressEditRowPostAdminOrgsOrgIdAddressesAddrIdEditRowPost,
 )
@@ -36,6 +42,12 @@ from .body_assignment_edit_row_post_admin_roles_role_id_assignments_assignment_i
     BodyAssignmentEditRowPostAdminRolesRoleIdAssignmentsAssignmentIdEditRowPost,
 )
 from .body_children_add_admin_orgs_org_id_children_post import BodyChildrenAddAdminOrgsOrgIdChildrenPost
+from .body_contact_create_admin_jurisdictions_entity_id_contacts_post import (
+    BodyContactCreateAdminJurisdictionsEntityIdContactsPost,
+)
+from .body_contact_create_admin_jurisdictions_entity_id_contacts_post_contact_type import (
+    BodyContactCreateAdminJurisdictionsEntityIdContactsPostContactType,
+)
 from .body_contact_create_admin_orgs_entity_id_contacts_post import BodyContactCreateAdminOrgsEntityIdContactsPost
 from .body_contact_create_admin_orgs_entity_id_contacts_post_contact_type import (
     BodyContactCreateAdminOrgsEntityIdContactsPostContactType,
@@ -43,6 +55,9 @@ from .body_contact_create_admin_orgs_entity_id_contacts_post_contact_type import
 from .body_contact_create_admin_people_entity_id_contacts_post import BodyContactCreateAdminPeopleEntityIdContactsPost
 from .body_contact_create_admin_people_entity_id_contacts_post_contact_type import (
     BodyContactCreateAdminPeopleEntityIdContactsPostContactType,
+)
+from .body_contact_edit_row_post_admin_jurisdictions_entity_id_contacts_contact_id_edit_row_post import (
+    BodyContactEditRowPostAdminJurisdictionsEntityIdContactsContactIdEditRowPost,
 )
 from .body_contact_edit_row_post_admin_orgs_entity_id_contacts_contact_id_edit_row_post import (
     BodyContactEditRowPostAdminOrgsEntityIdContactsContactIdEditRowPost,
@@ -58,11 +73,17 @@ from .body_event_edit_row_post_admin_orgs_entity_id_events_event_id_edit_row_pos
 from .body_event_edit_row_post_admin_people_entity_id_events_event_id_edit_row_post import (
     BodyEventEditRowPostAdminPeopleEntityIdEventsEventIdEditRowPost,
 )
+from .body_identifier_create_admin_jurisdictions_entity_id_identifiers_post import (
+    BodyIdentifierCreateAdminJurisdictionsEntityIdIdentifiersPost,
+)
 from .body_identifier_create_admin_orgs_entity_id_identifiers_post import (
     BodyIdentifierCreateAdminOrgsEntityIdIdentifiersPost,
 )
 from .body_identifier_create_admin_people_entity_id_identifiers_post import (
     BodyIdentifierCreateAdminPeopleEntityIdIdentifiersPost,
+)
+from .body_identifier_edit_row_post_admin_jurisdictions_entity_id_identifiers_ident_id_edit_row_post import (
+    BodyIdentifierEditRowPostAdminJurisdictionsEntityIdIdentifiersIdentIdEditRowPost,
 )
 from .body_identifier_edit_row_post_admin_orgs_entity_id_identifiers_ident_id_edit_row_post import (
     BodyIdentifierEditRowPostAdminOrgsEntityIdIdentifiersIdentIdEditRowPost,
@@ -76,8 +97,19 @@ from .body_identifier_type_create_admin_settings_identifier_types_post import (
 from .body_identifier_type_edit_row_post_admin_settings_identifier_types_item_id_edit_row_post import (
     BodyIdentifierTypeEditRowPostAdminSettingsIdentifierTypesItemIdEditRowPost,
 )
+from .body_jur_affiliation_create_admin_jurisdictions_jurisdiction_id_affiliations_post import (
+    BodyJurAffiliationCreateAdminJurisdictionsJurisdictionIdAffiliationsPost,
+)
+from .body_jurisdiction_create_admin_jurisdictions_new_post import BodyJurisdictionCreateAdminJurisdictionsNewPost
+from .body_jurisdiction_details_save_admin_jurisdictions_jurisdiction_id_details_post import (
+    BodyJurisdictionDetailsSaveAdminJurisdictionsJurisdictionIdDetailsPost,
+)
+from .body_link_create_admin_jurisdictions_entity_id_links_post import BodyLinkCreateAdminJurisdictionsEntityIdLinksPost
 from .body_link_create_admin_orgs_entity_id_links_post import BodyLinkCreateAdminOrgsEntityIdLinksPost
 from .body_link_create_admin_people_entity_id_links_post import BodyLinkCreateAdminPeopleEntityIdLinksPost
+from .body_link_edit_row_post_admin_jurisdictions_entity_id_links_link_id_edit_row_post import (
+    BodyLinkEditRowPostAdminJurisdictionsEntityIdLinksLinkIdEditRowPost,
+)
 from .body_link_edit_row_post_admin_orgs_entity_id_links_link_id_edit_row_post import (
     BodyLinkEditRowPostAdminOrgsEntityIdLinksLinkIdEditRowPost,
 )
@@ -109,6 +141,9 @@ from .body_name_edit_row_post_admin_people_entity_id_names_name_id_edit_row_post
 )
 from .body_name_edit_row_post_admin_people_entity_id_names_name_id_edit_row_post_visibility_type_0 import (
     BodyNameEditRowPostAdminPeopleEntityIdNamesNameIdEditRowPostVisibilityType0,
+)
+from .body_org_affiliation_create_admin_orgs_org_id_jurisdiction_affiliations_post import (
+    BodyOrgAffiliationCreateAdminOrgsOrgIdJurisdictionAffiliationsPost,
 )
 from .body_org_create_admin_orgs_new_post import BodyOrgCreateAdminOrgsNewPost
 from .body_org_inline_active_post_admin_orgs_org_id_inline_active_post import (
@@ -143,6 +178,12 @@ from .body_ra_inline_is_current_admin_role_assignments_ra_id_inline_is_current_p
 from .body_ra_inline_notes_post_admin_role_assignments_ra_id_inline_notes_post import (
     BodyRaInlineNotesPostAdminRoleAssignmentsRaIdInlineNotesPost,
 )
+from .body_relationship_create_admin_jurisdictions_jurisdiction_id_relationships_post import (
+    BodyRelationshipCreateAdminJurisdictionsJurisdictionIdRelationshipsPost,
+)
+from .body_relationship_edit_row_post_admin_jurisdictions_jurisdiction_id_relationships_rel_id_edit_row_post import (
+    BodyRelationshipEditRowPostAdminJurisdictionsJurisdictionIdRelationshipsRelIdEditRowPost,
+)
 from .body_role_create_admin_orgs_org_id_roles_post import BodyRoleCreateAdminOrgsOrgIdRolesPost
 from .body_role_create_admin_roles_new_post import BodyRoleCreateAdminRolesNewPost
 from .body_role_inline_dates_post_admin_roles_role_id_inline_dates_post import (
@@ -165,6 +206,9 @@ from .change_item import ChangeItem
 from .change_item_change_kind import ChangeItemChangeKind
 from .change_item_entity_type import ChangeItemEntityType
 from .change_meta import ChangeMeta
+from .contact_new_row_admin_jurisdictions_entity_id_contacts_new_row_get_contact_type import (
+    ContactNewRowAdminJurisdictionsEntityIdContactsNewRowGetContactType,
+)
 from .contact_new_row_admin_orgs_entity_id_contacts_new_row_get_contact_type import (
     ContactNewRowAdminOrgsEntityIdContactsNewRowGetContactType,
 )
@@ -182,6 +226,9 @@ from .embedding_list_item import EmbeddingListItem
 from .embedding_list_response import EmbeddingListResponse
 from .embedding_patch_request import EmbeddingPatchRequest
 from .embedding_patch_response import EmbeddingPatchResponse
+from .embedding_presence_request import EmbeddingPresenceRequest
+from .embedding_presence_response import EmbeddingPresenceResponse
+from .embedding_presence_result import EmbeddingPresenceResult
 from .embedding_source import EmbeddingSource
 from .embedding_write_request import EmbeddingWriteRequest
 from .embedding_write_response import EmbeddingWriteResponse
@@ -192,6 +239,8 @@ from .entity_event_type_applies_to import EntityEventTypeAppliesTo
 from .entity_event_types_response import EntityEventTypesResponse
 from .entity_event_visibility import EntityEventVisibility
 from .entity_events_response import EntityEventsResponse
+from .event_observation_result import EventObservationResult
+from .event_observations_response import EventObservationsResponse
 from .event_place_address import EventPlaceAddress
 from .event_type_inline import EventTypeInline
 from .http_validation_error import HTTPValidationError
@@ -220,6 +269,7 @@ from .observation_contact_method import ObservationContactMethod
 from .observation_contact_method_contact_type import ObservationContactMethodContactType
 from .observation_event_item import ObservationEventItem
 from .observation_event_item_linked_entity_type_type_0 import ObservationEventItemLinkedEntityTypeType0
+from .observation_event_item_op import ObservationEventItemOp
 from .observation_event_item_visibility import ObservationEventItemVisibility
 from .observation_jurisdiction_affiliation import ObservationJurisdictionAffiliation
 from .observation_link import ObservationLink
@@ -235,6 +285,7 @@ from .observation_role_assignment import ObservationRoleAssignment
 from .org_acronym import OrgAcronym
 from .org_affiliation_type import OrgAffiliationType
 from .org_detail import OrgDetail
+from .org_event_observations_request import OrgEventObservationsRequest
 from .org_identifier import OrgIdentifier
 from .org_jurisdiction_affiliation import OrgJurisdictionAffiliation
 from .org_name import OrgName
@@ -267,6 +318,12 @@ from .subscription_register_request import SubscriptionRegisterRequest
 from .subscription_register_response import SubscriptionRegisterResponse
 from .validation_error import ValidationError
 from .validation_error_context import ValidationErrorContext
+from .verify_batch_group import VerifyBatchGroup
+from .verify_batch_request import VerifyBatchRequest
+from .verify_batch_response import VerifyBatchResponse
+from .verify_request import VerifyRequest
+from .verify_response import VerifyResponse
+from .verify_result import VerifyResult
 
 __all__ = (
     "AssignmentAddress",
@@ -278,8 +335,10 @@ __all__ = (
     "AssignmentObservationRequest",
     "BodyAcronymCreateAdminOrgsOrgIdAcronymsPost",
     "BodyAcronymEditRowPostAdminOrgsOrgIdAcronymsAcronymIdEditRowPost",
+    "BodyAddressCreateAdminJurisdictionsJurisdictionIdAddressesPost",
     "BodyAddressCreateAdminOrgsOrgIdAddressesPost",
     "BodyAddressCreateAdminPeoplePersonIdAddressesPost",
+    "BodyAddressEditRowPostAdminJurisdictionsJurisdictionIdAddressesAddrIdEditRowPost",
     "BodyAddressEditRowPostAdminOrgsOrgIdAddressesAddrIdEditRowPost",
     "BodyAddressEditRowPostAdminPeoplePersonIdAddressesAddrIdEditRowPost",
     "BodyApiKeyCreateAdminSettingsApiKeysPost",
@@ -289,24 +348,34 @@ __all__ = (
     "BodyAssignmentEditRowPostAdminPeoplePersonIdAssignmentsAssignmentIdEditRowPost",
     "BodyAssignmentEditRowPostAdminRolesRoleIdAssignmentsAssignmentIdEditRowPost",
     "BodyChildrenAddAdminOrgsOrgIdChildrenPost",
+    "BodyContactCreateAdminJurisdictionsEntityIdContactsPost",
+    "BodyContactCreateAdminJurisdictionsEntityIdContactsPostContactType",
     "BodyContactCreateAdminOrgsEntityIdContactsPost",
     "BodyContactCreateAdminOrgsEntityIdContactsPostContactType",
     "BodyContactCreateAdminPeopleEntityIdContactsPost",
     "BodyContactCreateAdminPeopleEntityIdContactsPostContactType",
+    "BodyContactEditRowPostAdminJurisdictionsEntityIdContactsContactIdEditRowPost",
     "BodyContactEditRowPostAdminOrgsEntityIdContactsContactIdEditRowPost",
     "BodyContactEditRowPostAdminPeopleEntityIdContactsContactIdEditRowPost",
     "BodyEventCreateAdminOrgsEntityIdEventsPost",
     "BodyEventCreateAdminPeopleEntityIdEventsPost",
     "BodyEventEditRowPostAdminOrgsEntityIdEventsEventIdEditRowPost",
     "BodyEventEditRowPostAdminPeopleEntityIdEventsEventIdEditRowPost",
+    "BodyIdentifierCreateAdminJurisdictionsEntityIdIdentifiersPost",
     "BodyIdentifierCreateAdminOrgsEntityIdIdentifiersPost",
     "BodyIdentifierCreateAdminPeopleEntityIdIdentifiersPost",
+    "BodyIdentifierEditRowPostAdminJurisdictionsEntityIdIdentifiersIdentIdEditRowPost",
     "BodyIdentifierEditRowPostAdminOrgsEntityIdIdentifiersIdentIdEditRowPost",
     "BodyIdentifierEditRowPostAdminPeopleEntityIdIdentifiersIdentIdEditRowPost",
     "BodyIdentifierTypeCreateAdminSettingsIdentifierTypesPost",
     "BodyIdentifierTypeEditRowPostAdminSettingsIdentifierTypesItemIdEditRowPost",
+    "BodyJurAffiliationCreateAdminJurisdictionsJurisdictionIdAffiliationsPost",
+    "BodyJurisdictionCreateAdminJurisdictionsNewPost",
+    "BodyJurisdictionDetailsSaveAdminJurisdictionsJurisdictionIdDetailsPost",
+    "BodyLinkCreateAdminJurisdictionsEntityIdLinksPost",
     "BodyLinkCreateAdminOrgsEntityIdLinksPost",
     "BodyLinkCreateAdminPeopleEntityIdLinksPost",
+    "BodyLinkEditRowPostAdminJurisdictionsEntityIdLinksLinkIdEditRowPost",
     "BodyLinkEditRowPostAdminOrgsEntityIdLinksLinkIdEditRowPost",
     "BodyLinkEditRowPostAdminPeopleEntityIdLinksLinkIdEditRowPost",
     "BodyLinkTypeCreateAdminSettingsLinkTypesScopePost",
@@ -319,6 +388,7 @@ __all__ = (
     "BodyNameEditRowPostAdminOrgsEntityIdNamesNameIdEditRowPostVisibilityType0",
     "BodyNameEditRowPostAdminPeopleEntityIdNamesNameIdEditRowPost",
     "BodyNameEditRowPostAdminPeopleEntityIdNamesNameIdEditRowPostVisibilityType0",
+    "BodyOrgAffiliationCreateAdminOrgsOrgIdJurisdictionAffiliationsPost",
     "BodyOrgCreateAdminOrgsNewPost",
     "BodyOrgInlineActivePostAdminOrgsOrgIdInlineActivePost",
     "BodyOrgInlineNotesPostAdminOrgsOrgIdInlineNotesPost",
@@ -332,6 +402,8 @@ __all__ = (
     "BodyRaInlineDatesPostAdminRoleAssignmentsRaIdInlineDatesPost",
     "BodyRaInlineIsCurrentAdminRoleAssignmentsRaIdInlineIsCurrentPost",
     "BodyRaInlineNotesPostAdminRoleAssignmentsRaIdInlineNotesPost",
+    "BodyRelationshipCreateAdminJurisdictionsJurisdictionIdRelationshipsPost",
+    "BodyRelationshipEditRowPostAdminJurisdictionsJurisdictionIdRelationshipsRelIdEditRowPost",
     "BodyRoleCreateAdminOrgsOrgIdRolesPost",
     "BodyRoleCreateAdminRolesNewPost",
     "BodyRoleInlineDatesPostAdminRolesRoleIdInlineDatesPost",
@@ -344,6 +416,7 @@ __all__ = (
     "ChangeItemChangeKind",
     "ChangeItemEntityType",
     "ChangeMeta",
+    "ContactNewRowAdminJurisdictionsEntityIdContactsNewRowGetContactType",
     "ContactNewRowAdminOrgsEntityIdContactsNewRowGetContactType",
     "ContactNewRowAdminPeopleEntityIdContactsNewRowGetContactType",
     "DiscoverSubscriptionsRootType",
@@ -357,6 +430,9 @@ __all__ = (
     "EmbeddingListResponse",
     "EmbeddingPatchRequest",
     "EmbeddingPatchResponse",
+    "EmbeddingPresenceRequest",
+    "EmbeddingPresenceResponse",
+    "EmbeddingPresenceResult",
     "EmbeddingSource",
     "EmbeddingWriteRequest",
     "EmbeddingWriteResponse",
@@ -367,6 +443,8 @@ __all__ = (
     "EntityEventTypeAppliesTo",
     "EntityEventTypesResponse",
     "EntityEventVisibility",
+    "EventObservationResult",
+    "EventObservationsResponse",
     "EventPlaceAddress",
     "EventTypeInline",
     "HTTPValidationError",
@@ -395,6 +473,7 @@ __all__ = (
     "ObservationContactMethodContactType",
     "ObservationEventItem",
     "ObservationEventItemLinkedEntityTypeType0",
+    "ObservationEventItemOp",
     "ObservationEventItemVisibility",
     "ObservationJurisdictionAffiliation",
     "ObservationLink",
@@ -411,6 +490,7 @@ __all__ = (
     "OrgAffiliationType",
     "OrganizationObservationRequest",
     "OrgDetail",
+    "OrgEventObservationsRequest",
     "OrgIdentifier",
     "OrgJurisdictionAffiliation",
     "OrgName",
@@ -442,4 +522,10 @@ __all__ = (
     "SubscriptionRegisterResponse",
     "ValidationError",
     "ValidationErrorContext",
+    "VerifyBatchGroup",
+    "VerifyBatchRequest",
+    "VerifyBatchResponse",
+    "VerifyRequest",
+    "VerifyResponse",
+    "VerifyResult",
 )

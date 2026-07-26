@@ -75,6 +75,10 @@ _STATUSES = (STATUS_PENDING, STATUS_DELIVERED, STATUS_REJECTED, STATUS_UNAVAILAB
 DISPOSITION_AUTO_ATTACHED = "auto-attached"
 DISPOSITION_NEW = "new"
 DISPOSITION_REJECTED = "rejected"
+#: Entity-event dispositions (power-map#321/#322): a ``pm_event_id`` refine-in-place
+#: yields ``updated``; an ``op="retract"`` archives the anchor → ``retracted``.
+DISPOSITION_UPDATED = "updated"
+DISPOSITION_RETRACTED = "retracted"
 
 
 def _new_ulid() -> _ULID:

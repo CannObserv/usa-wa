@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
@@ -36,7 +36,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> EmbeddingWriteResponse | HTTPValidationError | None:
+) -> Any | EmbeddingWriteResponse | HTTPValidationError | None:
     if response.status_code == 200:
         response_200 = EmbeddingWriteResponse.from_dict(response.json())
 
@@ -47,6 +47,10 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -55,7 +59,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[EmbeddingWriteResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingWriteResponse | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -69,7 +73,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: EmbeddingWriteRequest,
-) -> Response[EmbeddingWriteResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingWriteResponse | HTTPValidationError]:
     """Write Person Embedding
 
      Write a voice embedding observation for a person.
@@ -79,7 +83,8 @@ def sync_detailed(
     the existing row's id.  409 if the conflicting row is archived (restore or
     change the provenance key first).
     404 if the person does not exist or is archived.
-    422 on dimension mismatch or unknown/write-disabled model.
+    422 on dimension mismatch, unknown/write-disabled model, or invalid
+    embedding (zero vector, non-finite values).
 
     Args:
         person_id (str):
@@ -90,7 +95,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EmbeddingWriteResponse | HTTPValidationError]
+        Response[Any | EmbeddingWriteResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -110,7 +115,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: EmbeddingWriteRequest,
-) -> EmbeddingWriteResponse | HTTPValidationError | None:
+) -> Any | EmbeddingWriteResponse | HTTPValidationError | None:
     """Write Person Embedding
 
      Write a voice embedding observation for a person.
@@ -120,7 +125,8 @@ def sync(
     the existing row's id.  409 if the conflicting row is archived (restore or
     change the provenance key first).
     404 if the person does not exist or is archived.
-    422 on dimension mismatch or unknown/write-disabled model.
+    422 on dimension mismatch, unknown/write-disabled model, or invalid
+    embedding (zero vector, non-finite values).
 
     Args:
         person_id (str):
@@ -131,7 +137,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EmbeddingWriteResponse | HTTPValidationError
+        Any | EmbeddingWriteResponse | HTTPValidationError
     """
 
     return sync_detailed(
@@ -146,7 +152,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: EmbeddingWriteRequest,
-) -> Response[EmbeddingWriteResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingWriteResponse | HTTPValidationError]:
     """Write Person Embedding
 
      Write a voice embedding observation for a person.
@@ -156,7 +162,8 @@ async def asyncio_detailed(
     the existing row's id.  409 if the conflicting row is archived (restore or
     change the provenance key first).
     404 if the person does not exist or is archived.
-    422 on dimension mismatch or unknown/write-disabled model.
+    422 on dimension mismatch, unknown/write-disabled model, or invalid
+    embedding (zero vector, non-finite values).
 
     Args:
         person_id (str):
@@ -167,7 +174,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EmbeddingWriteResponse | HTTPValidationError]
+        Response[Any | EmbeddingWriteResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -185,7 +192,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: EmbeddingWriteRequest,
-) -> EmbeddingWriteResponse | HTTPValidationError | None:
+) -> Any | EmbeddingWriteResponse | HTTPValidationError | None:
     """Write Person Embedding
 
      Write a voice embedding observation for a person.
@@ -195,7 +202,8 @@ async def asyncio(
     the existing row's id.  409 if the conflicting row is archived (restore or
     change the provenance key first).
     404 if the person does not exist or is archived.
-    422 on dimension mismatch or unknown/write-disabled model.
+    422 on dimension mismatch, unknown/write-disabled model, or invalid
+    embedding (zero vector, non-finite values).
 
     Args:
         person_id (str):
@@ -206,7 +214,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EmbeddingWriteResponse | HTTPValidationError
+        Any | EmbeddingWriteResponse | HTTPValidationError
     """
 
     return (

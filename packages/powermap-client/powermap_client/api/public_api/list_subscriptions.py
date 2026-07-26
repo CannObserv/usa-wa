@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -46,7 +46,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | SubscriptionListResponse | None:
+) -> Any | HTTPValidationError | SubscriptionListResponse | None:
     if response.status_code == 200:
         response_200 = SubscriptionListResponse.from_dict(response.json())
 
@@ -57,6 +57,10 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -65,7 +69,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | SubscriptionListResponse]:
+) -> Response[Any | HTTPValidationError | SubscriptionListResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -80,7 +84,7 @@ def sync_detailed(
     entity_type: ListSubscriptionsEntityTypeType0 | None | Unset = UNSET,
     limit: int | Unset = 50,
     offset: int | Unset = 0,
-) -> Response[HTTPValidationError | SubscriptionListResponse]:
+) -> Response[Any | HTTPValidationError | SubscriptionListResponse]:
     """List Subscriptions
 
      List entity subscriptions for the calling API key.
@@ -95,7 +99,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | SubscriptionListResponse]
+        Response[Any | HTTPValidationError | SubscriptionListResponse]
     """
 
     kwargs = _get_kwargs(
@@ -117,7 +121,7 @@ def sync(
     entity_type: ListSubscriptionsEntityTypeType0 | None | Unset = UNSET,
     limit: int | Unset = 50,
     offset: int | Unset = 0,
-) -> HTTPValidationError | SubscriptionListResponse | None:
+) -> Any | HTTPValidationError | SubscriptionListResponse | None:
     """List Subscriptions
 
      List entity subscriptions for the calling API key.
@@ -132,7 +136,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | SubscriptionListResponse
+        Any | HTTPValidationError | SubscriptionListResponse
     """
 
     return sync_detailed(
@@ -149,7 +153,7 @@ async def asyncio_detailed(
     entity_type: ListSubscriptionsEntityTypeType0 | None | Unset = UNSET,
     limit: int | Unset = 50,
     offset: int | Unset = 0,
-) -> Response[HTTPValidationError | SubscriptionListResponse]:
+) -> Response[Any | HTTPValidationError | SubscriptionListResponse]:
     """List Subscriptions
 
      List entity subscriptions for the calling API key.
@@ -164,7 +168,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | SubscriptionListResponse]
+        Response[Any | HTTPValidationError | SubscriptionListResponse]
     """
 
     kwargs = _get_kwargs(
@@ -184,7 +188,7 @@ async def asyncio(
     entity_type: ListSubscriptionsEntityTypeType0 | None | Unset = UNSET,
     limit: int | Unset = 50,
     offset: int | Unset = 0,
-) -> HTTPValidationError | SubscriptionListResponse | None:
+) -> Any | HTTPValidationError | SubscriptionListResponse | None:
     """List Subscriptions
 
      List entity subscriptions for the calling API key.
@@ -199,7 +203,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | SubscriptionListResponse
+        Any | HTTPValidationError | SubscriptionListResponse
     """
 
     return (

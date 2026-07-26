@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
@@ -39,16 +39,24 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> EntityEventsResponse | HTTPValidationError | None:
+) -> Any | EntityEventsResponse | HTTPValidationError | None:
     if response.status_code == 200:
         response_200 = EntityEventsResponse.from_dict(response.json())
 
         return response_200
 
+    if response.status_code == 304:
+        response_304 = cast(Any, None)
+        return response_304
+
     if response.status_code == 422:
         response_422 = HTTPValidationError.from_dict(response.json())
 
         return response_422
+
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -58,7 +66,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[EntityEventsResponse | HTTPValidationError]:
+) -> Response[Any | EntityEventsResponse | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -73,7 +81,7 @@ def sync_detailed(
     client: AuthenticatedClient,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
-) -> Response[EntityEventsResponse | HTTPValidationError]:
+) -> Response[Any | EntityEventsResponse | HTTPValidationError]:
     """List Person Events
 
      Return public, active lifecycle events for a person.
@@ -88,7 +96,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EntityEventsResponse | HTTPValidationError]
+        Response[Any | EntityEventsResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -110,7 +118,7 @@ def sync(
     client: AuthenticatedClient,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
-) -> EntityEventsResponse | HTTPValidationError | None:
+) -> Any | EntityEventsResponse | HTTPValidationError | None:
     """List Person Events
 
      Return public, active lifecycle events for a person.
@@ -125,7 +133,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EntityEventsResponse | HTTPValidationError
+        Any | EntityEventsResponse | HTTPValidationError
     """
 
     return sync_detailed(
@@ -142,7 +150,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
-) -> Response[EntityEventsResponse | HTTPValidationError]:
+) -> Response[Any | EntityEventsResponse | HTTPValidationError]:
     """List Person Events
 
      Return public, active lifecycle events for a person.
@@ -157,7 +165,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EntityEventsResponse | HTTPValidationError]
+        Response[Any | EntityEventsResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -177,7 +185,7 @@ async def asyncio(
     client: AuthenticatedClient,
     limit: int | Unset = 20,
     offset: int | Unset = 0,
-) -> EntityEventsResponse | HTTPValidationError | None:
+) -> Any | EntityEventsResponse | HTTPValidationError | None:
     """List Person Events
 
      Return public, active lifecycle events for a person.
@@ -192,7 +200,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EntityEventsResponse | HTTPValidationError
+        Any | EntityEventsResponse | HTTPValidationError
     """
 
     return (

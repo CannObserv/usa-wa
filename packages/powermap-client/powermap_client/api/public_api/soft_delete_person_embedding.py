@@ -1,5 +1,5 @@
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import httpx
@@ -38,7 +38,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> EmbeddingArchiveResponse | HTTPValidationError | None:
+) -> Any | EmbeddingArchiveResponse | HTTPValidationError | None:
     if response.status_code == 200:
         response_200 = EmbeddingArchiveResponse.from_dict(response.json())
 
@@ -49,6 +49,10 @@ def _parse_response(
 
         return response_422
 
+    if response.status_code == 429:
+        response_429 = cast(Any, None)
+        return response_429
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -57,7 +61,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[EmbeddingArchiveResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingArchiveResponse | HTTPValidationError]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -72,7 +76,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     model_id: str,
-) -> Response[EmbeddingArchiveResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingArchiveResponse | HTTPValidationError]:
     """Soft Delete Embedding
 
      Soft-delete a single embedding row by setting ``archived_at``.
@@ -90,7 +94,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EmbeddingArchiveResponse | HTTPValidationError]
+        Response[Any | EmbeddingArchiveResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -112,7 +116,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     model_id: str,
-) -> EmbeddingArchiveResponse | HTTPValidationError | None:
+) -> Any | EmbeddingArchiveResponse | HTTPValidationError | None:
     """Soft Delete Embedding
 
      Soft-delete a single embedding row by setting ``archived_at``.
@@ -130,7 +134,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EmbeddingArchiveResponse | HTTPValidationError
+        Any | EmbeddingArchiveResponse | HTTPValidationError
     """
 
     return sync_detailed(
@@ -147,7 +151,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     model_id: str,
-) -> Response[EmbeddingArchiveResponse | HTTPValidationError]:
+) -> Response[Any | EmbeddingArchiveResponse | HTTPValidationError]:
     """Soft Delete Embedding
 
      Soft-delete a single embedding row by setting ``archived_at``.
@@ -165,7 +169,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[EmbeddingArchiveResponse | HTTPValidationError]
+        Response[Any | EmbeddingArchiveResponse | HTTPValidationError]
     """
 
     kwargs = _get_kwargs(
@@ -185,7 +189,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     model_id: str,
-) -> EmbeddingArchiveResponse | HTTPValidationError | None:
+) -> Any | EmbeddingArchiveResponse | HTTPValidationError | None:
     """Soft Delete Embedding
 
      Soft-delete a single embedding row by setting ``archived_at``.
@@ -203,7 +207,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        EmbeddingArchiveResponse | HTTPValidationError
+        Any | EmbeddingArchiveResponse | HTTPValidationError
     """
 
     return (
