@@ -37,6 +37,7 @@ from clearinghouse_domain_legislative.committee_succession import (
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.queries import live_only
 from usa_wa_adapter_legislature.committee_succession_store import (
+    INHERIT_YEAR,
     current_events,
     get_or_create_operator_source,
     record_succession_event,
@@ -66,14 +67,23 @@ class LinkSpec:
     effective_year: int | None = None
     notes: str | None = None
     supersede_id: str | None = None
+    #: Supersede-only: clear the prior link's boundary year (distinct from omitting
+    #: ``--year``, which inherits it). Requires ``supersede_id``.
+    clear_year: bool = False
 
 
 def _validate_shape(spec: LinkSpec) -> None:
-    """DB-independent validation (slug + distinct ends)."""
+    """DB-independent validation (slug + distinct ends + clear-year usage)."""
     if spec.slug not in SLUGS:
         raise SuccessionError(f"unknown slug {spec.slug!r} (expected one of {sorted(SLUGS)})")
     if spec.subject_source_id == spec.linked_source_id:
         raise SuccessionError("--subject and --linked must differ (a link joins two orgs)")
+    if spec.clear_year and spec.supersede_id is None:
+        raise SuccessionError(
+            "--clear-year only applies with --supersede (a fresh link has no year)"
+        )
+    if spec.clear_year and spec.effective_year is not None:
+        raise SuccessionError("--clear-year and --year are mutually exclusive")
 
 
 async def _resolve_committee(session: AsyncSession, source_id: str) -> Organization | None:
@@ -126,12 +136,20 @@ async def validate_and_record(
                 f"--supersede: subject {spec.subject_source_id!r} differs from the prior link's "
                 f"{prior.subject_source_id!r} (record a new link instead)"
             )
+        # Three-state year intent: --clear-year → None (clear); --year N → N (set);
+        # neither → INHERIT_YEAR (keep prior's).
+        if spec.clear_year:
+            year_arg = None
+        elif spec.effective_year is not None:
+            year_arg = spec.effective_year
+        else:
+            year_arg = INHERIT_YEAR
         return await supersede_event(
             session,
             source,
             prior,
             linked_source_id=spec.linked_source_id,
-            effective_year=spec.effective_year,
+            effective_year=year_arg,
             evidence_url=spec.evidence_url,
             notes=spec.notes,
             entered_by=_entered_by(),
@@ -176,6 +194,7 @@ def load_specs(payload: object) -> list[LinkSpec]:
                     effective_year=_int_or_none(row.get("year")),
                     notes=row.get("notes"),
                     supersede_id=row.get("supersede_id"),
+                    clear_year=bool(row.get("clear_year", False)),
                 )
             )
         except KeyError as exc:
@@ -194,6 +213,7 @@ def _spec_from_args(args: argparse.Namespace) -> LinkSpec:
         effective_year=_int_or_none(args.year),
         notes=args.notes,
         supersede_id=args.supersede,
+        clear_year=args.clear_year,
     )
 
 
@@ -240,6 +260,11 @@ async def _main(argv: list[str] | None = None) -> int:
         "--slug", choices=sorted(SLUGS), help="succeeded_by | split_from | merged_with"
     )
     parser.add_argument("--year", type=int, help="optional boundary year")
+    parser.add_argument(
+        "--clear-year",
+        action="store_true",
+        help="supersede-only: clear the prior link's year (vs omitting --year = inherit)",
+    )
     parser.add_argument("--evidence-url", help="operator-cited source (news/official)")
     parser.add_argument("--notes", help="free-text note")
     parser.add_argument("--supersede", help="prior link id to correct (re-link or year change)")

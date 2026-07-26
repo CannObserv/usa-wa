@@ -8,6 +8,7 @@ from clearinghouse_domain_legislative.committee_succession import CommitteeSucce
 from clearinghouse_domain_legislative.identity import EntityEvent, Organization
 from clearinghouse_sync_powermap.client import EventObservationResult
 from clearinghouse_sync_powermap.models import (
+    DISPOSITION_AUTO_ATTACHED,
     DISPOSITION_REJECTED,
     DISPOSITION_UPDATED,
 )
@@ -239,6 +240,30 @@ async def test_produce_refines_and_routes_reject_reason(db_session, usa_wa):
     assert stats.updated == 1
     assert stats.rejected == 1
     assert stats.reject_reasons == {"linked_entity_unresolved": 1}
+
+
+async def test_produce_counts_auto_attached_as_reobserved_not_created(db_session, usa_wa):
+    """PM content-dedups an unanchored re-send (mirror lag) to ``auto-attached`` — it did
+    NOT create anything, so it must land in ``reobserved``, never inflate ``created``."""
+    await _committee(db_session, "10171", anchor=ULID())
+    windows = {
+        "10171": CommitteeWindow(
+            source_id="10171", is_current=False, founded_year=2001, dissolved_year=2004
+        )
+    }
+
+    def _results(_org, items):
+        return [
+            EventObservationResult(
+                disposition=DISPOSITION_AUTO_ATTACHED, event_id=ULID(), reason=None, raw={}
+            )
+            for _ in items
+        ]
+
+    client = FakeClient(event_observation_result=_results)
+    stats = await produce_committee_events(db_session, client, windows=windows, links=[])
+    assert stats.created == 0
+    assert stats.reobserved == 2
 
 
 async def test_produce_noop_when_year_matches(db_session, usa_wa):

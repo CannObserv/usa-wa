@@ -46,7 +46,7 @@ from clearinghouse_domain_legislative.committee_succession import CommitteeSucce
 from clearinghouse_domain_legislative.identity import EntityEvent, Organization
 from clearinghouse_sync_powermap.client import DeliveryBlockedError
 from clearinghouse_sync_powermap.models import (
-    DISPOSITION_REJECTED,
+    DISPOSITION_AUTO_ATTACHED,
     DISPOSITION_UPDATED,
 )
 from usa_wa_adapter_legislature.committee_lifecycle import (
@@ -79,6 +79,9 @@ class ProduceStats:
     submitted: int = 0
     planned: int = 0
     created: int = 0
+    #: PM content-dedup'd an unanchored re-send to an existing event (``auto-attached``) —
+    #: it created nothing (mirror-lag re-send), kept distinct from ``created`` telemetry.
+    reobserved: int = 0
     updated: int = 0
     noop: int = 0
     rejected: int = 0
@@ -94,6 +97,7 @@ class ProduceStats:
             "submitted": self.submitted,
             "planned": self.planned,
             "created": self.created,
+            "reobserved": self.reobserved,
             "updated": self.updated,
             "noop": self.noop,
             "rejected": self.rejected,
@@ -251,7 +255,9 @@ async def produce_committee_events(
                 )
             elif result.disposition == DISPOSITION_UPDATED:
                 stats.updated += 1
-            elif result.disposition != DISPOSITION_REJECTED and result.anchored:
+            elif result.disposition == DISPOSITION_AUTO_ATTACHED and result.anchored:
+                stats.reobserved += 1
+            elif result.anchored:  # DISPOSITION_NEW — a genuine create
                 stats.created += 1
     # Wrap under one key: as_dict() has a ``created`` field, which collides with the
     # reserved ``LogRecord.created`` attribute and would raise once logging is configured.

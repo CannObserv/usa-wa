@@ -33,6 +33,16 @@ from usa_wa_adapter_legislature.operator_events_store import (  # noqa: F401
 )
 
 
+class _InheritYear:
+    """Sentinel for :func:`supersede_event`: the caller omitted ``effective_year``, so
+    inherit ``prior``'s. Distinct from an explicit ``None``, which *clears* the year."""
+
+
+#: Pass to :func:`supersede_event` (the default) to inherit ``prior``'s year; pass an
+#: explicit ``None`` to clear it, or an ``int`` to set it.
+INHERIT_YEAR = _InheritYear()
+
+
 def succession_source_id(
     subject_source_id: str, linked_source_id: str, slug: str, effective_year: int | None
 ) -> str:
@@ -174,7 +184,7 @@ async def supersede_event(
     *,
     subject_source_id: str | None = None,
     linked_source_id: str | None = None,
-    effective_year: int | None = None,
+    effective_year: int | None | _InheritYear = INHERIT_YEAR,
     evidence_url: str,
     notes: str | None = None,
     entered_by: str | None = None,
@@ -185,15 +195,17 @@ async def supersede_event(
     changed ``effective_year`` mints a *distinct* natural key, so the producer emits it as
     create-new + retract-old (power-map#322). A correction that resolves to ``prior``'s own
     key (same subject/linked/year, only evidence/notes changed) is a plain idempotent
-    update and is *not* self-superseded. Unspecified subject/linked/year default to
-    ``prior``'s (a pure evidence/notes fix)."""
+    update and is *not* self-superseded. Unspecified subject/linked default to ``prior``'s;
+    ``effective_year`` defaults to :data:`INHERIT_YEAR` (keep ``prior``'s) — pass an
+    explicit ``None`` to **clear** the year, or an ``int`` to set it."""
+    year = prior.effective_year if isinstance(effective_year, _InheritYear) else effective_year
     corrected = await record_succession_event(
         session,
         source,
         subject_source_id=subject_source_id or prior.subject_source_id,
         linked_source_id=linked_source_id or prior.linked_source_id,
         slug=prior.slug,
-        effective_year=effective_year if effective_year is not None else prior.effective_year,
+        effective_year=year,
         evidence_url=evidence_url,
         notes=notes,
         entered_by=entered_by,
@@ -210,7 +222,8 @@ async def current_events(session: AsyncSession) -> Sequence[CommitteeSuccessionE
         (
             await session.execute(
                 select(CommitteeSuccessionEvent).where(
-                    CommitteeSuccessionEvent.superseded_by_id.is_(None)
+                    CommitteeSuccessionEvent.source == OPERATOR_SOURCE_SLUG,
+                    CommitteeSuccessionEvent.superseded_by_id.is_(None),
                 )
             )
         )

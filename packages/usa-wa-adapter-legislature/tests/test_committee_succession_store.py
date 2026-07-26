@@ -103,6 +103,55 @@ async def test_supersede_relink_stamps_prior_and_appends_new(db_session, usa_wa)
     assert [e.id for e in current] == [corrected.id]
 
 
+async def test_supersede_can_clear_year(db_session, usa_wa):
+    """Passing ``effective_year=None`` explicitly CLEARS the year (a distinct key), vs
+    omitting it (inherit prior's) — the sentinel distinguishes the two."""
+    source = await _source(db_session)
+    prior = await record_succession_event(
+        db_session,
+        source,
+        subject_source_id="14294",
+        linked_source_id="28244",
+        slug="succeeded_by",
+        effective_year=2021,
+        evidence_url="https://example.gov/lc",
+    )
+    corrected = await supersede_event(
+        db_session, source, prior, effective_year=None, evidence_url="https://example.gov/lc-fixed"
+    )
+    assert corrected.id != prior.id
+    assert corrected.effective_year is None
+    assert prior.superseded_by_id == corrected.id
+
+
+async def test_current_events_excludes_non_operator_source(db_session, usa_wa):
+    """The producer's input set is operator attestations only — a stray row under a
+    different source must not leak in."""
+    source = await _source(db_session)
+    await record_succession_event(
+        db_session,
+        source,
+        subject_source_id="14294",
+        linked_source_id="28244",
+        slug="succeeded_by",
+        effective_year=2021,
+        evidence_url="https://example.gov/lc",
+    )
+    db_session.add(
+        CommitteeSuccessionEvent(
+            source="some_other_source",
+            source_id="succeeded_by:1:2",
+            subject_source_id="1",
+            linked_source_id="2",
+            slug="succeeded_by",
+            evidence_url="https://example.gov/other",
+        )
+    )
+    await db_session.flush()
+    current = await current_events(db_session)
+    assert [e.source for e in current] == ["usa_wa_operator"]
+
+
 async def test_supersede_same_key_is_plain_update_not_self_superseded(db_session, usa_wa):
     """A correction that changes only evidence/notes resolves to the prior row (same key) —
     an idempotent update, never self-superseded."""

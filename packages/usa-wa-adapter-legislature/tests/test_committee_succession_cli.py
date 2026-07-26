@@ -29,7 +29,14 @@ async def _committee(session, source_id):
     await session.flush()
 
 
-def _link(subject="14294", linked="28244", slug="succeeded_by", year=2021, supersede_id=None):
+def _link(
+    subject="14294",
+    linked="28244",
+    slug="succeeded_by",
+    year=2021,
+    supersede_id=None,
+    clear_year=False,
+):
     return LinkSpec(
         subject_source_id=subject,
         linked_source_id=linked,
@@ -37,6 +44,7 @@ def _link(subject="14294", linked="28244", slug="succeeded_by", year=2021, super
         evidence_url="https://example.gov/x",
         effective_year=year,
         supersede_id=supersede_id,
+        clear_year=clear_year,
     )
 
 
@@ -99,6 +107,41 @@ async def test_supersede_relink(db_session, usa_wa):
     )
     assert corrected.id != prior.id
     assert prior.superseded_by_id == corrected.id
+
+
+async def test_supersede_clear_year(db_session, usa_wa):
+    """``--clear-year`` on a supersede removes the boundary year (vs omitting it = inherit)."""
+    await _committee(db_session, "14294")
+    await _committee(db_session, "28244")
+    source = await _source(db_session)
+    prior = await validate_and_record(db_session, source, _link(year=2021))
+    corrected = await validate_and_record(
+        db_session, source, _link(year=None, clear_year=True, supersede_id=str(prior.id))
+    )
+    assert corrected.id != prior.id
+    assert corrected.effective_year is None
+    assert prior.superseded_by_id == corrected.id
+
+
+async def test_supersede_inherits_year_when_omitted(db_session, usa_wa):
+    """Omitting the year on a supersede inherits the prior link's year (not clear)."""
+    await _committee(db_session, "14294")
+    await _committee(db_session, "28244")
+    await _committee(db_session, "99999")
+    source = await _source(db_session)
+    prior = await validate_and_record(db_session, source, _link(linked="99999", year=2021))
+    corrected = await validate_and_record(
+        db_session, source, _link(linked="28244", year=None, supersede_id=str(prior.id))
+    )
+    assert corrected.effective_year == 2021  # inherited, not cleared
+
+
+async def test_clear_year_requires_supersede(db_session, usa_wa):
+    await _committee(db_session, "14294")
+    await _committee(db_session, "28244")
+    source = await _source(db_session)
+    with pytest.raises(SuccessionError, match="clear-year"):
+        await validate_and_record(db_session, source, _link(clear_year=True))
 
 
 async def test_supersede_slug_mismatch_rejected(db_session, usa_wa):

@@ -184,6 +184,7 @@ deploy/               — Systemd unit + deployment config
 | PDC refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-pdc-refresh.timer` → `.service`; 06:30 UTC, #69; **identifier-only since #101**). Archives the current winner cohorts + re-drives the builder → `person_wa_pdc` cross-links only (the House Position seat is the SOS refresh's since #101). Ordered after the WSL refresh (binds onto its House Persons + sponsor archive) |
 | SOS refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-sos-refresh.timer` → `.service`; 06:45 UTC, #101). Archives the current biennium's results cohorts — both the even seating year and the odd mid-biennium special (#106), each SAVEPOINT-guarded — + re-drives the WSL+SOS House Position span builder → `usa_wa_legislature` `state_representative` Position seat **spans**. Ordered after the WSL refresh (reads its sponsor archive + binds its Persons); independent of the PDC refresh |
 | Succession invariants (daily) | oneshot + timer | — | `systemctl` (`usa-wa-succession-invariants.timer` → `.service`; 07:15 UTC, #107). Read-only assertion of the open-seat cohort — 49 Senate / 98 House chamber counts + no duplicate occupancy; exit 1 → operator email (a missing operator succession event is otherwise silent). Ordered after the WSL/PDC/SOS refreshes rebuild the cohort |
+| Committee lineage invariants (daily) | oneshot + timer | — | `systemctl` (`usa-wa-committee-lineage-invariants.timer` → `.service`; 07:30 UTC, #124 C4). Read-only coherence assertion — INV1 no `active=false` committee carries a live membership Assignment; INV2 the subject of a non-superseded `succeeded_by`/`merged_with` link is `active=false` (`split_from` exempt); exit 1 → operator email. Ordered after the refreshes + reconcile deactivate defunct committees + close their spans |
 | Committee active reconcile (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-active.timer` → `.service`; Sun 07:00 UTC) |
 | Committee rename detection (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-names.timer` → `.service`; Sun 07:30 UTC) |
 | Joint/Other rename detection (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-meeting-names.timer` → `.service`; Sun 07:45 UTC, #56) |
@@ -200,7 +201,7 @@ journal nobody is watching. Each failable oneshot (`usa-wa-migrate`,
 `usa-wa-wsl-refresh`, `usa-wa-pdc-refresh`, `usa-wa-sos-refresh`,
 `usa-wa-reconcile-committee-active`, `usa-wa-reconcile-committee-names`,
 `usa-wa-reconcile-committee-meeting-names`, `usa-wa-integrity-sweep`,
-`usa-wa-succession-invariants`) carries
+`usa-wa-succession-invariants`, `usa-wa-committee-lineage-invariants`) carries
 `OnFailure=usa-wa-notify-failure@%n.service`, so systemd starts the templated
 handler on a non-zero exit **or** a `TimeoutStartSec=` hang. `%n` (the failing
 unit's full name) becomes the handler's instance.
@@ -273,7 +274,7 @@ entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
 `usa-wa-reconcile-committee-names.service`,
 `usa-wa-reconcile-committee-meeting-names.service`,
 `usa-wa-integrity-sweep.service`, `usa-wa-succession-invariants.service`,
-`scripts/migrate.sh`).
+`usa-wa-committee-lineage-invariants.service`, `scripts/migrate.sh`).
 `--no-sync` runs against the installed venv as-is; `--frozen` skips re-locking.
 So unit start never mutates the environment — the daily WSL refresh timer can't
 silently apply a dependency change a `git pull` landed in `uv.lock`. (Note:
@@ -318,6 +319,7 @@ silently deploys nothing.
 | After editing `deploy/usa-wa-reconcile-committee-meeting-names.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-meeting-names.timer` |
 | After editing `deploy/usa-wa-integrity-sweep.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-integrity-sweep.timer` |
 | After editing `deploy/usa-wa-succession-invariants.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-succession-invariants.timer` |
+| After editing `deploy/usa-wa-committee-lineage-invariants.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-committee-lineage-invariants.timer` |
 | After editing `deploy/usa-wa-notify-failure@.service` | `sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
 | After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
 | Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
@@ -328,6 +330,7 @@ silently deploys nothing.
 | Run the Joint/Other rename detection now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-meeting-names.service` |
 | Run the provenance integrity sweep now (ad-hoc) | `sudo systemctl start usa-wa-integrity-sweep.service` |
 | Run the succession invariant check now (ad-hoc) | `sudo systemctl start usa-wa-succession-invariants.service` |
+| Run the committee lineage invariant check now (ad-hoc) | `sudo systemctl start usa-wa-committee-lineage-invariants.service` |
 
 **Validating unit edits (#51).** A path-filtered pre-commit hook
 (`systemd-verify-units` → [`scripts/verify-units.sh`](scripts/verify-units.sh))
@@ -463,6 +466,10 @@ timers (see § Server Lifecycle); the rest are run-once / ad-hoc. Pair backfills
 | `python -m usa_wa_adapter_sos.results.harvest` | Archive WA SOS **results** cohorts (the House Position source, `usa_wa_sos_results`) — Phase A (#101) |
 | `python -m usa_wa_adapter_sos.house.build` | WSL+SOS House Position seat spans (2008→present) incl. #103 elimination inference, Phase B (#101) |
 | `python -m usa_wa_adapter_sos.house.migrate` | Superseded-collapse (#103) + re-source usa_wa_pdc House rows → usa_wa_legislature (owner role, #101) |
+| `python -m usa_wa_adapter_legislature.committee_succession` | Record operator committee-succession links — the judgment layer (#124 C2) |
+| `python -m usa_wa_sync_powermap.committee_event_producer` | Emit committee lifecycle windows + succession links to PM as org events (#124 C3) |
+| `python -m usa_wa_adapter_legislature.committee_lineage_invariants` | Assert committee lineage coherence (INV1/INV2); exit 1 on drift (#124 C4; daily) |
+| `python -m usa_wa_adapter_legislature.committee_lineage_suggest` | Advisory: rank committee succession-candidate pairs (#124 C5) |
 
 ### Regenerating the PM client
 
