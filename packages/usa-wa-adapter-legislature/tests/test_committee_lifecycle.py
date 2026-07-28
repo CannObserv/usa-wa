@@ -116,3 +116,78 @@ async def test_collect_committee_presence_reads_provider():
     presence = await collect_committee_presence(provider)
     assert presence["10171"] == {"2001-02"}
     assert presence["28244"] == {"2001-02", "2003-04"}
+
+
+# --- back-stamp founded correction (#128) ------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+from usa_wa_adapter_legislature.committee_lifecycle import build_founded_floors  # noqa: E402
+
+
+def _link(subject, linked, slug, year):
+    return SimpleNamespace(
+        subject_source_id=subject, linked_source_id=linked, slug=slug, effective_year=year
+    )
+
+
+def test_backstamp_founded_bumped_to_rename_year():
+    # 12167 roster-first 2005-06 (back-stamp) but the rename took effect 2007.
+    out = derive_committee_windows(
+        {"12167": ["2005-06", "2019-20", "2025-26"]},
+        current_biennium=CURRENT,
+        archived_bienniums=ARCHIVE,
+        founded_floors={"12167": 2007},
+    )
+    assert out["12167"].founded_year == 2007  # bumped forward off the back-stamp
+
+
+def test_normal_committee_founded_unchanged_by_matching_floor():
+    # roster-first == rename year → max() is a no-op.
+    out = derive_committee_windows(
+        {"B": ["2005-06", "2019-20"]},
+        current_biennium=CURRENT,
+        archived_bienniums=ARCHIVE,
+        founded_floors={"B": 2005},
+    )
+    assert out["B"].founded_year == 2005
+
+
+def test_founded_floor_gate_beats_backstamp_override():
+    # A floor-present committee stays founded=None even with a rename floor.
+    out = derive_committee_windows(
+        {"X": ["1999-00", "2001-02", "2025-26"]},
+        current_biennium=CURRENT,
+        archived_bienniums=ARCHIVE,
+        founded_floors={"X": 2003},
+    )
+    assert out["X"].founded_year is None
+
+
+def test_founded_floor_below_roster_first_is_ignored():
+    # A rename year earlier than roster evidence never pulls founded backward.
+    out = derive_committee_windows(
+        {"B": ["2005-06", "2019-20"]},
+        current_biennium=CURRENT,
+        archived_bienniums=ARCHIVE,
+        founded_floors={"B": 2001},
+    )
+    assert out["B"].founded_year == 2005  # max() keeps roster-first
+
+
+def test_build_founded_floors_from_links():
+    links = [
+        _link("894", "12167", "succeeded_by", 2007),  # successor (linked) founded at rename
+        _link("34078", "29197", "split_from", 2023),  # child (subject) founded at split
+        _link("17642", "28239", "merged_with", 2019),  # survivor pre-exists → ignored
+        _link("A", "12167", "succeeded_by", 2009),  # multiple into 12167 → earliest wins
+    ]
+    floors = build_founded_floors(links)
+    assert floors["12167"] == 2007  # min of 2007/2009
+    assert floors["34078"] == 2023
+    assert "28239" not in floors  # merged_with survivor is not "founded" by the merge
+
+
+def test_build_founded_floors_skips_yearless_links():
+    floors = build_founded_floors([_link("894", "12167", "succeeded_by", None)])
+    assert floors == {}
