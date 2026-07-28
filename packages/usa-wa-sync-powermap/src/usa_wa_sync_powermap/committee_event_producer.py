@@ -223,7 +223,16 @@ def build_retract_items(
         if anchor in seen_anchors:
             continue
         seen_anchors.add(anchor)
-        out.append(({"op": "retract", "pm_event_id": anchor}, row))
+        # PM validates event_type + linked_entity on every item, retract included — carry
+        # the full identity (addressed by pm_event_id) so the 422 schema check passes.
+        item: dict[str, Any] = {
+            "op": "retract",
+            "pm_event_id": anchor,
+            "event_type_slug": link.slug,
+            "linked_entity_type": "organization",
+            "linked_entity_id": linked_pm,
+        }
+        out.append((item, row))
     return out
 
 
