@@ -105,3 +105,15 @@ async def test_inv2_superseded_link_ignored(db_session, usa_wa):
     await db_session.flush()
     result = await check_committee_lineage_invariants(db_session)
     assert result.ok  # only the superseded succeeded_by pointed at 14294 as predecessor
+
+
+async def test_inv_completes_on_a_lineage_cycle(db_session, usa_wa):
+    """#126: a round-trip 2-cycle (924 ⇄ 966) must not hang or error the C4 check — it is
+    a flat set query, so cycles are inert. Regression: a future naive graph-walk here
+    would loop and fail this test."""
+    await _committee(db_session, "924", active=False)
+    await _committee(db_session, "966", active=False)
+    await _link(db_session, "924", "966", slug="succeeded_by")
+    await _link(db_session, "966", "924", slug="succeeded_by")  # the cycle
+    result = await check_committee_lineage_invariants(db_session)
+    assert result.ok  # both predecessors inactive; the cycle is coherent

@@ -28,6 +28,9 @@ provenance is never mutated. A re-link correction (wrong successor) is a superse
 producer effect is create-new + retract-old (power-map#322).
 """
 
+from collections.abc import Iterable
+from typing import Any
+
 from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from ulid import ULID as _ULID
@@ -60,7 +63,16 @@ class CommitteeSuccessionEvent(Base, TimestampMixin):
     Natural-keyed on ``(source, source_id)`` where ``source_id`` is deterministic
     (``{slug}:{subject}:{linked}[:{year}]``) so a re-ingest is idempotent and a corrected
     year is a distinct event. ``subject_source_id`` / ``linked_source_id`` are WSL
-    committee ``Id``s (``Organization.source_id`` under ``usa_wa_legislature``)."""
+    committee ``Id``s (``Organization.source_id`` under ``usa_wa_legislature``).
+
+    **The lineage graph MAY contain cycles (usa-wa#126).** A committee that twice absorbed
+    a portfolio under a new ``Id`` and reverted forms a round-trip 2-cycle — e.g. House
+    Trade & Economic Development ``924 → 966 → 924`` (1993/1995) and ``924 → 3511 → 924``
+    (1999/2001), and dormancy round-trips on a current head (``438 ⇄ 8265``). The DB CHECK
+    bars only self-loops (``A→A``), not 2-cycles, so cycles are legitimately in the data.
+    Every current consumer is edge-local (flat set queries, per-subject grouping, pairwise
+    scoring) and cycle-safe; **any future code that WALKS the graph must be cycle-guarded**
+    (a ``seen`` set + iteration cap) — use :func:`find_succession_cycles` to detect them."""
 
     __tablename__ = "committee_succession_events"
     __table_args__ = (
@@ -100,3 +112,54 @@ class CommitteeSuccessionEvent(Base, TimestampMixin):
         ForeignKey(f"{SCHEMA}.committee_succession_events.id", ondelete="SET NULL"),
         nullable=True,
     )
+
+
+def find_succession_cycles(links: "Iterable[Any]") -> list[list[str]]:
+    """Detect directed cycles in the succession-continuation graph (usa-wa#126, advisory).
+
+    Builds the forward-flow graph from the links — ``succeeded_by`` / ``merged_with`` as
+    ``subject → linked`` (predecessor → successor/survivor), ``split_from`` as
+    ``linked → subject`` (parent → child) — and returns each simple cycle as the list of
+    committee ``Id``s on it (normalised to start at its smallest node so a given cycle has
+    one representation). Advisory only — cycles are legitimate data (round-trip renames);
+    this exists so a curation report or any future graph-walker can find them rather than
+    hang. Cycle-guarded DFS: each node is fully explored once, so it always terminates."""
+    adjacency: dict[str, set[str]] = {}
+    for link in links:
+        if link.slug == SLUG_SPLIT_FROM:
+            src, dst = link.linked_source_id, link.subject_source_id
+        else:  # succeeded_by | merged_with — subject precedes linked
+            src, dst = link.subject_source_id, link.linked_source_id
+        adjacency.setdefault(src, set()).add(dst)
+        adjacency.setdefault(dst, set())
+
+    cycles: set[tuple[str, ...]] = set()
+    visited: set[str] = set()
+
+    def _visit(start: str) -> None:
+        # Iterative DFS carrying the path stack; the recursion-stack membership is the
+        # cycle test. Guarded by ``visited`` so each node is expanded at most once.
+        stack: list[tuple[str, list[str]]] = [(start, [start])]
+        on_path = {start}
+        while stack:
+            node, path = stack[-1]
+            advanced = False
+            for nxt in sorted(adjacency.get(node, ())):
+                if nxt in on_path:
+                    cycle = path[path.index(nxt) :]
+                    rot = cycle.index(min(cycle))
+                    cycles.add(tuple(cycle[rot:] + cycle[:rot]))
+                elif nxt not in visited:
+                    stack.append((nxt, path + [nxt]))
+                    on_path.add(nxt)
+                    advanced = True
+                    break
+            if not advanced:
+                visited.add(node)
+                on_path.discard(node)
+                stack.pop()
+
+    for node in sorted(adjacency):
+        if node not in visited:
+            _visit(node)
+    return [list(c) for c in sorted(cycles)]
