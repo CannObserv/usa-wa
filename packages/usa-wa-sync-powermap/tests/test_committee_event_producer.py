@@ -153,7 +153,15 @@ def test_retract_superseded_link_not_reasserted():
     )
     assert len(retracts) == 1
     item, row = retracts[0]
-    assert item == {"op": "retract", "pm_event_id": str(anchor)}
+    # PM requires event_type + linked_entity on every item — retract carries the full
+    # identity (addressed by pm_event_id) so its 422 schema check passes.
+    assert item == {
+        "op": "retract",
+        "pm_event_id": str(anchor),
+        "event_type_slug": "succeeded_by",
+        "linked_entity_type": "organization",
+        "linked_entity_id": linked_pm,
+    }
     assert row is existing[0]
 
 
