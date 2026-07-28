@@ -203,8 +203,12 @@ def build_retract_items(
         if linked_pm is not None:
             active_identities.add((link.slug, linked_pm))
 
+    # Skip already-retracted rows up front (idempotency) — symmetric with the
+    # ``retracted_identities`` handling in :func:`build_org_event_items`.
     by_identity: dict[tuple[str, str | None], EntityEvent] = {}
     for row in existing:
+        if getattr(row, "retracted_at", None) is not None:
+            continue
         linked = str(row.linked_entity_id) if row.linked_entity_id is not None else None
         by_identity[(row.event_type_slug, linked)] = row
 
@@ -218,7 +222,7 @@ def build_retract_items(
         if identity in active_identities:
             continue  # year-only correction — the active link refines this in place
         row = by_identity.get(identity)
-        if row is None or row.pm_entity_event_id is None or row.retracted_at is not None:
+        if row is None or row.pm_entity_event_id is None:
             continue
         anchor = str(row.pm_entity_event_id)
         if anchor in seen_anchors:
@@ -331,6 +335,19 @@ async def produce_committee_events(
             continue
         stats.submitted += len(all_items)
         results = await pm_client.submit_org_event_observations(org.pm_organization_id, all_items)
+        # PM's sub-resource contract is one result per submitted event, in request order —
+        # we slice on that to separate create/refine from retract outcomes. A count mismatch
+        # would silently drop the tail (retracts un-stamped, safely retried next run), so
+        # surface the contract violation rather than let it pass unnoticed.
+        if len(results) != len(all_items):
+            logger.warning(
+                "committee_event_result_count_mismatch",
+                extra={
+                    "source_id": source_id,
+                    "submitted": len(all_items),
+                    "returned": len(results),
+                },
+            )
         # Results are in request order: the create/refine block first, then the retracts.
         for result in results[: len(items)]:
             if result.rejected:

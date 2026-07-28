@@ -114,7 +114,7 @@ class CommitteeSuccessionEvent(Base, TimestampMixin):
     )
 
 
-def find_succession_cycles(links: "Iterable[Any]") -> list[list[str]]:
+def find_succession_cycles(links: Iterable[Any]) -> list[list[str]]:
     """Detect directed cycles in the succession-continuation graph (usa-wa#126, advisory).
 
     Builds the forward-flow graph from the links — ``succeeded_by`` / ``merged_with`` as
@@ -139,6 +139,9 @@ def find_succession_cycles(links: "Iterable[Any]") -> list[list[str]]:
     def _visit(start: str) -> None:
         # Iterative DFS carrying the path stack; the recursion-stack membership is the
         # cycle test. Guarded by ``visited`` so each node is expanded at most once.
+        # Per-push ``path + [nxt]`` copies and the restart of the neighbour scan on each
+        # return to a node are O(depth**2)/O(E) overhead — negligible for the committee
+        # graph (~150 shallow nodes); revisit if this is ever run on a large graph.
         stack: list[tuple[str, list[str]]] = [(start, [start])]
         on_path = {start}
         while stack:

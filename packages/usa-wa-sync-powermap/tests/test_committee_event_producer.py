@@ -567,3 +567,39 @@ async def test_produce_no_retract_when_reason_rejected(db_session, usa_wa):
         )
     ).scalar_one()
     assert row.retracted_at is None
+
+
+async def test_produce_warns_on_result_count_mismatch(db_session, usa_wa, caplog):
+    """A PM batch returning fewer results than submitted must not crash — it warns and
+    leaves the un-answered retracts un-stamped (safely retried next run)."""
+    subject = await _committee(db_session, "14217", anchor=ULID())
+    old_linked = await _committee(db_session, "17641", anchor=ULID())
+    old_anchor = ULID()
+    await _mirror_event(
+        db_session,
+        subject,
+        "succeeded_by",
+        2013,
+        anchor=old_anchor,
+        linked=old_linked.pm_organization_id,
+    )
+    superseded = await _succession(db_session, "14217", "17641", 2013, superseded=True)
+
+    def _short(_org, items):
+        return []  # PM contract violation: no results for a non-empty batch
+
+    client = FakeClient(event_observation_result=_short)
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        stats = await produce_committee_events(
+            db_session, client, windows={}, links=[], superseded_links=[superseded]
+        )
+    assert stats.retracted == 0  # nothing stamped from a short batch
+    assert any("committee_event_result_count_mismatch" in r.message for r in caplog.records)
+    row = (
+        await db_session.execute(
+            select(EntityEvent).where(EntityEvent.pm_entity_event_id == old_anchor)
+        )
+    ).scalar_one()
+    assert row.retracted_at is None
