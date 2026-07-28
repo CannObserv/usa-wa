@@ -1,7 +1,9 @@
 """C3 committee event producer (usa-wa#124) — diff/no-op gate + orchestration."""
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
+from sqlalchemy import select
 from ulid import ULID
 
 from clearinghouse_domain_legislative.committee_succession import CommitteeSuccessionEvent
@@ -9,23 +11,27 @@ from clearinghouse_domain_legislative.identity import EntityEvent, Organization
 from clearinghouse_sync_powermap.client import EventObservationResult
 from clearinghouse_sync_powermap.models import (
     DISPOSITION_AUTO_ATTACHED,
+    DISPOSITION_NEW,
     DISPOSITION_REJECTED,
+    DISPOSITION_RETRACTED,
     DISPOSITION_UPDATED,
 )
 from clearinghouse_sync_powermap.testing import FakeClient
 from usa_wa_adapter_legislature.committee_lifecycle import CommitteeWindow
 from usa_wa_sync_powermap.committee_event_producer import (
     build_org_event_items,
+    build_retract_items,
     produce_committee_events,
 )
 
 
-def _existing(slug, year, *, anchor=None, linked=None):
+def _existing(slug, year, *, anchor=None, linked=None, retracted_at=None):
     return SimpleNamespace(
         event_type_slug=slug,
         event_year=year,
         pm_entity_event_id=anchor,
         linked_entity_id=linked,
+        retracted_at=retracted_at,
     )
 
 
@@ -132,6 +138,98 @@ def test_stats_as_dict_avoids_reserved_logrecord_keys():
     assert reserved & {"stats"} == set()
 
 
+# --- build_retract_items (pure, #127) ----------------------------------------
+
+
+def test_retract_superseded_link_not_reasserted():
+    anchor = ULID()
+    linked_pm = str(ULID())
+    existing = [_existing("succeeded_by", 2013, anchor=anchor, linked=linked_pm)]
+    retracts = build_retract_items(
+        superseded_links=[_link("A", "B", year=2013)],
+        active_links=[_link("A", "C", year=2012)],  # a different linked target now
+        linked_pm_ids={"B": linked_pm, "C": str(ULID())},
+        existing=existing,
+    )
+    assert len(retracts) == 1
+    item, row = retracts[0]
+    assert item == {"op": "retract", "pm_event_id": str(anchor)}
+    assert row is existing[0]
+
+
+def test_no_retract_when_identity_reasserted_year_only():
+    # A year-only correction keeps the (slug, linked) identity — refine, don't retract.
+    anchor = ULID()
+    linked_pm = str(ULID())
+    existing = [_existing("succeeded_by", 2013, anchor=anchor, linked=linked_pm)]
+    retracts = build_retract_items(
+        superseded_links=[_link("A", "B", year=2013)],
+        active_links=[_link("A", "B", year=2015)],  # same subject+linked → identity kept
+        linked_pm_ids={"B": linked_pm},
+        existing=existing,
+    )
+    assert retracts == []
+
+
+def test_no_retract_when_already_retracted():
+    anchor = ULID()
+    linked_pm = str(ULID())
+    existing = [
+        _existing(
+            "succeeded_by", 2013, anchor=anchor, linked=linked_pm, retracted_at=datetime.now(UTC)
+        )
+    ]
+    retracts = build_retract_items(
+        superseded_links=[_link("A", "B", year=2013)],
+        active_links=[],
+        linked_pm_ids={"B": linked_pm},
+        existing=existing,
+    )
+    assert retracts == []
+
+
+def test_no_retract_when_mirror_unanchored_or_absent():
+    linked_pm = str(ULID())
+    # unanchored mirror row (never delivered to PM) — nothing to retract
+    assert (
+        build_retract_items(
+            superseded_links=[_link("A", "B", year=2013)],
+            active_links=[],
+            linked_pm_ids={"B": linked_pm},
+            existing=[_existing("succeeded_by", 2013, anchor=None, linked=linked_pm)],
+        )
+        == []
+    )
+    # no mirror row at all
+    assert (
+        build_retract_items(
+            superseded_links=[_link("A", "B", year=2013)],
+            active_links=[],
+            linked_pm_ids={"B": linked_pm},
+            existing=[],
+        )
+        == []
+    )
+
+
+def test_retracted_mirror_row_is_terminal_not_reemitted():
+    # #322: a retracted anchor is terminal — a reasserted identity is NOT re-emitted.
+    anchor = ULID()
+    linked_pm = ULID()
+    existing = [
+        _existing(
+            "succeeded_by", 2013, anchor=anchor, linked=linked_pm, retracted_at=datetime.now(UTC)
+        )
+    ]
+    items, noop, _ = build_org_event_items(
+        window=None,
+        outgoing_links=[_link("A", "B", year=2013)],
+        linked_pm_ids={"B": str(linked_pm)},
+        existing=existing,
+    )
+    assert items == []
+
+
 # --- produce_committee_events (orchestration) --------------------------------
 
 
@@ -148,7 +246,7 @@ async def _committee(session, source_id, *, anchor=None):
     return row
 
 
-async def _mirror_event(session, org, slug, year, *, anchor, linked=None):
+async def _mirror_event(session, org, slug, year, *, anchor, linked=None, retracted_at=None):
     """A mirrored (source='powermap') org EntityEvent, as sync_entity_events would write."""
     session.add(
         EntityEvent(
@@ -162,6 +260,7 @@ async def _mirror_event(session, org, slug, year, *, anchor, linked=None):
             linked_entity_kind="organization" if linked is not None else None,
             linked_entity_id=linked,
             visibility="public",
+            retracted_at=retracted_at,
         )
     )
     await session.flush()
@@ -304,3 +403,159 @@ async def test_produce_emits_link_between_two_anchored_orgs(db_session, usa_wa):
     assert items[0]["event_type_slug"] == "succeeded_by"
     assert items[0]["linked_entity_id"] == str(linked.pm_organization_id)
     assert stats.created == 1
+
+
+async def _succession(session, subject, linked, year, *, superseded=False):
+    superseded_by = None
+    if superseded:
+        # A superseded row must point at a real corrector (self-FK). Its identity is
+        # irrelevant to the test (produce takes links explicitly) — just satisfy the FK.
+        corrector = CommitteeSuccessionEvent(
+            source="usa_wa_operator",
+            source_id=f"succeeded_by:{subject}:{linked}:{year}:corrected",
+            subject_source_id=subject,
+            linked_source_id=linked,
+            slug="succeeded_by",
+            effective_year=(year or 0) + 100,
+            evidence_url="https://x",
+        )
+        session.add(corrector)
+        await session.flush()
+        superseded_by = corrector.id
+    row = CommitteeSuccessionEvent(
+        source="usa_wa_operator",
+        source_id=f"succeeded_by:{subject}:{linked}:{year}",
+        subject_source_id=subject,
+        linked_source_id=linked,
+        slug="succeeded_by",
+        effective_year=year,
+        evidence_url="https://x",
+        superseded_by_id=superseded_by,
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def test_produce_retracts_superseded_unreasserted_link(db_session, usa_wa):
+    subject = await _committee(db_session, "14217", anchor=ULID())
+    old_linked = await _committee(db_session, "17641", anchor=ULID())
+    await _committee(db_session, "16566", anchor=ULID())  # new target, active link
+    old_anchor = ULID()
+    await _mirror_event(
+        db_session,
+        subject,
+        "succeeded_by",
+        2013,
+        anchor=old_anchor,
+        linked=old_linked.pm_organization_id,
+    )
+    active = await _succession(db_session, "14217", "16566", 2012)
+    superseded = await _succession(db_session, "14217", "17641", 2013, superseded=True)
+
+    def _results(_org, items):
+        out = []
+        for it in items:
+            if it.get("op") == "retract":
+                out.append(
+                    EventObservationResult(
+                        disposition=DISPOSITION_RETRACTED, event_id=old_anchor, reason=None, raw={}
+                    )
+                )
+            else:
+                out.append(
+                    EventObservationResult(
+                        disposition=DISPOSITION_NEW, event_id=ULID(), reason=None, raw={}
+                    )
+                )
+        return out
+
+    client = FakeClient(event_observation_result=_results)
+    stats = await produce_committee_events(
+        db_session, client, windows={}, links=[active], superseded_links=[superseded]
+    )
+
+    assert stats.retracted == 1
+    _org, items = client.posted_events[0]
+    assert any(i.get("op") == "retract" and i["pm_event_id"] == str(old_anchor) for i in items)
+    # the create for the reasserting active link went out too
+    assert any(i.get("event_type_slug") == "succeeded_by" and "op" not in i for i in items)
+    # retracted_at stamped on the stale mirror row
+    row = (
+        await db_session.execute(
+            select(EntityEvent).where(EntityEvent.pm_entity_event_id == old_anchor)
+        )
+    ).scalar_one()
+    assert row.retracted_at is not None
+
+
+async def test_produce_retract_is_idempotent(db_session, usa_wa):
+    subject = await _committee(db_session, "14217", anchor=ULID())
+    old_linked = await _committee(db_session, "17641", anchor=ULID())
+    old_anchor = ULID()
+    await _mirror_event(
+        db_session,
+        subject,
+        "succeeded_by",
+        2013,
+        anchor=old_anchor,
+        linked=old_linked.pm_organization_id,
+    )
+    superseded = await _succession(db_session, "14217", "17641", 2013, superseded=True)
+
+    def _results(_org, items):
+        return [
+            EventObservationResult(
+                disposition=DISPOSITION_RETRACTED, event_id=old_anchor, reason=None, raw={}
+            )
+            for _ in items
+        ]
+
+    client = FakeClient(event_observation_result=_results)
+    first = await produce_committee_events(
+        db_session, client, windows={}, links=[], superseded_links=[superseded]
+    )
+    assert first.retracted == 1
+    # second run: mirror row now carries retracted_at → nothing to submit
+    second = await produce_committee_events(
+        db_session, client, windows={}, links=[], superseded_links=[superseded]
+    )
+    assert second.retracted == 0
+    assert len(client.posted_events) == 1  # no second submit
+
+
+async def test_produce_no_retract_when_reason_rejected(db_session, usa_wa):
+    subject = await _committee(db_session, "14217", anchor=ULID())
+    old_linked = await _committee(db_session, "17641", anchor=ULID())
+    old_anchor = ULID()
+    await _mirror_event(
+        db_session,
+        subject,
+        "succeeded_by",
+        2013,
+        anchor=old_anchor,
+        linked=old_linked.pm_organization_id,
+    )
+    superseded = await _succession(db_session, "14217", "17641", 2013, superseded=True)
+
+    def _results(_org, items):
+        return [
+            EventObservationResult(
+                disposition=DISPOSITION_REJECTED, event_id=None, reason="invalid", raw={}
+            )
+            for _ in items
+        ]
+
+    client = FakeClient(event_observation_result=_results)
+    stats = await produce_committee_events(
+        db_session, client, windows={}, links=[], superseded_links=[superseded]
+    )
+    assert stats.retracted == 0
+    assert stats.rejected == 1
+    # not stamped — a rejected retract must retry next run
+    row = (
+        await db_session.execute(
+            select(EntityEvent).where(EntityEvent.pm_entity_event_id == old_anchor)
+        )
+    ).scalar_one()
+    assert row.retracted_at is None

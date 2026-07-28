@@ -19,9 +19,12 @@ re-arming (the #109 lesson: identity — ``event_type``/``linked_entity`` — is
 it is never in the comparator). Rejections carry a reason slug (``linked_entity_unresolved``
 transient vs terminal), tallied for the #85/#112 telemetry.
 
-Retract of a *stale* link (an operator re-link's superseded predecessor event) is a
-deferred follow-up — it needs the produced-ownership signal to retract safely; the common
-paths (window emission, link create, date refine) are covered here.
+**Retract of a stale link (#127).** A superseded attestation (an operator re-link or
+successor change) whose ``(subject, slug, linked)`` identity is *not* reasserted by an
+active link has its still-anchored mirror event retracted (``op=retract``) — the ownership
+signal is the superseded :class:`CommitteeSuccessionEvent` itself. A ``retracted_at`` stamp
+on the mirror row guards the retract against re-firing until the read-mirror prunes the
+archived PM event; a year-only correction keeps the identity and refines in place instead.
 """
 
 from __future__ import annotations
@@ -55,7 +58,10 @@ from usa_wa_adapter_legislature.committee_lifecycle import (
     derive_committee_windows,
 )
 from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
-from usa_wa_adapter_legislature.committee_succession_store import current_events
+from usa_wa_adapter_legislature.committee_succession_store import (
+    current_events,
+    superseded_events,
+)
 from usa_wa_adapter_legislature.refresh import biennium_for_date
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_sync_powermap.config import get_sidecar_settings
@@ -85,6 +91,8 @@ class ProduceStats:
     updated: int = 0
     noop: int = 0
     rejected: int = 0
+    #: op=retract emitted for a superseded, unreasserted, still-anchored event (#127).
+    retracted: int = 0
     skipped_unanchored_org: int = 0
     skipped_unresolved_link: int = 0
     dry_run: bool = False
@@ -101,6 +109,7 @@ class ProduceStats:
             "updated": self.updated,
             "noop": self.noop,
             "rejected": self.rejected,
+            "retracted": self.retracted,
             "skipped_unanchored_org": self.skipped_unanchored_org,
             "skipped_unresolved_link": self.skipped_unresolved_link,
             "dry_run": self.dry_run,
@@ -123,8 +132,15 @@ def build_org_event_items(
     matches is dropped as a no-op. A link whose target org has no PM anchor is skipped
     (``linked_pm_ids[target] is None``)."""
     by_identity: dict[tuple[str, str | None], EntityEvent] = {}
+    #: Identities whose mirror event PM has archived (we retracted it). #322: a retracted
+    #: anchor is terminal — re-observing only auto-attaches to the archive, never resurrects,
+    #: so a reasserted identity is left alone rather than churning a pointless re-observe.
+    retracted_identities: set[tuple[str, str | None]] = set()
     for row in existing:
         linked = str(row.linked_entity_id) if row.linked_entity_id is not None else None
+        if getattr(row, "retracted_at", None) is not None:
+            retracted_identities.add((row.event_type_slug, linked))
+            continue
         by_identity[(row.event_type_slug, linked)] = row
 
     items: list[dict] = []
@@ -133,6 +149,8 @@ def build_org_event_items(
 
     def _emit(slug: str, year: int | None, linked_id: str | None) -> None:
         nonlocal noop
+        if (slug, linked_id) in retracted_identities:
+            return  # terminal retracted anchor — do not re-emit
         ex = by_identity.get((slug, linked_id))
         anchor = ex.pm_entity_event_id if ex is not None else None
         if anchor is not None and ex is not None and ex.event_year == year:
@@ -162,6 +180,51 @@ def build_org_event_items(
         _emit(link.slug, link.effective_year, linked_pm)
 
     return items, noop, unresolved
+
+
+def build_retract_items(
+    *,
+    superseded_links: Sequence[CommitteeSuccessionEvent],
+    active_links: Sequence[CommitteeSuccessionEvent],
+    linked_pm_ids: dict[str, str | None],
+    existing: Sequence[EntityEvent],
+) -> list[tuple[dict, EntityEvent]]:
+    """Retract items for one org's superseded, unreasserted, still-anchored events (#127).
+
+    A superseded attestation whose ``(slug, linked_pm)`` identity is **not** reasserted by
+    any active link (a re-link or drop, not a year-only correction — which keeps the
+    identity and refines instead) and whose mirror :class:`EntityEvent` is anchored and not
+    already ``retracted_at`` yields one ``{op: retract, pm_event_id}`` item paired with the
+    row to stamp on success. Idempotent: an already-retracted row is skipped."""
+    active_identities: set[tuple[str, str | None]] = set()
+    for link in active_links:
+        linked_pm = linked_pm_ids.get(link.linked_source_id)
+        if linked_pm is not None:
+            active_identities.add((link.slug, linked_pm))
+
+    by_identity: dict[tuple[str, str | None], EntityEvent] = {}
+    for row in existing:
+        linked = str(row.linked_entity_id) if row.linked_entity_id is not None else None
+        by_identity[(row.event_type_slug, linked)] = row
+
+    out: list[tuple[dict, EntityEvent]] = []
+    seen_anchors: set[str] = set()
+    for link in superseded_links:
+        linked_pm = linked_pm_ids.get(link.linked_source_id)
+        if linked_pm is None:
+            continue
+        identity = (link.slug, linked_pm)
+        if identity in active_identities:
+            continue  # year-only correction — the active link refines this in place
+        row = by_identity.get(identity)
+        if row is None or row.pm_entity_event_id is None or row.retracted_at is not None:
+            continue
+        anchor = str(row.pm_entity_event_id)
+        if anchor in seen_anchors:
+            continue
+        seen_anchors.add(anchor)
+        out.append(({"op": "retract", "pm_event_id": anchor}, row))
+    return out
 
 
 async def _committee_orgs(session: AsyncSession) -> dict[str, Organization]:
@@ -202,14 +265,17 @@ async def produce_committee_events(
     *,
     windows: dict[str, CommitteeWindow],
     links: Sequence[CommitteeSuccessionEvent],
+    superseded_links: Sequence[CommitteeSuccessionEvent] = (),
     dry_run: bool = False,
 ) -> ProduceStats:
     """Emit each committee org's window + outgoing links to PM (create/refine, no-op gated).
 
-    ``windows`` is the C1a per-``Id`` map; ``links`` the C2 current attestations. PM is
-    authority for events and mirrors them back, so no local write here — the anchors come
-    from the mirror. ``dry_run`` computes the diff (counts intended items as ``planned``)
-    without posting. Returns a :class:`ProduceStats`."""
+    ``windows`` is the C1a per-``Id`` map; ``links`` the C2 current attestations;
+    ``superseded_links`` the corrected/re-linked attestations whose stale PM event is
+    retracted (#127) unless an active link still asserts the same identity. PM is authority
+    for events and mirrors them back, so the only local write is the ``retracted_at`` stamp
+    (guards a retract against re-firing). ``dry_run`` computes the diff (counts intended
+    items as ``planned``) without posting. Returns a :class:`ProduceStats`."""
     orgs = await _committee_orgs(session)
     pm_id_by_source = {
         sid: (str(o.pm_organization_id) if o.pm_organization_id else None)
@@ -218,9 +284,13 @@ async def produce_committee_events(
     links_by_subject: dict[str, list[CommitteeSuccessionEvent]] = {}
     for link in links:
         links_by_subject.setdefault(link.subject_source_id, []).append(link)
+    superseded_by_subject: dict[str, list[CommitteeSuccessionEvent]] = {}
+    for link in superseded_links:
+        superseded_by_subject.setdefault(link.subject_source_id, []).append(link)
 
     stats = ProduceStats(dry_run=dry_run)
-    subjects = set(windows) | set(links_by_subject)
+    stamped = False
+    subjects = set(windows) | set(links_by_subject) | set(superseded_by_subject)
     for source_id in sorted(subjects):
         org = orgs.get(source_id)
         if org is None or org.pm_organization_id is None:
@@ -234,17 +304,25 @@ async def produce_committee_events(
             linked_pm_ids=pm_id_by_source,
             existing=existing,
         )
+        retracts = build_retract_items(
+            superseded_links=superseded_by_subject.get(source_id, []),
+            active_links=links_by_subject.get(source_id, []),
+            linked_pm_ids=pm_id_by_source,
+            existing=existing,
+        )
         stats.noop += noop
         stats.skipped_unresolved_link += unresolved
-        if not items:
+        all_items = items + [item for item, _ in retracts]
+        if not all_items:
             continue
         stats.orgs += 1
         if dry_run:
-            stats.planned += len(items)
+            stats.planned += len(all_items)
             continue
-        stats.submitted += len(items)
-        results = await pm_client.submit_org_event_observations(org.pm_organization_id, items)
-        for result in results:
+        stats.submitted += len(all_items)
+        results = await pm_client.submit_org_event_observations(org.pm_organization_id, all_items)
+        # Results are in request order: the create/refine block first, then the retracts.
+        for result in results[: len(items)]:
             if result.rejected:
                 stats.rejected += 1
                 reason = result.reason or "unknown"
@@ -259,6 +337,21 @@ async def produce_committee_events(
                 stats.reobserved += 1
             elif result.anchored:  # DISPOSITION_NEW — a genuine create
                 stats.created += 1
+        for result, (_, row) in zip(results[len(items) :], retracts):
+            if result.rejected:
+                stats.rejected += 1
+                reason = result.reason or "unknown"
+                stats.reject_reasons[reason] = stats.reject_reasons.get(reason, 0) + 1
+                logger.warning(
+                    "committee_event_retract_rejected",
+                    extra={"source_id": source_id, "reason": reason},
+                )
+            else:  # DISPOSITION_RETRACTED (or any non-rejected) — PM archived it
+                stats.retracted += 1
+                row.retracted_at = datetime.now(UTC)
+                stamped = True
+    if stamped:
+        await session.flush()
     # Wrap under one key: as_dict() has a ``created`` field, which collides with the
     # reserved ``LogRecord.created`` attribute and would raise once logging is configured.
     logger.info("committee_events_produced", extra={"stats": stats.as_dict()})
@@ -267,8 +360,12 @@ async def produce_committee_events(
 
 async def _build_inputs(
     session: AsyncSession, wsl_client: Any, biennium: str
-) -> tuple[dict[str, CommitteeWindow], Sequence[CommitteeSuccessionEvent]]:
-    """Assemble the C1a windows (from the roster archive) + C2 current links."""
+) -> tuple[
+    dict[str, CommitteeWindow],
+    Sequence[CommitteeSuccessionEvent],
+    Sequence[CommitteeSuccessionEvent],
+]:
+    """Assemble the C1a windows (from the roster archive) + C2 current + superseded links."""
     source = (
         await session.execute(select(Source).where(Source.slug == _SOURCE))
     ).scalar_one_or_none()
@@ -281,7 +378,8 @@ async def _build_inputs(
         presence, current_biennium=biennium, archived_bienniums=archived
     )
     links = await current_events(session)
-    return windows, links
+    superseded = await superseded_events(session)
+    return windows, links, superseded
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -312,9 +410,14 @@ async def _run(args: argparse.Namespace) -> dict:
     wsl_client = WSLClient("CommitteeService")
     if args.dry_run:
         async with factory() as session:
-            windows, links = await _build_inputs(session, wsl_client, biennium)
+            windows, links, superseded = await _build_inputs(session, wsl_client, biennium)
             stats = await produce_committee_events(
-                session, None, windows=windows, links=links, dry_run=True
+                session,
+                None,
+                windows=windows,
+                links=links,
+                superseded_links=superseded,
+                dry_run=True,
             )
             return stats.as_dict()
     if not settings.powermap_api_key:
@@ -322,8 +425,12 @@ async def _run(args: argparse.Namespace) -> dict:
     pm_client = build_pm_client(settings)
     try:
         async with factory() as session:
-            windows, links = await _build_inputs(session, wsl_client, biennium)
-            stats = await produce_committee_events(session, pm_client, windows=windows, links=links)
+            windows, links, superseded = await _build_inputs(session, wsl_client, biennium)
+            stats = await produce_committee_events(
+                session, pm_client, windows=windows, links=links, superseded_links=superseded
+            )
+            # Persist the retracted_at stamps (the run's only local write, #127).
+            await session.commit()
             return stats.as_dict()
     finally:
         await pm_client.aclose()
