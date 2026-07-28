@@ -54,6 +54,7 @@ from clearinghouse_sync_powermap.models import (
 )
 from usa_wa_adapter_legislature.committee_lifecycle import (
     CommitteeWindow,
+    build_founded_floors,
     collect_committee_presence,
     derive_committee_windows,
 )
@@ -383,11 +384,16 @@ async def _build_inputs(
     )
     presence = await collect_committee_presence(provider)
     archived = await provider.archived_bienniums()
-    windows = derive_committee_windows(
-        presence, current_biennium=biennium, archived_bienniums=archived
-    )
     links = await current_events(session)
     superseded = await superseded_events(session)
+    # Back-stamp correction (#128): bump a re-keyed committee's founded to its attested
+    # rename year, off the WSL back-stamped prior biennium.
+    windows = derive_committee_windows(
+        presence,
+        current_biennium=biennium,
+        archived_bienniums=archived,
+        founded_floors=build_founded_floors(links),
+    )
     return windows, links, superseded
 
 

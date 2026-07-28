@@ -50,18 +50,51 @@ def _start_year(biennium: str) -> int:
     return parse_biennium(biennium)[0]
 
 
+def build_founded_floors(links: Iterable[Any]) -> dict[str, int]:
+    """``{source_id: earliest rename year}`` — the back-stamp founded correction (#128).
+
+    From the C2 succession links, the year a committee first came into existence under its
+    own ``Id``: the **successor** (``linked``) of a ``succeeded_by`` re-key, or the
+    **child** (``subject``) of a ``split_from``. ``merged_with`` is excluded — the survivor
+    pre-existed the merge. A committee with multiple incoming renames takes the earliest.
+    WSL back-stamps a re-keyed ``Id`` onto the prior biennium, so its roster-first year is
+    one biennium early; the rename link carries the true year (attested during #124)."""
+    floors: dict[str, int] = {}
+
+    def _bump(source_id: str, year: int) -> None:
+        cur = floors.get(source_id)
+        floors[source_id] = year if cur is None else min(cur, year)
+
+    for link in links:
+        year = link.effective_year
+        if year is None:
+            continue
+        if link.slug == "succeeded_by":
+            _bump(link.linked_source_id, year)
+        elif link.slug == "split_from":
+            _bump(link.subject_source_id, year)
+    return floors
+
+
 def derive_committee_windows(
     presence_by_id: Mapping[str, Iterable[str]],
     *,
     current_biennium: str,
     archived_bienniums: Sequence[str],
+    founded_floors: Mapping[str, int] | None = None,
 ) -> dict[str, CommitteeWindow]:
     """Derive each committee ``Id``'s :class:`CommitteeWindow` from its roster presence.
 
     ``presence_by_id`` maps a committee ``Id`` to the bienniums it appears in.
     ``archived_bienniums`` is the archive's domain (any order); its earliest member is
     the founding floor. An ``Id`` with no presence is skipped.
-    """
+
+    ``founded_floors`` (#128, from :func:`build_founded_floors`) corrects a back-stamped
+    re-key: a committee's ``founded`` is bumped **forward** to its attested rename year
+    when that is later than its roster-first biennium (``max`` — never earlier than roster
+    evidence, so a normally-keyed committee is unchanged). The floor-gate still wins (a
+    floor-present committee stays ``None``)."""
+    floors = founded_floors or {}
     floor_start = min((_start_year(b) for b in archived_bienniums), default=None)
     windows: dict[str, CommitteeWindow] = {}
     for source_id, raw_bienniums in presence_by_id.items():
@@ -77,6 +110,11 @@ def derive_committee_windows(
             if floor_start is not None and _start_year(first) > floor_start
             else None
         )
+        # Back-stamp correction: bump founded forward to the attested rename year (#128).
+        if founded_year is not None:
+            override = floors.get(source_id)
+            if override is not None and override > founded_year:
+                founded_year = override
         dissolved_year = None if is_current else parse_biennium(last)[1]
         windows[source_id] = CommitteeWindow(
             source_id=source_id,
