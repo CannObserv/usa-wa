@@ -12,6 +12,7 @@ from usa_wa_adapter_legislature.committee_succession_store import (
     record_succession_event,
     succession_source_id,
     supersede_event,
+    superseded_events,
 )
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 
@@ -101,6 +102,9 @@ async def test_supersede_relink_stamps_prior_and_appends_new(db_session, usa_wa)
     # Only the corrected link is "current".
     current = await current_events(db_session)
     assert [e.id for e in current] == [corrected.id]
+    # The prior (re-linked) row is the producer's retract candidate (#127).
+    superseded = await superseded_events(db_session)
+    assert [e.id for e in superseded] == [prior.id]
 
 
 async def test_supersede_can_clear_year(db_session, usa_wa):

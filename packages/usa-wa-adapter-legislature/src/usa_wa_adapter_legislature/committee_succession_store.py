@@ -230,3 +230,23 @@ async def current_events(session: AsyncSession) -> Sequence[CommitteeSuccessionE
         .scalars()
         .all()
     )
+
+
+async def superseded_events(session: AsyncSession) -> Sequence[CommitteeSuccessionEvent]:
+    """Every superseded succession attestation — the producer's retract candidate set (#127).
+
+    A corrected/re-linked attestation leaves its prior row superseded; the producer
+    retracts the corresponding PM event unless an active attestation still asserts the same
+    ``(subject, slug, linked)`` identity (a year-only correction keeps the identity)."""
+    return (
+        (
+            await session.execute(
+                select(CommitteeSuccessionEvent).where(
+                    CommitteeSuccessionEvent.source == OPERATOR_SOURCE_SLUG,
+                    CommitteeSuccessionEvent.superseded_by_id.is_not(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )

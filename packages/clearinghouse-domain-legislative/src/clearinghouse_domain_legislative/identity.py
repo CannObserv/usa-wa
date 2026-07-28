@@ -575,3 +575,9 @@ class EntityEvent(Base, TimestampMixin):
 
     # PM anchor (sidecar sync).
     pm_entity_event_id: Mapped[_ULID | None] = mapped_column(ULID(), nullable=True, index=True)
+
+    # Local marker (usa-wa#127): set when the C3 producer has emitted an ``op=retract``
+    # for this (already-anchored) event because its underlying operator attestation was
+    # superseded and not reasserted. Guards the retract against re-firing until the
+    # read-mirror prunes the archived PM event; NOT a PM field (never overwritten by sync).
+    retracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

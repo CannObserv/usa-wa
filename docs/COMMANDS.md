@@ -343,8 +343,10 @@ python -m usa_wa_adapter_legislature.committee_succession --supersede <id> \
 python -m usa_wa_adapter_legislature.committee_succession --list               # current links
 
 # C3 — emit the C1a windows + C2 links to PM as org entity events (create/refine, no-op
-# gated; anchors read from the read-mirror, not a local producer row). --dry-run computes
-# the diff without posting. Exit 1 if any event rejected / 2 on a global auth block.
+# gated; anchors read from the read-mirror, not a local producer row). Also RETRACTS the
+# stale PM event of a superseded, unreasserted link (#127; op=retract, stamps entity_events
+# .retracted_at) — a year-only correction keeps the identity and refines instead. --dry-run
+# computes the diff without posting. Exit 1 if any event rejected / 2 on a global auth block.
 python -m usa_wa_sync_powermap.committee_event_producer --dry-run
 
 # C4 — daily coherence invariant (read-only anti-drift backstop): INV1 no active=false
