@@ -100,6 +100,10 @@ async def harvest_committees(
         jurisdiction_id=jurisdiction.id,
         biennium=bienniums[0],
         client=committee_client,
+        # Pass the runner's session so subcommittee→parent-committee resolution works
+        # during the historical harvest too (#124) — the parent always predates its subs
+        # (ascending sweep), so it's already persisted when a sub's biennium is reached.
+        session=session,
     )
     runner = AdapterRunner(
         adapter,
