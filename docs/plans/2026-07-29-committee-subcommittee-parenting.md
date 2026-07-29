@@ -88,18 +88,12 @@ live, the next reconcile/enrich propagates it to PM → PM mirrors it back → d
 6. **Docs:** AGENTS.md note on the enrich-carry parent behavior + the normalizer's
    subcommittee parenting.
 
-## Open questions / risks
+## Resolved decisions (2026-07-29)
 
-1. **"Ordered in relation to parent" — semantics?** Options: (a) *just* establish the
-   parent hierarchy (no explicit order) — my default; (b) add a `sort_order`/ordinal among
-   siblings (needs a model column + migration, and WSL gives no order, so it'd be
-   name-alphabetical or Id — synthetic). Which did you intend?
-2. **Explicit subcommittee tag?** Default is hierarchy-only (no new column/type). Want an
-   explicit `is_subcommittee` flag or `org_type='subcommittee'` despite the sync ripple?
-3. **Parent-authority stance (Part A):** enrich-carry makes USA-WA assert `parent` to PM
-   for all orgs. Confirm we want producer authority over org parent (vs. leaving it PM-
-   curated). Committees agree today, so churn risk is low, but it is a deliberate stance
-   change.
-4. **Name-inference fragility:** detection needs the `"Subcommittee"` token; the bare
-   "Education Appropriations" form is undetectable per-record. Accept (creation-biennium
-   catches it), or add a curated override list?
+1. **Ordering:** (a) parent hierarchy only — **no** `sort_order` column, no migration.
+2. **Explicit tag:** **no** — hierarchy-only; no `is_subcommittee` / `org_type` change.
+3. **Parent authority:** **agreed** — USA-WA asserts org `parent` to PM (Part A enrich-carry).
+4. **Name-inference fragility:** **accepted** for now — detection keys on the
+   `"Subcommittee"` token (present at each sub's creation biennium; `fill_only` preserves
+   the tag thereafter). The bare "Education Appropriations" form is undetectable
+   per-record; **document this limitation clearly** in the normalizer + AGENTS.md.
