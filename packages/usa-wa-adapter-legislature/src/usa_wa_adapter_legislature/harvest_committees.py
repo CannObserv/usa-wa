@@ -101,8 +101,10 @@ async def harvest_committees(
         biennium=bienniums[0],
         client=committee_client,
         # Pass the runner's session so subcommittee→parent-committee resolution works
-        # during the historical harvest too (#124) — the parent always predates its subs
-        # (ascending sweep), so it's already persisted when a sub's biennium is reached.
+        # during the historical harvest too (#124). In a full/ascending sweep the parent
+        # predates its subs, so it's already persisted when a sub's biennium is reached; a
+        # partial `--from-biennium` starting *at* a sub's own biennium (parent first-seen
+        # in the same not-yet-persisted batch) safely falls back to the chamber.
         session=session,
     )
     runner = AdapterRunner(
