@@ -457,10 +457,12 @@ class EntityDescriptor(ABC):
 
         Deliberately **narrow**: only the identifier and the descriptor's declared
         :attr:`enrich_carry_fields` (typed-name evidence by default, plus any
-        source-only facts PM lacks) ride along. Other observation fields (org
-        parent, jurisdiction affiliations) are *not* re-asserted — they belong to
-        how PM curates the entity (which we adopted on match), and enrich conveys
-        only the evidence we hold. Append-only, idempotent.
+        source-only facts PM lacks) ride along. Fields *outside* that set (e.g.
+        ``jurisdiction_affiliations``) are not re-asserted — they belong to how PM
+        curates the entity (which we adopted on match). A descriptor may opt a curated
+        field back in by adding it to :attr:`enrich_carry_fields` when the source holds
+        authority over it — the org descriptor carries ``organization_parent_id`` this
+        way (usa-wa#124), so a producer-side reparent propagates. Append-only, idempotent.
         """
         base = await self.to_observation(session, row)
         real_type = base.pop("identifier_type", None)

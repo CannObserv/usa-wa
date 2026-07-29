@@ -14,6 +14,7 @@ from ulid import ULID
 
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_sync_powermap.client import EntityPage
+from clearinghouse_sync_powermap.engine import enrich_fingerprint
 from clearinghouse_sync_powermap.testing import FakeClient
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
 from usa_wa_sync_powermap.descriptors.organization import (
@@ -926,6 +927,36 @@ async def test_to_enrich_observation_carries_parent(db_session, descriptor, usa_
 
     assert obs["identifier_type"] == "pm_org_id"
     assert obs["organization_parent_id"] == str(parent.pm_organization_id)
+
+
+async def test_parent_change_drifts_enrich_fingerprint(db_session, descriptor, usa_wa):
+    """A producer-side reparent changes the enrich fingerprint, so the anchored-cohort
+    reconcile's ``_enrich_payload_drifted`` fires and re-enqueues an ENRICH — the
+    self-healing propagation guarantee for org parent (#124). Without parent in the
+    payload the fingerprint would be identical and the reparent would never propagate."""
+    usa_wa.pm_jurisdiction_id = ULID()
+    await db_session.flush()
+    parent_a = await _add_org(
+        db_session, source_id="P-A", name="Appropriations", org_type="committee", anchor=ULID()
+    )
+    parent_b = await _add_org(
+        db_session, source_id="P-B", name="Rules", org_type="committee", anchor=ULID()
+    )
+    row = await _add_org(
+        db_session,
+        source_id="S-1",
+        name="Some Subcommittee",
+        anchor=ULID(),
+        jurisdiction_id=usa_wa.id,
+        parent_id=parent_a.id,
+    )
+    before = enrich_fingerprint(await descriptor.to_enrich_observation(db_session, row))
+
+    row.parent_organization_id = parent_b.id
+    await db_session.flush()
+    after = enrich_fingerprint(await descriptor.to_enrich_observation(db_session, row))
+
+    assert before != after
 
 
 # --- rematch_anchor (merge-orphan self-heal, #31) ----------------------------
