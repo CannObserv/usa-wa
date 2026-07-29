@@ -272,4 +272,7 @@ class WALegislatureAdapter(BaseAdapter):
             payload,
             anchors=self.anchors,
             jurisdiction_id=self.jurisdiction_id,
+            # Optional: enables subcommittee→parent-committee resolution (#124). Absent
+            # for the committee-only construction (no session) → chamber fallback.
+            session=self._session,
         )
