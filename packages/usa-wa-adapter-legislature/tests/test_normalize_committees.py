@@ -219,3 +219,126 @@ async def test_normalize_uppercases_acronym(anchors, jurisdiction_id):
     )
     [org] = batch.entities
     assert org.acronym == "AGNR"
+
+
+# --- subcommittee parent resolution (usa-wa#124) -----------------------------
+
+
+async def _persist_committee(session, *, source_id, name, long_name, agency):
+    """Persist a parent committee so a same-batch subcommittee can resolve its id."""
+    org = Organization(
+        source="usa_wa_legislature",
+        source_id=source_id,
+        name=long_name,
+        short_name=name,
+        org_type="committee",
+    )
+    session.add(org)
+    await session.flush()
+    return org
+
+
+def _house_subcommittee_on() -> dict:
+    # "{Parent} Subcommittee on {X}" shape (House Appropriations subs).
+    return {
+        "Id": 12174,
+        "Name": "Appropriations Subcommittee on Education",
+        "LongName": "House Committee on Appropriations Subcommittee on Education",
+        "Agency": "House",
+        "Acronym": "APPE",
+        "Phone": "(360) 786-7063",
+    }
+
+
+def _senate_subcommittee_to() -> dict:
+    # "{X} Subcommittee to {Parent}" shape (Senate Behavioral Health sub).
+    return {
+        "Id": 29190,
+        "Name": "Behavioral Health Subcommittee to Health & Long Term Care",
+        "LongName": "Senate Committee on Behavioral Health Subcommittee to Health & Long Term Care",
+        "Agency": "Senate",
+        "Acronym": "BHS",
+        "Phone": "(360) 786-7000",
+    }
+
+
+async def test_subcommittee_on_shape_parents_to_committee(anchors, jurisdiction_id, db_session):
+    """'Appropriations Subcommittee on Education' → parent = the same-batch Appropriations."""
+    parent = await _persist_committee(
+        db_session,
+        source_id="875",
+        name="Appropriations",
+        long_name="House Committee on Appropriations",
+        agency="House",
+    )
+    parent_wire = {
+        "Id": 875,
+        "Name": "Appropriations",
+        "LongName": "House Committee on Appropriations",
+        "Agency": "House",
+        "Acronym": "APP",
+        "Phone": "(360) 786-7204",
+    }
+    batch = await normalize_committees(
+        _payload([parent_wire, _house_subcommittee_on()]),
+        anchors=anchors,
+        jurisdiction_id=jurisdiction_id,
+        session=db_session,
+    )
+    sub = next(o for o in batch.entities if o.source_id == "12174")
+    assert sub.parent_organization_id == parent.id
+    # The parent committee itself still parents to its chamber.
+    par = next(o for o in batch.entities if o.source_id == "875")
+    assert par.parent_organization_id == anchors.house_id
+
+
+async def test_subcommittee_to_shape_parents_to_committee(anchors, jurisdiction_id, db_session):
+    """'Behavioral Health Subcommittee to Health & Long Term Care' → parent trails the token."""
+    parent = await _persist_committee(
+        db_session,
+        source_id="28241",
+        name="Health & Long Term Care",
+        long_name="Senate Committee on Health & Long Term Care",
+        agency="Senate",
+    )
+    parent_wire = {
+        "Id": 28241,
+        "Name": "Health & Long Term Care",
+        "LongName": "Senate Committee on Health & Long Term Care",
+        "Agency": "Senate",
+        "Acronym": "HLTC",
+        "Phone": "(360) 786-7000",
+    }
+    batch = await normalize_committees(
+        _payload([parent_wire, _senate_subcommittee_to()]),
+        anchors=anchors,
+        jurisdiction_id=jurisdiction_id,
+        session=db_session,
+    )
+    sub = next(o for o in batch.entities if o.source_id == "29190")
+    assert sub.parent_organization_id == parent.id
+
+
+async def test_subcommittee_unresolved_parent_falls_back_to_chamber(
+    anchors, jurisdiction_id, db_session
+):
+    """A subcommittee whose parent is absent from the batch parents to the chamber."""
+    batch = await normalize_committees(
+        _payload([_house_subcommittee_on()]),  # no Appropriations in the wire
+        anchors=anchors,
+        jurisdiction_id=jurisdiction_id,
+        session=db_session,
+    )
+    [sub] = batch.entities
+    assert sub.parent_organization_id == anchors.house_id
+
+
+async def test_subcommittee_without_session_falls_back_to_chamber(anchors, jurisdiction_id):
+    """No session (JSON-body path) → subcommittee parents to the chamber (documented limit)."""
+    batch = await normalize_committees(
+        _payload([_house_subcommittee_on()]),
+        anchors=anchors,
+        jurisdiction_id=jurisdiction_id,
+    )
+    [sub] = batch.entities
+    assert sub.parent_organization_id == anchors.house_id

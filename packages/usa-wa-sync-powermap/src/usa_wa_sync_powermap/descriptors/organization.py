@@ -152,8 +152,14 @@ class OrganizationDescriptor(EntityDescriptor):
     write_enabled = True
     enrich_identifier_type = "pm_org_id"  # enrich-on-match (#198)
     # Acronym/phone are WSL-sourced facts PM lacks — attach them on match, same
-    # rationale as the identifier itself (#25). Parent/affiliations stay excluded.
-    enrich_carry_fields = ("names", "org_acronyms", "contact_methods")
+    # rationale as the identifier itself (#25). ``organization_parent_id`` rides along
+    # too (#124): USA-WA holds authority over the WSL-derived org hierarchy, so a
+    # producer-side reparent must re-assert to PM — without it the reconcile mirror
+    # clobbers a local parent change within one cycle (parent flows PM→local on every
+    # ``upsert_from_pm``). The enrich fingerprint (``_enrich_payload_drifted``) then
+    # detects a parent change and re-enqueues an ENRICH, self-healing parent drift for
+    # all orgs. ``jurisdiction_affiliations`` stays excluded (PM-curated).
+    enrich_carry_fields = ("names", "org_acronyms", "contact_methods", "organization_parent_id")
 
     def __init__(self, *, search_match_cap: int | None = None) -> None:
         """``search_match_cap`` (#12): the name-match candidate window passed as the

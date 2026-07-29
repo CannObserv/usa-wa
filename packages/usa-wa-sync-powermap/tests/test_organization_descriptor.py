@@ -862,7 +862,8 @@ async def test_to_enrich_observation_rekeys_to_pm_org_id(db_session, descriptor,
         {"identifier_type_slug": "org_wa_legislature_committee_id", "identifier_value": "C-1"}
     ]
     assert obs["names"] == [{"name": "Health Committee", "name_type": "legal"}]
-    # Enrich is narrow: parent + affiliations are NOT re-asserted (PM curates them).
+    # Affiliations are not re-asserted (PM-curated); parent is absent here only because
+    # this row has no parent (an anchored parent DOES carry — see the parent test).
     assert "jurisdiction_affiliations" not in obs
     assert "organization_parent_id" not in obs
     # No acronym/phone on this row → those carry-through fields stay absent.
@@ -894,10 +895,37 @@ async def test_to_enrich_observation_carries_acronym_and_phone(db_session, descr
             "display_label": "Committee Office",
         }
     ]
-    # Still anchor-keyed and narrow — parent/affiliations remain PM-curated.
+    # Still anchor-keyed; affiliations stay PM-curated. Parent absent here only because
+    # this row has no parent set (an anchored parent carries — see the parent test).
     assert obs["identifier_type"] == "pm_org_id"
     assert "jurisdiction_affiliations" not in obs
     assert "organization_parent_id" not in obs
+
+
+async def test_to_enrich_observation_carries_parent(db_session, descriptor, usa_wa):
+    """Parent rides along on enrich so a producer-side reparent reaches PM (#124).
+
+    USA-WA holds authority over org ``parent`` (the WSL-derived hierarchy), so the
+    anchored-cohort enrich must re-assert it — otherwise a reparent is clobbered by the
+    reconcile mirror within one cycle and never propagates."""
+    usa_wa.pm_jurisdiction_id = ULID()
+    await db_session.flush()
+    parent = await _add_org(
+        db_session, source_id="APPROPS", name="Appropriations", org_type="committee", anchor=ULID()
+    )
+    row = await _add_org(
+        db_session,
+        source_id="C-9",
+        name="Appropriations Subcommittee on Education",
+        anchor=ULID(),
+        jurisdiction_id=usa_wa.id,
+        parent_id=parent.id,
+    )
+
+    obs = await descriptor.to_enrich_observation(db_session, row)
+
+    assert obs["identifier_type"] == "pm_org_id"
+    assert obs["organization_parent_id"] == str(parent.pm_organization_id)
 
 
 # --- rematch_anchor (merge-orphan self-heal, #31) ----------------------------
