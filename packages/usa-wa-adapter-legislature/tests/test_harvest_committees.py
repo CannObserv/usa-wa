@@ -171,3 +171,37 @@ async def test_harvest_force_re_materializes_despite_fresh_cache(db_session, usa
     assert client.calls == ["2023-24", "2023-24"]
     payloads = (await db_session.execute(select(func.count()).select_from(RawPayload))).scalar_one()
     assert payloads == 1
+
+
+async def test_harvest_parents_subcommittee_to_prior_biennium_committee(
+    db_session, usa_wa, wsl_source
+):
+    """A subcommittee harvested after its parent committee's first biennium parents to
+    that committee, not the chamber (#124) — the session-passing wiring end-to-end. The
+    parent must predate the sub (ascending sweep) so it's persisted when the sub's
+    biennium is normalized."""
+    client = _FakeCommitteeClient(
+        {
+            # Parent alone first — persisted before the sub appears.
+            "2021-22": ([_committee(875, "Appropriations")], b"<b21/>"),
+            # Sub appears alongside the (now-persisted) parent.
+            "2023-24": (
+                [
+                    _committee(875, "Appropriations"),
+                    _committee(12174, "Appropriations Subcommittee on Education"),
+                ],
+                b"<b23/>",
+            ),
+        }
+    )
+    await harvest_committees(db_session, bienniums=["2021-22", "2023-24"], committee_client=client)
+
+    parent = (
+        await db_session.execute(select(Organization).where(Organization.source_id == "875"))
+    ).scalar_one()
+    sub = (
+        await db_session.execute(select(Organization).where(Organization.source_id == "12174"))
+    ).scalar_one()
+    assert sub.parent_organization_id == parent.id
+    # And the parent committee itself parents to the House chamber, not to the sub.
+    assert parent.parent_organization_id != sub.id
