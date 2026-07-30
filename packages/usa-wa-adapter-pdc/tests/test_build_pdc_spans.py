@@ -10,6 +10,7 @@ roster, not the current one (the #75 fix). PDC no longer emits or sweeps House P
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import UTC, datetime
 from unittest.mock import patch
@@ -197,6 +198,30 @@ async def test_odd_year_special_cohort_matches_mid_biennium_roster(
         )
     ).scalar_one()
     assert link.person_id == await _person_id(db_session, 300)
+
+
+async def test_future_biennium_cohort_is_skipped_not_live_matched(
+    db_session, usa_wa, wsl_source, pdc_source, caplog
+):
+    """#121 CR-1: a cohort seating a FUTURE biennium (the just-run November even general,
+    archived Nov-Dec by the widened harvest default) has no sponsor roster yet — it must be
+    skipped-and-logged, not era-matched through the provider's live-GetSponsors fallback. The
+    next cycle's own refresh/backfill links it once its roster exists."""
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_person(db_session, 100)
+    await _archive(
+        db_session, pdc_source, "house-winners:2026", _winners(("901", 5, 1, "M100 Smith"))
+    )
+    await _archive(
+        db_session, pdc_source, "senate-winners:2026", _winners(("902", 5, 0, "M100 Smith"))
+    )
+
+    with caplog.at_level(logging.INFO):
+        result = await build_pdc_spans(db_session, sponsor_client=_StubSponsorClient())
+
+    assert result.identifiers == 0
+    skips = [r for r in caplog.records if r.message == "pdc_cohort_future_biennium_skipped"]
+    assert len(skips) == 2  # one per chamber loop
 
 
 async def test_absent_person_yields_no_identifier(db_session, usa_wa, wsl_source, pdc_source):

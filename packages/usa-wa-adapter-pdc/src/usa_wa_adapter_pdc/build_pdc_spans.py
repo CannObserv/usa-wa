@@ -31,6 +31,7 @@ import asyncio
 import os
 import sys
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -40,6 +41,7 @@ from usa_wa_adapter_legislature.provisioning import (
 )
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
+from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_adapter_pdc.adapter import seating_biennium_for_election_year
 from usa_wa_adapter_pdc.normalize.pdc_matching import (
@@ -112,6 +114,22 @@ async def build_pdc_spans(
             era_cache[biennium] = (build_house_roster(rows), build_senate_roster(rows))
         return era_cache[biennium]
 
+    # A cohort seating a FUTURE biennium (#121 CR-1: the just-run November even general,
+    # archived Nov-Dec by the harvest's calendar-year sweep bound) has no sponsor roster yet —
+    # era-matching it would fall through the provider's live-GetSponsors fallback for a
+    # not-yet-existing biennium. Skip-and-log; the next cycle's refresh/backfill links it once
+    # its roster exists. Same-length biennium labels compare lexically.
+    current_biennium = biennium_for_date(datetime.now(UTC).date())
+
+    def _seats_future_biennium(year: int, seating: str) -> bool:
+        if seating > current_biennium:
+            logger.info(
+                "pdc_cohort_future_biennium_skipped",
+                extra={"year": year, "seating_biennium": seating},
+            )
+            return True
+        return False
+
     identifiers: list[tuple[str, str]] = []
     result = PdcSpanResult(house_years=len(house_cohorts), senate_years=len(senate_cohorts))
 
@@ -122,6 +140,8 @@ async def build_pdc_spans(
         if not house_cohorts[year]:
             continue  # empty cohort → nothing to match, no era roster needed
         biennium = seating_biennium_for_election_year(year)
+        if _seats_future_biennium(year, biennium):
+            continue
         house_roster, senate_roster = await _era_rosters(biennium)
         proj = build_house_position_observations(
             house_cohorts[year],
@@ -141,6 +161,8 @@ async def build_pdc_spans(
     for year in sorted(senate_cohorts):
         if not senate_cohorts[year]:
             continue  # empty cohort → nothing to match, no era roster needed
+        if _seats_future_biennium(year, seating_biennium_for_election_year(year)):
+            continue  # guard on the TRUE seating biennium, before the daily restrict override
         senate_biennium = restrict_to_biennium or seating_biennium_for_election_year(year)
         _house_roster, senate_roster = await _era_rosters(senate_biennium)
         links = build_senate_identity_links(senate_cohorts[year], senate_roster=senate_roster)

@@ -185,6 +185,25 @@ async def test_refresh_materializes_senate_identifier_only(db_session, usa_wa, w
     ).scalars().all() == []
 
 
+async def test_refresh_completion_log_carries_the_decisive_year_lists(
+    db_session, usa_wa, wsl_source, caplog
+):
+    """#121 CR-3: the completion line self-describes the 5-cohort cycle (house + senate year
+    lists, the SOS refresh's shape) so a cohorts_archived shortfall is triageable from one
+    line — the lone even election_year no longer describes what the cycle archives."""
+    await _archive_sponsors(db_session, wsl_source, BIENNIUM, [])
+    with caplog.at_level(logging.INFO):
+        await run_refresh(
+            db_session,
+            biennium=BIENNIUM,
+            sponsor_client=_StubSponsorClient(),
+            pdc_client=FakePDCClient(),
+        )
+    record = next(r for r in caplog.records if r.message == "pdc_refresh_complete")
+    assert record.house_years == [2024, 2025]
+    assert record.senate_years == (2024, 2022, 2025)
+
+
 async def test_refresh_survives_one_failing_cohort(db_session, usa_wa, wsl_source, caplog):
     """#121: each cohort archives in its own SAVEPOINT (the #106 A4 pattern from the SOS
     refresh) — a transient Socrata failure on one cohort is skipped-and-logged while the other
