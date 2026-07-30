@@ -172,6 +172,33 @@ async def test_senate_cohort_emits_identifier_only(db_session, usa_wa, wsl_sourc
     assert (await db_session.execute(select(func.count()).select_from(Assignment))).scalar() == 0
 
 
+async def test_odd_year_special_cohort_matches_mid_biennium_roster(
+    db_session, usa_wa, wsl_source, pdc_source
+):
+    """#121: an odd-year special cohort (Nov 2025 — Hunt/Krishnadasan) seats the biennium
+    *starting* that year, so it era-matches the 2025-26 roster (archive-first, no live pull).
+    Pre-fix the era mapping resolved 2025 → 2026-27, whose un-archived roster would force the
+    live-fallback AssertionError."""
+    await _add_ld(db_session, usa_wa, 26)
+    await _add_person(db_session, 300)
+    await _archive(
+        db_session, pdc_source, "senate-winners:2025", _winners(("700", 26, 0, "M300 Krish"))
+    )
+    await _archive(
+        db_session, wsl_source, "sponsors:2025-26", _sponsor_wire((300, 26, "Krish", "Senate"))
+    )
+
+    result = await build_pdc_spans(db_session, sponsor_client=_StubSponsorClient())
+
+    assert result.identifiers == 1
+    link = (
+        await db_session.execute(
+            select(PersonIdentifier).where(PersonIdentifier.scheme == "wa_pdc")
+        )
+    ).scalar_one()
+    assert link.person_id == await _person_id(db_session, 300)
+
+
 async def test_absent_person_yields_no_identifier(db_session, usa_wa, wsl_source, pdc_source):
     """The WSL Person doesn't exist yet (pre-#77) → the identifier link is skipped."""
     await _add_ld(db_session, usa_wa, 5)

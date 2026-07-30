@@ -2,8 +2,10 @@
 
 Daily counterpart to the WSL refresh, **identifier-only since #101**. It:
 
-1. Archives the current biennium's PDC winner cohorts (``house-winners:<Y>`` +
-   both staggered ``senate-winners:<Y>``) through the runner's archive-only seam (#54), and
+1. Archives every PDC winner cohort the current biennium's membership can be decided by (#121)
+   — both House generals (even seating + odd mid-biennium special) and the three staggered/
+   special ``senate-winners:<Y>`` cohorts — through the runner's archive-only seam (#54), each
+   in its own SAVEPOINT (a transient Socrata failure skips one cohort, not the daily unit), and
 2. Re-drives the archive-first identifier builder (:func:`build_pdc_spans`) scoped to the current
    biennium — emitting the ``person_wa_pdc`` cross-source identifier links (House winners + the
    #74 movers + the #75 Senate cohort), era-matched.
@@ -27,6 +29,7 @@ import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -40,6 +43,7 @@ from usa_wa_adapter_pdc.adapter import (
     SENATE_WINNERS_RESOURCE_PREFIX,
     PDCAdapter,
     election_year_for_biennium,
+    election_years_for_biennium,
     senate_election_years_for_biennium,
 )
 from usa_wa_adapter_pdc.build_pdc_spans import build_pdc_spans
@@ -96,16 +100,29 @@ async def run_refresh(
         fill_only=True,
     )
 
-    # 1. Archive the current cohorts. Forced past the freshness TTL for daily determinism (the
-    #    dedup guard still bounds RawPayload growth on a byte-identical re-pull).
+    # 1. Archive every cohort the biennium's membership can be decided by (#121): both House
+    #    generals (even seating + odd mid-biennium special) and the three Senate cohorts
+    #    (staggered evens + the odd special). Forced past the freshness TTL for daily
+    #    determinism (the dedup guard still bounds RawPayload growth on a byte-identical
+    #    re-pull). Each cohort archives in its OWN SAVEPOINT (the #106 A4 pattern): a raceless
+    #    year is a *success* here (SODA returns an empty row set, not a 404), so the guard only
+    #    covers a transient Socrata failure — which must not fail the whole daily unit while
+    #    the other cohorts and the identifier re-drive can still complete.
     election_year = election_year_for_biennium(biennium)
+    house_years = election_years_for_biennium(biennium)
     senate_years = senate_election_years_for_biennium(biennium)
-    resource_ids = [f"{HOUSE_WINNERS_RESOURCE_PREFIX}{election_year}"]
+    resource_ids = [f"{HOUSE_WINNERS_RESOURCE_PREFIX}{y}" for y in house_years]
     resource_ids += [f"{SENATE_WINNERS_RESOURCE_PREFIX}{y}" for y in senate_years]
     archived = 0
     for resource_id in resource_ids:
-        if await runner.archive_only(resource_id, force=True):
-            archived += 1
+        try:
+            async with session.begin_nested():
+                if await runner.archive_only(resource_id, force=True):
+                    archived += 1
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "pdc_refresh_cohort_skipped", extra={"resource_id": resource_id, "error": str(exc)}
+            )
 
     # 2. Re-drive the identifier builder scoped to the current biennium (#101: identifier-only —
     #    the House Position seat is the WSL+SOS builder's, driven by the SOS refresh; PDC emits

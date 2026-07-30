@@ -2,9 +2,11 @@
 
 Reads every archived ``house-winners:<Y>`` / ``senate-winners:<Y>`` cohort **offline** (via
 :class:`~usa_wa_adapter_pdc.pdc_cohort.PdcWinnerCohortProvider`), pairs each with the roster of
-the biennium it **seated** (``[Y+1, Y+2]``, read archive-first from the WSL sponsor archive),
-matches each winner to a WSL :class:`Person`, and emits the ``person_wa_pdc`` cross-source
-identifier links (House winners + the #74 mid-biennium movers + the #75 Senate cohort).
+the biennium it **seated** (an even year seats ``[Y+1, Y+2]``; an odd special seats ``[Y, Y+1]``
+mid-term, #121 — both via :func:`seating_biennium_for_election_year`, read archive-first from
+the WSL sponsor archive), matches each winner to a WSL :class:`Person`, and emits the
+``person_wa_pdc`` cross-source identifier links (House winners + the #74 mid-biennium movers +
+the #75 Senate cohort).
 
 **PDC is identifier-only (#101).** The House Position **seat** is now built by the WSL+SOS
 builder (:func:`usa_wa_adapter_sos.house.build.build_house_position_spans`,

@@ -111,12 +111,16 @@ python -m usa_wa_adapter_legislature.refresh
 
 # PDC refresh (#69 + #75; IDENTIFIER-ONLY since #101) — emits the person_wa_pdc cross-source
 # identifier links (House winners + #74 movers + #75 Senate), archive-first from the PDC Campaign
-# Finance Summary Socrata dataset (3h9x-7bvm) on data.wa.gov. Archives the current biennium's winner
-# cohorts (house-winners:<Y> + both staggered senate-winners:<Y>) via archive_only, then re-drives
-# build_pdc_spans scoped to the current biennium for the links. The House Position SEAT is no longer
-# PDC's — it is the WSL+SOS builder's (usa-wa-sos-refresh, below), usa_wa_legislature-sourced and
-# symmetric with the Senate seat (#101). Prod runs this daily at 06:30 UTC (after the WSL refresh)
-# via usa-wa-pdc-refresh.timer; the form below is the manual surface. USA_WA_PDC_APP_TOKEN (optional).
+# Finance Summary Socrata dataset (3h9x-7bvm) on data.wa.gov. Archives every winner cohort the
+# current biennium's membership can be decided by (#121): both House generals (even seating + odd
+# mid-biennium special) and the three senate-winners:<Y> cohorts (staggered evens + the odd
+# special) via archive_only — each in its own SAVEPOINT (a transient Socrata failure skips one
+# cohort, not the daily unit; a raceless year returns an empty row set, a success) — then
+# re-drives build_pdc_spans scoped to the current biennium for the links. The House Position SEAT
+# is no longer PDC's — it is the WSL+SOS builder's (usa-wa-sos-refresh, below),
+# usa_wa_legislature-sourced and symmetric with the Senate seat (#101). Prod runs this daily at
+# 06:30 UTC (after the WSL refresh) via usa-wa-pdc-refresh.timer; the form below is the manual
+# surface. USA_WA_PDC_APP_TOKEN (optional).
 python -m usa_wa_adapter_pdc.refresh
 
 # SOS refresh (#101) — the daily driver of the WSL+SOS House state_representative Position seat.
@@ -136,17 +140,20 @@ python -m usa_wa_adapter_sos.house.refresh
 # DEPENDS ON #77 (Persons + the sponsor archive) — a pre-#77 winner's Person is absent so its span
 # is skipped (logged, correct); run this after the sponsor harvest.
 
-# Phase A — archive the winner cohorts (archive-only; no normalize). Even election years from the
-# floor (2008) to current; a year with no data archives empty; cache-hit on re-run. A mid-sweep
-# failure aborts the run (nothing committed) — re-run from the floor (closed years cache-hit).
+# Phase A — archive the winner cohorts (archive-only; no normalize). EVERY general-election year
+# (#121 — odd-year specials seat legislators; Nov 2025: Hunt/Krishnadasan/Zahn) from the floor
+# (2008) to the current calendar year (the default --to-year); a year with no data archives an
+# empty cohort (negative evidence, no error path); cache-hit on re-run. A mid-sweep failure aborts
+# the run (nothing committed) — re-run from the floor (closed years cache-hit).
 # --pause-seconds drips between years (SODA analog of the WSL harvests' pacing).
 python -m usa_wa_adapter_pdc.harvest_pdc --dry-run
 python -m usa_wa_adapter_pdc.harvest_pdc --from-year 2008 --pause-seconds 0.5
 
 # Phase B — era-matched IDENTIFIER build (archive-first, no live PDC pull; identifier-only since
-# #101): each cohort pairs with its seating biennium's sponsor roster (2012 → 2013-14), matches each
-# winner to a WSL Person, emits person_wa_pdc links. The House Position SEAT is no longer built here
-# (that is usa_wa_adapter_sos.house.build, below). Idempotent.
+# #101): each cohort pairs with its seating biennium's sponsor roster — an even year seats the
+# NEXT biennium (2012 → 2013-14), an odd special seats the biennium STARTING that year (2025 →
+# 2025-26, #121) — matches each winner to a WSL Person, emits person_wa_pdc links. The House
+# Position SEAT is no longer built here (that is usa_wa_adapter_sos.house.build, below). Idempotent.
 python -m usa_wa_adapter_pdc.build_pdc_spans --dry-run
 python -m usa_wa_adapter_pdc.build_pdc_spans
 
