@@ -14,6 +14,7 @@ import logging
 from datetime import UTC, datetime
 from unittest.mock import patch
 
+import httpx
 import pytest
 from sqlalchemy import select
 from ulid import ULID as _ULID
@@ -134,7 +135,8 @@ async def test_refresh_materializes_house_identifier_only(db_session, usa_wa, ws
         db_session, biennium=BIENNIUM, sponsor_client=_StubSponsorClient(), pdc_client=pdc
     )
 
-    assert outcome.cohorts_archived == 3  # house + 2 staggered senate cohorts
+    # #121: both House generals (even seating + odd special) + 3 senate cohorts
+    assert outcome.cohorts_archived == 5
     assert outcome.identifiers == 1
     ident = (
         await db_session.execute(
@@ -183,6 +185,30 @@ async def test_refresh_materializes_senate_identifier_only(db_session, usa_wa, w
     ).scalars().all() == []
 
 
+async def test_refresh_survives_one_failing_cohort(db_session, usa_wa, wsl_source, caplog):
+    """#121: each cohort archives in its own SAVEPOINT (the #106 A4 pattern from the SOS
+    refresh) — a transient Socrata failure on one cohort is skipped-and-logged while the other
+    cohorts and the identifier re-drive still complete."""
+    await _archive_sponsors(db_session, wsl_source, BIENNIUM, [])
+
+    class _FlakyPDCClient(FakePDCClient):
+        async def fetch_senate_winners(self, election_year):
+            if election_year == 2022:
+                raise httpx.ConnectError("socrata down")
+            return await super().fetch_senate_winners(election_year)
+
+    with caplog.at_level(logging.WARNING):
+        outcome = await run_refresh(
+            db_session,
+            biennium=BIENNIUM,
+            sponsor_client=_StubSponsorClient(),
+            pdc_client=_FlakyPDCClient(),
+        )
+
+    assert outcome.cohorts_archived == 4  # 5 decisive cohorts minus the failed 2022 senate
+    assert "pdc_refresh_cohort_skipped" in [r.message for r in caplog.records]
+
+
 async def test_refresh_defaults_to_current_biennium(db_session, usa_wa, wsl_source, monkeypatch):
     monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
     expected = biennium_for_date(datetime.now(UTC).date())
@@ -190,7 +216,7 @@ async def test_refresh_defaults_to_current_biennium(db_session, usa_wa, wsl_sour
     outcome = await run_refresh(
         db_session, sponsor_client=_StubSponsorClient(), pdc_client=FakePDCClient()
     )
-    assert outcome.cohorts_archived == 3  # archived the current cohorts
+    assert outcome.cohorts_archived == 5  # archived every decisive current cohort (#121)
 
 
 async def test_refresh_warns_on_noncurrent_biennium(db_session, usa_wa, wsl_source, caplog):

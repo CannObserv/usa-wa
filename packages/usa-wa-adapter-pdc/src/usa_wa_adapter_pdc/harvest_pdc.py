@@ -1,14 +1,16 @@
 """Phase A PDC harvester (#79) — archive historical winner cohorts (archive-only).
 
-For each even election year in a range, archive the seated ``house-winners:<Y>`` +
-``senate-winners:<Y>`` SODA cohorts through the runner's archive-only seam
-(:meth:`~clearinghouse_core.runner.AdapterRunner.archive_only`) — pristine wire + #54 hash, no
-normalize. Phase B (:mod:`build_pdc_spans`) derives the era-matched Position seats + identifiers
-from this archive offline, because the derivation needs the seating biennium's roster the
-harvest doesn't hold (the #75 fix).
+For **every** general-election year in a range — even seating years AND odd special years
+(#121; WA holds a general each November, and odd-year specials seat legislators) — archive the
+seated ``house-winners:<Y>`` + ``senate-winners:<Y>`` SODA cohorts through the runner's
+archive-only seam (:meth:`~clearinghouse_core.runner.AdapterRunner.archive_only`) — pristine
+wire + #54 hash, no normalize. Phase B (:mod:`build_pdc_spans`) derives the era-matched
+identifier links from this archive offline, because the derivation needs the seating biennium's
+roster the harvest doesn't hold (the #75 fix).
 
 Floor ~2008 (the PDC campaign-finance dataset's coverage); a year with no data simply archives
-an empty cohort. Cohorts of a closed year are cache hits on re-run.
+an empty cohort (negative evidence — no error path, unlike the SOS results source). Cohorts of
+a closed year are cache hits on re-run.
 
     python -m usa_wa_adapter_pdc.harvest_pdc --from-year 2008 [--dry-run]
 """
@@ -32,7 +34,6 @@ from usa_wa_adapter_pdc.adapter import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
     SENATE_WINNERS_RESOURCE_PREFIX,
     PDCAdapter,
-    election_year_for_biennium,
 )
 from usa_wa_adapter_pdc.provisioning import get_or_create_source
 from usa_wa_adapter_pdc.transport import PDCClient
@@ -53,10 +54,11 @@ class HarvestSummary:
 
 
 def election_years(from_year: int, to_year: int) -> list[int]:
-    """Inclusive even election years from ``from_year`` to ``to_year`` (an odd floor bumps up
-    to the next even year — WA general elections that seat a legislature are even-year)."""
-    start = from_year + (from_year % 2)
-    return list(range(start, to_year + 1, 2))
+    """Inclusive general-election years from ``from_year`` to ``to_year`` — **every** year, not
+    just even ones (#121): WA holds a general each November, and odd-year specials seat
+    legislators (Nov 2025: Hunt/Krishnadasan/Zahn). A year with no legislative race archives an
+    empty SODA cohort — cheap negative evidence, no error path."""
+    return list(range(from_year, to_year + 1))
 
 
 async def harvest_pdc(
@@ -113,7 +115,11 @@ async def _main(argv: list[str] | None = None) -> int:
         help=f"earliest election year (default {DEFAULT_ELECTION_FLOOR})",
     )
     parser.add_argument(
-        "--to-year", type=int, default=None, help="default: the current election year"
+        "--to-year",
+        type=int,
+        default=None,
+        help="default: the current calendar year (#121 — the biennium's seating year would "
+        "miss the odd mid-biennium special cohort)",
     )
     parser.add_argument("--dry-run", action="store_true", help="harvest but roll back")
     parser.add_argument("--force", action="store_true", help="re-fetch past the freshness cache")
@@ -127,9 +133,9 @@ async def _main(argv: list[str] | None = None) -> int:
         print("DATABASE_URL is not set; aborting", file=sys.stderr)
         return 2
 
-    to_year = args.to_year or election_year_for_biennium(
-        biennium_for_date(datetime.now(UTC).date())
-    )
+    # Default sweep bound = the current calendar year (#121, the SOS harvest's choice): the
+    # biennium's even seating year (2024 during 2025-26) would still miss the odd special cohort.
+    to_year = args.to_year or datetime.now(UTC).year
     years = election_years(args.from_year, to_year)
 
     engine = create_async_engine(database_url)

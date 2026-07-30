@@ -52,8 +52,20 @@ def test_seating_biennium_for_election_year_is_inverse() -> None:
         assert seating_biennium_for_election_year(election_year_for_biennium(biennium)) == biennium
 
 
+def test_seating_biennium_for_odd_year_special_is_mid_biennium() -> None:
+    """#121: an odd-year November special seats the biennium *starting* that year, mid-term
+    (Nov 2025 seated Hunt/Krishnadasan/Zahn into 2025-26) — not the next biennium."""
+    assert seating_biennium_for_election_year(2025) == "2025-26"
+    assert seating_biennium_for_election_year(2013) == "2013-14"
+    # every year in a biennium's decisive set seats THAT biennium
+    for biennium in ("2025-26", "2013-14"):
+        for year in election_years_for_biennium(biennium):
+            assert seating_biennium_for_election_year(year) == biennium
+
+
 def test_senate_election_years_for_biennium() -> None:
-    assert senate_election_years_for_biennium("2025-26") == (2024, 2022)
+    """#75 staggered evens + the #121 odd mid-biennium special (Nov 2025: Hunt LD5 et al.)."""
+    assert senate_election_years_for_biennium("2025-26") == (2024, 2022, 2025)
 
 
 def test_election_years_for_biennium_spans_the_seating_and_special_generals() -> None:
@@ -72,10 +84,18 @@ def test_adapter_class_vars() -> None:
     assert PDCAdapter.jurisdiction_slug == "usa-wa"
 
 
-async def test_discover_yields_house_and_both_senate_cohorts() -> None:
+async def test_discover_yields_every_decisive_cohort() -> None:
+    """#121: both House generals a biennium's membership can be decided by (even seating +
+    odd special) plus all three Senate cohorts (staggered evens + the odd special)."""
     adapter = PDCAdapter(biennium=BIENNIUM, client=FakePDCClient())
     refs = [r.resource_id async for r in adapter.discover(None)]
-    assert refs == ["house-winners:2024", "senate-winners:2024", "senate-winners:2022"]
+    assert refs == [
+        "house-winners:2024",
+        "house-winners:2025",
+        "senate-winners:2024",
+        "senate-winners:2022",
+        "senate-winners:2025",
+    ]
 
 
 async def test_fetch_one_house_archives_wire_and_stamps_url() -> None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 from sqlalchemy import func, select
@@ -40,9 +41,11 @@ class _FakePDCClient:
         )
 
 
-def test_election_years_are_even_and_inclusive():
-    assert election_years(2010, 2016) == [2010, 2012, 2014, 2016]
-    assert election_years(2011, 2016) == [2012, 2014, 2016]  # bumps an odd floor up
+def test_election_years_cover_every_general_inclusive():
+    """#121: WA holds a general every November — odd years seat special-election winners
+    (Nov 2025: Hunt/Krishnadasan/Zahn), so the sweep must not skip them."""
+    assert election_years(2010, 2013) == [2010, 2011, 2012, 2013]
+    assert election_years(2011, 2012) == [2011, 2012]  # an odd floor is swept, not bumped
 
 
 async def test_harvest_archives_both_chambers_per_year_without_normalizing(db_session, usa_wa):
@@ -82,6 +85,28 @@ async def test_main_requires_database_url(monkeypatch, capsys):
         code = await harvest_module._main([])
     assert code == 2
     assert "DATABASE_URL is not set" in capsys.readouterr().err
+
+
+async def test_main_default_to_year_is_current_calendar_year(monkeypatch, capsys, test_engine):
+    """#121: the default sweep bound is the current calendar year (the SOS harvest's choice) —
+    the old biennium-seating-year default (2024 during 2025-26) would still miss the 2025 odd
+    cohort."""
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    captured = {}
+
+    async def _fake_harvest(session, *, years, **_kwargs):
+        captured["years"] = years
+        return HarvestSummary(years=len(years), cohorts_archived=0, dry_run=True)
+
+    with (
+        patch.object(harvest_module, "configure_logging"),
+        patch.object(harvest_module, "harvest_pdc", _fake_harvest),
+    ):
+        code = await harvest_module._main(["--dry-run"])
+
+    assert code == 0
+    current_year = datetime.now(UTC).year
+    assert captured["years"] == list(range(2008, current_year + 1))
 
 
 async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
