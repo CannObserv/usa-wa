@@ -429,6 +429,13 @@ class SyncEngine:
         ):
             self._warned_reject_replay.discard(key)
             return False
+        if not await descriptor.dependencies_ready(session, row):
+            # Identity can't be proven without building the observation, and the build
+            # dereferences dependency anchors (the reason the noop-gate template hoists
+            # this same guard, #102 CR). Stand down to the enqueue — its delivery
+            # already defers on unready deps.
+            self._warned_reject_replay.discard(key)
+            return False
         payload = await descriptor.to_observation(session, row)
         if enrich_fingerprint(payload) != latest.payload_hash:
             self._warned_reject_replay.discard(key)
@@ -458,6 +465,12 @@ class SyncEngine:
 
         Keeps the adapter ignorant of the sidecar — it just writes rows; the
         sweep discovers the un-anchored ones and queues them.
+
+        Note: a REJECTED CREATE is re-enqueued here **unguarded** — the #132 replay
+        guard covers only the local-newer UPDATE path. A rejected CREATE does carry
+        its refused-payload hash (stamped by :meth:`_reject`), so if a persistent
+        CREATE-422 cohort ever appears, a sweep-side identity check analogous to
+        :meth:`_rejected_identical_update` is a small follow-up.
 
         Batched (#7): rows are keyset-paged by primary key (``id > last_id``,
         ``sweep_batch_size`` at a time) rather than materialised all at once, so a

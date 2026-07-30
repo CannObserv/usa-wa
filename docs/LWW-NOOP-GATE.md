@@ -154,10 +154,36 @@ clock on each skewed row. A **heal CLI is only warranted for a large pre-existin
 backlog** — #102's ~4,300 rows got `heal_assignment_clocks`; #104 (~434) and #109 (305)
 did not need one.
 
+## Sibling: the rejected-UPDATE replay guard (#132)
+
+The no-op gate is not the local-newer branch's only suppressor. After the gate stands
+down (or for an ungated descriptor), `apply_record` consults
+`_rejected_identical_update` before enqueuing: when the row's **latest** outbox entry
+is a REJECTED UPDATE whose refused-payload hash (stamped by `_reject` at the
+rejection, #132) equals the row's current `to_observation` hash, the re-enqueue is
+skipped — a persistent 422 (e.g. PM's `chk_no_org_cycle`) would otherwise mint a
+fresh REJECTED entry every reconcile and fire the #85 rise email each cycle.
+
+The two suppressors resolve **differently**, and the difference is the point:
+
+- **No-op gate** (spurious clock skew, no real diff) → *adopt PM's clock*. The skew
+  is the defect; parity ends the loop.
+- **Replay guard** (real diff, PM refuses it) → *skip the enqueue only*. The pending
+  change is real, so the clock is deliberately left ahead; any payload change (the
+  data fix) re-arms and the corrected UPDATE re-sends. Suppression logs
+  `update_reject_replay_suppressed` WARNING once per row, INFO thereafter (the #112
+  throttle shape). Unready dependencies stand the guard down (the same
+  `dependencies_ready` hoist as the gate template).
+
+A false no-op **erases** a pending change; a false replay-skip merely defers one —
+which is why the guard demands hash-exact identity while the gate demands a
+descriptor-authored comparator.
+
 ## Related
 
 #65 (clock preservation on import — the root cause, plus `heal_committee_curation`),
 #102 (assignment gate + heal), #104 (person gate), #109 (audit, role gate, this note),
 #85 (`POWERMAP_MIN_REQUEST_INTERVAL` — the backstop that keeps churn from 429ing PM),
 #112 (the non-convergence backstop — the *detection* counterpart: what the gates cannot
-catch, because it is a real diff PM refuses rather than a clock skew).
+catch, because it is a real diff PM refuses rather than a clock skew),
+#132 (the rejected-UPDATE replay guard — see the Sibling section above).

@@ -231,6 +231,60 @@ async def test_lww_local_newer_reenqueues_after_local_fix(db_session, fake_descr
     assert pending[0].op == OP_UPDATE
 
 
+async def test_lww_local_newer_guard_stands_down_when_dependencies_unready(db_session):
+    """#132 CR-1: the guard cannot prove identity without building ``to_observation``,
+    and that build dereferences dependency anchors (the reason the noop-gate template
+    hoists ``dependencies_ready``, #102 CR) — so unready deps stand the guard down to
+    the old enqueue behaviour, whose delivery already defers on unready deps."""
+
+    class DepsToggleDescriptor(FakeDescriptor):
+        deps_ready = True
+
+        async def dependencies_ready(self, session, row):
+            return self.deps_ready
+
+    descriptor = DepsToggleDescriptor()
+    await _add_entity(db_session, source_id="1", name="FreshLocal")
+    stale = _record("1", "StalePM", updated_at="2000-01-01T00:00:00Z")
+    engine = SyncEngine([descriptor], FakeClient(observation_result=_raise_422))
+    await engine.apply_record(db_session, descriptor, stale)
+    await engine.drain_outbox(db_session, now=FUTURE)  # → REJECTED, refused hash stamped
+
+    descriptor.deps_ready = False  # a dep became unready between reject and reconcile
+    await engine.apply_record(db_session, descriptor, stale)
+
+    pending = (
+        (await db_session.execute(select(OutboxEntry).where(OutboxEntry.status == STATUS_PENDING)))
+        .scalars()
+        .all()
+    )
+    assert len(pending) == 1  # guard stood down — no observation build attempted
+
+
+async def test_lww_local_newer_rearms_warning_on_second_reject_episode(
+    db_session, fake_descriptor, caplog
+):
+    """#132 CR-3: the throttle re-arms when the guard stands down — a second reject
+    episode (fix → new payload → new reject) WARNs again rather than logging INFO
+    against a stale first-episode line."""
+    row = await _add_entity(db_session, source_id="1", name="FreshLocal")
+    stale = _record("1", "StalePM", updated_at="2000-01-01T00:00:00Z")
+    engine = SyncEngine([fake_descriptor], FakeClient(observation_result=_raise_422))
+    await engine.apply_record(db_session, fake_descriptor, stale)
+    await engine.drain_outbox(db_session, now=FUTURE)  # episode 1: REJECTED
+
+    with caplog.at_level("INFO"):
+        await engine.apply_record(db_session, fake_descriptor, stale)  # suppressed → WARNING
+        row.name = "FixedLocal"  # the fix — guard stands down, throttle re-arms
+        await db_session.flush()
+        await engine.apply_record(db_session, fake_descriptor, stale)  # re-enqueues
+        await engine.drain_outbox(db_session, now=FUTURE)  # episode 2: REJECTED again
+        await engine.apply_record(db_session, fake_descriptor, stale)  # suppressed again
+
+    warned = [r for r in caplog.records if r.msg == "update_reject_replay_suppressed"]
+    assert [r.levelname for r in warned] == ["WARNING", "WARNING"]  # fresh episode re-warns
+
+
 async def test_lww_local_newer_reenqueues_when_rejected_entry_has_no_hash(
     db_session, fake_descriptor
 ):
