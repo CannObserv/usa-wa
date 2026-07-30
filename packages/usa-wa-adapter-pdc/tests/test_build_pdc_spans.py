@@ -24,6 +24,7 @@ from usa_wa_adapter_pdc.build_pdc_spans import PdcSpanResult, build_pdc_spans
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier
+from usa_wa_adapter_legislature.synthesis import biennium_for_date, parse_biennium
 
 CURRENT = "2025-26"
 
@@ -206,14 +207,25 @@ async def test_future_biennium_cohort_is_skipped_not_live_matched(
     """#121 CR-1: a cohort seating a FUTURE biennium (the just-run November even general,
     archived Nov-Dec by the widened harvest default) has no sponsor roster yet — it must be
     skipped-and-logged, not era-matched through the provider's live-GetSponsors fallback. The
-    next cycle's own refresh/backfill links it once its roster exists."""
+    next cycle's own refresh/backfill links it once its roster exists.
+
+    The cohort year is derived from today (CR-4): the current biennium's ``start+1`` is always
+    the even general seating the NEXT biennium, so the test stays future-relative across
+    rollovers instead of expiring when a hardcoded year stops being future."""
+    future_even = parse_biennium(biennium_for_date(datetime.now(UTC).date()))[0] + 1
     await _add_ld(db_session, usa_wa, 5)
     await _add_person(db_session, 100)
     await _archive(
-        db_session, pdc_source, "house-winners:2026", _winners(("901", 5, 1, "M100 Smith"))
+        db_session,
+        pdc_source,
+        f"house-winners:{future_even}",
+        _winners(("901", 5, 1, "M100 Smith")),
     )
     await _archive(
-        db_session, pdc_source, "senate-winners:2026", _winners(("902", 5, 0, "M100 Smith"))
+        db_session,
+        pdc_source,
+        f"senate-winners:{future_even}",
+        _winners(("902", 5, 0, "M100 Smith")),
     )
 
     with caplog.at_level(logging.INFO):

@@ -152,8 +152,11 @@ python -m usa_wa_adapter_pdc.harvest_pdc --from-year 2008 --pause-seconds 0.5
 # Phase B — era-matched IDENTIFIER build (archive-first, no live PDC pull; identifier-only since
 # #101): each cohort pairs with its seating biennium's sponsor roster — an even year seats the
 # NEXT biennium (2012 → 2013-14), an odd special seats the biennium STARTING that year (2025 →
-# 2025-26, #121) — matches each winner to a WSL Person, emits person_wa_pdc links. The House
-# Position SEAT is no longer built here (that is usa_wa_adapter_sos.house.build, below). Idempotent.
+# 2025-26, #121) — matches each winner to a WSL Person, emits person_wa_pdc links. A cohort
+# seating a FUTURE biennium (the just-run November even general, archived Nov-Dec) is skipped +
+# logged (pdc_cohort_future_biennium_skipped) until its roster exists — the next cycle links it
+# (#121 CR; the rollover-readiness audit is #135). The House Position SEAT is no longer built
+# here (that is usa_wa_adapter_sos.house.build, below). Idempotent.
 python -m usa_wa_adapter_pdc.build_pdc_spans --dry-run
 python -m usa_wa_adapter_pdc.build_pdc_spans
 
