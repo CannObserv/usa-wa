@@ -12,12 +12,14 @@ from clearinghouse_sync_powermap.client import (
     PayloadRejectedError,
     RetryableClientError,
 )
-from clearinghouse_sync_powermap.engine import SyncEngine, outbox_backlog
+from clearinghouse_sync_powermap.engine import SyncEngine, enrich_fingerprint, outbox_backlog
 from clearinghouse_sync_powermap.models import (
     DISPOSITION_AUTO_ATTACHED,
     DISPOSITION_NEW,
     DISPOSITION_REJECTED,
     OP_CREATE,
+    OP_ENRICH,
+    OP_UPDATE,
     STATUS_DELIVERED,
     STATUS_PENDING,
     STATUS_REJECTED,
@@ -596,6 +598,66 @@ async def test_drain_payload_rejected_marks_terminal(db_session, fake_descriptor
     assert touched[0].status == STATUS_REJECTED
     assert "422" in touched[0].last_error
     assert row.pm_fake_id is None
+
+
+# --- rejected-UPDATE refused-payload stamp (usa-wa#132) -----------------------
+
+
+async def test_drain_rejected_update_stamps_refused_payload_hash(db_session, fake_descriptor):
+    """A 422-rejected UPDATE records the refused payload's hash on the entry (#132),
+    so the local-newer re-enqueue can recognize — and skip — an identical futile
+    re-send instead of minting a fresh REJECTED entry every reconcile cycle."""
+    row = await _add_entity(db_session, source_id="1", anchor=ULID())
+    db_session.add(OutboxEntry(entity_type="fake", local_id=row.id, op=OP_UPDATE))
+    await db_session.flush()
+    engine = SyncEngine([fake_descriptor], FakeClient(observation_result=_raise_payload_rejected))
+
+    await engine.drain_outbox(db_session, now=NOW)
+
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert entry.status == STATUS_REJECTED
+    expected = enrich_fingerprint(await fake_descriptor.to_observation(db_session, row))
+    assert entry.payload_hash == expected
+
+
+async def test_drain_rejected_disposition_update_stamps_refused_payload_hash(
+    db_session, fake_descriptor
+):
+    """The ``rejected``-disposition shape stamps the same refused-payload hash as the
+    HTTP-422 exception shape — both routes through ``_reject`` carry it (#132)."""
+    row = await _add_entity(db_session, source_id="1", anchor=ULID())
+    db_session.add(OutboxEntry(entity_type="fake", local_id=row.id, op=OP_UPDATE))
+    await db_session.flush()
+    client = FakeClient(
+        observation_result=ObservationResult(DISPOSITION_REJECTED, None, {"reason": "nope"})
+    )
+    engine = SyncEngine([fake_descriptor], client)
+
+    await engine.drain_outbox(db_session, now=NOW)
+
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert entry.status == STATUS_REJECTED
+    expected = enrich_fingerprint(await fake_descriptor.to_observation(db_session, row))
+    assert entry.payload_hash == expected
+
+
+async def test_drain_rejected_enrich_keeps_enqueue_time_hash(db_session, fake_descriptor):
+    """An ENRICH entry's ``payload_hash`` is the enqueue-time stamp the #34 fingerprint
+    contract copies on a terminal verdict — the #132 refused-payload stamp must not
+    overwrite it with a delivery-time re-hash."""
+    row = await _add_entity(db_session, source_id="1", anchor=ULID())
+    enqueue_hash = "a" * 64
+    db_session.add(
+        OutboxEntry(entity_type="fake", local_id=row.id, op=OP_ENRICH, payload_hash=enqueue_hash)
+    )
+    await db_session.flush()
+    engine = SyncEngine([fake_descriptor], FakeClient(observation_result=_raise_payload_rejected))
+
+    await engine.drain_outbox(db_session, now=NOW)
+
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert entry.status == STATUS_REJECTED
+    assert entry.payload_hash == enqueue_hash  # untouched
 
 
 async def test_drain_transient_error_backs_off(db_session, fake_descriptor):

@@ -117,8 +117,10 @@ class OutboxEntry(Base, TimestampMixin):
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: For ENRICH entries: the carry-payload hash computed at enqueue, copied to
     #: :class:`EnrichFingerprint` once the entry reaches a terminal PM verdict so a
-    #: re-enrich is not posted again for an unchanged payload (#34). Null for
-    #: CREATE/UPDATE (their re-enqueue is governed by the sweep, not a fingerprint).
+    #: re-enrich is not posted again for an unchanged payload (#34). For a REJECTED
+    #: CREATE/UPDATE: the hash of the payload PM refused, stamped at the rejection
+    #: (#132) so the local-newer re-enqueue can skip an identical futile re-send;
+    #: otherwise NULL for CREATE/UPDATE (their re-enqueue is governed by the sweep).
     payload_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 

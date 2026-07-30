@@ -11,6 +11,7 @@ from clearinghouse_sync_powermap.client import (
     ChangePage,
     EntityPage,
     ObservationResult,
+    PayloadRejectedError,
     RetryableClientError,
 )
 from clearinghouse_sync_powermap.engine import (
@@ -28,6 +29,7 @@ from clearinghouse_sync_powermap.models import (
     OP_ENRICH,
     OP_UPDATE,
     STATUS_PENDING,
+    STATUS_REJECTED,
     EnrichFingerprint,
     OutboxEntry,
     SyncState,
@@ -171,6 +173,87 @@ async def test_lww_local_newer_spurious_adopts_clock_and_skips_enqueue(db_sessio
     row = (await db_session.execute(select(FakeEntity))).scalar_one()
     assert row.name == "FreshLocal"  # data untouched
     assert row.updated_at == datetime(2000, 1, 1, tzinfo=UTC)  # PM's clock adopted → parity
+
+
+# --- rejected-UPDATE replay guard (usa-wa#132) --------------------------------
+
+
+def _raise_422(payload):
+    raise PayloadRejectedError("PM 422: would cycle")
+
+
+async def test_lww_local_newer_skips_reenqueue_after_identical_reject(
+    db_session, fake_descriptor, caplog
+):
+    """#132: after PM 422-rejects an UPDATE, a reconcile that would re-produce the
+    IDENTICAL payload does not re-enqueue — the provably-futile re-send is suppressed
+    (WARNING once per row, INFO thereafter, the #112 throttle shape) instead of minting
+    a fresh REJECTED entry every cycle and spamming the #85 rise alert."""
+    await _add_entity(db_session, source_id="1", name="FreshLocal")
+    stale = _record("1", "StalePM", updated_at="2000-01-01T00:00:00Z")
+    engine = SyncEngine([fake_descriptor], FakeClient(observation_result=_raise_422))
+    await engine.apply_record(db_session, fake_descriptor, stale)
+    await engine.drain_outbox(db_session, now=FUTURE)  # → REJECTED, refused hash stamped
+
+    with caplog.at_level("INFO"):
+        assert await engine.apply_record(db_session, fake_descriptor, stale) == APPLY_KEPT_LOCAL
+        await engine.apply_record(db_session, fake_descriptor, stale)
+
+    entries = (await db_session.execute(select(OutboxEntry))).scalars().all()
+    assert len(entries) == 1  # just the parked reject — no replay mint
+    assert entries[0].status == STATUS_REJECTED
+    warned = [r for r in caplog.records if r.msg == "update_reject_replay_suppressed"]
+    still = [r for r in caplog.records if r.msg == "update_reject_replay_still_suppressed"]
+    assert [r.levelname for r in warned] == ["WARNING"]  # once per row per process
+    assert [r.levelname for r in still] == ["INFO"]
+
+
+async def test_lww_local_newer_reenqueues_after_local_fix(db_session, fake_descriptor):
+    """#132 re-arm: a local edit changes the payload, so the guard stands down and the
+    corrected UPDATE enqueues — REJECTED stays fix-triggered-retry, never a dead end
+    (the reason the reject is not dead-lettered to UNAVAILABLE)."""
+    row = await _add_entity(db_session, source_id="1", name="FreshLocal")
+    stale = _record("1", "StalePM", updated_at="2000-01-01T00:00:00Z")
+    engine = SyncEngine([fake_descriptor], FakeClient(observation_result=_raise_422))
+    await engine.apply_record(db_session, fake_descriptor, stale)
+    await engine.drain_outbox(db_session, now=FUTURE)
+
+    row.name = "FixedLocal"  # the data fix
+    await db_session.flush()
+    await engine.apply_record(db_session, fake_descriptor, stale)
+
+    pending = (
+        (await db_session.execute(select(OutboxEntry).where(OutboxEntry.status == STATUS_PENDING)))
+        .scalars()
+        .all()
+    )
+    assert len(pending) == 1
+    assert pending[0].op == OP_UPDATE
+
+
+async def test_lww_local_newer_reenqueues_when_rejected_entry_has_no_hash(
+    db_session, fake_descriptor
+):
+    """A pre-#132 REJECTED entry (NULL ``payload_hash``) cannot prove the re-send
+    identical, so the guard stands down — legacy rows keep the prior re-attempt
+    behaviour rather than being wrongly suppressed."""
+    row = await _add_entity(db_session, source_id="1", name="FreshLocal")
+    db_session.add(
+        OutboxEntry(entity_type="fake", local_id=row.id, op=OP_UPDATE, status=STATUS_REJECTED)
+    )
+    await db_session.flush()
+    engine = SyncEngine([fake_descriptor], FakeClient())
+
+    await engine.apply_record(
+        db_session, fake_descriptor, _record("1", "StalePM", updated_at="2000-01-01T00:00:00Z")
+    )
+
+    pending = (
+        (await db_session.execute(select(OutboxEntry).where(OutboxEntry.status == STATUS_PENDING)))
+        .scalars()
+        .all()
+    )
+    assert len(pending) == 1  # re-enqueued as before
 
 
 async def test_lww_local_newer_captures_pm_anchor(db_session, fake_descriptor):

@@ -339,6 +339,12 @@ class SyncEngine:
         #: row, INFO thereafter; a restart re-warns once (acceptable). The per-drain
         #: ``DrainStats.non_converging`` tally and the standing count stay unthrottled.
         self._warned_nonconverging: set = set()
+        #: (entity_type, local_id) pairs whose local-newer re-enqueue is currently
+        #: suppressed as an identical-payload replay of a REJECTED UPDATE (#132). Same
+        #: throttle shape as ``_warned_stuck``: WARNING once per row, INFO thereafter;
+        #: cleared when the guard stands down (payload changed / entry moved on), so a
+        #: second episode after a fix WARNs again. A restart re-warns once (acceptable).
+        self._warned_reject_replay: set = set()
         #: Per-drain observability tallies (usa-wa#108), reset at each drain start and
         #: read by the sidecar's cycle summary. Defaults so a caller that reads it before
         #: any drain gets an empty, safe value.
@@ -384,6 +390,62 @@ class SyncEngine:
         session.add(entry)
         await session.flush()
         return entry
+
+    async def _rejected_identical_update(
+        self, session: AsyncSession, descriptor: EntityDescriptor, row
+    ) -> bool:
+        """Whether re-enqueueing ``row`` would replay the exact UPDATE PM just refused (#132).
+
+        The local-newer branch re-enqueues every reconcile while the local clock stays
+        ahead of PM — and a rejected delivery adopts nothing, so a persistent 422
+        (e.g. PM's ``chk_no_org_cycle``) would otherwise mint a fresh REJECTED entry
+        every cycle forever: unbounded pile growth, and the #85 rise alert firing each
+        cycle. This is the UPDATE analog of the #34 enrich-fingerprint stamp: true iff
+        the row's latest outbox entry is a REJECTED UPDATE whose refused-payload hash
+        (stamped by :meth:`_reject`) equals the row's *current* observation hash — only
+        the provably-futile identical re-send is suppressed. Any payload change (the
+        data fix) re-arms, keeping REJECTED fix-triggered-retry, never a dead end; a
+        pre-#132 entry (NULL hash) can't prove identity and stands down.
+
+        The standing skew stays operator-visible: WARNING once per row per process,
+        INFO on later cycles (the #112 throttle shape, re-armed when the guard stands
+        down so a second episode after a fix WARNs again).
+        """
+        latest = await session.scalar(
+            select(OutboxEntry)
+            .where(
+                OutboxEntry.entity_type == descriptor.entity_type,
+                OutboxEntry.local_id == row.id,
+            )
+            .order_by(OutboxEntry.id.desc())
+            .limit(1)
+        )
+        key = (descriptor.entity_type, row.id)
+        if (
+            latest is None
+            or latest.status != STATUS_REJECTED
+            or latest.op != OP_UPDATE
+            or latest.payload_hash is None
+        ):
+            self._warned_reject_replay.discard(key)
+            return False
+        payload = await descriptor.to_observation(session, row)
+        if enrich_fingerprint(payload) != latest.payload_hash:
+            self._warned_reject_replay.discard(key)
+            return False
+        first = key not in self._warned_reject_replay
+        self._warned_reject_replay.add(key)
+        log = logger.warning if first else logger.info
+        log(
+            "update_reject_replay_suppressed" if first else "update_reject_replay_still_suppressed",
+            extra={
+                "entity_type": descriptor.entity_type,
+                "local_id": str(row.id),
+                "source_id": getattr(row, "source_id", None),
+                "last_error": latest.last_error,
+            },
+        )
+        return True
 
     async def sweep_unanchored(
         self,
@@ -847,7 +909,7 @@ class SyncEngine:
             # No raw= here: a 422 carries its detail in str(exc); PM's structured
             # `reason` (power-map#225) is a rejected-*disposition* concept, so the
             # log's `reason` field is correctly None on this validation-error path.
-            await self._reject(session, entry, str(exc))
+            await self._reject(session, entry, str(exc), payload=payload)
             return True
 
         entry.last_disposition = result.disposition
@@ -898,7 +960,7 @@ class SyncEngine:
                 session, descriptor, row, entry, result, old_anchor, payload
             )
         elif result.rejected:
-            await self._reject(session, entry, str(result.raw), raw=result.raw)
+            await self._reject(session, entry, str(result.raw), raw=result.raw, payload=payload)
         else:
             # Unexpected disposition — count it as a failed attempt so an operator
             # can see it and it cannot loop forever.
@@ -1126,7 +1188,13 @@ class SyncEngine:
         return conflict is not None
 
     async def _reject(
-        self, session: AsyncSession, entry: OutboxEntry, error: str, *, raw: dict | None = None
+        self,
+        session: AsyncSession,
+        entry: OutboxEntry,
+        error: str,
+        *,
+        raw: dict | None = None,
+        payload: dict | None = None,
     ) -> None:
         """Park an entry to the ``REJECTED`` terminal state (PM refused the payload).
 
@@ -1138,9 +1206,18 @@ class SyncEngine:
         on this exact payload, so the reconcile must not re-post the identical payload
         every cycle. A subsequent data/code fix changes the payload hash, which re-arms
         the drift trigger — so a rejection self-heals on the fix, not by blind retry.
+
+        For CREATE/UPDATE the delivered ``payload`` is hashed onto the entry instead
+        (#132) — the refused-payload record :meth:`_rejected_identical_update` compares
+        against, so the local-newer re-enqueue can skip a provably-futile identical
+        re-send. An ENRICH keeps its enqueue-time hash (the #34 contract copies it to
+        :class:`EnrichFingerprint`); re-hashing at delivery time could silently diverge
+        from what the fingerprint stamp records.
         """
         entry.status = STATUS_REJECTED
         entry.last_error = error
+        if payload is not None and entry.op != OP_ENRICH:
+            entry.payload_hash = enrich_fingerprint(payload)
         await self._stamp_enrich_fingerprint(session, entry)
         logger.error(
             "powermap_observation_rejected",
@@ -1412,7 +1489,10 @@ class SyncEngine:
                     # row would not change PM. Adopt PM's clock (parity) instead of enqueuing an
                     # identical observation the reconcile would re-send every cycle forever.
                     self._adopt_remote_clock(descriptor, existing, record)
-                else:
+                elif not await self._rejected_identical_update(session, descriptor, existing):
+                    # #132: skip only the provably-futile replay of a payload PM just
+                    # 422-refused. Deliberately NOT a clock adopt — the pending change
+                    # is real and must re-send the moment the local data is fixed.
                     await self._enqueue(session, descriptor, existing, OP_UPDATE)
             return APPLY_KEPT_LOCAL
 
