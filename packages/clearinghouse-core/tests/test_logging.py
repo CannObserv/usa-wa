@@ -13,9 +13,12 @@ def test_log_record_includes_structured_fields(capsys):
         configure_logging()
         get_logger("clearinghouse_core.some.module").warning("hello %s", "world")
     finally:
-        root.handlers, root.level = saved_handlers, saved_level
+        root.handlers = saved_handlers
+        # setLevel (not attribute assignment) so manager._clear_cache() runs —
+        # child loggers cache their effective level while root sits at INFO.
+        root.setLevel(saved_level)
 
-    record = json.loads(capsys.readouterr().out)
+    record = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert record["message"] == "hello world"
     assert record["level"] == "WARNING"
     assert record["logger"] == "clearinghouse_core.some.module"

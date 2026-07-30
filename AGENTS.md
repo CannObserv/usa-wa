@@ -506,6 +506,7 @@ from clearinghouse_core.logging import get_logger
 logger = get_logger(__name__)
 ```
 Entry points only: `configure_logging()` is called once inside the FastAPI `lifespan`. Never in library modules.
+JSON records carry `{timestamp, level, logger, message}` (#133; structlog's default key set). The `timestamp` uses the `+00:00` offset form, a deliberate deviation from the `Z`-suffix date convention below — the structlog migration (gregoryfoster/skills#68) owns the final format. `level`/`logger`/`timestamp`/`message` are reserved: never pass them in `extra={}`.
 
 **Date & Time:**
 - All UTC
