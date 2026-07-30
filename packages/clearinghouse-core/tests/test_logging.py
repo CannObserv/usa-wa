@@ -18,7 +18,9 @@ def test_log_record_includes_structured_fields(capsys):
         # child loggers cache their effective level while root sits at INFO.
         root.setLevel(saved_level)
 
-    record = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert lines, "no log output captured"
+    record = json.loads(lines[-1])
     assert record["message"] == "hello world"
     assert record["level"] == "WARNING"
     assert record["logger"] == "clearinghouse_core.some.module"
