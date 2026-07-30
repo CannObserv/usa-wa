@@ -13,8 +13,25 @@ from sqlalchemy import select
 from ulid import ULID
 
 from clearinghouse_domain_legislative.identity import Organization
-from clearinghouse_sync_powermap.client import EntityPage
-from clearinghouse_sync_powermap.engine import enrich_fingerprint
+from clearinghouse_sync_powermap.client import (
+    EntityPage,
+    ObservationResult,
+    PayloadRejectedError,
+)
+from clearinghouse_sync_powermap.engine import (
+    SyncEngine,
+    enrich_fingerprint,
+    rejected_breakdown,
+)
+from clearinghouse_sync_powermap.models import (
+    DISPOSITION_AUTO_ATTACHED,
+    OP_ENRICH,
+    STATUS_DELIVERED,
+    STATUS_PENDING,
+    STATUS_REJECTED,
+    EnrichFingerprint,
+    OutboxEntry,
+)
 from clearinghouse_sync_powermap.testing import FakeClient
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
 from usa_wa_sync_powermap.descriptors.organization import (
@@ -989,3 +1006,143 @@ def test_org_descriptor_supports_rematch_and_lifecycle_columns():
     assert desc.supports_rematch is True
     assert desc.deleted_column == "deleted_at"
     assert desc.archived_column == "archived_at"
+
+
+# --- parent-cycle reject discipline (#131) ------------------------------------
+#
+# power-map#334 made our ``organization_parent_id`` pushes authoritative, and PM's
+# ``chk_no_org_cycle`` trigger 422-rejects an observation whose parent would cycle.
+# These pin the engine discipline #131 asked to confirm end-to-end on the real org
+# descriptor: a cycle-rejected parent ENRICH parks REJECTED with the detail legible
+# in the breakdown, is NOT re-sent identically on the next reconcile (the fingerprint
+# stamp), and re-arms — pushing the corrected parent — once the local data is fixed.
+# No UNAVAILABLE dead-letter: a parent cycle's remedy is a local data edit, which is
+# exactly the fix-triggered-retry contract REJECTED + fingerprint already implements.
+
+_ENGINE_NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
+#: Far-future drain clock: an entry's ``next_attempt_at`` server-defaults to the real
+#: wall clock at insert, so a fixed past ``now`` would defer it.
+_ENGINE_FUTURE = datetime(2099, 1, 1, tzinfo=UTC)
+
+
+def _raise_parent_cycle(payload):
+    raise PayloadRejectedError(
+        "PM rejected the request (422): {'detail': 'chk_no_org_cycle: "
+        "parent chain would contain a cycle'}"
+    )
+
+
+def _identified(record, source_id):
+    """Give a PM record our committee identifier so ``needs_enrich`` is False and the
+    only enrich trigger left is carry-payload drift — the #124 parent channel."""
+    record["identifiers"] = [{"type_slug": "org_wa_legislature_committee_id", "value": source_id}]
+    return record
+
+
+async def _stamp_current_fingerprint(session, descriptor, row):
+    """Pre-settle a row's enrich fingerprint so the cohort crawl sees no drift for it —
+    keeps the bystander parents out of the outbox assertions."""
+    payload = await descriptor.to_enrich_observation(session, row)
+    session.add(
+        EnrichFingerprint(
+            entity_type=descriptor.entity_type,
+            local_id=row.id,
+            payload_hash=enrich_fingerprint(payload),
+        )
+    )
+    await session.flush()
+
+
+async def _cycle_scenario(db_session, descriptor):
+    """Anchored parent + subcommittee (child of parent) + a second anchored committee
+    the fix will repoint to. PM records carry our identifiers and no parent_id, so the
+    reconcile mirror leaves the local parent alone and only drift drives the outbox."""
+    parent_pm, wm_pm, child_pm = ULID(), ULID(), ULID()
+    parent = await _add_org(db_session, source_id="C-APP", name="Appropriations", anchor=parent_pm)
+    wm = await _add_org(db_session, source_id="C-WM", name="Ways & Means", anchor=wm_pm)
+    child = await _add_org(
+        db_session,
+        source_id="C-SUB",
+        name="Appropriations Subcommittee on Education",
+        org_type="subcommittee",
+        anchor=child_pm,
+        parent_id=parent.id,
+    )
+    await _stamp_current_fingerprint(db_session, descriptor, parent)
+    await _stamp_current_fingerprint(db_session, descriptor, wm)
+    client = FakeClient(
+        entities={
+            parent_pm: _identified(_pm_org(parent_pm, name="Appropriations"), "C-APP"),
+            wm_pm: _identified(_pm_org(wm_pm, name="Ways & Means"), "C-WM"),
+            child_pm: _identified(
+                _pm_org(child_pm, name="Appropriations Subcommittee on Education"), "C-SUB"
+            ),
+        },
+        observation_result=_raise_parent_cycle,
+    )
+    engine = SyncEngine([descriptor], client)
+    return child, wm, child_pm, wm_pm, client, engine
+
+
+async def _child_entries(db_session, child):
+    return (
+        (
+            await db_session.execute(
+                select(OutboxEntry).where(OutboxEntry.local_id == child.id).order_by(OutboxEntry.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def test_parent_cycle_enrich_reject_parks_and_surfaces_without_replay(db_session, descriptor):
+    """#131 asks 1+2: the cycle 422 parks REJECTED (not UNAVAILABLE), its detail is
+    legible in ``rejected_breakdown`` (the #85 surface — no watched-list needed), the
+    fingerprint is stamped on the rejection, and an unchanged reconcile re-sends
+    nothing."""
+    child, _wm, _child_pm, _wm_pm, _client, engine = await _cycle_scenario(db_session, descriptor)
+
+    await engine.reconcile(db_session, descriptor, now=_ENGINE_NOW)
+    await engine.drain_outbox(db_session, now=_ENGINE_FUTURE)
+
+    (entry,) = await _child_entries(db_session, child)
+    assert entry.op == OP_ENRICH
+    assert entry.status == STATUS_REJECTED  # parked, not UNAVAILABLE — data-fix state
+    assert "chk_no_org_cycle" in entry.last_error
+    # Ask 1: the generic breakdown surfaces the cycle reason with zero configuration.
+    reasons = await rejected_breakdown(db_session)
+    assert any("chk_no_org_cycle" in reason for reason in reasons)
+    # The terminal verdict stamped the fingerprint (#34) …
+    stamped = await db_session.scalar(
+        select(EnrichFingerprint.payload_hash).where(EnrichFingerprint.local_id == child.id)
+    )
+    assert stamped == entry.payload_hash
+    # … so an unchanged second reconcile must NOT re-post the identical payload.
+    await engine.reconcile(db_session, descriptor, now=_ENGINE_NOW)
+    entries = await _child_entries(db_session, child)
+    assert len(entries) == 1  # still just the parked one — no replay loop
+    assert not any(e.status == STATUS_PENDING for e in entries)
+
+
+async def test_parent_cycle_reject_rearms_and_delivers_on_parent_fix(db_session, descriptor):
+    """#131 ask 2's flip side: repointing the local parent (the operator data fix)
+    changes the enrich payload, which re-arms the drift trigger — REJECTED does not
+    block re-enqueue — and the corrected parent delivers. An UNAVAILABLE dead-letter
+    would have blocked this until a manual redrive."""
+    child, wm, child_pm, wm_pm, client, engine = await _cycle_scenario(db_session, descriptor)
+    await engine.reconcile(db_session, descriptor, now=_ENGINE_NOW)
+    await engine.drain_outbox(db_session, now=_ENGINE_FUTURE)
+
+    child.parent_organization_id = wm.id  # the data fix
+    await db_session.flush()
+    client._observation_result = ObservationResult(DISPOSITION_AUTO_ATTACHED, child_pm, {})
+
+    await engine.reconcile(db_session, descriptor, now=_ENGINE_NOW)
+    await engine.drain_outbox(db_session, now=_ENGINE_FUTURE)
+
+    entries = await _child_entries(db_session, child)
+    assert [e.status for e in entries] == [STATUS_REJECTED, STATUS_DELIVERED]
+    path, payload = client.posted[-1]
+    assert payload["identifier_value"] == str(child_pm)
+    assert payload["organization_parent_id"] == str(wm_pm)  # the corrected parent shipped
