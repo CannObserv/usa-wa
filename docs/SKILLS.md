@@ -38,7 +38,7 @@ Two skill names exist in both vendors. For each, we pick the CannObserv (gregory
 | `using-git-worktrees` | `skills-vendor/gregoryfoster-skills/skills/using-git-worktrees` |
 | `writing-plans` | `skills-vendor/gregoryfoster-skills/skills/writing-plans` |
 
-The upstream `init-project-fastapi` skill's Phase 10 loop iterates obra-superpowers first, which would leave the obra version winning by default. We override that with explicit `ln -sfn` calls (see commit history). Note: the naive `ln -s` in the upstream loop also strands dangling symlinks inside the obra submodule on collisions — a separate upstream issue (`docs/upstream-issue-4-phase10-lns.md`, until filed).
+The upstream `init-project-fastapi` skill's Phase 10 loop now enforces this itself: it uses `ln -sfn` with vendor ordering that lets gregoryfoster override obra on a collision (and pattern-filters the review/ship stack variants). This table records the preference; no local workaround is needed on a re-run.
 
 ## Local overrides
 
