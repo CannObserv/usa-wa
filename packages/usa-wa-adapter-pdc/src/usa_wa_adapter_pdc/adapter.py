@@ -99,7 +99,6 @@ class PDCAdapter(BaseAdapter):
 
     def __init__(self, *, biennium: str, client: PDCClient | None = None) -> None:
         self.biennium = biennium
-        self.election_year = election_year_for_biennium(biennium)
         self.house_election_years = election_years_for_biennium(biennium)
         self.senate_election_years = senate_election_years_for_biennium(biennium)
         self._client = client or PDCClient()

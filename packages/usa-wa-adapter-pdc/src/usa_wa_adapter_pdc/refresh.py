@@ -42,7 +42,6 @@ from usa_wa_adapter_pdc.adapter import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
     SENATE_WINNERS_RESOURCE_PREFIX,
     PDCAdapter,
-    election_year_for_biennium,
     election_years_for_biennium,
     senate_election_years_for_biennium,
 )
@@ -108,7 +107,6 @@ async def run_refresh(
     #    year is a *success* here (SODA returns an empty row set, not a 404), so the guard only
     #    covers a transient Socrata failure — which must not fail the whole daily unit while
     #    the other cohorts and the identifier re-drive can still complete.
-    election_year = election_year_for_biennium(biennium)
     house_years = election_years_for_biennium(biennium)
     senate_years = senate_election_years_for_biennium(biennium)
     resource_ids = [f"{HOUSE_WINNERS_RESOURCE_PREFIX}{y}" for y in house_years]
@@ -137,7 +135,8 @@ async def run_refresh(
         "pdc_refresh_complete",
         extra={
             "biennium": biennium,
-            "election_year": election_year,
+            "house_years": house_years,
+            "senate_years": senate_years,
             "cohorts_archived": archived,
             "identifiers": result.identifiers,
         },
