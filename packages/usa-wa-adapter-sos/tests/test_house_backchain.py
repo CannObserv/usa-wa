@@ -91,6 +91,33 @@ def test_direct_seed_and_one_hop_elimination_cascade_back_through_the_era():
     assert result.depth[("100", "2003-04")] == 3
 
 
+def test_max_hops_zero_disables_backchaining():
+    """--max-backchain-hops 0 disables the back-chain entirely (matched member's hop+1=1 > 0), so
+    only the ballot-anchored biennium is seated — pre-#118 behavior."""
+    ld5 = [_sponsor(100, 5, "Rivers"), _sponsor(101, 5, "Chase")]
+    rosters = _rosters({b: ld5 for b in ERA_2001})
+    positions = _positions({"2009-10": [_filing(5, 1, "Ann Rivers")]})
+
+    result = backchain_house_observations(rosters, positions, max_hops=0)
+
+    assert result.backchain_keys == []
+    assert {o.biennium for o in result.observations} == {"2009-10"}  # nothing back-chained
+
+
+def test_era_break_stops_the_chain_at_a_second_boundary():
+    """The era break is boundary-agnostic: a 2013-14 ballot anchor (the 2011-map era start) must
+    not back-chain into 2011-12 (the prior 2001-map era) — guarding the constant wiring at a
+    second redistricting boundary, not just 2003-04."""
+    ld5 = [_sponsor(100, 5, "Rivers"), _sponsor(101, 5, "Chase")]
+    rosters = _rosters({b: ld5 for b in ["2011-12", "2013-14"]})
+    positions = _positions({"2013-14": [_filing(5, 1, "Ann Rivers")]})
+
+    result = backchain_house_observations(rosters, positions, max_hops=4)
+
+    assert Observation("100", KIND_HOUSE, "ld-5-position-1", "2013-14") in result.observations
+    assert not any(o.biennium == "2011-12" for o in result.observations)  # 2012 break holds
+
+
 def test_max_hops_caps_the_back_chain_depth():
     """max_hops=1 seeds only one biennium before the anchor; deeper biennia stay unseated
     (both members unmatched → no elimination)."""

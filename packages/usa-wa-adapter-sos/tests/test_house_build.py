@@ -241,6 +241,41 @@ async def test_pre_2009_seat_is_backchained_from_a_later_ballot_anchor(db_sessio
     assert cited == {"sponsors:2007-08", "sos-legresults:20081104"}
 
 
+async def test_backchained_pre_floor_span_survives_the_restricted_daily_redrive(db_session, usa_wa):
+    """#118 + the #100-CR invariant: the daily restricted re-drive (restrict_to_biennium=current)
+    must back-chain a *current* member's pre-floor span to the SAME deep start as the unrestricted
+    backfill — not a shallow current-only one. This is the property the deploy-orphan safety rests
+    on; a regression that skipped back-chain when restricted would re-arm it."""
+    wsl, sos = await _sources(db_session, usa_wa)
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_person(db_session, 100)
+    await _archive(db_session, wsl, "sponsors:2007-08", _sponsor_wire((100, 5, "Rivers", "House")))
+    await _archive(db_session, wsl, "sponsors:2009-10", _sponsor_wire((100, 5, "Rivers", "House")))
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20081104",
+        _sos_csv(("State Representative Pos. 1", 5, "Ann Rivers", "(Prefers Democratic Party)")),
+    )
+
+    result = await build_house_position_spans(
+        db_session,
+        sponsor_client=_StubSponsorClient(),
+        current_biennium="2009-10",
+        restrict_to_biennium="2009-10",  # the daily path
+    )
+
+    assert result.house_spans == 1
+    row = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source == "usa_wa_legislature")
+        )
+    ).scalar_one()
+    # Deep back-chained start — identical to the unrestricted backfill, not ld-...:2009-10.
+    assert row.source_id == "100:chamber-house:ld-5-position-1:2007-08"
+    assert row.valid_from == date(2007, 1, 1) and row.is_active is True
+
+
 async def test_member_without_position_gets_no_seat(db_session, usa_wa):
     """A sitting House member with no SOS filing → no House Position seat (OQ1: emit nothing)."""
     wsl, _sos = await _sources(db_session, usa_wa)
