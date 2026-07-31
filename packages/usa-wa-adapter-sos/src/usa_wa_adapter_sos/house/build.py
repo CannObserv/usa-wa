@@ -13,12 +13,23 @@ the historical backfill (``restrict_to_biennium=None``) are the same pipeline wi
 positions, so a member serving across the 2018 boundary builds ONE deep span either way — the
 #100 CR finding-1 two-builder depth mismatch cannot recur.
 
-**Coverage.** Position 2008→present (the votewa floor); a sitting member with no resolvable SOS
-position (pre-2008, or a match miss) gets no House Position seat (OQ1 — a positioned seat's
-absence is honest, not a position-less ``state_representative``, which PM rejects) — unless the
-projector's within-LD elimination (#103) resolves it (a mid-biennium appointee or a
-ballot↔roster name change; inferred bienniums cite the sponsor roster, not the SOS cohort).
-Depends on #77 (Persons + sponsor archive) and the SOS harvest (#100 Phase A).
+**Coverage.** Position 2008→present directly (the votewa floor), extended back to **2003-04** by
+the #118 back-chain (:mod:`.backchain`): a ballot-anchored Position carried through continuous
+same-LD tenure, letting the #103 elimination cascade resolve the mate. The 1991-2001 map-era stays
+uncovered — no reachable ballot anchor across the 2002 redistricting break (#140). A sitting member
+with no resolvable SOS position and no back-chain reach gets no House Position seat (OQ1 — a
+positioned seat's absence is honest, not a position-less ``state_representative``, which PM rejects)
+— unless the projector's within-LD elimination (#103) resolves it (a mid-biennium appointee or a
+ballot↔roster name change). Inferred / back-chained bienniums cite the sponsor roster, not the SOS
+cohort. Depends on #77 (Persons + sponsor archive) and the SOS harvest (#100 Phase A).
+
+**Deploy (span-deepening → PM-orphan risk).** Back-chain runs in the daily path too, so the first
+post-deploy run deepens a long-tenured current member's span (its ``source_id`` start moves
+earlier) — the old anchored Assignment is superseded and a new one created. Sequence the deploy
+like #101 to avoid orphaning the old row's PM anchor: **sidecar-paused**, run this builder then
+``house.migrate`` (whose #103 ``_superseded_pairs`` pass collapses the deeper-start row onto the
+shallower keeper and transfers the anchor), **then** resume the sidecar. Do not merge-and-let-the-
+timer-run.
 """
 
 from __future__ import annotations

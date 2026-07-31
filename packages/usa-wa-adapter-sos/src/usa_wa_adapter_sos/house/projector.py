@@ -18,6 +18,11 @@ that member the remaining position deterministically. This seats a mid-biennium 
 on the ballot — Obras/Salahuddin 2025-26) and heals a ballot↔roster name change
 (Caldier→Valdez, McCabe→Mosbrucker) alike; inferred seats are tracked in ``inferred_keys``
 (the PDC #74 precedent) so the emitter can cite the roster wire and the operator can audit.
+
+A ``seed_positions`` entry (#118, from :mod:`.backchain`) likewise seats an otherwise-unmatched
+member rostered in that LD — a Position back-chained from a later biennium's ballot anchor — and
+feeds the elimination like a ballot-claimed seat. Seeded seats join ``inferred_keys`` (roster-
+cited) and are also tracked in ``seeded_keys`` for the back-chain's carry-back bookkeeping.
 """
 
 from __future__ import annotations
