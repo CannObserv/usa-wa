@@ -13,12 +13,23 @@ the historical backfill (``restrict_to_biennium=None``) are the same pipeline wi
 positions, so a member serving across the 2018 boundary builds ONE deep span either way — the
 #100 CR finding-1 two-builder depth mismatch cannot recur.
 
-**Coverage.** Position 2008→present (the votewa floor); a sitting member with no resolvable SOS
-position (pre-2008, or a match miss) gets no House Position seat (OQ1 — a positioned seat's
-absence is honest, not a position-less ``state_representative``, which PM rejects) — unless the
-projector's within-LD elimination (#103) resolves it (a mid-biennium appointee or a
-ballot↔roster name change; inferred bienniums cite the sponsor roster, not the SOS cohort).
-Depends on #77 (Persons + sponsor archive) and the SOS harvest (#100 Phase A).
+**Coverage.** Position 2008→present directly (the votewa floor), extended back to **2003-04** by
+the #118 back-chain (:mod:`.backchain`): a ballot-anchored Position carried through continuous
+same-LD tenure, letting the #103 elimination cascade resolve the mate. The 1991-2001 map-era stays
+uncovered — no reachable ballot anchor across the 2002 redistricting break (#140). A sitting member
+with no resolvable SOS position and no back-chain reach gets no House Position seat (OQ1 — a
+positioned seat's absence is honest, not a position-less ``state_representative``, which PM rejects)
+— unless the projector's within-LD elimination (#103) resolves it (a mid-biennium appointee or a
+ballot↔roster name change). Inferred / back-chained bienniums cite the sponsor roster, not the SOS
+cohort. Depends on #77 (Persons + sponsor archive) and the SOS harvest (#100 Phase A).
+
+**Deploy (span-deepening → PM-orphan risk).** Back-chain runs in the daily path too, so the first
+post-deploy run deepens a long-tenured current member's span (its ``source_id`` start moves
+earlier) — the old anchored Assignment is superseded and a new one created. Sequence the deploy
+like #101 to avoid orphaning the old row's PM anchor: **sidecar-paused**, run this builder then
+``house.migrate`` (whose #103 ``_superseded_pairs`` pass collapses the deeper-start row onto the
+shallower keeper and transfers the anchor), **then** resume the sidecar. Do not merge-and-let-the-
+timer-run.
 """
 
 from __future__ import annotations
@@ -66,10 +77,13 @@ from usa_wa_adapter_legislature.span_emit import (
 )
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
-from usa_wa_adapter_legislature.tenure_spans import Observation, build_tenure_spans
+from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_adapter_sos.house.backchain import (
+    MAX_BACKCHAIN_HOPS_DEFAULT,
+    backchain_house_observations,
+)
 from usa_wa_adapter_sos.house.emit import emit_house_position_spans
-from usa_wa_adapter_sos.house.projector import build_house_seat_observations
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.cohort import SosResultsCohortProvider
 
@@ -98,6 +112,7 @@ async def build_house_position_spans(
     restrict_to_biennium: str | None = None,
     max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
     stale_min_coverage: float = STALE_MIN_COVERAGE_DEFAULT,
+    max_backchain_hops: int = MAX_BACKCHAIN_HOPS_DEFAULT,
 ) -> HouseSpanResult:
     """Build + emit ``usa_wa_legislature`` House Position seat spans; return counts.
 
@@ -136,8 +151,6 @@ async def build_house_position_spans(
         biennium: (event_id, fetched_at, f"{SPONSORS_RESOURCE_PREFIX}{biennium}")
         for biennium, (event_id, fetched_at) in (await sponsors.fetch_event_map(bienniums)).items()
     }
-    observations: list[Observation] = []
-    inferred_keys: set[tuple[str, str]] = set()
     fetch_events: dict[str, CitationTarget] = {}
     result = HouseSpanResult(bienniums=len(bienniums))
     rows_by_biennium = {biennium: await sponsors.cohort(biennium) for biennium in bienniums}
@@ -150,31 +163,63 @@ async def build_house_position_spans(
     event_rows = list(await current_events(session))
     events = from_rows(event_rows)
     event_members = event_member_ids(events)
-    for biennium in bienniums:
-        election_year = election_year_for_biennium(biennium)
-        house_roster = build_house_roster(
+    roster_by_biennium = {
+        biennium: build_house_roster(
             rows_by_biennium[biennium],
             exclude_ids=exclusions.get(biennium, set()),
             keep_ids=event_members,
         )
-        proj = build_house_seat_observations(
-            house_roster, positions.get(election_year, {}), biennium=biennium
+        for biennium in bienniums
+    }
+    positions_by_biennium = {
+        biennium: positions.get(election_year_for_biennium(biennium), {}) for biennium in bienniums
+    }
+    # #118 back-chain: project every biennium AND carry each ballot-anchored Position back through
+    # continuous same-LD tenure (newest→oldest), so a pre-2009 biennium below the SOS floor is
+    # seated from a later ballot + the #103 elimination cascade. Same pass daily + backfill, so
+    # span identity holds (no #100-CR depth mismatch). Bounded by the redistricting era breaks and
+    # ``max_backchain_hops``.
+    backchain = backchain_house_observations(
+        roster_by_biennium, positions_by_biennium, max_hops=max_backchain_hops
+    )
+    observations = list(backchain.observations)
+    inferred_keys = set(backchain.inferred_keys)
+    result.coverage = backchain.coverage
+    backchained_by_biennium: dict[str, list[str]] = {}
+    for member, biennium in backchain.backchain_keys:
+        backchained_by_biennium.setdefault(biennium, []).append(member)
+    inferred_by_biennium: dict[str, list[str]] = {}
+    for member, biennium in backchain.inferred_keys:
+        inferred_by_biennium.setdefault(biennium, []).append(member)
+    for biennium in bienniums:
+        logger.info(
+            "house_seat_cohort",
+            extra={"biennium": biennium, **backchain.coverage.get(biennium, {})},
         )
-        observations.extend(proj.observations)
-        inferred_keys.update(proj.inferred_keys)
-        result.coverage[biennium] = proj.summary
-        logger.info("house_seat_cohort", extra={"biennium": biennium, **proj.summary})
-        if proj.inferred_keys:
-            # #103: name the elimination-seated members so the inference is operator-auditable
-            # (the PDC #74 precedent — the merged span carries no per-biennium confidence).
+        inferred_members = inferred_by_biennium.get(biennium)
+        if inferred_members:
+            # #103/#118: name the elimination-seated + back-chained members so the inference is
+            # operator-auditable (the PDC #74 precedent — the merged span carries no per-biennium
+            # confidence).
             logger.info(
                 "house_seat_inferred",
+                extra={"biennium": biennium, "members": sorted(inferred_members)},
+            )
+        backchained_members = backchained_by_biennium.get(biennium)
+        if backchained_members:
+            # #118: the back-chained subset, with the max hop depth from a ballot anchor so an
+            # operator can gauge the inference distance (confidence decays with depth).
+            logger.info(
+                "house_seat_backchained",
                 extra={
                     "biennium": biennium,
-                    "members": sorted(member for member, _ in proj.inferred_keys),
+                    "members": sorted(backchained_members),
+                    "max_depth": max(
+                        backchain.depth[(member, biennium)] for member in backchained_members
+                    ),
                 },
             )
-        event = citation_events.get(election_year)
+        event = citation_events.get(election_year_for_biennium(biennium))
         if event is not None:
             fetch_events[biennium] = event
 
@@ -270,6 +315,13 @@ async def _main(argv: list[str] | None = None) -> int:
         help="committee-roster coverage floor for the #105 stale-row exclusion; a biennium "
         "under it is skipped. >1 disables the exclusion entirely (audit via --dry-run logs)",
     )
+    parser.add_argument(
+        "--max-backchain-hops",
+        type=int,
+        default=MAX_BACKCHAIN_HOPS_DEFAULT,
+        help="cap on #118 back-chain hops from a ballot anchor (pre-2009 Position depth); the "
+        "redistricting era break is the hard stop. 0 disables back-chaining",
+    )
     args = parser.parse_args(argv)
 
     database_url = os.environ.get("DATABASE_URL")
@@ -286,6 +338,7 @@ async def _main(argv: list[str] | None = None) -> int:
                 restrict_to_biennium=args.biennium,
                 max_close_fraction=args.max_close_fraction,
                 stale_min_coverage=args.stale_min_coverage,
+                max_backchain_hops=args.max_backchain_hops,
             )
             if args.dry_run:
                 await session.rollback()

@@ -153,3 +153,71 @@ def test_elimination_declines_when_both_members_are_unmatched():
     assert proj.observations == [] and proj.inferred_keys == []
     assert proj.summary["inferred"] == 0
     assert proj.summary["missing_position"] == 2
+
+
+def test_seed_positions_seats_an_otherwise_unmatched_member():
+    """#118 back-chain: a member with no ballot filing this biennium but a seeded qualifier
+    (carried back from a later biennium's ballot anchor) is seated. It cites the roster, so it
+    joins ``inferred_keys``, and is tracked distinctly in ``seeded_keys`` for carry-back."""
+    roster = build_house_roster([_sponsor(100, 5, "Rivers")])
+    filings = build_house_filings([])  # pre-2008 biennium, no ballot
+
+    proj = build_house_seat_observations(
+        roster, filings, biennium=BIENNIUM, seed_positions={5: {"100": "Position 1"}}
+    )
+
+    assert proj.observations == [Observation("100", KIND_HOUSE, "ld-5-position-1", BIENNIUM)]
+    assert proj.seeded_keys == [("100", BIENNIUM)]
+    assert ("100", BIENNIUM) in proj.inferred_keys  # roster-cited, like elimination
+    assert proj.summary["seeded"] == 1
+    assert proj.summary["matched"] == 0
+
+
+def test_seed_enables_within_biennium_elimination_of_the_mate():
+    """A seeded seat is a claimed position for the LD, so the #103 elimination resolves the
+    unmatched mate — the 1-hop within-biennium cascade (#118 Phase 1)."""
+    roster = build_house_roster([_sponsor(100, 5, "Rivers"), _sponsor(101, 5, "Chase")])
+    filings = build_house_filings([])
+
+    proj = build_house_seat_observations(
+        roster, filings, biennium=BIENNIUM, seed_positions={5: {"100": "Position 1"}}
+    )
+
+    assert set(proj.observations) == {
+        Observation("100", KIND_HOUSE, "ld-5-position-1", BIENNIUM),  # seeded
+        Observation("101", KIND_HOUSE, "ld-5-position-2", BIENNIUM),  # eliminated
+    }
+    assert proj.seeded_keys == [("100", BIENNIUM)]
+    assert proj.summary["seeded"] == 1
+    assert proj.summary["inferred"] == 1  # the eliminated mate
+
+
+def test_seed_ignored_when_member_not_rostered_in_that_ld():
+    """A seed keyed to an LD the member does not sit in that biennium (an LD move, or a tenure
+    gap) is not applied — the chain breaks naturally at the roster."""
+    roster = build_house_roster([_sponsor(100, 5, "Rivers")])
+    filings = build_house_filings([])
+
+    proj = build_house_seat_observations(
+        roster, filings, biennium=BIENNIUM, seed_positions={9: {"100": "Position 1"}}
+    )
+
+    assert proj.observations == []
+    assert proj.seeded_keys == []
+    assert proj.summary["missing_position"] == 1
+
+
+def test_ballot_match_wins_over_a_conflicting_seed():
+    """A member resolved by their own ballot this biennium is not also seeded — ballot is the
+    stronger evidence and the member is counted ``matched``, not ``seeded``."""
+    roster = build_house_roster([_sponsor(100, 5, "Rivers")])
+    filings = build_house_filings([_filing(5, 1, "Ann Rivers")])
+
+    proj = build_house_seat_observations(
+        roster, filings, biennium=BIENNIUM, seed_positions={5: {"100": "Position 2"}}
+    )
+
+    assert proj.observations == [Observation("100", KIND_HOUSE, "ld-5-position-1", BIENNIUM)]
+    assert proj.seeded_keys == []
+    assert proj.summary["matched"] == 1
+    assert proj.summary["seeded"] == 0

@@ -215,6 +215,18 @@ python -m usa_wa_adapter_sos.results.harvest --from-year 2008 --pause-seconds 1.
 # stale_exclusion_rescued_by_later_presence). Both un-block the #103 elimination (the LD reads 2-member again) and drop
 # the ghost's seat assertion so the sweep closes it. Audit historically: --dry-run + read the
 # exclusion log lines before an unrestricted rebuild.
+# PRE-2009 BACK-CHAIN (#118 Phase 1): the SOS ballot floors at the 2008 general, so a pre-2009 House
+# member has no ballot to position. A WA rep holds a specific Position continuously, so this walks
+# the archived biennia newest->oldest and carries each ballot-anchored Position back through
+# uninterrupted same-LD tenure (the direct seed), letting the #103 elimination resolve the mate each
+# biennium (the 1-hop cascade). Reaches the 2001-map era pre-2009 biennia (2003-04..2007-08); the
+# 1991-2001 era has no reachable ballot anchor (#140). Back-chained seats cite the sponsor roster,
+# log house_seat_backchained (with max hop depth), and surface as coverage["seeded"]. Guardrails: a
+# redistricting era break (1993-94/2003-04/2013-14/2023-24 — WA keeps LD numbers, so the break is
+# explicit) and an LD move / tenure gap both stop the chain; --max-backchain-hops caps the depth
+# (default 4; 0 disables). Runs in BOTH the daily re-drive and this backfill (idempotent), so span
+# identity holds. Only ballot-class positions carry back — an elimination-only mate does not seed its
+# own earlier tenure (that recursive cascade is Phase 2, deferred).
 python -m usa_wa_adapter_sos.house.build --dry-run
 python -m usa_wa_adapter_sos.house.build
 
