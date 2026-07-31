@@ -135,7 +135,7 @@ def test_positionless_winner_emits_identifier_link_no_observation():
 def test_positionless_ambiguous_surname_declined_and_counted():
     """A position-less winner whose LD holds two members sharing the surname can't be uniquely
     resolved (position once broke this tie) — declined, never guessed, counted
-    ``positionless_ambiguous`` for visibility (#138)."""
+    ``positionless_ambiguous`` (candidates > 1), distinct from an unmatched gap (#138)."""
     house = build_house_roster(
         [_sponsor(100, 5, "Smith", party="D"), _sponsor(200, 5, "Smith", party="R")]
     )
@@ -147,7 +147,56 @@ def test_positionless_ambiguous_surname_declined_and_counted():
     assert proj.observations == []
     assert proj.pdc_identifiers == []
     assert proj.summary["positionless_ambiguous"] == 1
+    assert proj.summary["positionless_unmatched"] == 0
     assert proj.summary["positionless_matched"] == 0
+
+
+def test_positionless_no_roster_candidate_is_unmatched_not_ambiguous():
+    """A position-less winner with NO within-LD surname candidate (a roster gap) is counted
+    ``positionless_unmatched``, not ``positionless_ambiguous`` — the split keeps the surname-tie
+    signal (which Option B could fix) distinct from a coverage gap it can't (#138)."""
+    house = build_house_roster([_sponsor(100, 5, "Rivers")])  # nobody named Ghost in LD5
+    row = _winner("900", 5, 1, "Ghost Candidate")
+    row["position"] = ""
+    proj = build_house_position_observations(
+        [row], house_roster=house, senate_roster={}, biennium=BIENNIUM
+    )
+    assert proj.pdc_identifiers == []
+    assert proj.summary["positionless_unmatched"] == 1
+    assert proj.summary["positionless_ambiguous"] == 0
+
+
+def test_positionless_mover_cross_links_without_position():
+    """A position-less deferred winner who reappears as their LD's Senator is a genuine
+    House→Senate mover — the #74 cross-link fires with no position (position-independent), so a
+    pre-2018 mover's PDC identity still binds to their Senate Person (#138)."""
+    house = build_house_roster([_sponsor(300, 5, "Replacement")])
+    senate = build_senate_roster([_sponsor(100, 5, "Rivers", agency="Senate")])
+    row = _winner("900", 5, 1, "Ann Rivers")
+    row["position"] = ""  # pre-2018: no ballot position on the wire
+    proj = build_house_position_observations(
+        [row], house_roster=house, senate_roster=senate, biennium=BIENNIUM
+    )
+    assert ("100", "900") in proj.pdc_identifiers  # mover's PDC id → their Senate Person
+    assert proj.summary["movers_linked"] == 1
+    # No positioned deferral → no inferred seat observation (qualifier-guarded).
+    assert proj.observations == []
+    assert proj.summary["inferred_seated"] == 0
+
+
+def test_invalid_position_value_still_links_by_surname():
+    """A garbage ``position`` (``"3"`` — canonicalizes to None) is treated as position-less:
+    the surname match still emits the identifier link (position is irrelevant to the link, #138),
+    rather than the old ``incomplete`` drop."""
+    house = build_house_roster([_sponsor(100, 5, "Rivers")])
+    row = _winner("900", 5, 3, "Ann Rivers")  # position "3" is not a valid House seat
+    proj = build_house_position_observations(
+        [row], house_roster=house, senate_roster={}, biennium=BIENNIUM
+    )
+    assert proj.observations == []  # no valid discriminator
+    assert proj.pdc_identifiers == [("100", "900")]
+    assert proj.summary["positionless_matched"] == 1
+    assert proj.summary["incomplete"] == 0
 
 
 def test_double_match_same_member_skips_the_duplicate():

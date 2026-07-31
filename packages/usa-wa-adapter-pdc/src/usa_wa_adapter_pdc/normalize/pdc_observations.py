@@ -17,8 +17,9 @@ Outputs (:class:`HousePositionProjection`):
 
 - ``observations`` — one per seated winner (direct **or** inferred), keyed on the House
   span discriminator ``ld-{n}-position-{p}``.
-- ``pdc_identifiers`` — ``(member_id, pdc_person_id)`` links for directly-seated winners and
-  for confirmed movers (cross-linked onto their Senate Person). An **inferred** seat carries
+- ``pdc_identifiers`` — ``(member_id, pdc_person_id)`` links for directly-seated winners,
+  **position-less winners resolved by within-LD surname (link only, no observation, #138)**,
+  and confirmed movers (cross-linked onto their Senate Person). An **inferred** seat carries
   no identifier (the replacement was appointed, not a PDC winner).
 - ``inferred_keys`` — ``(member_id, biennium)`` for each inferred seat, so the driver can log
   the #74 inference (the per-biennium reduced-confidence FactCitation of the daily path does
@@ -95,11 +96,17 @@ class _Deferred:
 
     ``qualifier`` is the PDC ballot position, or ``None`` for a position-less winner (pre-2018,
     #138): such a deferral can still cross-link as a mover (position-independent), but can't
-    seed the inferred-seat observation (no discriminator) — that path is qualifier-guarded."""
+    seed the inferred-seat observation (no discriminator) — that path is qualifier-guarded.
+
+    ``candidate_count`` is the number of within-LD roster members whose folded surname matched
+    the winner at phase-1 time — it classifies a residual position-less deferral as *ambiguous*
+    (``> 1``, a surname tie ``position`` once broke) vs *unmatched* (``0``, no roster member /
+    a roster gap), which Option B's surname tiebreak would not fix (#138 review)."""
 
     qualifier: str | None
     filer_name: str
     pdc_person_id: str
+    candidate_count: int
 
 
 @dataclass
@@ -131,7 +138,7 @@ def build_house_position_observations(
     seen_members: set[str] = set()
     deferred: dict[int, list[_Deferred]] = {}
     direct_seated = inferred_seated = movers_linked = unresolved = incomplete = 0
-    positionless_matched = positionless_ambiguous = 0
+    positionless_matched = positionless_ambiguous = positionless_unmatched = 0
 
     # Phase 1 — direct within-LD match of each winner to a House roster member.
     for row in winners:
@@ -143,18 +150,20 @@ def build_house_position_observations(
         if not pdc_id or ld is None:
             incomplete += 1
             continue
+        tokens = surname_match_set(row.get("filer_name") or "")
         match = match_house_member(
-            house_roster,
-            ld,
-            surname_match_set(row.get("filer_name") or ""),
-            canonicalize_party(row.get("party_code")),
+            house_roster, ld, tokens, canonicalize_party(row.get("party_code"))
         )
         if match is None:
+            # Capture the within-LD surname-candidate count now (the roster is untouched) so a
+            # residual position-less deferral can be split ambiguous (>1) vs unmatched (0) (#138).
+            candidate_count = sum(1 for e in house_roster.get(ld, []) if e.folded_last in tokens)
             deferred.setdefault(ld, []).append(
                 _Deferred(
                     qualifier=pdc_qualifier,
                     filer_name=row.get("filer_name") or "",
                     pdc_person_id=pdc_id,
+                    candidate_count=candidate_count,
                 )
             )
             continue
@@ -212,15 +221,18 @@ def build_house_position_observations(
             seen_members.add(unmatched[0].member_id)
             inferred_seated += 1
         else:
-            # Residual deferrals that neither matched, moved, nor seeded an inference — split by
-            # whether position was available, so the position-less ambiguity is visible (#138).
+            # Residual deferrals that neither matched, moved, nor seeded an inference. Split a
+            # position-less residual into ambiguous (a within-LD surname tie position once broke)
+            # vs unmatched (no roster candidate — a gap Option B's tiebreak would not fix) (#138).
             for d in deferrals:
                 if id(d) in mover_deferrals:
                     continue
-                if d.qualifier is None:
+                if d.qualifier is not None:
+                    unresolved += 1
+                elif d.candidate_count > 1:
                     positionless_ambiguous += 1
                 else:
-                    unresolved += 1
+                    positionless_unmatched += 1
 
     proj.summary = {
         "winners": len(winners),
@@ -231,5 +243,6 @@ def build_house_position_observations(
         "incomplete": incomplete,
         "positionless_matched": positionless_matched,
         "positionless_ambiguous": positionless_ambiguous,
+        "positionless_unmatched": positionless_unmatched,
     }
     return proj
