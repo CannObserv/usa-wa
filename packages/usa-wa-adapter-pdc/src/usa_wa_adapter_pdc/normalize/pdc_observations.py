@@ -132,8 +132,9 @@ def build_house_position_observations(
     ``pdc_identifiers`` links). A winner PDC didn't position (pre-2018, plus stray specials of any
     era) still resolves to its LD member by surname and emits the identifier link — position is
     not needed for the link (#138), only for the *observation* discriminator (which the builder
-    discards). A position-less winner that can't be uniquely resolved (ambiguous within-LD
-    surname, the tie position once broke) is declined and counted ``positionless_ambiguous``."""
+    discards). A position-less winner that can't be uniquely resolved is declined and split:
+    ``positionless_ambiguous`` when the LD holds >1 surname candidate (the tie position once
+    broke), or ``positionless_unmatched`` when it holds none (a roster gap, not a tie)."""
     proj = HousePositionProjection()
     seen_members: set[str] = set()
     deferred: dict[int, list[_Deferred]] = {}

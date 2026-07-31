@@ -90,10 +90,11 @@ async def build_pdc_spans(
     re-drive passes the current biennium). ``None`` (the harvest path) rebuilds all.
 
     The House match runs PDC-only. A position-less winner (pre-2018, plus stray specials) still
-    links by within-LD surname (#138 — position is not needed for the identifier link); only an
-    ambiguous within-LD surname (the tie position once broke) is declined, counted
-    ``positionless_ambiguous``. Option B — the SOS→PDC position injection retired with
-    ``build_sos_house_spans`` (#101) — is only warranted if that ambiguity residual is material."""
+    links by within-LD surname (#138 — position is not needed for the identifier link); a
+    declined residual is split ``positionless_ambiguous`` (>1 surname candidate, the tie position
+    once broke) vs ``positionless_unmatched`` (no candidate — a roster gap). Option B — the
+    SOS→PDC position injection retired with ``build_sos_house_spans`` (#101) — is only warranted
+    if the *ambiguous* residual is material (a gap is not something a tiebreak would fix)."""
     jurisdiction = await resolve_jurisdiction(session)
     pdc_source = await get_or_create_pdc_source(session, jurisdiction)
     wsl_source = await get_or_create_wsl_source(session, jurisdiction)
