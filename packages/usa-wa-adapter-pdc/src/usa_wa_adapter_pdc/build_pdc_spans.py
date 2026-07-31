@@ -89,9 +89,11 @@ async def build_pdc_spans(
     ``restrict_to_biennium`` scopes the links to members observed in that biennium (the daily
     re-drive passes the current biennium). ``None`` (the harvest path) rebuilds all.
 
-    The House match runs PDC-only (a position-less pre-2018 winner is ``incomplete`` → no link);
-    a pre-2018 ``person_wa_pdc`` backfill that needs the SOS ballot position to match must re-add
-    the SOS→PDC injection retired with ``build_sos_house_spans`` (#101; deferred follow-up)."""
+    The House match runs PDC-only. A position-less winner (pre-2018, plus stray specials) still
+    links by within-LD surname (#138 — position is not needed for the identifier link); only an
+    ambiguous within-LD surname (the tie position once broke) is declined, counted
+    ``positionless_ambiguous``. Option B — the SOS→PDC position injection retired with
+    ``build_sos_house_spans`` (#101) — is only warranted if that ambiguity residual is material."""
     jurisdiction = await resolve_jurisdiction(session)
     pdc_source = await get_or_create_pdc_source(session, jurisdiction)
     wsl_source = await get_or_create_wsl_source(session, jurisdiction)

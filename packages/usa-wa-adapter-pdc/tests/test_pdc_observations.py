@@ -114,9 +114,11 @@ def test_historical_mid_biennium_mover_infers_seat_and_cross_links():
     assert ("300", BIENNIUM) in proj.inferred_keys
 
 
-def test_position_absent_is_incomplete():
-    """A pre-2018 winner row (no ``position``) is counted ``incomplete`` and never matched —
-    PDC-only since #101 (a position-less winner has no seat here)."""
+def test_positionless_winner_emits_identifier_link_no_observation():
+    """A pre-2018 winner row (no ``position``) still resolves to its LD member by surname and
+    emits the ``person_wa_pdc`` identifier link (#138) — position is not needed for the link
+    (PDC is identifier-only since #101). No *observation* is emitted (no discriminator without
+    a ballot position; observations are discarded by the builder anyway)."""
     house = build_house_roster([_sponsor(100, 5, "Rivers")])
     row = _winner("900", 5, 1, "Ann Rivers")
     row["position"] = ""  # PDC omitted position (pre-2018 dataset shape)
@@ -124,7 +126,28 @@ def test_position_absent_is_incomplete():
         [row], house_roster=house, senate_roster={}, biennium=BIENNIUM
     )
     assert proj.observations == []
-    assert proj.summary["incomplete"] == 1
+    assert proj.pdc_identifiers == [("100", "900")]
+    assert proj.summary["positionless_matched"] == 1
+    assert proj.summary["incomplete"] == 0
+    assert proj.summary["direct_seated"] == 0
+
+
+def test_positionless_ambiguous_surname_declined_and_counted():
+    """A position-less winner whose LD holds two members sharing the surname can't be uniquely
+    resolved (position once broke this tie) — declined, never guessed, counted
+    ``positionless_ambiguous`` for visibility (#138)."""
+    house = build_house_roster(
+        [_sponsor(100, 5, "Smith", party="D"), _sponsor(200, 5, "Smith", party="R")]
+    )
+    row = _winner("900", 5, 1, "Pat Smith", party="")  # no party → no tiebreak
+    row["position"] = ""
+    proj = build_house_position_observations(
+        [row], house_roster=house, senate_roster={}, biennium=BIENNIUM
+    )
+    assert proj.observations == []
+    assert proj.pdc_identifiers == []
+    assert proj.summary["positionless_ambiguous"] == 1
+    assert proj.summary["positionless_matched"] == 0
 
 
 def test_double_match_same_member_skips_the_duplicate():

@@ -93,10 +93,11 @@ def build_senate_identity_links(
 class _Deferred:
     """A PDC winner that matched no House roster member — a #74 mover-inference candidate.
 
-    ``qualifier`` is the PDC ballot position (always present — a position-less winner is
-    ``incomplete`` in phase 1 and never deferred); phase 2 re-seats it onto the inferred member."""
+    ``qualifier`` is the PDC ballot position, or ``None`` for a position-less winner (pre-2018,
+    #138): such a deferral can still cross-link as a mover (position-independent), but can't
+    seed the inferred-seat observation (no discriminator) — that path is qualifier-guarded."""
 
-    qualifier: str
+    qualifier: str | None
     filer_name: str
     pdc_person_id: str
 
@@ -121,21 +122,25 @@ def build_house_position_observations(
     """Project one election cohort's winners against ``biennium``'s WSL roster (pure).
 
     PDC-only since #101 (the seat is the WSL+SOS builder's; this projector runs only for the
-    ``pdc_identifiers`` links). A winner PDC didn't position (pre-2018) is counted ``incomplete``
-    and never matched — the SOS→PDC position fallback that once seated those was removed with
-    ``build_sos_house_spans`` (#101)."""
+    ``pdc_identifiers`` links). A winner PDC didn't position (pre-2018, plus stray specials of any
+    era) still resolves to its LD member by surname and emits the identifier link — position is
+    not needed for the link (#138), only for the *observation* discriminator (which the builder
+    discards). A position-less winner that can't be uniquely resolved (ambiguous within-LD
+    surname, the tie position once broke) is declined and counted ``positionless_ambiguous``."""
     proj = HousePositionProjection()
     seen_members: set[str] = set()
     deferred: dict[int, list[_Deferred]] = {}
     direct_seated = inferred_seated = movers_linked = unresolved = incomplete = 0
+    positionless_matched = positionless_ambiguous = 0
 
     # Phase 1 — direct within-LD match of each winner to a House roster member.
     for row in winners:
         pdc_id = str(row.get("person_id") or "").strip()
         pdc_qualifier = canonical_position(row.get("position"))
         ld = district_number(row.get("legislative_district"))
-        # A position-less winner (pre-2018, PDC omitted it) can't be keyed → incomplete.
-        if not pdc_id or ld is None or pdc_qualifier is None:
+        # A link needs only pdc_id + ld; position is not required (#138). A row missing either
+        # can't be keyed at all → incomplete.
+        if not pdc_id or ld is None:
             incomplete += 1
             continue
         match = match_house_member(
@@ -155,17 +160,23 @@ def build_house_position_observations(
             continue
         if match.member_id in seen_members:
             continue  # a member already seated this cohort (double-match) — skip the dup
-        proj.observations.append(
-            Observation(
-                member_id=match.member_id,
-                kind=KIND_HOUSE,
-                discriminator=house_span_discriminator(ld, pdc_qualifier),
-                biennium=biennium,
+        # The seat observation needs a ballot position for its discriminator; a position-less
+        # winner emits ONLY the identifier link (the seat is the WSL+SOS builder's since #101,
+        # and this projector's observations are discarded by build_pdc_spans anyway).
+        if pdc_qualifier is not None:
+            proj.observations.append(
+                Observation(
+                    member_id=match.member_id,
+                    kind=KIND_HOUSE,
+                    discriminator=house_span_discriminator(ld, pdc_qualifier),
+                    biennium=biennium,
+                )
             )
-        )
+            direct_seated += 1
+        else:
+            positionless_matched += 1
         proj.pdc_identifiers.append((match.member_id, pdc_id))
         seen_members.add(match.member_id)
-        direct_seated += 1
 
     # Phase 2 — reconcile mid-biennium replacements by within-LD elimination (#74).
     for ld, deferrals in deferred.items():
@@ -175,12 +186,19 @@ def build_house_position_observations(
             for d in deferrals
             if (senator := find_confirming_senator(d.filer_name, ld, senate_roster)) is not None
         ]
+        mover_deferrals = {id(d) for d, _ in movers}
         for deferral, senator in movers:
             # The mover's PDC winner identity is theirs even though they left the House.
             proj.pdc_identifiers.append((senator.member_id, deferral.pdc_person_id))
             movers_linked += 1
 
-        attempted = len(deferrals) == 1 and len(unmatched) == 1 and len(movers) == 1
+        # Inference needs a positioned deferral to key the replacement's seat discriminator.
+        attempted = (
+            len(deferrals) == 1
+            and len(unmatched) == 1
+            and len(movers) == 1
+            and deferrals[0].qualifier is not None
+        )
         if attempted:
             proj.observations.append(
                 Observation(
@@ -194,7 +212,15 @@ def build_house_position_observations(
             seen_members.add(unmatched[0].member_id)
             inferred_seated += 1
         else:
-            unresolved += len(deferrals)
+            # Residual deferrals that neither matched, moved, nor seeded an inference — split by
+            # whether position was available, so the position-less ambiguity is visible (#138).
+            for d in deferrals:
+                if id(d) in mover_deferrals:
+                    continue
+                if d.qualifier is None:
+                    positionless_ambiguous += 1
+                else:
+                    unresolved += 1
 
     proj.summary = {
         "winners": len(winners),
@@ -203,5 +229,7 @@ def build_house_position_observations(
         "movers_linked": movers_linked,
         "unresolved": unresolved,
         "incomplete": incomplete,
+        "positionless_matched": positionless_matched,
+        "positionless_ambiguous": positionless_ambiguous,
     }
     return proj
