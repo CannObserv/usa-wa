@@ -330,9 +330,11 @@ python -m usa_wa_adapter_legislature.succession_invariants
 # a duplicate occupancy that has since CLOSED is invisible to it forever (sub-biennium
 # sequential occupancy collapsed onto the shared biennium floor — both occupants dated to the
 # floor because the wire can't date a mid-biennium handoff). --as-of / --sweep-biennia re-run
-# the duplicate-occupancy half against a point-in-time snapshot (valid_from <= D and (valid_to
-# is null or valid_to >= D)) instead of is_active, naming every offending (biennium, seat,
-# occupants) tuple. Ad-hoc audit, NOT a timer (closed history isn't actionable in the daily
+# BOTH duplicate halves against a point-in-time snapshot (valid_from <= D and (valid_to is null
+# or valid_to >= D)) instead of is_active: seat-side (a seat with >1 occupant → named
+# seat+occupants) and member-side (a member holding >1 distinct same-chamber seat, keyed on
+# person_id so a name collision can't false-merge), naming every offending tuple. Ad-hoc audit,
+# NOT a timer (closed history isn't actionable in the daily
 # "someone died NOW" sense). Counts are reported, not gated (House Position coverage floors at
 # 2003-04, so pre-2003 biennia legitimately under-count) — exits 0 unless --strict, which
 # exits 1 on any duplicate (the post-backfill regression guard).
