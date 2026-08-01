@@ -16,6 +16,23 @@ seat cohort, two invariants:
 Read-only (app role, no writes); exits 0 clean / 1 on any violation (naming the offending
 seats/members in the log) so the ``OnFailure=usa-wa-notify-failure@`` handler emails the
 operator. Chamber sizes are current WA constants — a redistricting count change updates them.
+
+**Historical audit mode (#119).** The daily gate probes the *open* cohort only, so a duplicate
+occupancy that has since **closed** is invisible to it forever — sub-biennium sequential
+occupancy collapsed onto the shared biennium floor (both occupants dated to the floor because
+the wire can't date a mid-biennium handoff). ``--as-of DATE`` and ``--sweep-biennia`` re-run the
+**duplicate-occupancy** check against a point-in-time snapshot (``valid_from <= D and (valid_to
+is null or valid_to >= D)``) instead of ``is_active``, naming every offending (biennium, seat,
+occupants) tuple:
+
+    python -m usa_wa_adapter_legislature.succession_invariants --as-of 2009-01-01
+    python -m usa_wa_adapter_legislature.succession_invariants --sweep-biennia
+
+This is an **ad-hoc audit, not a timer** (a closed historical overlap is not actionable in the
+"someone died and nobody told us *now*" sense the daily gate exists for); counts are
+**reported, not gated** in history mode (House Position coverage floors at 2003-04, so pre-2003
+biennia legitimately under-count) — the audit exits 0 unless ``--strict`` is given, which exits
+1 on any duplicate (the post-backfill regression guard).
 """
 
 from __future__ import annotations
@@ -25,18 +42,23 @@ import asyncio
 import os
 import sys
 from dataclasses import dataclass, field
+from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
-from clearinghouse_domain_legislative.identity import Assignment, Role
+from clearinghouse_domain_legislative.identity import Assignment, Person, Role
+from usa_wa_adapter_legislature.synthesis import biennium_for_date
 
 logger = get_logger(__name__)
 
 #: Current WA chamber sizes (49 LDs). A senator per LD; two representatives (Position 1/2) per LD.
 SENATE_SEATS = 49
 HOUSE_SEATS = 98
+
+#: The earliest year ``--sweep-biennia`` probes — the WSL sponsor-archive Senate floor (#77).
+SWEEP_FLOOR_YEAR = 1991
 
 _SENATOR = "state_senator"
 _REPRESENTATIVE = "state_representative"
@@ -62,12 +84,30 @@ class InvariantResult:
         return self.count_ok and not self.duplicate_seats and not self.duplicate_members
 
 
-def _open_seat_where(stmt):
-    """Restrict to live, open seat Assignments (both lifecycle tombstones NULL)."""
+@dataclass(frozen=True)
+class SeatConflict:
+    """One point-in-time duplicate occupancy (#119): a seat with >1 occupant at the probe date."""
+
+    seat: str  # Role.source_id
+    role_type: str
+    occupants: list[str]  # occupant person names, sorted
+
+
+def _seat_scope(stmt, as_of: date | None):
+    """Restrict a seat-Assignment query to the occupants at the probe point.
+
+    ``as_of is None`` — the live **open** cohort: ``is_active`` + both lifecycle tombstones NULL
+    (the daily gate). ``as_of`` set — the **point-in-time** cohort: the validity window contains
+    the date (a *closed* span still counts if it covers the date) + both tombstones NULL (the
+    #119 historical audit). Never filters on ``is_active`` in as-of mode — a closed-but-covering
+    span is exactly what the open cohort misses.
+    """
+    stmt = stmt.where(Assignment.deleted_at.is_(None), Assignment.archived_at.is_(None))
+    if as_of is None:
+        return stmt.where(Assignment.is_active.is_(True))
     return stmt.where(
-        Assignment.is_active.is_(True),
-        Assignment.deleted_at.is_(None),
-        Assignment.archived_at.is_(None),
+        Assignment.valid_from <= as_of,
+        or_(Assignment.valid_to.is_(None), Assignment.valid_to >= as_of),
     )
 
 
@@ -76,15 +116,21 @@ async def check_invariants(
     *,
     expected_senate: int = SENATE_SEATS,
     expected_house: int = HOUSE_SEATS,
+    as_of: date | None = None,
 ) -> InvariantResult:
-    """Compute the open-seat counts + duplicate-occupancy violations (read-only)."""
+    """Compute the seat counts + duplicate-occupancy violations (read-only).
+
+    ``as_of`` selects the probe cohort — the live open cohort (None, the daily gate) or a
+    point-in-time snapshot (a date, the #119 audit); see :func:`_seat_scope`.
+    """
     counts = dict(
         (
             await session.execute(
-                _open_seat_where(
+                _seat_scope(
                     select(Role.role_type, func.count())
                     .join(Assignment, Assignment.role_id == Role.id)
-                    .where(Role.role_type.in_([_SENATOR, _REPRESENTATIVE]))
+                    .where(Role.role_type.in_([_SENATOR, _REPRESENTATIVE])),
+                    as_of,
                 ).group_by(Role.role_type)
             )
         ).all()
@@ -96,13 +142,14 @@ async def check_invariants(
         expected_house=expected_house,
     )
 
-    # Two open occupants on one seat Role.
+    # Two occupants on one seat Role.
     dup_seats = (
         await session.execute(
-            _open_seat_where(
+            _seat_scope(
                 select(Assignment.role_id, func.count())
                 .join(Role, Assignment.role_id == Role.id)
-                .where(Role.role_type.in_([_SENATOR, _REPRESENTATIVE]))
+                .where(Role.role_type.in_([_SENATOR, _REPRESENTATIVE])),
+                as_of,
             )
             .group_by(Assignment.role_id)
             .having(func.count() > 1)
@@ -110,13 +157,14 @@ async def check_invariants(
     ).all()
     result.duplicate_seats = [(str(role_id), n) for role_id, n in dup_seats]
 
-    # One member holding two open seats in the same chamber.
+    # One member holding two seats in the same chamber.
     dup_members = (
         await session.execute(
-            _open_seat_where(
+            _seat_scope(
                 select(Assignment.person_id, Role.role_type, func.count())
                 .join(Role, Assignment.role_id == Role.id)
-                .where(Role.role_type.in_([_SENATOR, _REPRESENTATIVE]))
+                .where(Role.role_type.in_([_SENATOR, _REPRESENTATIVE])),
+                as_of,
             )
             .group_by(Assignment.person_id, Role.role_type)
             .having(func.count() > 1)
@@ -124,6 +172,34 @@ async def check_invariants(
     ).all()
     result.duplicate_members = [(str(pid), rtype, n) for pid, rtype, n in dup_members]
     return result
+
+
+async def duplicate_occupancy_detail(session: AsyncSession, *, as_of: date) -> list[SeatConflict]:
+    """Every seat with >1 occupant at ``as_of``, resolved to seat ``source_id`` + occupant
+    names (#119) — the operator-actionable detail behind :attr:`InvariantResult.duplicate_seats`.
+
+    One query joining ``Role`` + ``Person``; grouped in Python (seat cardinality is tiny). Names
+    are sorted for a deterministic report.
+    """
+    rows = (
+        await session.execute(
+            _seat_scope(
+                select(Role.source_id, Role.role_type, Person.name_full)
+                .join(Assignment, Assignment.role_id == Role.id)
+                .join(Person, Person.id == Assignment.person_id)
+                .where(Role.role_type.in_([_SENATOR, _REPRESENTATIVE])),
+                as_of,
+            )
+        )
+    ).all()
+    by_seat: dict[str, tuple[str, list[str]]] = {}
+    for seat, role_type, name in rows:
+        by_seat.setdefault(seat, (role_type, []))[1].append(name)
+    return [
+        SeatConflict(seat=seat, role_type=role_type, occupants=sorted(names))
+        for seat, (role_type, names) in sorted(by_seat.items())
+        if len(names) > 1
+    ]
 
 
 def _log(result: InvariantResult) -> None:
@@ -146,6 +222,53 @@ def _log(result: InvariantResult) -> None:
     )
 
 
+def sweep_years(from_year: int, to_year: int) -> list[int]:
+    """Odd biennium start years from ``from_year`` up to and including ``to_year`` (biennia
+    start on odd years, so an even ``from_year`` rolls back one)."""
+    start = from_year if from_year % 2 == 1 else from_year - 1
+    return list(range(start, to_year + 1, 2))
+
+
+async def _run_audit(
+    session: AsyncSession,
+    *,
+    probes: list[date],
+    expected_senate: int,
+    expected_house: int,
+) -> list[SeatConflict]:
+    """The #119 point-in-time audit over ``probes`` — report per-probe counts + every duplicate
+    occupancy; return the flat conflict list (across all probes) for the exit gate. Read-only."""
+    all_conflicts: list[SeatConflict] = []
+    for probe in probes:
+        counts = await check_invariants(
+            session,
+            expected_senate=expected_senate,
+            expected_house=expected_house,
+            as_of=probe,
+        )
+        conflicts = await duplicate_occupancy_detail(session, as_of=probe)
+        all_conflicts.extend(conflicts)
+        label = biennium_for_date(probe)
+        logger.info(
+            "succession_audit_probe",
+            extra={
+                "biennium": label,
+                "as_of": probe.isoformat(),
+                "senate_open": counts.senate_open,
+                "house_open": counts.house_open,
+                "duplicate_seats": len(conflicts),
+            },
+        )
+        print(
+            f"{label} (as-of {probe.isoformat()}): "
+            f"senate={counts.senate_open} house={counts.house_open} "
+            f"dup_seats={len(conflicts)}"
+        )
+        for conflict in conflicts:
+            print(f"    {conflict.seat} [{conflict.role_type}]: {' / '.join(conflict.occupants)}")
+    return all_conflicts
+
+
 async def _main(argv: list[str] | None = None) -> int:
     configure_logging()
     parser = argparse.ArgumentParser(
@@ -153,16 +276,55 @@ async def _main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--expected-senate", type=int, default=SENATE_SEATS)
     parser.add_argument("--expected-house", type=int, default=HOUSE_SEATS)
+    parser.add_argument(
+        "--as-of",
+        type=date.fromisoformat,
+        help="YYYY-MM-DD: audit duplicate occupancy at a point in time (#119, report-only)",
+    )
+    parser.add_argument(
+        "--sweep-biennia",
+        action="store_true",
+        help="audit duplicate occupancy at every biennium start (#119, report-only)",
+    )
+    parser.add_argument(
+        "--from-year",
+        type=int,
+        default=SWEEP_FLOOR_YEAR,
+        help=f"earliest year for --sweep-biennia (default {SWEEP_FLOOR_YEAR})",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="in audit mode, exit 1 if any duplicate occupancy is found (post-backfill guard)",
+    )
     args = parser.parse_args(argv)
+
+    if args.as_of is not None and args.sweep_biennia:
+        print("--as-of and --sweep-biennia are mutually exclusive", file=sys.stderr)
+        return 2
 
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
         print("DATABASE_URL is not set; aborting", file=sys.stderr)
         return 2
 
+    audit = args.as_of is not None or args.sweep_biennia
     engine = create_async_engine(database_url)
     try:
         async with AsyncSession(engine) as session:
+            if audit:
+                if args.sweep_biennia:
+                    probes = [date(y, 1, 1) for y in sweep_years(args.from_year, date.today().year)]
+                else:
+                    probes = [args.as_of]
+                conflicts = await _run_audit(
+                    session,
+                    probes=probes,
+                    expected_senate=args.expected_senate,
+                    expected_house=args.expected_house,
+                )
+                print(f"Duplicate-occupancy audit: {len(conflicts)} conflict(s) across probes")
+                return 1 if (args.strict and conflicts) else 0
             result = await check_invariants(
                 session,
                 expected_senate=args.expected_senate,

@@ -3,7 +3,13 @@
 from datetime import date
 
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
-from usa_wa_adapter_legislature.succession_invariants import check_invariants
+from usa_wa_adapter_legislature.succession_invariants import (
+    SeatConflict,
+    _run_audit,
+    check_invariants,
+    duplicate_occupancy_detail,
+    sweep_years,
+)
 
 
 async def _org(session, usa_wa, name):
@@ -32,11 +38,27 @@ async def _seat(session, org, sid, role_type):
     return role
 
 
-async def _person(session, mid):
-    p = Person(source="usa_wa_legislature", source_id=mid, name_full="M")
+async def _person(session, mid, name="M"):
+    p = Person(source="usa_wa_legislature", source_id=mid, name_full=name)
     session.add(p)
     await session.flush()
     return p
+
+
+async def _span(session, person, role, *, frm, to, active):
+    """An Assignment with an explicit validity window (the #119 point-in-time audit)."""
+    row = Assignment(
+        source="usa_wa_legislature",
+        source_id=f"{person.source_id}:{role.source_id}",
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=frm,
+        valid_to=to,
+        is_active=active,
+    )
+    session.add(row)
+    await session.flush()
+    return row
 
 
 async def _occupy(session, person, role, *, active=True, deleted=False):
@@ -130,3 +152,132 @@ async def test_two_occupants_one_seat_is_a_duplicate(db_session, usa_wa):
     result = await check_invariants(db_session, expected_senate=2, expected_house=0)
     assert result.duplicate_seats and result.duplicate_seats[0][1] == 2
     assert not result.ok
+
+
+# --- #119: point-in-time (as-of) historical audit -----------------------------------------
+
+
+async def test_as_of_counts_a_closed_span_that_covers_the_date(db_session, usa_wa):
+    """A closed (is_active=False) span still occupies the seat at a date inside its window —
+    the open-cohort gate misses it, the as-of audit catches it."""
+    senate = await _org(db_session, usa_wa, "Senate")
+    s1 = await _seat(db_session, senate, "seat:senate:ld-5", "state_senator")
+    await _span(
+        db_session,
+        await _person(db_session, "1"),
+        s1,
+        frm=date(2009, 1, 1),
+        to=date(2010, 12, 31),
+        active=False,
+    )
+    # Open cohort sees nothing (span is closed); as-of 2009-01-01 counts it.
+    open_result = await check_invariants(db_session, expected_senate=1, expected_house=0)
+    assert open_result.senate_open == 0
+    asof = await check_invariants(
+        db_session, expected_senate=1, expected_house=0, as_of=date(2009, 1, 1)
+    )
+    assert asof.senate_open == 1
+
+
+async def test_as_of_excludes_a_span_that_ended_before_the_date(db_session, usa_wa):
+    """A span whose valid_to precedes the probe date does not occupy the seat at that date."""
+    senate = await _org(db_session, usa_wa, "Senate")
+    s1 = await _seat(db_session, senate, "seat:senate:ld-5", "state_senator")
+    await _span(
+        db_session,
+        await _person(db_session, "1"),
+        s1,
+        frm=date(2007, 1, 1),
+        to=date(2008, 12, 31),
+        active=False,
+    )
+    asof = await check_invariants(
+        db_session, expected_senate=1, expected_house=0, as_of=date(2009, 1, 1)
+    )
+    assert asof.senate_open == 0
+
+
+async def test_as_of_surfaces_historical_duplicate_occupancy(db_session, usa_wa):
+    """Two members whose floor-dated spans both cover the biennium start = the #119 overlap the
+    daily open-cohort gate can't see once the predecessor's span has closed."""
+    house = await _org(db_session, usa_wa, "House")
+    seat = await _seat(db_session, house, "seat:house:ld-16:position-2", "state_representative")
+    grant = await _person(db_session, "1", "Laura Grant")
+    nealey = await _person(db_session, "2", "Terry Nealey")
+    # Predecessor: floor start, closed at end of the biennium.
+    await _span(db_session, grant, seat, frm=date(2009, 1, 1), to=date(2010, 12, 31), active=False)
+    # Successor: floor start too (the wire can't date the mid-biennium handoff), still open.
+    await _span(db_session, nealey, seat, frm=date(2009, 1, 1), to=None, active=True)
+
+    conflicts = await duplicate_occupancy_detail(db_session, as_of=date(2009, 1, 1))
+    assert len(conflicts) == 1
+    conflict = conflicts[0]
+    assert conflict.seat == "seat:house:ld-16:position-2"
+    assert conflict.role_type == "state_representative"
+    assert conflict.occupants == ["Laura Grant", "Terry Nealey"]
+
+
+async def test_duplicate_occupancy_detail_clean_when_sequential(db_session, usa_wa):
+    """No conflict when the predecessor closed before the successor's window opens."""
+    house = await _org(db_session, usa_wa, "House")
+    seat = await _seat(db_session, house, "seat:house:ld-16:position-2", "state_representative")
+    await _span(
+        db_session,
+        await _person(db_session, "1", "A"),
+        seat,
+        frm=date(2007, 1, 1),
+        to=date(2008, 12, 31),
+        active=False,
+    )
+    await _span(
+        db_session,
+        await _person(db_session, "2", "B"),
+        seat,
+        frm=date(2009, 1, 1),
+        to=None,
+        active=True,
+    )
+    # At 2009-01-01 only the successor covers the seat — no duplicate.
+    assert await duplicate_occupancy_detail(db_session, as_of=date(2009, 1, 1)) == []
+
+
+def test_sweep_years_rolls_even_floor_back_and_includes_endpoint():
+    assert sweep_years(1991, 1995) == [1991, 1993, 1995]
+    assert sweep_years(1990, 1994) == [1989, 1991, 1993]  # even floor → prior odd
+    assert sweep_years(2025, 2025) == [2025]
+
+
+async def test_run_audit_reports_and_returns_conflicts(db_session, usa_wa):
+    """The sweep collects every probe's conflicts flat (for the --strict gate)."""
+    house = await _org(db_session, usa_wa, "House")
+    seat = await _seat(db_session, house, "seat:house:ld-16:position-2", "state_representative")
+    await _span(
+        db_session,
+        await _person(db_session, "1", "Laura Grant"),
+        seat,
+        frm=date(2009, 1, 1),
+        to=date(2010, 12, 31),
+        active=False,
+    )
+    await _span(
+        db_session,
+        await _person(db_session, "2", "Terry Nealey"),
+        seat,
+        frm=date(2009, 1, 1),
+        to=None,
+        active=True,
+    )
+    conflicts = await _run_audit(
+        db_session,
+        probes=[date(2007, 1, 1), date(2009, 1, 1)],
+        expected_senate=1,
+        expected_house=2,
+    )
+    # 2007 clean, 2009 overlap → exactly one conflict surfaced across the two probes.
+    assert conflicts == [
+        SeatConflict(
+            seat="seat:house:ld-16:position-2",
+            role_type="state_representative",
+            occupants=["Laura Grant", "Terry Nealey"],
+        )
+    ]
