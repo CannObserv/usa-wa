@@ -111,18 +111,9 @@ def _seat_scope(stmt, as_of: date | None):
     )
 
 
-async def check_invariants(
-    session: AsyncSession,
-    *,
-    expected_senate: int = SENATE_SEATS,
-    expected_house: int = HOUSE_SEATS,
-    as_of: date | None = None,
-) -> InvariantResult:
-    """Compute the seat counts + duplicate-occupancy violations (read-only).
-
-    ``as_of`` selects the probe cohort — the live open cohort (None, the daily gate) or a
-    point-in-time snapshot (a date, the #119 audit); see :func:`_seat_scope`.
-    """
+async def _seat_counts(session: AsyncSession, as_of: date | None) -> tuple[int, int]:
+    """(senate, house) seat *occupancy* counts at the probe point — a count of occupying
+    Assignments, so a doubly-occupied seat contributes 2 (that inflation is itself a signal)."""
     counts = dict(
         (
             await session.execute(
@@ -135,9 +126,25 @@ async def check_invariants(
             )
         ).all()
     )
+    return counts.get(_SENATOR, 0), counts.get(_REPRESENTATIVE, 0)
+
+
+async def check_invariants(
+    session: AsyncSession,
+    *,
+    expected_senate: int = SENATE_SEATS,
+    expected_house: int = HOUSE_SEATS,
+    as_of: date | None = None,
+) -> InvariantResult:
+    """Compute the seat counts + duplicate-occupancy violations (read-only).
+
+    ``as_of`` selects the probe cohort — the live open cohort (None, the daily gate) or a
+    point-in-time snapshot (a date, the #119 audit); see :func:`_seat_scope`.
+    """
+    senate, house = await _seat_counts(session, as_of)
     result = InvariantResult(
-        senate_open=counts.get(_SENATOR, 0),
-        house_open=counts.get(_REPRESENTATIVE, 0),
+        senate_open=senate,
+        house_open=house,
         expected_senate=expected_senate,
         expected_house=expected_house,
     )
@@ -233,19 +240,17 @@ async def _run_audit(
     session: AsyncSession,
     *,
     probes: list[date],
-    expected_senate: int,
-    expected_house: int,
 ) -> list[SeatConflict]:
-    """The #119 point-in-time audit over ``probes`` — report per-probe counts + every duplicate
-    occupancy; return the flat conflict list (across all probes) for the exit gate. Read-only."""
+    """The #119 point-in-time audit over ``probes`` — report per-probe occupancy counts + every
+    duplicate; return the flat conflict list (across all probes) for the exit gate. Read-only.
+
+    Counts are occupancy *rows* (``_seat_counts``), not distinct seats — a doubly-occupied seat
+    inflates them (labelled ``*_occupants`` so this isn't misread as the seat total), and they
+    are report-only here (no ``expected_*`` compare; House Position coverage floors at 2003-04).
+    """
     all_conflicts: list[SeatConflict] = []
     for probe in probes:
-        counts = await check_invariants(
-            session,
-            expected_senate=expected_senate,
-            expected_house=expected_house,
-            as_of=probe,
-        )
+        senate, house = await _seat_counts(session, probe)
         conflicts = await duplicate_occupancy_detail(session, as_of=probe)
         all_conflicts.extend(conflicts)
         label = biennium_for_date(probe)
@@ -254,19 +259,26 @@ async def _run_audit(
             extra={
                 "biennium": label,
                 "as_of": probe.isoformat(),
-                "senate_open": counts.senate_open,
-                "house_open": counts.house_open,
+                "senate_occupants": senate,
+                "house_occupants": house,
                 "duplicate_seats": len(conflicts),
             },
         )
         print(
             f"{label} (as-of {probe.isoformat()}): "
-            f"senate={counts.senate_open} house={counts.house_open} "
+            f"senate_occupants={senate} house_occupants={house} "
             f"dup_seats={len(conflicts)}"
         )
         for conflict in conflicts:
             print(f"    {conflict.seat} [{conflict.role_type}]: {' / '.join(conflict.occupants)}")
     return all_conflicts
+
+
+def audit_exit_code(*, strict: bool, conflict_count: int) -> int:
+    """The audit's exit contract (#119): 1 only when ``--strict`` and a duplicate was found (the
+    post-backfill regression guard), else 0 — a historical duplicate is not a daily-gate
+    failure. Pure, so the operator-facing exit contract is unit-testable without a live DB."""
+    return 1 if (strict and conflict_count) else 0
 
 
 async def _main(argv: list[str] | None = None) -> int:
@@ -317,14 +329,9 @@ async def _main(argv: list[str] | None = None) -> int:
                     probes = [date(y, 1, 1) for y in sweep_years(args.from_year, date.today().year)]
                 else:
                     probes = [args.as_of]
-                conflicts = await _run_audit(
-                    session,
-                    probes=probes,
-                    expected_senate=args.expected_senate,
-                    expected_house=args.expected_house,
-                )
+                conflicts = await _run_audit(session, probes=probes)
                 print(f"Duplicate-occupancy audit: {len(conflicts)} conflict(s) across probes")
-                return 1 if (args.strict and conflicts) else 0
+                return audit_exit_code(strict=args.strict, conflict_count=len(conflicts))
             result = await check_invariants(
                 session,
                 expected_senate=args.expected_senate,

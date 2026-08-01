@@ -6,6 +6,7 @@ from clearinghouse_domain_legislative.identity import Assignment, Organization, 
 from usa_wa_adapter_legislature.succession_invariants import (
     SeatConflict,
     _run_audit,
+    audit_exit_code,
     check_invariants,
     duplicate_occupancy_detail,
     sweep_years,
@@ -267,12 +268,7 @@ async def test_run_audit_reports_and_returns_conflicts(db_session, usa_wa):
         to=None,
         active=True,
     )
-    conflicts = await _run_audit(
-        db_session,
-        probes=[date(2007, 1, 1), date(2009, 1, 1)],
-        expected_senate=1,
-        expected_house=2,
-    )
+    conflicts = await _run_audit(db_session, probes=[date(2007, 1, 1), date(2009, 1, 1)])
     # 2007 clean, 2009 overlap → exactly one conflict surfaced across the two probes.
     assert conflicts == [
         SeatConflict(
@@ -281,3 +277,11 @@ async def test_run_audit_reports_and_returns_conflicts(db_session, usa_wa):
             occupants=["Laura Grant", "Terry Nealey"],
         )
     ]
+
+
+def test_audit_exit_code():
+    """The #119 audit exit contract: 1 only when --strict AND a duplicate was found."""
+    assert audit_exit_code(strict=True, conflict_count=3) == 1
+    assert audit_exit_code(strict=True, conflict_count=0) == 0  # strict but clean
+    assert audit_exit_code(strict=False, conflict_count=3) == 0  # report-only default
+    assert audit_exit_code(strict=False, conflict_count=0) == 0
