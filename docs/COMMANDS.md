@@ -325,6 +325,22 @@ python -m usa_wa_adapter_legislature.operator_events --list               # curr
 # SOS 06:45 refreshes rebuild the current-biennium cohort. --expected-senate/--expected-house
 # override the WA chamber constants for a redistricting count change.
 python -m usa_wa_adapter_legislature.succession_invariants
+
+# Historical duplicate-occupancy audit (#119) — the daily gate probes the OPEN cohort only, so
+# a duplicate occupancy that has since CLOSED is invisible to it forever (sub-biennium
+# sequential occupancy collapsed onto the shared biennium floor — both occupants dated to the
+# floor because the wire can't date a mid-biennium handoff). --as-of / --sweep-biennia re-run
+# BOTH duplicate halves against a point-in-time snapshot (valid_from <= D and (valid_to is null
+# or valid_to >= D)) instead of is_active: seat-side (a seat with >1 occupant → named
+# seat+occupants) and member-side (a member holding >1 distinct same-chamber seat, keyed on
+# person_id so a name collision can't false-merge), naming every offending tuple. Ad-hoc audit,
+# NOT a timer (closed history isn't actionable in the daily
+# "someone died NOW" sense). Counts are reported, not gated (House Position coverage floors at
+# 2003-04, so pre-2003 biennia legitimately under-count) — exits 0 unless --strict, which
+# exits 1 on any duplicate (the post-backfill regression guard).
+python -m usa_wa_adapter_legislature.succession_invariants --as-of 2009-01-01
+python -m usa_wa_adapter_legislature.succession_invariants --sweep-biennia
+python -m usa_wa_adapter_legislature.succession_invariants --sweep-biennia --strict  # CI guard
 ```
 
 ## Committee lineage & lifecycle (#124)
