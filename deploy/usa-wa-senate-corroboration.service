@@ -1,0 +1,36 @@
+[Unit]
+Description=usa-wa — Senate odd-year ballot corroboration + citation (#123) one-shot
+# After the WSL + SOS refreshes so it reads the freshly-rebuilt open Senate cohort (WSL sponsor
+# builder) and the current results archive (SOS refresh archives the odd cohort). An odd-year
+# Senate winner with no open seat is a missing operator `seated` event — surfaced the morning
+# after the wire re-drive. Ordering only — a failed/absent refresh must not wedge the timer.
+# DB-only (no egress), so plain network.target.
+After=network.target postgresql.service usa-wa-migrate.service usa-wa-wsl-refresh.service usa-wa-sos-refresh.service
+# Alert the operator on a violation (#49/#123). This oneshot IS the anti-drift backstop for a
+# missing Senate succession event; a silent failure defeats it. %n → this unit's full name.
+OnFailure=usa-wa-notify-failure@%n.service
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/usa-wa
+
+# Refuse to start off a non-main checkout (#87).
+ExecStartPre=/home/exedev/usa-wa/scripts/assert-main-checkout.sh
+
+# Pin PATH so `uv` resolves regardless of the inherited systemd default.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# App role — the corroboration is read-only but the citation (2a) is app-role DML (a Citation
+# insert, idempotent); no owner token.
+EnvironmentFile=/etc/usa-wa/.env
+EnvironmentFile=-/home/exedev/usa-wa/.env
+
+# --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
+# Exit 1 on a missing odd-year winner → the OnFailure handler emails the operator.
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_adapter_sos.senate_corroboration
+
+# One winner-cohort scan + a bounded citation pass; bound it so a stuck DB fails deterministically.
+TimeoutStartSec=300
+
+# This unit is started by usa-wa-senate-corroboration.timer; no [Install] WantedBy.

@@ -131,6 +131,21 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
+    # Daily Senate odd-year ballot corroboration (#123): after the WSL + SOS refreshes rebuild
+    # the open Senate cohort + archive the odd results cohort, cite elected senators (2a) and
+    # assert no odd-year winner lacks an open seat (2b). App-role DML (idempotent Citation
+    # insert); exit 1 on a missing winner → notify handler.
+    "usa-wa-senate-corroboration.service": {
+        "After": {
+            "network.target",
+            "postgresql.service",
+            "usa-wa-migrate.service",
+            "usa-wa-wsl-refresh.service",
+            "usa-wa-sos-refresh.service",
+        },
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
     # Daily committee lineage invariant check (#124): after the WSL refresh + migrate settle
     # the committee cohort, assert dissolved-coherence + succession. Read-only; exit 1 → notify.
     "usa-wa-committee-lineage-invariants.service": {
@@ -167,6 +182,7 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     "usa-wa-sos-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-integrity-sweep.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-succession-invariants.timer": {"After": set(), "Before": set(), "OnFailure": set()},
+    "usa-wa-senate-corroboration.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-committee-lineage-invariants.timer": {
         "After": set(),
         "Before": set(),

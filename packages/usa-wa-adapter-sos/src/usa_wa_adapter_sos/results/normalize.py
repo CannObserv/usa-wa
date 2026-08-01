@@ -69,10 +69,12 @@ def parse_senate_race(race: str) -> int | None:
     :func:`parse_house_race` (a House contest, a non-legislative office, or a blank returns
     ``None``). The Senate seat has no ballot position, so this yields the LD alone.
 
-    NOTE (#123): keys on the ``"senator"`` substring, consistent with ``parse_house_race``'s Senate
-    exclusion but **not** audited across the odd-year cohorts the way the House labels were (#101).
-    Audit Senate labels 2009→2019 before Phase B relies on this — a variant like ``"State Senate"``
-    would silently drop the seat (the ARCHITECTURE.md exact-string anti-pattern)."""
+    Keys on the ``"senator"`` substring, consistent with ``parse_house_race``'s Senate exclusion.
+    **Audited clean across every archived cohort 2008→2025 (#123)**: WA SOS labels the Senate seat
+    exactly one way — ``Legislative District N - State Senator`` (title-case pre-2020, all-caps
+    since; this parser is case-insensitive) — with **zero** variants (no ``"State Senate"`` /
+    positioned-senator form the ARCHITECTURE.md exact-string anti-pattern warns of). Simpler than
+    the three House label variants (#101) because the Senate seat carries no ballot position."""
     lowered = race.lower()
     if "senator" not in lowered or "representative" in lowered:
         return None  # House / statewide / judicial / other office

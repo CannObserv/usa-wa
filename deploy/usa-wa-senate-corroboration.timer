@@ -1,0 +1,16 @@
+[Unit]
+Description=usa-wa — daily Senate odd-year ballot corroboration
+Documentation=https://github.com/CannObserv/usa-wa/issues/123
+
+[Timer]
+# Daily 07:00 UTC — after the WSL (06:00) and SOS (06:45) refreshes rebuild the open Senate
+# cohort + archive the odd results cohort, and before the succession invariants (07:15). The
+# citation is idempotent and the corroboration read-only — a missed-then-caught run is safe.
+OnCalendar=*-*-* 07:00:00 UTC
+# Run on next boot if the box was down at the scheduled time.
+Persistent=true
+# Jitter to avoid firing on the dot.
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

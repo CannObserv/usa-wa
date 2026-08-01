@@ -264,6 +264,31 @@ python -m usa_wa_adapter_sos.house.migrate
 # recoverable: run the migrate, then redrive (python -m usa_wa_api.cli.redrive).
 ```
 
+## Senate odd-year corroboration (#123)
+
+The odd-year November general seats senators mid-biennium by special (Hunt, LD5, Nov 2025). The
+even seating year's winners are already dated by the WSL sponsor roster, so only the **odd** cohort
+is consumed here. The Senate seat is WSL-sponsor-built (`usa_wa_legislature`); SOS only consumes its
+ballot evidence, so this lives SOS-side (SOS→legislature, never the reverse). Two consumers:
+
+- **2a citation** — an elected senator's open span `valid_from` is field-cited to the odd wire
+  (`sos-legresults:<odd>`): attestation of the *elected* status the operator-dated (appointed)
+  boundary lacked. The Nov win does **not** move the boundary — tenure is continuous.
+- **2b corroboration** — an odd-year winner with **no open `state_senator` seat** at that LD is a
+  silent **missing operator `seated` event** (the failure mode the chamber-count gate only catches
+  after the count has already drifted). Named + exit 1 → operator email.
+
+Runs daily 07:00 UTC (`usa-wa-senate-corroboration.timer`), after the WSL + SOS refreshes rebuild
+the open Senate cohort and archive the odd results wire. App-role DML (the citation is an idempotent
+`Citation` insert; the corroboration is read-only). Exit 0 clean / 1 on a missing winner / 2 config.
+
+```bash
+# Daily gate (also the ad-hoc invocation); --dry-run builds citations then rolls back.
+python -m usa_wa_adapter_sos.senate_corroboration
+python -m usa_wa_adapter_sos.senate_corroboration --dry-run
+python -m usa_wa_adapter_sos.senate_corroboration --biennium 2025-26   # pin a non-current biennium
+```
+
 ## Operator succession (#107)
 
 Mid-biennium successions (death, resignation, appointment) are invisible to every
