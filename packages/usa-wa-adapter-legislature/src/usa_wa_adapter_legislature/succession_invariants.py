@@ -238,13 +238,15 @@ async def member_duplicate_detail(session: AsyncSession, *, as_of: date) -> list
 
     Deduped on distinct seat ``source_id`` per (member, chamber), so a member holding *one* seat
     via two rows is a seat-duplicate (reported by :func:`duplicate_occupancy_detail`), not a
-    spurious member-duplicate here — more precise than the daily gate's row-count. One query;
-    grouped in Python; names/seats sorted for a deterministic report.
+    spurious member-duplicate here — more precise than the daily gate's row-count. Identity keys
+    on ``Person.id`` (not the display name), so two distinct people sharing a name — this dataset
+    has ``Bob McCaslin`` Sr./Jr. — don't merge into a phantom two-seat conflict; the name is
+    carried only for display. One query; grouped in Python; sorted for a deterministic report.
     """
     rows = (
         await session.execute(
             _seat_scope(
-                select(Person.name_full, Role.role_type, Role.source_id)
+                select(Person.id, Person.name_full, Role.role_type, Role.source_id)
                 .join(Assignment, Assignment.role_id == Role.id)
                 .join(Person, Person.id == Assignment.person_id)
                 .where(Role.role_type.in_([_SENATOR, _REPRESENTATIVE])),
@@ -252,14 +254,15 @@ async def member_duplicate_detail(session: AsyncSession, *, as_of: date) -> list
             )
         )
     ).all()
-    by_member: dict[tuple[str, str], set[str]] = {}
-    for name, role_type, seat in rows:
-        by_member.setdefault((name, role_type), set()).add(seat)
-    return [
+    by_member: dict[tuple[str, str], tuple[str, set[str]]] = {}
+    for person_id, name, role_type, seat in rows:
+        by_member.setdefault((str(person_id), role_type), (name, set()))[1].add(seat)
+    conflicts = [
         MemberConflict(member=name, role_type=role_type, seats=sorted(seats))
-        for (name, role_type), seats in sorted(by_member.items())
+        for (_pid, role_type), (name, seats) in by_member.items()
         if len(seats) > 1
     ]
+    return sorted(conflicts, key=lambda c: (c.member, c.role_type))
 
 
 def _log(result: InvariantResult) -> None:

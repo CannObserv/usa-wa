@@ -335,6 +335,21 @@ async def test_member_duplicate_detail_ignores_one_seat_held_twice(db_session, u
     assert await member_duplicate_detail(db_session, as_of=date(2009, 1, 1)) == []
 
 
+async def test_member_duplicate_detail_keys_on_identity_not_name(db_session, usa_wa):
+    """Two DISTINCT persons sharing a name (this dataset has Bob McCaslin Sr./Jr.), each holding
+    one seat in the same chamber, must NOT merge into a phantom two-seat conflict — identity is
+    person_id, name is display only (#119 CR3)."""
+    senate = await _org(db_session, usa_wa, "Senate")
+    s5 = await _seat(db_session, senate, "seat:senate:ld-5", "state_senator")
+    s6 = await _seat(db_session, senate, "seat:senate:ld-6", "state_senator")
+    sr = await _person(db_session, "1", "Bob McCaslin")
+    jr = await _person(db_session, "2", "Bob McCaslin")  # same name, distinct person
+    await _span(db_session, sr, s5, frm=date(2009, 1, 1), to=None, active=True)
+    await _span(db_session, jr, s6, frm=date(2009, 1, 1), to=None, active=True)
+
+    assert await member_duplicate_detail(db_session, as_of=date(2009, 1, 1)) == []
+
+
 def test_audit_exit_code():
     """The #119 audit exit contract: 1 only when --strict AND a duplicate was found."""
     assert audit_exit_code(strict=True, conflict_count=3) == 1
