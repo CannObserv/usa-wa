@@ -7,7 +7,11 @@ facts as precise sub-biennium boundaries the wire can't supply:
 - ``departed`` (person-scoped) — close **every** open span of the member at the date.
 - ``vacated`` (seat-scoped) — close the member's **one** named seat span at the date.
 - ``seated`` (seat-scoped) — open the member's named seat span at the date (adjust the
-  built span's ``valid_from``, or **synthesize** the span if the wire built none).
+  built span's ``valid_from``, or **synthesize** the span if the wire built none — but only
+  for a *current-biennium* appointee: a seated event dated outside ``current_biennium`` with
+  no built span is a historical appointee the daily restricted rebuild doesn't build, and
+  synthesizing would mint a bogus current-biennium seat for a departed member (#119); the
+  unrestricted backfill builds their span, so the event matches there instead).
 
 Each builder passes ``owned_kinds`` — the span ``kind``\\s it produces — so an event for a
 seat another builder owns is ignored here (a ``seated chamber-house`` event is the SOS House
@@ -32,6 +36,7 @@ from clearinghouse_domain_legislative.operator_events import (
     KIND_SEATED,
     KIND_VACATED,
 )
+from usa_wa_adapter_legislature.synthesis import parse_biennium
 from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
 logger = get_logger(__name__)
@@ -166,8 +171,33 @@ def apply_operator_events(
                     result[i] = replace(span, valid_from=event.effective_date)
                     hit = True
             if not hit:
-                result.append(_synthesize(event, current_biennium))
+                # Synthesis is only ever legitimate for a *current-biennium* appointee the wire
+                # hasn't caught up on (#107). A seated event whose date lands outside the current
+                # biennium and matches no built span is a **historical** appointee: in the daily
+                # restricted rebuild (current cohort only) the wire built no span for them, and
+                # synthesizing would mint a bogus current-biennium open seat for a long-departed
+                # member (#119) — corrupting the record + tripping the succession invariant. The
+                # unrestricted backfill DOES build their span, so this event matches there and
+                # never reaches synthesis. Skip + log rather than mint a false seat.
+                if _in_biennium(event.effective_date, current_biennium):
+                    result.append(_synthesize(event, current_biennium))
+                else:
+                    logger.info(
+                        "operator_seated_no_span_out_of_biennium",
+                        extra={
+                            "member_id": event.member_id,
+                            "seat": event.seat_discriminator,
+                            "effective_date": event.effective_date.isoformat(),
+                            "current_biennium": current_biennium,
+                        },
+                    )
     return result
+
+
+def _in_biennium(effective_date: date, biennium: str) -> bool:
+    """The date falls within ``biennium``'s two calendar years (``2025-26`` → 2025 or 2026)."""
+    start, end = parse_biennium(biennium)
+    return start <= effective_date.year <= end
 
 
 def _warn_if_predates(spans: list[TenureSpan], event: SuccessionEvent) -> None:

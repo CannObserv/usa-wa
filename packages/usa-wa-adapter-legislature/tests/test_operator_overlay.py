@@ -91,6 +91,28 @@ def test_seated_synthesizes_when_no_wire_span():
     assert out[0].source_id == "99999:chamber-senate:5:2025-26"
 
 
+def test_seated_out_of_current_biennium_does_not_synthesize():
+    """#119: a historical seated event with no matching span (the daily *restricted* rebuild
+    builds only the current cohort) must NOT mint a bogus current-biennium span for a departed
+    member. Synthesis is only legitimate for a current-biennium appointee. The unrestricted
+    backfill builds the historical span, so this event matches there — no synthesis needed."""
+    events = [
+        SuccessionEvent("77777", "seated", date(2009, 11, 1), "chamber-house", "ld-16-position-2")
+    ]
+    out = apply_operator_events([], events, current_biennium=CURRENT, owned_kinds={"chamber-house"})
+    assert out == []
+
+
+def test_seated_in_current_biennium_still_synthesizes():
+    """The guard is date-scoped, not blanket: a current-biennium appointee whose wire built no
+    span still gets a synthesized open seat (the #107 live case, unchanged)."""
+    events = [SuccessionEvent("99999", "seated", date(2026, 6, 3), "chamber-senate", "5")]
+    out = apply_operator_events(
+        [], events, current_biennium=CURRENT, owned_kinds={"chamber-senate"}
+    )
+    assert len(out) == 1 and out[0].valid_from == date(2026, 6, 3)
+
+
 def test_foreign_seat_kind_ignored():
     """A seated event for a seat this builder doesn't own is a no-op (no cross-builder leak)."""
     events = [
