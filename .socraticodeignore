@@ -8,3 +8,8 @@
 # the already-excluded skills-vendor/.
 skills-vendor/
 .claude/skills/
+
+# Generated OpenAPI client — not first-party code (do-not-hand-edit; already
+# omitted from ruff + coverage). 567 files of repetitive _parse_response
+# boilerplate outrank our own code in codebase_search. See usa-wa#143.
+packages/powermap-client/
