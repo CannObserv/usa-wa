@@ -93,6 +93,28 @@ class SeatConflict:
     occupants: list[str]  # occupant person names, sorted
 
 
+@dataclass(frozen=True)
+class MemberConflict:
+    """One member holding >1 *distinct* seat in the same chamber at the probe date (#119) — the
+    member-side of the #107 duplicate check, point-in-time."""
+
+    member: str  # Person.name_full
+    role_type: str
+    seats: list[str]  # the distinct Role.source_ids they occupy, sorted
+
+
+@dataclass
+class AuditOutcome:
+    """The #119 audit result across a probe set — both duplicate halves, for the report + gate."""
+
+    seat_conflicts: list[SeatConflict] = field(default_factory=list)
+    member_conflicts: list[MemberConflict] = field(default_factory=list)
+
+    @property
+    def total(self) -> int:
+        return len(self.seat_conflicts) + len(self.member_conflicts)
+
+
 def _seat_scope(stmt, as_of: date | None):
     """Restrict a seat-Assignment query to the occupants at the probe point.
 
@@ -209,6 +231,37 @@ async def duplicate_occupancy_detail(session: AsyncSession, *, as_of: date) -> l
     ]
 
 
+async def member_duplicate_detail(session: AsyncSession, *, as_of: date) -> list[MemberConflict]:
+    """Every member holding >1 *distinct* seat in one chamber at ``as_of``, resolved to the
+    member name + the seat ``source_id``s (#119) — the member-side detail behind
+    :attr:`InvariantResult.duplicate_members`.
+
+    Deduped on distinct seat ``source_id`` per (member, chamber), so a member holding *one* seat
+    via two rows is a seat-duplicate (reported by :func:`duplicate_occupancy_detail`), not a
+    spurious member-duplicate here — more precise than the daily gate's row-count. One query;
+    grouped in Python; names/seats sorted for a deterministic report.
+    """
+    rows = (
+        await session.execute(
+            _seat_scope(
+                select(Person.name_full, Role.role_type, Role.source_id)
+                .join(Assignment, Assignment.role_id == Role.id)
+                .join(Person, Person.id == Assignment.person_id)
+                .where(Role.role_type.in_([_SENATOR, _REPRESENTATIVE])),
+                as_of,
+            )
+        )
+    ).all()
+    by_member: dict[tuple[str, str], set[str]] = {}
+    for name, role_type, seat in rows:
+        by_member.setdefault((name, role_type), set()).add(seat)
+    return [
+        MemberConflict(member=name, role_type=role_type, seats=sorted(seats))
+        for (name, role_type), seats in sorted(by_member.items())
+        if len(seats) > 1
+    ]
+
+
 def _log(result: InvariantResult) -> None:
     if result.ok:
         logger.info(
@@ -236,23 +289,22 @@ def sweep_years(from_year: int, to_year: int) -> list[int]:
     return list(range(start, to_year + 1, 2))
 
 
-async def _run_audit(
-    session: AsyncSession,
-    *,
-    probes: list[date],
-) -> list[SeatConflict]:
-    """The #119 point-in-time audit over ``probes`` — report per-probe occupancy counts + every
-    duplicate; return the flat conflict list (across all probes) for the exit gate. Read-only.
+async def _run_audit(session: AsyncSession, *, probes: list[date]) -> AuditOutcome:
+    """The #119 point-in-time audit over ``probes`` — report per-probe occupancy counts + both
+    duplicate halves (seat-side + member-side); return the collected :class:`AuditOutcome` (across
+    all probes) for the exit gate. Read-only.
 
     Counts are occupancy *rows* (``_seat_counts``), not distinct seats — a doubly-occupied seat
     inflates them (labelled ``*_occupants`` so this isn't misread as the seat total), and they
     are report-only here (no ``expected_*`` compare; House Position coverage floors at 2003-04).
     """
-    all_conflicts: list[SeatConflict] = []
+    outcome = AuditOutcome()
     for probe in probes:
         senate, house = await _seat_counts(session, probe)
-        conflicts = await duplicate_occupancy_detail(session, as_of=probe)
-        all_conflicts.extend(conflicts)
+        seat_conflicts = await duplicate_occupancy_detail(session, as_of=probe)
+        member_conflicts = await member_duplicate_detail(session, as_of=probe)
+        outcome.seat_conflicts.extend(seat_conflicts)
+        outcome.member_conflicts.extend(member_conflicts)
         label = biennium_for_date(probe)
         logger.info(
             "succession_audit_probe",
@@ -261,17 +313,26 @@ async def _run_audit(
                 "as_of": probe.isoformat(),
                 "senate_occupants": senate,
                 "house_occupants": house,
-                "duplicate_seats": len(conflicts),
+                "duplicate_seats": len(seat_conflicts),
+                "duplicate_members": len(member_conflicts),
             },
         )
         print(
             f"{label} (as-of {probe.isoformat()}): "
             f"senate_occupants={senate} house_occupants={house} "
-            f"dup_seats={len(conflicts)}"
+            f"dup_seats={len(seat_conflicts)} dup_members={len(member_conflicts)}"
         )
-        for conflict in conflicts:
-            print(f"    {conflict.seat} [{conflict.role_type}]: {' / '.join(conflict.occupants)}")
-    return all_conflicts
+        for seat_conflict in seat_conflicts:
+            print(
+                f"    seat {seat_conflict.seat} [{seat_conflict.role_type}]: "
+                f"{' / '.join(seat_conflict.occupants)}"
+            )
+        for member_conflict in member_conflicts:
+            print(
+                f"    member {member_conflict.member} [{member_conflict.role_type}]: "
+                f"{' / '.join(member_conflict.seats)}"
+            )
+    return outcome
 
 
 def audit_exit_code(*, strict: bool, conflict_count: int) -> int:
@@ -329,9 +390,12 @@ async def _main(argv: list[str] | None = None) -> int:
                     probes = [date(y, 1, 1) for y in sweep_years(args.from_year, date.today().year)]
                 else:
                     probes = [args.as_of]
-                conflicts = await _run_audit(session, probes=probes)
-                print(f"Duplicate-occupancy audit: {len(conflicts)} conflict(s) across probes")
-                return audit_exit_code(strict=args.strict, conflict_count=len(conflicts))
+                outcome = await _run_audit(session, probes=probes)
+                print(
+                    f"Duplicate-occupancy audit: {len(outcome.seat_conflicts)} seat + "
+                    f"{len(outcome.member_conflicts)} member conflict(s) across probes"
+                )
+                return audit_exit_code(strict=args.strict, conflict_count=outcome.total)
             result = await check_invariants(
                 session,
                 expected_senate=args.expected_senate,

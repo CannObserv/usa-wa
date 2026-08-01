@@ -4,11 +4,13 @@ from datetime import date
 
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from usa_wa_adapter_legislature.succession_invariants import (
+    MemberConflict,
     SeatConflict,
     _run_audit,
     audit_exit_code,
     check_invariants,
     duplicate_occupancy_detail,
+    member_duplicate_detail,
     sweep_years,
 )
 
@@ -268,15 +270,69 @@ async def test_run_audit_reports_and_returns_conflicts(db_session, usa_wa):
         to=None,
         active=True,
     )
-    conflicts = await _run_audit(db_session, probes=[date(2007, 1, 1), date(2009, 1, 1)])
-    # 2007 clean, 2009 overlap → exactly one conflict surfaced across the two probes.
-    assert conflicts == [
+    outcome = await _run_audit(db_session, probes=[date(2007, 1, 1), date(2009, 1, 1)])
+    # 2007 clean, 2009 overlap → exactly one seat conflict surfaced across the two probes.
+    assert outcome.seat_conflicts == [
         SeatConflict(
             seat="seat:house:ld-16:position-2",
             role_type="state_representative",
             occupants=["Laura Grant", "Terry Nealey"],
         )
     ]
+    assert outcome.member_conflicts == []
+    assert outcome.total == 1
+
+
+async def test_member_duplicate_detail_surfaces_two_seats_one_chamber(db_session, usa_wa):
+    """A member holding two distinct same-chamber seats at the probe date — the member-side of
+    the #107 duplicate check, point-in-time (#119)."""
+    senate = await _org(db_session, usa_wa, "Senate")
+    s5 = await _seat(db_session, senate, "seat:senate:ld-5", "state_senator")
+    s6 = await _seat(db_session, senate, "seat:senate:ld-6", "state_senator")
+    dupe = await _person(db_session, "1", "Double Booked")
+    await _span(db_session, dupe, s5, frm=date(2009, 1, 1), to=None, active=True)
+    await _span(db_session, dupe, s6, frm=date(2009, 1, 1), to=None, active=True)
+
+    conflicts = await member_duplicate_detail(db_session, as_of=date(2009, 1, 1))
+    assert conflicts == [
+        MemberConflict(
+            member="Double Booked",
+            role_type="state_senator",
+            seats=["seat:senate:ld-5", "seat:senate:ld-6"],
+        )
+    ]
+
+
+async def test_member_duplicate_detail_ignores_one_seat_held_twice(db_session, usa_wa):
+    """One seat via two rows is a seat-duplicate, not a member-duplicate — deduped on distinct
+    seat source_id so it isn't double-reported here."""
+    senate = await _org(db_session, usa_wa, "Senate")
+    s5 = await _seat(db_session, senate, "seat:senate:ld-5", "state_senator")
+    dupe = await _person(db_session, "1", "Grant / Nealey Seat")
+    db_session.add(
+        Assignment(
+            source="usa_wa_legislature",
+            source_id="a",
+            person_id=dupe.id,
+            role_id=s5.id,
+            valid_from=date(2009, 1, 1),
+            valid_to=None,
+            is_active=True,
+        )
+    )
+    db_session.add(
+        Assignment(
+            source="usa_wa_legislature",
+            source_id="b",
+            person_id=dupe.id,
+            role_id=s5.id,
+            valid_from=date(2009, 6, 1),
+            valid_to=None,
+            is_active=True,
+        )
+    )
+    await db_session.flush()
+    assert await member_duplicate_detail(db_session, as_of=date(2009, 1, 1)) == []
 
 
 def test_audit_exit_code():
