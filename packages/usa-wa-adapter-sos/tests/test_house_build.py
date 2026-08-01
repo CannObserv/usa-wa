@@ -344,6 +344,76 @@ async def test_appointee_is_seated_by_elimination_and_cites_the_roster(db_sessio
     assert matched == "sos-legresults:20241105"
 
 
+async def test_odd_year_special_seats_appointee_by_ballot_and_cites_the_odd_cohort(
+    db_session, usa_wa
+):
+    """#123 §1 end-to-end: a mid-biennium appointee (Obras, LD33 P1, appointed 2025) who won the
+    **odd-year** Nov-2025 special is seated by that ballot — matched, not #103-inferred — and cites
+    the odd cohort ``sos-legresults:20251104``, while the even-cohort holder (Gregerson P2) keeps
+    citing ``sos-legresults:20241105``. Before #123 the odd cohort was archived but never joined,
+    so Obras was elimination-inferred (roster-cited); now the ballot fact seats her directly."""
+    wsl, sos = await _sources(db_session, usa_wa)
+    await _add_ld(db_session, usa_wa, 33)
+    await _add_person(db_session, 100)  # Gregerson (won Pos 2, 2024)
+    await _add_person(db_session, 101)  # Obras (appointed; won the 2025 special, Pos 1)
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2025-26",
+        _sponsor_wire((100, 33, "Gregerson", "House"), (101, 33, "Obras", "House")),
+    )
+    # Even seating cohort (2024): Orwall won Pos 1 (since departed, off roster); Gregerson Pos 2.
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20241105",
+        _sos_csv(
+            ("State Representative Pos. 1", 33, "Tina Orwall", "(Prefers Democratic Party)"),
+            ("State Representative Pos. 2", 33, "Mia Gregerson", "(Prefers Democratic Party)"),
+        ),
+    )
+    # Odd-year special (Nov 2025): Obras won the LD33 Pos 1 unexpired term.
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20251104",
+        _sos_csv(
+            ("State Representative Pos. 1", 33, "Chelsea Obras", "(Prefers Democratic Party)"),
+        ),
+    )
+
+    result = await build_house_position_spans(
+        db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
+    )
+
+    assert result.house_spans == 2
+    # Obras is now a ballot match, not an inference (#123 goal — the inferred count drops).
+    assert result.coverage[CURRENT]["inferred"] == 0
+    assert result.coverage[CURRENT]["matched"] == 2
+
+    async def _cited_resource(source_id):
+        row = (
+            await db_session.execute(select(Assignment).where(Assignment.source_id == source_id))
+        ).scalar_one()
+        cite = (
+            await db_session.execute(select(Citation).where(Citation.entity_id == row.id))
+        ).scalar_one()
+        ev = (
+            await db_session.execute(select(FetchEvent).where(FetchEvent.id == cite.fetch_event_id))
+        ).scalar_one()
+        return ev.resource_id
+
+    # Obras' seat cites the odd special wire that seated her; Gregerson cites the even seating wire.
+    assert (
+        await _cited_resource("101:chamber-house:ld-33-position-1:2025-26")
+        == "sos-legresults:20251104"
+    )
+    assert (
+        await _cited_resource("100:chamber-house:ld-33-position-2:2025-26")
+        == "sos-legresults:20241105"
+    )
+
+
 async def test_operator_vacated_closes_a_mover_house_seat_at_the_move_date(db_session, usa_wa):
     """#107: a House→Senate mover (Hunt-shaped) is normally mover-excluded, but an operator
     `vacated` event keeps her House row (keep_ids) so the span builds, then closes it at her real

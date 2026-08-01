@@ -80,20 +80,35 @@ def parse_senate_race(race: str) -> int | None:
     return int(ld_match.group(1)) if ld_match else None
 
 
+def _top_vote_winner(candidacies: list[tuple[Any, int | None]]) -> Any | None:
+    """The unambiguous top-``Votes`` candidacy of one race, or ``None`` when it can't be ranked.
+
+    The shared never-guess discipline (:func:`position_for`): a sole **uncontested** candidacy is
+    returned even with no vote count; a **contested** race is ranked only if EVERY candidacy carries
+    a parseable count (a missing count could be the real top, so the ranking is untrustworthy) and
+    a **tie** on the top count is unresolvable. ``candidacies`` is ``[(value, votes)]``; the winning
+    ``value`` is returned. Used by both the Senate winner and the House-position winner filters."""
+    if len(candidacies) == 1:
+        return candidacies[0][0]  # uncontested — unambiguous without a vote count
+    if any(votes is None for _, votes in candidacies):
+        return None
+    top = max(votes for _, votes in candidacies)
+    leaders = [value for value, votes in candidacies if votes == top]
+    return leaders[0] if len(leaders) == 1 else None
+
+
 def build_senate_winners(rows: list[dict[str, Any]]) -> dict[int, SenateWinner]:
     """Group a legislative-results cohort's **Senate** rows by LD → the winning candidacy (#106).
 
     The wire lists every candidacy, not just the winner (as it does for the House), so the winner
-    is the top-``Votes`` non-write-in row of each LD. An LD whose winner is ambiguous is **omitted**
-    rather than guessed (the :func:`position_for` discipline): a **tie** on the top count, or — for
-    a *contested* LD — a missing/unparseable count on **any** candidacy (a blank could be the real
-    top, so no ranking is trustworthy). A single **uncontested** candidacy is unambiguous with no
-    vote count at all. ``WRITE-IN`` rows, House / other offices, and blank-name rows are skipped.
+    is the top-``Votes`` non-write-in row of each LD (:func:`_top_vote_winner`). An LD whose winner
+    is ambiguous is **omitted** rather than guessed. ``WRITE-IN`` rows, House / other offices, and
+    blank-name rows are skipped.
 
     Unlike the House map this carries no structural fact (the Senate seat is unqualified) — it is
     attestation the Phase B consumer uses to cite an elected senator and corroborate a succession
     event (see :class:`SenateWinner`)."""
-    by_ld: dict[int, list[tuple[SenateWinner, bool]]] = {}
+    by_ld: dict[int, list[tuple[SenateWinner, int | None]]] = {}
     for row in rows:
         candidate = (row.get("Candidate") or "").strip()
         if candidate.upper() == _WRITE_IN or not candidate:
@@ -112,23 +127,52 @@ def build_senate_winners(rows: list[dict[str, Any]]) -> dict[int, SenateWinner]:
             party_slug=sos_party_slug(row.get("Party")),
             votes=votes,
         )
-        by_ld.setdefault(ld, []).append((winner, votes is not None))
+        by_ld.setdefault(ld, []).append((winner, votes))
 
     winners: dict[int, SenateWinner] = {}
     for ld, candidacies in by_ld.items():
-        entries = [winner for winner, _ in candidacies]
-        if len(entries) == 1:
-            winners[ld] = entries[0]  # uncontested — unambiguous without a vote count
+        winner = _top_vote_winner(candidacies)
+        if winner is not None:
+            winners[ld] = winner
+    return winners
+
+
+def build_house_winners(rows: list[dict[str, Any]]) -> dict[int, list[HousePosition]]:
+    """Group a legislative-results cohort's **House** rows by LD → the winning candidacy **per
+    (LD, position) race** (#123 hazard b — the odd-year merge filter).
+
+    The House position map (:func:`build_house_positions`) carries every candidacy including
+    losers, which the even seating cohort tolerates (the #103 within-LD elimination depends on the
+    full set). Merging a raw *odd-year* cohort would double that false-match surface, so the odd
+    side is reduced to the **winner** of each seat first: the top-``Votes`` non-write-in candidacy
+    per ``(LD, qualifier)`` race, by the same never-guess rule as :func:`build_senate_winners`
+    (:func:`_top_vote_winner` — a tie or an untrustworthy count omits that seat; a sole candidacy
+    is kept). ``WRITE-IN`` rows, Senate / other offices, and unparseable rows are skipped."""
+    by_race: dict[tuple[int, str], list[tuple[HousePosition, int | None]]] = {}
+    for row in rows:
+        candidate = (row.get("Candidate") or "").strip()
+        if candidate.upper() == _WRITE_IN or not candidate:
             continue
-        # Contested: rank only if EVERY candidacy carries a parseable count — a missing count on any
-        # row makes the ranking untrustworthy (the blank could be the real top), so omit rather than
-        # risk naming a losing candidacy. A tie on the top count is likewise unresolvable.
-        if not all(has_votes for _, has_votes in candidacies):
+        parsed = parse_house_race(row.get("Race") or "")
+        if parsed is None:
             continue
-        top = max(winner.votes for winner in entries)
-        leaders = [winner for winner in entries if winner.votes == top]
-        if len(leaders) == 1:
-            winners[ld] = leaders[0]
+        ld, qualifier = parsed
+        name_keys = surname_match_set(candidate)
+        if not name_keys:
+            continue
+        votes = _parse_votes(row.get("Votes"))
+        position = HousePosition(
+            qualifier=qualifier,
+            name_keys=frozenset(name_keys),
+            party_slug=sos_party_slug(row.get("Party")),
+        )
+        by_race.setdefault((ld, qualifier), []).append((position, votes))
+
+    winners: dict[int, list[HousePosition]] = {}
+    for (ld, _qualifier), candidacies in by_race.items():
+        winner = _top_vote_winner(candidacies)
+        if winner is not None:
+            winners.setdefault(ld, []).append(winner)
     return winners
 
 

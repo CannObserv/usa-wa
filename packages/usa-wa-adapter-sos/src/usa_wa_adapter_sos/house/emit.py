@@ -59,6 +59,8 @@ async def emit_house_position_spans(
     fetch_events: HouseCitationEvents,
     roster_events: HouseCitationEvents | None = None,
     inferred_keys: set[tuple[str, str]] | None = None,
+    special_keys: set[tuple[str, str]] | None = None,
+    special_events: HouseCitationEvents | None = None,
     assignment_source: str = _HOUSE_ASSIGNMENT_SOURCE,
     skip_citation_ids: Collection[str] = (),
 ) -> int:
@@ -68,7 +70,13 @@ async def emit_house_position_spans(
     the seat Role stays ``usa_wa_legislature`` and the Person is WSL's regardless. An
     ``inferred_keys`` ``(member_id, biennium)`` pair cites that biennium's ``roster_events``
     entry instead of ``fetch_events`` (#103 — the roster wire is the one naming the member),
-    falling back to the SOS cohort only if the roster wasn't archived."""
+    falling back to the SOS cohort only if the roster wasn't archived.
+
+    A ``special_keys`` ``(member_id, biennium)`` pair (#123) — a member whose Position was
+    resolved from the odd-year mid-biennium **special** cohort, not the even seating cohort — cites
+    that biennium's ``special_events`` entry (the ``sos-legresults:<odd>`` wire that actually
+    seated the appointee) instead of ``fetch_events``. Inference wins over special (an inferred
+    member has no ballot line in either cohort, so the roster is still the right attestation)."""
 
     async def _resolve_role(session: AsyncSession, span: TenureSpan) -> Role | None:
         ld, qualifier = parse_house_span_discriminator(span.discriminator)
@@ -87,10 +95,13 @@ async def emit_house_position_spans(
         )
 
     inferred = inferred_keys or frozenset()
+    special = special_keys or frozenset()
     rosters = roster_events or {}
+    specials = special_events or {}
 
     def _citation_target(span: TenureSpan, biennium: str) -> CitationTarget | None:
-        if (span.member_id, biennium) in inferred:
+        key = (span.member_id, biennium)
+        if key in inferred:
             roster = rosters.get(biennium)
             if roster is not None:
                 return roster
@@ -100,6 +111,12 @@ async def emit_house_position_spans(
                 "house_inferred_citation_fallback",
                 extra={"member_id": span.member_id, "biennium": biennium},
             )
+        elif key in special:
+            # #123: the odd-year special cohort seated this member — cite that wire, not the even
+            # seating cohort. Fall through to the even cohort only if the odd event is missing.
+            odd = specials.get(biennium)
+            if odd is not None:
+                return odd
         return fetch_events.get(biennium)
 
     return await emit_spans(

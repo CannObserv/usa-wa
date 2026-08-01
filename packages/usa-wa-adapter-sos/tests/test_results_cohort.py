@@ -116,6 +116,38 @@ async def test_senate_winners_resolve_from_archive(db_session, usa_wa):
     assert fold_token("Hunt") in winners[2025][5].name_keys
 
 
+async def test_house_winners_keep_only_the_winning_candidacy(db_session, usa_wa):
+    """The odd-year merge filter (#123): the provider exposes the top-vote House winner per seat,
+    so the daily/backfill builder can union the odd cohort's *winners* into the even seating map
+    without dragging in the losers the raw House-position map tolerates."""
+    source = await _results_source(db_session, usa_wa)
+    await _archive(
+        db_session,
+        source,
+        "sos-legresults:20251104",
+        _csv(
+            (
+                "LEGISLATIVE DISTRICT 33 - State Representative Pos. 1",
+                "Osman Salahuddin",
+                "(Prefers Democratic Party)",
+                "30000",
+            ),
+            (
+                "LEGISLATIVE DISTRICT 33 - State Representative Pos. 1",
+                "A Loser",
+                "(Prefers Republican Party)",
+                "12000",
+            ),
+        ),
+    )
+
+    provider = SosResultsCohortProvider(session=db_session, source_id=source.id)
+    winners = await provider.house_winners()
+
+    assert position_for(winners[2025], 33, fold_token("Salahuddin"), "democratic") == "Position 1"
+    assert position_for(winners[2025], 33, fold_token("Loser"), "republican") is None
+
+
 async def test_scans_are_memoized(db_session, usa_wa):
     source = await _results_source(db_session, usa_wa)
     await _archive(db_session, source, "sos-legresults:20161108", _csv(_RIVERS))
@@ -124,3 +156,4 @@ async def test_scans_are_memoized(db_session, usa_wa):
     assert await provider.house_positions() is await provider.house_positions()
     assert await provider.citation_events() is await provider.citation_events()
     assert await provider.senate_winners() is await provider.senate_winners()
+    assert await provider.house_winners() is await provider.house_winners()

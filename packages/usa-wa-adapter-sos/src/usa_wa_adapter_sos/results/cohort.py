@@ -27,7 +27,11 @@ from usa_wa_adapter_sos.results.adapter import (
     LEGRESULTS_RESOURCE_PREFIX,
     election_year_from_resource_id,
 )
-from usa_wa_adapter_sos.results.normalize import build_house_positions, build_senate_winners
+from usa_wa_adapter_sos.results.normalize import (
+    build_house_positions,
+    build_house_winners,
+    build_senate_winners,
+)
 from usa_wa_adapter_sos.results.transport import parse_legislative_results
 
 logger = get_logger(__name__)
@@ -43,6 +47,7 @@ class SosResultsCohortProvider:
         self._session = session
         self._source_id = source_id
         self._positions: dict[int, HousePositionsByLd] | None = None
+        self._house_winners: dict[int, HousePositionsByLd] | None = None
         self._senate: dict[int, SenateWinnersByLd] | None = None
         self._events: dict[int, CitationTarget] | None = None
 
@@ -93,6 +98,25 @@ class SosResultsCohortProvider:
         self._positions = positions
         logger.info("sos_results_positions_loaded", extra={"years": len(positions)})
         return positions
+
+    async def house_winners(self) -> dict[int, HousePositionsByLd]:
+        """``{election_year: {LD: [HousePosition]}}`` filtered to the **winning** House candidacy
+        per ``(LD, position)`` race (#123 hazard b) — re-parsed offline from the archive.
+
+        The odd-year merge input: the raw :meth:`house_positions` map carries losing candidacies
+        (tolerated by the even seating cohort, on which the #103 elimination depends), so the daily
+        and backfill builder unions only these *winners* from the odd mid-biennium special into the
+        even seating map — a loser must never false-match a member. Memoized like the sibling
+        scans."""
+        if self._house_winners is not None:
+            return self._house_winners
+        winners: dict[int, HousePositionsByLd] = {}
+        for year, (event_id, _fetched_at, _rid) in (await self.citation_events()).items():
+            wire = await self._wire_for(event_id)
+            winners[year] = build_house_winners(parse_legislative_results(wire)) if wire else {}
+        self._house_winners = winners
+        logger.info("sos_results_house_winners_loaded", extra={"years": len(winners)})
+        return winners
 
     async def senate_winners(self) -> dict[int, SenateWinnersByLd]:
         """``{election_year: {LD: SenateWinner}}`` re-parsed offline from the archive (#106 A′).
