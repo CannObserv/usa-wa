@@ -1,0 +1,15 @@
+# SocratiCode semantic-index exclusions (gitignore syntax; layered on
+# SocratiCode's built-in defaults + .gitignore). See usa-wa#143.
+#
+# Vendored skill trees are third-party docs, not this repo's code. Indexing
+# them inflates embedding time and lets vendored content outrank our own code
+# in codebase_search. skills/ is NOT excluded wholesale — it holds the
+# first-party `brainstorming` skill; its vendored entries are symlinks into
+# the already-excluded skills-vendor/.
+skills-vendor/
+.claude/skills/
+
+# Generated OpenAPI client — not first-party code (do-not-hand-edit; already
+# omitted from ruff + coverage). 567 files of repetitive _parse_response
+# boilerplate outrank our own code in codebase_search. See usa-wa#143.
+packages/powermap-client/
