@@ -1,0 +1,16 @@
+[Unit]
+Description=usa-wa — daily House odd-year special-winner corroboration
+Documentation=https://github.com/CannObserv/usa-wa/issues/149
+
+[Timer]
+# Daily 07:05 UTC — after the WSL (06:00) and SOS (06:45) refreshes rebuild the open House Position
+# cohort + archive the odd results cohort, beside the Senate corroboration (07:00) and before the
+# succession invariants (07:15). The corroboration is read-only — a missed-then-caught run is safe.
+OnCalendar=*-*-* 07:05:00 UTC
+# Run on next boot if the box was down at the scheduled time.
+Persistent=true
+# Jitter to avoid firing on the dot.
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

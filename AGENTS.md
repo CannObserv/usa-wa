@@ -124,6 +124,7 @@ packages/
       ratelimit.py    — package util: `AsyncRateLimiter` (the #77 async min-interval gate) + `env_float`. Each source owns its own limiter *instance* + env knob (distinct upstream hosts) but shares this impl
       provisioning.py — get-or-create the **two** SOS `Source` rows: `get_or_create_source` (`usa_wa_sos`, filings) + `get_or_create_results_source` (`usa_wa_sos_results`, results); both archival retention
       senate_corroboration.py — the **SOS Senate consumers** of the odd-year `senate_winners()` cohort (#123 §2, `python -m usa_wa_adapter_sos.senate_corroboration`; daily 07:00 timer). The Senate seat is WSL-sponsor-built (`usa_wa_legislature`); SOS only consumes its ballot evidence, so this lives SOS-side (SOS→legislature, never the reverse — the `house/` layer). **2a** `cite_elected_senators`: field-cites each elected senator's open span `valid_from` to `sos-legresults:<odd>` via `add_field_citation` (attestation, **not** a boundary move — the Nov win doesn't move the operator-dated June appointment; Hunt). **2b** `missing_winner_lds`: an odd-year winner with **no open `state_senator` seat** at that LD is a silent missing operator `seated` (the asymmetry the chamber-count gate only catches post-drift) → named + exit 1 → operator email. A surname-mismatched occupant is surfaced (`mismatched_lds`) but not cited/failed; no odd cohort = clean no-op. App-role DML (idempotent Citation insert)
+      house_corroboration.py — the **House sibling of `senate_corroboration` 2b** (#149, `python -m usa_wa_adapter_sos.house_corroboration`; daily 07:05 timer). A House odd-year **special** winner who never materializes into a `state_representative` Position seat was caught by nothing (the LD30 Pos 2 2015-16 / Teri Hickel case: won the Nov 2015 special, archived + rostered, yet sat unseated because the backfill wasn't run and the daily refresh is `restrict_to_biennium=current`; found by manual audit). `corroborate_house_winners` consumes the odd-year `house_winners()` cohort (winners-only — a *loser* candidacy must never false-match) and `missing_house_winner_seats` asserts every `(LD, position)` a special decided has an open seat → named + exit 1 → operator email; a surname-mismatched occupant is `mismatched_seats` (surfaced, not gated — the seat-existence-not-identity rule). **Read-only, no 2a citation half** (the House Position spans already cite the odd wire in `house/build.py`). Keyed on `(LD, position)` not LD (two seats/LD). `--sweep-biennia` is the #119 **report-only** point-in-time historical audit (every archived odd year vs the occupancy that covered it, exit 0 unless `--strict`) — the LD30-as-history regression the current-biennium daily gate can't reach
       filings/        — **SOURCE 1**: votewa `ExportToExcel` candidate filings (`usa_wa_sos`, 2008–2018; SOS retired it to Power BI for 2020+). Its own archive; unique value = candidacy metadata (`Email`/`FilingDate`/`IsWithdrawn`, #99). No longer drives the seat (results does) — kept per *yes-and*
         transport.py  — `SOSFilingsClient` (`eledataweb.votewa.gov/Candidates/ExportToExcel?electionDate=<YYYYMM>`) → `WireFetch` (#54) + `parse_whofiled` (#56, BOM-tolerant); own limiter env `USA_WA_SOS_MIN_REQUEST_INTERVAL`; `general_election_date(year)`→`<year>11`
         adapter.py    — `SOSAdapter` (source_slug `usa_wa_sos`, **archive-only**); `sos-whofiled:<YYYYMM>` keys; `normalize` raises
@@ -186,6 +187,7 @@ deploy/               — Systemd unit + deployment config
 | PDC refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-pdc-refresh.timer` → `.service`; 06:30 UTC, #69; **identifier-only since #101**). Archives the current winner cohorts + re-drives the builder → `person_wa_pdc` cross-links only (the House Position seat is the SOS refresh's since #101). Ordered after the WSL refresh (binds onto its House Persons + sponsor archive) |
 | SOS refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-sos-refresh.timer` → `.service`; 06:45 UTC, #101). Archives the current biennium's results cohorts — both the even seating year and the odd mid-biennium special (#106), each SAVEPOINT-guarded — + re-drives the WSL+SOS House Position span builder → `usa_wa_legislature` `state_representative` Position seat **spans**. Ordered after the WSL refresh (reads its sponsor archive + binds its Persons); independent of the PDC refresh |
 | Senate corroboration (daily) | oneshot + timer | — | `systemctl` (`usa-wa-senate-corroboration.timer` → `.service`; 07:00 UTC, #123). Consumes the odd-year `senate_winners()` cohort: field-cites each elected senator's open span `valid_from` to `sos-legresults:<odd>` (2a) + asserts no odd-year Senate winner lacks an open seat (2b — a silent missing operator `seated`); exit 1 → operator email. App-role DML (idempotent Citation insert). Ordered after the WSL + SOS refreshes rebuild the open Senate cohort + archive the odd results wire |
+| House corroboration (daily) | oneshot + timer | — | `systemctl` (`usa-wa-house-corroboration.timer` → `.service`; 07:05 UTC, #149). The House sibling of Senate 2b — consumes the odd-year `house_winners()` cohort and asserts no odd-year House **special** winner `(LD, position)` lacks an open `state_representative` Position seat (the LD30/Hickel unseated-appointee shape a unit test can't catch); exit 1 → operator email. Read-only (no citation half — the House Position spans already cite the odd wire). `--sweep-biennia` is the #119 report-only historical audit. Ordered after the WSL + SOS refreshes rebuild the open House cohort + archive the odd results wire |
 | Succession invariants (daily) | oneshot + timer | — | `systemctl` (`usa-wa-succession-invariants.timer` → `.service`; 07:15 UTC, #107). Read-only assertion of the open-seat cohort — 49 Senate / 98 House chamber counts + no duplicate occupancy; exit 1 → operator email (a missing operator succession event is otherwise silent). Ordered after the WSL/PDC/SOS refreshes rebuild the cohort |
 | Committee lineage invariants (daily) | oneshot + timer | — | `systemctl` (`usa-wa-committee-lineage-invariants.timer` → `.service`; 07:30 UTC, #124 C4). Read-only coherence assertion — INV1 no `active=false` committee carries a live membership Assignment; INV2 the subject of a non-superseded `succeeded_by`/`merged_with` link is `active=false` (`split_from` exempt); exit 1 → operator email. Ordered after the refreshes + reconcile deactivate defunct committees + close their spans |
 | Committee active reconcile (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-active.timer` → `.service`; Sun 07:00 UTC) |
@@ -204,7 +206,8 @@ journal nobody is watching. Each failable oneshot (`usa-wa-migrate`,
 `usa-wa-wsl-refresh`, `usa-wa-pdc-refresh`, `usa-wa-sos-refresh`,
 `usa-wa-reconcile-committee-active`, `usa-wa-reconcile-committee-names`,
 `usa-wa-reconcile-committee-meeting-names`, `usa-wa-integrity-sweep`,
-`usa-wa-senate-corroboration`, `usa-wa-succession-invariants`,
+`usa-wa-senate-corroboration`, `usa-wa-house-corroboration`,
+`usa-wa-succession-invariants`,
 `usa-wa-committee-lineage-invariants`) carries
 `OnFailure=usa-wa-notify-failure@%n.service`, so systemd starts the templated
 handler on a non-zero exit **or** a `TimeoutStartSec=` hang. `%n` (the failing
@@ -278,7 +281,7 @@ entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
 `usa-wa-reconcile-committee-names.service`,
 `usa-wa-reconcile-committee-meeting-names.service`,
 `usa-wa-integrity-sweep.service`, `usa-wa-senate-corroboration.service`,
-`usa-wa-succession-invariants.service`,
+`usa-wa-house-corroboration.service`, `usa-wa-succession-invariants.service`,
 `usa-wa-committee-lineage-invariants.service`, `scripts/migrate.sh`).
 `--no-sync` runs against the installed venv as-is; `--frozen` skips re-locking.
 So unit start never mutates the environment — the daily WSL refresh timer can't
@@ -324,6 +327,7 @@ silently deploys nothing.
 | After editing `deploy/usa-wa-reconcile-committee-meeting-names.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-meeting-names.timer` |
 | After editing `deploy/usa-wa-integrity-sweep.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-integrity-sweep.timer` |
 | After editing `deploy/usa-wa-senate-corroboration.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-senate-corroboration.timer` |
+| After editing `deploy/usa-wa-house-corroboration.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-house-corroboration.timer` |
 | After editing `deploy/usa-wa-succession-invariants.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-succession-invariants.timer` |
 | After editing `deploy/usa-wa-committee-lineage-invariants.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-committee-lineage-invariants.timer` |
 | After editing `deploy/usa-wa-notify-failure@.service` | `sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
@@ -336,6 +340,7 @@ silently deploys nothing.
 | Run the Joint/Other rename detection now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-meeting-names.service` |
 | Run the provenance integrity sweep now (ad-hoc) | `sudo systemctl start usa-wa-integrity-sweep.service` |
 | Run the Senate corroboration now (ad-hoc) | `sudo systemctl start usa-wa-senate-corroboration.service` |
+| Run the House corroboration now (ad-hoc) | `sudo systemctl start usa-wa-house-corroboration.service` |
 | Run the succession invariant check now (ad-hoc) | `sudo systemctl start usa-wa-succession-invariants.service` |
 | Run the committee lineage invariant check now (ad-hoc) | `sudo systemctl start usa-wa-committee-lineage-invariants.service` |
 
@@ -474,6 +479,7 @@ timers (see § Server Lifecycle); the rest are run-once / ad-hoc. Pair backfills
 | `python -m usa_wa_adapter_sos.house.build` | WSL+SOS House Position seat spans (2008→present) incl. #103 elimination inference, Phase B (#101) |
 | `python -m usa_wa_adapter_sos.house.migrate` | Superseded-collapse (#103) + re-source usa_wa_pdc House rows → usa_wa_legislature (owner role, #101) |
 | `python -m usa_wa_adapter_sos.senate_corroboration` | Cite elected senators + assert no odd-year Senate winner lacks an open seat; exit 1 on drift (#123; daily) |
+| `python -m usa_wa_adapter_sos.house_corroboration` | Assert no odd-year House special winner lacks an open Position seat; `--sweep-biennia` historical audit; exit 1 on drift (#149; daily) |
 | `python -m usa_wa_adapter_legislature.committee_succession` | Record operator committee-succession links — the judgment layer (#124 C2) |
 | `python -m usa_wa_sync_powermap.committee_event_producer` | Emit committee lifecycle windows + succession links to PM as org events (#124 C3) |
 | `python -m usa_wa_adapter_legislature.committee_lineage_invariants` | Assert committee lineage coherence (INV1/INV2); exit 1 on drift (#124 C4; daily) |
