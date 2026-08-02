@@ -226,6 +226,9 @@ async def corroborate_house_winners(
         logger.info("house_corroboration_no_winners", extra={"odd_year": odd_year})
         return result
 
+    # The daily gate probes the live **open** cohort (matching Senate), so a non-current --biennium
+    # pin compares that biennium's winners against *today's* seats — meaningful only at a biennium
+    # boundary. `--sweep-biennia` is the point-in-time instrument for historical biennia.
     occupants = await house_occupants(session)
     result.mismatched_seats = mismatched_house_seats(winners, occupants)
     result.missing_seats = missing_house_winner_seats(winners, occupants)
@@ -302,7 +305,9 @@ async def _main(argv: list[str] | None = None) -> int:
         "--biennium",
         default=os.environ.get("USA_WA_BIENNIUM"),
         help="operating biennium (e.g. 2025-26); defaults to $USA_WA_BIENNIUM, else the "
-        "date-current biennium. Consistent with the WSL/PDC/SOS refreshes' override",
+        "date-current biennium. Consistent with the WSL/PDC/SOS refreshes' override. The gate "
+        "probes today's open seats, so a non-current pin is meaningful only at a biennium boundary "
+        "— use --sweep-biennia for a historical audit",
     )
     parser.add_argument(
         "--sweep-biennia",
