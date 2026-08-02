@@ -146,6 +146,21 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
+    # Daily House odd-year special-winner corroboration (#149): after the WSL + SOS refreshes
+    # rebuild the open House Position cohort + archive the odd results cohort, assert no odd-year
+    # House special winner lacks an open state_representative Position seat (the LD30/Hickel shape).
+    # Read-only (no citation half); exit 1 on a missing winner seat → notify handler.
+    "usa-wa-house-corroboration.service": {
+        "After": {
+            "network.target",
+            "postgresql.service",
+            "usa-wa-migrate.service",
+            "usa-wa-wsl-refresh.service",
+            "usa-wa-sos-refresh.service",
+        },
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
     # Daily committee lineage invariant check (#124): after the WSL refresh + migrate settle
     # the committee cohort, assert dissolved-coherence + succession. Read-only; exit 1 → notify.
     "usa-wa-committee-lineage-invariants.service": {
@@ -183,6 +198,7 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     "usa-wa-integrity-sweep.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-succession-invariants.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-senate-corroboration.timer": {"After": set(), "Before": set(), "OnFailure": set()},
+    "usa-wa-house-corroboration.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-committee-lineage-invariants.timer": {
         "After": set(),
         "Before": set(),

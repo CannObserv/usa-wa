@@ -289,6 +289,42 @@ python -m usa_wa_adapter_sos.senate_corroboration --dry-run
 python -m usa_wa_adapter_sos.senate_corroboration --biennium 2025-26   # pin a non-current biennium
 ```
 
+## House odd-year special-winner corroboration (#149)
+
+The **House sibling** of `senate_corroboration` 2b. A House odd-year **special** winner who never
+materializes into a `state_representative` Position seat was caught by nothing — the LD30 Pos 2
+2015-16 / Teri Hickel case: she won the Nov 2015 special, the odd cohort was archived and named her,
+she was rostered, yet she sat *unseated* for months because the backfill hadn't been run and the
+daily refresh runs `restrict_to_biennium=current` (never re-emits a historical biennium). A **unit**
+guard (#148) covers the odd-merge code path but cannot detect an *operational* gap (a backfill that
+wasn't run). This makes it loud.
+
+`corroborate_house_winners` consumes the odd-year `house_winners()` cohort (winners-only — a *loser*
+candidacy must never false-match) and asserts every `(LD, position)` a special decided has an open
+seat. Two differences from the Senate check: keyed on **`(LD, position)`** not LD (two seats/LD),
+and **read-only** — no 2a citation half, since the House Position spans already cite the odd wire
+(`house/build.py`'s `special_events`). Gate on seat **existence**, not identity: a wholly unoccupied
+winner seat is the missing `seated` (exit 1); a seat held by someone other than the ballot winner is
+`mismatched` (surfaced, not gated — a surname divergence is usually a legitimate name change).
+
+Runs daily 07:05 UTC (`usa-wa-house-corroboration.timer`), after the WSL + SOS refreshes rebuild the
+open House Position cohort and archive the odd results wire, beside Senate corroboration (07:00) and
+before the succession invariants (07:15). Read-only (app role). Exit 0 clean / 1 on a missing winner
+seat / 2 config.
+
+```bash
+# Daily gate (also the ad-hoc invocation).
+python -m usa_wa_adapter_sos.house_corroboration
+python -m usa_wa_adapter_sos.house_corroboration --biennium 2025-26   # pin a non-current biennium
+
+# Historical audit (#119 report-only pattern): every archived odd year vs the point-in-time
+# occupancy that covered it — the LD30-as-history regression the current-biennium daily gate can't
+# reach. Exit 0 unless --strict (the post-backfill regression guard). House Position coverage floors
+# at 2003-04, so pre-coverage odd years under-report (reported, not gated).
+python -m usa_wa_adapter_sos.house_corroboration --sweep-biennia
+python -m usa_wa_adapter_sos.house_corroboration --sweep-biennia --strict
+```
+
 ## Operator succession (#107)
 
 Mid-biennium successions (death, resignation, appointment) are invisible to every
