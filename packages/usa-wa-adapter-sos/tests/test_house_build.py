@@ -484,6 +484,75 @@ async def test_odd_sourced_seat_cites_the_odd_cohort_despite_a_shared_even_surna
     )
 
 
+async def test_historical_odd_special_only_winner_is_seated_in_an_unrestricted_backfill(
+    db_session, usa_wa
+):
+    """#123 regression — the LD30/Hickel shape: a *pure* odd-year special winner in a
+    **non-current** biennium (no even-year ballot win to #118-back-chain from) is seated by the
+    odd-merge in an unrestricted (historical backfill) build.
+
+    The existing #123 tests all seat a *current-biennium* appointee (Obras 2025), which the daily
+    refresh materializes. But the daily refresh runs ``restrict_to_biennium=current`` and never
+    re-emits an old biennium, so a historical odd-special-only winner materializes **only** when the
+    backfill runs — and the merge must seat her there. Here Hickel (LD30 Pos 2, won only the 2015
+    special) has no even-year anchor; the even seating cohort names a since-departed Pos-2 holder
+    (Freeman, off the roster), so the odd special is her sole seat source. Regression guard for the
+    stale-backfill gap that left LD30 Pos 2 2015-16 unfilled after #123 landed."""
+    wsl, sos = await _sources(db_session, usa_wa)
+    await _add_ld(db_session, usa_wa, 30)
+    await _add_person(db_session, 200)  # Kochmar (won Pos 1, 2014 even)
+    await _add_person(db_session, 201)  # Hickel (won only the 2015 odd special, Pos 2)
+    # Historical biennium only; current is 2025-26, so this exercises the non-current backfill path.
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2015-16",
+        _sponsor_wire((200, 30, "Kochmar", "House"), (201, 30, "Hickel", "House")),
+    )
+    # Even 2014: Kochmar Pos 1; Freeman won Pos 2 but died end of 2014 (off the 2015-16 roster).
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20141104",
+        _sos_csv(
+            ("State Representative Pos. 1", 30, "Linda Kochmar", "(Prefers Republican Party)"),
+            ("State Representative Pos. 2", 30, "Roger Freeman", "(Prefers Democratic Party)"),
+        ),
+    )
+    # Odd 2015 special: Hickel won the LD30 Pos 2 unexpired term.
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20151103",
+        _sos_csv(("State Representative Pos. 2", 30, "Teri Hickel", "(Prefers Republican Party)")),
+    )
+
+    result = await build_house_position_spans(
+        db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
+    )
+
+    # Both LD30 seats materialize in the backfill: Kochmar (even Pos 1) + Hickel (odd Pos 2).
+    assert result.house_spans == 2
+    assert result.coverage["2015-16"]["matched"] == 2
+    hickel = (
+        await db_session.execute(
+            select(Assignment).where(
+                Assignment.source_id == "201:chamber-house:ld-30-position-2:2015-16"
+            )
+        )
+    ).scalar_one()
+    assert hickel.valid_from == date(2015, 1, 1)
+    assert hickel.valid_to == date(2016, 12, 31)
+    # Cited to the odd special wire that actually seated her — not the even seating cohort.
+    cite = (
+        await db_session.execute(select(Citation).where(Citation.entity_id == hickel.id))
+    ).scalar_one()
+    ev = (
+        await db_session.execute(select(FetchEvent).where(FetchEvent.id == cite.fetch_event_id))
+    ).scalar_one()
+    assert ev.resource_id == "sos-legresults:20151103"
+
+
 async def test_operator_vacated_closes_a_mover_house_seat_at_the_move_date(db_session, usa_wa):
     """#107: a House→Senate mover (Hunt-shaped) is normally mover-excluded, but an operator
     `vacated` event keeps her House row (keep_ids) so the span builds, then closes it at her real
