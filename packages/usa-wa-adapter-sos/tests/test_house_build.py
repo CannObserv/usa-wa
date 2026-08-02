@@ -553,6 +553,150 @@ async def test_historical_odd_special_only_winner_is_seated_in_an_unrestricted_b
     assert ev.resource_id == "sos-legresults:20151103"
 
 
+async def test_odd_special_winner_seats_despite_a_three_member_roster_with_an_unmatched_interim(
+    db_session, usa_wa
+):
+    """#123 regression, the *faithful* LD30 2015-16 shape: the roster is 3-member (Kochmar Pos 1,
+    Hickel the odd-special winner, **and** Gregory the interim appointee with no ballot line
+    anywhere). The odd match must still seat Hickel directly (Pass 1) — the 3-member roster only
+    blocks the #103 *elimination* pass (Pass 3), so Gregory correctly stays an honest
+    ``missing_position`` gap rather than being wrongly eliminated into a seat. Guards that the
+    odd-merge survives a coexisting unmatched member (the prod roster after Freeman's stale
+    exclusion)."""
+    wsl, sos = await _sources(db_session, usa_wa)
+    await _add_ld(db_session, usa_wa, 30)
+    await _add_person(db_session, 200)  # Kochmar (even Pos 1)
+    await _add_person(db_session, 201)  # Hickel (odd 2015 special, Pos 2)
+    await _add_person(db_session, 202)  # Gregory (interim appointee; no ballot line)
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2015-16",
+        _sponsor_wire(
+            (200, 30, "Kochmar", "House"),
+            (201, 30, "Hickel", "House"),
+            (202, 30, "Gregory", "House"),
+        ),
+    )
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20141104",
+        _sos_csv(
+            ("State Representative Pos. 1", 30, "Linda Kochmar", "(Prefers Republican Party)"),
+            ("State Representative Pos. 2", 30, "Roger Freeman", "(Prefers Democratic Party)"),
+        ),
+    )
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20151103",
+        _sos_csv(("State Representative Pos. 2", 30, "Teri Hickel", "(Prefers Republican Party)")),
+    )
+
+    result = await build_house_position_spans(
+        db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
+    )
+
+    # Kochmar + Hickel matched; Gregory is an honest gap, NOT elimination-seated (3-member guard).
+    assert result.house_spans == 2
+    assert result.coverage["2015-16"]["matched"] == 2
+    assert result.coverage["2015-16"]["inferred"] == 0
+    assert result.coverage["2015-16"]["missing_position"] == 1
+    hickel = (
+        await db_session.execute(
+            select(Assignment).where(
+                Assignment.source_id == "201:chamber-house:ld-30-position-2:2015-16"
+            )
+        )
+    ).scalar_one()
+    assert hickel.is_active is False and hickel.valid_to == date(2016, 12, 31)
+    # Gregory (the interim appointee) gets no seat this biennium.
+    gregory = (
+        (await db_session.execute(select(Assignment).where(Assignment.source_id.like("202:%"))))
+        .scalars()
+        .all()
+    )
+    assert gregory == []
+
+
+async def test_stale_screen_drops_a_departed_even_holder_so_the_odd_winner_seats_cleanly(
+    db_session, usa_wa
+):
+    """#105 × #123 interaction: the departed even-cohort Pos-2 holder (Freeman, who won 2014 but
+    left) stays fully named in the wire AND still ballot-matches Pos 2 — so absent the committee
+    screen he and the odd-special winner (Hickel) BOTH resolve to Pos 2, a duplicate (the LD9-style
+    collision). The committee roster names the sitting members but not Freeman, so the #105 stale
+    exclusion drops him pre-projection, the LD reads 2-member, and Hickel seats Pos 2 alone —
+    cited to the odd wire. Guards that roster hygiene is what resolves the even-holder/odd-winner
+    Pos-2 collision."""
+    wsl, sos = await _sources(db_session, usa_wa)
+    await _add_ld(db_session, usa_wa, 30)
+    await _add_person(db_session, 200)  # Kochmar (sitting, even Pos 1)
+    await _add_person(db_session, 201)  # Hickel (odd 2015 special, Pos 2)
+    await _add_person(db_session, 202)  # Freeman (won even Pos 2 then departed; still named)
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2015-16",
+        _sponsor_wire(
+            (200, 30, "Kochmar", "House"),
+            (201, 30, "Hickel", "House"),
+            (202, 30, "Freeman", "House"),
+        ),
+    )
+    # Committee roster names the sitting members (Kochmar, Hickel) — not the departed Freeman.
+    await _archive_committee_roster(db_session, wsl, "2015-16", b"<r:200,201/>")
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20141104",
+        _sos_csv(
+            ("State Representative Pos. 1", 30, "Linda Kochmar", "(Prefers Republican Party)"),
+            ("State Representative Pos. 2", 30, "Roger Freeman", "(Prefers Democratic Party)"),
+        ),
+    )
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20151103",
+        _sos_csv(("State Representative Pos. 2", 30, "Teri Hickel", "(Prefers Republican Party)")),
+    )
+
+    result = await build_house_position_spans(
+        db_session,
+        sponsor_client=_StubSponsorClient(),
+        member_client=_StubMemberClient(),
+        current_biennium=CURRENT,
+        stale_min_coverage=0.5,
+    )
+
+    # Freeman excluded pre-projection → 2-member LD, no Pos-2 collision.
+    assert result.coverage["2015-16"]["members"] == 2
+    assert result.coverage["2015-16"]["matched"] == 2
+    hickel = (
+        await db_session.execute(
+            select(Assignment).where(
+                Assignment.source_id == "201:chamber-house:ld-30-position-2:2015-16"
+            )
+        )
+    ).scalar_one()
+    cite = (
+        await db_session.execute(select(Citation).where(Citation.entity_id == hickel.id))
+    ).scalar_one()
+    ev = (
+        await db_session.execute(select(FetchEvent).where(FetchEvent.id == cite.fetch_event_id))
+    ).scalar_one()
+    assert ev.resource_id == "sos-legresults:20151103"
+    # The departed even-holder gets no seat this biennium (no Freeman/Hickel Pos-2 duplicate).
+    freeman = (
+        (await db_session.execute(select(Assignment).where(Assignment.source_id.like("202:%"))))
+        .scalars()
+        .all()
+    )
+    assert freeman == []
+
+
 async def test_operator_vacated_closes_a_mover_house_seat_at_the_move_date(db_session, usa_wa):
     """#107: a House→Senate mover (Hunt-shaped) is normally mover-excluded, but an operator
     `vacated` event keeps her House row (keep_ids) so the span builds, then closes it at her real
