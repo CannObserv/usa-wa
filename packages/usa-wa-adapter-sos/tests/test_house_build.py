@@ -484,6 +484,31 @@ async def test_odd_sourced_seat_cites_the_odd_cohort_despite_a_shared_even_surna
     )
 
 
+async def _seed_ld30_2015_16(db_session, usa_wa, sos):
+    """Shared LD30 2015-16 fixture for the odd-year-special tests: LD 30, the two ballot-class
+    Persons (Kochmar 200 → even Pos 1; Hickel 201 → the 2015 odd special, Pos 2), the even seating
+    cohort (Kochmar Pos 1 + the departed Freeman Pos 2), and the odd 2015 special (Hickel Pos 2).
+    Each test adds its own sponsor roster (and any interim/departed member) on top."""
+    await _add_ld(db_session, usa_wa, 30)
+    await _add_person(db_session, 200)  # Kochmar (even Pos 1)
+    await _add_person(db_session, 201)  # Hickel (odd 2015 special, Pos 2)
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20141104",
+        _sos_csv(
+            ("State Representative Pos. 1", 30, "Linda Kochmar", "(Prefers Republican Party)"),
+            ("State Representative Pos. 2", 30, "Roger Freeman", "(Prefers Democratic Party)"),
+        ),
+    )
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20151103",
+        _sos_csv(("State Representative Pos. 2", 30, "Teri Hickel", "(Prefers Republican Party)")),
+    )
+
+
 async def test_historical_odd_special_only_winner_is_seated_in_an_unrestricted_backfill(
     db_session, usa_wa
 ):
@@ -499,32 +524,13 @@ async def test_historical_odd_special_only_winner_is_seated_in_an_unrestricted_b
     (Freeman, off the roster), so the odd special is her sole seat source. Regression guard for the
     stale-backfill gap that left LD30 Pos 2 2015-16 unfilled after #123 landed."""
     wsl, sos = await _sources(db_session, usa_wa)
-    await _add_ld(db_session, usa_wa, 30)
-    await _add_person(db_session, 200)  # Kochmar (won Pos 1, 2014 even)
-    await _add_person(db_session, 201)  # Hickel (won only the 2015 odd special, Pos 2)
+    await _seed_ld30_2015_16(db_session, usa_wa, sos)
     # Historical biennium only; current is 2025-26, so this exercises the non-current backfill path.
     await _archive(
         db_session,
         wsl,
         "sponsors:2015-16",
         _sponsor_wire((200, 30, "Kochmar", "House"), (201, 30, "Hickel", "House")),
-    )
-    # Even 2014: Kochmar Pos 1; Freeman won Pos 2 but died end of 2014 (off the 2015-16 roster).
-    await _archive(
-        db_session,
-        sos,
-        "sos-legresults:20141104",
-        _sos_csv(
-            ("State Representative Pos. 1", 30, "Linda Kochmar", "(Prefers Republican Party)"),
-            ("State Representative Pos. 2", 30, "Roger Freeman", "(Prefers Democratic Party)"),
-        ),
-    )
-    # Odd 2015 special: Hickel won the LD30 Pos 2 unexpired term.
-    await _archive(
-        db_session,
-        sos,
-        "sos-legresults:20151103",
-        _sos_csv(("State Representative Pos. 2", 30, "Teri Hickel", "(Prefers Republican Party)")),
     )
 
     result = await build_house_position_spans(
@@ -564,9 +570,7 @@ async def test_odd_special_winner_seats_despite_a_three_member_roster_with_an_un
     odd-merge survives a coexisting unmatched member (the prod roster after Freeman's stale
     exclusion)."""
     wsl, sos = await _sources(db_session, usa_wa)
-    await _add_ld(db_session, usa_wa, 30)
-    await _add_person(db_session, 200)  # Kochmar (even Pos 1)
-    await _add_person(db_session, 201)  # Hickel (odd 2015 special, Pos 2)
+    await _seed_ld30_2015_16(db_session, usa_wa, sos)
     await _add_person(db_session, 202)  # Gregory (interim appointee; no ballot line)
     await _archive(
         db_session,
@@ -577,21 +581,6 @@ async def test_odd_special_winner_seats_despite_a_three_member_roster_with_an_un
             (201, 30, "Hickel", "House"),
             (202, 30, "Gregory", "House"),
         ),
-    )
-    await _archive(
-        db_session,
-        sos,
-        "sos-legresults:20141104",
-        _sos_csv(
-            ("State Representative Pos. 1", 30, "Linda Kochmar", "(Prefers Republican Party)"),
-            ("State Representative Pos. 2", 30, "Roger Freeman", "(Prefers Democratic Party)"),
-        ),
-    )
-    await _archive(
-        db_session,
-        sos,
-        "sos-legresults:20151103",
-        _sos_csv(("State Representative Pos. 2", 30, "Teri Hickel", "(Prefers Republican Party)")),
     )
 
     result = await build_house_position_spans(
@@ -631,9 +620,7 @@ async def test_stale_screen_drops_a_departed_even_holder_so_the_odd_winner_seats
     cited to the odd wire. Guards that roster hygiene is what resolves the even-holder/odd-winner
     Pos-2 collision."""
     wsl, sos = await _sources(db_session, usa_wa)
-    await _add_ld(db_session, usa_wa, 30)
-    await _add_person(db_session, 200)  # Kochmar (sitting, even Pos 1)
-    await _add_person(db_session, 201)  # Hickel (odd 2015 special, Pos 2)
+    await _seed_ld30_2015_16(db_session, usa_wa, sos)
     await _add_person(db_session, 202)  # Freeman (won even Pos 2 then departed; still named)
     await _archive(
         db_session,
@@ -647,21 +634,6 @@ async def test_stale_screen_drops_a_departed_even_holder_so_the_odd_winner_seats
     )
     # Committee roster names the sitting members (Kochmar, Hickel) — not the departed Freeman.
     await _archive_committee_roster(db_session, wsl, "2015-16", b"<r:200,201/>")
-    await _archive(
-        db_session,
-        sos,
-        "sos-legresults:20141104",
-        _sos_csv(
-            ("State Representative Pos. 1", 30, "Linda Kochmar", "(Prefers Republican Party)"),
-            ("State Representative Pos. 2", 30, "Roger Freeman", "(Prefers Democratic Party)"),
-        ),
-    )
-    await _archive(
-        db_session,
-        sos,
-        "sos-legresults:20151103",
-        _sos_csv(("State Representative Pos. 2", 30, "Teri Hickel", "(Prefers Republican Party)")),
-    )
 
     result = await build_house_position_spans(
         db_session,
@@ -671,7 +643,8 @@ async def test_stale_screen_drops_a_departed_even_holder_so_the_odd_winner_seats
         stale_min_coverage=0.5,
     )
 
-    # Freeman excluded pre-projection → 2-member LD, no Pos-2 collision.
+    # Freeman excluded pre-projection → 2-member LD, no Pos-2 collision (no duplicate span).
+    assert result.house_spans == 2
     assert result.coverage["2015-16"]["members"] == 2
     assert result.coverage["2015-16"]["matched"] == 2
     hickel = (
