@@ -7,6 +7,7 @@ operator event). Fully offline — an archived results wire + hand-built open Se
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 
 from sqlalchemy import func, select
@@ -179,3 +180,18 @@ async def test_no_odd_cohort_is_a_clean_no_op(db_session, usa_wa):
     await _setup(db_session, usa_wa)
     result = await corroborate_senate_winners(db_session, biennium=CURRENT)
     assert result.winners == 0 and result.ok and result.missing_lds == []
+
+
+async def test_noncurrent_biennium_pin_warns(db_session, usa_wa, caplog):
+    """A biennium that differs from the date-current one (a stale $USA_WA_BIENNIUM / --biennium
+    pin) logs a non-current WARNING breadcrumb — the parity with the WSL/PDC/SOS refreshes (#123
+    CR). A current-biennium run stays quiet."""
+    await _setup(db_session, usa_wa)
+    with caplog.at_level(logging.WARNING):
+        await corroborate_senate_winners(db_session, biennium="2019-20")
+    assert "senate_corroboration_noncurrent_biennium" in [r.message for r in caplog.records]
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        await corroborate_senate_winners(db_session, biennium=CURRENT)  # today's biennium
+    assert "senate_corroboration_noncurrent_biennium" not in [r.message for r in caplog.records]

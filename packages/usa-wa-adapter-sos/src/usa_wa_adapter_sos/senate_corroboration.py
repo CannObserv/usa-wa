@@ -205,7 +205,15 @@ async def corroborate_senate_winners(
     empty winner set → a clean no-op (0 winners, ok)."""
     jurisdiction = await resolve_jurisdiction(session)
     sos_source = await get_or_create_results_source(session, jurisdiction)
-    current = biennium or biennium_for_date(datetime.now(UTC).date())
+    date_current = biennium_for_date(datetime.now(UTC).date())
+    current = biennium or date_current
+    if current != date_current:
+        # A stale $USA_WA_BIENNIUM / --biennium pin would silently gate the wrong biennium's
+        # winners with no breadcrumb — mirror the WSL/PDC/SOS refreshes' non-current warning.
+        logger.warning(
+            "senate_corroboration_noncurrent_biennium",
+            extra={"biennium": current, "date_current": date_current},
+        )
     odd_year = election_years_for_biennium(current)[-1]
 
     provider = SosResultsCohortProvider(session=session, source_id=sos_source.id)
