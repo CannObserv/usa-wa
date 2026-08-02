@@ -223,11 +223,17 @@ async def build_house_position_spans(
             continue
         special_events[biennium] = odd_event
         even_map = positions.get(even_year, {})
+        merged_map = positions_by_biennium[biennium]
         for ld, entries in roster_by_biennium[biennium].items():
             for entry in entries:
                 even_hit = position_for(even_map, ld, entry.folded_last, entry.party_slug)
-                odd_hit = position_for(odd_map, ld, entry.folded_last, entry.party_slug)
-                if even_hit is None and odd_hit is not None:
+                merged_hit = position_for(merged_map, ld, entry.folded_last, entry.party_slug)
+                # The seat came from the odd cohort iff the member's *merged* resolution (what the
+                # projector actually seats) differs from what the even seating cohort alone gives.
+                # Testing `odd_hit is not None` instead would misroute when the even cohort carries
+                # the same folded surname (a loser, or a different person) — `position_for(even, …)`
+                # resolves that surname to the wrong position, hiding a genuinely odd-sourced seat.
+                if merged_hit is not None and merged_hit != even_hit:
                     special_keys.add((entry.member_id, biennium))
     # #118 back-chain: project every biennium AND carry each ballot-anchored Position back through
     # continuous same-LD tenure (newest→oldest), so a pre-2009 biennium below the SOS floor is

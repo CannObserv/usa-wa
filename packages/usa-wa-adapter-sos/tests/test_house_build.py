@@ -414,6 +414,76 @@ async def test_odd_year_special_seats_appointee_by_ballot_and_cites_the_odd_coho
     )
 
 
+async def test_odd_sourced_seat_cites_the_odd_cohort_despite_a_shared_even_surname(
+    db_session, usa_wa
+):
+    """#123 CR finding-1: the odd-cohort citation must route on the member's *merged* resolution,
+    not a bare odd-cohort hit. Here the even seating cohort carries a losing ``Smith`` (Pos 2, R)
+    while the odd special winner is a *different* ``Smith`` (Pos 1, D, the appointee). A naive
+    ``odd_hit is not None``/``even_hit is None`` test would see the even loser resolve the surname
+    to Pos 2 and mis-cite the appointee's Pos 1 seat to the even wire. The merged-resolution test
+    routes it correctly to the odd cohort."""
+    wsl, sos = await _sources(db_session, usa_wa)
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_person(db_session, 100)  # Vale (even Pos 2 winner, sitting)
+    await _add_person(db_session, 101)  # Ann Smith (odd Pos 1 winner, appointee)
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2025-26",
+        _sponsor_wire((100, 5, "Vale", "House"), (101, 5, "Smith", "House")),
+    )
+    # Even 2024: Green won Pos 1 (since departed, off the roster); Vale won Pos 2; a *losing*
+    # Bob Smith (R) also ran for Pos 2 — sharing the odd winner's surname at a different position.
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20241105",
+        _sos_csv(
+            ("State Representative Pos. 1", 5, "Al Green", "(Prefers Democratic Party)"),
+            ("State Representative Pos. 2", 5, "Cy Vale", "(Prefers Democratic Party)"),
+            ("State Representative Pos. 2", 5, "Bob Smith", "(Prefers Republican Party)"),
+        ),
+    )
+    # Odd 2025 special: Ann Smith (D) won Pos 1 (the seat Green vacated).
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20251104",
+        _sos_csv(("State Representative Pos. 1", 5, "Ann Smith", "(Prefers Democratic Party)")),
+    )
+
+    result = await build_house_position_spans(
+        db_session, sponsor_client=_StubSponsorClient(), current_biennium=CURRENT
+    )
+
+    assert result.house_spans == 2
+    assert result.coverage[CURRENT]["matched"] == 2  # both ballot-matched via the merged map
+
+    async def _cited_resource(source_id):
+        row = (
+            await db_session.execute(select(Assignment).where(Assignment.source_id == source_id))
+        ).scalar_one()
+        cite = (
+            await db_session.execute(select(Citation).where(Citation.entity_id == row.id))
+        ).scalar_one()
+        ev = (
+            await db_session.execute(select(FetchEvent).where(FetchEvent.id == cite.fetch_event_id))
+        ).scalar_one()
+        return ev.resource_id
+
+    # The appointee's Pos 1 seat cites the odd wire that seated her — NOT the even cohort whose
+    # losing Bob Smith shares her surname.
+    assert (
+        await _cited_resource("101:chamber-house:ld-5-position-1:2025-26")
+        == "sos-legresults:20251104"
+    )
+    assert (
+        await _cited_resource("100:chamber-house:ld-5-position-2:2025-26")
+        == "sos-legresults:20241105"
+    )
+
+
 async def test_operator_vacated_closes_a_mover_house_seat_at_the_move_date(db_session, usa_wa):
     """#107: a House→Senate mover (Hunt-shaped) is normally mover-excluded, but an operator
     `vacated` event keeps her House row (keep_ids) so the span builds, then closes it at her real

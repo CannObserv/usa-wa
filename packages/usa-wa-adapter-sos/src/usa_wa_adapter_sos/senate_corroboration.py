@@ -22,6 +22,14 @@ seats a senator with no automatic wire signal (Hunt, LD5, appointed June 2025 th
   gap stays silent. :func:`missing_winner_lds` names every such LD; the CLI exits 1 so the
   ``OnFailure=`` handler emails the operator.
 
+  **The gate keys on seat *existence*, not occupant identity — deliberately.** An LD whose seat is
+  held by *someone other than the ballot winner* (a name change, or a predecessor not yet succeeded)
+  is reported as ``mismatched`` but does **not** fail the gate: a surname mismatch is more often a
+  legitimate ballot↔roster name divergence than a real missing succession, and failing on it would
+  page the operator on every senator who changed their name. The mismatch is surfaced (logged +
+  ``mismatched_lds``) for a human to judge, not gated. Only a *wholly unoccupied* winner LD — the
+  unambiguous missing ``seated`` — exits 1.
+
     python -m usa_wa_adapter_sos.senate_corroboration
 
 Citation is app-role DML (a ``Citation`` insert); the corroboration is read-only. Exit 0 clean /
@@ -248,8 +256,9 @@ async def _main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--biennium",
-        default=None,
-        help="operating biennium (e.g. 2025-26); defaults to the date-current biennium",
+        default=os.environ.get("USA_WA_BIENNIUM"),
+        help="operating biennium (e.g. 2025-26); defaults to $USA_WA_BIENNIUM, else the "
+        "date-current biennium. Consistent with the WSL/PDC/SOS refreshes' override",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="corroborate + build citations but roll back"
