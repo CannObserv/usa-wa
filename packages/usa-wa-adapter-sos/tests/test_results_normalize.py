@@ -12,6 +12,7 @@ from usa_wa_adapter_pdc.normalize.positions import fold_token
 from usa_wa_adapter_sos.positions import position_for
 from usa_wa_adapter_sos.results.normalize import (
     build_house_positions,
+    build_house_winners,
     build_senate_winners,
     parse_house_race,
     parse_senate_race,
@@ -156,6 +157,69 @@ def test_build_senate_winners_declines_an_unresolvable_race() -> None:
 
     sole = [_row("LEGISLATIVE DISTRICT 9 - State Senator", "Sole Candidate", votes="")]
     assert build_senate_winners(sole)[9].ballot_name == "Sole Candidate"
+
+
+def test_build_house_winners_keeps_only_the_top_vote_candidacy_per_seat() -> None:
+    """The odd-year merge (#123 hazard b): the House map is candidacies incl. losers, so the odd
+    cohort is filtered to the winning candidacy **per (LD, position) race** before it is unioned
+    into the even seating map — else a losing special-election candidacy false-matches a member.
+    Real 2025 LD33 P1 special: Osman Salahuddin won; a loser must not enter the map."""
+    rows = [
+        _row(
+            "LEGISLATIVE DISTRICT 33 - State Representative Pos. 1",
+            "Osman Salahuddin",
+            votes="30000",
+        ),
+        _row(
+            "LEGISLATIVE DISTRICT 33 - State Representative Pos. 1",
+            "A Loser",
+            "(Prefers Republican Party)",
+            votes="12000",
+        ),
+        _row("LEGISLATIVE DISTRICT 33 - State Representative Pos. 1", "WRITE-IN", " ", votes="40"),
+    ]
+    by_ld = build_house_winners(rows)
+    assert position_for(by_ld, 33, fold_token("Salahuddin"), "democratic") == "Position 1"
+    # The loser is gone — only the winner's name resolves.
+    assert position_for(by_ld, 33, fold_token("Loser"), "republican") is None
+    assert len(by_ld[33]) == 1
+
+
+def test_build_house_winners_ranks_each_position_independently() -> None:
+    """The two seats of one LD are distinct races — each keeps its own top-vote winner."""
+    rows = [
+        _row("LEGISLATIVE DISTRICT 5 - State Representative Pos. 1", "Ada Ackerman", votes="100"),
+        _row("LEGISLATIVE DISTRICT 5 - State Representative Pos. 1", "Bo Baker", votes="40"),
+        _row("LEGISLATIVE DISTRICT 5 - State Representative Pos. 2", "Cy Carter", votes="90"),
+        _row("LEGISLATIVE DISTRICT 5 - State Representative Pos. 2", "Di Dean", votes="80"),
+    ]
+    by_ld = build_house_winners(rows)
+    assert {p.qualifier for p in by_ld[5]} == {"Position 1", "Position 2"}
+    assert position_for(by_ld, 5, fold_token("Ackerman"), None) == "Position 1"
+    assert position_for(by_ld, 5, fold_token("Carter"), None) == "Position 2"
+    assert position_for(by_ld, 5, fold_token("Baker"), None) is None  # the P1 loser is gone
+
+
+def test_build_house_winners_declines_ties_and_unparseable_and_keeps_sole() -> None:
+    """Same never-guess discipline as ``build_senate_winners``: a tie or an untrustworthy count
+    omits the race; a sole uncontested candidacy is unambiguous even with no votes."""
+    tie = [
+        _row("LEGISLATIVE DISTRICT 7 - State Representative Pos. 1", "A", votes="500"),
+        _row("LEGISLATIVE DISTRICT 7 - State Representative Pos. 1", "B", votes="500"),
+    ]
+    assert build_house_winners(tie) == {}
+
+    mixed = [
+        _row("LEGISLATIVE DISTRICT 8 - State Representative Pos. 1", "Counted", votes="500"),
+        _row("LEGISLATIVE DISTRICT 8 - State Representative Pos. 1", "Blank", votes=""),
+    ]
+    assert build_house_winners(mixed) == {}
+
+    sole = [_row("LEGISLATIVE DISTRICT 9 - State Representative Pos. 2", "Sole", votes="")]
+    assert build_house_winners(sole)[9][0].qualifier == "Position 2"
+
+    # Senate rows and write-ins never enter the House winners map.
+    assert build_house_winners([_row("LEGISLATIVE DISTRICT 1 - State Senator", "Sen")]) == {}
 
 
 def test_build_house_positions_canonicalises_gop_party() -> None:

@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from usa_wa_adapter_pdc.adapter import election_year_for_biennium
+from usa_wa_adapter_pdc.adapter import election_year_for_biennium, election_years_for_biennium
 from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster
 from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 
@@ -84,12 +84,45 @@ from usa_wa_adapter_sos.house.backchain import (
     backchain_house_observations,
 )
 from usa_wa_adapter_sos.house.emit import emit_house_position_spans
+from usa_wa_adapter_sos.positions import HousePosition, position_for
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.cohort import SosResultsCohortProvider
 
 logger = get_logger(__name__)
 
 _HOUSE_ASSIGNMENT_SOURCE = "usa_wa_legislature"
+
+HousePositionsByLd = dict[int, list[HousePosition]]
+
+
+def _biennium_election_years(biennium: str) -> tuple[int, int]:
+    """``(even_seating_year, odd_special_year)`` for a biennium (#123). ``election_years_for_
+    biennium`` returns ``[start-1, start]`` — the even November that seats the chamber and the odd
+    November that fills mid-biennium vacancies by special. ``even == odd`` never happens (start-1 is
+    always even), so the two are distinct sources to merge."""
+    years = election_years_for_biennium(biennium)
+    return years[0], years[-1]
+
+
+def _merge_positions(
+    biennium: str,
+    positions: dict[int, HousePositionsByLd],
+    house_winners: dict[int, HousePositionsByLd],
+) -> HousePositionsByLd:
+    """The biennium's House position map = even seating candidacies ∪ odd-special **winners**
+    (#123 §1). ``position_for`` is name-keyed, so appended entries only *add* resolution power —
+    nothing existing is retracted. The even seating cohort keeps its full candidacy set (the #103
+    elimination depends on the losers); only the odd side is winner-filtered (hazard b — a losing
+    special candidacy must not false-match a member). An absent/empty odd cohort (no special that
+    biennium, or the odd November not yet held) leaves the even map unchanged — backward
+    compatible with the pre-#123 single-year lookup."""
+    even_year, odd_year = _biennium_election_years(biennium)
+    merged: HousePositionsByLd = {
+        ld: list(entries) for ld, entries in positions.get(even_year, {}).items()
+    }
+    for ld, entries in house_winners.get(odd_year, {}).items():
+        merged.setdefault(ld, []).extend(entries)
+    return merged
 
 
 @dataclass
@@ -144,6 +177,7 @@ async def build_house_position_spans(
     committee_ids = committee_member_ids_by_biennium(await member_cohort.archived_rosters())
     sos = SosResultsCohortProvider(session=session, source_id=sos_source.id)
     positions = await sos.house_positions()
+    house_winners = await sos.house_winners()
     citation_events = await sos.citation_events()
     bienniums = await sponsors.archived_bienniums()
 
@@ -172,8 +206,35 @@ async def build_house_position_spans(
         for biennium in bienniums
     }
     positions_by_biennium = {
-        biennium: positions.get(election_year_for_biennium(biennium), {}) for biennium in bienniums
+        biennium: _merge_positions(biennium, positions, house_winners) for biennium in bienniums
     }
+    # #123 §1c citation plumbing: a member whose position resolves from the odd-year special
+    # cohort (and NOT the even seating cohort) is cited to the odd wire (`sos-legresults:<odd>`) —
+    # the document that actually seated the mid-biennium appointee — not the even seating cohort.
+    # Mirrors the `inferred_keys`/`roster_events` precedent. `special_events` maps the biennium to
+    # its odd cohort's attesting FetchEvent.
+    special_keys: set[tuple[str, str]] = set()
+    special_events: dict[str, CitationTarget] = {}
+    for biennium in bienniums:
+        even_year, odd_year = _biennium_election_years(biennium)
+        odd_event = citation_events.get(odd_year)
+        odd_map = house_winners.get(odd_year, {})
+        if odd_event is None or not odd_map:
+            continue
+        special_events[biennium] = odd_event
+        even_map = positions.get(even_year, {})
+        merged_map = positions_by_biennium[biennium]
+        for ld, entries in roster_by_biennium[biennium].items():
+            for entry in entries:
+                even_hit = position_for(even_map, ld, entry.folded_last, entry.party_slug)
+                merged_hit = position_for(merged_map, ld, entry.folded_last, entry.party_slug)
+                # The seat came from the odd cohort iff the member's *merged* resolution (what the
+                # projector actually seats) differs from what the even seating cohort alone gives.
+                # Testing `odd_hit is not None` instead would misroute when the even cohort carries
+                # the same folded surname (a loser, or a different person) — `position_for(even, …)`
+                # resolves that surname to the wrong position, hiding a genuinely odd-sourced seat.
+                if merged_hit is not None and merged_hit != even_hit:
+                    special_keys.add((entry.member_id, biennium))
     # #118 back-chain: project every biennium AND carry each ballot-anchored Position back through
     # continuous same-LD tenure (newest→oldest), so a pre-2009 biennium below the SOS floor is
     # seated from a later ballot + the #103 elimination cascade. Same pass daily + backfill, so
@@ -251,6 +312,8 @@ async def build_house_position_spans(
         fetch_events=fetch_events,
         roster_events=roster_events,
         inferred_keys=inferred_keys,
+        special_keys=special_keys,
+        special_events=special_events,
         assignment_source=_HOUSE_ASSIGNMENT_SOURCE,
         skip_citation_ids=synthesized_ids,
     )
