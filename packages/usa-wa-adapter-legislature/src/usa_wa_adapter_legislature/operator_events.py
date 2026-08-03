@@ -263,7 +263,7 @@ async def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--member-id", help="the WSL member Id (Person.source_id)")
     parser.add_argument("--kind", choices=sorted(KINDS), help="departed | vacated | seated")
     parser.add_argument(
-        "--reason", help="died|resigned|expelled | moved|resigned | appointed|sworn_in"
+        "--reason", help="died|resigned|expelled | moved|resigned|defeated | appointed|sworn_in"
     )
     parser.add_argument(
         "--seat-kind", help="chamber-senate | chamber-house | committee (seat-scoped)"

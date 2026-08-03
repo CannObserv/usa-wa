@@ -49,6 +49,24 @@ async def test_unknown_member_rejected(db_session, usa_wa):
         await validate_and_record(db_session, source, _departed(member="999"))
 
 
+async def test_records_a_vacated_defeated_event(db_session, usa_wa):
+    """A member defeated at an election vacates the seat (#152) — the reason an
+    appointee's loss of the ensuing special/general election needs (Grant-Herriot, #144)."""
+    await _person(db_session, "100")
+    source = await _source(db_session)
+    spec = EventSpec(
+        member_id="100",
+        kind="vacated",
+        reason="defeated",
+        effective_date=date(2009, 11, 3),
+        evidence_url="https://example.gov/x",
+        seat_kind="chamber-house",
+        seat_discriminator="ld-16-position-2",
+    )
+    event = await validate_and_record(db_session, source, spec)
+    assert event.kind == "vacated" and event.reason == "defeated"
+
+
 async def test_bad_reason_for_kind_rejected(db_session, usa_wa):
     await _person(db_session, "100")
     source = await _source(db_session)

@@ -72,9 +72,12 @@ SEAT_SCOPED_KINDS = (KIND_VACATED, KIND_SEATED)
 
 #: Reason sub-tags per kind (evidence classification, not behaviour — reasons within a kind
 #: apply identically). ``resigned`` is valid for both a whole-legislature ``departed`` and a
-#: single-seat ``vacated``; the kind disambiguates.
+#: single-seat ``vacated``; the kind disambiguates. ``defeated`` covers an appointee/incumbent
+#: whose seat ends because voters did not (re-)elect them — the ensuing special or general
+#: election (Grant-Herriot losing the 2009 LD16 special, usa-wa#152/#144); distinct from a
+#: voluntary ``resigned`` or an intra-term chamber ``moved``.
 DEPARTED_REASONS = ("died", "resigned", "expelled")
-VACATED_REASONS = ("moved", "resigned")
+VACATED_REASONS = ("moved", "resigned", "defeated")
 SEATED_REASONS = ("appointed", "sworn_in")
 REASONS = tuple(dict.fromkeys(DEPARTED_REASONS + VACATED_REASONS + SEATED_REASONS))
 
