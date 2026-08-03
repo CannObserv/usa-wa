@@ -122,14 +122,17 @@ def _synthesize_closed(event: SuccessionEvent, biennium: str) -> TenureSpan:
     perturbed the #103 elimination. Safe where the #119 *open*-synth guard is not: a closed
     historical span cannot inflate the current open-chamber count."""
     start_year, _ = parse_biennium(biennium)
+    floor = date(start_year, 1, 1)
     return TenureSpan(
         member_id=event.member_id,
         kind=event.seat_kind or "",
         discriminator=event.seat_discriminator or "",
         start_biennium=biennium,
         end_biennium=biennium,
-        valid_from=date(start_year, 1, 1),
-        valid_to=event.effective_date,
+        valid_from=floor,
+        # ``biennium_for_date`` yields a biennium whose floor ≤ the date, so this holds; the
+        # ``max`` mirrors ``_close`` and guards ``valid_from ≤ valid_to`` defensively regardless.
+        valid_to=max(event.effective_date, floor),
         is_active=False,
     )
 

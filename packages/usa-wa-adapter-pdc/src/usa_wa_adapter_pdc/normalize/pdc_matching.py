@@ -87,10 +87,12 @@ def build_house_roster(
     ``exclude_ids`` drops additional member ids the caller has corroborated as stale
     (:func:`usa_wa_adapter_legislature.roster_hygiene.stale_member_ids`, #105 (b)).
 
-    ``keep_ids`` **exempts** ids from BOTH the mover and stale exclusions — used for members
-    carrying an operator-succession event (#107): the overlay dates their House seat precisely
-    (a ``vacated`` closing Hunt's House span at her real move date), which needs the span built,
-    so the automatic mover/elimination heuristics must not drop them here."""
+    ``keep_ids`` **exempts** ids from BOTH the mover and stale exclusions. Since #145 the House
+    builder passes ``event_members − house_mover_ids(...)`` here, so keep_ids serves only the
+    **non-mover** event members (a stale/departed member the overlay dates, whose span must be
+    built): an operator-touched **mover** is deliberately NOT kept — re-including them would
+    re-run the #103 elimination and split the backfiller, so the overlay synthesizes their closed
+    House tenure from the ``vacated`` instead (:func:`house_mover_ids` is that gate signal)."""
     senate_ids = _senate_named_ids(sponsor_members)
     roster: dict[int, list[HouseRosterEntry]] = {}
     for member in sponsor_members:
