@@ -39,6 +39,46 @@ class SenateEntry:
     folded_last: str
 
 
+def _senate_named_ids(sponsor_members: list[dict[str, Any]]) -> set[str]:
+    """Member ids of the fully-named Senate rows in one wire — the mover signal (a House row
+    sharing one of these ids is a mid-biennium House→Senate mover). Name-blanked stubs excluded."""
+    return {
+        str(member["Id"])
+        for member in sponsor_members
+        if member.get("Agency") == "Senate" and (member.get("LastName") or "").strip()
+    }
+
+
+def _parse_house_row(member: dict[str, Any]) -> tuple[str, int] | None:
+    """A House row's ``(stripped surname, LD number)`` if it can seat a member, else ``None``
+    (non-House agency, name-blanked stub, or unparseable district). The **one** definition of
+    "a House row that participates" — shared by :func:`build_house_roster` (uses the values) and
+    :func:`house_mover_ids` (checks membership), so the mover set the overlay gates on and the set
+    the roster excludes cannot drift (#145)."""
+    if member.get("Agency") != "House":
+        return None
+    last = (member.get("LastName") or "").strip()
+    ld = district_number(member.get("District"))
+    if not last or ld is None:
+        return None
+    return last, ld
+
+
+def house_mover_ids(sponsor_members: list[dict[str, Any]]) -> set[str]:
+    """The #105 (a) mover set for one biennium — parseable House rows whose stable ``Id`` also
+    appears in a named Senate row (#145). Identical to the set :func:`build_house_roster`
+    excludes (both route through :func:`_parse_house_row` + :func:`_senate_named_ids`), exposed so
+    the operator overlay can synthesize a mover's closed House tenure (`vacated`) **without**
+    re-including them in the roster (which perturbs the #103 elimination and splits the
+    backfiller). Pure; no keep_ids exemption — the true mover set, gate-only."""
+    senate_ids = _senate_named_ids(sponsor_members)
+    return {
+        str(member["Id"])
+        for member in sponsor_members
+        if _parse_house_row(member) is not None and str(member["Id"]) in senate_ids
+    }
+
+
 def build_house_roster(
     sponsor_members: list[dict[str, Any]],
     exclude_ids: AbstractSet[str] = frozenset(),
@@ -60,23 +100,19 @@ def build_house_roster(
     ``exclude_ids`` drops additional member ids the caller has corroborated as stale
     (:func:`usa_wa_adapter_legislature.roster_hygiene.stale_member_ids`, #105 (b)).
 
-    ``keep_ids`` **exempts** ids from BOTH the mover and stale exclusions — used for members
-    carrying an operator-succession event (#107): the overlay dates their House seat precisely
-    (a ``vacated`` closing Hunt's House span at her real move date), which needs the span built,
-    so the automatic mover/elimination heuristics must not drop them here."""
-    senate_ids = {
-        str(member["Id"])
-        for member in sponsor_members
-        if member.get("Agency") == "Senate" and (member.get("LastName") or "").strip()
-    }
+    ``keep_ids`` **exempts** ids from BOTH the mover and stale exclusions. Since #145 the House
+    builder passes ``event_members − house_mover_ids(...)`` here, so keep_ids serves only the
+    **non-mover** event members (a stale/departed member the overlay dates, whose span must be
+    built): an operator-touched **mover** is deliberately NOT kept — re-including them would
+    re-run the #103 elimination and split the backfiller, so the overlay synthesizes their closed
+    House tenure from the ``vacated`` instead (:func:`house_mover_ids` is that gate signal)."""
+    senate_ids = _senate_named_ids(sponsor_members)
     roster: dict[int, list[HouseRosterEntry]] = {}
     for member in sponsor_members:
-        if member.get("Agency") != "House":
+        parsed = _parse_house_row(member)
+        if parsed is None:
             continue
-        last = (member.get("LastName") or "").strip()
-        ld = district_number(member.get("District"))
-        if not last or ld is None:
-            continue
+        last, ld = parsed
         member_id = str(member["Id"])
         if member_id not in keep_ids and member_id in senate_ids:
             logger.info(

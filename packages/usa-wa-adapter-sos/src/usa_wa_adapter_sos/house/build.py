@@ -43,7 +43,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from usa_wa_adapter_pdc.adapter import election_year_for_biennium, election_years_for_biennium
-from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster
+from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster, house_mover_ids
 from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 
 from clearinghouse_core.logging import configure_logging, get_logger
@@ -191,17 +191,24 @@ async def build_house_position_spans(
     exclusions = stale_exclusions_by_biennium(
         rows_by_biennium, committee_ids, min_coverage=stale_min_coverage
     )
-    # Operator-succession overlay (#107): a member with an operator event is exempt from the
-    # #105 mover + stale exclusions (keep_ids) so their House span is built for the overlay to
-    # date — e.g. Hunt's House seat, closed by a `vacated` at her real chamber-move date.
+    # Operator-succession overlay (#107 / #145). An event-touched member is exempt from the #105
+    # stale exclusion (keep_ids) so their House span is built for a `vacated` to date. But an
+    # event-touched **mover** is deliberately NOT kept: re-including a mover in the roster re-runs
+    # the #103 elimination and splits the backfiller (the reverted 2013-14 tranche). Instead the
+    # overlay synthesizes the mover's closed House tenure from the `vacated`, gated on the
+    # per-biennium mover signal passed below — so keep_ids = event members minus this biennium's
+    # movers. (A future stale non-mover perturbing the elimination would need the same synth path.)
     event_rows = list(await current_events(session))
     events = from_rows(event_rows)
     event_members = event_member_ids(events)
+    movers_by_biennium = {
+        biennium: house_mover_ids(rows_by_biennium[biennium]) for biennium in bienniums
+    }
     roster_by_biennium = {
         biennium: build_house_roster(
             rows_by_biennium[biennium],
             exclude_ids=exclusions.get(biennium, set()),
-            keep_ids=event_members,
+            keep_ids=event_members - movers_by_biennium[biennium],
         )
         for biennium in bienniums
     }
@@ -299,7 +306,11 @@ async def build_house_position_spans(
 
     built_spans = build_tenure_spans(observations, current_biennium=current)
     spans = apply_operator_events(
-        built_spans, events, current_biennium=current, owned_kinds={KIND_HOUSE}
+        built_spans,
+        events,
+        current_biennium=current,
+        owned_kinds={KIND_HOUSE},
+        movers_by_biennium=movers_by_biennium,
     )
     # Operator-synthesized spans (a House appointee the ballot/roster hasn't positioned) skip
     # the roster/ballot citation — the operator field citation is their sole attestation (#107).

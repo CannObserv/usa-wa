@@ -12,6 +12,7 @@ from usa_wa_adapter_pdc.normalize.pdc_matching import (
     build_house_roster,
     build_senate_roster,
     find_confirming_senator,
+    house_mover_ids,
     match_house_member,
 )
 from usa_wa_adapter_pdc.normalize.positions import surname_match_set
@@ -94,6 +95,29 @@ def test_build_house_roster_excludes_same_wire_senate_mover():
         ]
     )
     assert {e.member_id for e in roster[34]} == {"200"}
+
+
+def test_house_mover_ids_returns_the_excluded_movers():
+    """#145: the mover set the overlay gates closed-span synthesis on — House rows whose stable
+    Id also appears in a named Senate row (the same set build_house_roster drops). A non-mover
+    House row and a Senate-only member are not movers."""
+    members = [
+        _sponsor(100, 34, "Alvarado"),  # House
+        _sponsor(100, 34, "Alvarado", agency="Senate"),  # same Id in Senate → mover
+        _sponsor(200, 34, "Fitzgibbon"),  # House only → not a mover
+        _sponsor(300, 5, "Wilson", agency="Senate"),  # Senate only → not a mover
+    ]
+    assert house_mover_ids(members) == {"100"}
+
+
+def test_house_mover_ids_ignores_name_blanked_senate_stub():
+    """A name-blanked Senate stub (boundary mover, null LastName) is not a mover signal — matches
+    build_house_roster's `LastName` guard so a stub can't spuriously flag a House row."""
+    members = [
+        _sponsor(100, 34, "Alvarado"),
+        {"Id": 100, "LastName": "", "District": "", "Agency": "Senate"},  # blanked stub
+    ]
+    assert house_mover_ids(members) == set()
 
 
 def test_build_house_roster_mover_exclusion_survives_ld_change():

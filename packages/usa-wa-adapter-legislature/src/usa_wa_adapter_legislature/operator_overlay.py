@@ -36,7 +36,7 @@ from clearinghouse_domain_legislative.operator_events import (
     KIND_SEATED,
     KIND_VACATED,
 )
-from usa_wa_adapter_legislature.synthesis import parse_biennium
+from usa_wa_adapter_legislature.synthesis import biennium_for_date, parse_biennium
 from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
 logger = get_logger(__name__)
@@ -115,19 +115,49 @@ def _synthesize(event: SuccessionEvent, current_biennium: str) -> TenureSpan:
     )
 
 
+def _synthesize_closed(event: SuccessionEvent, biennium: str) -> TenureSpan:
+    """A `vacated` event for a **mover** whose House seat the roster deliberately excluded (#105)
+    — mint their CLOSED tenure ``[biennium-floor → effective_date]``, keyed on the event's own
+    biennium so the ``source_id`` is stable (#145). This replaces the roster re-inclusion that
+    perturbed the #103 elimination. Safe where the #119 *open*-synth guard is not: a closed
+    historical span cannot inflate the current open-chamber count."""
+    start_year, _ = parse_biennium(biennium)
+    floor = date(start_year, 1, 1)
+    return TenureSpan(
+        member_id=event.member_id,
+        kind=event.seat_kind or "",
+        discriminator=event.seat_discriminator or "",
+        start_biennium=biennium,
+        end_biennium=biennium,
+        valid_from=floor,
+        # ``biennium_for_date`` yields a biennium whose floor ≤ the date, so this holds; the
+        # ``max`` mirrors ``_close`` and guards ``valid_from ≤ valid_to`` defensively regardless.
+        valid_to=max(event.effective_date, floor),
+        is_active=False,
+    )
+
+
 def apply_operator_events(
     spans: list[TenureSpan],
     events: Iterable[SuccessionEvent],
     *,
     current_biennium: str,
     owned_kinds: Iterable[str],
+    movers_by_biennium: dict[str, set[str]] | None = None,
 ) -> list[TenureSpan]:
     """Return ``spans`` with the operator events applied (a new list; inputs untouched).
 
     ``owned_kinds`` scopes the seat-scoped events to the kinds this builder produces — a
     seated/vacated for a foreign seat kind is ignored (another builder owns it). ``departed``
-    closes every open span already present in ``spans`` (all this builder's owned kinds)."""
+    closes every open span already present in ``spans`` (all this builder's owned kinds).
+
+    ``movers_by_biennium`` (#145) maps a biennium to the member ids the #105 mover-exclusion
+    dropped from that biennium's House roster. A ``vacated`` event matching no built span
+    **synthesizes** the mover's closed House tenure iff the member is a mover *that biennium* —
+    the House builder passes this so a chamber-mover's House span is dated without re-including
+    them in the roster (which perturbs the #103 elimination). Senate/committee builders omit it."""
     owned = set(owned_kinds)
+    movers = movers_by_biennium or {}
     result = list(spans)
     for event in events:
         _warn_if_predates(result, event)
@@ -158,10 +188,26 @@ def apply_operator_events(
                     result[i] = _close(span, event.effective_date)
                     hit = True
             if not hit:
-                logger.info(
-                    "operator_vacated_no_span",
-                    extra={"member_id": event.member_id, "seat": event.seat_discriminator},
-                )
+                # No built span for the seat. For a #105-excluded chamber-mover (gated on the
+                # per-biennium mover signal) synthesize their closed House tenure directly (#145);
+                # otherwise it is a typo/inverted event — a logged no-op, never a bogus span.
+                biennium = biennium_for_date(event.effective_date)
+                if event.member_id in movers.get(biennium, set()):
+                    result.append(_synthesize_closed(event, biennium))
+                    logger.info(
+                        "operator_vacated_synthesized_closed",
+                        extra={
+                            "member_id": event.member_id,
+                            "seat": event.seat_discriminator,
+                            "biennium": biennium,
+                            "effective_date": event.effective_date.isoformat(),
+                        },
+                    )
+                else:
+                    logger.info(
+                        "operator_vacated_no_span",
+                        extra={"member_id": event.member_id, "seat": event.seat_discriminator},
+                    )
         elif event.kind == KIND_SEATED:
             if event.seat_kind not in owned:
                 continue

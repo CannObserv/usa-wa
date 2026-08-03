@@ -147,6 +147,91 @@ def test_seated_targets_the_covering_tenure_not_a_later_one():
     assert got["2025-26"].valid_from == date(2025, 1, 1)  # the later tenure is untouched
 
 
+def test_vacated_synthesizes_closed_span_for_a_mover():
+    """#145: a House→Senate mover excluded from the roster has no built House span, so a
+    `vacated` event — gated on the per-biennium mover signal — synthesizes their CLOSED
+    [floor→date] House tenure directly, instead of the roster re-inclusion that perturbs the
+    #103 elimination and splits the backfiller (the reverted 2013-14 tranche)."""
+    events = [
+        SuccessionEvent("13546", "vacated", date(2014, 1, 22), "chamber-house", "ld-21-position-2")
+    ]
+    out = apply_operator_events(
+        [],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+        movers_by_biennium={"2013-14": {"13546"}},
+    )
+    assert len(out) == 1
+    s = out[0]
+    assert s.member_id == "13546"
+    assert s.kind == "chamber-house" and s.discriminator == "ld-21-position-2"
+    assert s.valid_from == date(2013, 1, 1)  # biennium floor
+    assert s.valid_to == date(2014, 1, 22)  # the vacate date
+    assert s.is_active is False
+    assert s.start_biennium == "2013-14"
+    assert s.source_id == "13546:chamber-house:ld-21-position-2:2013-14"
+
+
+def test_vacated_no_synth_for_non_mover():
+    """The mover gate is a guard: a `vacated` with no built span and NO mover signal for that
+    biennium stays a logged no-op — a typo'd event must never mint a bogus closed span."""
+    events = [
+        SuccessionEvent("99999", "vacated", date(2014, 1, 22), "chamber-house", "ld-21-position-2")
+    ]
+    out = apply_operator_events(
+        [],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+        movers_by_biennium={"2013-14": {"13546"}},  # 99999 is not a mover
+    )
+    assert out == []
+
+
+def test_vacated_no_synth_without_movers_param():
+    """Senate/committee builders pass no movers map → a `vacated` no-match stays a no-op
+    (unchanged behavior; synthesis is opt-in via the mover signal)."""
+    events = [
+        SuccessionEvent("13546", "vacated", date(2014, 1, 22), "chamber-house", "ld-21-position-2")
+    ]
+    out = apply_operator_events([], events, current_biennium=CURRENT, owned_kinds={"chamber-house"})
+    assert out == []
+
+
+def test_vacated_synth_gate_is_per_biennium():
+    """A member who is a mover in a *different* biennium doesn't get a synthesized span for this
+    date — the gate keys on the biennium of the event's own effective_date."""
+    events = [
+        SuccessionEvent("13546", "vacated", date(2014, 1, 22), "chamber-house", "ld-21-position-2")
+    ]
+    out = apply_operator_events(
+        [],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+        movers_by_biennium={"2011-12": {"13546"}},  # mover in 2011-12, not 2013-14
+    )
+    assert out == []
+
+
+def test_vacated_closes_built_span_even_for_a_mover():
+    """If a span IS built for the seat (the mover wasn't excluded, or a later-biennium tenure),
+    the existing close path wins — synthesis is only the no-built-span fallback."""
+    spans = [_span("13546", "chamber-house", "ld-21-position-2")]
+    events = [
+        SuccessionEvent("13546", "vacated", date(2025, 6, 3), "chamber-house", "ld-21-position-2")
+    ]
+    out = apply_operator_events(
+        spans,
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+        movers_by_biennium={"2025-26": {"13546"}},
+    )
+    assert len(out) == 1 and out[0].valid_to == date(2025, 6, 3)  # closed, not a second synth
+
+
 def test_event_member_ids():
     events = [
         SuccessionEvent("29091", "departed", date(2025, 4, 19)),
