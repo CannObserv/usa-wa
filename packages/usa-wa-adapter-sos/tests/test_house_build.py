@@ -820,6 +820,116 @@ async def test_chamber_move_synthesizes_mover_and_leaves_backfiller_unsplit(db_s
     assert covering == ["100"]
 
 
+async def test_multi_biennium_mover_prior_span_closes_and_synth_leaves_no_ghost(db_session, usa_wa):
+    """#145 CR round-2 finding 6: a mover who served the House across *two* consecutive biennia
+    (2011-12 House-only, then 2013-14 House+Senate = the move) yields TWO Pos1 spans — the normal
+    merged prior span (closed at the pre-move biennium) + the synthesized closed [floor→move]
+    span. Assert BOTH are closed (no ghost-open), non-overlapping, and produce no duplicate
+    occupancy at the move date. Guards against a future regression that leaves the prior span
+    open (which close_stale_spans could not close — its source_id is still asserted)."""
+    wsl, sos = await _sources(db_session, usa_wa)
+    await _add_ld(db_session, usa_wa, 5)
+    for mid in (100, 200, 300):
+        await _add_person(db_session, mid)
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2011-12",
+        _sponsor_wire((100, 5, "Rivers", "House"), (300, 5, "Jones", "House")),
+    )
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2013-14",
+        _sponsor_wire(
+            (100, 5, "Rivers", "House"),
+            (100, 5, "Rivers", "Senate"),  # same Id in Senate → mover this biennium
+            (200, 5, "Smith", "House"),  # backfiller
+            (300, 5, "Jones", "House"),
+        ),
+    )
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2015-16",
+        _sponsor_wire((200, 5, "Smith", "House"), (300, 5, "Jones", "House")),
+    )
+    for year, pos1 in (("20101102", "Rivers"), ("20121106", "Rivers"), ("20141104", "Smith")):
+        await _archive(
+            db_session,
+            sos,
+            f"sos-legresults:{year}",
+            _sos_csv(
+                ("State Representative Pos. 1", 5, pos1, "(Prefers Democratic Party)"),
+                ("State Representative Pos. 2", 5, "Jones", "(Prefers Democratic Party)"),
+            ),
+        )
+    juris = await resolve_jurisdiction(db_session)
+    op_source = await get_or_create_operator_source(db_session, juris)
+    await record_operator_event(
+        db_session,
+        op_source,
+        member_id="100",
+        kind=KIND_VACATED,
+        reason="moved",
+        effective_date=date(2013, 6, 4),
+        evidence_url="https://x",
+        seat_kind="chamber-house",
+        seat_discriminator="ld-5-position-1",
+    )
+    await record_operator_event(
+        db_session,
+        op_source,
+        member_id="200",
+        kind=KIND_SEATED,
+        reason="appointed",
+        effective_date=date(2013, 7, 3),
+        evidence_url="https://x",
+        seat_kind="chamber-house",
+        seat_discriminator="ld-5-position-1",
+    )
+
+    await build_house_position_spans(
+        db_session, sponsor_client=_StubSponsorClient(), current_biennium="2015-16"
+    )
+
+    rows = (
+        await db_session.execute(
+            select(
+                Person.source_id,
+                Assignment.valid_from,
+                Assignment.valid_to,
+                Assignment.is_active,
+            )
+            .join(Assignment, Assignment.person_id == Person.id)
+            .where(Assignment.source_id.like("100:chamber-house:ld-5-position-1:%"))
+            .order_by(Assignment.valid_from)
+        )
+    ).all()
+
+    # Two spans for the mover — the merged prior tenure + the synthesized closed span.
+    assert len(rows) == 2, rows
+    prior, synth = rows[0], rows[1]
+    # BOTH closed — no ghost-open House seat for a member who moved to the Senate.
+    assert prior.valid_to is not None and prior.is_active is False, rows
+    assert synth.is_active is False, rows
+    # The synthesized span is the [floor → move date] closed tenure.
+    assert (synth.valid_from, synth.valid_to) == (date(2013, 1, 1), date(2013, 6, 4)), rows
+    # Non-overlapping: the prior span ends on/before the synth span begins.
+    assert prior.valid_to <= synth.valid_from, rows
+    # No duplicate occupancy at the move date: exactly one member covers 2013-06-04.
+    move = date(2013, 6, 4)
+    all_pos1 = (
+        await db_session.execute(
+            select(Person.source_id, Assignment.valid_from, Assignment.valid_to)
+            .join(Assignment, Assignment.person_id == Person.id)
+            .where(Assignment.source_id.like("%:chamber-house:ld-5-position-1:%"))
+        )
+    ).all()
+    covering = {mid for mid, vf, vt in all_pos1 if vf <= move and (vt is None or vt >= move)}
+    assert covering == {"100"}, all_pos1
+
+
 async def test_historical_mover_synth_is_closed_not_current_in_restricted_rebuild(
     db_session, usa_wa
 ):
