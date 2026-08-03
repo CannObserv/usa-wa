@@ -45,7 +45,7 @@ A new `operator_events` table (ULID PK, `TimestampMixin`). Columns:
 - `source` / `source_id` — the `usa_wa_operator` Source + a deterministic event key (`{member_id}:{kind}[:{seat_kind}:{seat_discriminator}]:{effective_date}` — seat segment only for the seat-scoped kinds), so a re-ingest of the same event is an idempotent upsert.
 - `member_id` — the WSL `Id` (`Person.source_id` under `usa_wa_legislature`).
 - `kind` — **three** kinds, split by scope: `departed` (person-scoped, no seat), `vacated` (seat-scoped end), `seated` (seat-scoped start).
-- `reason` — sub-tag: `departed` `died | resigned | expelled`; `vacated` `moved | resigned`; `seated` `appointed | sworn_in`.
+- `reason` — sub-tag: `departed` `died | resigned | expelled`; `vacated` `moved | resigned | defeated`; `seated` `appointed | sworn_in`. (`defeated` — an appointee/incumbent whose seat ends because voters did not (re-)elect them at the ensuing special/general election, usa-wa#152.)
 - `seat_kind` / `seat_discriminator` — the target seat, **required for `seated`/`vacated`, both null for `departed`** (a death ends everything; a seat-scoped event names one seat). The `kind` tag + discriminator the builders already use (`chamber-senate` + LD, `chamber-house` + `ld-{n}-position-{p}`, `committee` + WSL id). Two check constraints enforce the kind set and the seat shape.
 - `effective_date` — the succession boundary.
 - `evidence_url` — operator's cited source (news/official).
