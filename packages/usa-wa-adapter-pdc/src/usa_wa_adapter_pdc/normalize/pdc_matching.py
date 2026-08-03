@@ -39,6 +39,33 @@ class SenateEntry:
     folded_last: str
 
 
+def _senate_named_ids(sponsor_members: list[dict[str, Any]]) -> set[str]:
+    """Member ids of the fully-named Senate rows in one wire — the mover signal (a House row
+    sharing one of these ids is a mid-biennium House→Senate mover). Name-blanked stubs excluded."""
+    return {
+        str(member["Id"])
+        for member in sponsor_members
+        if member.get("Agency") == "Senate" and (member.get("LastName") or "").strip()
+    }
+
+
+def house_mover_ids(sponsor_members: list[dict[str, Any]]) -> set[str]:
+    """The #105 (a) mover set for one biennium — parseable House rows whose stable ``Id`` also
+    appears in a named Senate row (#145). Identical to the set :func:`build_house_roster`
+    excludes, exposed so the operator overlay can synthesize a mover's closed House tenure
+    (`vacated`) **without** re-including them in the roster (which perturbs the #103 elimination
+    and splits the backfiller). Pure; no keep_ids exemption — the true mover set, gate-only."""
+    senate_ids = _senate_named_ids(sponsor_members)
+    return {
+        str(member["Id"])
+        for member in sponsor_members
+        if member.get("Agency") == "House"
+        and (member.get("LastName") or "").strip()
+        and district_number(member.get("District")) is not None
+        and str(member["Id"]) in senate_ids
+    }
+
+
 def build_house_roster(
     sponsor_members: list[dict[str, Any]],
     exclude_ids: AbstractSet[str] = frozenset(),
@@ -64,11 +91,7 @@ def build_house_roster(
     carrying an operator-succession event (#107): the overlay dates their House seat precisely
     (a ``vacated`` closing Hunt's House span at her real move date), which needs the span built,
     so the automatic mover/elimination heuristics must not drop them here."""
-    senate_ids = {
-        str(member["Id"])
-        for member in sponsor_members
-        if member.get("Agency") == "Senate" and (member.get("LastName") or "").strip()
-    }
+    senate_ids = _senate_named_ids(sponsor_members)
     roster: dict[int, list[HouseRosterEntry]] = {}
     for member in sponsor_members:
         if member.get("Agency") != "House":

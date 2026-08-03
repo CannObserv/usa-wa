@@ -19,7 +19,7 @@ from usa_wa_adapter_sos.house.build import HouseSpanResult, build_house_position
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person
-from clearinghouse_domain_legislative.operator_events import KIND_VACATED
+from clearinghouse_domain_legislative.operator_events import KIND_SEATED, KIND_VACATED
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.operator_events_store import (
     get_or_create_operator_source,
@@ -671,10 +671,10 @@ async def test_stale_screen_drops_a_departed_even_holder_so_the_odd_winner_seats
 
 
 async def test_operator_vacated_closes_a_mover_house_seat_at_the_move_date(db_session, usa_wa):
-    """#107: a House→Senate mover (Hunt-shaped) is normally mover-excluded, but an operator
-    `vacated` event keeps her House row (keep_ids) so the span builds, then closes it at her real
-    chamber-move date — with a field-level operator citation. Her party/Senate are the sponsor
-    builder's concern; here only the House seat is affected."""
+    """#107/#145: a House→Senate mover (Hunt-shaped) is mover-excluded, so the `vacated` event
+    **synthesizes** her closed House tenure (floor→move date) directly — gated on the mover signal,
+    NOT by re-including her in the roster (which would perturb the #103 elimination, #145). A
+    field-level operator citation attaches. Her party/Senate are the sponsor builder's concern."""
     wsl, sos = await _sources(db_session, usa_wa)
     await _add_ld(db_session, usa_wa, 5)
     await _add_person(db_session, 35410)
@@ -723,6 +723,162 @@ async def test_operator_vacated_closes_a_mover_house_seat_at_the_move_date(db_se
         .where(Citation.entity_id == row.id, Citation.field_path == "valid_to")
     )
     assert field_cites == 1
+
+
+async def test_chamber_move_synthesizes_mover_and_leaves_backfiller_unsplit(db_session, usa_wa):
+    """#145 golden guard: a House→Senate mover's House tenure is SYNTHESIZED (closed, floor→move
+    date) rather than re-including them in the roster — so the #103 elimination is not perturbed
+    and the backfiller keeps ONE continuous span (no superseded `:2015-16` split, the reverted
+    2013-14 tranche's failure mode). Mover 100 (Pos1 via the 2012 ballot) → Senate mid-2013;
+    backfiller 200 appointed to Pos1 (2013) then wins the 2014 ballot; 300 holds Pos2 throughout."""
+    wsl, sos = await _sources(db_session, usa_wa)
+    await _add_ld(db_session, usa_wa, 5)
+    for mid in (100, 200, 300):
+        await _add_person(db_session, mid)
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2013-14",
+        _sponsor_wire(
+            (100, 5, "Rivers", "House"),
+            (100, 5, "Rivers", "Senate"),  # same Id in Senate → mover
+            (200, 5, "Smith", "House"),  # backfiller (appointed, not on the 2012 ballot)
+            (300, 5, "Jones", "House"),  # Pos2 holder
+        ),
+    )
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2015-16",
+        _sponsor_wire((200, 5, "Smith", "House"), (300, 5, "Jones", "House")),
+    )
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20121106",
+        _sos_csv(
+            ("State Representative Pos. 1", 5, "Rivers", "(Prefers Democratic Party)"),
+            ("State Representative Pos. 2", 5, "Jones", "(Prefers Democratic Party)"),
+        ),
+    )
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20141104",
+        _sos_csv(
+            ("State Representative Pos. 1", 5, "Smith", "(Prefers Democratic Party)"),
+            ("State Representative Pos. 2", 5, "Jones", "(Prefers Democratic Party)"),
+        ),
+    )
+    juris = await resolve_jurisdiction(db_session)
+    op_source = await get_or_create_operator_source(db_session, juris)
+    await record_operator_event(
+        db_session,
+        op_source,
+        member_id="100",
+        kind=KIND_VACATED,
+        reason="moved",
+        effective_date=date(2013, 6, 4),
+        evidence_url="https://x",
+        seat_kind="chamber-house",
+        seat_discriminator="ld-5-position-1",
+    )
+    await record_operator_event(
+        db_session,
+        op_source,
+        member_id="200",
+        kind=KIND_SEATED,
+        reason="appointed",
+        effective_date=date(2013, 7, 3),
+        evidence_url="https://x",
+        seat_kind="chamber-house",
+        seat_discriminator="ld-5-position-1",
+    )
+
+    await build_house_position_spans(
+        db_session, sponsor_client=_StubSponsorClient(), current_biennium="2015-16"
+    )
+
+    rows = (
+        await db_session.execute(
+            select(Person.source_id, Assignment.valid_from, Assignment.valid_to)
+            .join(Assignment, Assignment.person_id == Person.id)
+            .where(Assignment.source_id.like("%:chamber-house:ld-5-position-1:%"))
+        )
+    ).all()
+    by_member: dict[str, list] = {}
+    for mid, vf, vt in rows:
+        by_member.setdefault(mid, []).append((vf, vt))
+
+    # The backfiller keeps ONE continuous Pos1 span — no superseded :2015-16 duplicate.
+    assert len(by_member["200"]) == 1, by_member
+    assert by_member["200"][0][0] == date(2013, 7, 3)  # re-dated to the appointment
+    # The mover's House tenure is a synthesized closed span (floor → move date).
+    assert by_member["100"] == [(date(2013, 1, 1), date(2013, 6, 4))]
+    # No duplicate occupancy at the 2013 floor: mover covers Jan 1, backfiller starts Jul 3.
+    covering = [m for m, spans in by_member.items() if spans[0][0] <= date(2013, 1, 1)]
+    assert covering == ["100"]
+
+
+async def test_historical_mover_synth_is_closed_not_current_in_restricted_rebuild(
+    db_session, usa_wa
+):
+    """#145 risk-1 guard: even in the daily *restricted* rebuild, a historical mover's `vacated`
+    synthesizes a CLOSED span keyed on the event's own biennium (2013-14) — never a bogus current
+    open seat (the #119 open-synth hazard). The closed historical span can't inflate the current
+    chamber, so daily and backfill agree."""
+    wsl, sos = await _sources(db_session, usa_wa)
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_person(db_session, 100)
+    await _add_person(db_session, 200)
+    await _archive(
+        db_session,
+        wsl,
+        "sponsors:2013-14",
+        _sponsor_wire(
+            (100, 5, "Rivers", "House"),
+            (100, 5, "Rivers", "Senate"),
+            (200, 5, "Smith", "House"),
+        ),
+    )
+    # A current-biennium roster so the restricted rebuild has a live cohort.
+    await _archive(db_session, wsl, "sponsors:2025-26", _sponsor_wire((200, 5, "Smith", "House")))
+    await _archive(
+        db_session,
+        sos,
+        "sos-legresults:20241105",
+        _sos_csv(("State Representative Pos. 1", 5, "Smith", "(Prefers Democratic Party)")),
+    )
+    juris = await resolve_jurisdiction(db_session)
+    op_source = await get_or_create_operator_source(db_session, juris)
+    await record_operator_event(
+        db_session,
+        op_source,
+        member_id="100",
+        kind=KIND_VACATED,
+        reason="moved",
+        effective_date=date(2013, 6, 4),
+        evidence_url="https://x",
+        seat_kind="chamber-house",
+        seat_discriminator="ld-5-position-1",
+    )
+
+    await build_house_position_spans(
+        db_session,
+        sponsor_client=_StubSponsorClient(),
+        current_biennium=CURRENT,
+        restrict_to_biennium=CURRENT,
+    )
+
+    synth = (
+        await db_session.execute(
+            select(Assignment.valid_from, Assignment.valid_to, Assignment.is_active).where(
+                Assignment.source_id == "100:chamber-house:ld-5-position-1:2013-14"
+            )
+        )
+    ).one_or_none()
+    assert synth is not None
+    assert synth == (date(2013, 1, 1), date(2013, 6, 4), False)  # closed, historical — not current
 
 
 async def test_departed_member_open_span_is_closed_by_the_sweep(db_session, usa_wa):
