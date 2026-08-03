@@ -243,7 +243,14 @@ async def sweep_house_winners(
     the seats that covered them — the historical regression the daily current-biennium gate can't
     reach (the LD30-2015-16 shape). Each winner ``(LD, position)`` is probed against the occupancy
     on the odd year's election date; a seat with no covering occupant is ``missing``, a covering
-    occupant not matching the ballot name is ``mismatched`` (surfaced, never gated here)."""
+    occupant not matching the ballot name is ``mismatched`` (surfaced, never gated here).
+
+    The probe date is ``date(odd_year, 12, 31)`` — after the November special, within the seating
+    biennium. This assumes the winner is seated within the odd calendar year; a special whose
+    seating certifies into the following January would false-report as ``missing`` here. That is a
+    tolerable report-only artifact (never a page), and the symmetric alternative — probing the
+    biennium end — would instead false-miss a member who left before then, so the year-end probe is
+    the better default."""
     jurisdiction = await resolve_jurisdiction(session)
     sos_source = await get_or_create_results_source(session, jurisdiction)
     provider = SosResultsCohortProvider(session=session, source_id=sos_source.id)
