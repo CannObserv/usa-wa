@@ -493,6 +493,70 @@ async def test_stale_named_row_party_span_ends_at_committee_departure(
     assert live_party.is_active is True and live_party.valid_to is None
 
 
+async def test_event_member_stale_in_a_later_biennium_is_not_exempted(
+    db_session, usa_wa, wsl_source
+):
+    """#145 CR (O'Ban shape): the stale-exemption is biennium-scoped. A member with an operator
+    event in an EARLY biennium (900, a `seated` in 2019-20) who genuinely departs later — still
+    named in the 2021-22 wire but off every committee roster (an election-loss ghost) — must be
+    stale-excluded in 2021-22, so their Senate span ends at the real departure boundary. A GLOBAL
+    exemption (the pre-fix bug) kept the ghost and stretched the span into 2021-22 (a spurious
+    later duplicate). The control member 100 (no event) stays open."""
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_ld(db_session, usa_wa, 28)
+    for mid, name in ((100, "Member 100"), (900, "Steve OBan")):
+        db_session.add(Person(source="usa_wa_legislature", source_id=str(mid), name_full=name))
+    await db_session.flush()
+
+    rosters = {
+        "2019-20": [_member(100), _member(900, district="28")],
+        # 900 lost in 2020 — still named in the 2021-22 wire (the ghost row).
+        "2021-22": [_member(100), _member(900, district="28")],
+    }
+    for biennium in rosters:
+        await _archive(db_session, wsl_source, biennium, f"<b:{biennium}>".encode())
+    # Committee archive: both seated in 2019-20; only 100 in 2021-22 (900 is committee-absent).
+    await _archive_committee_roster(db_session, wsl_source, "2019-20", "888", b"<r:100,900/>")
+    await _archive_committee_roster(db_session, wsl_source, "2021-22", "888", b"<r:100/>")
+
+    juris = await resolve_jurisdiction(db_session)
+    op_source = await get_or_create_operator_source(db_session, juris)
+    await record_operator_event(
+        db_session,
+        op_source,
+        member_id="900",
+        kind=KIND_SEATED,
+        reason="appointed",
+        effective_date=date(2019, 6, 1),  # latest event biennium = 2019-20
+        evidence_url="https://x",
+        seat_kind="chamber-senate",
+        seat_discriminator="28",
+    )
+
+    await build_sponsor_spans(
+        db_session,
+        sponsor_client=_WireMappingSponsorClient(rosters),
+        member_client=_WireMappingMemberClient(),
+        current_biennium="2021-22",
+        stale_min_coverage=0.5,
+    )
+
+    ghost_senate = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "900:chamber-senate:28:2019-20")
+        )
+    ).scalar_one()
+    # Stale-excluded in 2021-22 → ends at the departure boundary, NOT stretched into 2021-22.
+    assert ghost_senate.is_active is False and ghost_senate.valid_to == date(2020, 12, 31)
+    # Control: 100 (no event, committee-present throughout) stays open.
+    live_senate = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "100:chamber-senate:5:2019-20")
+        )
+    ).scalar_one()
+    assert live_senate.is_active is True and live_senate.valid_to is None
+
+
 async def test_missing_committee_archive_excludes_nothing(db_session, usa_wa, wsl_source):
     """Guardrail wiring: with no committee archive at all (pre-1999-00 / fresh deploy), the
     exclusion is a silent no-op — spans build exactly as before #105."""

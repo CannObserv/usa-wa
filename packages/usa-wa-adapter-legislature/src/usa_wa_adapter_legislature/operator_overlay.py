@@ -20,8 +20,10 @@ builder's set, so the three builders together close a dead member's seat + party
 
 Pure and idempotent: the daily refresh re-drives every builder, so the overlay re-applies on
 each run and the wire can never win back a corrected span. A member with an operator event
-must be **exempted from the #105 hygiene exclusions** upstream (see
-:func:`event_member_ids`) so their span is actually built for the overlay to date.
+must be **exempted from the #105 stale exclusion** upstream so their span is built for the
+overlay to date — but only through their latest event biennium (see
+:func:`stale_exempt_members`); a committee-stale member in a *later* biennium is a genuine
+post-event ghost whose span must not be extended (the #145 CR biennium-scoping fix).
 """
 
 from __future__ import annotations
@@ -70,10 +72,39 @@ def from_rows(rows: Iterable[object]) -> list[SuccessionEvent]:
     ]
 
 
-def event_member_ids(events: Iterable[SuccessionEvent]) -> set[str]:
-    """The member ids named by ``events`` — the set a builder exempts from its #105 hygiene
-    exclusions so an operator-touched member's span is built for the overlay to date."""
-    return {e.member_id for e in events}
+def latest_event_biennium_by_member(events: Iterable[SuccessionEvent]) -> dict[str, str]:
+    """Each member's **latest** operator-event biennium (``biennium_for_date`` of their maximum
+    ``effective_date``). A member with events in two biennia resolves to the later one — the last
+    boundary the operator asserts for them. Build this **once** per span rebuild; the map is
+    biennium-invariant, so :func:`stale_exempt_members` takes it (not ``events``) to avoid
+    recomputing it per biennium."""
+    out: dict[str, str] = {}
+    for e in events:
+        b = biennium_for_date(e.effective_date)
+        if e.member_id not in out or parse_biennium(b)[0] > parse_biennium(out[e.member_id])[0]:
+            out[e.member_id] = b
+    return out
+
+
+def stale_exempt_members(latest_by_member: dict[str, str], biennium: str) -> set[str]:
+    """The member ids exempt from a builder's #105 **stale** exclusion *in this biennium* — those
+    whose latest operator event (per :func:`latest_event_biennium_by_member`) is in ``biennium``
+    or later (compared by start year, #145 CR).
+
+    The exemption exists so an operator-touched member's span is *built* for the overlay to date.
+    But it must be **biennium-scoped**: a member who is committee-stale in a biennium AFTER their
+    last event is a genuine post-event ghost (e.g. O'Ban, a 2013-14 chamber-mover who lost his
+    Senate seat to Nobles in 2020) — exempting them there lets their cumulative-wire ghost survive
+    and stretches their span past their real departure (a spurious later-biennium duplicate). The
+    global exemption (all event members in every biennium) this replaces was the bug. Safe because
+    stale exclusion only ever bites a **committee-absent** member — a genuinely-serving
+    event-member is committee-present and never in the stale set, so narrowing the exemption only
+    affects true ghosts.
+
+    Takes the precomputed ``latest_by_member`` map (not ``events``) so a builder computes it once
+    and filters per biennium."""
+    floor = parse_biennium(biennium)[0]
+    return {m for m, lb in latest_by_member.items() if parse_biennium(lb)[0] >= floor}
 
 
 def _span_covers(span: TenureSpan, effective_date: date) -> bool:

@@ -32,8 +32,9 @@ from usa_wa_adapter_legislature.operator_events_store import (
 )
 from usa_wa_adapter_legislature.operator_overlay import (
     apply_operator_events,
-    event_member_ids,
     from_rows,
+    latest_event_biennium_by_member,
+    stale_exempt_members,
 )
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
 from usa_wa_adapter_legislature.roster_hygiene import (
@@ -120,11 +121,17 @@ async def build_sponsor_spans(
     )
     # Operator-succession overlay (#107): a member with an operator event is exempt from the
     # #105 stale exclusion (so their span is built for the overlay to date), then the events
-    # apply precise sub-biennium boundaries the wire can't supply.
+    # apply precise sub-biennium boundaries the wire can't supply. The exemption is **biennium-
+    # scoped** (#145 CR): a member is exempt only through their latest event biennium — a
+    # committee-stale member in a LATER biennium is a genuine post-event ghost (e.g. O'Ban after
+    # his 2020 election loss) whose cumulative-wire ghost must NOT extend their span past their
+    # real departure. A global exemption stretched such spans into a spurious later duplicate.
     event_rows = list(await current_events(session))
     events = from_rows(event_rows)
-    event_members = event_member_ids(events)
-    exclusions = {b: (ids - event_members) for b, ids in exclusions.items()}
+    latest_event_biennium = latest_event_biennium_by_member(events)
+    exclusions = {
+        b: (ids - stale_exempt_members(latest_event_biennium, b)) for b, ids in exclusions.items()
+    }
     observations = build_sponsor_observations(roster, exclusions)
     if restrict_to_biennium is not None:
         scoped = {o.member_id for o in observations if o.biennium == restrict_to_biennium}

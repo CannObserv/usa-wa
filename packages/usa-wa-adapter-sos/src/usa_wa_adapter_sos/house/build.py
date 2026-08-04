@@ -57,8 +57,9 @@ from usa_wa_adapter_legislature.operator_events_store import (
 )
 from usa_wa_adapter_legislature.operator_overlay import (
     apply_operator_events,
-    event_member_ids,
     from_rows,
+    latest_event_biennium_by_member,
+    stale_exempt_members,
 )
 from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
@@ -198,9 +199,13 @@ async def build_house_position_spans(
     # overlay synthesizes the mover's closed House tenure from the `vacated`, gated on the
     # per-biennium mover signal passed below — so keep_ids = event members minus this biennium's
     # movers. (A future stale non-mover perturbing the elimination would need the same synth path.)
+    # The keep is **biennium-scoped** (#145 CR): `stale_exempt_members` exempts a member only
+    # through their latest event biennium, so an event-touched member who genuinely departs later
+    # (a committee-stale ghost) is no longer kept in that later roster — mirroring the sponsor
+    # builder's fix so a House member's span isn't stretched past their real departure.
     event_rows = list(await current_events(session))
     events = from_rows(event_rows)
-    event_members = event_member_ids(events)
+    latest_event_biennium = latest_event_biennium_by_member(events)
     movers_by_biennium = {
         biennium: house_mover_ids(rows_by_biennium[biennium]) for biennium in bienniums
     }
@@ -208,7 +213,8 @@ async def build_house_position_spans(
         biennium: build_house_roster(
             rows_by_biennium[biennium],
             exclude_ids=exclusions.get(biennium, set()),
-            keep_ids=event_members - movers_by_biennium[biennium],
+            keep_ids=stale_exempt_members(latest_event_biennium, biennium)
+            - movers_by_biennium[biennium],
         )
         for biennium in bienniums
     }

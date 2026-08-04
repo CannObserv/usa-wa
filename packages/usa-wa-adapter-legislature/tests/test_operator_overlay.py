@@ -5,7 +5,8 @@ from datetime import date
 from usa_wa_adapter_legislature.operator_overlay import (
     SuccessionEvent,
     apply_operator_events,
-    event_member_ids,
+    latest_event_biennium_by_member,
+    stale_exempt_members,
 )
 from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
@@ -232,9 +233,44 @@ def test_vacated_closes_built_span_even_for_a_mover():
     assert len(out) == 1 and out[0].valid_to == date(2025, 6, 3)  # closed, not a second synth
 
 
-def test_event_member_ids():
+def test_latest_event_biennium_by_member():
+    """Each member's latest operator-event biennium (by biennium_for_date of the max
+    effective_date); a member with events in two biennia resolves to the later one."""
     events = [
-        SuccessionEvent("29091", "departed", date(2025, 4, 19)),
-        SuccessionEvent("35410", "seated", date(2025, 6, 3), "chamber-senate", "5"),
+        SuccessionEvent("100", "vacated", date(2013, 6, 4), "chamber-house", "ld-28-position-1"),
+        SuccessionEvent("100", "seated", date(2019, 2, 1), "chamber-senate", "28"),  # later
+        SuccessionEvent("200", "departed", date(2013, 5, 29)),
     ]
-    assert event_member_ids(events) == {"29091", "35410"}
+    assert latest_event_biennium_by_member(events) == {"100": "2019-20", "200": "2013-14"}
+
+
+def test_stale_exempt_members_is_biennium_scoped():
+    """#145 CR: a member is exempt from the stale exclusion only in biennia <= their latest event
+    biennium. O'Ban (event 2013-14) is exempt in 2013-14 and earlier, NOT in 2021-22 — where his
+    cumulative-wire ghost (post-2020 election loss) must stay stale-excluded so his Senate span is
+    not extended past his real departure."""
+    events = [
+        SuccessionEvent("17217", "vacated", date(2013, 6, 4), "chamber-house", "ld-28-position-1"),
+    ]
+    latest = latest_event_biennium_by_member(events)
+    assert stale_exempt_members(latest, "2011-12") == {"17217"}  # earlier — exempt
+    assert stale_exempt_members(latest, "2013-14") == {"17217"}  # same — exempt
+    assert stale_exempt_members(latest, "2015-16") == set()  # later — NOT exempt
+    assert stale_exempt_members(latest, "2021-22") == set()  # much later — NOT exempt (the fix)
+
+
+def test_stale_exempt_members_multiple_events_uses_latest():
+    """A member with events in two biennia is exempt through the LATER one (their span is built up
+    to their last asserted boundary)."""
+    events = [
+        SuccessionEvent("100", "seated", date(2013, 7, 3), "chamber-house", "ld-28-position-1"),
+        SuccessionEvent("100", "departed", date(2019, 3, 1)),
+    ]
+    latest = latest_event_biennium_by_member(events)
+    assert stale_exempt_members(latest, "2017-18") == {"100"}  # <= 2019-20
+    assert stale_exempt_members(latest, "2019-20") == {"100"}
+    assert stale_exempt_members(latest, "2021-22") == set()
+
+
+def test_stale_exempt_members_empty():
+    assert stale_exempt_members({}, "2013-14") == set()
