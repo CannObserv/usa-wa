@@ -5,7 +5,6 @@ from datetime import date
 from usa_wa_adapter_legislature.operator_overlay import (
     SuccessionEvent,
     apply_operator_events,
-    event_member_ids,
     latest_event_biennium_by_member,
     stale_exempt_members,
 )
@@ -253,10 +252,11 @@ def test_stale_exempt_members_is_biennium_scoped():
     events = [
         SuccessionEvent("17217", "vacated", date(2013, 6, 4), "chamber-house", "ld-28-position-1"),
     ]
-    assert stale_exempt_members(events, "2011-12") == {"17217"}  # earlier — exempt
-    assert stale_exempt_members(events, "2013-14") == {"17217"}  # same — exempt
-    assert stale_exempt_members(events, "2015-16") == set()  # later — NOT exempt
-    assert stale_exempt_members(events, "2021-22") == set()  # much later — NOT exempt (the fix)
+    latest = latest_event_biennium_by_member(events)
+    assert stale_exempt_members(latest, "2011-12") == {"17217"}  # earlier — exempt
+    assert stale_exempt_members(latest, "2013-14") == {"17217"}  # same — exempt
+    assert stale_exempt_members(latest, "2015-16") == set()  # later — NOT exempt
+    assert stale_exempt_members(latest, "2021-22") == set()  # much later — NOT exempt (the fix)
 
 
 def test_stale_exempt_members_multiple_events_uses_latest():
@@ -266,18 +266,11 @@ def test_stale_exempt_members_multiple_events_uses_latest():
         SuccessionEvent("100", "seated", date(2013, 7, 3), "chamber-house", "ld-28-position-1"),
         SuccessionEvent("100", "departed", date(2019, 3, 1)),
     ]
-    assert stale_exempt_members(events, "2017-18") == {"100"}  # <= 2019-20
-    assert stale_exempt_members(events, "2019-20") == {"100"}
-    assert stale_exempt_members(events, "2021-22") == set()
+    latest = latest_event_biennium_by_member(events)
+    assert stale_exempt_members(latest, "2017-18") == {"100"}  # <= 2019-20
+    assert stale_exempt_members(latest, "2019-20") == {"100"}
+    assert stale_exempt_members(latest, "2021-22") == set()
 
 
 def test_stale_exempt_members_empty():
-    assert stale_exempt_members([], "2013-14") == set()
-
-
-def test_event_member_ids():
-    events = [
-        SuccessionEvent("29091", "departed", date(2025, 4, 19)),
-        SuccessionEvent("35410", "seated", date(2025, 6, 3), "chamber-senate", "5"),
-    ]
-    assert event_member_ids(events) == {"29091", "35410"}
+    assert stale_exempt_members({}, "2013-14") == set()

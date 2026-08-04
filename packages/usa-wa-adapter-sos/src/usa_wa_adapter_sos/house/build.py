@@ -58,6 +58,7 @@ from usa_wa_adapter_legislature.operator_events_store import (
 from usa_wa_adapter_legislature.operator_overlay import (
     apply_operator_events,
     from_rows,
+    latest_event_biennium_by_member,
     stale_exempt_members,
 )
 from usa_wa_adapter_legislature.provisioning import (
@@ -204,6 +205,7 @@ async def build_house_position_spans(
     # builder's fix so a House member's span isn't stretched past their real departure.
     event_rows = list(await current_events(session))
     events = from_rows(event_rows)
+    latest_event_biennium = latest_event_biennium_by_member(events)
     movers_by_biennium = {
         biennium: house_mover_ids(rows_by_biennium[biennium]) for biennium in bienniums
     }
@@ -211,7 +213,8 @@ async def build_house_position_spans(
         biennium: build_house_roster(
             rows_by_biennium[biennium],
             exclude_ids=exclusions.get(biennium, set()),
-            keep_ids=stale_exempt_members(events, biennium) - movers_by_biennium[biennium],
+            keep_ids=stale_exempt_members(latest_event_biennium, biennium)
+            - movers_by_biennium[biennium],
         )
         for biennium in bienniums
     }

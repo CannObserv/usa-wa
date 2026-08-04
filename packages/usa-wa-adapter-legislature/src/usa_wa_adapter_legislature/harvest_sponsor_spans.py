@@ -33,6 +33,7 @@ from usa_wa_adapter_legislature.operator_events_store import (
 from usa_wa_adapter_legislature.operator_overlay import (
     apply_operator_events,
     from_rows,
+    latest_event_biennium_by_member,
     stale_exempt_members,
 )
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
@@ -127,7 +128,10 @@ async def build_sponsor_spans(
     # real departure. A global exemption stretched such spans into a spurious later duplicate.
     event_rows = list(await current_events(session))
     events = from_rows(event_rows)
-    exclusions = {b: (ids - stale_exempt_members(events, b)) for b, ids in exclusions.items()}
+    latest_event_biennium = latest_event_biennium_by_member(events)
+    exclusions = {
+        b: (ids - stale_exempt_members(latest_event_biennium, b)) for b, ids in exclusions.items()
+    }
     observations = build_sponsor_observations(roster, exclusions)
     if restrict_to_biennium is not None:
         scoped = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
