@@ -76,6 +76,36 @@ def event_member_ids(events: Iterable[SuccessionEvent]) -> set[str]:
     return {e.member_id for e in events}
 
 
+def latest_event_biennium_by_member(events: Iterable[SuccessionEvent]) -> dict[str, str]:
+    """Each member's **latest** operator-event biennium (``biennium_for_date`` of their maximum
+    ``effective_date``). A member with events in two biennia resolves to the later one — the last
+    boundary the operator asserts for them."""
+    out: dict[str, str] = {}
+    for e in events:
+        b = biennium_for_date(e.effective_date)
+        if e.member_id not in out or parse_biennium(b)[0] > parse_biennium(out[e.member_id])[0]:
+            out[e.member_id] = b
+    return out
+
+
+def stale_exempt_members(events: Iterable[SuccessionEvent], biennium: str) -> set[str]:
+    """The member ids exempt from a builder's #105 **stale** exclusion *in this biennium* — those
+    whose latest operator event is in ``biennium`` or later (compared by start year, #145 CR).
+
+    The exemption exists so an operator-touched member's span is *built* for the overlay to date.
+    But it must be **biennium-scoped**: a member who is committee-stale in a biennium AFTER their
+    last event is a genuine post-event ghost (e.g. O'Ban, a 2013-14 chamber-mover who lost his
+    Senate seat to Nobles in 2020) — exempting them there lets their cumulative-wire ghost survive
+    and stretches their span past their real departure (a spurious later-biennium duplicate). A
+    global exemption (``event_member_ids`` across all biennia) was the bug this replaces. Safe
+    because stale exclusion only ever bites a **committee-absent** member — a genuinely-serving
+    event-member is committee-present and never in the stale set, so narrowing the exemption only
+    affects true ghosts."""
+    floor = parse_biennium(biennium)[0]
+    latest = latest_event_biennium_by_member(events)
+    return {m for m, lb in latest.items() if parse_biennium(lb)[0] >= floor}
+
+
 def _span_covers(span: TenureSpan, effective_date: date) -> bool:
     """The span's validity window contains ``effective_date`` (open end = unbounded)."""
     return span.valid_from <= effective_date and (
