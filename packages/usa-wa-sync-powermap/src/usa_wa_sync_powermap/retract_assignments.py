@@ -26,7 +26,7 @@ Local ``archived_at`` write on a canonical table → app role. No operator token
 boundary, like the migrate/heal one-shots). ``--dry-run`` resolves + previews the targets WITHOUT
 POSTing (a retract POST is an irreversible PM mutation a local rollback can't undo). Exit ``0``
 clean (incl. an idempotent re-run) · ``1`` a target left unsettled (not-found / unanchored /
-refused) · ``2`` auth.
+refused) · ``2`` auth · ``3`` a persistent transient PM outage (re-run once PM recovers).
 
     python -m usa_wa_sync_powermap.retract_assignments --dry-run \
         --source-id 481:chamber-senate:39:2001-02 --source-id 481:party:republican:2001-02
@@ -58,6 +58,10 @@ logger = get_logger(__name__)
 
 #: The assignment observation channel (power-map#391 routes ``op:"retract"`` here).
 OBSERVE_PATH = "/api/v1/assignments/observations"
+
+#: Exit code for a persistent transient PM outage (429/5xx past the backoff budget) — distinct from
+#: 1 (a data/target problem) and 2 (auth); the run is idempotent, so re-run once PM recovers.
+EXIT_TRANSIENT_OUTAGE = 3
 
 #: The producer source these artifact assignments belong to (the seat/party spans this CLI retires
 #: are all ``usa_wa_legislature``). Scopes the resolve to the full natural key ``(source,
@@ -189,7 +193,9 @@ def exit_code(result: dict) -> int:
     that never existed), ``not_anchored`` (nothing to retract on PM), or ``unexpected`` (PM refused)
     — else ``0``. A clean run and an idempotent re-run (all ``retracted``/``already_retracted``/
     ``would_retract``) both exit ``0``, so automation sees non-zero only on a real failure/typo."""
-    unsettled = result["not_found"] + result["not_anchored"] + result["unexpected"]
+    unsettled = (
+        result.get("not_found", 0) + result.get("not_anchored", 0) + result.get("unexpected", 0)
+    )
     return 1 if unsettled else 0
 
 
@@ -248,6 +254,11 @@ def main(argv: list[str] | None = None) -> int:
     except DeliveryBlockedError as exc:
         print(json.dumps({"error": f"delivery blocked: {exc}"}))
         return 2
+    except RetryableClientError as exc:
+        # Persistent 429/5xx past the backoff budget — no local commit happened (the session rolled
+        # back), and PM retraction is idempotent, so a re-run once PM recovers converges cleanly.
+        print(json.dumps({"error": f"transient PM outage — safe to re-run: {exc}"}))
+        return EXIT_TRANSIENT_OUTAGE
     print(json.dumps(result, indent=2, default=str))
     return exit_code(result)
 

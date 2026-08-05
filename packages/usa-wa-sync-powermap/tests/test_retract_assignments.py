@@ -10,11 +10,16 @@ does not tombstone. Retraction is terminal (no reversible ``archived:false``).
 
 from datetime import UTC, date, datetime
 
+import pytest
 from ulid import ULID
 
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
-from clearinghouse_sync_powermap.client import ObservationResult
+from clearinghouse_sync_powermap.client import ObservationResult, RetryableClientError
 from usa_wa_sync_powermap import retract_assignments as ra
+
+
+async def _no_sleep(_seconds):
+    """Backoff sleep stub — advances the retry loop without real delay."""
 
 
 class _FakeClient:
@@ -248,3 +253,49 @@ def test_exit_code_nonzero_when_targets_unsettled():
     assert ra.exit_code({"not_found": 1, "not_anchored": 0, "unexpected": 0}) == 1
     assert ra.exit_code({"not_found": 0, "not_anchored": 2, "unexpected": 0}) == 1
     assert ra.exit_code({"not_found": 0, "not_anchored": 0, "unexpected": 3}) == 1
+
+
+def test_exit_code_tolerates_partial_dict():
+    # A missing count key must default to 0, not KeyError (finding 8).
+    assert ra.exit_code({}) == 0
+    assert ra.exit_code({"not_found": 1}) == 1
+    assert ra.exit_code({"unexpected": 2}) == 1
+
+
+class _FlakyClient:
+    """Raises RetryableClientError for the first ``fail_n`` calls, then returns ``disposition``."""
+
+    def __init__(self, *, fail_n, disposition="retracted"):
+        self._fail_n = fail_n
+        self._disposition = disposition
+        self.calls = 0
+
+    async def post_observation(self, observe_path, payload):
+        self.calls += 1
+        if self.calls <= self._fail_n:
+            raise RetryableClientError("429")
+        return ObservationResult(disposition=self._disposition, pm_id=None, raw={})
+
+
+async def test_post_with_backoff_retries_then_succeeds():
+    client = _FlakyClient(fail_n=2)
+    result = await ra._post_with_backoff(client, {"op": "retract"}, sleep=_no_sleep)
+    assert result.disposition == "retracted"
+    assert client.calls == 3  # 2 transient failures then success
+
+
+async def test_post_with_backoff_reraises_after_budget():
+    client = _FlakyClient(fail_n=99)  # never recovers
+    with pytest.raises(RetryableClientError):
+        await ra._post_with_backoff(client, {"op": "retract"}, sleep=_no_sleep)
+
+
+def test_main_catches_transient_outage(monkeypatch):
+    """A persistent 429/5xx that exhausts the backoff surfaces as a clean exit 3, not a
+    traceback (finding 7)."""
+
+    async def _boom(_args):
+        raise RetryableClientError("429")
+
+    monkeypatch.setattr(ra, "_run", _boom)
+    assert ra.main(["--source-id", "x"]) == 3
