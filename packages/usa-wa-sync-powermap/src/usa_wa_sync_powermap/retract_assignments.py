@@ -22,7 +22,9 @@ un-retract. PM's anti-resurrection (both create doors attach to the archived twi
 Phase 1 derivation exclusion keep the phantom span from ever returning.
 
 Local ``archived_at`` write on a canonical table → app role. No operator token (shell = the trust
-boundary, like the migrate/heal one-shots). ``--dry-run`` previews; exit ``0`` clean · ``2`` auth.
+boundary, like the migrate/heal one-shots). ``--dry-run`` resolves + previews the targets WITHOUT
+POSTing (a retract POST is an irreversible PM mutation a local rollback can't undo); exit ``0``
+clean · ``2`` auth.
 
     python -m usa_wa_sync_powermap.retract_assignments --dry-run \
         --source-id 481:chamber-senate:39:2001-02 --source-id 481:party:republican:2001-02
@@ -42,7 +44,11 @@ from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.queries import live_only
-from clearinghouse_sync_powermap.client import DISPOSITION_RETRACTED, DeliveryBlockedError
+from clearinghouse_sync_powermap.client import (
+    DISPOSITION_AUTO_ATTACHED,
+    DISPOSITION_RETRACTED,
+    DeliveryBlockedError,
+)
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.registry import build_pm_client
 
@@ -50,6 +56,12 @@ logger = get_logger(__name__)
 
 #: The assignment observation channel (power-map#391 routes ``op:"retract"`` here).
 OBSERVE_PATH = "/api/v1/assignments/observations"
+
+#: Dispositions that confirm a retract succeeded → tombstone locally. ``retracted`` is the first
+#: retract of a live tenure; ``auto-attached`` is PM's **already-archived no-op** on a re-retract
+#: (power-map#391 checks it before provenance so a re-emit stays quiet) — idempotent, also a
+#: success. Anything else (e.g. ``rejected``) is surfaced un-tombstoned.
+_RETRACT_SUCCESS = frozenset({DISPOSITION_RETRACTED, DISPOSITION_AUTO_ATTACHED})
 
 
 async def _resolve(session: AsyncSession, source_id: str) -> Assignment | None:
@@ -61,15 +73,21 @@ async def _resolve(session: AsyncSession, source_id: str) -> Assignment | None:
     ).scalar_one_or_none()
 
 
-async def retract_assignments(session: AsyncSession, client: Any, source_ids: list[str]) -> dict:
+async def retract_assignments(
+    session: AsyncSession, client: Any, source_ids: list[str], *, dry_run: bool = False
+) -> dict:
     """Retract each ``source_id``'s live anchored assignment on PM and tombstone it locally.
 
-    POSTs the id-addressed ``op:"retract"`` payload; on a ``retracted`` disposition sets
+    POSTs the id-addressed ``op:"retract"`` payload; on a :data:`_RETRACT_SUCCESS` disposition sets
     ``archived_at`` (the reversible tombstone mirroring PM's archive). A not-found or unanchored
-    ``source_id`` is counted and skipped; a non-``retracted`` disposition is counted ``unexpected``
-    and left un-tombstoned. Executes in the caller's transaction; does not commit.
+    ``source_id`` is counted and skipped; any other disposition is counted ``unexpected`` and left
+    un-tombstoned. Executes in the caller's transaction; does not commit.
+
+    ``dry_run`` resolves + validates the targets and counts ``would_retract`` but **never POSTs** —
+    a retract POST is an irreversible PM mutation a local rollback cannot undo, so a dry-run must
+    not touch PM at all (unlike a read-then-local-write heal, whose rollback is truly dry).
     """
-    retracted = not_found = not_anchored = unexpected = 0
+    retracted = would_retract = not_found = not_anchored = unexpected = 0
     now = datetime.now(UTC)
     for source_id in source_ids:
         row = await _resolve(session, source_id)
@@ -81,18 +99,29 @@ async def retract_assignments(session: AsyncSession, client: Any, source_ids: li
             not_anchored += 1
             logger.warning("retract_source_id_unanchored", extra={"source_id": source_id})
             continue
+        if dry_run:
+            would_retract += 1
+            logger.info(
+                "retract_dry_run_would_retract",
+                extra={"source_id": source_id, "pm_assignment_id": str(row.pm_assignment_id)},
+            )
+            continue
         payload = {
             "identifier_type": "pm_assignment_id",
             "identifier_value": str(row.pm_assignment_id),
             "op": "retract",
         }
         result = await client.post_observation(OBSERVE_PATH, payload)
-        if result.disposition == DISPOSITION_RETRACTED:
+        if result.disposition in _RETRACT_SUCCESS:
             row.archived_at = now
             retracted += 1
             logger.info(
                 "assignment_retracted",
-                extra={"source_id": source_id, "pm_assignment_id": str(row.pm_assignment_id)},
+                extra={
+                    "source_id": source_id,
+                    "pm_assignment_id": str(row.pm_assignment_id),
+                    "disposition": result.disposition,
+                },
             )
         else:
             unexpected += 1
@@ -104,6 +133,7 @@ async def retract_assignments(session: AsyncSession, client: Any, source_ids: li
     return {
         "requested": len(source_ids),
         "retracted": retracted,
+        "would_retract": would_retract,
         "not_found": not_found,
         "not_anchored": not_anchored,
         "unexpected": unexpected,
@@ -134,8 +164,11 @@ async def _run(args: argparse.Namespace) -> dict:
     async with get_session_factory()() as session:
         client = build_pm_client(settings)
         try:
-            result = await retract_assignments(session, client, args.source_ids)
+            result = await retract_assignments(
+                session, client, args.source_ids, dry_run=args.dry_run
+            )
             if args.dry_run:
+                # No PM POST and no local write happened; rollback is belt-and-suspenders.
                 await session.rollback()
                 result = {**result, "dry_run": True}
             else:
