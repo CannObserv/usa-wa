@@ -147,10 +147,18 @@ class ChangePage:
     ``next_after`` is the outbox ``seq_id`` to pass as ``after`` on the next pull
     (PM #203; the old timestamp ``next_since`` cursor was retired). ``None`` only
     when PM omits it (defensive); normally PM always echoes a usable seq.
+
+    ``min_seq`` is PM's oldest-retained watermark (power-map#388): the smallest
+    ``seq_id`` still inside the 90-day retention window. A trailing consumer
+    (the usa-wa#159 replay backstop) compares its replay floor against this to
+    detect horizon fall-off — a stale ``after`` below ``min_seq`` silently
+    resumes mid-stream, so the floor must never drop below it undetected.
+    ``None`` when PM omits it (a pre-#388 server, or absent from a given page).
     """
 
     items: Sequence[ChangeItem]
     next_after: int | None
+    min_seq: int | None = None
 
 
 @dataclass(frozen=True)
