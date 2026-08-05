@@ -583,6 +583,29 @@ python -m usa_wa_sync_powermap.heal_assignment_clocks
 # (best run when the outbox is quiescent). Observed 2026-07-07: 1226 → 303 → 31 → 0.
 python -m usa_wa_sync_powermap.prune_subscriptions --dry-run
 python -m usa_wa_sync_powermap.prune_subscriptions   # re-run until dry-run shows stale=0
+
+# Retract spurious anchored assignments (#144 Phase 2) — one-shot producer retraction. Given
+# local Assignment.source_id(s), retires each artifact tenure usa-wa produced (a WSL sponsor-
+# archive chamber-conflation like Wynne LD39 Senate 2001-02 + its paired party span) through the
+# sanctioned /observations channel via power-map#391's op:"retract" — no orphan, no /admin/ route.
+# POSTs {identifier_type:pm_assignment_id, identifier_value:<ulid>, op:"retract"} (op rides the
+# request model's additional_properties, the #111 pattern — NO client regen). On a retracted (or,
+# on a re-run, auto-attached = PM's already-archived no-op) disposition it tombstones the local row
+# (archived_at — the reversible axis mirroring PM's archive; _seat_scope excludes archived, so the
+# succession --sweep-biennia audit clears). RETRACTION IS TERMINAL (power-map#391 shipped no
+# reversible archived:false; un-retract is admin-only) — never build retry against un-retract.
+# PM's anti-resurrection (both create doors attach to the archived twin) + the #144 Phase 1
+# derivation exclusion (member_artifacts) keep the phantom span from ever returning.
+# RUN SIDECAR-PAUSED. --dry-run resolves + previews WITHOUT POSTing (a retract POST is irreversible
+# — a local rollback can't undo it, so dry-run must not touch PM). Idempotent: an already-archived
+# target is a no-op already_retracted (resolve is full natural key (source,source_id) incl.
+# archived, so a completed re-run isn't mis-reported not_found). Transient 429/5xx retries on a
+# bounded backoff. App-role local write; read-only-shaped PM mutation via observation.
+# Exit 0 clean / idempotent · 1 a target left unsettled (not-found / unanchored / PM-refused) · 2 auth.
+python -m usa_wa_sync_powermap.retract_assignments --dry-run \
+    --source-id 481:chamber-senate:39:2001-02 --source-id 481:party:republican:2001-02
+python -m usa_wa_sync_powermap.retract_assignments \
+    --source-id 481:chamber-senate:39:2001-02 --source-id 481:party:republican:2001-02
 ```
 
 ## Provenance & integrity

@@ -8,7 +8,7 @@ anchored row POSTs the id-addressed ``op:"retract"`` payload and tombstones the 
 does not tombstone. Retraction is terminal (no reversible ``archived:false``).
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 from ulid import ULID
 
@@ -32,7 +32,7 @@ class _FakeClient:
         pass
 
 
-async def _add_assignment(session, *, source_id, anchor, is_active=False):
+async def _add_assignment(session, *, source_id, anchor, is_active=False, archived_at=None):
     org = Organization(
         source="usa_wa_legislature",
         source_id=f"ORG-{source_id}",
@@ -67,6 +67,7 @@ async def _add_assignment(session, *, source_id, anchor, is_active=False):
         valid_to=date(2002, 12, 31),
         is_active=is_active,
         pm_assignment_id=anchor,
+        archived_at=archived_at,
     )
     session.add(row)
     await session.flush()
@@ -168,3 +169,82 @@ async def test_dry_run_previews_without_posting_or_tombstoning(db_session):
     assert row.archived_at is None  # not tombstoned
     assert result["would_retract"] == 1
     assert result["retracted"] == 0
+
+
+async def test_already_archived_row_is_idempotent_no_post(db_session):
+    """A target already tombstoned (a completed prior run) is recognised as already-retracted —
+    counted ``already_retracted``, NO re-POST — not mis-reported as ``not_found`` (which
+    ``live_only`` resolution would do, breaking a clean re-run)."""
+    anchor = ULID()
+    await _add_assignment(
+        db_session,
+        source_id="481:chamber-senate:39:2001-02",
+        anchor=anchor,
+        archived_at=datetime(2026, 8, 5, tzinfo=UTC),
+    )
+    client = _FakeClient(disposition="retracted")
+
+    result = await ra.retract_assignments(db_session, client, ["481:chamber-senate:39:2001-02"])
+
+    assert client.posted == []  # already retracted → no re-POST
+    assert result["already_retracted"] == 1
+    assert result["not_found"] == 0
+    assert result["retracted"] == 0
+
+
+async def test_resolve_is_source_scoped(db_session):
+    """The natural key is ``(source, source_id)``; a same-``source_id`` row under a different
+    source must not be picked up (nor raise ``MultipleResultsFound``)."""
+    anchor = ULID()
+    await _add_assignment(db_session, source_id="481:chamber-senate:39:2001-02", anchor=anchor)
+    # A colliding source_id under a different source (e.g. usa_wa_pdc) — must be ignored.
+    org = Organization(
+        source="usa_wa_pdc",
+        source_id="ORG-pdc-collide",
+        name="X",
+        org_type="chamber",
+        pm_organization_id=ULID(),
+    )
+    db_session.add(org)
+    await db_session.flush()
+    role = Role(
+        source="usa_wa_pdc",
+        source_id="R-pdc-collide",
+        organization_id=org.id,
+        name="Senator",
+        role_type="state_senator",
+        pm_role_id=ULID(),
+    )
+    person = Person(
+        source="usa_wa_pdc", source_id="M-pdc-collide", name_full="Other", pm_person_id=ULID()
+    )
+    db_session.add_all([role, person])
+    await db_session.flush()
+    db_session.add(
+        Assignment(
+            source="usa_wa_pdc",
+            source_id="481:chamber-senate:39:2001-02",  # same string, different source
+            person_id=person.id,
+            role_id=role.id,
+            valid_from=date(2001, 1, 1),
+            valid_to=date(2002, 12, 31),
+            is_active=False,
+            pm_assignment_id=ULID(),
+        )
+    )
+    await db_session.flush()
+    client = _FakeClient(disposition="retracted")
+
+    result = await ra.retract_assignments(db_session, client, ["481:chamber-senate:39:2001-02"])
+
+    # Exactly one POST — the usa_wa_legislature row — not two, and no MultipleResultsFound.
+    assert len(client.posted) == 1
+    assert client.posted[0][1]["identifier_value"] == str(anchor)
+    assert result["retracted"] == 1
+
+
+def test_exit_code_nonzero_when_targets_unsettled():
+    assert ra.exit_code({"not_found": 0, "not_anchored": 0, "unexpected": 0}) == 0
+    assert ra.exit_code({"not_found": 1, "not_anchored": 0, "unexpected": 0}) == 1
+    assert ra.exit_code({"not_found": 0, "not_anchored": 2, "unexpected": 0}) == 1
+    assert ra.exit_code({"not_found": 0, "not_anchored": 0, "unexpected": 3}) == 1
