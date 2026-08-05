@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging, get_logger
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
+from usa_wa_adapter_legislature.member_artifacts import with_artifact_exclusions
 from usa_wa_adapter_legislature.operator_events_store import (
     cite_operator_events,
     current_events,
@@ -132,6 +133,10 @@ async def build_sponsor_spans(
     exclusions = {
         b: (ids - stale_exempt_members(latest_event_biennium, b)) for b, ids in exclusions.items()
     }
+    # Curated artifact denylist (#144): a spurious WSL sponsor row the wire names in a biennium the
+    # member did not serve (Wynne LD39 Senate 2001-02) — unioned in *after* the operator-exemption
+    # subtraction so it is a hard exclusion nothing can remove. See :mod:`member_artifacts`.
+    exclusions = with_artifact_exclusions(exclusions)
     observations = build_sponsor_observations(roster, exclusions)
     if restrict_to_biennium is not None:
         scoped = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
