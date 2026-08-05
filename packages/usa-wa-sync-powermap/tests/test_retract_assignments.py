@@ -132,3 +132,39 @@ async def test_unexpected_disposition_does_not_tombstone(db_session):
     assert row.archived_at is None  # NOT tombstoned on a non-retracted disposition
     assert result["unexpected"] == 1
     assert result["retracted"] == 0
+
+
+async def test_auto_attached_is_idempotent_retract_success(db_session):
+    """A re-retract of an already-archived tenure returns ``auto-attached`` (PM's already-archived
+    no-op, power-map#391) — an idempotent success, so it still tombstones locally."""
+    anchor = ULID()
+    row = await _add_assignment(
+        db_session, source_id="481:chamber-senate:39:2001-02", anchor=anchor
+    )
+    client = _FakeClient(disposition="auto-attached")
+
+    result = await ra.retract_assignments(db_session, client, ["481:chamber-senate:39:2001-02"])
+
+    assert len(client.posted) == 1
+    assert row.archived_at is not None  # already-archived no-op still converges the local tombstone
+    assert result["retracted"] == 1
+    assert result["unexpected"] == 0
+
+
+async def test_dry_run_previews_without_posting_or_tombstoning(db_session):
+    """``dry_run`` must NOT POST — a retract POST is an irreversible PM mutation a local rollback
+    can't undo. It counts ``would_retract`` only, leaving PM + the local row untouched."""
+    anchor = ULID()
+    row = await _add_assignment(
+        db_session, source_id="481:chamber-senate:39:2001-02", anchor=anchor
+    )
+    client = _FakeClient(disposition="retracted")
+
+    result = await ra.retract_assignments(
+        db_session, client, ["481:chamber-senate:39:2001-02"], dry_run=True
+    )
+
+    assert client.posted == []  # never POSTed to PM
+    assert row.archived_at is None  # not tombstoned
+    assert result["would_retract"] == 1
+    assert result["retracted"] == 0
