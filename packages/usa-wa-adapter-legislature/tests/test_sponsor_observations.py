@@ -8,6 +8,7 @@ observations come from PDC (#79); committee from #82.
 
 from __future__ import annotations
 
+from usa_wa_adapter_legislature.member_artifacts import with_artifact_exclusions
 from usa_wa_adapter_legislature.sponsor_observations import (
     KIND_PARTY,
     KIND_SENATE,
@@ -88,3 +89,17 @@ def test_excluded_member_emits_nothing_in_that_biennium_only():
         Observation("100", KIND_PARTY, "democratic", "2019-20"),
         Observation("100", KIND_SENATE, "5", "2019-20"),
     ]
+
+
+def test_curated_artifact_exclusion_drops_wynne_2001_02_only():
+    """#144: the curated denylist excludes John Wynne's (Id 481) spurious LD39 Senate + party
+    2001-02 observations while leaving his legitimate 1991-92 House-era party observation intact —
+    a chamber-conflation artifact must not survive a rebuild, but his real tenure must."""
+    members_by_biennium = {
+        "1991-92": [_member(481, agency="House", district="39", party="R")],
+        "2001-02": [_member(481, agency="Senate", district="39", party="R")],
+    }
+    obs = build_sponsor_observations(
+        members_by_biennium, exclude_ids_by_biennium=with_artifact_exclusions({})
+    )
+    assert obs == [Observation("481", KIND_PARTY, "republican", "1991-92")]
