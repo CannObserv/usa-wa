@@ -248,17 +248,17 @@ class ConditionalGetState(Base, TimestampMixin):
     """PM ``ETag`` validators for one anchored row's reconcile reads (usa-wa#160).
 
     Conditional GET (power-map#385/#292): PM returns a strong ``ETag`` on every entity
-    detail GET and its ``/{id}/events`` sub-resource, honouring ``If-None-Match`` with
-    ``304 Not Modified``. The anchored-cohort reconcile stores the last-seen validators
-    here and sends them next pass, so an unchanged row costs a cheap ``304`` instead of
-    a full-body re-fetch + re-apply. Keyed on ``(entity_type, local_id)`` (the twin of
-    :class:`EnrichFingerprint`); the row is 1:1 with its PM anchor.
+    detail GET, honouring ``If-None-Match`` with ``304 Not Modified``. The anchored-cohort
+    reconcile stores the last-seen validator here and sends it next pass, so an unchanged
+    row costs a cheap ``304`` instead of a full-body re-fetch + re-apply. Keyed on
+    ``(entity_type, local_id)`` (the twin of :class:`EnrichFingerprint`); the row is 1:1
+    with its PM anchor.
 
-    ``detail_etag`` guards the entity GET (the #385 detail ETag covers child tables via
-    the touch-cascade, so a ``304`` genuinely means "nothing to heal"). ``events_etag``
-    guards the **first** ``/events`` page only — the events ETag bakes in the global
-    ``count`` + ``max_updated_ms``, so a first-page ``304`` means the whole event set is
-    unchanged. Both nullable: a never-fetched row (or a fetch that returned no ETag)
+    Only the **detail** ETag is stored: PM's detail ETag covers child tables — the
+    ``updated_at`` touch-cascade bumps the parent on names/identifiers/links/contact/
+    addresses/citations **and events** (power-map#385) — so a detail ``304`` means the
+    *whole* row (its ``/events`` sub-resource included) is unchanged; no separate events
+    validator is needed. Nullable: a never-fetched row (or a fetch that returned no ETag)
     stores NULL and reads unconditionally next pass. A stale/wrong stored validator only
     ever costs a ``200`` we re-apply (idempotent under LWW) — never a missed update.
     """
@@ -273,4 +273,3 @@ class ConditionalGetState(Base, TimestampMixin):
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     local_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False)
     detail_etag: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    events_etag: Mapped[str | None] = mapped_column(String(256), nullable=True)

@@ -11,11 +11,7 @@ from clearinghouse_sync_powermap.models import ConditionalGetState
 
 async def test_conditional_get_state_roundtrip(db_session):
     lid = ULID()
-    db_session.add(
-        ConditionalGetState(
-            entity_type="person", local_id=lid, detail_etag='"abc-1"', events_etag='"abc-events-1"'
-        )
-    )
+    db_session.add(ConditionalGetState(entity_type="person", local_id=lid, detail_etag='"abc-1"'))
     await db_session.flush()
 
     row = (
@@ -23,7 +19,7 @@ async def test_conditional_get_state_roundtrip(db_session):
             select(ConditionalGetState).where(ConditionalGetState.local_id == lid)
         )
     ).scalar_one()
-    assert row.detail_etag == '"abc-1"' and row.events_etag == '"abc-events-1"'
+    assert row.detail_etag == '"abc-1"'
 
 
 async def test_conditional_get_state_unique_per_row(db_session):

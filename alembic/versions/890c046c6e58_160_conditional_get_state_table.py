@@ -27,7 +27,6 @@ def upgrade() -> None:
     sa.Column('entity_type', sa.String(length=64), nullable=False),
     sa.Column('local_id', clearinghouse_core.db.ulid.ULID(), nullable=False),
     sa.Column('detail_etag', sa.String(length=256), nullable=True),
-    sa.Column('events_etag', sa.String(length=256), nullable=True),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.PrimaryKeyConstraint('id'),

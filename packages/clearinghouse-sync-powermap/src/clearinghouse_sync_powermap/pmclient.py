@@ -65,6 +65,7 @@ from clearinghouse_sync_powermap.client import (
     ChangePage,
     DeliveryBlockedError,
     DiscoveredEntity,
+    EntityFetch,
     EntityPage,
     EventObservationResult,
     ObservationResult,
@@ -434,6 +435,29 @@ class GeneratedPowerMapClient:
         if parsed is None or isinstance(parsed, HTTPValidationError):
             return None
         return parsed.to_dict()
+
+    async def get_entity_conditional(
+        self, read_path: str, pm_id: Any, *, if_none_match: str | None
+    ) -> EntityFetch:
+        # usa-wa#160 / power-map#385. Inject If-None-Match via the generated client's
+        # with_headers (a per-request header copy) so the conditional read stays on the
+        # governed transport (the #85 min-interval hook). A 304 short-circuits with no
+        # body; a 200 carries PM's fresh ETag (response header) to store.
+        client = self._client
+        if if_none_match:
+            client = client.with_headers({"If-None-Match": if_none_match})
+        resp = await self._GET[read_path].asyncio_detailed(str(pm_id), client=client)
+        if resp.status_code == 304:
+            # Unchanged since the sent validator — echo it (still current), no body.
+            return EntityFetch(record=None, etag=if_none_match, not_modified=True)
+        if resp.status_code == 404:
+            return EntityFetch(record=None, etag=None, not_modified=False)  # gone → heal path
+        _raise_for_status(resp)
+        etag = resp.headers.get("ETag")
+        parsed = resp.parsed
+        if parsed is None or isinstance(parsed, HTTPValidationError):
+            return EntityFetch(record=None, etag=etag, not_modified=False)
+        return EntityFetch(record=parsed.to_dict(), etag=etag, not_modified=False)
 
     async def list_entity_events(self, read_path: str, pm_id: Any) -> list[dict]:
         """Page the per-parent ``/{id}/events`` sub-resource into raw event dicts.

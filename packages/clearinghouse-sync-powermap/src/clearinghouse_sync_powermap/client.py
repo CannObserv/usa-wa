@@ -162,6 +162,25 @@ class ChangePage:
 
 
 @dataclass(frozen=True)
+class EntityFetch:
+    """Result of a conditional entity GET (usa-wa#160 / power-map#385).
+
+    ``not_modified`` is True on a ``304`` — the row is unchanged since the sent
+    ``If-None-Match`` validator, so the caller short-circuits (no body, no apply). In
+    that case ``record`` is None and ``etag`` echoes the sent validator (still valid).
+    On a ``200`` ``record`` is the full body (children attached by the descriptor) and
+    ``etag`` is PM's fresh validator to store. A ``404`` (entity gone) yields
+    ``record=None, not_modified=False`` — the caller routes it to the delete/heal path
+    exactly as an unconditional fetch would. ``etag`` may be None if PM omits the header
+    (conditional GET then simply never fires for that row — a correctness-safe no-op).
+    """
+
+    record: dict | None
+    etag: str | None
+    not_modified: bool
+
+
+@dataclass(frozen=True)
 class EntityPage:
     """A page of a full-reconcile read (list endpoint)."""
 
@@ -247,6 +266,16 @@ class PowerMapClient(Protocol):
 
     async def get_entity(self, read_path: str, pm_id: ULID) -> dict | None:
         """Fetch one full entity record by PM id (feed gives ids, not records)."""
+        ...
+
+    async def get_entity_conditional(
+        self, read_path: str, pm_id: ULID, *, if_none_match: str | None
+    ) -> EntityFetch:
+        """Conditional entity GET (usa-wa#160 / power-map#385): send ``If-None-Match`` and
+        surface a ``304`` as :class:`EntityFetch` (``not_modified=True``) or a ``200`` with
+        the body + fresh ``ETag``. ``if_none_match=None`` is an unconditional read (always
+        a ``200``/``404``). The reconcile uses this to skip a full re-fetch of an unchanged
+        anchored row; other read paths keep the plain :meth:`get_entity`."""
         ...
 
     async def list_role_types(self) -> list[dict]:
