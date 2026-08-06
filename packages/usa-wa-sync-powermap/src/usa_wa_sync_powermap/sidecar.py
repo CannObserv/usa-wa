@@ -469,6 +469,13 @@ class Sidecar:
                 if not await self._replay_due(session, now):
                     return True
                 result = await self._engine.replay_from_floor(session, now=now)
+                if result.fell_off:
+                    # The replay floor fell off PM's retention window: a pruned slice
+                    # can't be replayed, so force the anchored-cohort scan due now rather
+                    # than wait out its (Phase-B: weekly) cadence — it is the only backstop
+                    # that covers the gap. Effective next cycle (this runs after the
+                    # reconciles); the alert on the summary is the operator-facing signal.
+                    await self._force_anchored_rescan(session)
                 await session.commit()
             self._last_replay_result = result
             logger.info(
@@ -486,6 +493,34 @@ class Sidecar:
             logger.exception("sidecar_replay_failed")
             self._cycle_errors.append(f"replay: {exc!r}")
             return False
+
+    async def _force_anchored_rescan(self, session: AsyncSession) -> None:
+        """Clear the anchored-cohort reconcile stamps so the full scan runs next cycle (#159).
+
+        The replay backstop's fall-off fallback: when a pruned slice can't be replayed,
+        the O(cohort) anchored scan is the only cover, so make it due immediately by
+        nulling each ``anchored_cohort`` descriptor's ``reconcile:{type}`` stamp (and its
+        keyset cursor, forcing a fresh full pass). This is what keeps the Phase-B *weekly*
+        scan cadence safe — a fall-off self-heals within a cycle instead of waiting a week.
+        No-op if no descriptor uses the anchored-cohort backstop.
+        """
+        # Mirrors _reconcile_due's stream key: f"reconcile:{entity_type}".
+        streams = [
+            f"reconcile:{d.entity_type}"
+            for d in self._descriptors
+            if getattr(d, "reconcile_mode", None) == "anchored_cohort"
+        ]
+        if not streams:
+            return
+        rows = (
+            (await session.execute(select(SyncState).where(SyncState.stream.in_(streams))))
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            row.last_reconcile_at = None
+            row.cursor = None
+        logger.warning("powermap_replay_forcing_full_rescan", extra={"streams": streams})
 
     async def _replay_due(self, session: AsyncSession, now: datetime) -> bool:
         """Whether the replay backstop should run this cycle (#159).

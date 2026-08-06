@@ -1282,3 +1282,42 @@ async def test_replay_fall_off_alerts_once_and_rearms(db_session):
     sidecar._last_replay_result = fell
     await sidecar.report_cycle_summary(db_session, now=NOW)  # falls again → alert again
     assert len(alerts) == 2
+
+
+async def test_replay_fall_off_forces_anchored_rescan(db_session):
+    """usa-wa#159 Phase-B safety: a horizon fall-off clears the anchored-cohort reconcile
+    stamps so the full scan (the only cover for the pruned slice) runs next cycle, rather
+    than waiting out the widened weekly cadence. full_list / none modes are untouched."""
+
+    class _Anchored:
+        def __init__(self, entity_type):
+            self.entity_type = entity_type
+            self.reconcile_mode = "anchored_cohort"
+
+    class _FullList:
+        entity_type = "committee"
+        reconcile_mode = "full_list"
+
+    fell = ReplayResult(applied=0, healed=0, fell_off=True, floor=10, high_water=99999)
+    engine = _StubReplayEngine(fell)
+    sidecar = Sidecar(
+        engine=engine,  # type: ignore[arg-type]
+        descriptors=[_Anchored("person"), _Anchored("assignment"), _FullList()],
+        session_factory=lambda: db_session,
+        replay_enabled=True,
+    )
+    # A stamped anchored reconcile (would otherwise wait the cadence) + a full_list one.
+    db_session.add(SyncState(stream="reconcile:person", last_reconcile_at=NOW, cursor="01ABC"))
+    db_session.add(SyncState(stream="reconcile:committee", last_reconcile_at=NOW, cursor="01ZZZ"))
+    await db_session.flush()
+
+    await sidecar._force_anchored_rescan(db_session)
+
+    person = await db_session.scalar(
+        select(SyncState).where(SyncState.stream == "reconcile:person")
+    )
+    committee = await db_session.scalar(
+        select(SyncState).where(SyncState.stream == "reconcile:committee")
+    )
+    assert person.last_reconcile_at is None and person.cursor is None  # forced due
+    assert committee.last_reconcile_at == NOW and committee.cursor == "01ZZZ"  # untouched
