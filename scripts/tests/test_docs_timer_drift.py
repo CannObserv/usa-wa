@@ -101,20 +101,25 @@ def section_lines(path: Path, heading: str) -> list[str]:
 
     Fenced code is tracked, because the sections being parsed are mostly shell
     snippets whose `# Ingest (daily)` comments are indistinguishable from an H1
-    on a line-shape test alone.
+    on a line-shape test alone. Both ways this can go wrong are asserted rather
+    than absorbed (#167 CR round 2): a heading that has been renamed says so
+    instead of raising a bare StopIteration (finding 9), and an unbalanced fence
+    fails instead of silently swallowing the rest of the file (finding 13).
     """
     level = len(heading) - len(heading.lstrip("#"))
     lines = path.read_text().splitlines()
-    start = next(i for i, line in enumerate(lines) if line.strip() == heading)
+    starts = [i for i, line in enumerate(lines) if line.strip() == heading]
+    assert starts, f"{path.name}: no {heading!r} heading — this guard is pinned to it"
     out: list[str] = []
     fenced = False
-    for line in lines[start + 1 :]:
+    for line in lines[starts[0] + 1 :]:
         if line.lstrip().startswith("```"):
             fenced = not fenced
         depth = len(line) - len(line.lstrip("#"))
         if not fenced and 0 < depth <= level:
-            break
+            return out
         out.append(line)
+    assert not fenced, f"{path.name}: unbalanced code fence under {heading!r} — section bound lost"
     return out
 
 
@@ -136,13 +141,27 @@ def enable_block() -> dict[str, str]:
     return entries
 
 
-def deployment_rows() -> dict[str, str]:
-    """Parse docs/DEPLOYMENT.md's `## Services` table → {timer unit: its row}."""
+def timer_rows(lines: list[str]) -> dict[str, str]:
+    """Map each timer mentioned in `lines` to its row, refusing a second row.
+
+    One row per timer: a "see also" row would be a second copy of the cadence
+    that nothing checks, which is the drift this guard exists to catch
+    (#167 CR round 2, finding 14).
+    """
     rows: dict[str, str] = {}
-    for line in section_lines(DEPLOYMENT_DOC, "## Services"):
+    for line in lines:
         for timer in TIMER_MENTION_RE.findall(line):
+            assert timer not in rows, (
+                f"{timer}: mentioned in two § Services rows — the second cadence would go "
+                f"unchecked; keep one row per timer"
+            )
             rows[timer] = line
     return rows
+
+
+def deployment_rows() -> dict[str, str]:
+    """Parse docs/DEPLOYMENT.md's `## Services` table → {timer unit: its row}."""
+    return timer_rows(section_lines(DEPLOYMENT_DOC, "## Services"))
 
 
 def test_every_shipped_timer_is_enabled_by_the_readme():
@@ -194,3 +213,49 @@ def test_deployment_table_cadence_matches_the_unit(timer):
 def test_pinned_docs_name_this_guard(doc):
     """Both docs point at this module, so a rename can't leave a dangling pointer."""
     assert Path(__file__).name in doc.read_text()
+
+
+# --- parser has-teeth proofs (#167 CR round 2) -------------------------------
+# The guard's own failure modes: each of these silently widened or crashed the
+# parse before round 2, so they assert the diagnostics, not just the behaviour.
+
+
+def test_section_lines_names_a_heading_it_cannot_find(tmp_path):
+    """A renamed heading must say so, not raise a bare StopIteration (finding 9)."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("## Something Else\n\ntext\n")
+    with pytest.raises(AssertionError, match="## Services"):
+        section_lines(doc, "## Services")
+
+
+def test_section_lines_rejects_an_unbalanced_fence(tmp_path):
+    """An unclosed fence would silently restore the EOF scan finding 2 removed (finding 13)."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("## A\n\n```bash\necho hi\n\n## B\n\nlater\n")
+    with pytest.raises(AssertionError, match="unbalanced"):
+        section_lines(doc, "## A")
+
+
+def test_section_lines_bounds_the_section_but_not_shell_comments(tmp_path):
+    """Stops at the next same-level heading; `# comment` inside a fence is not a heading."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("## A\n\n```bash\n# Ingest (daily)\necho hi\n```\n\n## B\n\nlater\n")
+    assert section_lines(doc, "## A") == ["", "```bash", "# Ingest (daily)", "echo hi", "```", ""]
+
+
+def test_section_lines_keeps_deeper_headings(tmp_path):
+    """A deeper heading is part of the section, not its end."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("## A\n\n### A.1\n\ninner\n\n## B\n\nlater\n")
+    assert "### A.1" in section_lines(doc, "## A")
+    assert "later" not in section_lines(doc, "## A")
+
+
+def test_timer_rows_rejects_a_second_row_for_one_timer():
+    """Two rows for one timer leave the first unchecked — the copy problem again (finding 14)."""
+    rows = [
+        "| WSL refresh | … `usa-wa-wsl-refresh.timer` …; 06:00 UTC |",
+        "| See also | … `usa-wa-wsl-refresh.timer` …; 09:00 UTC |",
+    ]
+    with pytest.raises(AssertionError, match="usa-wa-wsl-refresh.timer"):
+        timer_rows(rows)

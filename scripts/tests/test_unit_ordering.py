@@ -40,13 +40,13 @@ from systemd_units import (
 # compared as sets.
 #
 # Note the deliberate asymmetry: usa-wa-migrate.service declares Before= only
-# the two long-running serving units (usa-wa + sync-powermap), while the
-# oneshot/timer-driven units (reconcile, wsl-refresh) assert After=migrate from
-# their own side. Ordering is symmetric in effect (one side suffices), so this
+# the two long-running serving units (usa-wa + sync-powermap), while every
+# oneshot/timer-driven unit (e.g. reconcile, wsl-refresh) asserts After=migrate
+# from its own side. Ordering is symmetric in effect (one side suffices), so this
 # is correct — captured faithfully rather than normalized.
 #
-# OnFailure (#49): the three oneshots that can fail unattended — migrate plus the
-# two timer-driven oneshots — trigger the templated notify handler with %n (the
+# OnFailure (#49): every oneshot that can fail unattended — migrate plus all the
+# timer-driven ones — triggers the templated notify handler with %n (the
 # failing unit's full name) as the instance. The serving units restart in place
 # (Restart=) and so don't route through the one-shot alert; the timers can't fail
 # (they only activate their .service); the handler must not trigger itself.
