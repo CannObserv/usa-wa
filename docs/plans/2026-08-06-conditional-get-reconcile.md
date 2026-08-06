@@ -1,14 +1,15 @@
 ---
 title: Honor conditional GET / 304 on the reconcile fetch path (usa-wa#160)
 date: 2026-08-06
-status: approved
+status: implemented
 ---
 
-> **Decisions (review, 2026-08-06):** migration + `with_headers` injection confirmed;
-> scope (bandwidth/DB/CPU, not request count) understood. **Events ETag:** conditional-GET
-> the **first page only** (limit=100, offset=0) — the #385 events ETag bakes in the global
-> `count` + `max_updated_ms`, so a `304` on the first page ⟺ nothing changed anywhere; on
-> `200` do the full `has_more` walk as today + store the fresh first-page ETag.
+> **Implementation note (2026-08-06).** All 6 steps shipped on `feat/160-conditional-get`.
+> **`events_etag` was dropped during implementation:** PM's detail ETag covers child tables
+> **including events** (the touch-cascade, power-map#385), so a detail `304` means the whole
+> row — events included — is unchanged. `ConditionalGetState` stores only `detail_etag`, and
+> the events-pagination open question is moot (no separate events validator). Requires a
+> migration (`890c046c…`, new sync-schema table) → `usa-wa-migrate` on deploy.
 ---
 
 # Honor conditional GET / 304 on the reconcile fetch path (usa-wa#160)
