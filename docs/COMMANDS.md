@@ -24,7 +24,7 @@ export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 
 ```bash
 # Port 8001 — port 8000 belongs to systemd, never start uvicorn there manually
-uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload --log-config packages/usa-wa-api/src/usa_wa_api/log_config.json
 ```
 
 Reachable at `https://usa-wa.exe.xyz:8001/` via the exe.dev proxy.

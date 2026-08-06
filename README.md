@@ -21,7 +21,7 @@ Live service runs as systemd on port `8000` — never start uvicorn manually on 
 Use port `8001` (= API_PORT + 1) for the dev server so the live service stays up:
 
 ```bash
-uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload --log-config packages/usa-wa-api/src/usa_wa_api/log_config.json
 ```
 
 Reachable at `https://usa-wa.exe.xyz:8001/` via the exe.dev proxy.

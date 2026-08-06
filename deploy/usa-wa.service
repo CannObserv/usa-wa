@@ -44,7 +44,7 @@ EnvironmentFile=-/home/exedev/usa-wa/.env
 # --frozen --no-sync: run against the installed venv as-is; never re-lock or
 # sync at unit start. Dependency changes land only via a deliberate `uv sync`
 # in the deploy runbook (AGENTS.md § Server Lifecycle, issue #30).
-ExecStart=/usr/local/bin/uv run --frozen --no-sync uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8000
+ExecStart=/usr/local/bin/uv run --frozen --no-sync uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8000 --log-config packages/usa-wa-api/src/usa_wa_api/log_config.json
 Restart=on-failure
 RestartSec=5
 

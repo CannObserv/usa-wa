@@ -369,7 +369,7 @@ it on the VM," not "your unit is broken." Run ad-hoc:
 
 ```bash
 export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
-uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload --log-config packages/usa-wa-api/src/usa_wa_api/log_config.json
 ```
 
 **After finishing work.** Always restart the systemd service to pick up changes merged to main:
@@ -435,7 +435,7 @@ uv run alembic upgrade head
 uv run alembic revision --autogenerate -m "description"
 
 # FastAPI dev server
-uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload
+uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload --log-config packages/usa-wa-api/src/usa_wa_api/log_config.json
 ```
 
 Everyday commands only. **Operational & backfill CLIs — command + one-line purpose
@@ -523,6 +523,7 @@ from clearinghouse_core.logging import get_logger
 logger = get_logger(__name__)
 ```
 Entry points only: `configure_logging()` is called once inside the FastAPI `lifespan`. Never in library modules.
+**Under uvicorn, `configure_logging()` is not enough** (#155 / gregoryfoster/skills#81): uvicorn ships `uvicorn`/`uvicorn.access`/`uvicorn.error` with `propagate=False` and their own plain-text handlers, which the root-only `configure_logging()` never reaches — journald then interleaves plain-text access lines with JSON app records. Every uvicorn invocation (the `usa-wa.service` `ExecStart` **and** the dev-server commands) therefore passes `--log-config packages/usa-wa-api/src/usa_wa_api/log_config.json`, a dictConfig routing all three through the shared `build_json_formatter` (`"()"` factory — no duplicated fmt string) with `ColorMessageFilter` on each logger to drop uvicorn's ANSI-duplicate `color_message` extra at the record source. Pinned by `packages/usa-wa-api/tests/test_log_config.py` (file validity, formatter single-sourcing, filter placement, and that the unit + docs still pass the flag).
 JSON records carry `{timestamp, level, logger, message}` (#133; structlog's default key set). The `timestamp` uses the `+00:00` offset form, a deliberate deviation from the `Z`-suffix date convention below — the structlog migration (gregoryfoster/skills#68) owns the final format. `level`/`logger`/`timestamp`/`message` are reserved: never pass them in `extra={}`.
 
 **Date & Time:**
