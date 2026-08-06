@@ -7,6 +7,7 @@ to are in [DEPLOYMENT.md](DEPLOYMENT.md) § DB role topology.
 
 Currently defined:
 - `GH_TOKEN` — GitHub personal access token (used by `gh` CLI)
+- `ANTHROPIC_API_KEY` — **optional**, repo-root `.env` only. Consumed by `curating-context`'s `measure-context.sh --exact`, which counts tokens via the Anthropic `count_tokens` endpoint (free to call, no tokens billed). Without it the run degrades to a calibrated offline estimate, records `tokens_exact: false`, and `record-telemetry.sh` then **refuses the ledger append** (exit 4) rather than reset the trend baseline — so a weekly curation with no key silently produces no row. A Claude Code session exports no key of its own; the script parses this one out of `.env`. See [SKILLS.md § Context budget](SKILLS.md#context-budget).
 - `DATABASE_URL` — PostgreSQL connection string (app role `usa_wa_app` — DML only)
 - `DATABASE_URL_OWNER` — owner-role DSN for migrations (migrate host only; `usa-wa-migrate.service` + `scripts/migrate.sh`). `alembic/env.py` prefers it over `DATABASE_URL`. Absent from the live API/sidecar units.
 - `TEST_DATABASE_URL` — PostgreSQL connection string for the test database (test role; database name must end in `_test`)
