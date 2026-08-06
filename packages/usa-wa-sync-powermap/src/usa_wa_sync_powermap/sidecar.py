@@ -46,7 +46,9 @@ from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.engine import (
     DEFAULT_NONCONVERGENCE_THRESHOLD,
+    REPLAY_STREAM,
     DrainStats,
+    ReplayResult,
     SyncEngine,
     nonconverging_count,
     outbox_backlog,
@@ -91,6 +93,13 @@ class Sidecar:
         # would make the cycle summary and the per-row WARNINGs disagree. ``__main__`` passes
         # ``settings.nonconvergence_threshold`` to both; nothing structurally enforces it.
         nonconvergence_threshold: int = DEFAULT_NONCONVERGENCE_THRESHOLD,
+        # Changes-feed replay backstop (usa-wa#159): the kill switch + cadence for the
+        # trailing re-read (its margin lives on the engine). Library defaults; __main__
+        # passes the SidecarSettings values. Phase A runs it alongside the unchanged 12h
+        # anchored scan (shadow) — the scan widens to weekly only once the replay
+        # would-heal delta proves coverage (Phase B).
+        replay_enabled: bool = True,
+        replay_cadence: timedelta = timedelta(hours=1),
         clock: Callable[[], datetime] = _utcnow,
     ) -> None:
         if nonconvergence_threshold < 1:
@@ -138,6 +147,13 @@ class Sidecar:
         # of `new` dispositions / anchor overwrites (orphan mints) is countable at a
         # glance. Empty default so a summary before the first tick is safe.
         self._last_drain_stats = DrainStats()
+        # Changes-feed replay backstop (usa-wa#159): config + the last pass's result for
+        # the cycle summary, and the latched fall-off state so the horizon-loss alert
+        # fires once on the rising edge (the #85 rise-alert shape), not every cycle.
+        self._replay_enabled = replay_enabled
+        self._replay_cadence = replay_cadence
+        self._last_replay_result: ReplayResult | None = None
+        self._last_replay_fell_off = False
         self._clock = clock
 
     async def tick(
@@ -203,6 +219,7 @@ class Sidecar:
         ok = await self._run_catalog_sync(now)
         ok = await self._run_backstop(now) and ok
         ok = await self._run_reconciles(now) and ok
+        ok = await self._run_replay(now) and ok
         async with self._session_factory() as session:
             try:
                 # The drain commits incrementally via this hook (#8); the trailing
@@ -246,6 +263,7 @@ class Sidecar:
             session, threshold=self._nonconvergence_threshold
         )
         stats = self._last_drain_stats
+        replay = self._last_replay_result
         logger.info(
             "sidecar_cycle_summary",
             extra={
@@ -267,6 +285,13 @@ class Sidecar:
                 # the standing count at/over the threshold — an identical payload re-sent
                 # every reconcile cycle. Alerts on a rise, like the REJECTED pile.
                 "non_converging": non_converging,
+                # Changes-feed replay backstop (usa-wa#159): the last pass's would-heal
+                # delta (``replay_healed`` > 0 = replay recovered events the live feed
+                # dropped — its reason to exist) and horizon fall-off. None until the first
+                # replay runs this process.
+                "replay_healed": replay.healed if replay else None,
+                "replay_applied": replay.applied if replay else None,
+                "replay_fell_off": replay.fell_off if replay else None,
             },
         )
         if backlog.rejected > self._last_rejected_count:
@@ -275,6 +300,15 @@ class Sidecar:
         if non_converging > self._last_nonconverging_count:
             await self._send_nonconverging_alert(non_converging)
         self._last_nonconverging_count = non_converging
+        # Horizon fall-off (usa-wa#159 / power-map#388): the replay floor sat below PM's
+        # oldest-retained seq, so a slice of history was pruned before we replayed it —
+        # potential un-recovered data loss beyond the 90-day window. Alert once on the
+        # rising edge (the anchored scan still covers the gap in Phase A); re-arm when it
+        # clears so a later recurrence alerts again.
+        fell_off = replay.fell_off if replay else False
+        if fell_off and not self._last_replay_fell_off:
+            await self._send_replay_fell_off_alert(replay)
+        self._last_replay_fell_off = fell_off
 
     async def _send_rejected_alert(self, rejected: int, reasons: dict[str, int]) -> None:
         """Email the operator about a REJECTED-count rise; swallow send failures."""
@@ -334,6 +368,35 @@ class Sidecar:
                 "sidecar_nonconverging_alert_failed", extra={"non_converging": non_converging}
             )
 
+    async def _send_replay_fell_off_alert(self, replay: ReplayResult) -> None:
+        """Email the operator when the replay floor fell off PM's retention window (#159).
+
+        A fall-off means ``[floor, min_seq)`` was pruned from PM's 90-day outbox before
+        the replay re-read it — any event in that slice the live feed also skipped is
+        un-recovered by replay. In Phase A the anchored scan still covers it; the alert is
+        the signal to widen the replay margin or shorten its cadence so the floor stays
+        inside the window. Swallow send failures (never crash the loop being watched).
+        """
+        if self._alert is None:
+            logger.warning(
+                "sidecar_replay_fell_off_unalerted",
+                extra={"floor": replay.floor, "high_water": replay.high_water},
+            )
+            return
+        subject = "[usa-wa] sidecar changes-feed replay fell off the retention window"
+        body = (
+            f"The changes-feed replay backstop (usa-wa#159) read from seq {replay.floor},\n"
+            f"which is below PM's oldest-retained seq (meta.min_seq, power-map#388) — the\n"
+            f"pruned slice could not be replayed. The anchored-cohort scan still covers it\n"
+            f"for now, but the replay margin is too small or its cadence too slow: widen\n"
+            f"REPLAY_MARGIN or shorten REPLAY_CADENCE so the floor stays inside the 90-day\n"
+            f"window. high_water={replay.high_water}, floor={replay.floor}.\n"
+        )
+        try:
+            await self._alert(subject, body)
+        except Exception:
+            logger.exception("sidecar_replay_fell_off_alert_failed", extra={"floor": replay.floor})
+
     async def _run_reconciles(self, now: datetime) -> bool:
         """Run each due descriptor's reconcile in its own session + error boundary.
 
@@ -381,6 +444,62 @@ class Sidecar:
         await self._engine.reconcile(session, descriptor, now=now, commit=session.commit)
         await session.commit()
         return True
+
+    async def _run_replay(self, now: datetime) -> bool:
+        """Run the changes-feed replay backstop in its own session + error boundary (#159).
+
+        The trailing re-read that re-covers PM's at-least-once concurrent-commit skip
+        (power-map#387) — the primary dropped-event backstop the O(cohort) anchored scan
+        is being retired *toward*. Isolated like :meth:`_run_reconciles`: a failing replay
+        rolls back only its own session (its cadence stays unstamped → due again next
+        cycle, retry bounded by :meth:`run_forever` backoff) and flips the cycle verdict,
+        but cannot roll back the reconciles or starve the tick. Cadence-gated
+        (:meth:`_replay_due`) on ``REPLAY_STREAM``; ``replay_enabled=False`` skips it
+        entirely (a clean verdict — a disabled backstop is not a failure).
+
+        Phase A (shadow): this runs *alongside* the unchanged 12h anchored scan and its
+        ``ReplayResult`` is recorded for the cycle summary's would-heal delta. On horizon
+        fall-off it logs + latches for the summary alert; the anchored scan is the live
+        safety net for the pruned slice until Phase B widens its cadence.
+        """
+        if not self._replay_enabled:
+            return True
+        try:
+            async with self._session_factory() as session:
+                if not await self._replay_due(session, now):
+                    return True
+                result = await self._engine.replay_from_floor(session, now=now)
+                await session.commit()
+            self._last_replay_result = result
+            logger.info(
+                "sidecar_replay",
+                extra={
+                    "applied": result.applied,
+                    "healed": result.healed,
+                    "fell_off": result.fell_off,
+                    "floor": result.floor,
+                    "high_water": result.high_water,
+                },
+            )
+            return True
+        except Exception as exc:
+            logger.exception("sidecar_replay_failed")
+            self._cycle_errors.append(f"replay: {exc!r}")
+            return False
+
+    async def _replay_due(self, session: AsyncSession, now: datetime) -> bool:
+        """Whether the replay backstop should run this cycle (#159).
+
+        Due immediately on first run (no stamp), then every ``replay_cadence``. Mirrors
+        :meth:`_subscription_backstop_due`, keyed on ``REPLAY_STREAM``'s
+        ``last_reconcile_at`` (stamped by :meth:`SyncEngine.replay_from_floor`).
+        """
+        state = (
+            await session.execute(select(SyncState).where(SyncState.stream == REPLAY_STREAM))
+        ).scalar_one_or_none()
+        if state is None or state.last_reconcile_at is None:
+            return True
+        return (now - state.last_reconcile_at) >= self._replay_cadence
 
     async def _run_catalog_sync(self, now: datetime) -> bool:
         """Refresh the role-type catalog mirror in its own session + error boundary.
