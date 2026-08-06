@@ -25,6 +25,11 @@ detail behind them.
 | Failure alerts | templated oneshot | — | `OnFailure=` → `usa-wa-notify-failure@.service` |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
 
+Every timer row above is pinned against the unit's own `OnCalendar=` by
+`scripts/tests/test_docs_timer_drift.py` (#167): a shipped `deploy/*.timer` with
+no row here — or a row whose cadence has drifted from the unit — fails the suite.
+The same guard pins README's fresh-host provisioning block.
+
 ## Failure alerting (#49)
 
 The unattended oneshots fail silently on a headless box — a `failed` state in the

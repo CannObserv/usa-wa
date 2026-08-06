@@ -15,19 +15,25 @@ failed result — emailing the operator via the exe.dev gateway. Asserting it he
 keeps the alerting wiring from silently regressing and forces a new failable unit
 to make an explicit notify decision.
 
-Pure file parse — no DB, no systemd-analyze; runs everywhere.
+Pure file parse — no DB, no systemd-analyze; runs everywhere. The unit-file
+parser itself lives in ``systemd_units`` (shared with ``test_docs_timer_drift``,
+#167 CR); this module owns the intended graph and the assertions over it.
 
 The load-bearing assertion is ``test_every_unit_has_an_expected_entry``: it
 cross-checks the on-disk unit set against EXPECTED's keys, so adding a unit
 without a dependency decision fails the suite.
 """
 
-import re
 from pathlib import Path
 
 import pytest
-
-DEPLOY = Path(__file__).parent.parent.parent / "deploy"  # scripts/tests/ → repo → deploy/
+from systemd_units import (
+    DEPLOY,
+    parse_exec_start_pre,
+    parse_seconds,
+    parse_unit_deps,
+    unit_value,
+)
 
 # Intended dependency graph, encoded as data. After=/Before=/OnFailure= are
 # space-separated, additive across repeated lines, and order-insensitive — so
@@ -223,139 +229,12 @@ UNGUARDED_SERVICES = {"usa-wa-notify-failure@.service"}
 RESTARTING_SERVICES = {"usa-wa.service", "usa-wa-sync-powermap.service"}
 
 
-def _join_continuations(text: str) -> list[str]:
-    """Fold systemd trailing-backslash line continuations into single lines."""
-    lines: list[str] = []
-    pending = ""
-    for raw in text.splitlines():
-        if raw.endswith("\\"):
-            pending += raw[:-1] + " "
-            continue
-        lines.append(pending + raw)
-        pending = ""
-    if pending:  # dangling backslash on the final line
-        lines.append(pending)
-    return lines
-
-
-def parse_unit_deps(path: Path) -> tuple[set[str], set[str], set[str]]:
-    """Return (After, Before, OnFailure) token sets from a unit's [Unit] section.
-
-    Purpose-built rather than configparser: systemd directives may repeat
-    across lines (additive) and duplicate keys, which configparser collapses
-    or rejects. Tokens are space-split and accumulated as sets. Trailing-
-    backslash line continuations are joined first (systemd folds a long
-    ``After=a.service \\`` + newline ``b.service`` into one logical line).
-    """
-    after: set[str] = set()
-    before: set[str] = set()
-    on_failure: set[str] = set()
-    section = None
-    for raw in _join_continuations(path.read_text()):
-        line = raw.strip()
-        if not line or line.startswith(("#", ";")):
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            section = line[1:-1]
-            continue
-        if section != "Unit" or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        if key.strip() == "After":
-            after.update(value.split())
-        elif key.strip() == "Before":
-            before.update(value.split())
-        elif key.strip() == "OnFailure":
-            on_failure.update(value.split())
-    return after, before, on_failure
-
-
-def parse_exec_start_pre(path: Path) -> list[str]:
-    """Return the ExecStartPre command values from a unit's [Service] section.
-
-    Space/prefix-char handling matters: systemd allows leading `+`/`!`/`-`
-    modifiers on the executable. We compare against the bare guard path, so
-    strip a leading modifier char before returning the first token.
-    """
-    values: list[str] = []
-    section = None
-    for raw in _join_continuations(path.read_text()):
-        line = raw.strip()
-        if not line or line.startswith(("#", ";")):
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            section = line[1:-1]
-            continue
-        if section != "Service" or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        if key.strip() == "ExecStartPre":
-            values.append(value.strip())
-    return values
-
-
 def _guard_present(path: Path) -> bool:
     for value in parse_exec_start_pre(path):
         exe = value.lstrip("+!-").split()[0] if value else ""
         if exe == GUARD_EXEC:
             return True
     return False
-
-
-def unit_value(path: Path, section: str, key: str) -> str | None:
-    """Return the last value of `key` in `section` (systemd: last assignment wins), or None."""
-    current = None
-    found: str | None = None
-    for raw in _join_continuations(path.read_text()):
-        line = raw.strip()
-        if not line or line.startswith(("#", ";")):
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            current = line[1:-1]
-            continue
-        if current != section or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        if k.strip() == key:
-            found = v.strip()
-    return found
-
-
-# systemd time-span units → seconds. A bare number is seconds; tokens may be
-# unit-suffixed (`5min`, `300s`, `2h`) and space-combined (`1min 30s`). Our units
-# use plain integer seconds, but the idiomatic forms are valid — parse them so a
-# `5min` edit asserts cleanly instead of crashing the invariant test on int().
-_SPAN_UNIT_SECONDS = {
-    "": 1,
-    "s": 1,
-    "sec": 1,
-    "second": 1,
-    "seconds": 1,
-    "m": 60,
-    "min": 60,
-    "minute": 60,
-    "minutes": 60,
-    "h": 3600,
-    "hr": 3600,
-    "hour": 3600,
-    "hours": 3600,
-    "d": 86400,
-    "day": 86400,
-    "days": 86400,
-}
-
-
-def parse_seconds(value: str) -> int:
-    """Parse a systemd time span into whole seconds (see _SPAN_UNIT_SECONDS)."""
-    tokens = re.findall(r"(\d+)\s*([a-z]*)", value.strip().lower())
-    if not tokens:
-        raise ValueError(f"unparseable systemd time span: {value!r}")
-    total = 0
-    for number, unit in tokens:
-        if unit not in _SPAN_UNIT_SECONDS:
-            raise ValueError(f"unrecognized systemd time unit {unit!r} in {value!r}")
-        total += int(number) * _SPAN_UNIT_SECONDS[unit]
-    return total
 
 
 def _loop_is_bounded(interval: str, restart_sec: str, burst: str) -> bool:
