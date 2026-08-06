@@ -29,6 +29,7 @@ bash skills-vendor/gregoryfoster-skills/skills/managing-skills/scripts/install-d
 
 | Skill | What it does |
 |---|---|
+| `curating-context` | Curate the agent-context surface (`AGENTS.md` + the docs it links) against a token budget, verifying facts before removing anything. Triggers: `curate context`, `context budget`, `trim AGENTS.md`. Also installs the write guard — see [§ Context budget](#context-budget). |
 | `enforcing-architecture` | Graduate an accepted architecture finding into an executable fitness function (import-linter / module-size gate / OpenAPI drift guard). Triggers: `add a fitness function`, `enforce this contract`, `lock this rule`. |
 | `init-project-fastapi` | Bootstrap a new FastAPI service (this project's origin). |
 | `managing-skills` | Add/update/audit skills across vendors and overrides. |
@@ -61,6 +62,27 @@ Full local copies (not symlinks) live in `skills/<name>/`. Each must declare `ov
 | `skills/brainstorming/` | Project-specific narrative content (the upstream skill is generic). |
 
 Add a thin override only when the project genuinely diverges from the upstream behavior — see the `init-project-fastapi` SKILL.md "Phase 10 — `skills/` directory" section for the conditions that warrant a fork.
+
+## Context budget
+
+`curating-context` (#161) keeps `AGENTS.md` and the docs it links under a token budget — every token in that surface is paid on every agent invocation. It leaves five tracked files in `.skills/`:
+
+| File | What it is |
+|---|---|
+| `context-budget` | policy-file budget in force — **6,000** tokens |
+| `context-doc-budget` | per-reference-doc budget — **10,000** tokens |
+| `context-token-ratio` | this repo's measured bytes-per-token, written by each `--exact` run; the offline estimators read it so `bytes/4` (which under-reports this content by ~60%) is never used |
+| `context-metrics.jsonl` | append-only ledger, one row per run. Committed rather than centralized so the history travels with the repo and is reviewable in the same PR as the edits it describes |
+| `doctor.sh` | unrelated — see [§ the preflight](#skillsdoctorsh--the-preflight) |
+
+The weekly run recovers ground; the **write guard** stops regrowth between runs. It is a `PostToolUse` hook on `Edit|Write|MultiEdit`, wired in [`.claude/settings.json`](../.claude/settings.json), and it is advisory only — always exits 0, and stays silent unless an edit *both* pushes a context-surface file past its budget *and* increases it since `HEAD`, so a curation run is never nagged. `docs/plans/`, `docs/specs/`, and `docs/research/` are excluded as archival at any depth (so are `audits/` and `archive/`, which this repo does not currently have).
+
+```bash
+bash skills/curating-context/scripts/measure-context.sh --exact   # exact counts (needs ANTHROPIC_API_KEY; read from the repo-root .env)
+bash skills/curating-context/scripts/prove-no-loss.sh --base main # assert a curation relocated rather than dropped
+```
+
+`.claude/hooks/context-budget-guard.sh` is a symlink through `skills/curating-context/` into the vendor submodule, so on an uninitialized checkout it dangles and every edit fails the hook until the submodule is initialized — `.skills/doctor.sh` heals it, since the chain routes through `skills/*`, which the doctor's scan covers (upstream: [gregoryfoster/skills#99](https://github.com/gregoryfoster/skills/issues/99)).
 
 ## Updating skills
 
