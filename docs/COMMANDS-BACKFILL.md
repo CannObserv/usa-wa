@@ -189,4 +189,47 @@ python -m usa_wa_adapter_legislature.harvest_committees --from-biennium 1991-92 
 # sticking via #65). Backfill-once (not a timer). --dry-run previews; exit 0/1/2/3.
 python -m usa_wa_sync_powermap.reconcile_committee_name_chain --dry-run
 python -m usa_wa_sync_powermap.reconcile_committee_name_chain
+
+# SOS FILINGS harvest — Phase A of #100, archive-only (#166). Sweep the votewa
+# /Candidates/ExportToExcel CSV export (statewide, countyCode=xx) for each EVEN general-election
+# year and archive the pristine wire under sos-whofiled:<YYYYMM> (YYYY11 — the WA general is
+# November) via AdapterRunner.archive_only: FetchEvent + deduped RawPayload with the #54 content
+# hash, NO normalize (SOSAdapter.normalize raises NotImplementedError by design). Even years only —
+# an odd --from-year bumps up to the next even year, unlike the results harvest which sweeps odd
+# years too (#106). Floor 2008 (the PDC winner floor this was built to join).
+# DISTINCT FROM usa_wa_adapter_sos.results.harvest (COMMANDS.md § WSL+SOS House Position backfill):
+# different source (usa_wa_sos vs usa_wa_sos_results), different archive key, its OWN CLI — do not
+# infer flags or resilience from the sibling.
+#
+# 2020+ COVERAGE CLIFF — read before running. SOS retired this export to Power BI after the 2018
+# general; a 2020+ election returns HTTP 500 (live audit 2026-07-18 — the finding that moved the
+# House Position seat onto the results source at #101 — re-verified 2026-08-06: 201811 → 200,
+# 202011 → 500). This harvest has NO per-year SAVEPOINT (the results harvest's per-year resilience
+# is NOT shared): the raise propagates out of the sweep, the whole transaction rolls back, and it
+# exits 1 having committed nothing — including the 2008–2018 years it already fetched. So ALWAYS
+# pass --to-year 2018. The default --to-year is the current biennium's seating general
+# (2025-26 → 2024), which walks straight off the cliff. USA_WA_BIENNIUM is NOT read here (the bound
+# comes from the wall clock), so pinning it does not help.
+# The source is kept for its candidacy metadata (Email / MailingAddress / Phone / FilingDate /
+# IsWithdrawn, #99), not the seat — see docs/ARCHITECTURE.md for the two sources' coverage table.
+#
+# PACING: --pause-seconds (default 1.0) sets the CENTRAL votewa min-interval — one shared limiter
+# every votewa GET passes through (the #77 central-governor pattern), the same gate
+# USA_WA_SOS_MIN_REQUEST_INTERVAL seeds at import (default 1.0, 0 disables). The CLI calls
+# configure_sos_rate_limit(--pause-seconds) UNCONDITIONALLY, so the flag always overwrites the
+# env-seeded value — USA_WA_SOS_MIN_REQUEST_INTERVAL has no effect on THIS command (it governs
+# other votewa callers); use --pause-seconds. Deliberately gentle: votewa is a low-QPS government
+# ASP.NET site with no published API contract, and 2008–2018 is 6 calls.
+# CACHE: the freshness TTL is 1 day (the usa_wa_sos Source's cache_ttl_days). Inside it a re-run is
+# a pure cache hit — no HTTP at all, cohorts_archived=0 with years unchanged. Past it every year
+# re-fetches (cohorts_archived counts FETCHES, not new bytes) but a byte-identical CSV dedups to
+# the existing RawPayload, so only a new FetchEvent is written. --force skips the TTL check.
+# --dry-run harvests for real (it hits votewa) and rolls back — no provenance retained.
+# EXIT CODES: 0 success (prints "SOS harvest: years=N cohorts_archived=M (committed|dry-run,
+# rolled back)"); 1 any exception mid-sweep, logged as sos_harvest_failed, nothing committed;
+# 2 DATABASE_URL unset. APP role (archive tables only, no owner DML). No sidecar pause needed —
+# archive-only, so nothing reaches PM.
+python -m usa_wa_adapter_sos.filings.harvest --to-year 2018 --dry-run
+python -m usa_wa_adapter_sos.filings.harvest --from-year 2008 --to-year 2018 --pause-seconds 1.0
+python -m usa_wa_adapter_sos.filings.harvest --to-year 2018 --force   # re-pull past the 1-day TTL
 ```
