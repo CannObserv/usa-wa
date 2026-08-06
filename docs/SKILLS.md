@@ -63,6 +63,16 @@ Full local copies (not symlinks) live in `skills/<name>/`. Each must declare `ov
 
 Add a thin override only when the project genuinely diverges from the upstream behavior — see the `init-project-fastapi` SKILL.md "Phase 10 — `skills/` directory" section for the conditions that warrant a fork.
 
+## Local script overrides
+
+Every `reviewing-*` / `shipping-*` skill resolves its scripts by probing `scripts/` **before** the skill's own directory, so a project-local `scripts/<name>.sh` wins with no skill edit. One exists:
+
+| Script | Why |
+|---|---|
+| [`scripts/pre-ship.sh`](../scripts/pre-ship.sh) | Loads the two env files, then `exec`s the vendored gate. `conftest.py` raises on a missing `TEST_DATABASE_URL`, so the ship gate's test phase died on a clean shell with a bare `ImportError` (#172). This is the override point the vendored script documents. |
+
+**It is a wrapper, not a fork — keep it that way.** The ~200 lines upstream owns (per-SHA stamp cache, `pytest-cov` detection, the JS block, the zombie preflight) stay in one place and keep improving without a merge; a copy would drift silently on every submodule bump. Pinned by [`scripts/tests/test_pre_ship_wrapper.py`](../scripts/tests/test_pre_ship_wrapper.py), whose last test fails if the vendored delegate path moves. Upstream ask to make this recipe the sanctioned idiom (it currently says "keep a thin local fork", and only 1 of the 4 `shipping-work*` variants says even that): [gregoryfoster/skills#105](https://github.com/gregoryfoster/skills/issues/105).
+
 ## Context budget
 
 `curating-context` (#161) keeps `AGENTS.md` and the docs it links under a token budget — every token in that surface is paid on every agent invocation. It leaves five tracked files in `.skills/`:
