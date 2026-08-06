@@ -26,8 +26,8 @@ async def test_fetch_record_conditional_304_short_circuits():
     client = FakeClient(entities={pm_id: _rec(pm_id)}, not_modified_ids={pm_id})
     fetch = await FakeDescriptor().fetch_record_conditional(client, pm_id, if_none_match='"e1"')
     assert fetch.not_modified is True and fetch.record is None
-    # 304 → no children attached, and no plain get_entity fallback
-    assert client.fetched == []
+    # Exactly one conditional read; no second unconditional fetch, no children attached.
+    assert client.conditional_fetched == [("/api/v1/fakes", pm_id, '"e1"')]
 
 
 async def test_fetch_record_conditional_200_attaches_children_and_returns_etag():

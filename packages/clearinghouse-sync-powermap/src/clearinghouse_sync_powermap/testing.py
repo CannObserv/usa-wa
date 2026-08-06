@@ -217,6 +217,9 @@ class FakeClient:
         self, read_path: str, pm_id: Any, *, if_none_match: str | None
     ) -> EntityFetch:
         self.conditional_fetched.append((read_path, pm_id, if_none_match))
+        # Also record in ``fetched`` (the read happened, conditionally) so tests that assert
+        # "which ids the reconcile read" keep working now the reconcile is conditional (#160).
+        self.fetched.append((read_path, pm_id))
         if if_none_match is not None and (
             pm_id in self._not_modified_ids or str(pm_id) in self._not_modified_ids
         ):

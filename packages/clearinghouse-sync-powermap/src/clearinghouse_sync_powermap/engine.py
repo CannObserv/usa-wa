@@ -95,6 +95,7 @@ from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.client import (
     ChangePage,
     DeliveryBlockedError,
+    EntityFetch,
     ObservationResult,
     PayloadRejectedError,
     PowerMapClient,
@@ -111,6 +112,7 @@ from clearinghouse_sync_powermap.models import (
     STATUS_REJECTED,
     STATUS_UNAVAILABLE,
     AnchorReanchor,
+    ConditionalGetState,
     EnrichFingerprint,
     NonConvergenceState,
     OutboxEntry,
@@ -340,6 +342,7 @@ class SyncEngine:
         sweep_batch_size: int = DEFAULT_SWEEP_BATCH_SIZE,
         nonconvergence_threshold: int = DEFAULT_NONCONVERGENCE_THRESHOLD,
         replay_margin: int = DEFAULT_REPLAY_MARGIN,
+        conditional_get_enabled: bool = True,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         if sweep_batch_size < 1:
@@ -371,6 +374,13 @@ class SyncEngine:
         self._deferred_stuck_threshold = deferred_stuck_threshold
         self._nonconvergence_threshold = nonconvergence_threshold
         self._replay_margin = replay_margin
+        self._conditional_get_enabled = conditional_get_enabled
+        #: Cumulative conditional-GET tallies across this cycle's per-descriptor reconciles
+        #: (usa-wa#160): rows the reconcile skipped on a 304 vs. fetched full on a 200/first
+        #: pass. The engine accumulates (each reconcile runs in its own session but one shared
+        #: engine); the sidecar reads them for the cycle summary and resets per cycle.
+        self._conditional_get_skipped = 0
+        self._conditional_get_fetched = 0
         self._sweep_batch_size = sweep_batch_size
         # Injectable for the transient-read retry tests (usa-wa#85); production sleeps.
         self._sleep = sleep
@@ -405,6 +415,17 @@ class SyncEngine:
     def last_drain_stats(self) -> DrainStats:
         """Disposition + re-anchor tallies from the most recent :meth:`drain_outbox`."""
         return self._last_drain_stats
+
+    @property
+    def conditional_get_stats(self) -> tuple[int, int]:
+        """``(skipped, fetched)`` conditional-GET tallies accumulated since the last reset
+        (usa-wa#160): rows the reconcile skipped on a ``304`` vs. re-fetched full."""
+        return (self._conditional_get_skipped, self._conditional_get_fetched)
+
+    def reset_conditional_get_stats(self) -> None:
+        """Zero the conditional-GET tallies (the sidecar calls this at each cycle start)."""
+        self._conditional_get_skipped = 0
+        self._conditional_get_fetched = 0
 
     def descriptor_for(self, entity_type: str) -> EntityDescriptor | None:
         return self._by_type.get(entity_type)
@@ -1780,7 +1801,24 @@ class SyncEngine:
             for row in rows:
                 last_id = row.id
                 pm_id = descriptor.anchor_value(row)
-                record = await self._fetch_record_with_retry(descriptor, pm_id)
+                # Conditional GET (usa-wa#160 / power-map#385): send the stored ETag and
+                # skip the whole row on a 304 — no body, no apply, no re-enrich. PM's detail
+                # ETag covers child tables (incl. events), so a 304 means nothing to heal.
+                # A stale/absent ETag only ever costs a 200 we re-apply (idempotent), never
+                # a missed update. Disabled → the unconditional fetch, unchanged.
+                if self._conditional_get_enabled:
+                    stored = await self._load_detail_etag(session, descriptor.entity_type, row.id)
+                    fetch = await self._fetch_record_conditional_with_retry(
+                        descriptor, pm_id, stored
+                    )
+                    if fetch.not_modified:
+                        self._conditional_get_skipped += 1
+                        continue  # unchanged since last pass — no apply, no enrich
+                    record = fetch.record
+                    new_etag = fetch.etag
+                else:
+                    record = await self._fetch_record_with_retry(descriptor, pm_id)
+                    new_etag = None
                 if record is None:
                     # PM record gone (404): the entity was merged/deleted. Self-heal —
                     # re-anchor to the merge-winner, or retire on a genuine delete (#31).
@@ -1791,6 +1829,10 @@ class SyncEngine:
                 # (trigger gap) or a drifted carry payload (detection gap, check_drift)
                 # re-enqueues an ENRICH here rather than waiting on a manual backfill.
                 await self._maybe_enqueue_enrich(session, descriptor, record, row, check_drift=True)
+                if new_etag is not None:
+                    # Store PM's fresh validator so next pass can 304 this row.
+                    await self._store_detail_etag(session, descriptor.entity_type, row.id, new_etag)
+                self._conditional_get_fetched += 1
                 applied += 1
             if commit is not None:
                 # Bound the open transaction to one page of PM round-trips (#13 CR) and
@@ -1842,6 +1884,51 @@ class SyncEngine:
                 "pm_id": str(pm_id),
             },
         )
+
+    async def _fetch_record_conditional_with_retry(
+        self, descriptor: EntityDescriptor, pm_id: Any, if_none_match: str | None
+    ) -> EntityFetch:
+        """``descriptor.fetch_record_conditional`` with the shared read pause-and-resume (#85)."""
+        return await self._read_with_retry(
+            lambda: descriptor.fetch_record_conditional(
+                self._client, pm_id, if_none_match=if_none_match
+            ),
+            log_extra={
+                "read": "reconcile",
+                "entity_type": descriptor.entity_type,
+                "pm_id": str(pm_id),
+                "conditional": True,
+            },
+        )
+
+    async def _load_detail_etag(
+        self, session: AsyncSession, entity_type: str, local_id: Any
+    ) -> str | None:
+        """The stored PM detail ETag for one anchored row, or None (usa-wa#160)."""
+        return await session.scalar(
+            select(ConditionalGetState.detail_etag).where(
+                ConditionalGetState.entity_type == entity_type,
+                ConditionalGetState.local_id == local_id,
+            )
+        )
+
+    async def _store_detail_etag(
+        self, session: AsyncSession, entity_type: str, local_id: Any, etag: str
+    ) -> None:
+        """Upsert the PM detail ETag for one anchored row (usa-wa#160)."""
+        state = (
+            await session.execute(
+                select(ConditionalGetState).where(
+                    ConditionalGetState.entity_type == entity_type,
+                    ConditionalGetState.local_id == local_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if state is None:
+            state = ConditionalGetState(entity_type=entity_type, local_id=local_id)
+            session.add(state)
+        state.detail_etag = etag
+        await session.flush()
 
     async def fetch_record_with_retry(self, descriptor: EntityDescriptor, pm_id: Any) -> Any:
         """Public seam for the subscription backfill (usa-wa#89): fetch a newly-
