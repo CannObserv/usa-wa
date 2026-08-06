@@ -23,6 +23,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from ulid import ULID
 
 from clearinghouse_core.logging import get_logger
+from clearinghouse_sync_powermap.client import EntityFetch
 
 logger = get_logger(__name__)
 
@@ -329,12 +330,45 @@ class EntityDescriptor(ABC):
     async def fetch_record(self, client: Any, pm_id: Any) -> dict | None:
         """Fetch the full PM record for a feed item.
 
-        Default delegates to ``client.get_entity(read_path, pm_id)``. Person/org
-        override this to also pull their ``/{id}/events`` sub-resource so the
-        local entity-events mirror stays current (a feed bump on the parent may
-        be an event change).
+        Delegates to ``client.get_entity(read_path, pm_id)`` then
+        :meth:`_attach_children` (person/org attach their ``/{id}/events``
+        sub-resource so the local entity-events mirror stays current — a feed bump on
+        the parent may be an event change). ``None`` (parent gone) short-circuits.
         """
-        return await client.get_entity(self.read_path, pm_id)
+        record = await client.get_entity(self.read_path, pm_id)
+        if record is None:
+            return None
+        return await self._attach_children(client, pm_id, record)
+
+    async def _attach_children(self, client: Any, pm_id: Any, record: dict) -> dict:
+        """Attach any sub-resources to a freshly-fetched record (override point).
+
+        Base is a no-op (the record IS the whole entity). Person/org override to embed
+        their ``/{id}/events`` (#19). Shared by :meth:`fetch_record` (feed path) and
+        :meth:`fetch_record_conditional` (usa-wa#160 reconcile path) so the two never
+        diverge on what a "full record" contains.
+        """
+        return record
+
+    async def fetch_record_conditional(
+        self, client: Any, pm_id: Any, *, if_none_match: str | None
+    ) -> "EntityFetch":
+        """Conditional fetch for the reconcile backstop (usa-wa#160 / power-map#385).
+
+        Sends the stored ``If-None-Match`` validator; on a ``304`` returns
+        ``not_modified=True`` (the caller skips apply + re-enrich entirely — PM's detail
+        ETag covers child tables incl. events, so the whole row is unchanged), on a
+        ``200`` returns the full record (children attached) + the fresh ETag to store, and
+        on a ``404`` returns ``record=None, not_modified=False`` so the caller's
+        delete/heal path runs exactly as an unconditional fetch would.
+        """
+        fetch = await client.get_entity_conditional(
+            self.read_path, pm_id, if_none_match=if_none_match
+        )
+        if fetch.not_modified or fetch.record is None:
+            return fetch
+        record = await self._attach_children(client, pm_id, fetch.record)
+        return EntityFetch(record=record, etag=fetch.etag, not_modified=False)
 
     # --- behaviour (sibling implements) --------------------------------------
 

@@ -213,15 +213,14 @@ class PersonDescriptor(EntityDescriptor):
         + returns a deterministic winner rather than raising ``MultipleResultsFound``."""
         return await self._anchor_match(session, record)
 
-    async def fetch_record(self, client: Any, pm_id: Any) -> dict | None:
-        """Fetch the PM person and attach its ``/events`` sub-resource (#19).
+    async def _attach_children(self, client: Any, pm_id: Any, record: dict) -> dict:
+        """Attach the person's ``/events`` sub-resource (#19).
 
         A parent feed bump may be an event change; embedding the events lets
-        :meth:`upsert_from_pm` refresh the local ``entity_events`` mirror.
+        :meth:`upsert_from_pm` refresh the local ``entity_events`` mirror. Runs for both
+        the feed path (``fetch_record``) and the reconcile path (``fetch_record_conditional``,
+        usa-wa#160) — the latter only on a ``200`` (a ``304`` means events are unchanged too).
         """
-        record = await client.get_entity(self.read_path, pm_id)
-        if record is None:
-            return None  # parent gone → skip the events fetch entirely
         record["events"] = await client.list_entity_events(self.read_path, pm_id)
         return record
 
