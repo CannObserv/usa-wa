@@ -479,7 +479,6 @@ class Sidecar:
             async with self._session_factory() as session:
                 if not await self._replay_due(session, now):
                     return True
-                self._replay_ran_this_cycle = True
                 result = await self._engine.replay_from_floor(session, now=now)
                 if result.fell_off:
                     # The replay floor fell off PM's retention window: a pruned slice
@@ -489,6 +488,10 @@ class Sidecar:
                     # reconciles); the alert on the summary is the operator-facing signal.
                     await self._force_anchored_rescan(session)
                 await session.commit()
+            # Set the "ran" flag together with the result, only after a clean commit
+            # (#159 CR-4): a raising replay/commit must leave the flag False so the summary
+            # reports None rather than the previous pass's stale numbers as if fresh.
+            self._replay_ran_this_cycle = True
             self._last_replay_result = result
             logger.info(
                 "sidecar_replay",

@@ -1248,6 +1248,9 @@ async def test_run_replay_failure_is_isolated(caplog):
 
     assert ok is False  # verdict signal for the backoff/streak path
     assert "replay: " in sidecar._cycle_errors[0]
+    # #159 CR-4: a raising pass must NOT mark the cycle as having run, else the summary
+    # would surface a prior pass's stale numbers as if they were this cycle's.
+    assert sidecar._replay_ran_this_cycle is False
 
 
 async def test_cycle_summary_surfaces_replay_delta(db_session, caplog):
