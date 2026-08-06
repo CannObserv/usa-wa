@@ -34,6 +34,7 @@ async def _amain() -> None:
         client,
         nonconvergence_threshold=settings.nonconvergence_threshold,
         replay_margin=settings.replay_margin,
+        conditional_get_enabled=settings.conditional_get_enabled,
     )
     reconciler = build_reconciler(client, engine, settings)
     # Failure-streak alerting (#85): fail-closed like notify-failure.sh — no

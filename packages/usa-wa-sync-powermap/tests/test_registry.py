@@ -56,6 +56,11 @@ def test_reconcile_cadence_setting_defaults_to_twelve_hours():
     assert SidecarSettings(powermap_api_key="x").reconcile_cadence == timedelta(hours=12)
 
 
+def test_conditional_get_enabled_defaults_true():
+    # usa-wa#160: conditional GET on the reconcile ships on (kill-switchable via env).
+    assert SidecarSettings(powermap_api_key="x").conditional_get_enabled is True
+
+
 def test_replay_backstop_settings_defaults():
     # usa-wa#159: the changes-feed replay backstop ships on, re-reads a generous
     # trailing seq window (must exceed PM's worst-case in-flight-write span), and runs

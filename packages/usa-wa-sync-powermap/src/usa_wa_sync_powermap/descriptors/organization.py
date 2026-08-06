@@ -430,11 +430,12 @@ class OrganizationDescriptor(EntityDescriptor):
         + returns a deterministic winner rather than raising ``MultipleResultsFound``."""
         return await self._anchor_match(session, record)
 
-    async def fetch_record(self, client: Any, pm_id: Any) -> dict | None:
-        """Fetch the PM org and attach its ``/events`` sub-resource (#19).
+    async def _attach_children(self, client: Any, pm_id: Any, record: dict) -> dict:
+        """Attach the org's ``/events`` sub-resource (#19).
 
-        See :meth:`PersonDescriptor.fetch_record`; a parent feed bump may carry an
-        event change, so the events are embedded for the mirror refresh.
+        See :meth:`PersonDescriptor._attach_children`; a parent feed bump may carry an
+        event change, so the events are embedded for the mirror refresh. Shared by the
+        feed + reconcile (usa-wa#160) paths.
 
         Note: the dated-name mirror (#45) consumes ``record["names"]`` and the
         acronym mirror (#47) consumes ``record["acronyms"]`` — both ride **embedded**
@@ -444,9 +445,6 @@ class OrganizationDescriptor(EntityDescriptor):
         would silently no-op; attach them here then (see ``descriptors/org_names.py``
         and ``descriptors/org_acronyms.py``).
         """
-        record = await client.get_entity(self.read_path, pm_id)
-        if record is None:
-            return None  # parent gone → skip the events fetch entirely
         record["events"] = await client.list_entity_events(self.read_path, pm_id)
         return record
 

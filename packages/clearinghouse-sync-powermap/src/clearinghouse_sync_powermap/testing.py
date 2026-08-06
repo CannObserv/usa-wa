@@ -22,6 +22,7 @@ from clearinghouse_core.models import Base, TimestampMixin
 from clearinghouse_sync_powermap.client import (
     ChangePage,
     DiscoveredEntity,
+    EntityFetch,
     EntityPage,
     EventObservationResult,
     ObservationResult,
@@ -133,9 +134,17 @@ class FakeClient:
         subscribed: list[Any] | None = None,
         events: dict[Any, list[dict]] | None = None,
         role_types: list[dict] | None = None,
+        entity_etags: dict[Any, str] | None = None,
+        not_modified_ids: set[Any] | None = None,
     ) -> None:
         self._changes_pages = list(changes_pages or [])
         self._entity_pages = list(entity_pages or [])
+        #: Conditional-GET presets (usa-wa#160): the ETag PM returns per id, and the ids
+        #: that answer 304 when any If-None-Match is sent.
+        self._entity_etags = entity_etags or {}
+        self._not_modified_ids = not_modified_ids or set()
+        #: Recorded get_entity_conditional calls (read_path, pm_id, if_none_match).
+        self.conditional_fetched: list[tuple[str, Any, str | None]] = []
         self._entities = entities or {}
         self._observation_result = observation_result
         #: Preset event-observation response: a callable ``(org_id, events) -> list`` or a
@@ -203,6 +212,21 @@ class FakeClient:
     async def get_entity(self, read_path: str, pm_id: Any) -> dict | None:
         self.fetched.append((read_path, pm_id))
         return self._entities.get(pm_id) or self._entities.get(str(pm_id))
+
+    async def get_entity_conditional(
+        self, read_path: str, pm_id: Any, *, if_none_match: str | None
+    ) -> EntityFetch:
+        self.conditional_fetched.append((read_path, pm_id, if_none_match))
+        # Also record in ``fetched`` (the read happened, conditionally) so tests that assert
+        # "which ids the reconcile read" keep working now the reconcile is conditional (#160).
+        self.fetched.append((read_path, pm_id))
+        if if_none_match is not None and (
+            pm_id in self._not_modified_ids or str(pm_id) in self._not_modified_ids
+        ):
+            return EntityFetch(record=None, etag=if_none_match, not_modified=True)
+        record = self._entities.get(pm_id) or self._entities.get(str(pm_id))
+        etag = self._entity_etags.get(pm_id) or self._entity_etags.get(str(pm_id))
+        return EntityFetch(record=record, etag=etag, not_modified=False)
 
     async def list_role_types(self) -> list[dict]:
         return list(self._role_types)

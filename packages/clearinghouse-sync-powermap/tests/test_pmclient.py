@@ -424,6 +424,85 @@ async def test_get_entity_5xx_is_retryable(client):
 
 
 @respx.mock
+async def test_get_entity_conditional_304_not_modified(client):
+    """usa-wa#160: a stored ETag sent as If-None-Match earns a 304 → not_modified, no
+    body. The header must be sent verbatim (power-map#385 matches byte-exact)."""
+    pm_id = ULID()
+    route = respx.get(f"{BASE}/api/v1/people/{pm_id}").mock(return_value=httpx.Response(304))
+
+    fetch = await client.get_entity_conditional("/api/v1/people", pm_id, if_none_match='"abc-123"')
+
+    assert fetch.not_modified is True and fetch.record is None
+    assert route.calls.last.request.headers["If-None-Match"] == '"abc-123"'
+
+
+@respx.mock
+async def test_get_entity_conditional_200_returns_body_and_etag(client):
+    """A 200 carries the fresh ETag to store + the body to apply."""
+    pm_id = ULID()
+    respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"ETag": '"jur-9"'},
+            json={
+                "id": str(pm_id),
+                "slug": "usa-wa",
+                "name": "Washington",
+                "type": {"id": str(ULID()), "slug": "state", "display_name": "State"},
+                "recorded_at": "2026-06-05T00:00:00Z",
+                "created_at": "2026-06-05T00:00:00Z",
+                "updated_at": "2026-06-05T00:00:00Z",
+            },
+        )
+    )
+
+    fetch = await client.get_entity_conditional(
+        "/api/v1/jurisdictions", pm_id, if_none_match='"stale"'
+    )
+
+    assert fetch.not_modified is False
+    assert fetch.record["slug"] == "usa-wa" and fetch.etag == '"jur-9"'
+
+
+@respx.mock
+async def test_get_entity_conditional_none_validator_is_unconditional(client):
+    """if_none_match=None sends no header (first-ever fetch of a row) and returns the body."""
+    pm_id = ULID()
+    route = respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"ETag": '"jur-1"'},
+            json={
+                "id": str(pm_id),
+                "slug": "usa-wa",
+                "name": "WA",
+                "type": {"id": str(ULID()), "slug": "state", "display_name": "State"},
+                "recorded_at": "2026-06-05T00:00:00Z",
+                "created_at": "2026-06-05T00:00:00Z",
+                "updated_at": "2026-06-05T00:00:00Z",
+            },
+        )
+    )
+
+    fetch = await client.get_entity_conditional("/api/v1/jurisdictions", pm_id, if_none_match=None)
+
+    assert "If-None-Match" not in route.calls.last.request.headers
+    assert fetch.record["slug"] == "usa-wa" and fetch.etag == '"jur-1"'
+
+
+@respx.mock
+async def test_get_entity_conditional_404_is_not_modified_false(client):
+    """A 404 (entity gone) is record=None + not_modified=False → routes to the heal/delete
+    path exactly like an unconditional fetch, never mistaken for a 304 short-circuit."""
+    pm_id = ULID()
+    respx.get(f"{BASE}/api/v1/jurisdictions/{pm_id}").mock(return_value=httpx.Response(404))
+
+    fetch = await client.get_entity_conditional("/api/v1/jurisdictions", pm_id, if_none_match='"x"')
+
+    assert fetch.record is None and fetch.not_modified is False
+
+
+@respx.mock
 async def test_post_observation_rejected(client):
     respx.post(f"{BASE}/api/v1/jurisdictions/observations").mock(
         return_value=httpx.Response(

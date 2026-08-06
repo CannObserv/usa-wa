@@ -63,6 +63,11 @@ class SidecarSettings(BaseSettings):
     replay_enabled: bool = True
     replay_margin: int = 10_000
     replay_cadence: timedelta = timedelta(hours=1)
+    #: Conditional GET on the anchored-cohort reconcile (usa-wa#160): send PM's stored
+    #: ETag as If-None-Match and skip a full re-fetch + re-apply on a 304 (power-map#385).
+    #: Kill switch (default true) so a suspected PM ETag bug can be disabled without a
+    #: redeploy — off = the unchanged unconditional full-fetch every pass.
+    conditional_get_enabled: bool = True
     #: PM-first match-cascade name-search cap (#12): the max candidate window the
     #: org/person descriptors page-and-confirm during a name match (passed as the
     #: search ``limit``). The exact match must rank within it, so widen this if PM's

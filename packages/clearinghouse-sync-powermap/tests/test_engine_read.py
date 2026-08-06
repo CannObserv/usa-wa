@@ -873,6 +873,62 @@ async def test_anchored_cohort_reenriches_on_carry_drift(db_session):
     assert entry.payload_hash == expected
 
 
+async def test_anchored_cohort_304_still_reenriches_on_carry_drift(db_session):
+    """usa-wa#160 CR: a 304 skips the PM→local apply, but a locally-drifted carry payload
+    (a newly-added carry field reaching the cohort — PM 304s every such row) must STILL
+    enqueue an ENRICH, else the field never propagates via the reconcile. The 304 fast-path
+    must not defeat the local→PM carry-drift backstop (#124/#69/#31 self-heal)."""
+    from clearinghouse_sync_powermap.models import ConditionalGetState
+
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="Old", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortEnrichDescriptor()
+    await _seed_fingerprint(db_session, descriptor, row)  # stamp at name "Old"
+    row.name = "New"  # local carry payload drifts; PM unchanged → 304
+    db_session.add(
+        ConditionalGetState(entity_type=descriptor.entity_type, local_id=row.id, detail_etag='"e1"')
+    )
+    await db_session.flush()
+    client = FakeClient(
+        entities={pm_id: _record_with_identifier("x", "New", pm_id=pm_id)},
+        not_modified_ids={pm_id},  # PM answers 304 to the stored validator
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert entry.op == OP_ENRICH
+    expected = enrich_fingerprint(await descriptor.to_enrich_observation(db_session, row))
+    assert entry.payload_hash == expected
+    assert engine.conditional_get_stats == (1, 0)  # skipped the full fetch, still enriched
+
+
+async def test_anchored_cohort_304_no_enrich_when_fingerprint_current(db_session):
+    """A 304 on a fully-settled row (fingerprint current, no drift) stays a pure no-op —
+    the drift-only check must not mint a spurious ENRICH every pass (steady-state quiet)."""
+    from clearinghouse_sync_powermap.models import ConditionalGetState
+
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortEnrichDescriptor()
+    await _seed_fingerprint(db_session, descriptor, row)  # current — no drift
+    db_session.add(
+        ConditionalGetState(entity_type=descriptor.entity_type, local_id=row.id, detail_etag='"e1"')
+    )
+    await db_session.flush()
+    client = FakeClient(
+        entities={pm_id: _record_with_identifier("x", "X", pm_id=pm_id)},
+        not_modified_ids={pm_id},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert (await db_session.execute(select(OutboxEntry))).scalars().all() == []
+    assert engine.conditional_get_stats == (1, 0)
+
+
 async def test_anchored_cohort_upgrades_blocking_update_to_enrich(db_session):
     """A locally-newer anchored row that ALSO needs enrich: apply_record queues an
     OP_UPDATE (keyed by our real identifier, which PM lacks → duplicate risk), so the
@@ -1477,18 +1533,27 @@ async def test_anchored_cohort_requires_now(db_session):
 
 
 class _FlakyClient(FakeClient):
-    """FakeClient whose get_entity raises RetryableClientError N times first."""
+    """FakeClient whose entity reads raise RetryableClientError N times first — on both
+    the plain and conditional (usa-wa#160) read paths, so it exercises the reconcile's
+    pause-and-resume regardless of which the engine uses."""
 
     def __init__(self, *, failures, retry_after=None, **kwargs):
         super().__init__(**kwargs)
         self._failures = failures
         self._retry_after = retry_after
 
-    async def get_entity(self, read_path, pm_id):
+    def _maybe_fail(self):
         if self._failures > 0:
             self._failures -= 1
             raise RetryableClientError("PM 429", retry_after=self._retry_after)
+
+    async def get_entity(self, read_path, pm_id):
+        self._maybe_fail()
         return await super().get_entity(read_path, pm_id)
+
+    async def get_entity_conditional(self, read_path, pm_id, *, if_none_match):
+        self._maybe_fail()
+        return await super().get_entity_conditional(read_path, pm_id, if_none_match=if_none_match)
 
 
 def _sleep_recorder():
@@ -1646,3 +1711,86 @@ async def test_apply_record_stamps_clock_when_row_otherwise_changed(db_session):
 
     assert row.name == "Renamed by PM"
     assert row.updated_at == ts  # not clobbered to now() by onupdate
+
+
+async def test_anchored_cohort_304_skips_apply_and_stores_nothing(db_session):
+    """usa-wa#160: with a stored ETag, a 304 short-circuits — no apply, no outbox, and
+    the conditional If-None-Match carried the stored validator. skipped tally increments."""
+    from clearinghouse_sync_powermap.models import ConditionalGetState
+
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="Local", pm_id=pm_id, updated_at=NOW)
+    db_session.add(
+        ConditionalGetState(entity_type="fake", local_id=row.id, detail_etag='"stored-1"')
+    )
+    await db_session.flush()
+    descriptor = CohortDescriptor()
+    client = FakeClient(
+        entities={pm_id: _record("x", "PMName", pm_id=pm_id, updated_at="2099-01-01T00:00:00Z")},
+        not_modified_ids={pm_id},  # PM answers 304 to the stored validator
+    )
+    engine = SyncEngine([descriptor], client)
+
+    applied = await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert applied == 0  # nothing applied
+    await db_session.refresh(row)
+    assert row.name == "Local"  # untouched (no apply on a 304)
+    assert (await db_session.execute(select(OutboxEntry))).first() is None  # no enrich/update
+    assert client.conditional_fetched[0][2] == '"stored-1"'  # sent the stored ETag
+    assert engine.conditional_get_stats == (1, 0)  # (skipped, fetched)
+
+
+async def test_anchored_cohort_200_applies_and_stores_etag(db_session):
+    """A first pass (no stored ETag) fetches full, applies, and stores PM's fresh ETag so
+    the next pass can 304. fetched tally increments."""
+    from clearinghouse_sync_powermap.models import ConditionalGetState
+
+    pm_id = ULID()
+    row = await _add_anchored(
+        db_session,
+        source_id="x",
+        name="Stale",
+        pm_id=pm_id,
+        updated_at=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+    descriptor = CohortDescriptor()
+    client = FakeClient(
+        entities={pm_id: _record("x", "Curated", pm_id=pm_id, updated_at="2026-06-07T00:00:00Z")},
+        entity_etags={pm_id: '"fresh-9"'},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    applied = await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert applied == 1 and engine.conditional_get_stats == (0, 1)
+    await db_session.refresh(row)
+    assert row.name == "Curated"  # applied
+    stored = await db_session.scalar(
+        select(ConditionalGetState.detail_etag).where(ConditionalGetState.local_id == row.id)
+    )
+    assert stored == '"fresh-9"'  # ETag persisted for next pass
+
+
+async def test_anchored_cohort_disabled_uses_unconditional_fetch(db_session):
+    """The kill switch: conditional_get_enabled=False → the plain unconditional fetch, no
+    ETag store, no conditional call."""
+    pm_id = ULID()
+    await _add_anchored(
+        db_session,
+        source_id="x",
+        name="Stale",
+        pm_id=pm_id,
+        updated_at=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+    descriptor = CohortDescriptor()
+    client = FakeClient(
+        entities={pm_id: _record("x", "Curated", pm_id=pm_id, updated_at="2026-06-07T00:00:00Z")},
+        entity_etags={pm_id: '"fresh-9"'},
+    )
+    engine = SyncEngine([descriptor], client, conditional_get_enabled=False)
+
+    applied = await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert applied == 1 and client.conditional_fetched == []  # never used the conditional path
+    assert engine.conditional_get_stats == (0, 0)  # tally stays 0 when disabled (#160 CR)
