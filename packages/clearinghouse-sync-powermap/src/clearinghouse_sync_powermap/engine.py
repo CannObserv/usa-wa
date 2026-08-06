@@ -127,8 +127,10 @@ CHANGES_STREAM = "changes_feed"
 #: Distinct from ``CHANGES_STREAM``: the live feed advances its cursor to the newest
 #: seq consumed, while replay re-reads a trailing window (``high_water − margin``) each
 #: cycle to re-cover PM's at-least-once concurrent-commit skip (power-map#387). Its
-#: ``last_reconcile_at`` gates the replay cadence; its ``cursor`` is the in-window
-#: resumable checkpoint (the #94 pattern).
+#: ``last_reconcile_at`` gates the replay cadence; its ``cursor`` records the high-water
+#: the last pass reached (informational only — each pass re-derives its floor from the
+#: live ``changes_feed`` cursor and never reads this back, so a crash mid-pass simply
+#: re-reads from the floor next cycle rather than resuming).
 REPLAY_STREAM = "changes_replay"
 
 
@@ -1994,6 +1996,19 @@ class SyncEngine:
         non-advancing PM cursor (the #6 guard shape).
         """
         high_water = _parse_after(await self._read_cursor(session, CHANGES_STREAM)) or 0
+        if high_water == 0:
+            # The live feed has never advanced its cursor (a fresh/empty deploy, or an
+            # empty subscription set): there is no consumed-then-skipped history to
+            # recover, and the live feed will bootstrap from seq 0 itself. Skip — reading
+            # from floor 0 would (a) re-read the ENTIRE retained feed duplicating that
+            # bootstrap and (b) spuriously trip fall-off (0 < min_seq) into a false
+            # "replay fell off retention" alert + forced rescan (usa-wa#159 CR-1). Stamp
+            # so the cadence applies uniformly; replay engages once the feed advances.
+            state = await self._get_or_create_state(session, REPLAY_STREAM)
+            state.last_reconcile_at = now
+            await session.flush()
+            logger.info("powermap_replay_skipped_unbootstrapped", extra={"high_water": high_water})
+            return ReplayResult(applied=0, healed=0, fell_off=False, floor=0, high_water=0)
         floor = _replay_floor(high_water, self._replay_margin)
         after = floor
         applied = 0

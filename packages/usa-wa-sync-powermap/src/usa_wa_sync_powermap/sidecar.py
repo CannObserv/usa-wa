@@ -154,6 +154,11 @@ class Sidecar:
         self._replay_cadence = replay_cadence
         self._last_replay_result: ReplayResult | None = None
         self._last_replay_fell_off = False
+        # Whether a replay pass actually executed this cycle (vs disabled / not-due).
+        # Replay runs hourly but the summary logs every ~minute, so this gates the
+        # replay_* summary fields + the fall-off latch to *actual* passes — otherwise
+        # they'd repeat the last pass's numbers on every intervening cycle (#159 CR-3).
+        self._replay_ran_this_cycle = False
         self._clock = clock
 
     async def tick(
@@ -216,6 +221,7 @@ class Sidecar:
         """
         now = self._clock()
         self._cycle_errors = []
+        self._replay_ran_this_cycle = False
         ok = await self._run_catalog_sync(now)
         ok = await self._run_backstop(now) and ok
         ok = await self._run_reconciles(now) and ok
@@ -263,7 +269,10 @@ class Sidecar:
             session, threshold=self._nonconvergence_threshold
         )
         stats = self._last_drain_stats
-        replay = self._last_replay_result
+        # Report the replay numbers only on a cycle where a pass actually ran (#159 CR-3);
+        # replay is hourly while this summary is ~per-minute, so a stale last-pass value
+        # would otherwise repeat on every intervening cycle and read as per-cycle.
+        replay = self._last_replay_result if self._replay_ran_this_cycle else None
         logger.info(
             "sidecar_cycle_summary",
             extra={
@@ -304,11 +313,13 @@ class Sidecar:
         # oldest-retained seq, so a slice of history was pruned before we replayed it —
         # potential un-recovered data loss beyond the 90-day window. Alert once on the
         # rising edge (the anchored scan still covers the gap in Phase A); re-arm when it
-        # clears so a later recurrence alerts again.
-        fell_off = replay.fell_off if replay else False
-        if fell_off and not self._last_replay_fell_off:
-            await self._send_replay_fell_off_alert(replay)
-        self._last_replay_fell_off = fell_off
+        # clears so a later recurrence alerts again. Only evaluate on a cycle where replay
+        # actually ran (#159 CR-3) — a non-run cycle carries no fresh verdict, so touching
+        # the latch would spuriously re-arm it and re-alert on the next real fall-off.
+        if replay is not None:
+            if replay.fell_off and not self._last_replay_fell_off:
+                await self._send_replay_fell_off_alert(replay)
+            self._last_replay_fell_off = replay.fell_off
 
     async def _send_rejected_alert(self, rejected: int, reasons: dict[str, int]) -> None:
         """Email the operator about a REJECTED-count rise; swallow send failures."""
@@ -468,6 +479,7 @@ class Sidecar:
             async with self._session_factory() as session:
                 if not await self._replay_due(session, now):
                     return True
+                self._replay_ran_this_cycle = True
                 result = await self._engine.replay_from_floor(session, now=now)
                 if result.fell_off:
                     # The replay floor fell off PM's retention window: a pruned slice

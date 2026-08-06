@@ -1254,6 +1254,7 @@ async def test_cycle_summary_surfaces_replay_delta(db_session, caplog):
     """The would-heal delta + fall-off ride the sidecar_cycle_summary line (#159)."""
     sidecar = _summary_sidecar()
     sidecar._last_replay_result = _RESULT
+    sidecar._replay_ran_this_cycle = True  # replay ran this cycle → fields are fresh
 
     with caplog.at_level("INFO"):
         await sidecar.report_cycle_summary(db_session, now=NOW)
@@ -1262,11 +1263,26 @@ async def test_cycle_summary_surfaces_replay_delta(db_session, caplog):
     assert rec.replay_healed == 1 and rec.replay_applied == 3 and rec.replay_fell_off is False
 
 
+async def test_cycle_summary_omits_replay_fields_on_non_run_cycle(db_session, caplog):
+    """Replay is hourly but the summary is ~per-minute: on a cycle where no replay pass
+    ran, the replay_* fields report None (last-pass values must not repeat, #159 CR-3)."""
+    sidecar = _summary_sidecar()
+    sidecar._last_replay_result = _RESULT  # a prior pass's result, but not this cycle
+    sidecar._replay_ran_this_cycle = False
+
+    with caplog.at_level("INFO"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    rec = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
+    assert rec.replay_healed is None and rec.replay_applied is None and rec.replay_fell_off is None
+
+
 async def test_replay_fall_off_alerts_once_and_rearms(db_session):
     """Horizon fall-off emails once on the rising edge, not every cycle, and re-arms
     after it clears (the #85 rise-alert shape)."""
     alerts: list[tuple[str, str]] = []
     sidecar = _summary_sidecar(alerts)
+    sidecar._replay_ran_this_cycle = True  # each summary here follows an actual pass
 
     fell = ReplayResult(applied=0, healed=0, fell_off=True, floor=10, high_water=99999)
     ok = ReplayResult(applied=0, healed=0, fell_off=False, floor=90000, high_water=99999)
@@ -1282,6 +1298,12 @@ async def test_replay_fall_off_alerts_once_and_rearms(db_session):
     sidecar._last_replay_result = fell
     await sidecar.report_cycle_summary(db_session, now=NOW)  # falls again → alert again
     assert len(alerts) == 2
+
+    # A non-run cycle (replay hourly, summary per-minute) must NOT touch the latch —
+    # else it would re-arm on the stale None and re-alert on the next real fall-off.
+    sidecar._replay_ran_this_cycle = False
+    await sidecar.report_cycle_summary(db_session, now=NOW)
+    assert len(alerts) == 2 and sidecar._last_replay_fell_off is True
 
 
 async def test_replay_fall_off_forces_anchored_rescan(db_session):

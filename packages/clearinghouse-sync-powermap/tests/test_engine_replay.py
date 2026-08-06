@@ -159,3 +159,26 @@ async def test_replay_flags_horizon_fall_off(db_session, fake_descriptor, caplog
 
     assert result.fell_off is True
     assert "powermap_replay_horizon_fell_off" in caplog.text
+
+
+async def test_replay_skips_when_feed_unbootstrapped(db_session, fake_descriptor):
+    """usa-wa#159 CR-1: with no live changes_feed cursor (fresh/empty deploy, high_water
+    0), replay skips entirely — it must NOT read the feed (which would re-read the whole
+    retained window duplicating the live bootstrap) nor trip a spurious fall-off. It still
+    stamps REPLAY_STREAM so the cadence applies."""
+    item = ChangeItem(entity_type="fake", entity_id=ULID(), changed_at=NOW, change_kind="updated")
+    # A page that WOULD trip fall-off (floor 0 < min_seq 5000) if replay read it.
+    client = ReplayClient(
+        pages_by_after={0: ChangePage(items=[item], next_after=100, min_seq=5000)},
+    )
+    engine = SyncEngine([fake_descriptor], client)  # no CHANGES_STREAM row → high_water 0
+
+    result = await engine.replay_from_floor(db_session, now=NOW)
+
+    assert result.high_water == 0 and result.floor == 0
+    assert result.applied == 0 and result.healed == 0 and result.fell_off is False
+    assert client.replay_afters == []  # never queried PM
+    state = (
+        await db_session.execute(select(SyncState).where(SyncState.stream == REPLAY_STREAM))
+    ).scalar_one()
+    assert state.last_reconcile_at == NOW  # stamped → cadence applies uniformly
