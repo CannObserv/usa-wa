@@ -242,3 +242,35 @@ class AnchorReanchor(Base, TimestampMixin):
     old_pm_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False)
     new_pm_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False)
     disposition: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class ConditionalGetState(Base, TimestampMixin):
+    """PM ``ETag`` validators for one anchored row's reconcile reads (usa-wa#160).
+
+    Conditional GET (power-map#385/#292): PM returns a strong ``ETag`` on every entity
+    detail GET and its ``/{id}/events`` sub-resource, honouring ``If-None-Match`` with
+    ``304 Not Modified``. The anchored-cohort reconcile stores the last-seen validators
+    here and sends them next pass, so an unchanged row costs a cheap ``304`` instead of
+    a full-body re-fetch + re-apply. Keyed on ``(entity_type, local_id)`` (the twin of
+    :class:`EnrichFingerprint`); the row is 1:1 with its PM anchor.
+
+    ``detail_etag`` guards the entity GET (the #385 detail ETag covers child tables via
+    the touch-cascade, so a ``304`` genuinely means "nothing to heal"). ``events_etag``
+    guards the **first** ``/events`` page only — the events ETag bakes in the global
+    ``count`` + ``max_updated_ms``, so a first-page ``304`` means the whole event set is
+    unchanged. Both nullable: a never-fetched row (or a fetch that returned no ETag)
+    stores NULL and reads unconditionally next pass. A stale/wrong stored validator only
+    ever costs a ``200`` we re-apply (idempotent under LWW) — never a missed update.
+    """
+
+    __tablename__ = "powermap_conditional_get_state"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "local_id", name="uq_powermap_conditional_get_state_row"),
+        {"schema": SCHEMA},
+    )
+
+    id: Mapped[_ULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    local_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False)
+    detail_etag: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    events_etag: Mapped[str | None] = mapped_column(String(256), nullable=True)
