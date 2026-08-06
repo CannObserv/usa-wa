@@ -80,8 +80,15 @@ def unit_values(path: Path, section: str, key: str) -> list[str]:
 
     Use this over :func:`unit_value` for directives systemd treats as *additive*
     rather than last-wins — ``OnCalendar=`` above all: repeated lines each add an
-    elapse expression (and a bare ``OnCalendar=`` resets the list), so reading
-    only the last one silently under-reports a multi-schedule timer.
+    elapse expression, so reading only the last one silently under-reports a
+    multi-schedule timer.
+
+    Systemd's *reset* form (a bare ``OnCalendar=``/``After=``, which clears the
+    accumulated list) is deliberately **not** modelled: it is returned as an
+    empty string like any other value. Both callers fail loudly on it rather than
+    mis-reading it — ``test_docs_timer_drift`` asserts a single ``OnCalendar=``
+    per timer, and ``test_unit_ordering`` compares whole dependency sets against
+    the intended graph, which a stale un-reset token mismatches.
     """
     return _directive_values(path, section, key)
 

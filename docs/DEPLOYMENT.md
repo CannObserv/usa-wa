@@ -191,8 +191,13 @@ ordering against absent units as legitimate) — that gap is closed instead by
 [`scripts/tests/test_unit_ordering.py`](../scripts/tests/test_unit_ordering.py)
 (#52), which asserts the intended `After=`/`Before=` graph as data and
 cross-checks the on-disk unit set so a new unit forces an explicit ordering
-decision. No-ops where `systemd-analyze` is
-absent. Because `verify` resolves absolute `ExecStart=` paths
+decision. Neither notices a unit the **docs** never mention: that third gap is
+[`scripts/tests/test_docs_timer_drift.py`](../scripts/tests/test_docs_timer_drift.py)
+(#167), which pins the § Services cadences above and README's fresh-host enable
+block against each timer's own `OnCalendar=`. Both tests read units through the
+shared [`scripts/tests/systemd_units.py`](../scripts/tests/systemd_units.py)
+parser, so they cannot disagree about what a unit says. No-ops where
+`systemd-analyze` is absent. Because `verify` resolves absolute `ExecStart=` paths
 (`/usr/local/bin/uv`) and `User=exedev` against the *local* box, off-VM it can
 false-**fail** even with `systemd-analyze` present — a failure off-VM means "run
 it on the VM," not "your unit is broken." Run ad-hoc:
