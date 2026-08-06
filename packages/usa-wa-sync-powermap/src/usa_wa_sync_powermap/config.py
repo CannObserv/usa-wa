@@ -52,6 +52,17 @@ class SidecarSettings(BaseSettings):
     #: the primary path — so a twice-daily sweep of a low-churn dataset is ample and
     #: cuts the steady-state ``people`` read volume the feed already covers in real time.
     reconcile_cadence: timedelta = timedelta(hours=12)
+    #: Changes-feed replay backstop (usa-wa#159). ``replay_enabled`` is the kill switch
+    #: for the trailing re-read that re-covers PM's at-least-once concurrent-commit skip
+    #: (power-map#387); ``replay_margin`` is how many outbox-seq below the live cursor it
+    #: re-reads each pass (must exceed PM's worst-case in-flight-write span — see
+    #: :data:`~clearinghouse_sync_powermap.engine.DEFAULT_REPLAY_MARGIN`); ``replay_cadence``
+    #: is how often it runs. Hourly + cheap (subscription-filtered, low churn), so it
+    #: catches a skip promptly while the widened anchored-cohort scan covers only the
+    #: no-emit residual PM's triggers cannot feed (hard-delete/bulk/telemetry).
+    replay_enabled: bool = True
+    replay_margin: int = 10_000
+    replay_cadence: timedelta = timedelta(hours=1)
     #: PM-first match-cascade name-search cap (#12): the max candidate window the
     #: org/person descriptors page-and-confirm during a name match (passed as the
     #: search ``limit``). The exact match must rank within it, so widen this if PM's

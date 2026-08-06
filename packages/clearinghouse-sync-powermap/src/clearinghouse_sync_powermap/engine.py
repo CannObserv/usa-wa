@@ -122,6 +122,14 @@ logger = get_logger(__name__)
 #: SyncState stream key for the shared PM changes feed.
 CHANGES_STREAM = "changes_feed"
 
+#: SyncState stream key for the trailing changes-feed *replay* backstop (usa-wa#159).
+#: Distinct from ``CHANGES_STREAM``: the live feed advances its cursor to the newest
+#: seq consumed, while replay re-reads a trailing window (``high_water − margin``) each
+#: cycle to re-cover PM's at-least-once concurrent-commit skip (power-map#387). Its
+#: ``last_reconcile_at`` gates the replay cadence; its ``cursor`` is the in-window
+#: resumable checkpoint (the #94 pattern).
+REPLAY_STREAM = "changes_replay"
+
 
 def _canonicalize(obj: object) -> object:
     """Recursively normalise a payload for hashing: sort lists by content so order
@@ -169,6 +177,16 @@ DEFAULT_MAX_ATTEMPTS = 60
 #: the feed never re-fires — #109), so 3 ≈ 1.5 days of proven-futile churn before an
 #: operator-visible flag. Configurable via ``SidecarSettings.nonconvergence_threshold``.
 DEFAULT_NONCONVERGENCE_THRESHOLD = 3
+
+#: Default replay margin in outbox-seq units (usa-wa#159): each replay cycle re-reads
+#: the changes feed from ``high_water − margin`` so a concurrent-commit-skipped seq
+#: (a lower seq that committed *after* the live consumer advanced past it — the
+#: power-map#387 at-least-once hazard) is re-delivered and re-applied under LWW. The
+#: margin must exceed PM's worst-case in-flight-write / bulk-import span (the largest
+#: gap between an assigned seq and its commit); 10_000 is generous for a low-churn
+#: dataset — the feed is subscription-filtered, so a wide raw-seq window still yields
+#: only our few items and stays cheap. Env-tunable via ``SidecarSettings.replay_margin``.
+DEFAULT_REPLAY_MARGIN = 10_000
 
 #: How long an entry may sit deferred (PENDING, ``attempts == 0``) before each
 #: subsequent deferral escalates to a distinct WARNING (#15). A deps-not-ready
@@ -295,6 +313,7 @@ class SyncEngine:
         deferred_stuck_threshold: timedelta = DEFAULT_DEFERRED_STUCK_THRESHOLD,
         sweep_batch_size: int = DEFAULT_SWEEP_BATCH_SIZE,
         nonconvergence_threshold: int = DEFAULT_NONCONVERGENCE_THRESHOLD,
+        replay_margin: int = DEFAULT_REPLAY_MARGIN,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         if sweep_batch_size < 1:
@@ -305,6 +324,11 @@ class SyncEngine:
             # row — inverting the standing query into "the whole cohort" and turning the
             # rise-alert into a per-cycle flood naming converged rows (#112 CR-1).
             raise ValueError("nonconvergence_threshold must be >= 1")
+        if replay_margin < 0:
+            # A negative margin would push the replay floor *above* high_water,
+            # skipping the very skip-window it exists to re-cover (usa-wa#159). 0 is
+            # legal — it re-reads nothing below high_water (replay effectively off).
+            raise ValueError("replay_margin must be >= 0")
         self._by_type = {d.entity_type: d for d in descriptors}
         #: Drain priority per entity type = its index in the (dependency-first)
         #: descriptor registry order. Lower drains first, so a dependency **root**
@@ -320,6 +344,7 @@ class SyncEngine:
         self._max_attempts = max_attempts
         self._deferred_stuck_threshold = deferred_stuck_threshold
         self._nonconvergence_threshold = nonconvergence_threshold
+        self._replay_margin = replay_margin
         self._sweep_batch_size = sweep_batch_size
         # Injectable for the transient-read retry tests (usa-wa#85); production sleeps.
         self._sleep = sleep
@@ -2008,6 +2033,18 @@ async def nonconverging_count(session: AsyncSession, *, threshold: int) -> int:
 
 def _reconcile_stream(descriptor: EntityDescriptor) -> str:
     return f"reconcile:{descriptor.entity_type}"
+
+
+def _replay_floor(high_water: int | None, margin: int) -> int:
+    """The seq the replay backstop re-reads *after* (usa-wa#159): ``high_water − margin``,
+    clamped at 0.
+
+    ``high_water`` is the live feed's persisted cursor (the newest seq the incremental
+    consumer has advanced past); ``None`` (a fresh stream that has never run the live
+    feed) floors at 0 — replay the whole retained window. The clamp keeps the floor a
+    valid ``after`` (never negative); ``margin`` ≥ high_water also floors at 0.
+    """
+    return max(0, (high_water or 0) - margin)
 
 
 def _parse_after(cursor: str | None) -> int | None:
