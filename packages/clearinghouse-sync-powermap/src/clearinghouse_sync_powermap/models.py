@@ -261,6 +261,11 @@ class ConditionalGetState(Base, TimestampMixin):
     validator is needed. Nullable: a never-fetched row (or a fetch that returned no ETag)
     stores NULL and reads unconditionally next pass. A stale/wrong stored validator only
     ever costs a ``200`` we re-apply (idempotent under LWW) — never a missed update.
+
+    On a re-anchor (404 heal → new ``pm_id`` under the same ``local_id``) the stored ETag
+    is the *old* anchor's; it self-corrects on the next pass (the new entity's ETag differs
+    → ``200`` → restamp). On a genuine delete the row is left orphaned (harmless). Neither
+    is cleared here — the cost is one ``200``, never a correctness gap.
     """
 
     __tablename__ = "powermap_conditional_get_state"

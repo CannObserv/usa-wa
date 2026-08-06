@@ -703,6 +703,33 @@ class SyncEngine:
         elif identifier_missing:
             await self._upgrade_blocking_update_to_enrich(session, descriptor, row, fingerprint)
 
+    async def _maybe_enqueue_enrich_drift_only(
+        self, session: AsyncSession, descriptor: EntityDescriptor, row
+    ) -> None:
+        """The **local** carry-payload drift half of :meth:`_maybe_enqueue_enrich`, for the
+        conditional-GET ``304`` path (usa-wa#160) where PM's ``record`` is unavailable.
+
+        A ``304`` means PM's entity is unchanged since our last ``200``, so the
+        ``identifier_missing`` trigger (read *from* PM) cannot have changed since — it was
+        evaluated on that ``200``. But the carry-payload drift trigger is a **local→PM**
+        signal: a newly-added carry field reaching the anchored cohort (#124 parent, #69
+        identifiers, #31 contact) is a *local* change PM has never seen, so PM ``304``s
+        every row and the full-fetch skip would otherwise strand the rollout — the drift
+        enrich must still fire here or the field never propagates via the reconcile. Runs
+        only the drift branch (no ``needs_enrich``, which needs the record); idempotent via
+        the :meth:`_enqueue` blocking-status guard, and quiet once each row's fingerprint
+        is settled (identical to the pre-#160 unconditional reconcile's drift behaviour).
+        """
+        if not descriptor.enrich_identifier_type:
+            return
+        payload = await descriptor.to_enrich_observation(session, row)
+        fingerprint = enrich_fingerprint(payload)
+        if not await self._enrich_payload_drifted(session, descriptor, row, fingerprint):
+            return
+        entry = await self._enqueue(session, descriptor, row, OP_ENRICH)
+        if entry is not None:
+            entry.payload_hash = fingerprint
+
     async def _upgrade_blocking_update_to_enrich(
         self, session: AsyncSession, descriptor: EntityDescriptor, row, fingerprint: str
     ) -> None:
@@ -1813,7 +1840,12 @@ class SyncEngine:
                     )
                     if fetch.not_modified:
                         self._conditional_get_skipped += 1
-                        continue  # unchanged since last pass — no apply, no enrich
+                        # A 304 skips the PM→local apply, but NOT the local→PM carry-payload
+                        # drift backstop (#160 CR): a newly-added carry field reaching the
+                        # cohort is a local change PM hasn't seen, so PM 304s every row — the
+                        # drift enrich must still fire or the field never propagates.
+                        await self._maybe_enqueue_enrich_drift_only(session, descriptor, row)
+                        continue
                     record = fetch.record
                     new_etag = fetch.etag
                 else:
@@ -1829,10 +1861,15 @@ class SyncEngine:
                 # (trigger gap) or a drifted carry payload (detection gap, check_drift)
                 # re-enqueues an ENRICH here rather than waiting on a manual backfill.
                 await self._maybe_enqueue_enrich(session, descriptor, record, row, check_drift=True)
-                if new_etag is not None:
-                    # Store PM's fresh validator so next pass can 304 this row.
-                    await self._store_detail_etag(session, descriptor.entity_type, row.id, new_etag)
-                self._conditional_get_fetched += 1
+                if self._conditional_get_enabled:
+                    if new_etag is not None:
+                        # Store PM's fresh validator so next pass can 304 this row.
+                        await self._store_detail_etag(
+                            session, descriptor.entity_type, row.id, new_etag
+                        )
+                    # Count a genuine full re-fetch (enabled path only — disabled leaves the
+                    # tally at 0 so the summary doesn't read as conditional GET having run).
+                    self._conditional_get_fetched += 1
                 applied += 1
             if commit is not None:
                 # Bound the open transaction to one page of PM round-trips (#13 CR) and

@@ -873,6 +873,62 @@ async def test_anchored_cohort_reenriches_on_carry_drift(db_session):
     assert entry.payload_hash == expected
 
 
+async def test_anchored_cohort_304_still_reenriches_on_carry_drift(db_session):
+    """usa-wa#160 CR: a 304 skips the PM→local apply, but a locally-drifted carry payload
+    (a newly-added carry field reaching the cohort — PM 304s every such row) must STILL
+    enqueue an ENRICH, else the field never propagates via the reconcile. The 304 fast-path
+    must not defeat the local→PM carry-drift backstop (#124/#69/#31 self-heal)."""
+    from clearinghouse_sync_powermap.models import ConditionalGetState
+
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="Old", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortEnrichDescriptor()
+    await _seed_fingerprint(db_session, descriptor, row)  # stamp at name "Old"
+    row.name = "New"  # local carry payload drifts; PM unchanged → 304
+    db_session.add(
+        ConditionalGetState(entity_type=descriptor.entity_type, local_id=row.id, detail_etag='"e1"')
+    )
+    await db_session.flush()
+    client = FakeClient(
+        entities={pm_id: _record_with_identifier("x", "New", pm_id=pm_id)},
+        not_modified_ids={pm_id},  # PM answers 304 to the stored validator
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert entry.op == OP_ENRICH
+    expected = enrich_fingerprint(await descriptor.to_enrich_observation(db_session, row))
+    assert entry.payload_hash == expected
+    assert engine.conditional_get_stats == (1, 0)  # skipped the full fetch, still enriched
+
+
+async def test_anchored_cohort_304_no_enrich_when_fingerprint_current(db_session):
+    """A 304 on a fully-settled row (fingerprint current, no drift) stays a pure no-op —
+    the drift-only check must not mint a spurious ENRICH every pass (steady-state quiet)."""
+    from clearinghouse_sync_powermap.models import ConditionalGetState
+
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortEnrichDescriptor()
+    await _seed_fingerprint(db_session, descriptor, row)  # current — no drift
+    db_session.add(
+        ConditionalGetState(entity_type=descriptor.entity_type, local_id=row.id, detail_etag='"e1"')
+    )
+    await db_session.flush()
+    client = FakeClient(
+        entities={pm_id: _record_with_identifier("x", "X", pm_id=pm_id)},
+        not_modified_ids={pm_id},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert (await db_session.execute(select(OutboxEntry))).scalars().all() == []
+    assert engine.conditional_get_stats == (1, 0)
+
+
 async def test_anchored_cohort_upgrades_blocking_update_to_enrich(db_session):
     """A locally-newer anchored row that ALSO needs enrich: apply_record queues an
     OP_UPDATE (keyed by our real identifier, which PM lacks → duplicate risk), so the
@@ -1737,3 +1793,4 @@ async def test_anchored_cohort_disabled_uses_unconditional_fetch(db_session):
     applied = await engine.reconcile(db_session, descriptor, now=NOW)
 
     assert applied == 1 and client.conditional_fetched == []  # never used the conditional path
+    assert engine.conditional_get_stats == (0, 0)  # tally stays 0 when disabled (#160 CR)
