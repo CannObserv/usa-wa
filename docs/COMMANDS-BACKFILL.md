@@ -27,11 +27,18 @@ python -m usa_wa_adapter_legislature.probe_member_identity --biennium 2025-26 --
 python -m usa_wa_adapter_legislature.probe_member_identity --history
 ```
 
-## Historical backfill (epic #76 / sub-project 3)
+## Historical backfill (epic #76 / sub-project 3 / #100)
 
-Sweep a source to its floor. Data-source-respecting: each closed biennium is
-archived once (#54) and cache-hits on re-run; `--pause-seconds` drips against WSL
-via the central rate limiter. `--dry-run` rolls back. Run-once (not timers).
+Sweep a source to its floor. Data-source-respecting: each closed window — a
+biennium for the WSL sweeps, an election year for the SOS one — is archived once
+(#54) and cache-hits on re-run; `--pause-seconds` drips against that source's own
+upstream via its central rate limiter. `--dry-run` rolls back. Run-once (not
+timers).
+
+Ordered by source, then by phase within it: the WSL/legislature sweeps first
+(members, committees, their span builders and migrations), then the SOS filings
+archive last — a different upstream, epic, and archive key, so it deliberately
+does not interleave with them.
 
 ```bash
 # Joint/Other committee backfill (#39) — sweep CommitteeMeetingService.GetCommitteeMeetings
@@ -211,24 +218,27 @@ python -m usa_wa_sync_powermap.reconcile_committee_name_chain
 # (2025-26 → 2024), which walks straight off the cliff. USA_WA_BIENNIUM is NOT read here (the bound
 # comes from the wall clock), so pinning it does not help.
 # The source is kept for its candidacy metadata (Email / MailingAddress / Phone / FilingDate /
-# IsWithdrawn, #99), not the seat — see docs/ARCHITECTURE.md for the two sources' coverage table.
+# IsWithdrawn, #99), not the seat — see ARCHITECTURE.md for the two sources' coverage table.
 #
-# PACING: --pause-seconds (default 1.0) sets the CENTRAL votewa min-interval — one shared limiter
-# every votewa GET passes through (the #77 central-governor pattern), the same gate
-# USA_WA_SOS_MIN_REQUEST_INTERVAL seeds at import (default 1.0, 0 disables). The CLI calls
-# configure_sos_rate_limit(--pause-seconds) UNCONDITIONALLY, so the flag always overwrites the
-# env-seeded value — USA_WA_SOS_MIN_REQUEST_INTERVAL has no effect on THIS command (it governs
-# other votewa callers); use --pause-seconds. Deliberately gentle: votewa is a low-QPS government
-# ASP.NET site with no published API contract, and 2008–2018 is 6 calls.
-# CACHE: the freshness TTL is 1 day (the usa_wa_sos Source's cache_ttl_days). Inside it a re-run is
-# a pure cache hit — no HTTP at all, cohorts_archived=0 with years unchanged. Past it every year
+# PACING: use --pause-seconds (default 1.0). It sets the CENTRAL votewa min-interval — one shared
+# limiter every votewa GET passes through (the #77 central-governor pattern), the same gate
+# USA_WA_SOS_MIN_REQUEST_INTERVAL seeds at import (default 1.0, 0 disables). But the CLI calls
+# configure_sos_rate_limit(--pause-seconds) UNCONDITIONALLY, so the flag's own default overwrites
+# the env-seeded value on every run — and this harvest is the ONLY production caller of
+# SOSFilingsClient (Phase B reads the archive offline), so no process honours
+# USA_WA_SOS_MIN_REQUEST_INTERVAL at all: it is inert until #169 lands the conditional-override
+# shape harvest_committee_members.py already uses. Deliberately gentle: votewa is a low-QPS
+# government ASP.NET site with no published API contract, and 2008–2018 is 6 calls.
+# CACHE: the freshness TTL is provisioned at 1 day (the usa_wa_sos Source's cache_ttl_days, set on
+# row creation only — an existing row's value is never reconciled). Inside it a re-run is a pure
+# cache hit — no HTTP at all, cohorts_archived=0 with years unchanged. Past it every year
 # re-fetches (cohorts_archived counts FETCHES, not new bytes) but a byte-identical CSV dedups to
 # the existing RawPayload, so only a new FetchEvent is written. --force skips the TTL check.
 # --dry-run harvests for real (it hits votewa) and rolls back — no provenance retained.
-# EXIT CODES: 0 success (prints "SOS harvest: years=N cohorts_archived=M (committed|dry-run,
-# rolled back)"); 1 any exception mid-sweep, logged as sos_harvest_failed, nothing committed;
-# 2 DATABASE_URL unset. APP role (archive tables only, no owner DML). No sidecar pause needed —
-# archive-only, so nothing reaches PM.
+# EXIT CODES: 0 success, printing e.g. "SOS harvest: years=6 cohorts_archived=6 (committed)" —
+# the trailing token is "(dry-run, rolled back)" under --dry-run; 1 any exception mid-sweep, logged
+# as sos_harvest_failed, nothing committed; 2 DATABASE_URL unset. APP role (archive tables only, no
+# owner DML). No sidecar pause needed — archive-only, so nothing reaches PM.
 python -m usa_wa_adapter_sos.filings.harvest --to-year 2018 --dry-run
 python -m usa_wa_adapter_sos.filings.harvest --from-year 2008 --to-year 2018 --pause-seconds 1.0
 python -m usa_wa_adapter_sos.filings.harvest --to-year 2018 --force   # re-pull past the 1-day TTL
