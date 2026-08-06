@@ -1346,3 +1346,48 @@ async def test_replay_fall_off_forces_anchored_rescan(db_session):
     )
     assert person.last_reconcile_at is None and person.cursor is None  # forced due
     assert committee.last_reconcile_at == NOW and committee.cursor == "01ZZZ"  # untouched
+
+
+# --- conditional GET tally (usa-wa#160) ----------------------------------------
+
+
+async def test_cycle_summary_surfaces_conditional_get_tally(db_session, caplog):
+    """The reconcile's 304-skipped vs. fetched-full counts ride the summary line (#160)."""
+    sidecar = _summary_sidecar()
+    sidecar._last_conditional_get = (12, 3)
+
+    with caplog.at_level("INFO"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    rec = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
+    assert rec.conditional_get_skipped == 12 and rec.conditional_get_fetched == 3
+
+
+async def test_run_cycle_resets_and_captures_conditional_get_stats():
+    """run_cycle zeroes the engine's conditional-GET tally at the start and captures it
+    after the reconciles for the summary (#160)."""
+
+    class _StubEngine:
+        def __init__(self):
+            self.reset_called = False
+
+        def reset_conditional_get_stats(self):
+            self.reset_called = True
+
+        @property
+        def conditional_get_stats(self):
+            return (3, 7)
+
+    engine = _StubEngine()
+    sidecar = Sidecar(
+        engine=engine,  # type: ignore[arg-type]
+        descriptors=[],
+        session_factory=lambda: _FakeSession(),
+        replay_enabled=False,
+    )
+    sidecar.tick = lambda s, *, now, commit: _noop()
+
+    await sidecar.run_cycle()
+
+    assert engine.reset_called is True
+    assert sidecar._last_conditional_get == (3, 7)

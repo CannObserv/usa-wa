@@ -159,6 +159,10 @@ class Sidecar:
         # replay_* summary fields + the fall-off latch to *actual* passes — otherwise
         # they'd repeat the last pass's numbers on every intervening cycle (#159 CR-3).
         self._replay_ran_this_cycle = False
+        # Conditional-GET tallies from this cycle's reconciles (usa-wa#160), captured off
+        # the engine after _run_reconciles for the cycle summary — a high skipped:fetched
+        # ratio is the win (most anchored rows 304 instead of a full re-fetch).
+        self._last_conditional_get: tuple[int, int] = (0, 0)
         self._clock = clock
 
     async def tick(
@@ -222,9 +226,17 @@ class Sidecar:
         now = self._clock()
         self._cycle_errors = []
         self._replay_ran_this_cycle = False
+        # Per-cycle conditional-GET tally (#160). Guarded for the engine=None test doubles;
+        # production always has an engine.
+        if self._engine is not None:
+            self._engine.reset_conditional_get_stats()
         ok = await self._run_catalog_sync(now)
         ok = await self._run_backstop(now) and ok
         ok = await self._run_reconciles(now) and ok
+        # Capture the reconciles' conditional-GET tally (they accumulate on the shared
+        # engine across their per-descriptor sessions) for the cycle summary (#160).
+        if self._engine is not None:
+            self._last_conditional_get = self._engine.conditional_get_stats
         ok = await self._run_replay(now) and ok
         async with self._session_factory() as session:
             try:
@@ -301,6 +313,10 @@ class Sidecar:
                 "replay_healed": replay.healed if replay else None,
                 "replay_applied": replay.applied if replay else None,
                 "replay_fell_off": replay.fell_off if replay else None,
+                # Conditional GET on the reconcile (usa-wa#160): rows 304-skipped vs.
+                # re-fetched full this cycle. A high skipped share = the bandwidth/DB win.
+                "conditional_get_skipped": self._last_conditional_get[0],
+                "conditional_get_fetched": self._last_conditional_get[1],
             },
         )
         if backlog.rejected > self._last_rejected_count:
