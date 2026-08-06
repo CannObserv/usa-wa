@@ -35,10 +35,16 @@ biennium for the WSL sweeps, an election year for the SOS one — is archived on
 upstream via its central rate limiter. `--dry-run` rolls back. Run-once (not
 timers).
 
-Ordered by source, then by phase within it: the WSL/legislature sweeps first
-(members, committees, their span builders and migrations), then the SOS filings
-archive last — a different upstream, epic, and archive key, so it deliberately
-does not interleave with them.
+Ordered by source, then by phase within it — three sources, not two:
+
+1. the WSL/legislature sweeps (members, committees, their span builders and
+   migrations), which are most of the section;
+2. `usa_wa_sync_powermap.reconcile_committee_name_chain` — a PM-sync emitter,
+   documented here beside the `harvest_committees` Phase A whose archived
+   rosters it reads, not in [COMMANDS-SYNC.md](COMMANDS-SYNC.md) with the other
+   reconcilers;
+3. the SOS filings archive last — a different upstream, epic, and archive key,
+   so it deliberately does not interleave with either.
 
 ```bash
 # Joint/Other committee backfill (#39) — sweep CommitteeMeetingService.GetCommitteeMeetings
