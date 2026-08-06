@@ -5,7 +5,18 @@ Skills are reusable agent instructions. `usa-wa` consumes two upstream catalogs 
 - **`skills/`** — agentskills.io convention (one symlink per skill, plus any local overrides).
 - **`.claude/skills/`** — Claude Code discovery directory (mirrors every entry in `skills/`).
 
-The vendor → symlink → discovery layout means the project carries no skill source code of its own (except local overrides) and stays in sync with upstream via submodule updates. The `UserPromptSubmit` hook in [`.claude/settings.json`](../.claude/settings.json) runs `git submodule update --remote --merge` once per day to keep both vendors current.
+The vendor → symlink → discovery layout means the project carries no skill source code of its own (except local overrides) and stays in sync with upstream via submodule updates. The `SessionStart` hook in [`.claude/settings.json`](../.claude/settings.json) runs the vendored [`skills-submodule-update.sh`](../.claude/hooks/skills-submodule-update.sh) to keep both vendors current — once per UTC day, on `main` only, auto-committing the pointer bump. It also (re)installs `.skills/doctor.sh` on **every** session, outside the daily lock.
+
+## `.skills/doctor.sh` — the preflight
+
+Phase 1 of every `reviewing-*` / `shipping-*` skill runs `{ [ ! -x .skills/doctor.sh ] || bash .skills/doctor.sh; }`. The doctor walks the `skills/*` symlinks, auto-runs `git submodule update --init --recursive` when any dangle, and prints an actionable error otherwise — so a fresh `git worktree add` or a shallow CI clone doesn't hit "No such file or directory" on a skill invocation.
+
+It is a **file copy**, not a symlink, deliberately: a symlink into `skills-vendor/` would itself dangle in exactly the uninitialized-submodule state the doctor exists to repair. Since gregoryfoster/skills#84 the doctor re-syncs itself from the vendored source on every mutating run, so upstream fixes arrive without a manual reinstall. It **must stay committed** — the hook installs it into the working tree, but only ever commits `skills-vendor/` and `.skills/doctor.sh`; anything untracked leaves CI and fresh worktrees with no doctor and the preflight silently short-circuits.
+
+```bash
+bash .skills/doctor.sh --version   # installed copy's stamp
+bash skills-vendor/gregoryfoster-skills/skills/managing-skills/scripts/install-doctor.sh   # manual (re)install
+```
 
 ## Vendor sources
 
@@ -52,7 +63,7 @@ Add a thin override only when the project genuinely diverges from the upstream b
 
 ## Updating skills
 
-Daily updates are automatic via the `UserPromptSubmit` hook. To force an update mid-session:
+Daily updates are automatic via the `SessionStart` hook. To force an update mid-session:
 
 ```bash
 git submodule update --remote --merge skills-vendor/gregoryfoster-skills skills-vendor/obra-superpowers
