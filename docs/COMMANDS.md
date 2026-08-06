@@ -10,11 +10,12 @@ Grouped references split out of this file so each stays loadable on its own:
 
 ## Command index
 
-Everyday commands only. **Operational & backfill CLIs — command + one-line purpose
-below; full options, exit codes, and design rationale in
-[`docs/COMMANDS.md`](../docs/COMMANDS.md).** Prod runs the daily/weekly ones on systemd
-timers (see § Server Lifecycle); the rest are run-once / ad-hoc. Pair backfills with
-`USA_WA_BIENNIUM` to target a non-current biennium.
+Every operational & backfill CLI — command + one-line purpose below; full
+options, exit codes, and design rationale in the sections of this file and the
+grouped references above. Prod runs the daily/weekly ones on systemd timers (see
+[`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server Lifecycle); the rest are
+run-once / ad-hoc. Pair backfills with `USA_WA_BIENNIUM` to target a non-current
+biennium.
 
 | Command | Purpose |
 |---|---|
@@ -148,8 +149,9 @@ sudo systemctl daemon-reload && sudo systemctl restart usa-wa
 sudo journalctl -u usa-wa -f
 ```
 
-See AGENTS.md § Server Lifecycle for the full unit-by-unit restart matrix and the
-`--no-sync` / `uv sync --locked` deploy convention.
+See [DEPLOYMENT.md](DEPLOYMENT.md) § Lifecycle reference for the full unit-by-unit
+restart matrix, and [`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server Lifecycle
+for the `--no-sync` / `uv sync --locked` deploy convention.
 
 ## Data refresh (daily)
 

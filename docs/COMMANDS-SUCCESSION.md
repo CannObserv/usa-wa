@@ -155,7 +155,8 @@ with which — emitted to PM as `succeeded_by` / `split_from` / `merged_with` en
 the loop. See [`docs/specs/2026-07-25-committee-lineage-lifecycle-design.md`](specs/2026-07-25-committee-lineage-lifecycle-design.md).
 
 ```bash
-# C1b — one-time bulk deactivation of the defunct-era backfill (see § Reconcilers below;
+# C1b — one-time bulk deactivation of the defunct-era backfill (see § Reconcilers &
+# validation in COMMANDS-SYNC.md;
 # --all-era disables #90 live-era scoping). Pair with --max-absent-fraction 1.0.
 python -m usa_wa_sync_powermap.reconcile_committee_active --all-era \
     --max-absent-fraction 1.0 --dry-run

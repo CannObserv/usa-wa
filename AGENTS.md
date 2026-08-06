@@ -123,7 +123,7 @@ uv run pytest -m integration
 # Run linter
 uv run ruff check .
 
-# Database migrations (need the owner role — see § DB role topology)
+# Database migrations (need the owner role — see docs/DEPLOYMENT.md § DB role topology)
 # prod: sudo systemctl restart usa-wa-migrate (restart, not start — RemainAfterExit
 #       oneshot no-ops on start once already active); ad-hoc alembic needs DATABASE_URL_OWNER
 uv run alembic upgrade head
