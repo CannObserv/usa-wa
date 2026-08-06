@@ -1,7 +1,18 @@
 ---
 title: Recalibrate the anchored-cohort backstop to rewind-and-replay (usa-wa#159)
 date: 2026-08-05
-status: approved
+status: implemented
+---
+
+> **Implementation note (2026-08-06).** Steps 1–5 + 7 shipped on `feat/159-backstop-replay`.
+> **Phase B is an operational env flip, not a code default change:** the anchored scan's
+> `RECONCILE_CADENCE` stays 12h in code (so merging deploys Phase A — replay shadow + the
+> unchanged scan as the live safety net); widening it to weekly (`168h`) is done via env once
+> Phase-A evidence confirms coverage (`sidecar_cycle_summary.replay_healed` covering what the
+> scan catches + `replay_fell_off` staying false). Fall-off forces the scan due immediately
+> (`_force_anchored_rescan`) so weekly is safe. **Step 6 (conditional GET) is deliberately NOT
+> in this branch** — it is usa-wa#160, sequenced after #159 lands; the surviving fetch paths it
+> targets are the residual scan's `fetch_record` and the replay's `get_entity`.
 ---
 
 # Recalibrate the anchored-cohort backstop (usa-wa#159)
