@@ -93,6 +93,7 @@ from ulid import ULID
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.client import (
+    ChangePage,
     DeliveryBlockedError,
     ObservationResult,
     PayloadRejectedError,
@@ -298,6 +299,29 @@ class DrainStats:
     #: re-sending an identical payload every reconcile cycle. The standing set is queried
     #: separately (:func:`nonconverging_count`) for the cycle summary + rise alert.
     non_converging: int = 0
+
+
+@dataclass
+class ReplayResult:
+    """Outcome of one :meth:`SyncEngine.replay_from_floor` pass (usa-wa#159).
+
+    ``applied`` is how many feed items the trailing re-read processed through the LWW
+    upsert path (most are idempotent no-ops on already-current rows). ``healed`` is the
+    subset that actually changed a local row (``inserted``/``updated``) — the **would-heal
+    delta** the Phase-A shadow rollout measures: a persistently non-zero ``healed`` is
+    proof replay is recovering events the live feed dropped/skipped (its reason to
+    exist). ``fell_off`` is True when the replay floor sat below PM's oldest-retained
+    watermark (``meta.min_seq``, power-map#388): the ``[floor, min_seq)`` slice was
+    pruned from the 90-day window, so replay could not cover it and the caller must fall
+    back to a full cohort scan for that gap. ``floor``/``high_water`` are surfaced for
+    the cycle-summary log.
+    """
+
+    applied: int
+    healed: int
+    fell_off: bool
+    floor: int
+    high_water: int
 
 
 class SyncEngine:
@@ -1871,7 +1895,38 @@ class SyncEngine:
             lambda: self._client.get_changes(after, limit=limit),
             log_extra={"read": "feed", "after": after},
         )
-        applied = 0
+        applied, _ = await self._apply_feed_page(session, page, now=now)
+        # Persist the advanced cursor — acquiring (get-or-create) the state row only when
+        # there is one to write (usa-wa#89 CR): an empty feed has nothing to persist, so
+        # this skips both the row's get-or-create round-trip and the creation of an empty
+        # state row on a first empty poll. _read_cursor above still resets a stale cursor
+        # to 0 on every read, so a non-advancing feed is unaffected.
+        if page.next_after is not None:
+            state = await self._get_or_create_state(session, CHANGES_STREAM)
+            state.cursor = str(page.next_after)
+        await session.flush()
+        return applied
+
+    async def _apply_feed_page(
+        self, session: AsyncSession, page: ChangePage, *, now: datetime
+    ) -> tuple[int, int]:
+        """Apply every item in one changes-feed page; return ``(processed, healed)``.
+
+        The shared body of the live feed (:meth:`process_feed`) and the trailing replay
+        backstop (:meth:`replay_from_floor`, usa-wa#159), factored out so the two paths
+        can never diverge — a replayed event heals exactly the way a live one would
+        (merge/delete routing included), and re-applying an already-current item is an
+        idempotent LWW no-op. Does NOT touch any feed cursor; the caller owns cursor
+        advancement (the live feed advances ``changes_feed``, replay stamps
+        ``changes_replay``).
+
+        ``processed`` counts upserted items (the historical ``process_feed`` return);
+        ``healed`` is the subset whose LWW outcome actually changed a local row
+        (``inserted``/``updated``) — the replay would-heal delta. Delete-routed items
+        count toward neither (the dominant replay-recovered case is a stale upsert).
+        """
+        processed = 0
+        healed = 0
         for item in page.items:
             descriptor = self.descriptor_for(item.entity_type)
             if descriptor is None or descriptor.read_source == "none":
@@ -1911,18 +1966,77 @@ class SyncEngine:
             record = await descriptor.fetch_record(self._client, item.entity_id)
             if record is None:
                 continue
-            await self.apply_record(session, descriptor, record)
-            applied += 1
-        # Persist the advanced cursor — acquiring (get-or-create) the state row only when
-        # there is one to write (usa-wa#89 CR): an empty feed has nothing to persist, so
-        # this skips both the row's get-or-create round-trip and the creation of an empty
-        # state row on a first empty poll. _read_cursor above still resets a stale cursor
-        # to 0 on every read, so a non-advancing feed is unaffected.
-        if page.next_after is not None:
-            state = await self._get_or_create_state(session, CHANGES_STREAM)
-            state.cursor = str(page.next_after)
+            outcome = await self.apply_record(session, descriptor, record)
+            processed += 1
+            if outcome in (APPLY_INSERTED, APPLY_UPDATED):
+                healed += 1
+        return processed, healed
+
+    async def replay_from_floor(
+        self, session: AsyncSession, *, now: datetime, limit: int = 100
+    ) -> ReplayResult:
+        """Re-read a trailing window of the changes feed and re-apply each item (usa-wa#159).
+
+        The dropped-event backstop that replaces the O(cohort) anchored scan as the
+        *primary* safety net. PM's changes feed is monotonic but **at-least-once, not
+        gapless** (power-map#387): a concurrent-commit skip — a lower seq that commits
+        *after* the live consumer advanced past it — is never re-delivered incrementally.
+        So this re-reads from ``high_water − replay_margin`` (:func:`_replay_floor`) each
+        pass and re-applies every item through the shared :meth:`_apply_feed_page`. A
+        skipped seq inside the window is recovered; an already-current row is an idempotent
+        LWW no-op. O(items in the window), not O(cohort) — the feed is subscription-filtered.
+
+        ``high_water`` is read from the *live* ``changes_feed`` cursor (this trails it; it
+        never advances it). Horizon fall-off: if the floor sits below PM's oldest-retained
+        ``meta.min_seq`` (power-map#388), the pruned ``[floor, min_seq)`` slice cannot be
+        replayed — flagged in :class:`ReplayResult.fell_off` so the caller runs a full
+        cohort scan for that gap. Bounded by :data:`MAX_RECONCILE_PAGES` against a
+        non-advancing PM cursor (the #6 guard shape).
+        """
+        high_water = _parse_after(await self._read_cursor(session, CHANGES_STREAM)) or 0
+        floor = _replay_floor(high_water, self._replay_margin)
+        after = floor
+        applied = 0
+        healed = 0
+        fell_off = False
+        pages = 0
+        while True:
+            pages += 1
+            if pages > MAX_RECONCILE_PAGES:
+                logger.warning(
+                    "powermap_replay_page_cap",
+                    extra={"floor": floor, "after": after, "high_water": high_water},
+                )
+                break
+            page = await self._read_with_retry(
+                lambda after=after: self._client.get_changes(after, limit=limit),
+                log_extra={"read": "replay", "after": after},
+            )
+            if page.min_seq is not None and floor < page.min_seq and not fell_off:
+                # The floor fell off the 90-day retention window: [floor, min_seq) was
+                # pruned, so replay cannot cover it. Flag for a full-scan fallback.
+                fell_off = True
+                logger.warning(
+                    "powermap_replay_horizon_fell_off",
+                    extra={"floor": floor, "min_seq": page.min_seq, "high_water": high_water},
+                )
+            page_processed, page_healed = await self._apply_feed_page(session, page, now=now)
+            applied += page_processed
+            healed += page_healed
+            nxt = page.next_after
+            if nxt is None or nxt <= after:
+                break  # caught up: an empty / non-advancing page is the tail
+            after = nxt
+        # Stamp the replay stream so the cadence gate waits a full interval; the cursor
+        # records the high-water this pass reached (informational — a fresh pass re-derives
+        # the floor from the live cursor, so a crash mid-pass just re-reads next cycle).
+        state = await self._get_or_create_state(session, REPLAY_STREAM)
+        state.last_reconcile_at = now
+        state.cursor = str(after)
         await session.flush()
-        return applied
+        return ReplayResult(
+            applied=applied, healed=healed, fell_off=fell_off, floor=floor, high_water=high_water
+        )
 
     # --- sync-state helpers ---------------------------------------------------
 
