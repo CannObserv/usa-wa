@@ -30,7 +30,10 @@ async def _amain() -> None:
     descriptors = build_descriptors(settings)
     client = build_pm_client(settings)
     engine = SyncEngine(
-        descriptors, client, nonconvergence_threshold=settings.nonconvergence_threshold
+        descriptors,
+        client,
+        nonconvergence_threshold=settings.nonconvergence_threshold,
+        replay_margin=settings.replay_margin,
     )
     reconciler = build_reconciler(client, engine, settings)
     # Failure-streak alerting (#85): fail-closed like notify-failure.sh — no
@@ -53,6 +56,8 @@ async def _amain() -> None:
         alert=alert,
         failure_alert_threshold=settings.failure_alert_threshold,
         nonconvergence_threshold=settings.nonconvergence_threshold,
+        replay_enabled=settings.replay_enabled,
+        replay_cadence=settings.replay_cadence,
     )
     try:
         await sidecar.run_forever()

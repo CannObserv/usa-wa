@@ -20,7 +20,12 @@ from clearinghouse_sync_powermap.client import (
     DiscoveredEntity,
     ObservationResult,
 )
-from clearinghouse_sync_powermap.engine import APPLY_KEPT_LOCAL, SyncEngine
+from clearinghouse_sync_powermap.engine import (
+    APPLY_KEPT_LOCAL,
+    REPLAY_STREAM,
+    ReplayResult,
+    SyncEngine,
+)
 from clearinghouse_sync_powermap.models import (
     DISPOSITION_NEW,
     STATUS_DELIVERED,
@@ -294,7 +299,9 @@ class _FakeSession:
 
 async def test_run_cycle_commits_on_success():
     session = _FakeSession()
-    sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: session)
+    sidecar = Sidecar(
+        engine=None, descriptors=[], session_factory=lambda: session, replay_enabled=False
+    )
 
     async def _ok(s, *, now, commit):
         return None
@@ -307,7 +314,9 @@ async def test_run_cycle_commits_on_success():
 
 async def test_run_cycle_isolates_and_rolls_back_on_error():
     session = _FakeSession()
-    sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: session)
+    sidecar = Sidecar(
+        engine=None, descriptors=[], session_factory=lambda: session, replay_enabled=False
+    )
 
     async def _boom(s, *, now, commit):
         raise RuntimeError("poison cycle")
@@ -335,6 +344,7 @@ async def test_catalog_sync_runs_first_cycle_then_gated_by_cadence():
         catalog_sync=_catalog,
         catalog_sync_cadence=timedelta(hours=1),
         clock=lambda: next(times),
+        replay_enabled=False,
     )
     sidecar.tick = lambda s, *, now, commit: _noop()
 
@@ -359,6 +369,7 @@ async def test_catalog_sync_failure_is_isolated_and_retries():
         session_factory=lambda: _FakeSession(),
         catalog_sync=_catalog,
         clock=lambda: NOW,
+        replay_enabled=False,
     )
     sidecar.tick = lambda s, *, now, commit: _noop()
 
@@ -637,7 +648,9 @@ async def test_poison_reconcile_is_isolated_and_others_still_run():
         return s
 
     a, b = _Descriptor("assignment"), _Descriptor("person")
-    sidecar = Sidecar(engine=None, descriptors=[a, b], session_factory=_factory)
+    sidecar = Sidecar(
+        engine=None, descriptors=[a, b], session_factory=_factory, replay_enabled=False
+    )
     ran: list[str] = []
 
     async def _reconcile(session, descriptor, *, now):
@@ -662,7 +675,9 @@ async def test_poison_reconcile_is_isolated_and_others_still_run():
 
 
 async def test_run_cycle_verdict_true_when_clean():
-    sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: _FakeSession())
+    sidecar = Sidecar(
+        engine=None, descriptors=[], session_factory=lambda: _FakeSession(), replay_enabled=False
+    )
 
     async def _ok(s, *, now, commit):
         return None
@@ -672,7 +687,9 @@ async def test_run_cycle_verdict_true_when_clean():
 
 
 async def test_run_cycle_verdict_false_on_tick_failure():
-    sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: _FakeSession())
+    sidecar = Sidecar(
+        engine=None, descriptors=[], session_factory=lambda: _FakeSession(), replay_enabled=False
+    )
 
     async def _boom(s, *, now, commit):
         raise RuntimeError("tick poison")
@@ -728,7 +745,9 @@ class _StopLoop(Exception):
 
 
 def _scripted_sidecar(outcomes: list[bool]) -> tuple[Sidecar, list[float]]:
-    sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: _FakeSession())
+    sidecar = Sidecar(
+        engine=None, descriptors=[], session_factory=lambda: _FakeSession(), replay_enabled=False
+    )
     script = iter(outcomes)
 
     async def _cycle() -> bool:
@@ -1101,7 +1120,9 @@ async def test_rejected_alert_skipped_when_no_alert_wired(db_session, caplog):
 async def test_run_cycle_summary_failure_never_fails_verdict():
     """The summary is observability, not work — its failure must not flip the
     verdict (that would put reporting in the backoff/alert path)."""
-    sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: _FakeSession())
+    sidecar = Sidecar(
+        engine=None, descriptors=[], session_factory=lambda: _FakeSession(), replay_enabled=False
+    )
 
     async def _ok(s, *, now, commit):
         return None
@@ -1113,3 +1134,215 @@ async def test_run_cycle_summary_failure_never_fails_verdict():
     sidecar.report_cycle_summary = _boom_summary
 
     assert await sidecar.run_cycle() is True
+
+
+# --- changes-feed replay backstop (usa-wa#159) ---------------------------------
+
+
+class _StubReplayEngine:
+    """Minimal engine exposing only replay_from_floor, for _run_replay orchestration."""
+
+    def __init__(self, result: ReplayResult) -> None:
+        self._result = result
+        self.calls = 0
+
+    async def replay_from_floor(self, session, *, now) -> ReplayResult:
+        self.calls += 1
+        return self._result
+
+
+class _ScalarResult:
+    def __init__(self, val) -> None:
+        self._val = val
+
+    def scalar_one_or_none(self):
+        return self._val
+
+
+class _ReplaySession:
+    """Fake session for _replay_due/_run_replay: returns a preset SyncState row and
+    records commits. Ignores the concrete statement (the #85 _FakeSession style)."""
+
+    def __init__(self, replay_state=None) -> None:
+        self._replay_state = replay_state
+        self.committed = False
+
+    async def __aenter__(self) -> "_ReplaySession":
+        return self
+
+    async def __aexit__(self, *exc) -> bool:
+        return False
+
+    async def execute(self, _stmt):
+        return _ScalarResult(self._replay_state)
+
+    async def commit(self) -> None:
+        self.committed = True
+
+
+def _replay_sidecar(result: ReplayResult, *, replay_state=None, enabled=True):
+    engine = _StubReplayEngine(result)
+    session = _ReplaySession(replay_state)
+    sidecar = Sidecar(
+        engine=engine,  # type: ignore[arg-type]
+        descriptors=[],
+        session_factory=lambda: session,
+        replay_enabled=enabled,
+        replay_cadence=timedelta(hours=1),
+    )
+    return sidecar, engine, session
+
+
+_RESULT = ReplayResult(applied=3, healed=1, fell_off=False, floor=40000, high_water=50000)
+
+
+async def test_run_replay_runs_when_due_and_records_result(caplog):
+    """A due replay runs, commits, stashes its ReplayResult, and logs the would-heal
+    delta — Phase A shadow (the anchored scan is untouched)."""
+    sidecar, engine, session = _replay_sidecar(_RESULT)  # no stamp → due
+
+    with caplog.at_level("INFO"):
+        ok = await sidecar._run_replay(NOW)
+
+    assert ok is True
+    assert engine.calls == 1 and session.committed
+    assert sidecar._last_replay_result is _RESULT
+    rec = next(r for r in caplog.records if r.message == "sidecar_replay")
+    assert rec.healed == 1 and rec.applied == 3 and rec.fell_off is False
+
+
+async def test_run_replay_skips_when_disabled():
+    sidecar, engine, _ = _replay_sidecar(_RESULT, enabled=False)
+
+    ok = await sidecar._run_replay(NOW)
+
+    assert ok is True and engine.calls == 0  # disabled backstop is not a failure
+
+
+async def test_run_replay_gated_by_cadence():
+    """A recent last_reconcile_at on REPLAY_STREAM defers the pass within the cadence."""
+    recent = SyncState(stream=REPLAY_STREAM, last_reconcile_at=NOW - timedelta(minutes=10))
+    sidecar, engine, _ = _replay_sidecar(_RESULT, replay_state=recent)
+
+    ok = await sidecar._run_replay(NOW)
+
+    assert ok is True and engine.calls == 0  # within 1h cadence → not due
+
+
+async def test_run_replay_failure_is_isolated(caplog):
+    """A raising replay is contained (never propagates) but flips the cycle verdict."""
+
+    class _BoomEngine:
+        async def replay_from_floor(self, session, *, now):
+            raise RuntimeError("PM down")
+
+    sidecar = Sidecar(
+        engine=_BoomEngine(),  # type: ignore[arg-type]
+        descriptors=[],
+        session_factory=lambda: _ReplaySession(),
+        replay_enabled=True,
+    )
+
+    with caplog.at_level("ERROR"):
+        ok = await sidecar._run_replay(NOW)
+
+    assert ok is False  # verdict signal for the backoff/streak path
+    assert "replay: " in sidecar._cycle_errors[0]
+    # #159 CR-4: a raising pass must NOT mark the cycle as having run, else the summary
+    # would surface a prior pass's stale numbers as if they were this cycle's.
+    assert sidecar._replay_ran_this_cycle is False
+
+
+async def test_cycle_summary_surfaces_replay_delta(db_session, caplog):
+    """The would-heal delta + fall-off ride the sidecar_cycle_summary line (#159)."""
+    sidecar = _summary_sidecar()
+    sidecar._last_replay_result = _RESULT
+    sidecar._replay_ran_this_cycle = True  # replay ran this cycle → fields are fresh
+
+    with caplog.at_level("INFO"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    rec = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
+    assert rec.replay_healed == 1 and rec.replay_applied == 3 and rec.replay_fell_off is False
+
+
+async def test_cycle_summary_omits_replay_fields_on_non_run_cycle(db_session, caplog):
+    """Replay is hourly but the summary is ~per-minute: on a cycle where no replay pass
+    ran, the replay_* fields report None (last-pass values must not repeat, #159 CR-3)."""
+    sidecar = _summary_sidecar()
+    sidecar._last_replay_result = _RESULT  # a prior pass's result, but not this cycle
+    sidecar._replay_ran_this_cycle = False
+
+    with caplog.at_level("INFO"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    rec = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
+    assert rec.replay_healed is None and rec.replay_applied is None and rec.replay_fell_off is None
+
+
+async def test_replay_fall_off_alerts_once_and_rearms(db_session):
+    """Horizon fall-off emails once on the rising edge, not every cycle, and re-arms
+    after it clears (the #85 rise-alert shape)."""
+    alerts: list[tuple[str, str]] = []
+    sidecar = _summary_sidecar(alerts)
+    sidecar._replay_ran_this_cycle = True  # each summary here follows an actual pass
+
+    fell = ReplayResult(applied=0, healed=0, fell_off=True, floor=10, high_water=99999)
+    ok = ReplayResult(applied=0, healed=0, fell_off=False, floor=90000, high_water=99999)
+
+    sidecar._last_replay_result = fell
+    await sidecar.report_cycle_summary(db_session, now=NOW)  # rising edge → alert
+    await sidecar.report_cycle_summary(db_session, now=NOW)  # still fallen → no repeat
+    assert len(alerts) == 1
+    assert "retention window" in alerts[0][0]
+
+    sidecar._last_replay_result = ok
+    await sidecar.report_cycle_summary(db_session, now=NOW)  # cleared → re-arm
+    sidecar._last_replay_result = fell
+    await sidecar.report_cycle_summary(db_session, now=NOW)  # falls again → alert again
+    assert len(alerts) == 2
+
+    # A non-run cycle (replay hourly, summary per-minute) must NOT touch the latch —
+    # else it would re-arm on the stale None and re-alert on the next real fall-off.
+    sidecar._replay_ran_this_cycle = False
+    await sidecar.report_cycle_summary(db_session, now=NOW)
+    assert len(alerts) == 2 and sidecar._last_replay_fell_off is True
+
+
+async def test_replay_fall_off_forces_anchored_rescan(db_session):
+    """usa-wa#159 Phase-B safety: a horizon fall-off clears the anchored-cohort reconcile
+    stamps so the full scan (the only cover for the pruned slice) runs next cycle, rather
+    than waiting out the widened weekly cadence. full_list / none modes are untouched."""
+
+    class _Anchored:
+        def __init__(self, entity_type):
+            self.entity_type = entity_type
+            self.reconcile_mode = "anchored_cohort"
+
+    class _FullList:
+        entity_type = "committee"
+        reconcile_mode = "full_list"
+
+    fell = ReplayResult(applied=0, healed=0, fell_off=True, floor=10, high_water=99999)
+    engine = _StubReplayEngine(fell)
+    sidecar = Sidecar(
+        engine=engine,  # type: ignore[arg-type]
+        descriptors=[_Anchored("person"), _Anchored("assignment"), _FullList()],
+        session_factory=lambda: db_session,
+        replay_enabled=True,
+    )
+    # A stamped anchored reconcile (would otherwise wait the cadence) + a full_list one.
+    db_session.add(SyncState(stream="reconcile:person", last_reconcile_at=NOW, cursor="01ABC"))
+    db_session.add(SyncState(stream="reconcile:committee", last_reconcile_at=NOW, cursor="01ZZZ"))
+    await db_session.flush()
+
+    await sidecar._force_anchored_rescan(db_session)
+
+    person = await db_session.scalar(
+        select(SyncState).where(SyncState.stream == "reconcile:person")
+    )
+    committee = await db_session.scalar(
+        select(SyncState).where(SyncState.stream == "reconcile:committee")
+    )
+    assert person.last_reconcile_at is None and person.cursor is None  # forced due
+    assert committee.last_reconcile_at == NOW and committee.cursor == "01ZZZ"  # untouched

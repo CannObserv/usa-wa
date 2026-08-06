@@ -69,12 +69,42 @@ async def test_get_changes_maps_feed_and_sends_auth(client):
     # after=None defaults to seq 0 ("from the start")
     assert "after=0" in str(route.calls.last.request.url)
     assert page.next_after == 6
+    # PM#387/#388: meta.min_seq absent (pre-#388 shape) → None, not a fabricated 0.
+    assert page.min_seq is None
     assert len(page.items) == 1
     item = page.items[0]
     assert item.entity_type == "jurisdiction"
     assert item.entity_id == pm_id
     assert item.change_kind == "updated"
     assert item.merged_into is None  # absent field → None (not the Unset sentinel)
+
+
+@respx.mock
+async def test_get_changes_surfaces_min_seq_watermark(client):
+    """PM#388: meta.min_seq (the oldest-retained watermark) rides the response's
+    additional_properties (the generated ChangeMeta predates #388), so the wrapper
+    surfaces it on ChangePage without a client regen — the horizon-fall-off signal
+    the replay backstop (usa-wa#159) uses to detect it fell off the 90-day window."""
+    respx.get(f"{BASE}/api/v1/changes").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [],
+                "meta": {
+                    "limit": 100,
+                    "count": 0,
+                    "has_more": False,
+                    "next_after": 42,
+                    "min_seq": 17,
+                },
+            },
+        )
+    )
+
+    page = await client.get_changes(after=None)
+
+    assert page.next_after == 42
+    assert page.min_seq == 17
 
 
 @respx.mock

@@ -274,7 +274,13 @@ class GeneratedPowerMapClient:
             )
             for ci in feed.data
         ]
-        return ChangePage(items=items, next_after=feed.meta.next_after)
+        # power-map#388: meta.min_seq (oldest-retained watermark) postdates the
+        # vendored client, so it rides additional_properties — read it there rather
+        # than regenerate (the #111/#144 pattern). Coerce to int | None defensively:
+        # a pre-#388 server omits it, and a malformed value must not fabricate a floor.
+        raw_min_seq = feed.meta.additional_properties.get("min_seq")
+        min_seq = int(raw_min_seq) if isinstance(raw_min_seq, (int, float)) else None
+        return ChangePage(items=items, next_after=feed.meta.next_after, min_seq=min_seq)
 
     async def discover(
         self,

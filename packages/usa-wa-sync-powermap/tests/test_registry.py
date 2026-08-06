@@ -56,6 +56,16 @@ def test_reconcile_cadence_setting_defaults_to_twelve_hours():
     assert SidecarSettings(powermap_api_key="x").reconcile_cadence == timedelta(hours=12)
 
 
+def test_replay_backstop_settings_defaults():
+    # usa-wa#159: the changes-feed replay backstop ships on, re-reads a generous
+    # trailing seq window (must exceed PM's worst-case in-flight-write span), and runs
+    # hourly (cheap — subscription-filtered, low churn — and prompt on a skip).
+    s = SidecarSettings(powermap_api_key="x")
+    assert s.replay_enabled is True
+    assert s.replay_margin == 10_000
+    assert s.replay_cadence == timedelta(hours=1)
+
+
 def test_subscription_backstop_cadence_defaults_to_six_hours():
     # #73 Axis 2: graph drift is slow (new WA committees enter via the daily WSL
     # refresh), so the hourly full-subtree re-discovery walk is wasteful. Six-hourly
