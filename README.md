@@ -72,7 +72,7 @@ environment) are indexed under **Detail Docs** in [`AGENTS.md`](AGENTS.md).
 ## Deploy
 
 The systemd units live under [`deploy/`](deploy/) — the live API plus a sync
-sidecar, a migrate oneshot, and two timer-driven oneshots.
+sidecar, a migrate oneshot, and eleven timer-driven oneshots.
 
 Production secrets live in `/etc/usa-wa/.env` (managed manually on the VM, not in
 the repo) — **this file must exist before enabling any unit**, or migrate (owner
@@ -109,11 +109,33 @@ The deploy also ships timer-driven oneshots; a fresh host must `enable` their
 **timers** explicitly — they are not pulled in by `usa-wa.service`. (The units
 above already landed in `/etc/systemd/system/` via the `usa-wa*` copy.)
 
+Enable **all** of them. Four of the dailies are invariant gates whose whole job
+is to exit 1 and email the operator (`OnFailure=`, #49) when the data drifts —
+skip one and nothing fails, nothing alerts, and the absence looks identical to
+"no drift".
+
 ```bash
-sudo systemctl enable --now usa-wa-wsl-refresh.timer                 # daily 06:00 UTC
-sudo systemctl enable --now usa-wa-sos-refresh.timer                 # daily 06:45 UTC (#101 House Position)
-sudo systemctl enable --now usa-wa-reconcile-committee-active.timer  # weekly Sun 07:00 UTC
-sudo systemctl enable --now usa-wa-reconcile-committee-names.timer   # weekly Sun 07:30 UTC
-sudo systemctl enable --now usa-wa-integrity-sweep.timer             # weekly Sun 08:00 UTC
-sudo systemctl list-timers 'usa-wa-*'                               # verify next-elapse
+# Ingest (daily)
+sudo systemctl enable --now usa-wa-wsl-refresh.timer                    # daily 06:00 UTC
+sudo systemctl enable --now usa-wa-pdc-refresh.timer                    # daily 06:30 UTC (#69 identifier links)
+sudo systemctl enable --now usa-wa-sos-refresh.timer                    # daily 06:45 UTC (#101 House Position)
+
+# Invariant gates (daily) — exit 1 → operator email
+sudo systemctl enable --now usa-wa-senate-corroboration.timer           # daily 07:00 UTC (#123)
+sudo systemctl enable --now usa-wa-house-corroboration.timer            # daily 07:05 UTC (#149)
+sudo systemctl enable --now usa-wa-succession-invariants.timer          # daily 07:15 UTC (#107)
+sudo systemctl enable --now usa-wa-committee-lineage-invariants.timer   # daily 07:30 UTC (#124 C4)
+
+# Reconcile + sweep (weekly)
+sudo systemctl enable --now usa-wa-reconcile-committee-active.timer     # weekly Sun 07:00 UTC
+sudo systemctl enable --now usa-wa-reconcile-committee-names.timer      # weekly Sun 07:30 UTC
+sudo systemctl enable --now usa-wa-reconcile-committee-meeting-names.timer  # weekly Sun 07:45 UTC (#56)
+sudo systemctl enable --now usa-wa-integrity-sweep.timer                # weekly Sun 08:00 UTC
+
+sudo systemctl list-timers 'usa-wa-*'                                   # verify next-elapse
 ```
+
+What each one does is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) § service
+table. This block is pinned against `deploy/*.timer` by
+`scripts/tests/test_readme_provisioning.py` (#167) — a new timer fails the suite
+until it is listed here with its own `OnCalendar=` cadence.
