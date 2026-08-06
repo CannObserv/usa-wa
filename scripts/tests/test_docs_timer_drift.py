@@ -110,6 +110,10 @@ def section_lines(path: Path, heading: str) -> list[str]:
     lines = path.read_text().splitlines()
     starts = [i for i, line in enumerate(lines) if line.strip() == heading]
     assert starts, f"{path.name}: no {heading!r} heading — this guard is pinned to it"
+    assert len(starts) == 1, (
+        f"{path.name}: {len(starts)} {heading!r} headings — the guard would parse only the "
+        f"first and the rest would go unchecked"
+    )
     out: list[str] = []
     fenced = False
     for line in lines[starts[0] + 1 :]:
@@ -123,6 +127,26 @@ def section_lines(path: Path, heading: str) -> list[str]:
     return out
 
 
+def fenced_block(lines: list[str]) -> list[str]:
+    """The contents of the first ```-fenced block in `lines`.
+
+    The provisioning block is the fenced snippet, not the whole section: prose
+    around it may legitimately quote a `systemctl enable` line without that being
+    a command the operator is meant to run (#167 CR round 3, finding 15a).
+    """
+    opened = False
+    out: list[str] = []
+    for line in lines:
+        if line.lstrip().startswith("```"):
+            if opened:
+                return out
+            opened = True
+            continue
+        if opened:
+            out.append(line)
+    raise AssertionError("no fenced block found — the guard is pinned to the fenced snippet")
+
+
 def enable_block() -> dict[str, str]:
     """Parse README's `### Scheduled units` snippet → {enabled unit: trailing comment}.
 
@@ -132,7 +156,7 @@ def enable_block() -> dict[str, str]:
     instead) must fail, not be silently normalized.
     """
     entries: dict[str, str] = {}
-    for line in section_lines(README, "### Scheduled units"):
+    for line in fenced_block(section_lines(README, "### Scheduled units")):
         match = ENABLE_RE.match(line)
         if not match:
             continue
@@ -142,18 +166,22 @@ def enable_block() -> dict[str, str]:
 
 
 def timer_rows(lines: list[str]) -> dict[str, str]:
-    """Map each timer mentioned in `lines` to its row, refusing a second row.
+    """Map each timer named in a **table row** of `lines` to that row.
 
-    One row per timer: a "see also" row would be a second copy of the cadence
-    that nothing checks, which is the drift this guard exists to catch
-    (#167 CR round 2, finding 14).
+    Table rows only: prose in the same section may name a timer (a runbook aside,
+    a note about a retired unit) without being a cadence claim, and treating that
+    as a row made the guard reject ordinary doc edits (#167 CR round 3, finding
+    15). Two rows for one timer are still refused — the second copy of a cadence
+    is exactly the drift this exists to catch (round 2, finding 14).
     """
     rows: dict[str, str] = {}
     for line in lines:
+        if not line.lstrip().startswith("|"):
+            continue
         for timer in TIMER_MENTION_RE.findall(line):
             assert timer not in rows, (
-                f"{timer}: mentioned in two § Services rows — the second cadence would go "
-                f"unchecked; keep one row per timer"
+                f"{timer}: named in two table rows — the second cadence would go unchecked; "
+                f"keep one row per timer"
             )
             rows[timer] = line
     return rows
@@ -249,6 +277,42 @@ def test_section_lines_keeps_deeper_headings(tmp_path):
     doc.write_text("## A\n\n### A.1\n\ninner\n\n## B\n\nlater\n")
     assert "### A.1" in section_lines(doc, "## A")
     assert "later" not in section_lines(doc, "## A")
+
+
+def test_section_lines_rejects_a_duplicated_heading(tmp_path):
+    """Two identical headings: the guard would parse only the first (finding 16)."""
+    doc = tmp_path / "doc.md"
+    doc.write_text("## Services\n\nfirst\n\n## Services\n\nsecond\n")
+    with pytest.raises(AssertionError, match="2 '## Services' headings"):
+        section_lines(doc, "## Services")
+
+
+def test_fenced_block_returns_the_first_block_and_ignores_later_prose():
+    """Only the fenced snippet is the provisioning block; prose below it isn't (finding 15a)."""
+    lines = [
+        "prose before",
+        "```bash",
+        "sudo systemctl enable --now usa-wa-a.timer  # daily 01:00 UTC",
+        "```",
+        "prose after mentioning: sudo systemctl enable --now usa-wa-b.timer",
+    ]
+    assert fenced_block(lines) == ["sudo systemctl enable --now usa-wa-a.timer  # daily 01:00 UTC"]
+
+
+def test_fenced_block_requires_a_block():
+    """A section that lost its fence must say so, not parse as empty."""
+    with pytest.raises(AssertionError, match="no fenced block"):
+        fenced_block(["just prose", "no fence here"])
+
+
+def test_timer_rows_ignores_prose_mentions():
+    """Only table rows carry cadences; prose naming a timer is not a row (finding 15)."""
+    lines = [
+        "| WSL refresh | … `usa-wa-wsl-refresh.timer` …; 06:00 UTC |",
+        "Note: run `usa-wa-wsl-refresh.timer` by hand after a backfill.",
+        "Retired in #99: `usa-wa-old-thing.timer`.",
+    ]
+    assert sorted(timer_rows(lines)) == ["usa-wa-wsl-refresh.timer"]
 
 
 def test_timer_rows_rejects_a_second_row_for_one_timer():
