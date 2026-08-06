@@ -1829,8 +1829,9 @@ class SyncEngine:
                 last_id = row.id
                 pm_id = descriptor.anchor_value(row)
                 # Conditional GET (usa-wa#160 / power-map#385): send the stored ETag and
-                # skip the whole row on a 304 — no body, no apply, no re-enrich. PM's detail
-                # ETag covers child tables (incl. events), so a 304 means nothing to heal.
+                # skip the whole row on a 304 — no body, no apply_record, no PM→local mirror
+                # (the local carry-drift enrich still fires, see below). PM's detail ETag
+                # covers child tables (incl. events), so a 304 means nothing to heal from PM.
                 # A stale/absent ETag only ever costs a 200 we re-apply (idempotent), never
                 # a missed update. Disabled → the unconditional fetch, unchanged.
                 if self._conditional_get_enabled:
