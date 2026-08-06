@@ -18,10 +18,11 @@ The vendor → symlink → discovery layout means the project carries no skill s
 
 | Skill | What it does |
 |---|---|
+| `enforcing-architecture` | Graduate an accepted architecture finding into an executable fitness function (import-linter / module-size gate / OpenAPI drift guard). Triggers: `add a fitness function`, `enforce this contract`, `lock this rule`. |
 | `init-project-fastapi` | Bootstrap a new FastAPI service (this project's origin). |
 | `managing-skills` | Add/update/audit skills across vendors and overrides. |
 | `orchestrating-issue-backlog` | Triage and sequence open GitHub issues into actionable work. |
-| `reviewing-architecture` | Architectural review of a design doc or large change. |
+| `reviewing-architecture` | Architectural review of a design doc or large change. Delegates to `enforcing-architecture` on a `fix + fitness` / `fitness` directive — both must be symlinked or the delegation fails to resolve. |
 | `reviewing-code-python-fastapi` | Python/FastAPI-stack code review (the review workflow for this repo). |
 | `shipping-work-python-fastapi` | Python/FastAPI ship workflow with `pre-ship.sh` (the ship workflow for this repo). |
 | `using-git-worktrees` | Worktree-based branch workflow for parallel work. |
