@@ -15,6 +15,14 @@ from clearinghouse_core.models import Base, TimestampMixin
 
 SCHEMA = "canonical"
 
+# Declared-not-implemented tier (#182) — see tests/test_declared_tier.py.
+IMPLEMENTATION_STATUS = "declared"
+IMPLEMENTATION_TRACKING_ISSUES = (194,)
+IMPLEMENTATION_RATIONALE = (
+    "No RCW source is wired — the WSL adapter covers members and committees, not the code "
+    "itself — and bill_statute_changes additionally needs #28's Bill FK target."
+)
+
 
 def _new_ulid() -> _ULID:
     return _ULID()

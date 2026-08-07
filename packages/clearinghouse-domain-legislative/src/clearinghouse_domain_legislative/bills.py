@@ -26,6 +26,14 @@ from clearinghouse_core.models import Base, TimestampMixin
 
 SCHEMA = "canonical"
 
+# Declared-not-implemented tier (#182) — see tests/test_declared_tier.py.
+IMPLEMENTATION_STATUS = "declared"
+IMPLEMENTATION_TRACKING_ISSUES = (28, 67)
+IMPLEMENTATION_RATIONALE = (
+    "The WSL LegislationService normalizers that would populate the cluster are unbuilt: "
+    "#28 owns bills/titles/actions/sponsorships/versions, #67 the committee-action slice."
+)
+
 
 def _new_ulid() -> _ULID:
     return _ULID()

@@ -23,6 +23,14 @@ from clearinghouse_core.models import Base, TimestampMixin
 
 SCHEMA = "canonical"
 
+# Declared-not-implemented tier (#182) — see tests/test_declared_tier.py.
+IMPLEMENTATION_STATUS = "declared"
+IMPLEMENTATION_TRACKING_ISSUES = (28,)
+IMPLEMENTATION_RATIONALE = (
+    "No roll-call source is wired; #28 open question 4 owns the GetRollCalls scope decision "
+    "and every vote row keys on its Bill FK target."
+)
+
 
 def _new_ulid() -> _ULID:
     return _ULID()

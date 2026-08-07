@@ -352,6 +352,14 @@ class PersonIdentifier(Base, TimestampMixin):
 class OrganizationIdentifier(Base, TimestampMixin):
     """External-ID mapping per Organization — FEC, IRS EIN, OpenSecrets, etc."""
 
+    # Declared-not-implemented tier (#182) — see tests/test_declared_tier.py.
+    __implementation_status__ = "declared"
+    __implementation_tracking_issues__ = (194,)
+    __implementation_rationale__ = (
+        "Org-side twin of PersonIdentifier, which the WSL, PDC and sidecar paths do write; "
+        "nothing has yet needed a scheme-keyed external id for an Organization."
+    )
+
     __tablename__ = "organization_identifiers"
     __table_args__ = (
         UniqueConstraint(
