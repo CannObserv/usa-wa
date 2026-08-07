@@ -25,10 +25,6 @@ from __future__ import annotations
 from collections.abc import Collection
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from usa_wa_adapter_pdc.normalize.positions import (
-    house_seat_role_source_id,
-    parse_house_span_discriminator,
-)
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Role
@@ -36,6 +32,10 @@ from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors
 from usa_wa_adapter_legislature.normalize.members import get_or_create_role, resolve_ld_jurisdiction
 from usa_wa_adapter_legislature.span_emit import CitationTarget, emit_spans
 from usa_wa_adapter_legislature.tenure_spans import TenureSpan
+from usa_wa_adapter_pdc.normalize.positions import (
+    house_seat_role_source_id,
+    parse_house_span_discriminator,
+)
 
 logger = get_logger(__name__)
 

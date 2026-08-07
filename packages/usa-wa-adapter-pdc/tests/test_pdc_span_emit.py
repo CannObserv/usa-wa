@@ -11,10 +11,10 @@ from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
-from usa_wa_adapter_pdc.normalize.pdc_span_emit import emit_pdc_identifiers
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_domain_legislative.identity import Person, PersonIdentifier
+from usa_wa_adapter_pdc.normalize.pdc_span_emit import emit_pdc_identifiers
 
 CURRENT = "2025-26"
 

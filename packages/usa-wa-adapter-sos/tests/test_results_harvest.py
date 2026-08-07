@@ -9,6 +9,9 @@ from unittest.mock import patch
 
 import httpx
 from sqlalchemy import func, select
+
+from clearinghouse_core.provenance import FetchEvent
+from clearinghouse_domain_legislative.identity import Assignment
 from usa_wa_adapter_sos.results import harvest as harvest_module
 from usa_wa_adapter_sos.results.harvest import (
     HarvestSummary,
@@ -16,9 +19,6 @@ from usa_wa_adapter_sos.results.harvest import (
     harvest_results,
 )
 from usa_wa_adapter_sos.results.transport import LegislativeExportNotFound, WireFetch
-
-from clearinghouse_core.provenance import FetchEvent
-from clearinghouse_domain_legislative.identity import Assignment
 
 
 class _FakeResultsClient:

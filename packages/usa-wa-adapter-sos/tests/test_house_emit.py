@@ -14,18 +14,18 @@ from datetime import UTC, date, datetime
 import pytest
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
-from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster
-from usa_wa_adapter_pdc.normalize.pdc_observations import (
-    KIND_HOUSE,
-    build_house_position_observations,
-)
-from usa_wa_adapter_sos.house.emit import emit_house_position_spans
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.tenure_spans import Observation, build_tenure_spans
+from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster
+from usa_wa_adapter_pdc.normalize.pdc_observations import (
+    KIND_HOUSE,
+    build_house_position_observations,
+)
+from usa_wa_adapter_sos.house.emit import emit_house_position_spans
 
 CURRENT = "2025-26"
 

@@ -33,8 +33,6 @@ def test_operator_events_reexports_the_same_seat_kinds():
 
 
 def test_adapter_span_kinds_are_the_domain_objects():
-    from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE as pdc_house
-
     from usa_wa_adapter_legislature.committee_membership_observations import (
         KIND_COMMITTEE as leg_committee,
     )
@@ -44,6 +42,7 @@ def test_adapter_span_kinds_are_the_domain_objects():
     from usa_wa_adapter_legislature.sponsor_observations import (
         KIND_SENATE as leg_senate,
     )
+    from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE as pdc_house
 
     # Identity, not just equality: the hyphenated literals are not auto-interned, so
     # ``is`` proves the adapters import the constant instead of re-declaring it.

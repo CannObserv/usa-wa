@@ -13,7 +13,6 @@ anchored, and to mirror PM's curated fields update-only.
 from datetime import UTC, datetime
 
 import pytest
-from powermap_client.models import RoleObservationRequest
 from sqlalchemy import select
 from ulid import ULID
 
@@ -23,6 +22,7 @@ from clearinghouse_domain_legislative.role_types import RoleType
 from clearinghouse_sync_powermap.engine import APPLY_KEPT_LOCAL, SyncEngine
 from clearinghouse_sync_powermap.models import OP_UPDATE, STATUS_PENDING, OutboxEntry
 from clearinghouse_sync_powermap.testing import FakeClient
+from powermap_client.models import RoleObservationRequest
 from usa_wa_sync_powermap.descriptors import RoleDescriptor
 
 

@@ -9,6 +9,7 @@ stops at redistricting era boundaries, at an LD move / tenure gap (via the roste
 
 from __future__ import annotations
 
+from usa_wa_adapter_legislature.tenure_spans import Observation
 from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster
 from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 from usa_wa_adapter_sos.filings.normalize import build_house_filings
@@ -16,8 +17,6 @@ from usa_wa_adapter_sos.house.backchain import (
     REDISTRICTING_ERA_START_BIENNIA,
     backchain_house_observations,
 )
-
-from usa_wa_adapter_legislature.tenure_spans import Observation
 
 # 2001-map era bienniums (no redistricting break between them); 2003-04 is the era floor.
 ERA_2001 = ["2003-04", "2005-06", "2007-08", "2009-10"]

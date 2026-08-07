@@ -33,11 +33,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from usa_wa_adapter_pdc.normalize.pdc_matching import HouseRosterEntry
-from usa_wa_adapter_pdc.normalize.positions import parse_house_span_discriminator
-
 from usa_wa_adapter_legislature.synthesis import parse_biennium
 from usa_wa_adapter_legislature.tenure_spans import Observation
+from usa_wa_adapter_pdc.normalize.pdc_matching import HouseRosterEntry
+from usa_wa_adapter_pdc.normalize.positions import parse_house_span_discriminator
 from usa_wa_adapter_sos.house.projector import build_house_seat_observations
 from usa_wa_adapter_sos.positions import HousePosition
 
