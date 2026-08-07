@@ -31,13 +31,13 @@ from datetime import UTC, datetime
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from usa_wa_adapter_pdc.adapter import election_years_for_biennium
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
 from usa_wa_adapter_legislature.refresh import biennium_for_date
 from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_adapter_pdc.adapter import election_years_for_biennium
 from usa_wa_adapter_sos.house.build import build_house_position_spans
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.adapter import ResultsAdapter, legresults_resource_id

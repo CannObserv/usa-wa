@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 import vcr
+
 from usa_wa_adapter_sos.filings.transport import configure_sos_rate_limit
 from usa_wa_adapter_sos.results.transport import configure_results_rate_limit
 

@@ -8,6 +8,7 @@ the transport round-trip.
 from __future__ import annotations
 
 import pytest
+
 from usa_wa_adapter_pdc.normalize.positions import fold_token, surname_match_set
 from usa_wa_adapter_sos.filings.normalize import (
     HouseFiling,

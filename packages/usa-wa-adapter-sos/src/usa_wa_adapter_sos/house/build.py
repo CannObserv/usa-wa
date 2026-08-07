@@ -42,9 +42,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from usa_wa_adapter_pdc.adapter import election_year_for_biennium, election_years_for_biennium
-from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster, house_mover_ids
-from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 
 from clearinghouse_core.logging import configure_logging, get_logger
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
@@ -80,6 +77,9 @@ from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvide
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_adapter_pdc.adapter import election_year_for_biennium, election_years_for_biennium
+from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster, house_mover_ids
+from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 from usa_wa_adapter_sos.house.backchain import (
     MAX_BACKCHAIN_HOPS_DEFAULT,
     backchain_house_observations,

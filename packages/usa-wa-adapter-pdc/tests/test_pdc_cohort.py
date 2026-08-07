@@ -12,9 +12,9 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from usa_wa_adapter_pdc.pdc_cohort import PdcWinnerCohortProvider
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
+from usa_wa_adapter_pdc.pdc_cohort import PdcWinnerCohortProvider
 
 
 @pytest.fixture

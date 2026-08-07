@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from usa_wa_adapter_pdc.normalize.positions import (
     PDC_PERSON_ID_SCHEME,
     canonical_position,

@@ -14,7 +14,6 @@ import re
 from typing import Any
 
 from usa_wa_adapter_pdc.normalize.positions import canonical_position, surname_match_set
-
 from usa_wa_adapter_sos.positions import HousePosition, sos_party_slug
 
 #: votewa ``RaceName`` for a House seat, carrying the ballot position digit.

@@ -16,12 +16,12 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
-from usa_wa_adapter_pdc import migrate_pdc_spans as migrate_module
-from usa_wa_adapter_pdc.migrate_pdc_spans import MigrationResult, migrate_pdc_spans
-from usa_wa_adapter_pdc.normalize.positions import house_seat_role_source_id
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
+from usa_wa_adapter_pdc import migrate_pdc_spans as migrate_module
+from usa_wa_adapter_pdc.migrate_pdc_spans import MigrationResult, migrate_pdc_spans
+from usa_wa_adapter_pdc.normalize.positions import house_seat_role_source_id
 
 # These fixtures never build two rows sharing one pm_assignment_id, and the migration's
 # anchor transfer is index-safe (delete the stranded row before moving its anchor to the

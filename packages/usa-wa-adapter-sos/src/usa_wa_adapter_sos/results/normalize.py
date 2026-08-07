@@ -24,7 +24,6 @@ import re
 from typing import Any
 
 from usa_wa_adapter_pdc.normalize.positions import canonical_position, surname_match_set
-
 from usa_wa_adapter_sos.positions import HousePosition, SenateWinner, sos_party_slug
 
 #: The LD number in a results ``Race`` label (``"LEGISLATIVE DISTRICT 15 - …"``).
