@@ -7,10 +7,75 @@ Currently small — grows as more sibling-reusable test infra needs a home.
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
+
+
+class RecordingSession:
+    """AsyncSession stand-in that records the job harness's transaction decisions.
+
+    Returned by :func:`patch_job_runtime`; only the two methods the harness itself
+    calls are implemented, so a test that asserts commit-vs-rollback needs no database.
+    """
+
+    def __init__(self) -> None:
+        self.committed = 0
+        self.rolled_back = 0
+
+    async def commit(self) -> None:
+        """Record a commit."""
+        self.committed += 1
+
+    async def rollback(self) -> None:
+        """Record a rollback."""
+        self.rolled_back += 1
+
+
+def patch_job_runtime(monkeypatch: Any) -> RecordingSession:
+    """Point :mod:`clearinghouse_core.job`'s database and ledger seams at fakes.
+
+    A CLI built on ``run_job()`` resolves ``DATABASE_URL`` and opens a real session, so
+    calling its ``main()`` in a test would reach **production** in any shell with the
+    env loaded. Every such test must install this first. Returns the recording session
+    so the test can assert the harness's commit/rollback decision; the job's own logic
+    is exercised by calling its handler directly against the ``db_session`` fixture.
+
+    Local import: :mod:`clearinghouse_core.job` pulls in the ORM models, and this
+    module is imported at conftest time before the test engine exists.
+    """
+    from clearinghouse_core import job as job_module
+
+    session = RecordingSession()
+
+    @asynccontextmanager
+    async def _fake_database() -> AsyncIterator[tuple[None, RecordingSession]]:
+        yield (None, session)
+
+    @asynccontextmanager
+    async def _fake_ledger_session() -> AsyncIterator[RecordingSession]:
+        yield RecordingSession()
+
+    async def _noop_open(_session: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def _noop_close(_session: Any, _run_id: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def _noop_record(_session: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(job_module, "_database", _fake_database)
+    monkeypatch.setattr(job_module, "_ledger_session", _fake_ledger_session)
+    monkeypatch.setattr(job_module, "open_run", _noop_open)
+    monkeypatch.setattr(job_module, "close_run", _noop_close)
+    monkeypatch.setattr(job_module, "record_run", _noop_record)
+    monkeypatch.setattr(job_module, "get_database_url", lambda: "postgresql+asyncpg://fake/test")
+    return session
 
 
 def assert_test_url_safety(test_url: str) -> None:

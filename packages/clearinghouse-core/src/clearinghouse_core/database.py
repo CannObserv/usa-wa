@@ -34,6 +34,21 @@ def reset_engine() -> None:
     _session_factory = None
 
 
+async def dispose_engine() -> None:
+    """Dispose the shared engine, if one was ever created, and clear the cache.
+
+    The teardown half of :func:`get_engine`, used by short-lived processes (the job
+    harness) that must return their connections before the loop closes. A no-op when
+    no engine was created, so it never resolves ``DATABASE_URL`` just to tear down —
+    a job that failed before touching the database would otherwise raise here.
+    """
+    global _engine, _session_factory
+    if _engine is not None:
+        await _engine.dispose()
+    _engine = None
+    _session_factory = None
+
+
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
     """Return the shared session factory, creating it on first call."""
     global _session_factory

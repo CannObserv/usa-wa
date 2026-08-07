@@ -48,6 +48,11 @@ EXPECTED: dict[str, dict[str, bool]] = {
     # #55 rolling-sweep cursor: mutable by design — the sweep UPDATEs the
     # watermark each run. Not a provenance ledger row, so neither revocation.
     "integrity_sweep_state": {"revoke_update": False, "revoke_delete": False},
+    # #178 job-run ledger: mutable by design — the harness opens an in-flight row
+    # and UPDATEs it terminal when the job reports back, and old runs are
+    # DELETE-able for retention. Operational telemetry, not a provenance ledger
+    # row (nothing cites it), so neither revocation.
+    "job_runs": {"revoke_update": False, "revoke_delete": False},
 }
 
 
