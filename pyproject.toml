@@ -52,7 +52,18 @@ filterwarnings = [
 
 [tool.coverage.run]
 source = ["packages"]
-omit = ["packages/powermap-client/*"]  # generated OpenAPI client; not our code to test
+omit = [
+    "packages/powermap-client/*",  # generated OpenAPI client; not our code to test
+    # Declared-not-implemented tier (#182). These modules are pure table declarations
+    # with no producer: every line executes on import, so they scored 100% and padded
+    # the gate with code that never runs in anger. Their classes stay marked
+    # IMPLEMENTATION_STATUS = "declared"; test_declared_tier.py keeps this list and the
+    # markers in agreement, so wiring a module to a source forces its removal here.
+    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/bills.py",
+    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/pdc.py",
+    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/statutes.py",
+    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/votes.py",
+]
 
 [tool.coverage.report]
 show_missing = true

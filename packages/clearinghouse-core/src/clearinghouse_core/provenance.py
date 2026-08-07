@@ -245,6 +245,15 @@ class Note(Base, TimestampMixin):
     - Both null when the note is editorial (sourced from the adapter itself).
     """
 
+    # Declared-not-implemented tier (#182) — see the domain package's
+    # tests/test_declared_tier.py.
+    __implementation_status__ = "declared"
+    __implementation_tracking_issues__ = (194,)
+    __implementation_rationale__ = (
+        "Designed alongside Citation, which the adapters wired; Note never was, and its "
+        "intended attach points (bill versions, amendments) do not exist yet either."
+    )
+
     __tablename__ = "notes"
     __table_args__ = {"schema": SCHEMA}
 
@@ -293,6 +302,15 @@ class DocumentIdentifier(Base, TimestampMixin):
     ``{bill_number, chamber, committee_abbr, drafter_initials, sequence}``).
     Raw ``value`` is the authoritative form; ``parsed_components`` is derivative.
     """
+
+    # Declared-not-implemented tier (#182) — see the domain package's
+    # tests/test_declared_tier.py.
+    __implementation_status__ = "declared"
+    __implementation_tracking_issues__ = (28,)
+    __implementation_rationale__ = (
+        "Identifies bill_version and amendment rows, neither of which any source populates "
+        "yet; #28 is the cut that mints them."
+    )
 
     __tablename__ = "document_identifiers"
     __table_args__ = (

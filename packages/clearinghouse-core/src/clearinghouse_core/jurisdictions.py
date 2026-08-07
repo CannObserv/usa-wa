@@ -89,6 +89,15 @@ class JurisdictionRelationshipType(Base, CreatedAtMixin):
     ``is_coterminous_with``; False for directed relations.
     """
 
+    # Declared-not-implemented tier (#182) — see the domain package's
+    # tests/test_declared_tier.py.
+    __implementation_status__ = "declared"
+    __implementation_tracking_issues__ = (194,)
+    __implementation_rationale__ = (
+        "Seeded once by migration 2026_06_03_jurisdictional_ia_refactor; no code path reads "
+        "or refreshes it, and the PM sidecar mirror was deferred."
+    )
+
     __tablename__ = "jurisdiction_relationship_types"
     __table_args__ = (
         UniqueConstraint("code", name="uq_jurisdiction_relationship_types_code"),
@@ -175,6 +184,15 @@ class JurisdictionRelationship(Base, TimestampMixin):
     ``rel_metadata`` holds out-of-band fields like weight percentages (for
     overlapping districts), basis (statute reference), legal URL, etc.
     """
+
+    # Declared-not-implemented tier (#182) — see the domain package's
+    # tests/test_declared_tier.py.
+    __implementation_status__ = "declared"
+    __implementation_tracking_issues__ = (194,)
+    __implementation_rationale__ = (
+        "Seeded once by migration 2026_06_03_jurisdictional_ia_refactor; the sidecar mirror "
+        "that would keep the containment graph in step with Power Map was deferred."
+    )
 
     __tablename__ = "jurisdiction_relationships"
     __table_args__ = (
