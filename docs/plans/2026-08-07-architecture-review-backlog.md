@@ -49,11 +49,16 @@ postgres` confirmed):
 ```bash
 for n in 1 2 3 4; do
   sudo -u postgres createdb "usa_wa_${n}_test"
-  sudo -u postgres psql -d "usa_wa_${n}_test" \
-    -v owner=usa_wa_test_owner -v app=usa_wa_test_app -v reassign_from=usa_wa_test_owner \
-    -f scripts/grants.sql
+  sudo -u postgres psql -q -c "ALTER DATABASE usa_wa_${n}_test OWNER TO usa_wa_test_owner;"
 done
 ```
+
+**Do not run `scripts/grants.sql` against a test database.** Its header says so explicitly: the test
+DB's schemas do not exist until the suite creates them per session, so the schema-grant steps error.
+A test slot needs only the (already-existing, cluster-global) `usa_wa_test_owner` role plus
+`ALTER DATABASE … OWNER TO`. Applied and verified 2026-08-07: all four slots authenticate as
+`usa_wa_test_owner`, and `pytest packages/clearinghouse-core/tests/test_adapter_runner.py` against
+slot 1 passes 19/19.
 
 Each worker's worktree gets `TEST_DATABASE_URL` pointing at its own slot.
 
