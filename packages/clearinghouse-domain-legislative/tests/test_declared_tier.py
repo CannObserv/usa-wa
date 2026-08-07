@@ -24,7 +24,10 @@ never depends on this machinery.
 
 This test pins the markers to reality. It derives the orphan set from the source
 tree (AST, so comments and docstrings do not count as usage) and asserts the two
-sets agree in both directions:
+sets agree in both directions. A class counts as produced when a non-model module
+names it *or* when anything under ``packages/*/src`` — its own module included —
+constructs or queries it; the second half is what keeps a *colocated writer* like
+``clearinghouse_core.runs`` from reading as an orphan. The assertions:
 
 - a mapped class no live module references must carry a marker — a newly orphaned
   table fails the suite instead of drifting silently;
@@ -131,6 +134,34 @@ def _referenced_names(path: pathlib.Path) -> set[str]:
     return names
 
 
+def _used_names(path: pathlib.Path) -> set[str]:
+    """Identifiers a module uses *as a class* — constructed, or handed to a query builder.
+
+    Narrower than :func:`_referenced_names` on purpose. It counts only the two shapes a
+    producer actually has — ``JobRun(...)`` and ``select(JobRun)`` / ``delete(JobRun)`` —
+    and so distinguishes writing a table from the bare ``class JobRun(Base)`` that declares
+    it. That is what lets a model module count as its own producer under the *colocated
+    writer* pattern, where a module holds both the mapped class and the functions that
+    write it (``clearinghouse_core.runs``: ``open_run`` / ``close_run`` / ``record_run``
+    live beside ``JobRun``, and ``clearinghouse_core.job`` imports the functions rather
+    than the class, so no other module ever names it).
+
+    Type annotations and ``relationship()`` targets are deliberately *not* counted: a
+    declared table may still sit in the FK graph of a live one (``JurisdictionRelationship``
+    points at ``Jurisdiction``), and naming a class in an annotation writes no rows.
+    """
+    used: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(), str(path))):
+        if not isinstance(node, ast.Call):
+            continue
+        for expr in (node.func, *node.args):
+            if isinstance(expr, ast.Name):
+                used.add(expr.id)
+            elif isinstance(expr, ast.Attribute):
+                used.add(expr.attr)
+    return used
+
+
 def _model_module_files() -> set[pathlib.Path]:
     """Files that *define* mapped classes — declaration is not production.
 
@@ -159,14 +190,19 @@ def _module_name(path: pathlib.Path) -> str:
 
 
 def _produced_names() -> set[str]:
-    """Class names referenced by a module other than a model-definition module.
+    """Class names some module writes or queries — the union of two signals.
 
-    A model module mentioning its own siblings is declaration, not production; the
-    producers are the adapters, the sidecar, the API and the framework services.
+    - **Any** reference from a module that is not a model-definition module. A model
+      module mentioning its own siblings is declaration, not production; the producers
+      are the adapters, the sidecar, the API and the framework services.
+    - **Instantiation or query use anywhere** under ``packages/*/src``, the class's own
+      module included. Reference-from-elsewhere alone misses the colocated-writer
+      pattern (see :func:`_used_names`) and reported the live ``JobRun`` as an orphan.
     """
     model_files = _model_module_files()
     produced: set[str] = set()
     for path in _source_files():
+        produced |= _used_names(path)
         if path not in model_files:
             produced |= _referenced_names(path)
     return produced
