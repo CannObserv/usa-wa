@@ -164,9 +164,14 @@ python -m usa_wa_sync_powermap.retract_assignments \
 # --full forces a whole-corpus pass ignoring the cursor (post-incident audit);
 # --limit N is a row-capped partial (surfaced as limited). Prod runs this weekly
 # (Sun 08:00 UTC) via usa-wa-integrity-sweep.timer.
+# Runs on the #179 job harness, so it also takes --dry-run (sweep but don't persist
+# the cursor) and --json (machine summary; default is a key=value line, and the
+# structured log record carries the full counters either way), and lands a #178
+# job_runs ledger row. Exit codes are unchanged.
 python -m clearinghouse_core.integrity                # rolling slice (resumes + wraps)
 python -m clearinghouse_core.integrity --full         # whole corpus, ignore cursor
 python -m clearinghouse_core.integrity --limit 500    # row-capped partial
+python -m clearinghouse_core.integrity --json         # machine-readable summary
 
 # One-off provenance repair (#64) — OWNER ROLE. The pre-#54 committees:2025-26 fetch
 # events have NULL content_hash but DID archive their bodies, so backfill

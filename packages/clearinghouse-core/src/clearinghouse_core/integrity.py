@@ -17,6 +17,8 @@ Run as a CLI (jurisdiction-agnostic; siblings reuse it)::
     python -m clearinghouse_core.integrity --full          # whole corpus, ignore cursor
     python -m clearinghouse_core.integrity --limit 500     # partial (surfaced as limited)
     python -m clearinghouse_core.integrity --byte-budget 268435456  # slice size override
+    python -m clearinghouse_core.integrity --json          # machine-readable summary
+    python -m clearinghouse_core.integrity --dry-run       # sweep, don't persist the cursor
 
 **Rolling since-cursor (#55).** The default run verifies a bounded byte-slice of
 the archive and persists a ULID watermark (:mod:`clearinghouse_core.sweep_state`)
@@ -29,28 +31,37 @@ size the budget so a cycle spans an acceptable detection latency. ``--full``
 forces a single whole-corpus pass (post-incident audit) without touching the
 cursor.
 
+**Runs on the shared job harness** (:mod:`clearinghouse_core.job`, #179) — it owns the
+env resolution, engine lifecycle, base args, transaction, summary emission, and the
+#178 ledger row, so this module is the sweep plus a handler. That adds ``--dry-run``
+(sweep but don't persist the #55 cursor) and ``--json`` (machine-readable summary in
+place of the default ``key=value`` line; the structured log record carries the full
+counters either way).
+
 Exit codes: ``0`` clean (all baselined rows verified; unbaselined allowed);
-``1`` at least one mismatch (the failure the #49 alert path surfaces). The
-weekly oneshot's ``OnFailure=`` turns a non-zero exit into an operator email.
+``1`` at least one mismatch (the failure the #49 alert path surfaces) — unchanged by
+the harness move, because the weekly oneshot's ``OnFailure=`` is wired to exactly that
+non-zero. A mismatch is corruption, so it maps to ``failed``, never ``degraded``.
 """
 
 import argparse
-import asyncio
 import hashlib
-import json
-import sys
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID as _ULID
 
-from clearinghouse_core.database import get_session_factory
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, RawPayload
 from clearinghouse_core.sweep_state import SWEEP_SCOPE, IntegritySweepState
 
 logger = get_logger(__name__)
+
+JOB_SLUG = "integrity-sweep"
+"""Stable job identity in the #178 run ledger — not the module path, so this can move
+without orphaning its run history."""
 
 DEFAULT_BYTE_BUDGET = 256 * 1024 * 1024
 """Per-run byte budget for the rolling sweep (#55). 256 MiB detoasts + hashes in
@@ -184,9 +195,9 @@ async def rolling_sweep(
     persists the new watermark: the last id scanned, or ``NULL`` to wrap once the
     archive tail is reached (``coverage_cycle_complete``). A stale cursor sitting
     past the tail (e.g. rows GC'd below it) wraps and re-scans from the beginning
-    in the same run rather than burning a dead 0-row pass. Commits the cursor over
-    exactly the slice verified, so a crash mid-run re-does the slice, never skips
-    it.
+    in the same run rather than burning a dead 0-row pass. The **caller** commits —
+    the job harness does, once, over exactly the slice verified (and rolls back under
+    ``--dry-run``), so a crash mid-run re-does the slice, never skips it.
 
     Re-alert cadence: the cursor advances past a mismatched payload too, so a
     given corruption raises the #49 exit-1 alert once — on the run that finds it —
@@ -201,15 +212,11 @@ async def rolling_sweep(
         report = await sweep_payloads(session, after_id=None, byte_budget=byte_budget)
     report.coverage_cycle_complete = report.reached_end
     await _save_cursor(session, None if report.reached_end else report.last_id)
-    await session.commit()
     return report
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m clearinghouse_core.integrity",
-        description="Re-hash stored RawPayload bodies against their content_hash baseline (#54).",
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the sweep's own flags to the harness's shared parser."""
     parser.add_argument(
         "--limit",
         type=int,
@@ -230,49 +237,59 @@ def _build_parser() -> argparse.ArgumentParser:
             f"{DEFAULT_BYTE_BUDGET}). Ignored with --full or --limit."
         ),
     )
-    return parser
 
 
-async def _run(args: argparse.Namespace) -> SweepReport:
-    factory = get_session_factory()
-    async with factory() as session:
-        if args.full:
-            # A whole-corpus pass IS a completed coverage cycle — mirror the
-            # rolling run's signal so --full doesn't report the opposite (#55 CR).
-            report = await sweep_payloads(session)
-            report.coverage_cycle_complete = report.reached_end
-            return report
-        if args.limit is not None:
-            return await sweep_payloads(session, limit=args.limit)
-        return await rolling_sweep(session, byte_budget=args.byte_budget)
+async def _run(args: argparse.Namespace, session: AsyncSession) -> SweepReport:
+    """Dispatch to the sweep mode the flags select. The session is the harness's."""
+    if args.full:
+        # A whole-corpus pass IS a completed coverage cycle — mirror the
+        # rolling run's signal so --full doesn't report the opposite (#55 CR).
+        report = await sweep_payloads(session)
+        report.coverage_cycle_complete = report.reached_end
+        return report
+    if args.limit is not None:
+        return await sweep_payloads(session, limit=args.limit)
+    return await rolling_sweep(session, byte_budget=args.byte_budget)
+
+
+async def _sweep_job(ctx: JobContext) -> JobResult:
+    """Harness handler: sweep, then map the report onto a ledger outcome.
+
+    A mismatch is at-rest corruption, so it is ``failed`` (exit 1) — not ``degraded``,
+    which is reserved for a run that completed without accomplishing anything. The
+    counters are the whole report, mismatch detail included, so the ledger row records
+    what the run actually saw."""
+    report = await _run(ctx.args, ctx.require_session())
+    counters = {
+        "scanned": report.scanned,
+        "verified": report.verified,
+        "unbaselined": report.unbaselined,
+        "mismatched": report.mismatched,
+        "limited": report.limited,
+        "last_id": report.last_id,
+        "reached_end": report.reached_end,
+        "coverage_cycle_complete": report.coverage_cycle_complete,
+        "mismatches": report.mismatches,
+    }
+    if report.ok:
+        return JobResult.ok(counters)
+    logger.error("integrity_sweep_failed", extra={"mismatched": report.mismatched})
+    return JobResult.failed(counters)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the sweep, print the report as JSON, and exit non-zero on any mismatch.
+    """Run the sweep and exit non-zero on any mismatch.
 
     Exit codes: ``0`` clean; ``1`` at least one mismatch (corruption/tamper). The
     one-shot's ``OnFailure=`` (#49) emails the operator on the non-zero exit."""
-    configure_logging()
-    args = _build_parser().parse_args(argv)
-    report = asyncio.run(_run(args))
-    json.dump(
-        {
-            "scanned": report.scanned,
-            "verified": report.verified,
-            "unbaselined": report.unbaselined,
-            "mismatched": report.mismatched,
-            "limited": report.limited,
-            "last_id": report.last_id,
-            "reached_end": report.reached_end,
-            "coverage_cycle_complete": report.coverage_cycle_complete,
-            "mismatches": report.mismatches,
-        },
-        sys.stdout,
+    return run_job(
+        JOB_SLUG,
+        _sweep_job,
+        argv=argv,
+        prog="python -m clearinghouse_core.integrity",
+        description="Re-hash stored RawPayload bodies against their content_hash baseline (#54).",
+        extra_args=_add_args,
     )
-    sys.stdout.write("\n")
-    if not report.ok:
-        logger.error("integrity_sweep_failed", extra={"mismatched": report.mismatched})
-    return 0 if report.ok else 1
 
 
 if __name__ == "__main__":  # pragma: no cover
