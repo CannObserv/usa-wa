@@ -86,7 +86,6 @@ select = ["E", "F", "I", "W", "UP", "ASYNC", "S"]
 # the rest of flake8-bandit is noise there too — S105/S106 fire on the fake tokens
 # fixtures are built from. Kept fully enabled under src/, which is what ships.
 "**/tests/*" = ["S", "ASYNC221"]
-"conftest.py" = ["S"]
 
 [tool.ruff.lint.isort]
 known-first-party = [

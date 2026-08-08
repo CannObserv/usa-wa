@@ -8,6 +8,7 @@ refresh that returns a summary dataclass, a reconciler that owns its own exit co
 """
 
 import argparse
+import asyncio
 import json
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -26,6 +27,7 @@ from clearinghouse_core.job import (
     run_job,
 )
 from clearinghouse_core.runs import OUTCOME_DEGRADED, OUTCOME_FAILED, OUTCOME_OK
+from clearinghouse_core.testing import patch_job_runtime
 
 
 def _summary(capsys) -> dict:
@@ -489,26 +491,44 @@ def test_git_sha_is_resolved_before_the_event_loop(monkeypatch):
     """The blocking ``git rev-parse`` runs on the calling thread (CR #191 finding 4).
 
     ``subprocess.run`` inside a coroutine stalls the loop. ``run_job`` primes the
-    memoized value first, so by the time the ledger writers ask, no subprocess runs
-    under ``asyncio.run``.
+    memoized value first, so by the time ``_open_ledger_row`` asks, the cache is warm
+    and no subprocess runs under ``asyncio.run``.
+
+    Two details make this test actually able to fail (CR #191 round 2, finding 9 — the
+    first version could not, and passed with the priming line deleted):
+
+    - ``needs_db=True`` so the **ledger path runs**. Under ``needs_db=False`` the ledger
+      now defaults off (finding 3), leaving the priming call the only caller of
+      ``_git_sha`` — so nothing could distinguish primed from unprimed.
+    - The probe records whether a *running loop* exists at call time, rather than
+      counting calls around the handler. ``_open_ledger_row`` evaluates ``_git_sha()``
+      as an argument to ``open_run``, so it is reached even with the ledger writers
+      stubbed out.
     """
     job_module._git_sha.cache_clear()
-    calls: list[bool] = []
+    patch_job_runtime(monkeypatch)
+
+    called_with_running_loop: list[bool] = []
     real_run = job_module.subprocess.run
 
     def _tracking_run(*args, **kwargs):
-        calls.append(job_module.asyncio.get_event_loop_policy() is not None)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            called_with_running_loop.append(False)
+        else:
+            called_with_running_loop.append(True)
         return real_run(*args, **kwargs)
 
     monkeypatch.setattr(job_module.subprocess, "run", _tracking_run)
 
-    inside_loop: list[int] = []
-
     async def handler(ctx: JobContext) -> dict:
-        inside_loop.append(len(calls))
         return {}
 
-    run_job("sha-pin", handler, argv=[], needs_db=False)
-    # Whatever the SHA resolution did, it was finished before the handler ran.
-    assert inside_loop == [len(calls)]
+    assert run_job("sha-pin", handler, argv=[], needs_db=True) == EXIT_OK
+    assert called_with_running_loop, "expected git rev-parse to be attempted at least once"
+    assert not any(called_with_running_loop), (
+        "git rev-parse ran inside the event loop — the priming call in run_job is gone, "
+        "so a blocking subprocess is stalling the loop again"
+    )
     job_module._git_sha.cache_clear()
