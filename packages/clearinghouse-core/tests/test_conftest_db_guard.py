@@ -14,6 +14,7 @@ is easy to delete during an unrelated refactor because nothing visibly depends o
 
 import os
 
+import pytest
 from sqlalchemy.engine import make_url
 
 from clearinghouse_core.config import get_database_url
@@ -50,8 +51,18 @@ def test_the_sentinel_is_unroutable_rather_than_merely_different():
     assert url.port == 1
 
 
+@pytest.mark.skipif(
+    "TEST_DATABASE_URL" not in os.environ,
+    reason="no test DSN configured — this is the unit tier (#185); the other three "
+    "assertions above still pin the guard here",
+)
 def test_test_database_url_is_still_distinct_from_the_blocked_dsn():
-    """The guard must not have clobbered the DSN the suite actually uses."""
+    """The guard must not have clobbered the DSN the suite actually uses.
+
+    The only one of these four that needs ``TEST_DATABASE_URL`` — it is a statement
+    *about* that DSN. In the DB-free tier there is no DSN to make a statement about,
+    so it skips rather than dragging the whole file back into the ``db`` tier.
+    """
     test_url = make_url(os.environ["TEST_DATABASE_URL"])
     assert test_url.database is not None
     assert test_url.database.endswith("_test")

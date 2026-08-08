@@ -87,16 +87,16 @@ Full options, exit codes and rationale: [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL
 ## Setup
 
 ```bash
-# Install dependencies (creates .venv, locks deps in uv.lock)
+# Dependencies (creates .venv, locks deps in uv.lock)
 uv sync
 
-# Install pre-commit hook (runs ruff on commit)
+# Pre-commit hook (runs ruff on commit)
 uv run pre-commit install
 ```
 
 ## Environment
 
-Production secrets live in `/etc/usa-wa/.env`; dev/agent secrets in `./.env`. Both are git-ignored. The systemd unit loads them automatically; shell sessions must load manually:
+Production secrets in `/etc/usa-wa/.env`, dev/agent secrets in `./.env` — both git-ignored, both loaded by the systemd units. Shell sessions load them manually:
 
 ```bash
 export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
@@ -114,15 +114,21 @@ Reachable at `https://usa-wa.exe.xyz:8001/` via the exe.dev proxy.
 ## Tests
 
 ```bash
+# Unit tier (#185) — no database at all; ~7s
+uv run pytest --no-cov -m 'not db and not integration'
+
 # Full suite — requires TEST_DATABASE_URL set to a non-prod database
 uv run pytest
 
-# Single file (skip the coverage gate, which measures all of packages/)
+# Single file (--no-cov: the gate measures all of packages/)
 uv run pytest --no-cov packages/usa-wa-api/tests/test_health.py
 
-# Integration-marked tests only (excluded by default)
+# Integration-marked only (excluded by default)
 uv run pytest -m integration
 ```
+
+`db` is applied automatically to anything resolving `test_engine`/`db_session`, by hand
+where a test opens its own engine (root `conftest.py` / `conftest_db.py`).
 
 ## Database migrations
 

@@ -2,10 +2,12 @@
 # Project-local pre-ship gate (#172).
 #
 # Loads usa-wa's two env files (AGENTS.md § Environment Variables), then hands
-# off to the vendored gate. Needed because conftest.py raises on a missing
-# TEST_DATABASE_URL, so the gate's test phase died on a clean shell with a bare
-# ImportError — a gate that fails for non-code reasons trains people to wave it
-# through. This is the override point the vendored script documents.
+# off to the vendored gate. Needed because the gate runs the *full* suite, whose
+# db-marked majority needs TEST_DATABASE_URL — on a clean shell the test phase
+# died wholesale, and a gate that fails for non-code reasons trains people to
+# wave it through. (Before #185 it died even harder: conftest.py raised at
+# import, so the phase ended in a bare ImportError before collecting anything.)
+# This is the override point the vendored script documents.
 #
 # A wrapper, not a fork: the ~200 lines upstream owns (per-SHA stamp cache,
 # pytest-cov detection, the JS block, the worktree-zombie preflight) stay in one

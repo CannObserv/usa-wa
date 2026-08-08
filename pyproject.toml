@@ -45,6 +45,7 @@ asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 markers = [
     "integration: marks tests that hit live external services or a real database; excluded by default (run with -m integration)",
+    "db: marks tests that need PostgreSQL; applied automatically to anything resolving the test_engine/db_session fixtures, and by hand where a test opens its own engine. `-m 'not db'` is the unit tier and needs no database (#185)",
 ]
 filterwarnings = [
     "error::DeprecationWarning",
