@@ -25,6 +25,14 @@ from clearinghouse_core.models import Base, TimestampMixin
 
 SCHEMA = "canonical"
 
+# Declared-not-implemented tier (#182) — see tests/test_declared_tier.py.
+IMPLEMENTATION_STATUS = "declared"
+IMPLEMENTATION_TRACKING_ISSUES = (194,)
+IMPLEMENTATION_RATIONALE = (
+    "usa-wa-adapter-pdc is deliberately identifier-only; the contribution and lobbying "
+    "data.wa.gov datasets are a separate source archive nobody has built yet."
+)
+
 
 def _new_ulid() -> _ULID:
     return _ULID()

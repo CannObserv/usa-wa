@@ -14,7 +14,6 @@ from datetime import UTC, date, datetime
 
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
-from usa_wa_adapter_sos.house.build import HouseSpanResult, build_house_position_spans
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
@@ -26,6 +25,7 @@ from usa_wa_adapter_legislature.operator_events_store import (
     record_operator_event,
 )
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
+from usa_wa_adapter_sos.house.build import HouseSpanResult, build_house_position_spans
 
 CURRENT = "2025-26"
 

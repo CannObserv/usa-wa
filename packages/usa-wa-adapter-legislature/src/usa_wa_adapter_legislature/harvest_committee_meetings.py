@@ -159,7 +159,7 @@ async def harvest_committee_meetings(
     content = serialize_seed(committees, bienniums=bienniums)
     if not dry_run:
         seed_path.parent.mkdir(parents=True, exist_ok=True)
-        seed_path.write_bytes(content)
+        seed_path.write_bytes(content)  # noqa: ASYNC240 — one-shot CLI file IO at startup; no concurrency to starve. See #196.
         write_sidecars(
             seed_path,
             content,

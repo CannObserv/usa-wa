@@ -237,7 +237,7 @@ async def _run(session: AsyncSession, args: argparse.Namespace) -> int:
     source = await get_or_create_operator_source(session, jurisdiction)
 
     if args.file:
-        with open(args.file) as handle:
+        with open(args.file) as handle:  # noqa: ASYNC230 — one-shot CLI file IO at startup; no concurrency to starve. See #196.
             specs = load_specs(json.load(handle))
     else:
         specs = [_spec_from_args(args)]

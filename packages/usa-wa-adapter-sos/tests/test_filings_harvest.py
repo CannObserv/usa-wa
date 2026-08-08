@@ -6,12 +6,12 @@ import os
 from unittest.mock import patch
 
 from sqlalchemy import func, select
-from usa_wa_adapter_sos.filings import harvest as harvest_module
-from usa_wa_adapter_sos.filings.harvest import HarvestSummary, general_election_years, harvest_sos
-from usa_wa_adapter_sos.filings.transport import WireFetch
 
 from clearinghouse_core.provenance import FetchEvent, RawPayload
 from clearinghouse_domain_legislative.identity import Assignment
+from usa_wa_adapter_sos.filings import harvest as harvest_module
+from usa_wa_adapter_sos.filings.harvest import HarvestSummary, general_election_years, harvest_sos
+from usa_wa_adapter_sos.filings.transport import WireFetch
 
 
 class _FakeSOSClient:

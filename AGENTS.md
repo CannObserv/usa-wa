@@ -188,6 +188,7 @@ JSON records carry `{timestamp, level, logger, message}` (#133; structlog's defa
 ## Detail Docs
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the reusable Layer-3 pattern; read before adding an adapter, a source, or a span/seat builder
+- [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model: entities, lifecycle axes, spans-as-assignments, the three event shapes; read before adding a fact
 - [docs/MODULES-FRAMEWORK.md](docs/MODULES-FRAMEWORK.md) — Layer 1–2 primitives, the PM sync engine, regenerating the PM client
 - [docs/MODULES-LEGISLATURE.md](docs/MODULES-LEGISLATURE.md) — WSL adapter ingest, normalization, daily refresh
 - [docs/MODULES-LEGISLATURE-SPANS.md](docs/MODULES-LEGISLATURE-SPANS.md) — tenure spans, operator succession, span migrations

@@ -8,6 +8,7 @@ parse from the archived wire (the #56 cache path).
 from __future__ import annotations
 
 import pytest
+
 from usa_wa_adapter_sos.filings.transport import (
     ALL_COUNTIES,
     DEFAULT_SOS_MIN_REQUEST_INTERVAL,

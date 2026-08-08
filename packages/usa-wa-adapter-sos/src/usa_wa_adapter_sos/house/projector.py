@@ -29,11 +29,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from usa_wa_adapter_legislature.tenure_spans import Observation
 from usa_wa_adapter_pdc.normalize.pdc_matching import HouseRosterEntry
 from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 from usa_wa_adapter_pdc.normalize.positions import house_span_discriminator
-
-from usa_wa_adapter_legislature.tenure_spans import Observation
 from usa_wa_adapter_sos.positions import HousePosition, position_for
 
 #: The two WA House seats per LD — the closed world the elimination inference (#103) rests on.

@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 from usa_wa_adapter_pdc.normalize.positions import fold_token
 from usa_wa_adapter_sos.positions import position_for
 from usa_wa_adapter_sos.results.cohort import SosResultsCohortProvider
-
-from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 
 
 async def _results_source(session, usa_wa):

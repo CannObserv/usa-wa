@@ -8,6 +8,7 @@ the archived wire (the #56 cache path).
 from __future__ import annotations
 
 import pytest
+
 from usa_wa_adapter_pdc.transport import (
     OFFICE_STATE_REPRESENTATIVE,
     OFFICE_STATE_SENATOR,

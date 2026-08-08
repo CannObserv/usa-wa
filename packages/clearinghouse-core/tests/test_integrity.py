@@ -6,13 +6,14 @@ are "unbaselined" — counted separately, never a mismatch.
 """
 
 import hashlib
-from contextlib import asynccontextmanager
+import json
 from datetime import UTC, datetime
 
 from sqlalchemy import select
 from ulid import ULID
 
 from clearinghouse_core import integrity
+from clearinghouse_core import job as job_module
 from clearinghouse_core.integrity import (
     SweepReport,
     load_cursor,
@@ -23,6 +24,7 @@ from clearinghouse_core.integrity import (
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_core.sweep_state import IntegritySweepState
+from clearinghouse_core.testing import patch_job_runtime
 
 
 async def _seed_source(db_session) -> Source:
@@ -151,33 +153,100 @@ async def test_sweep_limit_marks_partial(db_session):
     assert report.limited is True
 
 
-def test_main_exit_zero_when_clean(monkeypatch, capsys):
-    """A clean sweep prints the report and exits 0."""
+# --- CLI (on the #179 shared job harness) -----------------------------------
 
-    async def _fake_run(_args):
-        return SweepReport(scanned=5, verified=5)
+
+def _stub_sweep(monkeypatch, report: SweepReport) -> None:
+    """Replace the sweep itself so the CLI tests exercise only the harness wiring."""
+
+    async def _fake_run(_args, _session):
+        return report
 
     monkeypatch.setattr(integrity, "_run", _fake_run)
+
+
+def test_main_exit_zero_when_clean(monkeypatch, capsys):
+    """A clean sweep exits 0 and prints the harness summary line."""
+    patch_job_runtime(monkeypatch)
+    _stub_sweep(monkeypatch, SweepReport(scanned=5, verified=5))
+
     code = main([])
+
     assert code == 0
-    assert '"mismatched": 0' in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "outcome=ok" in out
+    assert "mismatched=0" in out
 
 
 def test_main_exit_one_on_mismatch(monkeypatch, capsys):
-    """Any mismatch exits 1 — the non-zero the #49 OnFailure handler emails on."""
+    """Any mismatch exits 1 — the non-zero the #49 OnFailure handler emails on.
 
-    async def _fake_run(_args):
-        return SweepReport(
+    The exit code is load-bearing for the weekly unit's ``OnFailure=``, so moving onto
+    the shared harness must not shift it."""
+    patch_job_runtime(monkeypatch)
+    _stub_sweep(
+        monkeypatch,
+        SweepReport(
             scanned=2,
             verified=1,
             mismatched=1,
             mismatches=[{"resource_id": "X", "fetch_event_id": "Y"}],
-        )
+        ),
+    )
+
+    code = main([])
+
+    assert code == 1
+    assert "outcome=failed" in capsys.readouterr().out
+
+
+def test_main_json_flag_emits_the_full_report(monkeypatch, capsys):
+    """--json keeps the machine-readable form, mismatch detail included."""
+    patch_job_runtime(monkeypatch)
+    _stub_sweep(
+        monkeypatch,
+        SweepReport(
+            scanned=2,
+            verified=1,
+            mismatched=1,
+            mismatches=[{"resource_id": "X", "fetch_event_id": "Y"}],
+        ),
+    )
+
+    code = main(["--json"])
+
+    assert code == 1
+    payload = json.loads([ln for ln in capsys.readouterr().out.splitlines() if ln.strip()][-1])
+    assert payload["job"] == integrity.JOB_SLUG
+    assert payload["counters"]["mismatches"] == [{"resource_id": "X", "fetch_event_id": "Y"}]
+
+
+def test_main_commits_the_cursor_and_dry_run_rolls_it_back(monkeypatch):
+    """The harness owns the transaction: a normal run commits the #55 cursor upsert,
+    ``--dry-run`` rolls it back."""
+    session = patch_job_runtime(monkeypatch)
+    _stub_sweep(monkeypatch, SweepReport(scanned=1, verified=1))
+
+    assert main([]) == 0
+    assert (session.committed, session.rolled_back) == (1, 0)
+
+    assert main(["--dry-run"]) == 0
+    assert (session.committed, session.rolled_back) == (1, 1)
+
+
+def test_main_accepts_the_job_specific_flags(monkeypatch):
+    """--full / --limit / --byte-budget still parse, now via the harness's extra_args."""
+    patch_job_runtime(monkeypatch)
+    seen: list = []
+
+    async def _fake_run(args, _session):
+        seen.append((args.full, args.limit, args.byte_budget))
+        return SweepReport()
 
     monkeypatch.setattr(integrity, "_run", _fake_run)
-    code = main([])
-    assert code == 1
-    assert '"resource_id": "X"' in capsys.readouterr().out
+
+    assert main(["--full", "--limit", "5", "--byte-budget", "42"]) == 0
+    assert seen == [(True, 5, 42)]
 
 
 # --- rolling since-cursor (#55) ---------------------------------------------
@@ -300,15 +369,12 @@ async def test_rolling_sweep_detects_mismatch(db_session):
 # --- CLI mode dispatch (#55) -------------------------------------------------
 
 
-def _patch_session_factory(monkeypatch, session):
-    """Stub get_session_factory so _run's `async with factory() as session` yields
-    ``session`` — lets us assert dispatch without a real engine."""
-
-    @asynccontextmanager
-    async def _cm():
-        yield session
-
-    monkeypatch.setattr(integrity, "get_session_factory", lambda: _cm)
+def _parse(argv: list[str]):
+    """Parse ``argv`` through the same composed parser the harness builds — base args
+    plus the sweep's own — so these dispatch tests can't drift from the real CLI."""
+    return job_module._build_parser("integrity-sweep", None, None, integrity._add_args).parse_args(
+        argv
+    )
 
 
 async def test_run_dispatches_full_and_flags_cycle(monkeypatch):
@@ -324,11 +390,10 @@ async def test_run_dispatches_full_and_flags_cycle(monkeypatch):
         return SweepReport()
 
     sentinel = object()
-    _patch_session_factory(monkeypatch, sentinel)
     monkeypatch.setattr(integrity, "sweep_payloads", fake_sweep)
     monkeypatch.setattr(integrity, "rolling_sweep", fake_rolling)
 
-    report = await integrity._run(integrity._build_parser().parse_args(["--full"]))
+    report = await integrity._run(_parse(["--full"]), sentinel)
 
     assert "rolling" not in calls
     assert calls["sweep"] == (sentinel, {})  # whole corpus: no limit, no budget
@@ -348,11 +413,10 @@ async def test_run_dispatches_limit(monkeypatch):
         return SweepReport()
 
     sentinel = object()
-    _patch_session_factory(monkeypatch, sentinel)
     monkeypatch.setattr(integrity, "sweep_payloads", fake_sweep)
     monkeypatch.setattr(integrity, "rolling_sweep", fake_rolling)
 
-    await integrity._run(integrity._build_parser().parse_args(["--limit", "5"]))
+    await integrity._run(_parse(["--limit", "5"]), sentinel)
 
     assert "rolling" not in calls
     assert calls["sweep"] == (sentinel, {"limit": 5})
@@ -371,11 +435,10 @@ async def test_run_dispatches_rolling_by_default(monkeypatch):
         return SweepReport(coverage_cycle_complete=True)
 
     sentinel = object()
-    _patch_session_factory(monkeypatch, sentinel)
     monkeypatch.setattr(integrity, "sweep_payloads", fake_sweep)
     monkeypatch.setattr(integrity, "rolling_sweep", fake_rolling)
 
-    await integrity._run(integrity._build_parser().parse_args([]))
+    await integrity._run(_parse([]), sentinel)
 
     assert "sweep" not in calls
     assert calls["rolling"] == (sentinel, {"byte_budget": integrity.DEFAULT_BYTE_BUDGET})

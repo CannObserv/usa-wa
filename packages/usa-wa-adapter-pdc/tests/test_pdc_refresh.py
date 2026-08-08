@@ -18,14 +18,14 @@ import httpx
 import pytest
 from sqlalchemy import select
 from ulid import ULID as _ULID
-from usa_wa_adapter_pdc import refresh as refresh_module
-from usa_wa_adapter_pdc.refresh import run_refresh
-from usa_wa_adapter_pdc.transport import WireFetch
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier
 from usa_wa_adapter_legislature.refresh import biennium_for_date
+from usa_wa_adapter_pdc import refresh as refresh_module
+from usa_wa_adapter_pdc.refresh import run_refresh
+from usa_wa_adapter_pdc.transport import WireFetch
 
 BIENNIUM = "2025-26"
 

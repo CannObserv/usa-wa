@@ -17,13 +17,13 @@ import httpx
 import pytest
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
-from usa_wa_adapter_sos.house import refresh as refresh_module
-from usa_wa_adapter_sos.house.refresh import run_refresh
-from usa_wa_adapter_sos.results.transport import LegislativeExportNotFound, WireFetch
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person
+from usa_wa_adapter_sos.house import refresh as refresh_module
+from usa_wa_adapter_sos.house.refresh import run_refresh
+from usa_wa_adapter_sos.results.transport import LegislativeExportNotFound, WireFetch
 
 BIENNIUM = "2025-26"
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 
 import pytest
+
 from usa_wa_adapter_pdc.adapter import (
     PDCAdapter,
     election_year_for_biennium,
