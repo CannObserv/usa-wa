@@ -64,7 +64,12 @@ async def _fetch_counts(test_url: str) -> dict[str, int]:
     return counts
 
 
+# ``db`` as well as ``integration`` (#185): this test opens its own engine against
+# ``TEST_DATABASE_URL`` instead of taking ``db_session``, so the conftest's
+# fixture-closure sweep cannot see that it needs a database. Without the marker,
+# ``pytest -m 'not db'`` would select it on a machine with none.
 @pytest.mark.integration
+@pytest.mark.db
 def test_alembic_upgrade_head_seeds_expected_row_counts():
     """Wipe the test DB, run ``alembic upgrade head`` in-process, assert
     seeded row counts + shape spot-checks.

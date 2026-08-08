@@ -1,9 +1,10 @@
 """Tests for scripts/pre-ship.sh — the project-local env-loading ship gate (#172).
 
 The vendored gate ships without env loading by design, and names the override
-point in a comment. `usa-wa` needs it: ``conftest.py`` raises on a missing
-``TEST_DATABASE_URL``, so the gate's headline test phase died on a clean shell
-with a bare ``ImportError`` — a gate failing for non-code reasons.
+point in a comment. `usa-wa` needs it: the gate runs the *full* suite, whose
+db-marked majority needs ``TEST_DATABASE_URL``, so on a clean shell the headline
+test phase died wholesale — a gate failing for non-code reasons. (Before #185 it
+died at import: ``conftest.py`` raised before a single test was collected.)
 
 The wrapper is not a fork. It loads the two env files and ``exec``s the vendored
 script, so upstream fixes keep landing without a merge. Three properties matter
