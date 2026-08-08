@@ -405,3 +405,110 @@ def test_ledger_can_be_disabled(fake_db, ledger_calls):
 
     run_job("demo", handler, argv=[], ledger=False)
     assert ledger_calls == []
+
+
+# --- CR #191 regression pins ------------------------------------------------
+
+
+@dataclass
+class _SummaryShape:
+    """A summary dataclass of the shape existing CLIs already return."""
+
+    scanned: int = 3
+    skipped: int = 1
+
+
+def test_directly_constructed_job_result_normalizes_its_counters():
+    """``JobResult(...)`` normalizes like its classmethods do (CR #191 finding 2).
+
+    The classmethods always normalized; direct construction — which the public
+    dataclass signature invites — did not. ``_render_human`` then called ``.items()``
+    on a dataclass from ``_emit``, which runs *after* ``asyncio.run`` and so sits
+    outside every ``try`` in ``_execute``: an AttributeError traceback out of the one
+    module that promises never to raise for a handler failure.
+    """
+    result = JobResult(OUTCOME_DEGRADED, _SummaryShape())  # type: ignore[arg-type]
+    assert result.counters == {"scanned": 3, "skipped": 1}
+
+
+def test_directly_constructed_job_result_survives_rendering(capsys):
+    """The end-to-end path finding 2 actually crashed on: emit, not construction."""
+
+    async def handler(ctx: JobContext) -> JobResult:
+        return JobResult(OUTCOME_OK, _SummaryShape())  # type: ignore[arg-type]
+
+    assert run_job("render-pin", handler, argv=[], needs_db=False) == EXIT_OK
+    assert "scanned=3" in capsys.readouterr().out
+
+
+def test_ledger_defaults_off_when_the_job_declares_no_database(monkeypatch, caplog):
+    """``ledger`` follows ``needs_db`` (CR #191 finding 3).
+
+    A ``needs_db=False`` probe skips the DSN check, so an unconditional ledger default
+    made every run emit ``job_ledger_open_failed`` *and* ``job_ledger_close_failed`` —
+    two meaningless warnings per run, devaluing the signal that matters when the ledger
+    genuinely breaks.
+    """
+    opened = False
+
+    async def _spy(*_args, **_kwargs):
+        nonlocal opened
+        opened = True
+        return None
+
+    monkeypatch.setattr(job_module, "_open_ledger_row", _spy)
+
+    async def handler(ctx: JobContext) -> dict:
+        return {"probed": 1}
+
+    assert run_job("probe-pin", handler, argv=[], needs_db=False) == EXIT_OK
+    assert opened is False, "a needs_db=False job must not attempt a ledger write"
+    assert "job_ledger_open_failed" not in caplog.text
+    assert "job_ledger_close_failed" not in caplog.text
+
+
+def test_ledger_can_still_be_forced_on_for_a_dbless_job(monkeypatch):
+    """``ledger=True`` remains available explicitly — the default changed, not the knob."""
+    opened = False
+
+    async def _spy(*_args, **_kwargs):
+        nonlocal opened
+        opened = True
+        return None
+
+    monkeypatch.setattr(job_module, "_open_ledger_row", _spy)
+
+    async def handler(ctx: JobContext) -> dict:
+        return {}
+
+    assert run_job("probe-forced", handler, argv=[], needs_db=False, ledger=True) == EXIT_OK
+    assert opened is True
+
+
+def test_git_sha_is_resolved_before_the_event_loop(monkeypatch):
+    """The blocking ``git rev-parse`` runs on the calling thread (CR #191 finding 4).
+
+    ``subprocess.run`` inside a coroutine stalls the loop. ``run_job`` primes the
+    memoized value first, so by the time the ledger writers ask, no subprocess runs
+    under ``asyncio.run``.
+    """
+    job_module._git_sha.cache_clear()
+    calls: list[bool] = []
+    real_run = job_module.subprocess.run
+
+    def _tracking_run(*args, **kwargs):
+        calls.append(job_module.asyncio.get_event_loop_policy() is not None)
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(job_module.subprocess, "run", _tracking_run)
+
+    inside_loop: list[int] = []
+
+    async def handler(ctx: JobContext) -> dict:
+        inside_loop.append(len(calls))
+        return {}
+
+    run_job("sha-pin", handler, argv=[], needs_db=False)
+    # Whatever the SHA resolution did, it was finished before the handler ran.
+    assert inside_loop == [len(calls)]
+    job_module._git_sha.cache_clear()

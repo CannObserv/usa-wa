@@ -49,14 +49,30 @@ OUTCOME_OK = "ok"
 
 OUTCOME_DEGRADED = "degraded"
 """The job ran to completion but its work did not land — a total source outage, an
-aborted guardrail, an empty pull. Distinct from ``ok`` (nothing was accomplished) and
-from ``failed`` (nothing crashed)."""
+aborted guardrail, an empty pull. Distinct from ``ok`` (the work landed) and from
+``failed`` (the job raised, or reported a condition it considers a failure)."""
 
 OUTCOME_FAILED = "failed"
 """The job raised, or reported a condition it considers a failure."""
 
 OUTCOMES = (OUTCOME_OK, OUTCOME_DEGRADED, OUTCOME_FAILED)
 """The closed vocabulary, in escalation order. Enforced by a CHECK constraint."""
+
+OUTCOME_CHECK_NAME = "ck_job_runs_outcome"
+"""Name of the CHECK constraint pinning :data:`OUTCOMES`. Shared with the migration."""
+
+
+def outcome_check_sql() -> str:
+    """Render the ``outcome`` CHECK expression **from** :data:`OUTCOMES`.
+
+    The vocabulary is declared once. Previously the tuple and the constraint were
+    independent copies of the same list, so adding a fourth outcome would have updated
+    the Python side only and surfaced as an ``IntegrityError`` in production
+    (CR #191 finding 5). ``tests/test_runs.py`` pins this expression against the
+    migration's own copy, which alembic cannot import without creating a cycle.
+    """
+    values = ", ".join(f"'{outcome}'" for outcome in OUTCOMES)
+    return f"outcome IS NULL OR outcome IN ({values})"
 
 
 def _new_ulid() -> _ULID:
@@ -79,10 +95,7 @@ class JobRun(Base, TimestampMixin):
 
     __tablename__ = "job_runs"
     __table_args__ = (
-        CheckConstraint(
-            "outcome IS NULL OR outcome IN ('ok', 'degraded', 'failed')",
-            name="ck_job_runs_outcome",
-        ),
+        CheckConstraint(outcome_check_sql(), name=OUTCOME_CHECK_NAME),
         Index("ix_job_runs_job_slug_started_at", "job_slug", "started_at"),
         {"schema": SCHEMA},
     )

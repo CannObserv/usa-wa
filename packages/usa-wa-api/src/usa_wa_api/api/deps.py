@@ -11,7 +11,7 @@ from clearinghouse_core.database import get_session_factory
 
 #: Env var holding the shared secret that gates mutating operator endpoints.
 #: Fail-closed: when unset, no token can match, so the endpoint stays locked.
-OPERATOR_TOKEN_ENV = "USA_WA_OPERATOR_TOKEN"
+OPERATOR_TOKEN_ENV = "USA_WA_OPERATOR_TOKEN"  # noqa: S105 — env var NAME, not a secret
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession]:

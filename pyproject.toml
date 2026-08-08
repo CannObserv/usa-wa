@@ -75,7 +75,18 @@ target-version = "py312"
 extend-exclude = ["skills-vendor/", "alembic/versions/", ".superpowers/", "packages/powermap-client/"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W", "UP"]
+# ASYNC (flake8-async) and S (flake8-bandit) added by CR #191 finding 7: the job
+# harness introduced a blocking subprocess call inside a coroutine that nothing could
+# catch, and carried `# noqa: S603` suppressions for rules the project did not run.
+select = ["E", "F", "I", "W", "UP", "ASYNC", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# S101 (`assert` used) is the whole point of a pytest test; flagging it in the test
+# tree would be 3990 violations of nothing. Test code is not a deployment surface, so
+# the rest of flake8-bandit is noise there too — S105/S106 fire on the fake tokens
+# fixtures are built from. Kept fully enabled under src/, which is what ships.
+"**/tests/*" = ["S", "ASYNC221"]
+"conftest.py" = ["S"]
 
 [tool.ruff.lint.isort]
 known-first-party = [

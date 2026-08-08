@@ -135,6 +135,19 @@ class JobResult:
     counters: dict[str, Any] = field(default_factory=dict)
     exit_code: int | None = None
 
+    def __post_init__(self) -> None:
+        """Coerce ``counters`` to a JSONB-safe dict however the instance was built.
+
+        The classmethods below normalize, but direct construction —
+        ``JobResult(OUTCOME_DEGRADED, my_summary_dataclass)``, which the public
+        signature invites — did not. ``_render_human`` then called ``.items()`` on a
+        dataclass, from ``_emit`` *after* ``asyncio.run`` returns and therefore outside
+        every ``try`` in ``_execute``: an ``AttributeError`` traceback out of the one
+        module that promises never to raise for a handler failure (CR #191 finding 2).
+        Normalizing here closes the path regardless of how the instance was made.
+        """
+        object.__setattr__(self, "counters", normalize_counters(self.counters))
+
     @classmethod
     def ok(cls, counters: Any = None, *, exit_code: int | None = None) -> "JobResult":
         """The work landed."""
@@ -182,6 +195,13 @@ def _git_sha() -> str | None:
     ``ExecStartPre``) but the timer-driven oneshots don't set it, so fall back to
     asking git in the working directory the units pin (``WorkingDirectory=``).
     Best-effort: an answer of ``None`` costs a column, never a run.
+
+    **Resolve this before the event loop starts.** ``subprocess.run`` blocks, so calling
+    it from inside a coroutine stalls the loop for up to ``timeout`` (CR #191 finding 4).
+    ``run_job`` primes the cache ahead of ``asyncio.run``; the ledger writers then hit
+    the memoized value. Harmless in today's single-job CLIs, but the harness is meant to
+    be reused, and ruff cannot catch it — the rule set had no ``ASYNC`` rules until
+    CR #191 finding 7 added them, and a memoized call is invisible to them anyway.
     """
     build_id = get_settings().build_id
     if build_id and build_id != "dev":
@@ -406,7 +426,7 @@ def run_job(
     extra_args: ArgsBuilder | None = None,
     needs_db: bool = True,
     commit: bool = True,
-    ledger: bool = True,
+    ledger: bool | None = None,
 ) -> int:
     """Run ``handler`` as job ``name`` and return the process exit code.
 
@@ -414,7 +434,15 @@ def run_job(
     not the module path. ``extra_args`` receives the shared parser to add the job's own
     arguments; ``--dry-run`` and ``--json`` are always present. ``needs_db=False`` skips
     the session entirely (write-free probes); ``commit=False`` leaves the transaction to
-    the handler; ``ledger=False`` skips the #178 row.
+    the handler.
+
+    ``ledger`` defaults to ``needs_db``: a job that declared it needs no database does
+    not get its config checked, so an unconditional ledger default made every run of a
+    write-free probe emit ``job_ledger_open_failed`` **and** ``job_ledger_close_failed``
+    — two meaningless warnings per run, training operators to ignore the exact signal
+    that matters when the ledger genuinely breaks (CR #191 finding 3). Pass
+    ``ledger=True`` explicitly to record a probe that does have a DSN, or ``False`` to
+    opt a database-backed job out.
 
     Never raises for a handler failure: an exception is logged, recorded as ``failed``,
     and returned as :data:`EXIT_FAILED`, so the operator gets one actionable line and a
@@ -422,6 +450,7 @@ def run_job(
     """
     configure_logging()
     args = _build_parser(name, description, prog, extra_args).parse_args(argv)
+    write_ledger = needs_db if ledger is None else ledger
 
     if needs_db:
         try:
@@ -433,6 +462,10 @@ def run_job(
             print(str(exc), file=sys.stderr)
             return EXIT_CONFIG
 
+    # Prime the memoized SHA on this thread, before the loop exists: it shells out to
+    # git, and a blocking subprocess inside a coroutine stalls the loop (finding 4).
+    _git_sha()
+
     started_at = datetime.now(UTC)
     started_monotonic = time.monotonic()
     result = asyncio.run(
@@ -442,7 +475,7 @@ def run_job(
             args,
             needs_db=needs_db,
             commit=commit,
-            ledger=ledger,
+            ledger=write_ledger,
             started_at=started_at,
         )
     )

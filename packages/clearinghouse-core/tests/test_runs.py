@@ -7,6 +7,7 @@ normalization that keeps a JSONB write from blowing up on a dataclass or a datet
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select, text
@@ -14,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from ulid import ULID as _ULID
 
 from clearinghouse_core.runs import (
+    OUTCOME_CHECK_NAME,
     OUTCOME_DEGRADED,
     OUTCOME_FAILED,
     OUTCOME_OK,
@@ -22,6 +24,7 @@ from clearinghouse_core.runs import (
     close_run,
     normalize_counters,
     open_run,
+    outcome_check_sql,
     record_run,
 )
 
@@ -139,3 +142,46 @@ def test_normalize_counters_makes_values_json_safe():
     out = normalize_counters({"at": datetime(2026, 1, 2, tzinfo=UTC), "id": ulid})
     assert out["at"].startswith("2026-01-02")
     assert out["id"] == str(ulid)
+
+
+# --- CR #191 finding 5: the vocabulary is declared once ---------------------
+
+
+def test_outcome_check_sql_is_derived_from_the_outcomes_tuple():
+    """Adding an outcome must move the constraint with it.
+
+    Previously ``OUTCOMES`` and the CHECK were independent copies of the same list —
+    and ``OUTCOMES`` had no consumer at all, so the docstring's claim that it was
+    "enforced by a CHECK constraint" was aspirational. A fourth outcome would have
+    updated Python only and surfaced as an IntegrityError in production.
+    """
+    sql = outcome_check_sql()
+    for outcome in OUTCOMES:
+        assert f"'{outcome}'" in sql
+    assert sql.startswith("outcome IS NULL OR outcome IN (")
+
+
+def test_model_check_constraint_matches_the_migrations_copy():
+    """The ORM constraint and the migration's literal must agree.
+
+    ``alembic/versions/`` cannot import ``runs.py`` without coupling a historical
+    migration to a live module, so the migration keeps its own copy of the expression.
+    This is the seam that keeps the two honest.
+    """
+    migration = (
+        Path(__file__).resolve().parents[3]
+        / "alembic"
+        / "versions"
+        / "1347c49fd6bf_178_job_run_ledger.py"
+    ).read_text()
+    for outcome in OUTCOMES:
+        assert f"'{outcome}'" in migration, f"{outcome!r} missing from the migration's CHECK"
+    assert OUTCOME_CHECK_NAME in migration
+
+
+async def test_check_constraint_rejects_an_outcome_outside_the_vocabulary(db_session):
+    """The constraint has teeth against a value the tuple does not name."""
+    run_id = await open_run(db_session, job_slug="vocab-pin")
+    with pytest.raises(IntegrityError):
+        await close_run(db_session, run_id, outcome="partially-ok")
+    await db_session.rollback()

@@ -88,7 +88,8 @@ async def ingest_committee_seed(
     seed_path: Path = DEFAULT_SEED_PATH,
 ) -> IngestSummary:
     """Verify + load the seed; fill-only upsert the Joint/`Other` cohort."""
-    seed_path = seed_path.resolve()  # as_uri() below requires an absolute path
+    # noqa: ASYNC240 below — one-shot CLI file IO at startup; no concurrency to starve (#196).
+    seed_path = seed_path.resolve()  # noqa: ASYNC240 — as_uri() below needs an absolute path
     content = seed_path.read_bytes()
     content_hash = verified_digest(seed_path, content)  # raises SeedIntegrityError on mismatch
     committees = deserialize_seed(content)

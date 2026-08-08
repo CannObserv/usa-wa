@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 # schema discovery is belt-and-suspenders — a package missing from this list
 # would still be reset, but would not be created by create_all.
 import clearinghouse_sync_powermap  # noqa: F401  (registers sync-schema tables)
+from clearinghouse_core.config import get_settings
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.models import Base  # noqa: F401
 from clearinghouse_core.testing import assert_test_url_safety, declared_schemas
@@ -45,6 +46,36 @@ if not TEST_DATABASE_URL:
     )
 
 assert_test_url_safety(TEST_DATABASE_URL)
+
+# --- Fail closed on the production DSN (CR #191 finding 1) -------------------
+#
+# ``run_job()`` (#179) resolves ``DATABASE_URL`` via ``get_database_url()`` and opens a
+# session against it. In the shell the suite is actually run from — ``export $(cat
+# /etc/usa-wa/.env .env | xargs)`` — that resolves to the **production** database, and
+# with the harness's default ``commit=True`` an accidental ``main()`` call in a test
+# would commit there. ``clearinghouse_core.testing.patch_job_runtime`` prevents it, but
+# it is opt-in, and #179b migrates ~46 more CLIs that each grow such a ``main()``.
+#
+# So neutralize the DSN for the whole test session: point it at an unroutable sentinel.
+# Any code path that reaches for the production database during tests now fails fast and
+# loudly instead of silently succeeding against prod.
+#
+# Why not simply set it to TEST_DATABASE_URL: ``assert_test_url_safety`` *requires* the
+# two to differ (belt 1), so aliasing them would trip the very guard this reinforces.
+#
+# ``DATABASE_URL_OWNER`` gets the same treatment — ``alembic/env.py`` prefers it over
+# ``DATABASE_URL``, so leaving it live would let a stray ``alembic upgrade`` migrate
+# production.
+#
+# Escape hatch: the integration tests that legitimately drive a subprocess against the
+# test DB build an explicit child env (see ``test_refresh_e2e.py``), which overrides
+# this; and ``patch_job_runtime`` bypasses DSN resolution entirely.
+BLOCKED_DATABASE_URL = "postgresql+asyncpg://blocked:blocked@127.0.0.1:1/blocked_by_conftest"
+os.environ["DATABASE_URL"] = BLOCKED_DATABASE_URL
+os.environ["DATABASE_URL_OWNER"] = BLOCKED_DATABASE_URL
+# Settings is @lru_cache'd and snapshots the environment at first construction, so drop
+# any instance built during the imports above.
+get_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)
