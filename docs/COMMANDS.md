@@ -37,8 +37,8 @@ Full options, exit codes and rationale: [COMMANDS-SUCCESSION.md](COMMANDS-SUCCES
 | Command | Purpose |
 |---|---|
 | `python -m usa_wa_sync_powermap.reconcile_committee_active` | Reconcile PM `active` vs current roster (#44; weekly) |
-| `python -m usa_wa_adapter_legislature.operator_events` | Record operator succession events — the live interjection surface (#107) |
-| `python -m usa_wa_adapter_legislature.succession_invariants` | Assert chamber counts + seat occupancy; exit 1 on drift (#107; daily) |
+| `python -m usa_wa_adapter_legislature.operators.cli` | Record operator succession events — the live interjection surface (#107) |
+| `python -m usa_wa_adapter_legislature.operators.invariants` | Assert chamber counts + seat occupancy; exit 1 on drift (#107; daily) |
 | `python -m usa_wa_facts_seats.senate_corroboration` | Cite elected senators + assert no odd-year Senate winner lacks an open seat; exit 1 on drift (#123; daily) |
 | `python -m usa_wa_facts_seats.house_corroboration` | Assert no odd-year House special winner lacks an open Position seat; `--sweep-biennia` historical audit; exit 1 on drift (#149; daily) |
 | `python -m usa_wa_adapter_legislature.committee_succession` | Record operator committee-succession links — the judgment layer (#124 C2) |
@@ -71,7 +71,7 @@ Full options, exit codes and rationale: [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL
 |---|---|
 | `python -m usa_wa_adapter_legislature.probe_committee_extent` | Write-free: how much committee history exists (#64) |
 | `python -m usa_wa_adapter_legislature.probe_member_identity [--history]` | Write-free: is the WSL member Id stable (#27/#81) |
-| `python -m usa_wa_adapter_legislature.harvest_committee_meetings` | Joint/Other backfill + seed freeze (#39) |
+| `python -m usa_wa_adapter_legislature.meetings.harvest` | Joint/Other backfill + seed freeze (#39) |
 | `python -m usa_wa_adapter_legislature.ingest_committee_seed` | No-WSL Joint/Other seed loader (#39) |
 | `python -m usa_wa_adapter_legislature.harvest_sponsors` | Historical member backfill — Persons only, Phase A (#77) |
 | `python -m usa_wa_adapter_legislature.harvest_sponsor_spans` | Merged-span member Assignments, Phase B (#78) |

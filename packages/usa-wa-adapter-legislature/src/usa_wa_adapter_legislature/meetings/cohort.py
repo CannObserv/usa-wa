@@ -27,7 +27,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
-from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
+from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.normalize.committee_meetings import joint_other_refs
 from usa_wa_adapter_legislature.normalize.fields import clean_field
 

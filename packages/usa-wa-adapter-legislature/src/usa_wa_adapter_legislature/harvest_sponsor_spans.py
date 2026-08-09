@@ -41,7 +41,7 @@ from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.member_artifacts import with_artifact_exclusions
-from usa_wa_adapter_legislature.operator_events_store import (
+from usa_wa_adapter_legislature.operators.store import (
     cite_operator_events,
     current_events,
     get_or_create_operator_source,

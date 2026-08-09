@@ -11,7 +11,7 @@ seat cohort, two invariants:
 - **Duplicate-occupancy** — no single seat Role holds two open occupants, and no member holds
   two open seats in the same chamber (the "two open senators in LD5" shape directly).
 
-    python -m usa_wa_adapter_legislature.succession_invariants
+    python -m usa_wa_adapter_legislature.operators.invariants
 
 Read-only (app role, no writes); exits 0 clean / 1 on any violation (naming the offending
 seats/members in the log) so the ``OnFailure=usa-wa-notify-failure@`` handler emails the
@@ -25,8 +25,8 @@ the wire can't date a mid-biennium handoff). ``--as-of DATE`` and ``--sweep-bien
 is null or valid_to >= D)``) instead of ``is_active``, naming every offending (biennium, seat,
 occupants) tuple:
 
-    python -m usa_wa_adapter_legislature.succession_invariants --as-of 2009-01-01
-    python -m usa_wa_adapter_legislature.succession_invariants --sweep-biennia
+    python -m usa_wa_adapter_legislature.operators.invariants --as-of 2009-01-01
+    python -m usa_wa_adapter_legislature.operators.invariants --sweep-biennia
 
 This is an **ad-hoc audit, not a timer** (a closed historical overlap is not actionable in the
 "someone died and nobody told us *now*" sense the daily gate exists for); counts are

@@ -61,7 +61,7 @@ def test_committee_roster_provider_is_an_archived_biennium_cohort_provider():
 def test_meeting_provider_is_a_biennium_cohort_provider():
     """The meeting cohort satisfies the narrower Protocol — it has no archived-biennium scan,
     and the reconciler that consumes it never asks for one."""
-    from usa_wa_adapter_legislature.meeting_cohort import MeetingCohortProvider
+    from usa_wa_adapter_legislature.meetings.cohort import MeetingCohortProvider
 
     provider = MeetingCohortProvider(None, session=None, source_id=None)
     assert isinstance(provider, BienniumCohortProvider)

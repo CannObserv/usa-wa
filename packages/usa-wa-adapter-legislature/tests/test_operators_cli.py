@@ -7,13 +7,13 @@ from sqlalchemy import select
 
 from clearinghouse_domain_legislative.identity import Person
 from clearinghouse_domain_legislative.operator_events import OperatorEvent
-from usa_wa_adapter_legislature.operator_events import (
+from usa_wa_adapter_legislature.operators.cli import (
     EventSpec,
     OperatorEventError,
     load_specs,
     validate_and_record,
 )
-from usa_wa_adapter_legislature.operator_events_store import get_or_create_operator_source
+from usa_wa_adapter_legislature.operators.store import get_or_create_operator_source
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 

@@ -68,7 +68,7 @@ from usa_wa_adapter_legislature.committee_member_cohort import (
     CommitteeMemberCohortProvider,
     MemberClient,
 )
-from usa_wa_adapter_legislature.operator_events_store import (
+from usa_wa_adapter_legislature.operators.store import (
     cite_operator_events,
     current_events,
     get_or_create_operator_source,

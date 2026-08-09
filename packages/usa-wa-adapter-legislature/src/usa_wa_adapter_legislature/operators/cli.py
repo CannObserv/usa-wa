@@ -1,17 +1,17 @@
 """Operator-succession event CLI (#107) — the live interjection surface.
 
-    python -m usa_wa_adapter_legislature.operator_events \
+    python -m usa_wa_adapter_legislature.operators.cli \
         --member-id 29091 --kind departed --reason died \
         --effective-date 2025-04-19 --evidence-url https://... [--entered-by greg]
 
-    python -m usa_wa_adapter_legislature.operator_events \
+    python -m usa_wa_adapter_legislature.operators.cli \
         --member-id 35410 --kind seated --reason appointed \
         --seat-kind chamber-senate --seat-discriminator 5 \
         --effective-date 2025-06-03 --evidence-url https://...
 
-    python -m usa_wa_adapter_legislature.operator_events --file events.json   # batch
-    python -m usa_wa_adapter_legislature.operator_events --supersede <id> ... # correction
-    python -m usa_wa_adapter_legislature.operator_events --list               # inspect
+    python -m usa_wa_adapter_legislature.operators.cli --file events.json   # batch
+    python -m usa_wa_adapter_legislature.operators.cli --supersede <id> ... # correction
+    python -m usa_wa_adapter_legislature.operators.cli --list               # inspect
 
 App-role DML (writes ``operator_events`` + provenance under ``usa_wa_operator``); shell access
 is the trust boundary, as with the redrive CLI. Validates that ``member_id`` resolves to a
@@ -47,7 +47,7 @@ from clearinghouse_domain_legislative.operator_events import (
     OperatorEvent,
 )
 from clearinghouse_domain_legislative.span_emit import resolve_person
-from usa_wa_adapter_legislature.operator_events_store import (
+from usa_wa_adapter_legislature.operators.store import (
     current_events,
     get_or_create_operator_source,
     record_operator_event,

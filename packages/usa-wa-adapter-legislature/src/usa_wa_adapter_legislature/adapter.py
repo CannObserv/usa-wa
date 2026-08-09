@@ -43,7 +43,7 @@ from clearinghouse_core.adapter import (
     ResourceRef,
 )
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors
-from usa_wa_adapter_legislature.meeting_windows import (
+from usa_wa_adapter_legislature.meetings.windows import (
     COMMITTEE_MEETINGS_RESOURCE_PREFIX,
     parse_meetings_resource_id,
 )

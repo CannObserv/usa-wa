@@ -28,7 +28,7 @@ from clearinghouse_domain_legislative.committee_succession import (
 )
 
 # Re-export the shared operator Source getter so callers need one import.
-from usa_wa_adapter_legislature.operator_events_store import (  # noqa: F401
+from usa_wa_adapter_legislature.operators.store import (  # noqa: F401
     get_or_create_operator_source,
 )
 

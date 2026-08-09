@@ -10,7 +10,7 @@ This is *not* the daily loop: closed windows are immutable, so the runner's cach
 fetches each once and a re-run is a free cache hit (frugality — WSL is a vital upstream).
 The daily refresh handles only the current window (see `refresh.py`); this handles history.
 
-    python -m usa_wa_adapter_legislature.harvest_committee_meetings \\
+    python -m usa_wa_adapter_legislature.meetings.harvest \\
         --from-biennium 2023-24 --to-biennium 2025-26 [--dry-run]
 """
 
@@ -40,7 +40,7 @@ from usa_wa_adapter_legislature.committee_seed import (
     SeedCommittee,
     serialize_seed,
 )
-from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
+from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction

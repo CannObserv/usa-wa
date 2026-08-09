@@ -53,7 +53,7 @@ Ordered by source, then by phase within it — three sources, not two:
 # data/joint_other_committees_seed.json (+ .sha256/.meta.json sidecars). Hits live WSL (one
 # POST per window) AND mutates the DB — not read-only; --dry-run still upserts but skips the
 # seed write. Closed windows are cache hits on re-run. Commit the produced seed.
-python -m usa_wa_adapter_legislature.harvest_committee_meetings --from-biennium 2023-24 --to-biennium 2025-26
+python -m usa_wa_adapter_legislature.meetings.harvest --from-biennium 2023-24 --to-biennium 2025-26
 
 # Joint/Other seed ingest (#39) — the no-WSL counterpart: materialize the frozen cohort on a
 # fresh deploy. verified_digest gates the seed bytes (fails closed on a sidecar mismatch),

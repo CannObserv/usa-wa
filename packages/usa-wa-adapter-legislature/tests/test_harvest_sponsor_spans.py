@@ -24,7 +24,7 @@ from usa_wa_adapter_legislature.harvest_committee_member_spans import (
     build_committee_member_spans,
 )
 from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
-from usa_wa_adapter_legislature.operator_events_store import (
+from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
 )

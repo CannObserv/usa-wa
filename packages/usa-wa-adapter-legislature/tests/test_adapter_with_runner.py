@@ -16,7 +16,7 @@ from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.identity import Organization
 from usa_wa_adapter_legislature import WALegislatureAdapter
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
+from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.transport import WireFetch, WSLClient
 
 CASSETTE_DIR = Path(__file__).parent / "cassettes"

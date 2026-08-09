@@ -1,4 +1,4 @@
-"""Tests for meeting_windows.py — biennium → window + resource-id keying (#39)."""
+"""Tests for meetings/windows.py — biennium → window + resource-id keying (#39)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytest
 
-from usa_wa_adapter_legislature.meeting_windows import (
+from usa_wa_adapter_legislature.meetings.windows import (
     biennium_window,
     meetings_resource_id,
     parse_meetings_resource_id,

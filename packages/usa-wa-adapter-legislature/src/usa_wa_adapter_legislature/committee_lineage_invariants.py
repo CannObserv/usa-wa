@@ -1,7 +1,7 @@
 """C4 committee lineage/lifecycle coherence invariants (usa-wa#124).
 
 Read-only anti-drift backstop (the committee-lineage analog of #107
-``succession_invariants``): a *missing* deactivation or succession attestation is silent —
+``operators.invariants``): a *missing* deactivation or succession attestation is silent —
 a defunct committee stays ``active=true`` or keeps live members — so this asserts the
 coherence the objective + judgment layers should produce, and exits 1 on any violation
 (→ the ``OnFailure=`` handler emails the operator). App role, no writes.

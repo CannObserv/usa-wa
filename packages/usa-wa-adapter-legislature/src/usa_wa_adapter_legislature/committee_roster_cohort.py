@@ -2,7 +2,7 @@
 
 Turns a biennium into the ``{source_id: LongName}`` cohort the full rename-chain
 builder consumes — the standing-committee analog of
-:class:`~usa_wa_adapter_legislature.meeting_cohort.MeetingCohortProvider`.
+:class:`~usa_wa_adapter_legislature.meetings.cohort.MeetingCohortProvider`.
 
 **Archive-first, read-only.** Given a ``session`` + provenance ``source_id`` it reads
 the latest archived ``committees-roster:<biennium>`` wire (:class:`RawPayload`, written

@@ -3,7 +3,7 @@
 from datetime import date
 
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
-from usa_wa_adapter_legislature.succession_invariants import (
+from usa_wa_adapter_legislature.operators.invariants import (
     MemberConflict,
     SeatConflict,
     _run_audit,

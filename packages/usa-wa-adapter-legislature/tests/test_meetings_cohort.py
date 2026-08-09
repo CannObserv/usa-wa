@@ -12,12 +12,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
-from usa_wa_adapter_legislature.meeting_cohort import (
+from usa_wa_adapter_legislature.meetings.cohort import (
     MeetingCohortProvider,
     cohort_name,
     meeting_cohort_names,
 )
-from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
+from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.transport import WireFetch
 
 

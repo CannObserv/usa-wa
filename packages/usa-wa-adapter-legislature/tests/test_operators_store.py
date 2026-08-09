@@ -9,7 +9,7 @@ from clearinghouse_core.provenance import Citation, FetchEvent, RawPayload, Sour
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED, KIND_SEATED
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
-from usa_wa_adapter_legislature.operator_events_store import (
+from usa_wa_adapter_legislature.operators.store import (
     citation_target_for_event,
     cite_operator_events,
     current_events,

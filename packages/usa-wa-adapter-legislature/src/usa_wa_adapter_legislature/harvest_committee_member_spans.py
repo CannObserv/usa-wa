@@ -42,7 +42,7 @@ from usa_wa_adapter_legislature.committee_membership_observations import (
     build_committee_membership_observations,
 )
 from usa_wa_adapter_legislature.committee_span_emit import emit_committee_spans
-from usa_wa_adapter_legislature.operator_events_store import (
+from usa_wa_adapter_legislature.operators.store import (
     cite_operator_events,
     current_events,
     get_or_create_operator_source,
