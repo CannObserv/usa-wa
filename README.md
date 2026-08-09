@@ -26,6 +26,23 @@ uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload --log
 
 Reachable at `https://usa-wa.exe.xyz:8001/` via the exe.dev proxy.
 
+## HTTP API
+
+A read-only `/api/v1` over the canonical data (#184) — persons, organizations, roles,
+assignments (which *are* the tenure spans), sources, coverage and provenance chains — plus the
+unversioned probes (`/health`, `/ready`, `/health/sync`) and the one mutating operator route
+(`POST /sync/redrive`).
+
+```bash
+curl -s localhost:8001/api/v1/health/jobs | jq            # last run per job slug (#178)
+curl -s localhost:8001/api/v1/sources/wa_sos_filings/coverage | jq   # declared vs verified (#180)
+curl -s 'localhost:8001/api/v1/assignments?span_kind=chamber-house&as_of=2019-06-01' | jq
+curl -s localhost:8001/openapi.json | jq '.paths | keys'
+```
+
+Full route inventory, the pagination contract and the identifier form:
+[`docs/API.md`](docs/API.md).
+
 ## Tests
 
 ```bash
