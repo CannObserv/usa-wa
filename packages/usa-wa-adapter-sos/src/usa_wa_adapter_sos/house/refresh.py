@@ -37,11 +37,11 @@ from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.transport import WSLClient
-from usa_wa_adapter_pdc.adapter import election_years_for_biennium
 from usa_wa_adapter_sos.house.build import build_house_position_spans
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.adapter import ResultsAdapter, legresults_resource_id
 from usa_wa_adapter_sos.results.transport import LegislativeExportNotFound, SOSResultsClient
+from usa_wa_common.elections import election_years_for_biennium
 
 logger = get_logger(__name__)
 

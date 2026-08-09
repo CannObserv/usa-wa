@@ -60,6 +60,7 @@ Prefetch query — run via `ToolSearch` at session start:
 Per-package module reference — what each file is for and why it exists:
 
 - [`docs/MODULES-FRAMEWORK.md`](docs/MODULES-FRAMEWORK.md) — Layers 1–2, the portable PM sync engine, the generated PM client
+- [`docs/MODULES-COMMON.md`](docs/MODULES-COMMON.md) — Layer 2b `usa-wa-common`: WA vocabulary (calendar, seats, names, parties, ballot) and the cohort seam
 - [`docs/MODULES-LEGISLATURE.md`](docs/MODULES-LEGISLATURE.md) — WSL adapter: transport, normalizers, daily refresh, cohort providers, probes
 - [`docs/MODULES-LEGISLATURE-SPANS.md`](docs/MODULES-LEGISLATURE-SPANS.md) — tenure-span engine, operator succession, roster hygiene, span migrations
 - [`docs/MODULES-PDC.md`](docs/MODULES-PDC.md) — PDC SODA adapter (identifier-only)
@@ -193,6 +194,7 @@ JSON records carry `{timestamp, level, logger, message}` (#133; structlog's defa
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the reusable Layer-3 pattern; read before adding an adapter, a source, or a span/seat builder
 - [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model: entities, lifecycle axes, spans-as-assignments, the three event shapes; read before adding a fact
 - [docs/MODULES-FRAMEWORK.md](docs/MODULES-FRAMEWORK.md) — Layer 1–2 primitives, the PM sync engine, regenerating the PM client
+- [docs/MODULES-COMMON.md](docs/MODULES-COMMON.md) — Layer 2b: the WA vocabulary package and the `CohortProvider` seam
 - [docs/MODULES-LEGISLATURE.md](docs/MODULES-LEGISLATURE.md) — WSL adapter ingest, normalization, daily refresh
 - [docs/MODULES-LEGISLATURE-SPANS.md](docs/MODULES-LEGISLATURE-SPANS.md) — tenure spans, operator succession, span migrations
 - [docs/MODULES-PDC.md](docs/MODULES-PDC.md) — PDC winner cohorts and identifier links

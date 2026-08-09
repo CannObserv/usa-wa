@@ -24,11 +24,9 @@ from clearinghouse_domain_legislative.span_kinds import (
     KIND_SENATE,  # noqa: F401 (re-export for this package's builders/tests)
 )
 from clearinghouse_domain_legislative.tenure_spans import Observation
-from usa_wa_adapter_legislature.normalize.members import (
-    canonicalize_party,
-    district_number,
-    is_person,
-)
+from usa_wa_adapter_legislature.normalize.members import is_person
+from usa_wa_common.parties import canonicalize_party
+from usa_wa_common.seats import district_number
 
 # Tenure ``kind`` discriminators emitted here are the canonical domain span kinds
 # (imported above so this package and the domain guard cannot drift, #114).

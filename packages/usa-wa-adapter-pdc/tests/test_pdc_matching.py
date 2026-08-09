@@ -8,7 +8,6 @@ branches (shared surname split by party; ambiguous → ``None``) are pinned dire
 
 from __future__ import annotations
 
-from usa_wa_adapter_legislature.normalize.members import canonicalize_party
 from usa_wa_adapter_pdc.normalize.pdc_matching import (
     build_house_roster,
     build_senate_roster,
@@ -16,7 +15,8 @@ from usa_wa_adapter_pdc.normalize.pdc_matching import (
     house_mover_ids,
     match_house_member,
 )
-from usa_wa_adapter_pdc.normalize.positions import surname_match_set
+from usa_wa_common.names import surname_match_set
+from usa_wa_common.parties import canonicalize_party
 
 R = canonicalize_party("R")
 D = canonicalize_party("D")

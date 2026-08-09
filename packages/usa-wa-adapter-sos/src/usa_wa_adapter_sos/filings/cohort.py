@@ -70,6 +70,16 @@ class SosFilingCohortProvider:
         self._events = events
         return events
 
+    async def house_positions(self) -> dict[int, HouseFilingsByLd]:
+        """The `usa_wa_common.ballot.HousePositionCohortProvider` seam name (#189).
+
+        `HouseFiling` **is** `HousePosition` (a module-level alias in
+        :mod:`usa_wa_adapter_sos.filings.normalize`), so this provider always returned the
+        same rows as the results provider — under a different method name, which was the only
+        reason the two archives `docs/ARCHITECTURE.md` presents as interchangeable were not
+        actually substitutable. `house_filings` stays as the feed-flavoured alias."""
+        return await self.house_filings()
+
     async def house_filings(self) -> dict[int, HouseFilingsByLd]:
         """``{election_year: {LD: [HouseFiling]}}`` re-parsed offline from the archive."""
         if self._filings is not None:

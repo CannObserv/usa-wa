@@ -12,6 +12,7 @@ dev = [
     "usa-wa-adapter-pdc",
     "usa-wa-adapter-sos",
     "usa-wa-api",
+    "usa-wa-common",
     "usa-wa-sync-powermap",
     # Tools
     "alembic>=1.15.0,<2",
@@ -35,6 +36,7 @@ usa-wa-adapter-legislature = { workspace = true }
 usa-wa-adapter-pdc = { workspace = true }
 usa-wa-adapter-sos = { workspace = true }
 usa-wa-api = { workspace = true }
+usa-wa-common = { workspace = true }
 usa-wa-sync-powermap = { workspace = true }
 
 [tool.pytest.ini_options]
@@ -98,5 +100,6 @@ known-first-party = [
     "usa_wa_adapter_pdc",
     "usa_wa_adapter_sos",
     "usa_wa_api",
+    "usa_wa_common",
     "usa_wa_sync_powermap",
 ]

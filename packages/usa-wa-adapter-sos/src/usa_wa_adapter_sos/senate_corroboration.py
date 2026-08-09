@@ -58,11 +58,11 @@ from clearinghouse_domain_legislative.span_emit import (
 )
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
-from usa_wa_adapter_pdc.adapter import election_years_for_biennium
-from usa_wa_adapter_pdc.normalize.positions import surname_match_set
-from usa_wa_adapter_sos.positions import SenateWinner
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.cohort import SosResultsCohortProvider
+from usa_wa_common.ballot import SenateWinner
+from usa_wa_common.elections import election_years_for_biennium
+from usa_wa_common.names import surname_match_set
 
 logger = get_logger(__name__)
 

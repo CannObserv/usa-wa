@@ -43,7 +43,6 @@ from usa_wa_adapter_legislature.provisioning import (
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
 from usa_wa_adapter_legislature.transport import WSLClient
-from usa_wa_adapter_pdc.adapter import seating_biennium_for_election_year
 from usa_wa_adapter_pdc.normalize.pdc_matching import (
     HouseRosterEntry,
     SenateEntry,
@@ -57,6 +56,7 @@ from usa_wa_adapter_pdc.normalize.pdc_observations import (
 from usa_wa_adapter_pdc.normalize.pdc_span_emit import emit_pdc_identifiers
 from usa_wa_adapter_pdc.pdc_cohort import PdcWinnerCohortProvider
 from usa_wa_adapter_pdc.provisioning import get_or_create_source as get_or_create_pdc_source
+from usa_wa_common.elections import seating_biennium_for_election_year
 
 logger = get_logger(__name__)
 

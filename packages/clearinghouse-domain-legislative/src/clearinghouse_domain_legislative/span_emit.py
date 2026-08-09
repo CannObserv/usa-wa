@@ -37,6 +37,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import Citation, FetchEvent
+from clearinghouse_domain_legislative.cohorts import CitationTarget
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 from clearinghouse_domain_legislative.terms import bienniums_in_range, parse_biennium
@@ -88,8 +89,10 @@ def close_fraction(value: str) -> float:
 
 
 #: ``(fetch_event_id, fetched_at, resource_id)`` — the archived pull attesting one biennium
-#: of a span. ``resource_id`` is the append-only citation's idempotency key.
-CitationTarget = tuple[_ULID, datetime, str]
+#: of a span. ``resource_id`` is the append-only citation's idempotency key. Defined in
+#: :mod:`clearinghouse_domain_legislative.cohorts` (it is the cohort *provider* seam's
+#: vocabulary) and re-exported here, where every caller already imports it from.
+CitationTarget = CitationTarget
 
 RoleResolver = Callable[[AsyncSession, TenureSpan], Awaitable[Role | None]]
 CitationLocator = Callable[[TenureSpan, str], CitationTarget | None]

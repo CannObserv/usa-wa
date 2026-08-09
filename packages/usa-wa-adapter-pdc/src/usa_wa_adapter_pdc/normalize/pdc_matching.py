@@ -13,8 +13,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from clearinghouse_core.logging import get_logger
-from usa_wa_adapter_legislature.normalize.members import canonicalize_party, district_number
-from usa_wa_adapter_pdc.normalize.positions import fold_token, surname_match_set
+from usa_wa_common.names import fold_token, surname_match_set
+from usa_wa_common.parties import canonicalize_party
+from usa_wa_common.seats import district_number
 
 logger = get_logger(__name__)
 

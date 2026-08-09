@@ -42,12 +42,11 @@ from usa_wa_adapter_pdc.adapter import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
     SENATE_WINNERS_RESOURCE_PREFIX,
     PDCAdapter,
-    election_years_for_biennium,
-    senate_election_years_for_biennium,
 )
 from usa_wa_adapter_pdc.build_pdc_spans import build_pdc_spans
 from usa_wa_adapter_pdc.provisioning import get_or_create_source
 from usa_wa_adapter_pdc.transport import PDCClient
+from usa_wa_common.elections import election_years_for_biennium, senate_election_years_for_biennium
 
 logger = get_logger(__name__)
 

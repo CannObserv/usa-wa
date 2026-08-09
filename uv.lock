@@ -16,6 +16,7 @@ members = [
     "usa-wa-adapter-pdc",
     "usa-wa-adapter-sos",
     "usa-wa-api",
+    "usa-wa-common",
     "usa-wa-sync-powermap",
 ]
 
@@ -38,6 +39,7 @@ dev = [
     { name = "usa-wa-adapter-pdc", editable = "packages/usa-wa-adapter-pdc" },
     { name = "usa-wa-adapter-sos", editable = "packages/usa-wa-adapter-sos" },
     { name = "usa-wa-api", editable = "packages/usa-wa-api" },
+    { name = "usa-wa-common", editable = "packages/usa-wa-common" },
     { name = "usa-wa-sync-powermap", editable = "packages/usa-wa-sync-powermap" },
     { name = "vcrpy", specifier = ">=7.0" },
 ]
@@ -1222,6 +1224,7 @@ source = { editable = "packages/usa-wa-adapter-legislature" }
 dependencies = [
     { name = "clearinghouse-core" },
     { name = "clearinghouse-domain-legislative" },
+    { name = "usa-wa-common" },
     { name = "zeep" },
 ]
 
@@ -1229,6 +1232,7 @@ dependencies = [
 requires-dist = [
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
     { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
+    { name = "usa-wa-common", editable = "packages/usa-wa-common" },
     { name = "zeep", specifier = ">=4.3.1" },
 ]
 
@@ -1241,6 +1245,7 @@ dependencies = [
     { name = "clearinghouse-domain-legislative" },
     { name = "httpx" },
     { name = "usa-wa-adapter-legislature" },
+    { name = "usa-wa-common" },
 ]
 
 [package.metadata]
@@ -1249,6 +1254,7 @@ requires-dist = [
     { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
+    { name = "usa-wa-common", editable = "packages/usa-wa-common" },
 ]
 
 [[package]]
@@ -1261,6 +1267,7 @@ dependencies = [
     { name = "httpx" },
     { name = "usa-wa-adapter-legislature" },
     { name = "usa-wa-adapter-pdc" },
+    { name = "usa-wa-common" },
 ]
 
 [package.metadata]
@@ -1270,6 +1277,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
     { name = "usa-wa-adapter-pdc", editable = "packages/usa-wa-adapter-pdc" },
+    { name = "usa-wa-common", editable = "packages/usa-wa-common" },
 ]
 
 [[package]]
@@ -1293,6 +1301,21 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0,<1" },
     { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
     { name = "uvicorn", specifier = ">=0.34.0,<1" },
+]
+
+[[package]]
+name = "usa-wa-common"
+version = "0.1.0"
+source = { editable = "packages/usa-wa-common" }
+dependencies = [
+    { name = "clearinghouse-core" },
+    { name = "clearinghouse-domain-legislative" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
+    { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
 ]
 
 [[package]]

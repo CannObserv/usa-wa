@@ -1,47 +1,37 @@
-"""Shared ballot interfaces for the WA SOS sources (source-agnostic).
+"""Source-agnostic ballot interfaces for the WA seat facts (#189).
 
-The ``house/`` application consumes these; each SOS **source** produces them. A
-:class:`HousePosition` row (ballot ``qualifier`` + folded ballot-name keys + party slug) and the
-within-LD :func:`position_for` lookup that resolves a WSL member's clean folded surname + party to
-their ballot Position. A source's ``normalize`` turns its own wire into ``{LD: [HousePosition]}``;
-the projector consumes that map without knowing which source produced it. Also the shared
-``(Prefers X Party)`` party canonicaliser both sources' CSVs carry, and :class:`SenateWinner` —
-the Senate half of a legislative-results wire (#106 A′), attestation rather than structure.
+The row shapes an *application* consumes and every WA ballot **source** produces: a
+:class:`HousePosition` (ballot ``qualifier`` + folded ballot-name keys + party slug), the
+within-LD :func:`position_for` lookup that resolves a WSL member to their ballot Position, and
+:class:`SenateWinner` — the Senate half of a legislative-results wire (#106 A′), attestation
+rather than structure.
+
+This module also carries the seam `docs/ARCHITECTURE.md` describes and #189 asked to be made
+real: :class:`HousePositionCohortProvider`, the Protocol a fact package depends on instead of
+a concrete SOS provider class. A source's ``normalize`` turns its own wire into
+``{LD: [HousePosition]}``; the projector consumes that map without knowing which source
+produced it.
+
+The file lived in `usa_wa_adapter_sos` and its docstring already said "source-agnostic" — it
+just had no source-agnostic package to live in, so `usa-wa-adapter-pdc` and every SOS module
+reached into the SOS *target* package for it.
 """
 
 from __future__ import annotations
 
-import re
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
-from usa_wa_adapter_legislature.normalize.members import canonicalize_party
-
-#: WA SOS **ballot** party synonyms the WSL canonicaliser doesn't fold — e.g. the ``GOP``
-#: abbreviation ``results.vote.wa.gov`` sometimes prints for Republican candidates (audited #101).
-_BALLOT_PARTY_SYNONYMS = {"gop": "republican"}
-
-
-def sos_party_slug(party_name: str | None) -> str | None:
-    """Canonicalize a WA SOS ballot party string (``"(Prefers Republican Party)"``) to a party
-    slug, reusing the WSL canonicaliser on the embedded token plus a small SOS-ballot synonym map.
-    Non-partisan / blank / unrecognised → ``None``."""
-    if not party_name:
-        return None
-    for token in re.split(r"[\s(),]+", party_name):
-        if not token:
-            continue
-        slug = canonicalize_party(token) or _BALLOT_PARTY_SYNONYMS.get(token.lower())
-        if slug is not None:
-            return slug
-    return None
+from clearinghouse_domain_legislative.cohorts import CitationTarget
 
 
 @dataclass(frozen=True)
 class HousePosition:
-    """One SOS House candidacy reduced to the position-lookup fields: the ballot ``qualifier``
-    (Position 1/2), the folded ``name_keys`` of the ballot name (the messy side of the match, via
-    :func:`~usa_wa_adapter_pdc.normalize.positions.surname_match_set`), and the ``party_slug``
-    tiebreak. Produced by each source's ``normalize``, consumed by ``house/``."""
+    """One WA House candidacy reduced to the position-lookup fields: the ballot ``qualifier``
+    (Position 1/2), the folded ``name_keys`` of the ballot name (the messy side of the match,
+    via :func:`~usa_wa_common.names.surname_match_set`), and the ``party_slug`` tiebreak.
+    Produced by each source's ``normalize``, consumed by the House-position fact."""
 
     qualifier: str
     name_keys: frozenset[str]
@@ -64,6 +54,37 @@ class SenateWinner:
     name_keys: frozenset[str]
     party_slug: str | None
     votes: int | None
+
+
+#: ``{LD: [HousePosition]}`` for one election year — the map a source's ``normalize`` yields.
+HousePositionsByLd = dict[int, list[HousePosition]]
+
+
+@runtime_checkable
+class HousePositionCohortProvider(Protocol):
+    """**The seam.** A provider of ``{election_year: {LD: [HousePosition]}}`` plus the
+    per-year archived FetchEvent attesting it.
+
+    `docs/ARCHITECTURE.md` says the House-position application "depends on a cohort interface
+    …, not on a concrete source", and that swapping which archive feeds the fact is "a one-line
+    provider change". Until #189 that interface was informal — duck-typed across six provider
+    classes with no shared name — so the fact package's only way to say what it needed was to
+    import `usa_wa_adapter_sos`. This Protocol is that sentence, in code.
+
+    Satisfied by `SosResultsCohortProvider` (results.vote.wa.gov) and, since #189,
+    `SosFilingCohortProvider` (votewa filings) — whose accessor was named `house_filings`, so
+    the two archives the architecture doc presents as interchangeable were in fact **not**
+    substitutable for one another. It now carries both names.
+    """
+
+    async def citation_events(self) -> Mapping[int, CitationTarget]:
+        """``{election_year: (fetch_event_id, fetched_at, resource_id)}`` — the per-year
+        provenance a positioned seat span cites."""
+        ...
+
+    async def house_positions(self) -> Mapping[int, HousePositionsByLd]:
+        """``{election_year: {LD: [HousePosition]}}``, re-parsed offline from the archive."""
+        ...
 
 
 def position_for(

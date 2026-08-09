@@ -68,6 +68,12 @@ class PdcWinnerCohortProvider:
             self._cache[prefix] = await self._load_latest(prefix)
         return self._cache[prefix]
 
+    async def citation_events(self) -> dict[int, CitationTarget]:
+        """The `clearinghouse_domain_legislative.cohorts.AttestedCohortProvider` seam name
+        (#189). PDC's citable cohort is the House winner set; `house_events` stays as the
+        chamber-explicit alias, since this provider also serves an un-cited Senate cohort."""
+        return await self.house_events()
+
     async def house_events(self) -> dict[int, CitationTarget]:
         """``{election_year: citation target}`` for the archived House winner cohorts."""
         return dict(await self._events(HOUSE_WINNERS_RESOURCE_PREFIX))

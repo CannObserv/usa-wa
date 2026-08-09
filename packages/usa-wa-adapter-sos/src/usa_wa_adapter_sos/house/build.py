@@ -77,7 +77,6 @@ from usa_wa_adapter_legislature.roster_hygiene import (
 )
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
 from usa_wa_adapter_legislature.transport import WSLClient
-from usa_wa_adapter_pdc.adapter import election_year_for_biennium, election_years_for_biennium
 from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster, house_mover_ids
 from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 from usa_wa_adapter_sos.house.backchain import (
@@ -85,9 +84,10 @@ from usa_wa_adapter_sos.house.backchain import (
     backchain_house_observations,
 )
 from usa_wa_adapter_sos.house.emit import emit_house_position_spans
-from usa_wa_adapter_sos.positions import HousePosition, position_for
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.cohort import SosResultsCohortProvider
+from usa_wa_common.ballot import HousePosition, position_for
+from usa_wa_common.elections import election_year_for_biennium, election_years_for_biennium
 
 logger = get_logger(__name__)
 

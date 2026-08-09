@@ -33,10 +33,7 @@ from clearinghouse_domain_legislative.span_emit import CitationTarget, emit_span
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors
 from usa_wa_adapter_legislature.normalize.members import get_or_create_role, resolve_ld_jurisdiction
-from usa_wa_adapter_pdc.normalize.positions import (
-    house_seat_role_source_id,
-    parse_house_span_discriminator,
-)
+from usa_wa_common.seats import house_seat_role_source_id, parse_house_span_discriminator
 
 logger = get_logger(__name__)
 

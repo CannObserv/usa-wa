@@ -17,7 +17,6 @@ from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
-from usa_wa_adapter_pdc.normalize.positions import house_seat_role_source_id
 from usa_wa_adapter_sos.house_corroboration import (
     _seat_from_role_source_id,
     corroborate_house_winners,
@@ -26,6 +25,7 @@ from usa_wa_adapter_sos.house_corroboration import (
     sweep_house_winners,
 )
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
+from usa_wa_common.seats import house_seat_role_source_id
 
 CURRENT = "2025-26"
 LD30_BIENNIUM = "2015-16"
