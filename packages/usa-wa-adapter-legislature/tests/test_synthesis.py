@@ -6,7 +6,6 @@ from usa_wa_adapter_legislature.synthesis import (
     biennium_session,
     chamber_orgs,
     legislature_org,
-    parse_biennium,
     party_orgs,
     regular_sessions,
 )
@@ -27,28 +26,6 @@ def test_party_orgs_emits_two_major_parties():
 
 def _ulid() -> _ULID:
     return _ULID()
-
-
-# ----- parse_biennium -----
-
-
-def test_parse_biennium_extracts_start_and_end_years():
-    """``2025-26`` → (2025, 2026)."""
-    assert parse_biennium("2025-26") == (2025, 2026)
-
-
-def test_parse_biennium_handles_decade_rollover():
-    """``2029-30`` → (2029, 2030)."""
-    assert parse_biennium("2029-30") == (2029, 2030)
-
-
-def test_parse_biennium_rejects_malformed_input():
-    """Anything not ``YYYY-YY`` raises ``ValueError``."""
-    import pytest
-
-    for bad in ["2025", "2025-2026", "25-26", "abcd-ef", ""]:
-        with pytest.raises(ValueError):
-            parse_biennium(bad)
 
 
 # ----- legislature_org -----

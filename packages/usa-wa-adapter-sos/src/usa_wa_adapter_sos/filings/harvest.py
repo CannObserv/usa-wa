@@ -35,13 +35,13 @@ from clearinghouse_core.job import EXIT_CONFIG as _EXIT_CONFIG
 from clearinghouse_core.job import EXIT_DEGRADED as _EXIT_DEGRADED
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
-from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
-from usa_wa_adapter_legislature.refresh import biennium_for_date
-from usa_wa_adapter_pdc.adapter import election_year_for_biennium
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_sos.coverage import SOS_FILINGS_ELECTION_YEARS
 from usa_wa_adapter_sos.filings.adapter import SOSAdapter, whofiled_resource_id
 from usa_wa_adapter_sos.filings.transport import SOSFilingsClient, configure_sos_rate_limit
 from usa_wa_adapter_sos.provisioning import get_or_create_source
+from usa_wa_common.elections import election_year_for_biennium
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 

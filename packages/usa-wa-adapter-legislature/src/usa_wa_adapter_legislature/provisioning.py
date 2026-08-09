@@ -1,11 +1,15 @@
-"""Shared runner provisioning — resolve the usa-wa Jurisdiction + the WSL Source row.
+"""WSL Source provisioning — get-or-create the ``usa_wa_legislature`` SOAP Source row.
 
-Every WSL-facing runner path (the daily refresh, the historical harvests, the seed
-ingest, the archive-derived reconcilers) needs the same two rows before it can drive an
-:class:`~clearinghouse_core.runner.AdapterRunner`: the ``usa-wa`` Jurisdiction (must be
-pre-seeded) and the ``usa_wa_legislature`` SOAP Source (get-or-create, idempotent). These
-lived as underscore-privates in :mod:`refresh` and were imported across half a dozen
-modules — promoted here to a shared public surface (CR #77).
+Every WSL-facing runner path (the daily refresh, the historical harvests, the seed ingest,
+the archive-derived reconcilers) needs this row before it can drive an
+:class:`~clearinghouse_core.runner.AdapterRunner`. It lived as an underscore-private in
+:mod:`refresh` and was imported across half a dozen modules — promoted here to a shared
+public surface (CR #77).
+
+The **Jurisdiction** lookup that used to sit beside it moved to
+:mod:`usa_wa_common.jurisdiction` at #189: `usa-wa` is the deployment's jurisdiction, not
+this adapter's, and the PDC harvest plus both SOS harvests — pure sourcing modules — were
+importing a SOAP adapter to reach it.
 """
 
 from __future__ import annotations
@@ -18,20 +22,6 @@ from clearinghouse_core.provenance import RetentionPolicy, Source
 from clearinghouse_core.source_coverage import seed_source_coverage
 from usa_wa_adapter_legislature.coverage import WSL_COVERAGE
 from usa_wa_adapter_legislature.transport import WSL_BASE_URL
-
-
-async def resolve_jurisdiction(session: AsyncSession) -> Jurisdiction:
-    """Return the pre-seeded ``usa-wa`` Jurisdiction, or raise if the IA bootstrap
-    hasn't run (it must exist before any WSL runner path)."""
-    row = (
-        await session.execute(select(Jurisdiction).where(Jurisdiction.slug == "usa-wa"))
-    ).scalar_one_or_none()
-    if row is None:
-        raise LookupError(
-            "Jurisdiction 'usa-wa' is not seeded — run the jurisdictional IA "
-            "bootstrap before invoking the WSL refresh."
-        )
-    return row
 
 
 async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction) -> Source:

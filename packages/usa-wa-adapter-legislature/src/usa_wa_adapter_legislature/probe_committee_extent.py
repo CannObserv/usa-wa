@@ -30,8 +30,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_domain_legislative.terms import biennium_for_date, previous_biennium
 from usa_wa_adapter_legislature.meeting_windows import biennium_window
-from usa_wa_adapter_legislature.refresh import biennium_for_date, previous_biennium
 from usa_wa_adapter_legislature.transport import WSLClient
 
 logger = get_logger(__name__)

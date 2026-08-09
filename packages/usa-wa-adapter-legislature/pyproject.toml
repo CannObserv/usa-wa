@@ -7,12 +7,14 @@ requires-python = ">=3.12"
 dependencies = [
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
+    "usa-wa-common",
     "zeep>=4.3.1",
 ]
 
 [tool.uv.sources]
 clearinghouse-core = { workspace = true }
 clearinghouse-domain-legislative = { workspace = true }
+usa-wa-common = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import pytest
 
-from usa_wa_adapter_pdc.normalize.positions import fold_token, surname_match_set
 from usa_wa_adapter_sos.filings.normalize import (
     HouseFiling,
     build_house_filings,
@@ -17,7 +16,9 @@ from usa_wa_adapter_sos.filings.normalize import (
     house_position_qualifier,
 )
 from usa_wa_adapter_sos.filings.transport import SOSFilingsClient
-from usa_wa_adapter_sos.positions import position_for, sos_party_slug
+from usa_wa_common.ballot import position_for
+from usa_wa_common.names import fold_token, surname_match_set
+from usa_wa_common.parties import sos_party_slug
 
 
 def _row(race, ld, ballot, party="(Prefers Democratic Party)"):

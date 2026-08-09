@@ -4,7 +4,7 @@ Fetches the two seated-winner cohorts from the PDC ``Campaign Finance Summary`` 
 ``house-winners:<election_year>`` and ``senate-winners:<election_year>`` — and archives the
 pristine JSON (#54). It does **not** normalize: PDC's contribution (House Position seat spans +
 ``person_wa_pdc`` identifiers) is derived **archive-first** by the Phase B span builder
-(:mod:`usa_wa_adapter_pdc.build_pdc_spans`), because a winner→seat match needs the roster of the
+(:mod:`usa_wa_facts_seats.pdc.build_pdc_spans`), because a winner→seat match needs the roster of the
 biennium the cohort *seated* — the era match (#79) that fixes the #75 current-snapshot
 limitation. The daily refresh and the historical harvest both drive this adapter through
 :meth:`~clearinghouse_core.runner.AdapterRunner.archive_only`; :meth:`normalize` is therefore
@@ -17,7 +17,7 @@ from collections.abc import AsyncIterable
 from datetime import UTC, datetime
 
 from clearinghouse_core.adapter import BaseAdapter, FetchedPayload, NormalizedBatch, ResourceRef
-from usa_wa_adapter_legislature.synthesis import parse_biennium
+from clearinghouse_domain_legislative.terms import parse_biennium
 from usa_wa_adapter_pdc.transport import (
     CAMPAIGN_FINANCE_SUMMARY_RESOURCE,
     PDC_BASE_URL,
@@ -136,7 +136,7 @@ class PDCAdapter(BaseAdapter):
     async def normalize(self, payload: FetchedPayload) -> NormalizedBatch:
         """Unused — PDC is archive-only (#79). The winner→seat derivation is cross-year (a
         merged span) and era-matched, which a single-cohort ``normalize`` cannot express; it is
-        done by :func:`usa_wa_adapter_pdc.build_pdc_spans.build_pdc_spans` reading the archive.
+        done by :func:`usa_wa_facts_seats.pdc.build_pdc_spans.build_pdc_spans` reading the archive.
         Drive this adapter through ``AdapterRunner.archive_only``, not ``fetch_and_normalize``."""
         raise NotImplementedError(
             "PDCAdapter is archive-only (#79); build seats via build_pdc_spans, not normalize"

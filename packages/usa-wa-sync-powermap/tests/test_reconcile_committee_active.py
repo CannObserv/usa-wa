@@ -34,13 +34,17 @@ from usa_wa_sync_powermap.reconcile_committee_active import (
 
 
 class _FakeWSL:
-    """Stub WSL committee client — returns a fixed ``GetCommittees(biennium)`` roster."""
+    """Stub current-roster provider — returns a fixed committee-record list.
+
+    Was a ``WSLClient`` double answering ``get_committees``; since #189 the reconcile takes
+    an archive-first cohort provider, so the double answers ``roster_records``. Same rows,
+    same call recording — the behaviour under test is unchanged."""
 
     def __init__(self, rows):
         self._rows = rows
         self.calls = []
 
-    async def get_committees(self, biennium):
+    async def roster_records(self, biennium):
         self.calls.append(biennium)
         return self._rows
 

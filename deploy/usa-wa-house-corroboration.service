@@ -29,7 +29,7 @@ EnvironmentFile=-/home/exedev/usa-wa/.env
 
 # --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
 # Exit 1 on a missing odd-year winner seat → the OnFailure handler emails the operator.
-ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_adapter_sos.house_corroboration
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_facts_seats.house_corroboration
 
 # One winner-cohort scan; bound it so a stuck DB fails deterministically.
 TimeoutStartSec=300

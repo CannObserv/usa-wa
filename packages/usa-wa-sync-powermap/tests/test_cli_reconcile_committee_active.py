@@ -37,28 +37,38 @@ def _patch_settings(monkeypatch, *, api_key="k"):
     )
 
 
-def _patch_wsl(monkeypatch, roster, prior=None):
-    """Patch ``WSLClient`` with a fake serving the current roster (``get_committees``) and
-    the prior-biennium roster the era-scoping provider falls back to live (#90) — no
-    archived roster exists in the test DB, so the provider misses the archive and calls
-    ``fetch_committees``. ``prior`` defaults to the current roster."""
+def _patch_wsl(monkeypatch, roster, prior=None, current_biennium="2025-26"):
+    """Patch the WSL adapter's roster-provider factory (#189).
+
+    The CLI used to construct a ``WSLClient`` itself, so the seam was the transport class;
+    it now asks `usa_wa_adapter_legislature.cohorts.committee_roster_provider` for a cohort,
+    so the seam is that factory. The double serves the current roster (``roster_records``)
+    and the prior-biennium roster the era-scoping provider needs (``cohort``); ``prior``
+    defaults to the current roster."""
     prior_rows = roster if prior is None else prior
 
-    class _FakeWSL:
-        def __init__(self, *_a, **_k):
-            pass
+    class _FakeRosterProvider:
+        """Biennium-aware: the reconcile reads the *current* roster and the era-scoping
+        pass reads the *prior* one, and since #189 both come from the same factory."""
 
-        async def get_committees(self, _biennium):
-            return roster
+        def __init__(self, current_biennium):
+            self._current = current_biennium
 
-        async def fetch_committees(self, _biennium):
-            records = [{"Id": r["Id"], "LongName": f"Committee {r['Id']}"} for r in prior_rows]
-            return SimpleNamespace(records=records)
+        async def roster_records(self, biennium):
+            return roster if biennium == self._current else prior_rows
 
-        async def parse_committees(self, _wire):
+        async def cohort(self, biennium):
+            rows = roster if biennium == self._current else prior_rows
+            return {str(r["Id"]): f"Committee {r['Id']}" for r in rows}
+
+        async def archived_bienniums(self):
             return []
 
-    monkeypatch.setattr(cli, "WSLClient", _FakeWSL)
+    async def _factory(_session, **_kw):
+        return _FakeRosterProvider(current_biennium)
+
+    monkeypatch.setattr(cli, "committee_roster_provider", _factory)
+    monkeypatch.setattr(cli, "_build_roster_provider", _factory)
 
 
 async def _add_committee(db_session, *, source_id, anchor, active=True):

@@ -49,8 +49,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.coverage import SPONSOR_ROSTER_COVERAGE
-from usa_wa_adapter_legislature.synthesis import biennium_for_date
 
 logger = get_logger(__name__)
 
@@ -60,7 +60,7 @@ HOUSE_SEATS = 98
 
 #: The earliest year ``--sweep-biennia`` probes — the WSL sponsor-archive Senate floor (#77),
 #: read as a year off the declared coverage claim (#180). The same fact backs
-#: ``usa_wa_adapter_sos.house_corroboration.SWEEP_FLOOR_YEAR``, which used to declare it again.
+#: ``usa_wa_facts_seats.house_corroboration.SWEEP_FLOOR_YEAR``, which used to declare it again.
 SWEEP_FLOOR_YEAR = SPONSOR_ROSTER_COVERAGE.floor_year
 
 _SENATOR = "state_senator"

@@ -36,11 +36,11 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
+from clearinghouse_domain_legislative.span_emit import CitationTarget
 from usa_wa_adapter_legislature.adapter import (
     COMMITTEE_MEMBERS_HIST_RESOURCE_PREFIX,
     parse_committee_members_hist_resource_id,
 )
-from usa_wa_adapter_legislature.span_emit import CitationTarget
 
 logger = get_logger(__name__)
 
@@ -48,7 +48,7 @@ logger = get_logger(__name__)
 RosterKey = tuple[str, str]
 
 
-class _MemberClient(Protocol):
+class MemberClient(Protocol):
     async def parse_historical_committee_members(self, wire: bytes) -> list[dict[str, Any]]: ...
 
 
@@ -57,7 +57,7 @@ class CommitteeMemberCohortProvider:
 
     def __init__(
         self,
-        client: _MemberClient,
+        client: MemberClient,
         *,
         session: AsyncSession,
         source_id: _ULID,

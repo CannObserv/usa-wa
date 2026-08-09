@@ -42,12 +42,12 @@ from clearinghouse_domain_legislative.operator_events import (
     OperatorEvent,
     event_source_id,
 )
-from usa_wa_adapter_legislature.span_emit import (
+from clearinghouse_domain_legislative.span_emit import (
     ASSIGNMENT_CITATION_TYPE,
     CitationTarget,
     add_field_citation,
 )
-from usa_wa_adapter_legislature.tenure_spans import TenureSpan
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 
 
 async def get_or_create_operator_source(

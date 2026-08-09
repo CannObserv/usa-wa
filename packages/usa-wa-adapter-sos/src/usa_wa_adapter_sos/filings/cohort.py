@@ -1,7 +1,7 @@
 """Archive-first SOS filing-cohort provider (#100/#101, Phase B).
 
 Turns the archived votewa filing cohorts into the House **Position** the WSL+SOS builder
-(:func:`usa_wa_adapter_sos.house.build.build_house_position_spans`) consumes:
+(:func:`usa_wa_facts_seats.house.build.build_house_position_spans`) consumes:
 :meth:`house_filings` yields ``{election_year: {LD: [HouseFiling]}}`` re-parsed **offline** from
 each ``sos-whofiled:<YYYYMM>`` :class:`RawPayload` (written by :mod:`harvest_sos`) — no votewa
 re-pull — and :meth:`citation_events` yields the per-year attesting FetchEvent the positioned
@@ -20,7 +20,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
-from usa_wa_adapter_legislature.span_emit import CitationTarget
+from clearinghouse_domain_legislative.span_emit import CitationTarget
 from usa_wa_adapter_sos.filings.adapter import (
     WHOFILED_RESOURCE_PREFIX,
     election_year_from_resource_id,
@@ -69,6 +69,16 @@ class SosFilingCohortProvider:
             events.setdefault(year, (event_id, fetched_at, resource_id))
         self._events = events
         return events
+
+    async def house_positions(self) -> dict[int, HouseFilingsByLd]:
+        """The `usa_wa_common.ballot.HousePositionCohortProvider` seam name (#189).
+
+        `HouseFiling` **is** `HousePosition` (a module-level alias in
+        :mod:`usa_wa_adapter_sos.filings.normalize`), so this provider always returned the
+        same rows as the results provider — under a different method name, which was the only
+        reason the two archives `docs/ARCHITECTURE.md` presents as interchangeable were not
+        actually substitutable. `house_filings` stays as the feed-flavoured alias."""
+        return await self.house_filings()
 
     async def house_filings(self) -> dict[int, HouseFilingsByLd]:
         """``{election_year: {LD: [HouseFiling]}}`` re-parsed offline from the archive."""

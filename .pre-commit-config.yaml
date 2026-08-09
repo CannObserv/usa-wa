@@ -10,6 +10,21 @@ repos:
         args: [--fix]
       - id: ruff-format
 
+  # Layering contracts (issue #189, AR-14). Same gate ruff runs in, because a
+  # restructure nobody can check decays back within a few features — the cheapest
+  # next move is always "import it from wherever it already is". `pass_filenames:
+  # false` because import-linter analyses the whole workspace graph, not a file
+  # list; `always_run` because a *new* import in an unstaged file can break a
+  # contract just as well. Contracts + rationale live in the root pyproject.toml.
+  - repo: local
+    hooks:
+      - id: import-linter
+        name: import-linter (layering contracts)
+        entry: uv run --frozen --no-sync lint-imports
+        language: system
+        pass_filenames: false
+        always_run: true
+
   # Static validation of deploy/ systemd units (issue #51). Assumes the VM's
   # env: verify resolves absolute ExecStart paths (/usr/local/bin/uv) and
   # User=exedev against the local box, so OFF-VM it can false-FAIL (not just

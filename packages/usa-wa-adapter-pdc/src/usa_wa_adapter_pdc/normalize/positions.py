@@ -1,21 +1,16 @@
-"""Pure helpers for the PDC House-position normalizer.
+"""PDC-specific identifier keying for the House-position normalizer.
 
-Deterministic ``source_id`` builders, the PDC ``position`` → PM ``qualifier`` mapping,
-the ``person_wa_pdc`` identifier scheme, and the name-folding primitives that back the
-within-LD match of a PDC winner to the existing WSL :class:`Person`.
+What is left of this module after #189 promoted the WA seat vocabulary and name folding it
+also carried (`canonical_position`, `house_seat_role_source_id`, `house_span_discriminator`,
+`parse_house_span_discriminator`, `fold_token`, `surname_match_set`) to `usa_wa_common.seats`
+and `usa_wa_common.names` — none of which was about PDC, and all of which five
+`usa-wa-adapter-sos` modules were importing from here across an adapter boundary.
 
-Name folding is **local** (a Layer-3 adapter must not import the Layer-4 sidecar's
-``normalize_name``). The match strategy is a token-set test, not surname extraction:
-PDC ``filer_name`` is inconsistently formatted (``"Strom Peterson"``,
-``"JACOBSEN CYNTHIA P (Cyndy Jacobsen)"``, ``"J.T. Wilcox (JT Wilcox)"``), so rather than
-guess which token is the surname, we fold every alpha token and test whether the WSL
-member's clean ``LastName`` is among them — robust within an LD's ≤2 winners.
+These three are genuinely PDC's: the source slug PDC-provenance rows carry and the
+`person_wa_pdc` child-identifier scheme.
 """
 
 from __future__ import annotations
-
-import re
-import unicodedata
 
 #: The ``source`` slug PDC-provenance rows (identifiers, House Assignments) carry — matches
 #: :attr:`PDCAdapter.source_slug` and the ``Source`` row. Shared by both normalizers so the
@@ -28,93 +23,7 @@ PDC_SOURCE = "usa_wa_pdc"
 #: to PM as an ``additional_identifier``.
 PDC_PERSON_ID_SCHEME = "wa_pdc"
 
-#: WA House positions (the only ones this cut resolves — ballot has Position 1 / 2 per LD).
-_VALID_POSITIONS = {"1", "2"}
-
-_NON_ALNUM = re.compile(r"[^a-z0-9]+")
-
-
-def _unaccent(text: str) -> str:
-    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
-
-
-def canonical_position(raw: object) -> str | None:
-    """Map a PDC ``position`` (``"1"`` / ``"2"``, possibly int/padded) to the PM seat
-    ``qualifier`` (``"Position 1"`` / ``"Position 2"``, power-map#263). Anything else
-    (blank, ``0``, ``3``, non-numeric) → ``None`` (not a House seat we can key)."""
-    if raw is None:
-        return None
-    text = str(raw).strip()
-    if text not in _VALID_POSITIONS:
-        return None
-    return f"Position {text}"
-
-
-def house_seat_role_source_id(ld_number: int, qualifier: str) -> str:
-    """Deterministic ``source_id`` for a House ``state_representative`` seat Role (one per
-    ``(LD, position)``) — aligns 1:1 with PM's seat match key."""
-    slug = qualifier.lower().replace(" ", "-")
-    return f"seat:house:ld-{ld_number}:{slug}"
-
-
-def house_span_discriminator(ld_number: int, qualifier: str) -> str:
-    """The tenure-span ``discriminator`` for a House Position seat (#79): ``ld-5-position-1``.
-
-    Colon-free so the span ``source_id`` (``{member}:{kind}:{discriminator}:{start}``) stays a
-    clean 4-part key — symmetric with the Senate seat span. Encoding ``(LD, position)`` means a
-    redistricting LD renumber opens a new span (a genuinely different seat), which is the
-    deliberate discriminator semantics :mod:`tenure_spans` documents."""
-    position_digit = qualifier.rsplit(" ", 1)[-1]
-    return f"ld-{ld_number}-position-{position_digit}"
-
-
-def parse_house_span_discriminator(discriminator: str) -> tuple[int, str]:
-    """Recover ``(ld_number, qualifier)`` from a House span discriminator (inverse of
-    :func:`house_span_discriminator`) — the span-emit role resolver keys the seat Role on it."""
-    _ld, ld_number, _position, position_digit = discriminator.split("-")
-    return int(ld_number), f"Position {position_digit}"
-
 
 def pdc_person_identifier_source_id(pdc_person_id: str) -> str:
     """Deterministic ``PersonIdentifier.source_id`` for the PDC id child row."""
     return f"{pdc_person_id}:{PDC_PERSON_ID_SCHEME}"
-
-
-def fold_token(token: str) -> str:
-    """Fold one name token for matching: casefold, unaccent, strip non-alphanumerics.
-
-    ``"García"`` → ``"garcia"``, ``"O'Brien"`` → ``"obrien"``."""
-    return _NON_ALNUM.sub("", _unaccent(token.casefold()))
-
-
-def _folded_sequence(filer_name: str) -> list[str]:
-    """The ordered folded tokens of a PDC ``filer_name``.
-
-    Split only on whitespace and grouping punctuation (parens / commas), then fold each
-    token — so intra-surname apostrophes and hyphens stay *inside* the token and are
-    stripped by :func:`fold_token`, matching the WSL side. A whole-name split on every
-    non-alnum would shred ``"Ortiz-Self"`` into ``ortiz`` + ``self`` and never match the
-    WSL surname ``ortizself``."""
-    return [folded for raw in re.split(r"[\s(),]+", filer_name) if (folded := fold_token(raw))]
-
-
-def surname_match_set(filer_name: str) -> set[str]:
-    """The set of folded name keys a PDC ``filer_name`` matches on — atomic folded tokens
-    (single words; single-letter initials survive but won't false-match a surname) **plus
-    every consecutive-run concatenation** of them.
-
-    The WSL side folds a member's ``LastName`` with :func:`fold_token`, which strips *all*
-    non-alphanumerics **including spaces** — so a multi-word / particle surname collapses to
-    one token (``"Van De Wege"`` → ``vandewege``) while the space-split PDC name yields
-    ``{van, de, wege}``. Adding the consecutive joins (``van``, ``vande``, ``vandewege``, …)
-    makes the joined WSL surname testable by membership without a fragile substring match.
-    The WSL member's folded ``LastName`` is tested against this set to confirm a within-LD
-    match."""
-    tokens = _folded_sequence(filer_name)
-    keys = set(tokens)
-    for start in range(len(tokens)):
-        joined = ""
-        for token in tokens[start:]:
-            joined += token
-            keys.add(joined)
-    return keys

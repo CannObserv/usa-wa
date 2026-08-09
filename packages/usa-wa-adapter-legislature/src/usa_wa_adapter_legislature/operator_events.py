@@ -46,14 +46,14 @@ from clearinghouse_domain_legislative.operator_events import (
     VACATED_REASONS,
     OperatorEvent,
 )
+from clearinghouse_domain_legislative.span_emit import resolve_person
 from usa_wa_adapter_legislature.operator_events_store import (
     current_events,
     get_or_create_operator_source,
     record_operator_event,
     supersede_event,
 )
-from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
-from usa_wa_adapter_legislature.span_emit import resolve_person
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 

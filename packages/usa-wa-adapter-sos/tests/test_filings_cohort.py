@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
-from usa_wa_adapter_pdc.normalize.positions import fold_token
 from usa_wa_adapter_sos.filings.cohort import SosFilingCohortProvider
-from usa_wa_adapter_sos.positions import position_for
+from usa_wa_common.ballot import position_for
+from usa_wa_common.names import fold_token
 
 
 async def _sos_source(session, usa_wa):

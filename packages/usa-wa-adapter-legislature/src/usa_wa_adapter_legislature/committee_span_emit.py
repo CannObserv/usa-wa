@@ -1,6 +1,6 @@
 """Committee-membership span→Assignment emission (#82).
 
-Binds committee-membership :class:`~usa_wa_adapter_legislature.tenure_spans.TenureSpan`s to
+Binds committee-membership :class:`~clearinghouse_domain_legislative.tenure_spans.TenureSpan`s to
 the generic emitter (:mod:`span_emit`) by supplying the two kind-specific pieces:
 
 - **Role resolution** — a ``committee`` span binds the committee Org's shared ``member``
@@ -23,13 +23,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Organization, Role
+from clearinghouse_domain_legislative.span_emit import SOURCE, CitationTarget, emit_spans
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 from usa_wa_adapter_legislature.committee_membership_observations import KIND_COMMITTEE
 from usa_wa_adapter_legislature.normalize.members import (
     committee_member_role_source_id,
     get_or_create_role,
 )
-from usa_wa_adapter_legislature.span_emit import SOURCE, CitationTarget, emit_spans
-from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
 logger = get_logger(__name__)
 

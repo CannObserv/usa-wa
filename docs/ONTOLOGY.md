@@ -103,7 +103,7 @@ dated record. A 12-year senator is one span, not six per-biennium rows.
 ### Why there is no `spans` table
 
 There is no span table because a span **is already an Assignment**. `TenureSpan` is a frozen
-dataclass in `usa_wa_adapter_legislature.tenure_spans` — a pure in-memory intermediate, never
+dataclass in `clearinghouse_domain_legislative.tenure_spans` — a pure in-memory intermediate, never
 persisted as itself. `span_emit.emit_spans` upserts exactly one `Assignment` per span carrying its
 `valid_from` / `valid_to` / `is_active`.
 

@@ -71,14 +71,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
-from clearinghouse_sync_powermap.client import DeliveryBlockedError
-from clearinghouse_sync_powermap.descriptors import EntityDescriptor
-from usa_wa_adapter_legislature.refresh import (
+from clearinghouse_domain_legislative.cohorts import BienniumCohortProvider
+from clearinghouse_domain_legislative.terms import (
     biennium_for_date,
     biennium_start_date,
     previous_biennium,
 )
-from usa_wa_adapter_legislature.transport import WSLClient
+from clearinghouse_sync_powermap.client import DeliveryBlockedError
+from clearinghouse_sync_powermap.descriptors import EntityDescriptor
+from usa_wa_adapter_legislature.cohorts import committee_roster_provider
 from usa_wa_sync_powermap.committee_name_reconcile import (
     DEFAULT_MAX_RENAME_FRACTION,
     EXIT_ABORTED,
@@ -127,7 +128,7 @@ def _roster_by_id(roster: list[dict], *, label: str) -> dict[str, str]:
 async def reconcile_committee_names(
     session: AsyncSession,
     descriptor: EntityDescriptor,
-    wsl_client: Any,
+    roster_provider: BienniumCohortProvider,
     pm_client: Any,
     *,
     biennium: str,
@@ -150,8 +151,8 @@ async def reconcile_committee_names(
     still fetches both rosters (so the diff/guards run) but posts nothing.
     """
     prior_label = previous_biennium(biennium)
-    current = _roster_by_id(await wsl_client.get_committees(biennium), label=biennium)
-    prior = _roster_by_id(await wsl_client.get_committees(prior_label), label=prior_label)
+    current = _roster_by_id(await roster_provider.roster_records(biennium), label=biennium)
+    prior = _roster_by_id(await roster_provider.roster_records(prior_label), label=prior_label)
     return await reconcile_names_from_maps(
         session,
         descriptor,
@@ -216,20 +217,22 @@ def _resolve_biennium(arg: str | None) -> str:
 
 
 async def _run(args: argparse.Namespace) -> dict:
-    """Open a session + WSL/PM clients, run the reconciliation, and return the summary.
+    """Open a session + roster provider/PM client, run the reconciliation, return the summary.
 
-    A ``dry_run`` still needs the WSL client (to fetch both rosters) but no PM client (it
-    posts nothing). Emit-to-PM-only, so no commit."""
+    A ``dry_run`` still needs the roster provider (to obtain both rosters) but no PM client
+    (it posts nothing). Emit-to-PM-only, so no commit. The provider is built inside the
+    session so the closed prior biennium is served from the ``committees-roster:`` archive
+    rather than re-pulled from WSL (#189) — the same archive-first read the rename **chain**
+    reconciler next door has always used."""
     biennium = _resolve_biennium(args.biennium)
     settings = get_sidecar_settings()
     factory = get_session_factory()
-    wsl_client = WSLClient("CommitteeService")
     if args.dry_run:
         async with factory() as session:
             return await reconcile_committee_names(
                 session,
                 OrganizationDescriptor(),
-                wsl_client,
+                await committee_roster_provider(session),
                 None,
                 biennium=biennium,
                 dry_run=True,
@@ -244,7 +247,7 @@ async def _run(args: argparse.Namespace) -> dict:
             return await reconcile_committee_names(
                 session,
                 OrganizationDescriptor(),
-                wsl_client,
+                await committee_roster_provider(session),
                 pm_client,
                 biennium=biennium,
                 max_rename_fraction=args.max_rename_fraction,

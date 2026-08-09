@@ -84,16 +84,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
-from clearinghouse_core.provenance import Source
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.queries import live_only
+from clearinghouse_domain_legislative.terms import biennium_for_date, previous_biennium
 from clearinghouse_sync_powermap.client import DeliveryBlockedError, PayloadRejectedError
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.engine import TRANSIENT_EXCEPTIONS
+from usa_wa_adapter_legislature.cohorts import committee_roster_provider
 from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
-from usa_wa_adapter_legislature.refresh import biennium_for_date
-from usa_wa_adapter_legislature.synthesis import previous_biennium
-from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
 from usa_wa_sync_powermap.registry import build_pm_client
@@ -199,7 +197,7 @@ async def _emit_active(
 async def reconcile_committee_active(
     session: AsyncSession,
     descriptor: EntityDescriptor,
-    wsl_client: Any,
+    current_roster: CommitteeRosterCohortProvider,
     pm_client: Any,
     *,
     biennium: str,
@@ -246,7 +244,7 @@ async def reconcile_committee_active(
     and it drops out of the next diff. So a non-zero count on a repeat run can be
     idempotent re-emits, not fresh transitions.
     """
-    roster = await wsl_client.get_committees(biennium)
+    roster = await current_roster.roster_records(biennium)
     present_ids = {str(c["Id"]) for c in roster if c.get("Id") is not None}
     full_cohort = await _produced_committee_cohort(session)
     if roster_provider is not None:
@@ -356,49 +354,40 @@ def _resolve_biennium(arg: str | None) -> str:
     return os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
 
 
-async def _build_roster_provider(
-    session: AsyncSession, wsl_client: Any
-) -> CommitteeRosterCohortProvider:
+async def _build_roster_provider(session: AsyncSession) -> CommitteeRosterCohortProvider:
     """The archive-first prior-roster provider for era scoping (#90).
 
-    Bound to the WSL provenance source (``source_id``) so a closed prior biennium is a
-    cache hit on the ``committees-roster:<biennium>`` archive (written by
-    ``harvest_committees``), not a fresh ``GetCommittees`` pull.
-
-    A **read-only** lookup, not get-or-create: this reconcile never commits (PM is
-    authority for ``active`` and mirrors it back), so it has no business provisioning the
-    Source. If the Source is somehow absent (a DB that never ran a WSL pull), the provider
-    gets ``source_id=None`` and simply live-pulls every biennium — no archive to read."""
-    # _SOURCE is the Organization.source producer string; it equals the provenance
-    # Source.slug by convention, so it doubles as the Source lookup key here.
-    source = (
-        await session.execute(select(Source).where(Source.slug == _SOURCE))
-    ).scalar_one_or_none()
-    source_id = source.id if source is not None else None
-    return CommitteeRosterCohortProvider(wsl_client, session=session, source_id=source_id)
+    Delegates to the WSL adapter's own factory (#189) rather than constructing a
+    ``WSLClient`` here: a Layer-4 deployment package must not name a Layer-3 transport.
+    The factory binds the WSL provenance source read-only — this reconcile never commits
+    (PM is authority for ``active`` and mirrors it back) — so a closed prior biennium is a
+    cache hit on the ``committees-roster:<biennium>`` archive written by
+    ``harvest_committees``, and a DB that never ran a WSL pull simply live-pulls."""
+    return await committee_roster_provider(session)
 
 
 async def _run(args: argparse.Namespace) -> dict:
-    """Open a session + WSL/PM clients, run the reconciliation, and return the summary.
+    """Open a session + roster provider/PM client, run the reconciliation, return the summary.
 
-    A ``dry_run`` still needs the WSL client (to fetch the roster) but no PM client
-    (it posts nothing). The local ``active`` column is PM-mirrored, so no commit."""
+    A ``dry_run`` still needs the roster provider (to obtain the roster) but no PM client
+    (it posts nothing). The local ``active`` column is PM-mirrored, so no commit. Since #189
+    the current roster is read archive-first through the WSL adapter's cohort factory rather
+    than pulled live from a ``WSLClient`` this Layer-4 module constructed itself."""
     biennium = _resolve_biennium(args.biennium)
     settings = get_sidecar_settings()
     factory = get_session_factory()
-    wsl_client = WSLClient("CommitteeService")
 
     async def _provider(session: AsyncSession) -> CommitteeRosterCohortProvider | None:
         # --all-era (C1b, #124): no scoping → whole-cohort diff for the deliberate bulk
         # deactivation. Routine runs stay scoped (#90).
-        return None if args.all_era else await _build_roster_provider(session, wsl_client)
+        return None if args.all_era else await _build_roster_provider(session)
 
     if args.dry_run:
         async with factory() as session:
             return await reconcile_committee_active(
                 session,
                 OrganizationDescriptor(),
-                wsl_client,
+                await committee_roster_provider(session),
                 None,
                 biennium=biennium,
                 dry_run=True,
@@ -413,7 +402,7 @@ async def _run(args: argparse.Namespace) -> dict:
             return await reconcile_committee_active(
                 session,
                 OrganizationDescriptor(),
-                wsl_client,
+                await committee_roster_provider(session),
                 pm_client,
                 biennium=biennium,
                 max_absent_fraction=args.max_absent_fraction,

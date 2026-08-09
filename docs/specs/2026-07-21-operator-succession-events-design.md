@@ -79,7 +79,7 @@ Because the daily refresh re-drives every builder and the overlay re-applies eac
 
 **One residual, out of scope:** the *routine* term-start precision (every member's ~Jan-13 swearing-in vs the Jan-1 biennium floor) — a systematic session-convene-date lookup affecting all 147 members equally, not a succession event. Deferred to a clean follow-up. The succession boundaries themselves are modeled exactly.
 
-Consumed by: [`harvest_sponsor_spans.build_sponsor_spans`](../../packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/harvest_sponsor_spans.py) (party + Senate seat), [`usa_wa_adapter_sos.house.build`](../../packages/usa-wa-adapter-sos/src/usa_wa_adapter_sos/house/build.py) (House Position seat), [`harvest_committee_member_spans`](../../packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/harvest_committee_member_spans.py) (committee membership). Each daily refresh re-drive passes the current, non-superseded events.
+Consumed by: [`harvest_sponsor_spans.build_sponsor_spans`](../../packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/harvest_sponsor_spans.py) (party + Senate seat), [`usa_wa_facts_seats.house.build`](../../packages/usa-wa-adapter-sos/src/usa_wa_adapter_sos/house/build.py) (House Position seat), [`harvest_committee_member_spans`](../../packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/harvest_committee_member_spans.py) (committee membership). Each daily refresh re-drive passes the current, non-superseded events.
 
 ### 4. Operator CLI — `usa-wa-adapter-legislature`
 

@@ -1,0 +1,129 @@
+"""WSL+SOS House Position span emission (#101) — spans → merged usa_wa_legislature Assignments.
+
+Binds the House-position :class:`~clearinghouse_domain_legislative.tenure_spans.TenureSpan`s to
+the generic emitter (:mod:`clearinghouse_domain_legislative.span_emit`): one Assignment per
+contiguous House Position tenure, bound to the WSL-sourced :class:`Person` and the
+``state_representative`` seat Role (keyed on ``(LD, Position)``, get-or-created
+``usa_wa_legislature``). The Assignment ``source``
+defaults to ``usa_wa_legislature`` — a seat is legislature structure, symmetric with the Senate
+seat (#75); PDC was the pre-#101 authority (``usa_wa_pdc``) and the re-source migration flips those
+rows.
+
+Each biennium of a span cites that biennium's attesting cohort, supplied by the driver via
+``fetch_events`` — the WSL+SOS builder passes the ``sos-legresults:<YYYYMMDD>`` results cohort
+(the Position authority) — **except** an elimination-inferred ``(member, biennium)`` (#103),
+which cites the WSL sponsor roster (``roster_events``) instead: the SOS wire never names an
+appointee, so the roster is the document that actually places the member in the LD.
+``person_wa_pdc`` identifier links are a *separate* concern that stays in
+:mod:`usa_wa_facts_seats.pdc.identifiers` (they are PDC's, per-Person, not per-tenure).
+
+Homed in the SOS package because SOS owns the House Position seat since #101; it reuses the PDC
+seat-Role source-id / discriminator helpers (a Layer-3 sibling import, one-directional).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Collection
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from clearinghouse_core.logging import get_logger
+from clearinghouse_domain_legislative.identity import Role
+from clearinghouse_domain_legislative.span_emit import CitationTarget, emit_spans
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan
+from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors
+from usa_wa_adapter_legislature.normalize.members import get_or_create_role, resolve_ld_jurisdiction
+from usa_wa_common.seats import house_seat_role_source_id, parse_house_span_discriminator
+
+logger = get_logger(__name__)
+
+_PERSON_SOURCE = "usa_wa_legislature"
+_HOUSE_ASSIGNMENT_SOURCE = "usa_wa_legislature"
+_HOUSE_SEAT_ROLE_TYPE = "state_representative"
+_HOUSE_SEAT_ROLE_NAME = "State Representative"
+
+#: ``biennium -> (fetch_event_id, fetched_at, resource_id)`` — the cohort attesting one biennium
+#: of a House Position span (``sos-legresults:<YYYYMMDD>`` for the WSL+SOS builder; the sponsor
+#: roster ``sponsors:<biennium>`` for an inferred biennium, #103).
+HouseCitationEvents = dict[str, CitationTarget]
+
+
+async def emit_house_position_spans(
+    session: AsyncSession,
+    spans: list[TenureSpan],
+    *,
+    anchors: BootstrapAnchors,
+    reliability: float,
+    fetch_events: HouseCitationEvents,
+    roster_events: HouseCitationEvents | None = None,
+    inferred_keys: set[tuple[str, str]] | None = None,
+    special_keys: set[tuple[str, str]] | None = None,
+    special_events: HouseCitationEvents | None = None,
+    assignment_source: str = _HOUSE_ASSIGNMENT_SOURCE,
+    skip_citation_ids: Collection[str] = (),
+) -> int:
+    """Upsert one Assignment per House Position span; return the count.
+
+    ``assignment_source`` defaults to ``usa_wa_legislature`` (the seat's authority since #101);
+    the seat Role stays ``usa_wa_legislature`` and the Person is WSL's regardless. An
+    ``inferred_keys`` ``(member_id, biennium)`` pair cites that biennium's ``roster_events``
+    entry instead of ``fetch_events`` (#103 — the roster wire is the one naming the member),
+    falling back to the SOS cohort only if the roster wasn't archived.
+
+    A ``special_keys`` ``(member_id, biennium)`` pair (#123) — a member whose Position was
+    resolved from the odd-year mid-biennium **special** cohort, not the even seating cohort — cites
+    that biennium's ``special_events`` entry (the ``sos-legresults:<odd>`` wire that actually
+    seated the appointee) instead of ``fetch_events``. Inference wins over special (an inferred
+    member has no ballot line in either cohort, so the roster is still the right attestation)."""
+
+    async def _resolve_role(session: AsyncSession, span: TenureSpan) -> Role | None:
+        ld, qualifier = parse_house_span_discriminator(span.discriminator)
+        jurisdiction = await resolve_ld_jurisdiction(session, ld)
+        if jurisdiction is None:
+            logger.warning("house_span_unsynced_ld", extra={"ld": ld, "member_id": span.member_id})
+            return None
+        return await get_or_create_role(
+            session,
+            source_id=house_seat_role_source_id(ld, qualifier),
+            organization_id=anchors.house_id,
+            name=_HOUSE_SEAT_ROLE_NAME,
+            role_type=_HOUSE_SEAT_ROLE_TYPE,
+            jurisdiction_id=jurisdiction.id,
+            qualifier=qualifier,
+        )
+
+    inferred = inferred_keys or frozenset()
+    special = special_keys or frozenset()
+    rosters = roster_events or {}
+    specials = special_events or {}
+
+    def _citation_target(span: TenureSpan, biennium: str) -> CitationTarget | None:
+        key = (span.member_id, biennium)
+        if key in inferred:
+            roster = rosters.get(biennium)
+            if roster is not None:
+                return roster
+            # The SOS wire doesn't name an inferred member — citing it is the mis-attestation
+            # #103 removes, so the (rare, un-archived-roster) fallback must be loud.
+            logger.warning(
+                "house_inferred_citation_fallback",
+                extra={"member_id": span.member_id, "biennium": biennium},
+            )
+        elif key in special:
+            # #123: the odd-year special cohort seated this member — cite that wire, not the even
+            # seating cohort. Fall through to the even cohort only if the odd event is missing.
+            odd = specials.get(biennium)
+            if odd is not None:
+                return odd
+        return fetch_events.get(biennium)
+
+    return await emit_spans(
+        session,
+        spans,
+        resolve_role=_resolve_role,
+        citation_target=_citation_target,
+        reliability=reliability,
+        person_source=_PERSON_SOURCE,
+        assignment_source=assignment_source,
+        skip_citation_ids=skip_citation_ids,
+    )

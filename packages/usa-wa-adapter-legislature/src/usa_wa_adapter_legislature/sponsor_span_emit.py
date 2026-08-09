@@ -1,6 +1,6 @@
 """Sponsor span→Assignment emission (#78 Phase B) — party + Senate-seat tenure.
 
-Binds sponsor-derived :class:`~usa_wa_adapter_legislature.tenure_spans.TenureSpan`s to the
+Binds sponsor-derived :class:`~clearinghouse_domain_legislative.tenure_spans.TenureSpan`s to the
 generic emitter (:mod:`span_emit`) by supplying the two kind-specific pieces:
 
 - **Role resolution** — a ``party`` span binds the matching Party Org's shared ``member``
@@ -21,6 +21,8 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Role
+from clearinghouse_domain_legislative.span_emit import CitationTarget, emit_spans
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors
 from usa_wa_adapter_legislature.normalize.members import (
@@ -29,9 +31,7 @@ from usa_wa_adapter_legislature.normalize.members import (
     resolve_ld_jurisdiction,
     senate_seat_role_source_id,
 )
-from usa_wa_adapter_legislature.span_emit import CitationTarget, emit_spans
 from usa_wa_adapter_legislature.sponsor_observations import KIND_PARTY, KIND_SENATE
-from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
 logger = get_logger(__name__)
 

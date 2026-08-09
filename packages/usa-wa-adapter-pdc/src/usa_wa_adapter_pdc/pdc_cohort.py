@@ -25,7 +25,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
-from usa_wa_adapter_legislature.span_emit import CitationTarget
+from clearinghouse_domain_legislative.span_emit import CitationTarget
 from usa_wa_adapter_pdc.adapter import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
     SENATE_WINNERS_RESOURCE_PREFIX,
@@ -67,6 +67,12 @@ class PdcWinnerCohortProvider:
         if prefix not in self._cache:
             self._cache[prefix] = await self._load_latest(prefix)
         return self._cache[prefix]
+
+    async def citation_events(self) -> dict[int, CitationTarget]:
+        """The `clearinghouse_domain_legislative.cohorts.AttestedCohortProvider` seam name
+        (#189). PDC's citable cohort is the House winner set; `house_events` stays as the
+        chamber-explicit alias, since this provider also serves an un-cited Senate cohort."""
+        return await self.house_events()
 
     async def house_events(self) -> dict[int, CitationTarget]:
         """``{election_year: citation target}`` for the archived House winner cohorts."""

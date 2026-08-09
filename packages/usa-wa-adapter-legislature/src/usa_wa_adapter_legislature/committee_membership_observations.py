@@ -2,7 +2,7 @@
 
 Projects archived ``GetCommitteeMembers`` rosters (``{(biennium, committee_id): [member
 rows]}``, re-parsed offline from the historical member archive) into tenure
-:class:`~usa_wa_adapter_legislature.tenure_spans.Observation`s the span builder consumes.
+:class:`~clearinghouse_domain_legislative.tenure_spans.Observation`s the span builder consumes.
 
 One observation per **named** member per (committee, biennium): a member who sat on
 Appropriations in 2013-14 and 2015-16 yields two observations under one key, which the span
@@ -24,8 +24,8 @@ from typing import Any
 from clearinghouse_domain_legislative.span_kinds import (
     KIND_COMMITTEE,  # noqa: F401 (re-export for this package's builders/tests)
 )
+from clearinghouse_domain_legislative.tenure_spans import Observation
 from usa_wa_adapter_legislature.normalize.members import is_person
-from usa_wa_adapter_legislature.tenure_spans import Observation
 
 # Tenure ``kind`` for committee membership is the canonical domain span kind
 # (imported above so this package and the domain guard cannot drift, #114).

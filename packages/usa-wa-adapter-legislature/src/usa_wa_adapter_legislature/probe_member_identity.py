@@ -48,9 +48,9 @@ from typing import Any
 from zeep.exceptions import Fault
 
 from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_domain_legislative.terms import biennium_for_date, previous_biennium
 from usa_wa_adapter_legislature.coverage import SPONSOR_ROSTER_COVERAGE
 from usa_wa_adapter_legislature.normalize.members import is_person
-from usa_wa_adapter_legislature.refresh import biennium_for_date, previous_biennium
 from usa_wa_adapter_legislature.transport import WSLClient, _is_biennium_out_of_range
 
 logger = get_logger(__name__)

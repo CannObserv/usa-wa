@@ -4,7 +4,7 @@ Reads every archived ``committee-members-hist:<biennium>:<id>:…`` roster **off
 :class:`~usa_wa_adapter_legislature.committee_member_cohort.CommitteeMemberCohortProvider`,
 no WSL re-pull), projects the rows to membership observations
 (:mod:`committee_membership_observations`), merges contiguous biennia into
-:class:`~usa_wa_adapter_legislature.tenure_spans.TenureSpan`s, and emits one
+:class:`~clearinghouse_domain_legislative.tenure_spans.TenureSpan`s, and emits one
 :class:`Assignment` per committee tenure with a Citation per (biennium, committee) roster
 (:mod:`committee_span_emit`).
 
@@ -26,6 +26,16 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_domain_legislative.operator_overlay import apply_operator_events, from_rows
+from clearinghouse_domain_legislative.span_emit import (
+    MAX_CLOSE_FRACTION_DEFAULT,
+    SOURCE,
+    SpanBuildResult,
+    close_fraction,
+    close_stale_spans,
+)
+from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.committee_membership_observations import (
     KIND_COMMITTEE,
@@ -37,18 +47,9 @@ from usa_wa_adapter_legislature.operator_events_store import (
     current_events,
     get_or_create_operator_source,
 )
-from usa_wa_adapter_legislature.operator_overlay import apply_operator_events, from_rows
-from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
-from usa_wa_adapter_legislature.span_emit import (
-    MAX_CLOSE_FRACTION_DEFAULT,
-    SOURCE,
-    SpanBuildResult,
-    close_fraction,
-    close_stale_spans,
-)
-from usa_wa_adapter_legislature.synthesis import biennium_for_date
-from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
+from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 
@@ -75,7 +76,7 @@ async def build_committee_member_spans(
     path) rebuilds all.
 
     Either way, memberships the rebuilt set no longer asserts are **closed** (#83,
-    :func:`~usa_wa_adapter_legislature.span_emit.close_stale_spans`) — a member who left the
+    :func:`~clearinghouse_domain_legislative.span_emit.close_stale_spans`) — a member who left the
     committee (or the legislature) must not keep an ``is_active`` row forever."""
     jurisdiction = await resolve_jurisdiction(session)
     source = await get_or_create_source(session, jurisdiction)

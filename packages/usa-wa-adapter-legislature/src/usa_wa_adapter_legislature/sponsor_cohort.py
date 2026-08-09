@@ -30,7 +30,7 @@ from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 logger = get_logger(__name__)
 
 
-class _SponsorClient(Protocol):
+class SponsorClient(Protocol):
     async def fetch_sponsors(self, biennium: str) -> Any: ...
 
     async def parse_sponsors(self, wire: bytes) -> list[dict[str, Any]]: ...
@@ -41,7 +41,7 @@ class SponsorRosterCohortProvider:
 
     def __init__(
         self,
-        client: _SponsorClient,
+        client: SponsorClient,
         *,
         session: AsyncSession | None = None,
         source_id: _ULID | None = None,

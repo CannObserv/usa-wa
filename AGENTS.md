@@ -57,13 +57,26 @@ Prefetch query — run via `ToolSearch` at session start:
 
 **Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder.** It is the reusable Layer-3 pattern: one adapter package per *jurisdiction+target* bundling every source that target publishes; each **source** a self-contained archive (own `Source`/`source_slug`/archive-key/transport/adapter/normalize/cohort/harvest); the **application** (spans/seats) source-agnostic, consuming a cohort interface — so a fact can draw on a new source without a rewrite (the `usa-wa-adapter-sos` filings + results sources are the worked example). Audit a source's coverage before building on it; never key a parser on an exact upstream string.
 
+**Six layers since #189 (AR-14), enforced by `import-linter`** — `uv run lint-imports`, wired into the pre-commit gate beside ruff, contracts + rationale in the root `pyproject.toml`:
+
+| Layer | Package(s) | Rule |
+|---|---|---|
+| 1 framework | `clearinghouse-core` | jurisdiction-agnostic primitives |
+| 2 domain | `clearinghouse-domain-legislative` | the legislative model **+ the term calendar, the span engine and the `CohortProvider` Protocols** |
+| 2b vocabulary | `usa-wa-common` | WA facts, source-free — **may not import an adapter** |
+| 3 adapters | `usa-wa-adapter-*` | sourcing only, one per jurisdiction+target — **no adapter may import a peer adapter** |
+| 3b facts | `usa-wa-facts-*` | applications composing cohorts across adapters — **never an adapter's `transport`** |
+| 4 deployment | `usa-wa-api`, `usa-wa-sync-powermap` | serve + sync — **never an adapter's `transport`** |
+
 Per-package module reference — what each file is for and why it exists:
 
 - [`docs/MODULES-FRAMEWORK.md`](docs/MODULES-FRAMEWORK.md) — Layers 1–2, the portable PM sync engine, the generated PM client
+- [`docs/MODULES-COMMON.md`](docs/MODULES-COMMON.md) — Layer 2b `usa-wa-common`: WA vocabulary (calendar, seats, names, parties, ballot) and the cohort seam
 - [`docs/MODULES-LEGISLATURE.md`](docs/MODULES-LEGISLATURE.md) — WSL adapter: transport, normalizers, daily refresh, cohort providers, probes
 - [`docs/MODULES-LEGISLATURE-SPANS.md`](docs/MODULES-LEGISLATURE-SPANS.md) — tenure-span engine, operator succession, roster hygiene, span migrations
 - [`docs/MODULES-PDC.md`](docs/MODULES-PDC.md) — PDC SODA adapter (identifier-only)
-- [`docs/MODULES-SOS.md`](docs/MODULES-SOS.md) — SOS filings + results sources and the House Position seat application
+- [`docs/MODULES-SOS.md`](docs/MODULES-SOS.md) — SOS filings + results sources
+- [`docs/MODULES-FACTS-SEATS.md`](docs/MODULES-FACTS-SEATS.md) — Layer 3b `usa-wa-facts-seats`: the composition layer (House Position, Senate corroboration, PDC spans)
 - [`docs/MODULES-SYNC.md`](docs/MODULES-SYNC.md) — Layer 4: the API deployment, the PM sidecar and its producer CLIs, repo-root directories
 
 ## Infrastructure
@@ -193,10 +206,12 @@ JSON records carry `{timestamp, level, logger, message}` (#133; structlog's defa
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the reusable Layer-3 pattern; read before adding an adapter, a source, or a span/seat builder
 - [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model: entities, lifecycle axes, spans-as-assignments, the three event shapes; read before adding a fact
 - [docs/MODULES-FRAMEWORK.md](docs/MODULES-FRAMEWORK.md) — Layer 1–2 primitives, the PM sync engine, regenerating the PM client
+- [docs/MODULES-COMMON.md](docs/MODULES-COMMON.md) — Layer 2b: the WA vocabulary package and the `CohortProvider` seam
 - [docs/MODULES-LEGISLATURE.md](docs/MODULES-LEGISLATURE.md) — WSL adapter ingest, normalization, daily refresh
 - [docs/MODULES-LEGISLATURE-SPANS.md](docs/MODULES-LEGISLATURE-SPANS.md) — tenure spans, operator succession, span migrations
 - [docs/MODULES-PDC.md](docs/MODULES-PDC.md) — PDC winner cohorts and identifier links
-- [docs/MODULES-SOS.md](docs/MODULES-SOS.md) — SOS filings/results sources, House Position seat builder
+- [docs/MODULES-SOS.md](docs/MODULES-SOS.md) — SOS filings/results sources
+- [docs/MODULES-FACTS-SEATS.md](docs/MODULES-FACTS-SEATS.md) — Layer 3b: the seat fact family and the four renamed systemd entry points
 - [docs/MODULES-SYNC.md](docs/MODULES-SYNC.md) — API deployment, PM sidecar, producer CLIs, repo-root layout
 - [docs/LWW-NOOP-GATE.md](docs/LWW-NOOP-GATE.md) — the local-newer no-op gate; read before adding a `write_enabled` producer descriptor
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — systemd units, failure alerting, DB roles, restart/lifecycle table

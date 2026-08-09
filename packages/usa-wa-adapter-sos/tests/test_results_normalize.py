@@ -8,8 +8,6 @@ exclusion and the GOP party synonym.
 
 from __future__ import annotations
 
-from usa_wa_adapter_pdc.normalize.positions import fold_token
-from usa_wa_adapter_sos.positions import position_for
 from usa_wa_adapter_sos.results.normalize import (
     build_house_positions,
     build_house_winners,
@@ -17,6 +15,8 @@ from usa_wa_adapter_sos.results.normalize import (
     parse_house_race,
     parse_senate_race,
 )
+from usa_wa_common.ballot import position_for
+from usa_wa_common.names import fold_token
 
 
 def _row(

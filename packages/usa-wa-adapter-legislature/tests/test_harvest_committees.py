@@ -11,10 +11,7 @@ from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Organization
-from usa_wa_adapter_legislature.harvest_committees import (
-    bienniums_in_range,
-    harvest_committees,
-)
+from usa_wa_adapter_legislature.harvest_committees import harvest_committees
 from usa_wa_adapter_legislature.transport import WireFetch
 
 
@@ -54,10 +51,6 @@ def _committee(cid, longname, agency="House", acronym="X"):
         "Acronym": acronym,
         "Phone": None,
     }
-
-
-def test_bienniums_in_range_walks_by_two():
-    assert bienniums_in_range("2021-22", "2025-26") == ["2021-22", "2023-24", "2025-26"]
 
 
 async def test_harvest_archives_each_biennium_and_materializes(db_session, usa_wa, wsl_source):

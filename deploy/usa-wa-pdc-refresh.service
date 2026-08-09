@@ -29,7 +29,7 @@ EnvironmentFile=-/home/exedev/usa-wa/.env
 
 # --frozen --no-sync: run against the installed venv as-is; never re-lock or sync
 # at unit start (AGENTS.md § Server Lifecycle, #30).
-ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_adapter_pdc.refresh
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_facts_seats.pdc.refresh
 
 # Bound the WSL GetSponsors SOAP call + the PDC SODA GET so a hung endpoint fails
 # deterministically; the timer retries on the next fire.

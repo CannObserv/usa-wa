@@ -35,13 +35,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging
 from clearinghouse_core.provenance import Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Role
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.committee_lifecycle import (
     CommitteeWindow,
     collect_committee_presence,
     derive_committee_windows,
 )
 from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
-from usa_wa_adapter_legislature.refresh import biennium_for_date
 from usa_wa_adapter_legislature.transport import WSLClient
 
 _SOURCE = "usa_wa_legislature"

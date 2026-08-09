@@ -51,15 +51,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.provenance import Source
-from clearinghouse_sync_powermap.client import DeliveryBlockedError
-from clearinghouse_sync_powermap.descriptors import EntityDescriptor
-from usa_wa_adapter_legislature.meeting_cohort import MeetingCohortProvider
-from usa_wa_adapter_legislature.refresh import (
+from clearinghouse_domain_legislative.terms import (
     biennium_for_date,
     biennium_start_date,
     previous_biennium,
 )
-from usa_wa_adapter_legislature.transport import WSLClient
+from clearinghouse_sync_powermap.client import DeliveryBlockedError
+from clearinghouse_sync_powermap.descriptors import EntityDescriptor
+from usa_wa_adapter_legislature.cohorts import committee_meeting_provider
+from usa_wa_adapter_legislature.meeting_cohort import MeetingCohortProvider
 from usa_wa_sync_powermap.committee_name_reconcile import (
     DEFAULT_MAX_RENAME_FRACTION,
     DEFAULT_MIN_OVERLAP_FRACTION,
@@ -196,12 +196,11 @@ async def _resolve_source_id(session: AsyncSession) -> Any:
 
 async def _make_provider(session: AsyncSession) -> MeetingCohortProvider:
     """A cache-aware provider bound to ``session`` + the resolved WSL source, so closed
-    meeting windows are re-parsed from the archive instead of re-pulled from WSL."""
-    return MeetingCohortProvider(
-        WSLClient("CommitteeMeetingService"),
-        session=session,
-        source_id=await _resolve_source_id(session),
-    )
+    meeting windows are re-parsed from the archive instead of re-pulled from WSL.
+
+    The WSL adapter's factory owns which SOAP service backs the cohort (#189) — this
+    Layer-4 module no longer names a Layer-3 transport."""
+    return await committee_meeting_provider(session)
 
 
 async def _run(args: argparse.Namespace) -> dict:

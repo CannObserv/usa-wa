@@ -22,9 +22,9 @@ the open Senate cohort and archive the odd results wire. App-role DML (the citat
 
 ```bash
 # Daily gate (also the ad-hoc invocation); --dry-run builds citations then rolls back.
-python -m usa_wa_adapter_sos.senate_corroboration
-python -m usa_wa_adapter_sos.senate_corroboration --dry-run
-python -m usa_wa_adapter_sos.senate_corroboration --biennium 2025-26   # pin a non-current biennium
+python -m usa_wa_facts_seats.senate_corroboration
+python -m usa_wa_facts_seats.senate_corroboration --dry-run
+python -m usa_wa_facts_seats.senate_corroboration --biennium 2025-26   # pin a non-current biennium
 ```
 
 ## House odd-year special-winner corroboration (#149)
@@ -52,15 +52,15 @@ seat / 2 config.
 
 ```bash
 # Daily gate (also the ad-hoc invocation).
-python -m usa_wa_adapter_sos.house_corroboration
-python -m usa_wa_adapter_sos.house_corroboration --biennium 2025-26   # pin a non-current biennium
+python -m usa_wa_facts_seats.house_corroboration
+python -m usa_wa_facts_seats.house_corroboration --biennium 2025-26   # pin a non-current biennium
 
 # Historical audit (#119 report-only pattern): every archived odd year vs the point-in-time
 # occupancy that covered it — the LD30-as-history regression the current-biennium daily gate can't
 # reach. Exit 0 unless --strict (the post-backfill regression guard). House Position coverage floors
 # at 2003-04, so pre-coverage odd years under-report (reported, not gated).
-python -m usa_wa_adapter_sos.house_corroboration --sweep-biennia
-python -m usa_wa_adapter_sos.house_corroboration --sweep-biennia --strict
+python -m usa_wa_facts_seats.house_corroboration --sweep-biennia
+python -m usa_wa_facts_seats.house_corroboration --sweep-biennia --strict
 ```
 
 ## Operator succession (#107)

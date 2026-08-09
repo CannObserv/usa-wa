@@ -13,8 +13,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from usa_wa_adapter_pdc.normalize.positions import canonical_position, surname_match_set
-from usa_wa_adapter_sos.positions import HousePosition, sos_party_slug
+from usa_wa_common.ballot import HousePosition
+from usa_wa_common.names import surname_match_set
+from usa_wa_common.parties import sos_party_slug
+from usa_wa_common.seats import canonical_position
 
 #: votewa ``RaceName`` for a House seat, carrying the ballot position digit.
 _HOUSE_RACE_RE = re.compile(r"^State Representative Pos\.?\s*(\d)\b", re.IGNORECASE)

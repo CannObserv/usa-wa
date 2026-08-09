@@ -38,6 +38,7 @@ from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.provenance import Citation, FetchEvent
 from clearinghouse_core.runner import AdapterRunner, RunSummary
 from clearinghouse_domain_legislative.identity import Organization
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.adapter import (
     COMMITTEES_RESOURCE_PREFIX,
     SPONSORS_RESOURCE_PREFIX,
@@ -49,22 +50,9 @@ from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCo
 from usa_wa_adapter_legislature.harvest_committee_member_spans import build_committee_member_spans
 from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
 from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
-from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
-
-# Biennium date helpers live in synthesis (dependency-free); re-exported here (redundant-alias
-# idiom → explicit re-export, silences F401) so existing `from ...refresh import ...` call
-# sites (probes, PDC refresh, reconcilers) keep working and test_refresh can still patch
-# `refresh.biennium_for_date`.
-from usa_wa_adapter_legislature.synthesis import (
-    biennium_for_date as biennium_for_date,
-)
-from usa_wa_adapter_legislature.synthesis import (
-    biennium_start_date as biennium_start_date,
-)
-from usa_wa_adapter_legislature.synthesis import (
-    previous_biennium as previous_biennium,
-)
+from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 
