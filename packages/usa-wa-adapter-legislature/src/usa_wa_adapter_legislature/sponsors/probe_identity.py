@@ -33,9 +33,9 @@ count against stability). **Finding (2026-07-08): ``Id`` is stable across all 17
 Sullivan"s, LD29 vs LD21), which *validates* keying on ``Id`` over name. Corollary for
 #77: dedup Persons by ``Id``, never by name — two Persons may legitimately share a name.
 
-    python -m usa_wa_adapter_legislature.probe_member_identity
-    python -m usa_wa_adapter_legislature.probe_member_identity --biennium 2025-26 --json
-    python -m usa_wa_adapter_legislature.probe_member_identity --history        # deep sweep (#81)
+    python -m usa_wa_adapter_legislature.sponsors.probe_identity
+    python -m usa_wa_adapter_legislature.sponsors.probe_identity --biennium 2025-26 --json
+    python -m usa_wa_adapter_legislature.sponsors.probe_identity --history        # deep sweep (#81)
 """
 
 import argparse
@@ -295,7 +295,7 @@ async def probe_member_identity(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_adapter_legislature.probe_member_identity",
+        prog="python -m usa_wa_adapter_legislature.sponsors.probe_identity",
         description="Write-free probe of WSL member Id stability (cross-endpoint + biennium).",
     )
     parser.add_argument(

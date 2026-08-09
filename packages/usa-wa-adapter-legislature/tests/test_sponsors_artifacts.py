@@ -3,13 +3,13 @@
 A small, evidenced denylist of ``(biennium, member_id)`` pairs the WSL ``GetSponsors`` archive
 carries spuriously (chamber-conflation / clerical artifacts confirmed against the official WA
 Legislature roster). Unioned into the ``exclude_ids_by_biennium`` set the span builders honour so
-no rebuild re-derives the spurious span. Distinct from :mod:`roster_hygiene` (data-driven,
+no rebuild re-derives the spurious span. Distinct from :mod:`sponsors.roster_hygiene` (data-driven,
 committee-corroborated departed-ghost exclusion) — this is a manually-curated correction.
 """
 
 from __future__ import annotations
 
-from usa_wa_adapter_legislature.member_artifacts import (
+from usa_wa_adapter_legislature.sponsors.artifacts import (
     ARTIFACT_EXCLUSIONS_BY_BIENNIUM,
     with_artifact_exclusions,
 )

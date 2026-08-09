@@ -1,6 +1,6 @@
 """One-shot reclassify of the generic ``member`` Role slug to PM's catalog slugs (usa-wa#110).
 
-Two producers (``committee_span_emit``, ``sponsor_span_emit``) historically stamped every
+Two producers (``committee_span_emit``, ``sponsors.emit``) historically stamped every
 membership Role with the generic ``role_type='member'``. PM's role_types catalog (power-map#268)
 refines that into ``committee_member`` (committee membership) and ``party_member`` (party
 membership), so the local classifier sat permanently diverged from PM's ``role_type_slug`` — the

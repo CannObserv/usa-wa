@@ -48,9 +48,9 @@ from usa_wa_adapter_legislature.adapter import (
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors, bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.harvest_committee_member_spans import build_committee_member_spans
-from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
 from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
+from usa_wa_adapter_legislature.sponsors.build import build_sponsor_spans
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
@@ -202,11 +202,11 @@ async def _rebuild_member_spans(
     """Re-drive the Phase B span builder (#78-2c) so the daily refresh materializes merged
     party/Senate-seat Assignment **spans** from the sponsor archive — the current biennium
     is just a span's open end. The per-biennium inline emission the sponsor normalizer used
-    to carry is retired; this is its replacement (:mod:`harvest_sponsor_spans`).
+    to carry is retired; this is its replacement (:mod:`sponsors.build`).
 
     Only runs for the **date-current** biennium: the span builder's open-end semantics key
     off "now", and a pinned/backfill ``USA_WA_BIENNIUM`` names closed history whose spans are
-    the ``harvest_sponsor_spans`` CLI's job (re-driving here with the wrong "current" would
+    the ``sponsors.build`` CLI's job (re-driving here with the wrong "current" would
     mis-open closed tenures). **Best-effort** — wrapped in a SAVEPOINT so a builder failure
     rolls back only the span work and never fails the (primary) committees refresh. Reads the
     archive the sponsor pull just wrote (archive-first; no extra WSL call). Returns the count.

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from usa_wa_adapter_legislature.roster_hygiene import (
+from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
     STALE_MIN_COVERAGE_DEFAULT,
     committee_member_ids_by_biennium,
     stale_exclusions_by_biennium,

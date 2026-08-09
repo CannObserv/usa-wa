@@ -14,8 +14,8 @@ from usa_wa_adapter_legislature.coverage import (
 )
 from usa_wa_adapter_legislature.harvest_committee_members import DEFAULT_MEMBERSHIP_FLOOR
 from usa_wa_adapter_legislature.operators.invariants import SWEEP_FLOOR_YEAR
-from usa_wa_adapter_legislature.probe_member_identity import DEFAULT_HISTORY_FLOOR
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
+from usa_wa_adapter_legislature.sponsors.probe_identity import DEFAULT_HISTORY_FLOOR
 
 
 def test_one_wsl_source_publishes_two_dimensions_with_different_floors():

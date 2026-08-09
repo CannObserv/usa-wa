@@ -31,7 +31,7 @@ from usa_wa_adapter_legislature.normalize.members import (
     resolve_ld_jurisdiction,
     senate_seat_role_source_id,
 )
-from usa_wa_adapter_legislature.sponsor_observations import KIND_PARTY, KIND_SENATE
+from usa_wa_adapter_legislature.sponsors.projector import KIND_PARTY, KIND_SENATE
 
 logger = get_logger(__name__)
 

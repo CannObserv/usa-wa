@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
-from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
+from usa_wa_adapter_legislature.sponsors.cohort import SponsorRosterCohortProvider
 from usa_wa_adapter_legislature.transport import WireFetch
 
 

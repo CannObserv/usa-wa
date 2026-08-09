@@ -24,9 +24,9 @@ from ulid import ULID as _ULID
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person
-from usa_wa_adapter_legislature import migrate_sponsor_spans as migrate_module
-from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
-from usa_wa_adapter_legislature.migrate_sponsor_spans import MigrationResult, migrate_sponsor_spans
+from usa_wa_adapter_legislature.sponsors import migrate_spans as migrate_module
+from usa_wa_adapter_legislature.sponsors.build import build_sponsor_spans
+from usa_wa_adapter_legislature.sponsors.migrate_spans import MigrationResult, migrate_sponsor_spans
 
 CURRENT = "2025-26"
 

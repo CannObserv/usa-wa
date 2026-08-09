@@ -1,15 +1,15 @@
 """Phase B span builder CLI (#78 increment 2b-ii) — archive → merged-span Assignments.
 
 Reads every archived ``sponsors:<biennium>`` roster **offline** (via
-:class:`~usa_wa_adapter_legislature.sponsor_cohort.SponsorRosterCohortProvider`, no WSL
-re-pull), projects the rows to tenure observations (:mod:`sponsor_observations`), builds
+:class:`~usa_wa_adapter_legislature.sponsors.cohort.SponsorRosterCohortProvider`, no WSL
+re-pull), projects the rows to tenure observations (:mod:`sponsors.projector`), builds
 merged :class:`~clearinghouse_domain_legislative.tenure_spans.TenureSpan`s, and emits one
-:class:`Assignment` per tenure with per-biennium citations (:mod:`sponsor_span_emit`).
+:class:`Assignment` per tenure with per-biennium citations (:mod:`sponsors.emit`).
 
 Derives entirely from the local archive — re-runnable / re-tunable without touching WSL.
 Depends on the #77 harvest having archived the rosters first. ``--dry-run`` rolls back.
 
-    python -m usa_wa_adapter_legislature.harvest_sponsor_spans [--dry-run]
+    python -m usa_wa_adapter_legislature.sponsors.build [--dry-run]
 """
 
 from __future__ import annotations
@@ -40,25 +40,25 @@ from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
-from usa_wa_adapter_legislature.member_artifacts import with_artifact_exclusions
 from usa_wa_adapter_legislature.operators.store import (
     cite_operator_events,
     current_events,
     get_or_create_operator_source,
 )
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
-from usa_wa_adapter_legislature.roster_hygiene import (
-    STALE_MIN_COVERAGE_DEFAULT,
-    committee_member_ids_by_biennium,
-    stale_exclusions_by_biennium,
-)
-from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
-from usa_wa_adapter_legislature.sponsor_observations import (
+from usa_wa_adapter_legislature.sponsors.artifacts import with_artifact_exclusions
+from usa_wa_adapter_legislature.sponsors.cohort import SponsorRosterCohortProvider
+from usa_wa_adapter_legislature.sponsors.emit import emit_sponsor_spans
+from usa_wa_adapter_legislature.sponsors.projector import (
     KIND_PARTY,
     KIND_SENATE,
     build_sponsor_observations,
 )
-from usa_wa_adapter_legislature.sponsor_span_emit import emit_sponsor_spans
+from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
+    STALE_MIN_COVERAGE_DEFAULT,
+    committee_member_ids_by_biennium,
+    stale_exclusions_by_biennium,
+)
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
@@ -95,8 +95,9 @@ async def build_sponsor_spans(
 
     **Stale-row exclusion (#105 (b)).** Some departed members stay fully named in later wires
     (Kilduff/Senn/Nguyen); each biennium's rows are screened against that biennium's
-    committee-roster archive (:mod:`roster_hygiene`, guarded by ``stale_min_coverage``) before
-    projection, so a ghost row's party / Senate-seat span ends at the real departure boundary.
+    committee-roster archive (:mod:`sponsors.roster_hygiene`, guarded by ``stale_min_coverage``)
+    before projection, so a ghost row's party / Senate-seat span ends at the real departure
+    boundary.
     ``member_client`` re-parses the committee archive offline (no WSL pull); a caller running
     several builders per cycle passes a shared, memoized ``member_cohort`` provider instead so
     the archive is scanned once (#105 CR-1 — the daily refresh does)."""
@@ -136,7 +137,7 @@ async def build_sponsor_spans(
     }
     # Curated artifact denylist (#144): a spurious WSL sponsor row the wire names in a biennium the
     # member did not serve (Wynne LD39 Senate 2001-02) — unioned in *after* the operator-exemption
-    # subtraction so it is a hard exclusion nothing can remove. See :mod:`member_artifacts`.
+    # subtraction so it is a hard exclusion nothing can remove. See :mod:`sponsors.artifacts`.
     exclusions = with_artifact_exclusions(exclusions)
     observations = build_sponsor_observations(roster, exclusions)
     if restrict_to_biennium is not None:

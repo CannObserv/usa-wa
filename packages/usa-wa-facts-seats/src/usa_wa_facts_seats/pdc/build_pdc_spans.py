@@ -41,7 +41,7 @@ from usa_wa_adapter_legislature.cohorts import sponsor_roster_provider
 from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
 )
-from usa_wa_adapter_legislature.sponsor_cohort import (
+from usa_wa_adapter_legislature.sponsors.cohort import (
     SponsorClient,
     SponsorRosterCohortProvider,
 )

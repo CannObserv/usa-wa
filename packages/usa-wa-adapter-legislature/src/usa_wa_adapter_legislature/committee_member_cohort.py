@@ -17,7 +17,7 @@ its second run onward the newest event for a stable roster carries **no payload*
 on FetchEvent alone would therefore read the current biennium as an empty roster — silently
 dropping it out of every membership span and closing the open-ended ones. Both reads join
 :class:`RawPayload` so only payload-bearing events are candidates, tie-broken on the
-(monotonic ULID) event id. Same guarantee ``sponsor_cohort._archived_wire`` gets from its
+(monotonic ULID) event id. Same guarantee ``sponsors.cohort._archived_wire`` gets from its
 join; the scan is memoized because every build calls both accessors.
 
 Unlike the sponsor provider there is **no live fallback**: a (biennium, committee) roster is
@@ -83,7 +83,7 @@ class CommitteeMemberCohortProvider:
                     FetchEvent.resource_id.like(f"{COMMITTEE_MEMBERS_HIST_RESOURCE_PREFIX}%"),
                     FetchEvent.status == FetchStatus.ok,
                 )
-                # Newest-first, same as sponsor_cohort's per-biennium `desc + LIMIT 1`; here
+                # Newest-first, same as sponsors.cohort's per-biennium `desc + LIMIT 1`; here
                 # one bulk scan feeds many keys, so `setdefault` keeps the first (newest) seen.
                 .order_by(FetchEvent.fetched_at.desc(), FetchEvent.id.desc())
             )

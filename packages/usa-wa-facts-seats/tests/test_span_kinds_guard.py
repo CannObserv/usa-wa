@@ -36,10 +36,10 @@ def test_adapter_span_kinds_are_the_domain_objects():
     from usa_wa_adapter_legislature.committee_membership_observations import (
         KIND_COMMITTEE as leg_committee,
     )
-    from usa_wa_adapter_legislature.sponsor_observations import (
+    from usa_wa_adapter_legislature.sponsors.projector import (
         KIND_PARTY as leg_party,
     )
-    from usa_wa_adapter_legislature.sponsor_observations import (
+    from usa_wa_adapter_legislature.sponsors.projector import (
         KIND_SENATE as leg_senate,
     )
     from usa_wa_facts_seats.pdc.observations import KIND_HOUSE as pdc_house

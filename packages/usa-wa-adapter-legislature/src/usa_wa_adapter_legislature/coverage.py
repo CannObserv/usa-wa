@@ -1,7 +1,7 @@
 """WSL source coverage (#180) — what ``usa_wa_legislature`` serves, and how we know.
 
 The single declaration behind every WSL-derived floor in the workspace. Before this,
-``DEFAULT_HISTORY_FLOOR = "1991-92"`` lived in :mod:`probe_member_identity`,
+``DEFAULT_HISTORY_FLOOR = "1991-92"`` lived in :mod:`sponsors.probe_identity`,
 ``DEFAULT_MEMBERSHIP_FLOOR = "1999-00"`` in :mod:`harvest_committee_members`, and
 ``SWEEP_FLOOR_YEAR = 1991`` — the *same* fact as the first, in year form — was declared
 independently in :mod:`operators.invariants` **and** in

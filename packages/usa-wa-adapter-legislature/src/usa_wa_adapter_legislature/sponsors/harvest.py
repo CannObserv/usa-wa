@@ -18,7 +18,7 @@ Same op/resource key as the daily path — historical biennia are just older res
 Pacing is **central**: ``--pause-seconds`` sets the global WSL request limiter (#77), so
 every underlying GetSponsors POST drips against WSL rather than the CLI pacing itself.
 
-    python -m usa_wa_adapter_legislature.harvest_sponsors \\
+    python -m usa_wa_adapter_legislature.sponsors.harvest \\
         [--from-biennium 1991-92] [--to-biennium 2025-26] [--pause-seconds 1] [--dry-run]
 """
 
@@ -38,8 +38,8 @@ from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date, bienniums_in_range
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX, WALegislatureAdapter
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.probe_member_identity import DEFAULT_HISTORY_FLOOR
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
+from usa_wa_adapter_legislature.sponsors.probe_identity import DEFAULT_HISTORY_FLOOR
 from usa_wa_adapter_legislature.transport import WSLClient, configure_wsl_rate_limit
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 

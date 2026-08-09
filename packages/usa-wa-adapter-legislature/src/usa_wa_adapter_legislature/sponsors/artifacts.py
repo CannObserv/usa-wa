@@ -6,11 +6,12 @@ against the official WA Legislature members roster (1889-2025). Each entry is a 
 names in a biennium they did **not** serve, producing a phantom span that duplicates the real
 incumbent's seat.
 
-These are distinct from the :mod:`roster_hygiene` exclusion, which is *data-driven* — it flags a
-departed-but-still-named member by their **absence** from that biennium's committee-roster archive.
+These are distinct from the :mod:`sponsors.roster_hygiene` exclusion, which is *data-driven* — it
+flags a departed-but-still-named member by their **absence** from that biennium's committee-roster
+archive.
 An artifact here is a *fully-formed* WSL row (named, committee-present in the wire), so no
 automatic signal catches it; it needs a curated correction. The denylist is unioned into the
-``exclude_ids_by_biennium`` set :func:`sponsor_observations.build_sponsor_observations` already
+``exclude_ids_by_biennium`` set :func:`sponsors.projector.build_sponsor_observations` already
 honours, so no unrestricted rebuild ever re-derives the phantom span (#54-safe — the archive is
 never rewritten; the correction lives in the canonical-derivation layer).
 

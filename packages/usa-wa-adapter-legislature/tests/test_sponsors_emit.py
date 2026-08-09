@@ -17,8 +17,8 @@ from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Sou
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.sponsor_observations import build_sponsor_observations
-from usa_wa_adapter_legislature.sponsor_span_emit import emit_sponsor_spans
+from usa_wa_adapter_legislature.sponsors.emit import emit_sponsor_spans
+from usa_wa_adapter_legislature.sponsors.projector import build_sponsor_observations
 
 CURRENT = "2025-26"
 

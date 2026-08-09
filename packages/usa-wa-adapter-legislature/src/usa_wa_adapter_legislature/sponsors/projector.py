@@ -41,7 +41,7 @@ def build_sponsor_observations(
     Order-preserving over the input; the span builder groups/sorts, so callers need not.
 
     ``exclude_ids_by_biennium`` (#105 (b)) drops a member's observations for the bienniums a
-    caller has corroborated as stale (:mod:`roster_hygiene` — the departed-but-still-named
+    caller has corroborated as stale (:mod:`sponsors.roster_hygiene` — the departed-but-still-named
     Kilduff/Senn/Nguyen rows), so their party / Senate-seat spans end at the real departure
     boundary instead of staying open on ghost rows."""
     exclusions = exclude_ids_by_biennium or {}

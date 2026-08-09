@@ -9,8 +9,8 @@ observations come from PDC (#79); committee from #82.
 from __future__ import annotations
 
 from clearinghouse_domain_legislative.tenure_spans import Observation
-from usa_wa_adapter_legislature.member_artifacts import with_artifact_exclusions
-from usa_wa_adapter_legislature.sponsor_observations import (
+from usa_wa_adapter_legislature.sponsors.artifacts import with_artifact_exclusions
+from usa_wa_adapter_legislature.sponsors.projector import (
     KIND_PARTY,
     KIND_SENATE,
     build_sponsor_observations,

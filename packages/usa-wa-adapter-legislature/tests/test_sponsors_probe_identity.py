@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from zeep.exceptions import Fault
 
-from usa_wa_adapter_legislature.probe_member_identity import (
+from usa_wa_adapter_legislature.sponsors.probe_identity import (
     biennium_chain,
     compare_id_stability,
     is_person,

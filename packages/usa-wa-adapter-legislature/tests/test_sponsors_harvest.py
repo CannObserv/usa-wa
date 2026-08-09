@@ -16,8 +16,8 @@ from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier
-from usa_wa_adapter_legislature import harvest_sponsors as harvest_sponsors_module
-from usa_wa_adapter_legislature.harvest_sponsors import harvest_sponsors
+from usa_wa_adapter_legislature.sponsors import harvest as harvest_sponsors_module
+from usa_wa_adapter_legislature.sponsors.harvest import harvest_sponsors
 from usa_wa_adapter_legislature.transport import WireFetch
 
 

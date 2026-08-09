@@ -3,7 +3,7 @@
 Turns a biennium into its list of ``GetSponsors`` member rows — the member analog of
 :class:`~usa_wa_adapter_legislature.committee_roster_cohort.CommitteeRosterCohortProvider`.
 The span engine reads every archived biennium through this provider, projects the rows to
-tenure observations (:mod:`sponsor_observations`), and builds merged spans.
+tenure observations (:mod:`sponsors.projector`), and builds merged spans.
 
 **Archive-first, read-only.** Given a ``session`` + provenance ``source_id`` it reads the
 latest archived ``sponsors:<biennium>`` wire (:class:`RawPayload`, written by the #77

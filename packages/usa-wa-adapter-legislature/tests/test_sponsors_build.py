@@ -23,11 +23,11 @@ from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCo
 from usa_wa_adapter_legislature.harvest_committee_member_spans import (
     build_committee_member_spans,
 )
-from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
 from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
 )
+from usa_wa_adapter_legislature.sponsors.build import build_sponsor_spans
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 

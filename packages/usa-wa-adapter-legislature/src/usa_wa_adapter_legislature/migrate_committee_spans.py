@@ -26,7 +26,7 @@ keeper's UPDATE while the legacy row still holds the same ``pm_assignment_id``, 
 ``uq_assignments_pm_assignment_id`` (#86). Mirrors :func:`migrate_pdc_spans._retire_onto` (#91).
 
 **Owner role.** Retiring a row deletes its ``citations``, which the app role is REVOKEd (#54),
-so this runs under ``DATABASE_URL_OWNER`` — like :mod:`migrate_sponsor_spans`. The daily span
+so this runs under ``DATABASE_URL_OWNER`` — like :mod:`sponsors.migrate_spans`. The daily span
 re-drive stays app-role-safe (insert-only citations).
 
 **Deploy sequencing.** Run this in the *same* maintenance window as the Phase A harvest that
@@ -229,7 +229,7 @@ async def _main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     # Owner role: retiring a stranded row deletes its citations, which the app role is
-    # REVOKEd on the provenance ledger (#54). Same contract as migrate_sponsor_spans.
+    # REVOKEd on the provenance ledger (#54). Same contract as sponsors.migrate_spans.
     database_url = os.environ.get("DATABASE_URL_OWNER")
     if not database_url:
         print(

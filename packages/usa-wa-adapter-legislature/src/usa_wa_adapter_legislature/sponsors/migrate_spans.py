@@ -17,7 +17,7 @@ party/Senate seat Role — whose validity window contains the stranded row's ``v
 
 2. **Superseded 4-part shallow spans (#97).** The 2c daily path builds a span keyed on the
    *current* biennium start (``{member}:{dim}:{disc}:2025-26`` — already 4-part). When the
-   full-archive backfill (``harvest_sponsor_spans`` at natural depth) later merges the same
+   full-archive backfill (``sponsors.build`` at natural depth) later merges the same
    tenure into a span starting **earlier**, the current-start row (still 4-part, a different
    ``source_id``) is stranded — the #83 stale-sweep closes it but leaves it anchored. This is
    the **same** case #91 fixed for PDC House and #95 for committee memberships; the original
@@ -80,7 +80,7 @@ from clearinghouse_core.provenance import Citation
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.span_emit import MAX_CLOSE_FRACTION_DEFAULT, close_fraction
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
+from usa_wa_adapter_legislature.sponsors.build import build_sponsor_spans
 
 logger = get_logger(__name__)
 
