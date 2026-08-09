@@ -78,3 +78,15 @@ level down.
 `committee_span_emit`), so it crosses no adapter boundary and imports no peer adapter. Moving
 it here would be motion without a layering payoff; where it sits inside
 `usa-wa-adapter-legislature` is `#183`'s question about intra-package shape, not this one's.
+
+## Known follow-on: the two refresh drivers still import a transport
+
+`house/refresh.py` and `pdc/refresh.py` each run the source's Phase-A harvest *and* rebuild
+the fact in one process. Only the second half is a fact, so these are the package's two
+exceptions to the *Facts depend on cohort interfaces, never on a transport* contract —
+enumerated by name in the root `pyproject.toml`, never wildcarded, so any **new** violation
+still fails. Every builder module satisfies the rule unaided.
+
+The split (each adapter owns "refresh my archive", the fact owns "rebuild from the archive")
+changes two systemd entry points and their `--force`/`--biennium` semantics, so it is tracked
+separately as **#201** rather than bundled into #189.

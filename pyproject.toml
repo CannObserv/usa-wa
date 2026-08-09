@@ -212,8 +212,8 @@ forbidden_modules = [
 # correct split is for each adapter to own "refresh my archive" and the fact to own
 # "rebuild from the archive" — a real change to two systemd entry points and their
 # `--force`/`--biennium` semantics, deliberately NOT bundled into #189's already-wide
-# diff. Tracked as the follow-on named in docs/MODULES-FACTS-SEATS.md; every *builder*
-# module in the package already satisfies the rule unaided.
+# diff. Tracked as issue #201 (CR #196 finding 34 — this comment previously claimed a
+# follow-on note that did not exist); every *builder* module already satisfies the rule.
 ignore_imports = [
     "usa_wa_facts_seats.house.refresh -> usa_wa_adapter_sos.results.transport",
     "usa_wa_facts_seats.pdc.refresh -> usa_wa_adapter_pdc.transport",
