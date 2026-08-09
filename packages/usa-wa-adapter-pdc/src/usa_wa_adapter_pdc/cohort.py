@@ -4,7 +4,7 @@ Turns the archived PDC winner cohorts into the span builder's inputs:
 
 - :meth:`house_cohorts` / :meth:`senate_cohorts` — ``{election_year: [winner rows]}``,
   re-parsed **offline** from each ``house-winners:<Y>`` / ``senate-winners:<Y>``
-  :class:`RawPayload` (written by the Phase A harvest, :mod:`harvest_pdc`) — no SODA re-pull.
+  :class:`RawPayload` (written by the Phase A harvest, :mod:`harvest`) — no SODA re-pull.
 - :meth:`house_events` — ``{election_year: (fetch_event_id, fetched_at, resource_id)}``, the
   per-cohort provenance each House Position span cites (Senate is identifier-only, uncited).
 

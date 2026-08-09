@@ -45,7 +45,7 @@ def test_sos_filing_provider_is_an_attested_cohort_provider():
 
 def test_pdc_winner_provider_is_an_attested_cohort_provider():
     """PDC's accessor was `house_events`; #189 gave it the seam's name too."""
-    from usa_wa_adapter_pdc.pdc_cohort import PdcWinnerCohortProvider
+    from usa_wa_adapter_pdc.cohort import PdcWinnerCohortProvider
 
     assert isinstance(PdcWinnerCohortProvider(session=None, source_id=None), AttestedCohortProvider)
 

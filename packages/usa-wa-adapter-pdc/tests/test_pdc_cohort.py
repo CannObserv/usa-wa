@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
-from usa_wa_adapter_pdc.pdc_cohort import PdcWinnerCohortProvider
+from usa_wa_adapter_pdc.cohort import PdcWinnerCohortProvider
 
 
 @pytest.fixture

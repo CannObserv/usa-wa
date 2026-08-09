@@ -16,8 +16,8 @@ from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import FetchEvent, RawPayload
 from clearinghouse_domain_legislative.identity import Assignment
-from usa_wa_adapter_pdc import harvest_pdc as harvest_module
-from usa_wa_adapter_pdc.harvest_pdc import HarvestSummary, election_years, harvest_pdc
+from usa_wa_adapter_pdc import harvest as harvest_module
+from usa_wa_adapter_pdc.harvest import HarvestSummary, election_years, harvest_pdc
 from usa_wa_adapter_pdc.transport import WireFetch
 
 

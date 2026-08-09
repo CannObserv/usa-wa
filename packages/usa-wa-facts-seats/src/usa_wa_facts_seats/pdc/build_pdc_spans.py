@@ -1,7 +1,7 @@
 """Phase B PDC builder (#79, **identifier-only since #101**) — archive → ``person_wa_pdc`` links.
 
 Reads every archived ``house-winners:<Y>`` / ``senate-winners:<Y>`` cohort **offline** (via
-:class:`~usa_wa_adapter_pdc.pdc_cohort.PdcWinnerCohortProvider`), pairs each with the roster of
+:class:`~usa_wa_adapter_pdc.cohort.PdcWinnerCohortProvider`), pairs each with the roster of
 the biennium it **seated** (an even year seats ``[Y+1, Y+2]``; an odd special seats ``[Y, Y+1]``
 mid-term, #121 — both via :func:`seating_biennium_for_election_year`, read archive-first from
 the WSL sponsor archive), matches each winner to a WSL :class:`Person`, and emits the
@@ -45,7 +45,7 @@ from usa_wa_adapter_legislature.sponsor_cohort import (
     SponsorClient,
     SponsorRosterCohortProvider,
 )
-from usa_wa_adapter_pdc.pdc_cohort import PdcWinnerCohortProvider
+from usa_wa_adapter_pdc.cohort import PdcWinnerCohortProvider
 from usa_wa_adapter_pdc.provisioning import get_or_create_source as get_or_create_pdc_source
 from usa_wa_common.elections import seating_biennium_for_election_year
 from usa_wa_common.jurisdiction import resolve_jurisdiction

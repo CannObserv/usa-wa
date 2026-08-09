@@ -23,7 +23,7 @@ biennium.
 |---|---|
 | `python -m usa_wa_adapter_legislature.refresh` | Daily WSL pull — committees + meeting window + member cluster |
 | `python -m usa_wa_facts_seats.pdc.refresh` | Daily PDC pull — House Position seats (#69) + Senate cross-links (#75) |
-| `python -m usa_wa_adapter_pdc.harvest_pdc` | Historical PDC winner cohorts — archive-only, Phase A (#79) |
+| `python -m usa_wa_adapter_pdc.harvest` | Historical PDC winner cohorts — archive-only, Phase A (#79) |
 | `python -m usa_wa_facts_seats.pdc.build_pdc_spans` | Era-matched `person_wa_pdc` identifier links, Phase B (#79; identifier-only since #101) |
 | `python -m usa_wa_facts_seats.pdc.migrate_pdc_spans` | Retire pre-#79 per-biennium PDC House rows onto spans (#79) |
 | `python -m usa_wa_adapter_sos.results.harvest` | Archive WA SOS **results** cohorts (the House Position source, `usa_wa_sos_results`) — Phase A (#101) |
@@ -235,8 +235,8 @@ python -m usa_wa_facts_seats.house.refresh
 # empty cohort (negative evidence, no error path); cache-hit on re-run. A mid-sweep failure aborts
 # the run (nothing committed) — re-run from the floor (closed years cache-hit).
 # --pause-seconds drips between years (SODA analog of the WSL harvests' pacing).
-python -m usa_wa_adapter_pdc.harvest_pdc --dry-run
-python -m usa_wa_adapter_pdc.harvest_pdc --from-year 2008 --pause-seconds 0.5
+python -m usa_wa_adapter_pdc.harvest --dry-run
+python -m usa_wa_adapter_pdc.harvest --from-year 2008 --pause-seconds 0.5
 
 # Phase B — era-matched IDENTIFIER build (archive-first, no live PDC pull; identifier-only since
 # #101): each cohort pairs with its seating biennium's sponsor roster — an even year seats the

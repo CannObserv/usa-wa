@@ -12,7 +12,7 @@ Floor ~2008 (the PDC campaign-finance dataset's coverage); a year with no data s
 an empty cohort (negative evidence — no error path, unlike the SOS results source). Cohorts of
 a closed year are cache hits on re-run.
 
-    python -m usa_wa_adapter_pdc.harvest_pdc --from-year 2008 [--dry-run]
+    python -m usa_wa_adapter_pdc.harvest --from-year 2008 [--dry-run]
 """
 
 from __future__ import annotations

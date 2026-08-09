@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from clearinghouse_core.source_coverage import CoverageStatus, SourceCoverage
 from usa_wa_adapter_pdc.coverage import ELECTION_YEAR, PDC_COVERAGE, PDC_ELECTION_YEARS
-from usa_wa_adapter_pdc.harvest_pdc import DEFAULT_ELECTION_FLOOR
+from usa_wa_adapter_pdc.harvest import DEFAULT_ELECTION_FLOOR
 from usa_wa_adapter_pdc.provisioning import get_or_create_source
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
