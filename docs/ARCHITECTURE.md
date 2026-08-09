@@ -116,7 +116,20 @@ covers.
 
 A source's coverage is a claim to be **verified**, not assumed. Before an application is built on a
 feed, audit it end-to-end across its full intended range and surface the gaps: availability per
-period, filename/URL stability, schema drift, and label/value inconsistencies. The votewa episode
+period, filename/URL stability, schema drift, and label/value inconsistencies.
+
+**The audit's output is data, not a comment (#180).** Each adapter package declares its sources'
+coverage in `coverage.py` as `CoverageClaim`s — `(dimension, range_start, range_end, status,
+audited_at, notes)` — and `provisioning.py` seeds them into `clearinghouse_core.source_coverage`
+alongside the `Source` row. The claims are the single source of truth: a harvest's floor/ceiling is
+derived from one in pure Python (so a CLI default costs no query), and the table is the same object
+projected for querying. `status` is `verified` (probed on `audited_at`) | `assumed` (believed, never
+checked — say so) | **`absent`** (the feed does *not* serve this range, and that is a fact rather
+than the silence a missing row is indistinguishable from — the votewa 2020+ retirement is the
+worked example). `dimension` keys the axis, not the source, because one feed can serve several with
+different bounds (WSL: `sponsor_roster` from 1991-92, `committee_membership` only from 1999-00).
+
+The votewa episode
 produced two rules now baked into this pattern — the resilient harvest above, and: **never key a
 parser on an exact upstream string.** WA SOS labels the same office three ways
 (`State Representative Pos. 1`, `Representative, Position 1`, a bare `State Representative 2`),
@@ -131,7 +144,12 @@ real seats.
    `cohort` (archive-first), `harvest` (per-year SAVEPOINT + skip-and-log + a total-outage signal,
    whether or not the range is closed; see *Resilient harvest* above).
 2. A new `Source`/`source_slug` in `provisioning.py`; a non-colliding archive-key scheme.
-3. Audit the feed across its range first; encode every gap/variant as a test.
+3. **Audit the feed across its range first, and record the result as coverage rows** — a
+   `CoverageClaim` per dimension in the package's `coverage.py`, seeded by `provisioning.py`.
+   *Coverage rows must exist before an application builds on the feed.* An unprobed bound is
+   `assumed`, not `verified`; a known gap is an `absent` claim, not an omission. Encode every
+   gap/variant as a test too, and derive the harvest's floor/ceiling from the claim rather than
+   restating it as a constant.
 4. Point (or add) the application's cohort provider — do **not** widen an application module to
    know about the source.
 5. Wire the Phase A harvest + any daily refresh into `deploy/`; document the CLI in

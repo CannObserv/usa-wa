@@ -228,7 +228,9 @@ python -m usa_wa_sync_powermap.reconcile_committee_name_chain
 # distinct sos_harvest_total_outage warning fires so cohorts_archived=0 does not read as "nothing to
 # do". USA_WA_BIENNIUM is NOT read here (the bound comes from the wall clock, then the ceiling).
 # The source is kept for its candidacy metadata (Email / MailingAddress / Phone / FilingDate /
-# IsWithdrawn, #99), not the seat — see ARCHITECTURE.md for the two sources' coverage table.
+# IsWithdrawn, #99), not the seat — see ARCHITECTURE.md for the two sources' coverage table, and
+# clearinghouse_core.source_coverage (#180) for the machine-readable form: this feed carries a
+# verified 2008-2018 claim AND an absent 2020- claim, which is what the ceiling is derived from.
 #
 # PACING: --pause-seconds sets the CENTRAL votewa min-interval — one shared limiter every votewa GET
 # passes through (the #77 central-governor pattern), the same gate USA_WA_SOS_MIN_REQUEST_INTERVAL
