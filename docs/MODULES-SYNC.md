@@ -5,6 +5,14 @@
 repo-root directories. The portable engine these bind is in
 [MODULES-FRAMEWORK.md](MODULES-FRAMEWORK.md).
 
+Since #181 that engine is a **package** — `clearinghouse_sync_powermap/engine/`
+(`context` / `anchors` / `write` / `read` under a `SyncEngine` façade) — but the
+import path and the whole public surface are unchanged, so every binding below
+(`registry.py`, `sidecar.py`, the producer CLIs, `usa-wa-api`'s redrive + health
+routes) calls it exactly as before. A Layer-4 module that needs a subsystem directly
+can reach `engine.writer` / `engine.reader` / `engine.anchors` instead of asking for
+the façade to be widened.
+
 ```
   usa-wa-api/                         — Layer 4: WA deployment (FastAPI + MCP + REST)
     src/usa_wa_api/api/
