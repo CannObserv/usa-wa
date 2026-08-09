@@ -51,6 +51,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
+from usa_wa_adapter_legislature.coverage import SPONSOR_ROSTER_COVERAGE
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_pdc.adapter import election_years_for_biennium
@@ -65,10 +66,12 @@ logger = get_logger(__name__)
 _HOUSE_SEAT_PREFIX = "seat:house:ld-"
 _REPRESENTATIVE = "state_representative"
 
-#: The earliest odd year ``--sweep-biennia`` probes — the WSL sponsor-archive floor (#77). House
-#: Position coverage itself floors at 2003-04 (#118), so earlier odd years under-report (so the
-#: sweep is report-only).
-SWEEP_FLOOR_YEAR = 1991
+#: The earliest odd year ``--sweep-biennia`` probes — the WSL sponsor-archive floor (#77), read
+#: off that source's declared coverage claim (#180) rather than restated here; the identical
+#: literal also lived in ``usa_wa_adapter_legislature.succession_invariants``. House Position
+#: coverage itself floors at 2003-04 (#118), so earlier odd years under-report (so the sweep is
+#: report-only).
+SWEEP_FLOOR_YEAR = SPONSOR_ROSTER_COVERAGE.floor_year
 
 #: A House seat key: ``(LD, "Position 1"|"Position 2")``.
 HouseSeat = tuple[int, str]

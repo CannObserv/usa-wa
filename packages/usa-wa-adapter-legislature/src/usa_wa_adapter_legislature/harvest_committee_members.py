@@ -46,6 +46,7 @@ from usa_wa_adapter_legislature.adapter import (
 )
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
+from usa_wa_adapter_legislature.coverage import COMMITTEE_MEMBERSHIP_COVERAGE
 from usa_wa_adapter_legislature.harvest_committee_meetings import bienniums_in_range
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
 from usa_wa_adapter_legislature.synthesis import biennium_for_date
@@ -53,8 +54,11 @@ from usa_wa_adapter_legislature.transport import WSLClient, configure_wsl_rate_l
 
 logger = get_logger(__name__)
 
-#: WSL's ``GetCommitteeMembers`` floor — below this, truncated old committee names fault.
-DEFAULT_MEMBERSHIP_FLOOR = "1999-00"
+#: WSL's ``GetCommitteeMembers`` floor — below this, truncated old committee names fault. The
+#: declared committee-membership coverage claim (#180), which records this bound as **assumed**:
+#: it was never probed, and the transport swallows the fault to an empty roster, so a wrong floor
+#: fails silently.
+DEFAULT_MEMBERSHIP_FLOOR = COMMITTEE_MEMBERSHIP_COVERAGE.range_start
 
 #: Only chamber standing committees have a membership op (Joint/`Other` are meeting-derived).
 _MEMBER_AGENCIES = ("House", "Senate")

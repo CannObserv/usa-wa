@@ -4,6 +4,25 @@ The write round-trip is the MVP increment end to end: a locally-minted,
 un-anchored jurisdiction is swept into the outbox, observed to PM, and anchored
 from the disposition — all in one ``tick``. Uses the savepointed ``db_session``
 (real Postgres) + the in-memory FakeClient (no network).
+
+**Scope (usa-wa#186 — AR-9).** Everything here must be about *this deployment*:
+the Sidecar's orchestration (tick composition, per-component isolation, cycle
+verdict, backoff, alerting, the cycle-summary line) and usa-wa's descriptor
+wiring. The generic engine's contract belongs in
+``clearinghouse-sync-powermap``'s own suite, against the jurisdiction-free
+``clearinghouse_sync_powermap.testing`` harness — a Layer-2 behaviour specified
+from here is a behaviour a sibling jurisdiction would not inherit.
+
+The rule is mechanical: **if a test never constructs a ``Sidecar``, it does not
+belong in this file.** AR-9's audit found exactly one such test (a bare
+``SyncEngine`` LWW round trip, migrated to ``test_engine_read.py`` as
+``test_reimported_record_does_not_reenqueue_writeback``). Note what the audit did
+*not* find — the engine behaviours the tests below touch (drain commit chunking,
+the sweep's batch commit, the anchored-cohort recovery and its cadence stamp,
+clock adoption) are each already specified generically in ``test_engine_read.py`` /
+``test_engine_write.py``; the assertions here are on the *composition*, which is
+this layer's job. ``docs/MODULES-SYNC.md`` carries the co-change diagnosis behind
+this scope note.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -21,7 +40,6 @@ from clearinghouse_sync_powermap.client import (
     ObservationResult,
 )
 from clearinghouse_sync_powermap.engine import (
-    APPLY_KEPT_LOCAL,
     REPLAY_STREAM,
     ReplayResult,
     SyncEngine,
@@ -130,32 +148,6 @@ async def test_tick_read_feed_upserts_from_pm(db_session, state_type):
     ).scalar_one()
     assert cached.name == "King County"
     assert cached.pm_jurisdiction_id == pm_id
-
-
-async def test_reconciled_jurisdiction_does_not_reenqueue_writeback(db_session, state_type):
-    """Regression (go-live 403 loop): a PM-imported jurisdiction, re-read on the
-    next reconcile, must NOT be judged locally-newer and pushed back to PM. With
-    PM's updated_at preserved locally, LWW sees parity → PM wins → no outbox."""
-    descriptor = JurisdictionDescriptor()
-    engine = SyncEngine([descriptor], FakeClient())
-    record = {
-        "id": str(ULID()),
-        "slug": "usa-wa",
-        "name": "Washington",
-        "type": {"id": str(ULID()), "slug": "state", "display_name": "State"},
-        "recorded_at": "2022-01-01T00:00:00Z",
-        "valid_from": "2022-01-01T00:00:00Z",
-        "valid_until": None,
-        "superseded_at": None,
-        "updated_at": "2026-06-01T00:00:00Z",
-    }
-
-    await engine.apply_record(db_session, descriptor, record)  # first reconcile: import
-    outcome = await engine.apply_record(db_session, descriptor, record)  # next reconcile
-
-    assert outcome != APPLY_KEPT_LOCAL
-    entries = (await db_session.execute(select(OutboxEntry))).scalars().all()
-    assert entries == []
 
 
 # --- outbox commit boundary (#8) -----------------------------------------------

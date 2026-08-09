@@ -174,3 +174,29 @@ async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
     out = capsys.readouterr().out
     assert "archived=2" in out
     assert "dry-run, rolled back" in out
+
+
+async def test_main_leaves_the_env_rate_limit_alone_without_the_flag(
+    monkeypatch, capsys, test_engine
+):
+    """``--pause-seconds`` defaults to ``None`` so the flag's own default stops overwriting the
+    value the central results limiter was seeded with from
+    ``USA_WA_SOS_RESULTS_MIN_REQUEST_INTERVAL`` (#169) — the shape
+    :mod:`harvest_committee_members` already uses."""
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+
+    async def _fake_harvest(session, **_kwargs):
+        return HarvestSummary(
+            years=0, cohorts_archived=0, cohorts_absent=0, cohorts_skipped=0, dry_run=True
+        )
+
+    with (
+        patch.object(harvest_module, "configure_logging"),
+        patch.object(harvest_module, "harvest_results", _fake_harvest),
+        patch.object(harvest_module, "configure_results_rate_limit") as configure,
+    ):
+        await harvest_module._main(["--dry-run"])
+        assert configure.call_count == 0
+
+        await harvest_module._main(["--dry-run", "--pause-seconds", "2.0"])
+        configure.assert_called_once_with(2.0)

@@ -15,15 +15,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import RetentionPolicy, Source
+from clearinghouse_core.source_coverage import seed_source_coverage
+from usa_wa_adapter_pdc.coverage import PDC_COVERAGE
 from usa_wa_adapter_pdc.transport import PDC_BASE_URL
 
 
 async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction) -> Source:
-    """Get-or-create the ``usa_wa_pdc`` REST :class:`Source` (idempotent)."""
+    """Get-or-create the ``usa_wa_pdc`` REST :class:`Source` (idempotent).
+
+    Seeds the source's declared coverage claims (#180) on both paths — see
+    :func:`usa_wa_adapter_legislature.provisioning.get_or_create_source` for why.
+    """
     existing = (
         await session.execute(select(Source).where(Source.slug == "usa_wa_pdc"))
     ).scalar_one_or_none()
     if existing is not None:
+        await seed_source_coverage(session, existing, PDC_COVERAGE)
         return existing
     row = Source(
         jurisdiction_id=jurisdiction.id,
@@ -39,4 +46,5 @@ async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction
     )
     session.add(row)
     await session.flush()
+    await seed_source_coverage(session, row, PDC_COVERAGE)
     return row

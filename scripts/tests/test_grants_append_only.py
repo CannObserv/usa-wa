@@ -53,6 +53,11 @@ EXPECTED: dict[str, dict[str, bool]] = {
     # DELETE-able for retention. Operational telemetry, not a provenance ledger
     # row (nothing cites it), so neither revocation.
     "job_runs": {"revoke_update": False, "revoke_delete": False},
+    # #180 source-coverage audit: mutable by design — a re-audit UPDATEs the
+    # existing (source, dimension, range_start) row in place rather than minting a
+    # second one, and a retracted claim is DELETE-able. It records what a feed
+    # covers, not what a feed asserted, so nothing cites it; neither revocation.
+    "source_coverage": {"revoke_update": False, "revoke_delete": False},
 }
 
 

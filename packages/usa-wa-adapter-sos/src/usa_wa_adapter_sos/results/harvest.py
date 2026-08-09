@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
+from usa_wa_adapter_sos.coverage import SOS_RESULTS_ELECTION_YEARS
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.adapter import ResultsAdapter, legresults_resource_id
 from usa_wa_adapter_sos.results.transport import (
@@ -49,8 +50,9 @@ from usa_wa_adapter_sos.results.transport import (
 
 logger = get_logger(__name__)
 
-#: The earliest general-election year this source fills against (the PDC winner floor).
-DEFAULT_ELECTION_FLOOR = 2008
+#: The earliest general-election year this source fills against (the PDC winner floor) — the
+#: declared coverage claim (#180).
+DEFAULT_ELECTION_FLOOR = SOS_RESULTS_ELECTION_YEARS.floor_year
 
 
 @dataclass(frozen=True)
@@ -132,11 +134,14 @@ async def harvest_results(
             skipped += 1
             logger.warning("results_cohort_year_skipped", extra={"year": year, "error": str(exc)})
 
-    if archived == 0 and skipped > 0:
-        # Every year the source *should* have served failed — a whole-source outage, not one bad
-        # year in a good run. Per-year resilience keeps this exit 0 (no year crashed the sweep), so
-        # raise a single distinct signal lest "archived=0" read as "nothing to do". A sweep of only
-        # race-less years (all ``absent``) is not an outage and deliberately stays quiet.
+    if skipped > 0 and skipped == len(years):
+        # *Every* year failed — a whole-source outage, not one bad year in a good run. A sweep of
+        # only race-less years (all ``absent``) is not an outage and deliberately stays quiet.
+        #
+        # The test is "all years skipped", not "archived == 0" (CR #196 finding 23):
+        # ``archive_only`` returns False on a **cache hit**, so ``archived`` counts fetches, not
+        # successes, and a sweep where the served years all cache-hit and one year fails would
+        # otherwise report a whole-source outage.
         logger.warning(
             "results_harvest_total_outage", extra={"years": len(years), "skipped": skipped}
         )
@@ -169,8 +174,11 @@ async def _main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--pause-seconds",
         type=float,
-        default=1.0,
-        help="central results.vote.wa.gov min-interval between calls (courtesy; default 1.0)",
+        default=None,
+        help=(
+            "central results.vote.wa.gov min-interval between calls (courtesy); unset leaves the "
+            "value seeded from USA_WA_SOS_RESULTS_MIN_REQUEST_INTERVAL (default 1.0) in place"
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -179,7 +187,10 @@ async def _main(argv: list[str] | None = None) -> int:
         print("DATABASE_URL is not set; aborting", file=sys.stderr)
         return 2
 
-    configure_results_rate_limit(args.pause_seconds)
+    # Only override the central limiter when the operator asked (#169) — an unconditional call
+    # let the flag's own default silently overwrite the env-seeded interval.
+    if args.pause_seconds is not None:
+        configure_results_rate_limit(args.pause_seconds)
     # The current *calendar* year, not the biennium's seating election year (#106): in 2025-26 the
     # latter is 2024, so defaulting to it would stop the sweep short of the very odd-year cohort
     # this harvest exists to archive. A year not yet held simply 404s and is skipped-and-logged.

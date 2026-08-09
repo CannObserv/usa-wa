@@ -48,15 +48,18 @@ from typing import Any
 from zeep.exceptions import Fault
 
 from clearinghouse_core.logging import configure_logging, get_logger
+from usa_wa_adapter_legislature.coverage import SPONSOR_ROSTER_COVERAGE
 from usa_wa_adapter_legislature.normalize.members import is_person
 from usa_wa_adapter_legislature.refresh import biennium_for_date, previous_biennium
 from usa_wa_adapter_legislature.transport import WSLClient, _is_biennium_out_of_range
 
 logger = get_logger(__name__)
 
-#: The WSL ``GetSponsors`` history floor (probed 2026-07-08 — 1989-90 faults). The deep
-#: sweep (#81) walks back to here to confirm ``Id`` stability before the historical mint.
-DEFAULT_HISTORY_FLOOR = "1991-92"
+#: The WSL ``GetSponsors`` history floor — the declared sponsor-roster coverage claim (#180),
+#: probed 2026-07-08 (1989-90 faults). The deep sweep (#81) walks back to here to confirm ``Id``
+#: stability before the historical mint. Derived rather than restated so a re-audit of the feed
+#: moves this default, the #77 harvest, and both succession sweeps together.
+DEFAULT_HISTORY_FLOOR = SPONSOR_ROSTER_COVERAGE.range_start
 
 # ``is_person`` (imported from normalize.members, the single source of truth) filters the
 # name-blanked stubs GetSponsors returns for a superseded/departed (member, chamber-tenure)
