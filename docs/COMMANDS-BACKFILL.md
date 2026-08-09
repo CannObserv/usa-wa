@@ -66,7 +66,8 @@ python -m usa_wa_adapter_legislature.ingest_committee_seed
 # archiving each sponsors:<biennium> wire (#54) and materializing PERSONS + wa_legislature_member_id
 # identifiers ONLY (the sponsor normalize is persons-only, #78-2c — party/seat/committee tenure
 # are merged spans built in Phase B #78, not per-biennium here). Persons dedup by stable Id (#81). Same
-# op/resource key as the daily path. Pacing is central: --pause-seconds sets the WSL limiter.
+# op/resource key as the daily path. Pacing is central: --pause-seconds sets the WSL limiter — it
+# defaults to None (#169), so an unflagged run leaves USA_WA_WSL_MIN_REQUEST_INTERVAL in force.
 # Closed biennia cache-hit on re-run; --dry-run rolls back; --force re-materializes.
 python -m usa_wa_adapter_legislature.harvest_sponsors --dry-run   # 1991-92→current, roll back
 python -m usa_wa_adapter_legislature.harvest_sponsors --from-biennium 1991-92 --pause-seconds 1
@@ -214,26 +215,29 @@ python -m usa_wa_sync_powermap.reconcile_committee_name_chain
 # different source (usa_wa_sos vs usa_wa_sos_results), different archive key, its OWN CLI — do not
 # infer flags or resilience from the sibling.
 #
-# 2020+ COVERAGE CLIFF — read before running. SOS retired this export to Power BI after the 2018
-# general; a 2020+ election returns HTTP 500 (live audit 2026-07-18 — the finding that moved the
-# House Position seat onto the results source at #101 — re-verified 2026-08-06: 201811 → 200,
-# 202011 → 500). This harvest has NO per-year SAVEPOINT (the results harvest's per-year resilience
-# is NOT shared): the raise propagates out of the sweep, the whole transaction rolls back, and it
-# exits 1 having committed nothing — including the 2008–2018 years it already fetched. So ALWAYS
-# pass --to-year 2018. The default --to-year is the current biennium's seating general
-# (2025-26 → 2024), which walks straight off the cliff. USA_WA_BIENNIUM is NOT read here (the bound
-# comes from the wall clock), so pinning it does not help.
+# 2020+ COVERAGE CLIFF. SOS retired this export to Power BI after the 2018 general; a 2020+
+# election returns HTTP 500 (live audit 2026-07-18 — the finding that moved the House Position seat
+# onto the results source at #101 — re-verified 2026-08-06: 201811 → 200, 202011 → 500). Since #169
+# the CLI knows this: DEFAULT_ELECTION_CEILING = 2018 caps the wall-clock default, so a bare
+# invocation sweeps 2008–2018 and stops. Passing --to-year 2018 is now belt-and-braces rather than
+# mandatory. An EXPLICIT --to-year past the ceiling is still honoured as given (an operator probe of
+# whether votewa ever restores the export) — and is survivable, because the sweep is per-year
+# resilient: each year runs in its own SAVEPOINT, an httpx failure (status OR transport) is
+# skipped-and-logged as sos_cohort_year_skipped, and the years the sweep reached still commit. A
+# DB/SQLAlchemy error is NOT an httpx error and still aborts the whole run. If every year fails, one
+# distinct sos_harvest_total_outage warning fires so cohorts_archived=0 does not read as "nothing to
+# do". USA_WA_BIENNIUM is NOT read here (the bound comes from the wall clock, then the ceiling).
 # The source is kept for its candidacy metadata (Email / MailingAddress / Phone / FilingDate /
-# IsWithdrawn, #99), not the seat — see ARCHITECTURE.md for the two sources' coverage table.
+# IsWithdrawn, #99), not the seat — see ARCHITECTURE.md for the two sources' coverage table, and
+# clearinghouse_core.source_coverage (#180) for the machine-readable form: this feed carries a
+# verified 2008-2018 claim AND an absent 2020- claim, which is what the ceiling is derived from.
 #
-# PACING: use --pause-seconds (default 1.0). It sets the CENTRAL votewa min-interval — one shared
-# limiter every votewa GET passes through (the #77 central-governor pattern), the same gate
-# USA_WA_SOS_MIN_REQUEST_INTERVAL seeds at import (default 1.0, 0 disables). But the CLI calls
-# configure_sos_rate_limit(--pause-seconds) UNCONDITIONALLY, so the flag's own default overwrites
-# the env-seeded value on every run — and this harvest is the ONLY production caller of
-# SOSFilingsClient (Phase B reads the archive offline), so no process honours
-# USA_WA_SOS_MIN_REQUEST_INTERVAL at all: it is inert until #169 lands the conditional-override
-# shape harvest_committee_members.py already uses. Deliberately gentle: votewa is a low-QPS
+# PACING: --pause-seconds sets the CENTRAL votewa min-interval — one shared limiter every votewa GET
+# passes through (the #77 central-governor pattern), the same gate USA_WA_SOS_MIN_REQUEST_INTERVAL
+# seeds at import (default 1.0, 0 disables). Since #169 the flag defaults to None and the CLI only
+# calls configure_sos_rate_limit() when you pass it, so the env var now genuinely governs the
+# unflagged run — it previously did not, this harvest being the ONLY production caller of
+# SOSFilingsClient (Phase B reads the archive offline). Deliberately gentle: votewa is a low-QPS
 # government ASP.NET site with no published API contract, and 2008–2018 is 6 calls.
 # CACHE: the freshness TTL is provisioned at 1 day (the usa_wa_sos Source's cache_ttl_days, set on
 # row creation only — an existing row's value is never reconciled). Inside it a re-run is a pure
@@ -241,11 +245,14 @@ python -m usa_wa_sync_powermap.reconcile_committee_name_chain
 # re-fetches (cohorts_archived counts FETCHES, not new bytes) but a byte-identical CSV dedups to
 # the existing RawPayload, so only a new FetchEvent is written. --force skips the TTL check.
 # --dry-run harvests for real (it hits votewa) and rolls back — no provenance retained.
-# EXIT CODES: 0 success, printing e.g. "SOS harvest: years=6 cohorts_archived=6 (committed)" —
-# the trailing token is "(dry-run, rolled back)" under --dry-run; 1 any exception mid-sweep, logged
-# as sos_harvest_failed, nothing committed; 2 DATABASE_URL unset. APP role (archive tables only, no
-# owner DML). No sidecar pause needed — archive-only, so nothing reaches PM.
-python -m usa_wa_adapter_sos.filings.harvest --to-year 2018 --dry-run
+# EXIT CODES: 0 success, printing e.g. "SOS harvest: years=6 cohorts_archived=6 cohorts_skipped=0
+# (committed)" — the trailing token is "(dry-run, rolled back)" under --dry-run. A year the source
+# could not serve raises cohorts_skipped without changing the exit code, so check that field (and
+# the sos_harvest_total_outage warning) rather than the exit code alone; 1 a NON-httpx exception
+# mid-sweep (a DB error), logged as sos_harvest_failed, nothing committed; 2 DATABASE_URL unset.
+# APP role (archive tables only, no owner DML). No sidecar pause needed — archive-only, so nothing
+# reaches PM.
+python -m usa_wa_adapter_sos.filings.harvest --dry-run                # stops at the 2018 ceiling
 python -m usa_wa_adapter_sos.filings.harvest --from-year 2008 --to-year 2018 --pause-seconds 1.0
-python -m usa_wa_adapter_sos.filings.harvest --to-year 2018 --force   # re-pull past the 1-day TTL
+python -m usa_wa_adapter_sos.filings.harvest --force   # re-pull past the 1-day TTL
 ```

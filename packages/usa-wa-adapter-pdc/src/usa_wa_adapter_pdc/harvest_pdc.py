@@ -35,13 +35,16 @@ from usa_wa_adapter_pdc.adapter import (
     SENATE_WINNERS_RESOURCE_PREFIX,
     PDCAdapter,
 )
+from usa_wa_adapter_pdc.coverage import PDC_ELECTION_YEARS
 from usa_wa_adapter_pdc.provisioning import get_or_create_source
 from usa_wa_adapter_pdc.transport import PDCClient
 
 logger = get_logger(__name__)
 
-#: The PDC campaign-finance dataset's practical floor — earlier years archive empty cohorts.
-DEFAULT_ELECTION_FLOOR = 2008
+#: The PDC campaign-finance dataset's practical floor — earlier years archive empty cohorts. The
+#: declared coverage claim (#180), which records it as **assumed**: an under-served year archives
+#: an empty cohort rather than failing, so a wrong floor here is invisible.
+DEFAULT_ELECTION_FLOOR = PDC_ELECTION_YEARS.floor_year
 
 
 @dataclass(frozen=True)

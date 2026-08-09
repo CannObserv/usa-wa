@@ -122,8 +122,12 @@ async def _main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--pause-seconds",
         type=float,
-        default=DEFAULT_PAUSE_SECONDS,
-        help="min interval between WSL requests (sets the central limiter)",
+        default=None,
+        help=(
+            "min interval between WSL requests (sets the central limiter); unset leaves the "
+            f"value seeded from USA_WA_WSL_MIN_REQUEST_INTERVAL (default {DEFAULT_PAUSE_SECONDS}) "
+            "in place"
+        ),
     )
     parser.add_argument("--dry-run", action="store_true", help="harvest but roll back (preview)")
     parser.add_argument(
@@ -140,7 +144,10 @@ async def _main(argv: list[str] | None = None) -> int:
 
     to_biennium = args.to_biennium or biennium_for_date(datetime.now(UTC).date())
     bienniums = bienniums_in_range(args.from_biennium, to_biennium)
-    configure_wsl_rate_limit(args.pause_seconds)  # central pacing for the whole sweep
+    # Central pacing for the whole sweep — but only when the operator asked (#169). An
+    # unconditional call let the flag's own default silently overwrite the env-seeded interval.
+    if args.pause_seconds is not None:
+        configure_wsl_rate_limit(args.pause_seconds)
 
     engine = create_async_engine(database_url)
     try:
