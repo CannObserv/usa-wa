@@ -1,6 +1,6 @@
 """Generic span→Assignment emission (#82, extracted from the #78 sponsor emitter).
 
-Given merged :class:`~usa_wa_adapter_legislature.tenure_spans.TenureSpan`s, resolve each
+Given merged :class:`~clearinghouse_domain_legislative.tenure_spans.TenureSpan`s, resolve each
 span's :class:`Person` + Role and upsert one :class:`Assignment` per tenure carrying the
 span's ``valid_from/valid_to/is_active``. What differs per tenure *kind* is injected:
 
@@ -38,8 +38,8 @@ from ulid import ULID as _ULID
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import Citation, FetchEvent
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 from clearinghouse_domain_legislative.terms import bienniums_in_range, parse_biennium
-from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
 logger = get_logger(__name__)
 

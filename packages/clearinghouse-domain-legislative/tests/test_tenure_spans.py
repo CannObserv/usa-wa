@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from usa_wa_adapter_legislature.tenure_spans import (
+from clearinghouse_domain_legislative.tenure_spans import (
     Observation,
     TenureSpan,
     build_tenure_spans,

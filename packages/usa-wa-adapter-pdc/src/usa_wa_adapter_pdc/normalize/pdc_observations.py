@@ -2,7 +2,7 @@
 
 The archive-first Phase B analog of the retired per-biennium House-positions normalizer:
 instead of emitting one per-biennium Assignment per winner, it projects each year's cohort into
-:class:`~usa_wa_adapter_legislature.tenure_spans.Observation`s that the span builder merges
+:class:`~clearinghouse_domain_legislative.tenure_spans.Observation`s that the span builder merges
 across years into one Assignment per contiguous House tenure (#78/#82 model). It reuses the
 same #69 within-LD match and #74 mid-biennium mover inference, but:
 
@@ -34,8 +34,8 @@ from dataclasses import dataclass, field
 from clearinghouse_domain_legislative.span_kinds import (
     KIND_HOUSE,  # noqa: F401 (re-export for this package's builders/tests)
 )
+from clearinghouse_domain_legislative.tenure_spans import Observation
 from usa_wa_adapter_legislature.normalize.members import canonicalize_party, district_number
-from usa_wa_adapter_legislature.tenure_spans import Observation
 from usa_wa_adapter_pdc.normalize.pdc_matching import (
     HouseRosterEntry,
     SenateEntry,

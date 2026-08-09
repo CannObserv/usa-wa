@@ -3,7 +3,7 @@
 Reads every archived ``sponsors:<biennium>`` roster **offline** (via
 :class:`~usa_wa_adapter_legislature.sponsor_cohort.SponsorRosterCohortProvider`, no WSL
 re-pull), projects the rows to tenure observations (:mod:`sponsor_observations`), builds
-merged :class:`~usa_wa_adapter_legislature.tenure_spans.TenureSpan`s, and emits one
+merged :class:`~clearinghouse_domain_legislative.tenure_spans.TenureSpan`s, and emits one
 :class:`Assignment` per tenure with per-biennium citations (:mod:`sponsor_span_emit`).
 
 Derives entirely from the local archive — re-runnable / re-tunable without touching WSL.
@@ -23,6 +23,20 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_domain_legislative.operator_overlay import (
+    apply_operator_events,
+    from_rows,
+    latest_event_biennium_by_member,
+    stale_exempt_members,
+)
+from clearinghouse_domain_legislative.span_emit import (
+    MAX_CLOSE_FRACTION_DEFAULT,
+    SOURCE,
+    SpanBuildResult,
+    close_fraction,
+    close_stale_spans,
+)
+from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
@@ -32,24 +46,11 @@ from usa_wa_adapter_legislature.operator_events_store import (
     current_events,
     get_or_create_operator_source,
 )
-from usa_wa_adapter_legislature.operator_overlay import (
-    apply_operator_events,
-    from_rows,
-    latest_event_biennium_by_member,
-    stale_exempt_members,
-)
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
 from usa_wa_adapter_legislature.roster_hygiene import (
     STALE_MIN_COVERAGE_DEFAULT,
     committee_member_ids_by_biennium,
     stale_exclusions_by_biennium,
-)
-from usa_wa_adapter_legislature.span_emit import (
-    MAX_CLOSE_FRACTION_DEFAULT,
-    SOURCE,
-    SpanBuildResult,
-    close_fraction,
-    close_stale_spans,
 )
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
 from usa_wa_adapter_legislature.sponsor_observations import (
@@ -58,7 +59,6 @@ from usa_wa_adapter_legislature.sponsor_observations import (
     build_sponsor_observations,
 )
 from usa_wa_adapter_legislature.sponsor_span_emit import emit_sponsor_spans
-from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
 
 logger = get_logger(__name__)
@@ -89,7 +89,7 @@ async def build_sponsor_spans(
     (the harvest / migration path) rebuilds all members.
 
     Either way, spans the rebuilt set no longer asserts are **closed** (#83,
-    :func:`~usa_wa_adapter_legislature.span_emit.close_stale_spans`) — a departed member's
+    :func:`~clearinghouse_domain_legislative.span_emit.close_stale_spans`) — a departed member's
     open row must not stay ``is_active`` forever.
 
     **Stale-row exclusion (#105 (b)).** Some departed members stay fully named in later wires

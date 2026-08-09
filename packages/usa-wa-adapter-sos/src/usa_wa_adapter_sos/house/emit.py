@@ -1,9 +1,10 @@
 """WSL+SOS House Position span emission (#101) — spans → merged usa_wa_legislature Assignments.
 
-Binds the House-position :class:`~usa_wa_adapter_legislature.tenure_spans.TenureSpan`s to the
-generic emitter (:mod:`usa_wa_adapter_legislature.span_emit`): one Assignment per contiguous House
-Position tenure, bound to the WSL-sourced :class:`Person` and the ``state_representative`` seat
-Role (keyed on ``(LD, Position)``, get-or-created ``usa_wa_legislature``). The Assignment ``source``
+Binds the House-position :class:`~clearinghouse_domain_legislative.tenure_spans.TenureSpan`s to
+the generic emitter (:mod:`clearinghouse_domain_legislative.span_emit`): one Assignment per
+contiguous House Position tenure, bound to the WSL-sourced :class:`Person` and the
+``state_representative`` seat Role (keyed on ``(LD, Position)``, get-or-created
+``usa_wa_legislature``). The Assignment ``source``
 defaults to ``usa_wa_legislature`` — a seat is legislature structure, symmetric with the Senate
 seat (#75); PDC was the pre-#101 authority (``usa_wa_pdc``) and the re-source migration flips those
 rows.
@@ -28,10 +29,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Role
+from clearinghouse_domain_legislative.span_emit import CitationTarget, emit_spans
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors
 from usa_wa_adapter_legislature.normalize.members import get_or_create_role, resolve_ld_jurisdiction
-from usa_wa_adapter_legislature.span_emit import CitationTarget, emit_spans
-from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 from usa_wa_adapter_pdc.normalize.positions import (
     house_seat_role_source_id,
     parse_house_span_discriminator,

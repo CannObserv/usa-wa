@@ -25,7 +25,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
-from usa_wa_adapter_legislature.span_emit import CitationTarget
+from clearinghouse_domain_legislative.span_emit import CitationTarget
 from usa_wa_adapter_pdc.adapter import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
     SENATE_WINNERS_RESOURCE_PREFIX,

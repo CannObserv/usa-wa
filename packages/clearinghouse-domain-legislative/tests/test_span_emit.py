@@ -17,13 +17,13 @@ from sqlalchemy import select
 
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
-from usa_wa_adapter_legislature.span_emit import (
+from clearinghouse_domain_legislative.span_emit import (
     close_fraction,
     close_stale_spans,
     emit_spans,
     resolve_person,
 )
-from usa_wa_adapter_legislature.tenure_spans import TenureSpan
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 
 CURRENT = "2025-26"
 

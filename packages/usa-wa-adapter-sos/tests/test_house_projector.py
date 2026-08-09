@@ -2,14 +2,14 @@
 
 The re-partition's core projection: the sitting House roster (WSL — who sits / LD / party)
 joined to the SOS filing archive (the Position 1/2 qualifier) → tenure
-:class:`~usa_wa_adapter_legislature.tenure_spans.Observation`s keyed on the House span
+:class:`~clearinghouse_domain_legislative.tenure_spans.Observation`s keyed on the House span
 discriminator. Pure — no DB, no session. A member with no resolvable SOS position emits nothing
 (OQ1: post-1965 "position unknown" is a data gap, not a position-less seat).
 """
 
 from __future__ import annotations
 
-from usa_wa_adapter_legislature.tenure_spans import Observation
+from clearinghouse_domain_legislative.tenure_spans import Observation
 from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster
 from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 from usa_wa_adapter_sos.filings.normalize import build_house_filings

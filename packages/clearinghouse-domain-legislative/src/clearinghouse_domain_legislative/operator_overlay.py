@@ -38,8 +38,8 @@ from clearinghouse_domain_legislative.operator_events import (
     KIND_SEATED,
     KIND_VACATED,
 )
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 from clearinghouse_domain_legislative.terms import biennium_for_date, parse_biennium
-from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
 logger = get_logger(__name__)
 

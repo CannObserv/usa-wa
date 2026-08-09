@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import PersonIdentifier
-from usa_wa_adapter_legislature.span_emit import resolve_person
+from clearinghouse_domain_legislative.span_emit import resolve_person
 from usa_wa_adapter_pdc.normalize.positions import (
     PDC_PERSON_ID_SCHEME,
     PDC_SOURCE,

@@ -51,7 +51,7 @@ never transiently violated — the migration runs against the live constraint.
 **Owner role.** Retiring a row hard-deletes its ``citations``, which the app role is REVOKEd
 (#54 provenance immutability), so the CLI runs under ``DATABASE_URL_OWNER`` (like
 ``baseline_unbaselined_committees``). The daily span re-drive stays app-role-safe because
-:func:`~usa_wa_adapter_legislature.span_emit._ensure_citations` is insert-only.
+:func:`~clearinghouse_domain_legislative.span_emit._ensure_citations` is insert-only.
 
 **Deploy sequencing.** Run this in the *same* maintenance window as the backfill, with the
 sync sidecar paused. PM keys assignments on ``(person, role, start_date)``, so a deepened span
@@ -78,9 +78,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.provenance import Citation
 from clearinghouse_domain_legislative.identity import Assignment
+from clearinghouse_domain_legislative.span_emit import MAX_CLOSE_FRACTION_DEFAULT, close_fraction
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
-from usa_wa_adapter_legislature.span_emit import MAX_CLOSE_FRACTION_DEFAULT, close_fraction
 
 logger = get_logger(__name__)
 

@@ -3,9 +3,10 @@
 The re-partition's core projection. The House Position seat is now **WSL+SOS-primary,
 symmetric with the Senate** (#75): WSL owns *who sits* (the sponsor roster — LD + party), SOS
 owns *which position* (the ballot Position 1/2 from the votewa filing archive). This projector
-joins them per biennium into :class:`~usa_wa_adapter_legislature.tenure_spans.Observation`s the
-merged-span builder consumes — the House analog of :func:`sponsor_observations` (which emits the
-Senate seat). No PDC winner cohort: PDC is demoted to the ``person_wa_pdc`` cross-link only.
+joins them per biennium into
+:class:`~clearinghouse_domain_legislative.tenure_spans.Observation`s the merged-span builder
+consumes — the House analog of :func:`sponsor_observations` (which emits the Senate seat). No PDC
+winner cohort: PDC is demoted to the ``person_wa_pdc`` cross-link only.
 
 Pure — no DB, no session. A sitting member with **no resolvable SOS position** (LD not in the
 archive, an SOS match miss, or a pre-2008 biennium below the votewa floor) emits **nothing**,
@@ -29,7 +30,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from usa_wa_adapter_legislature.tenure_spans import Observation
+from clearinghouse_domain_legislative.tenure_spans import Observation
 from usa_wa_adapter_pdc.normalize.pdc_matching import HouseRosterEntry
 from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 from usa_wa_adapter_pdc.normalize.positions import house_span_discriminator

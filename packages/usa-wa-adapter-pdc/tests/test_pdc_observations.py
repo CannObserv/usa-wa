@@ -1,7 +1,7 @@
 """Pure House-position observation projector (#79) — winners → tenure observations.
 
 The archive-first Phase B (#79) projects each year's PDC winner cohort into
-:class:`~usa_wa_adapter_legislature.tenure_spans.Observation`s (which the span builder merges
+:class:`~clearinghouse_domain_legislative.tenure_spans.Observation`s (which the span builder merges
 across years) plus the ``person_wa_pdc`` identifier links — reusing the #69/#74 match + mover
 inference, but era-matched (the caller pairs each cohort with its seating biennium's roster)
 and emitting observations instead of per-biennium Assignments. Pure: no DB, no session.

@@ -9,7 +9,7 @@ stops at redistricting era boundaries, at an LD move / tenure gap (via the roste
 
 from __future__ import annotations
 
-from usa_wa_adapter_legislature.tenure_spans import Observation
+from clearinghouse_domain_legislative.tenure_spans import Observation
 from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster
 from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 from usa_wa_adapter_sos.filings.normalize import build_house_filings

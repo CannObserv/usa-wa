@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from clearinghouse_core.provenance import Citation, FetchEvent, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED, KIND_SEATED
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 from usa_wa_adapter_legislature.operator_events_store import (
     citation_target_for_event,
     cite_operator_events,
@@ -17,7 +18,6 @@ from usa_wa_adapter_legislature.operator_events_store import (
     supersede_event,
 )
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
-from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
 
 async def _source(session) -> Source:

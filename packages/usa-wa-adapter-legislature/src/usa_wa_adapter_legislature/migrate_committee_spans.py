@@ -40,7 +40,7 @@ transfer its anchor: that PM assignment is orphaned upstream (a live PM row with
 to avoid it is to run harvest → migrate before the sidecar sees the deepened spans. Correcting
 already-orphaned PM assignments is the start-date-correction gap tracked in #80. A second
 reason to keep the window tight: the daily #83 stale-span sweep
-(:func:`~usa_wa_adapter_legislature.span_emit.close_stale_spans`) treats a stranded legacy row
+(:func:`~clearinghouse_domain_legislative.span_emit.close_stale_spans`) treats a stranded legacy row
 as an unasserted open span and closes it — harmless for the mapping here (it matches on the
 unchanged ``valid_from``), but the row's PM anchor transiently asserts ``is_active=false``
 until the anchor transfers.
@@ -65,6 +65,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.provenance import Citation
 from clearinghouse_domain_legislative.identity import Assignment
+from clearinghouse_domain_legislative.span_emit import ASSIGNMENT_CITATION_TYPE, SOURCE
+from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.committee_membership_observations import (
@@ -73,8 +75,6 @@ from usa_wa_adapter_legislature.committee_membership_observations import (
 )
 from usa_wa_adapter_legislature.committee_span_emit import emit_committee_spans
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
-from usa_wa_adapter_legislature.span_emit import ASSIGNMENT_CITATION_TYPE, SOURCE
-from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
 
 logger = get_logger(__name__)

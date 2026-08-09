@@ -2,13 +2,13 @@
 
 from datetime import date
 
-from usa_wa_adapter_legislature.operator_overlay import (
+from clearinghouse_domain_legislative.operator_overlay import (
     SuccessionEvent,
     apply_operator_events,
     latest_event_biennium_by_member,
     stale_exempt_members,
 )
-from usa_wa_adapter_legislature.tenure_spans import TenureSpan
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 
 CURRENT = "2025-26"
 

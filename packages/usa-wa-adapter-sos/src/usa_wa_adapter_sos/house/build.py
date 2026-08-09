@@ -3,7 +3,7 @@
 Reads the WSL sponsor roster (who sits — LD + party, archive-first) and the SOS election-results
 archive (the ballot Position 1/2) **offline**, joins them per biennium into positioned tenure
 observations (:mod:`normalize.house_seats`), merges those across biennia into
-:class:`~usa_wa_adapter_legislature.tenure_spans.TenureSpan`s, and emits one
+:class:`~clearinghouse_domain_legislative.tenure_spans.TenureSpan`s, and emits one
 **``usa_wa_legislature``-sourced** ``state_representative`` Position seat Assignment per tenure —
 symmetric with the Senate seat (#75). No PDC winner cohort: PDC is demoted to the
 ``person_wa_pdc`` cross-link only (:mod:`usa_wa_adapter_pdc.build_pdc_spans`, identifier-only).
@@ -44,6 +44,19 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_domain_legislative.operator_overlay import (
+    apply_operator_events,
+    from_rows,
+    latest_event_biennium_by_member,
+    stale_exempt_members,
+)
+from clearinghouse_domain_legislative.span_emit import (
+    MAX_CLOSE_FRACTION_DEFAULT,
+    CitationTarget,
+    close_fraction,
+    close_stale_spans,
+)
+from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
@@ -52,12 +65,6 @@ from usa_wa_adapter_legislature.operator_events_store import (
     cite_operator_events,
     current_events,
     get_or_create_operator_source,
-)
-from usa_wa_adapter_legislature.operator_overlay import (
-    apply_operator_events,
-    from_rows,
-    latest_event_biennium_by_member,
-    stale_exempt_members,
 )
 from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
@@ -68,14 +75,7 @@ from usa_wa_adapter_legislature.roster_hygiene import (
     committee_member_ids_by_biennium,
     stale_exclusions_by_biennium,
 )
-from usa_wa_adapter_legislature.span_emit import (
-    MAX_CLOSE_FRACTION_DEFAULT,
-    CitationTarget,
-    close_fraction,
-    close_stale_spans,
-)
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
-from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_adapter_pdc.adapter import election_year_for_biennium, election_years_for_biennium
 from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster, house_mover_ids

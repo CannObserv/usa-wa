@@ -15,10 +15,10 @@ from ulid import ULID as _ULID
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
+from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.sponsor_observations import build_sponsor_observations
 from usa_wa_adapter_legislature.sponsor_span_emit import emit_sponsor_spans
-from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
 
 CURRENT = "2025-26"
 
