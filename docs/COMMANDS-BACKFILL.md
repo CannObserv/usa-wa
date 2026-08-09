@@ -40,7 +40,7 @@ Ordered by source, then by phase within it — three sources, not two:
 1. the WSL/legislature sweeps (members, committees, their span builders and
    migrations), which are most of the section;
 2. `usa_wa_sync_powermap.reconcile_committee_name_chain` — a PM-sync emitter,
-   documented here beside the `harvest_committees` Phase A whose archived
+   documented here beside the `committees.harvest` Phase A whose archived
    rosters it reads, not in [COMMANDS-SYNC.md](COMMANDS-SYNC.md) with the other
    reconcilers;
 3. the SOS filings archive last — a different upstream, epic, and archive key,
@@ -123,7 +123,7 @@ python -m usa_wa_adapter_legislature.sponsors.migrate_spans
 
 # Committee MEMBERSHIP harvest — Phase A (#82). Enumerate each biennium's House/Senate standing
 # committees from the local committees-roster archive (no extra GetCommittees call; an un-archived
-# biennium falls back to a live, UNARCHIVED GetCommittees pull — run harvest_committees first if
+# biennium falls back to a live, UNARCHIVED GetCommittees pull — run committees.harvest first if
 # you want the enumeration itself provenanced) and fan
 # GetCommitteeMembers(biennium, agency, Name) over them, archiving each wire (#54). Persons only
 # (fill_only) — membership is a Phase B span. Joint/Other skipped (no membership op, #39). Floor

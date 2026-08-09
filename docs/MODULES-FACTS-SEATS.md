@@ -74,8 +74,8 @@ between the halves — which is exactly the accident this issue exists to fix, r
 level down.
 
 **Committee membership is absent**, deliberately. It composes only WSL sources
-(`harvest_committee_member_spans`, `committee_membership_observations`,
-`committee_span_emit`), so it crosses no adapter boundary and imports no peer adapter. Moving
+(`membership.build`, `membership.projector`,
+`membership.emit`), so it crosses no adapter boundary and imports no peer adapter. Moving
 it here would be motion without a layering payoff; where it sits inside
 `usa-wa-adapter-legislature` is `#183`'s question about intra-package shape, not this one's.
 
