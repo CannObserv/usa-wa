@@ -26,8 +26,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date
 
+from clearinghouse_domain_legislative.terms import biennium_start_date, biennium_start_year
 from clearinghouse_sync_powermap.descriptors import normalize_name
-from usa_wa_adapter_legislature.synthesis import _biennium_start_year, biennium_start_date
 
 #: Rename-storm default: drop a boundary whose renamed fraction exceeds this (a
 #: systematic reformat, not real renames). Matches the spine's default (#46).
@@ -63,7 +63,7 @@ def build_rename_chain(
     ascending). Returns ``{"transitions": [RenameTransition...], "storm_skipped":
     [{biennium, renamed, eligible}...]}``.
     """
-    order = sorted(cohorts, key=_biennium_start_year)
+    order = sorted(cohorts, key=biennium_start_year)
     # Per-id ordered appearances (dormancy gaps simply don't appear in the list).
     appearances: dict[str, list[tuple[str, str]]] = defaultdict(list)
     for biennium in order:
@@ -91,7 +91,7 @@ def build_rename_chain(
 
     transitions: list[RenameTransition] = []
     storm_skipped: list[dict] = []
-    for biennium in sorted(by_boundary, key=_biennium_start_year):
+    for biennium in sorted(by_boundary, key=biennium_start_year):
         hops = by_boundary[biennium]
         eligible = eligible_at[biennium]
         fraction = len(hops) / eligible if eligible else 0.0

@@ -47,6 +47,7 @@ from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.provenance import Source
 from clearinghouse_domain_legislative.committee_succession import CommitteeSuccessionEvent
 from clearinghouse_domain_legislative.identity import EntityEvent, Organization
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from clearinghouse_sync_powermap.client import DeliveryBlockedError
 from clearinghouse_sync_powermap.models import (
     DISPOSITION_AUTO_ATTACHED,
@@ -63,7 +64,6 @@ from usa_wa_adapter_legislature.committee_succession_store import (
     current_events,
     superseded_events,
 )
-from usa_wa_adapter_legislature.refresh import biennium_for_date
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.registry import build_pm_client

@@ -33,7 +33,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 
-from usa_wa_adapter_legislature.synthesis import parse_biennium
+from clearinghouse_domain_legislative.terms import parse_biennium
 
 
 @dataclass(frozen=True)

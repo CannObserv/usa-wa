@@ -17,7 +17,7 @@ from collections.abc import AsyncIterable
 from datetime import UTC, datetime
 
 from clearinghouse_core.adapter import BaseAdapter, FetchedPayload, NormalizedBatch, ResourceRef
-from usa_wa_adapter_legislature.synthesis import parse_biennium
+from clearinghouse_domain_legislative.terms import parse_biennium
 from usa_wa_adapter_pdc.transport import (
     CAMPAIGN_FINANCE_SUMMARY_RESOURCE,
     PDC_BASE_URL,

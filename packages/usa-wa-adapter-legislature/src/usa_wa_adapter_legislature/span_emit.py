@@ -38,8 +38,7 @@ from ulid import ULID as _ULID
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import Citation, FetchEvent
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
-from usa_wa_adapter_legislature.harvest_committee_meetings import bienniums_in_range
-from usa_wa_adapter_legislature.synthesis import parse_biennium
+from clearinghouse_domain_legislative.terms import bienniums_in_range, parse_biennium
 from usa_wa_adapter_legislature.tenure_spans import TenureSpan
 
 logger = get_logger(__name__)

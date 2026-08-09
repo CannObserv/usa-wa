@@ -71,13 +71,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
-from clearinghouse_sync_powermap.client import DeliveryBlockedError
-from clearinghouse_sync_powermap.descriptors import EntityDescriptor
-from usa_wa_adapter_legislature.refresh import (
+from clearinghouse_domain_legislative.terms import (
     biennium_for_date,
     biennium_start_date,
     previous_biennium,
 )
+from clearinghouse_sync_powermap.client import DeliveryBlockedError
+from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_sync_powermap.committee_name_reconcile import (
     DEFAULT_MAX_RENAME_FRACTION,

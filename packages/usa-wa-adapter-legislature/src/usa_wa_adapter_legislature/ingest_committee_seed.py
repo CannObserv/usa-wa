@@ -34,14 +34,12 @@ from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
 from clearinghouse_core.seed_manifest import verified_digest
 from clearinghouse_domain_legislative.identity import Organization
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_seed import DEFAULT_SEED_PATH, deserialize_seed
 from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source,
     resolve_jurisdiction,
-)
-from usa_wa_adapter_legislature.refresh import (
-    biennium_for_date,
 )
 
 logger = get_logger(__name__)

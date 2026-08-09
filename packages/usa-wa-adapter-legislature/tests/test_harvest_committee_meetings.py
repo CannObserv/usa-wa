@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from unittest.mock import patch
 
-import pytest
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -13,21 +12,8 @@ from clearinghouse_core.seed_manifest import verify
 from clearinghouse_domain_legislative.identity import Organization
 from usa_wa_adapter_legislature import harvest_committee_meetings as harvest_module
 from usa_wa_adapter_legislature.committee_seed import deserialize_seed
-from usa_wa_adapter_legislature.harvest_committee_meetings import (
-    bienniums_in_range,
-    harvest_committee_meetings,
-)
+from usa_wa_adapter_legislature.harvest_committee_meetings import harvest_committee_meetings
 from usa_wa_adapter_legislature.transport import WireFetch
-
-
-def test_bienniums_in_range_walks_odd_years_inclusive():
-    assert bienniums_in_range("2021-22", "2025-26") == ["2021-22", "2023-24", "2025-26"]
-    assert bienniums_in_range("2025-26", "2025-26") == ["2025-26"]
-
-
-def test_bienniums_in_range_rejects_reversed():
-    with pytest.raises(ValueError, match="after"):
-        bienniums_in_range("2025-26", "2023-24")
 
 
 def _ref(committee_id: int, agency: str, name: str, acronym: str) -> dict:

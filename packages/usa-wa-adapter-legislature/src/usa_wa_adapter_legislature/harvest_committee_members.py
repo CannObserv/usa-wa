@@ -40,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
+from clearinghouse_domain_legislative.terms import biennium_for_date, bienniums_in_range
 from usa_wa_adapter_legislature.adapter import (
     WALegislatureAdapter,
     committee_members_hist_resource_id,
@@ -47,9 +48,7 @@ from usa_wa_adapter_legislature.adapter import (
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
 from usa_wa_adapter_legislature.coverage import COMMITTEE_MEMBERSHIP_COVERAGE
-from usa_wa_adapter_legislature.harvest_committee_meetings import bienniums_in_range
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
-from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.transport import WSLClient, configure_wsl_rate_limit
 
 logger = get_logger(__name__)

@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.member_artifacts import with_artifact_exclusions
@@ -57,7 +58,6 @@ from usa_wa_adapter_legislature.sponsor_observations import (
     build_sponsor_observations,
 )
 from usa_wa_adapter_legislature.sponsor_span_emit import emit_sponsor_spans
-from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
 

@@ -65,6 +65,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.provenance import Citation
 from clearinghouse_domain_legislative.identity import Assignment
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.committee_membership_observations import (
     KIND_COMMITTEE,
@@ -73,7 +74,6 @@ from usa_wa_adapter_legislature.committee_membership_observations import (
 from usa_wa_adapter_legislature.committee_span_emit import emit_committee_spans
 from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
 from usa_wa_adapter_legislature.span_emit import ASSIGNMENT_CITATION_TYPE, SOURCE
-from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
 

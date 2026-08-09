@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,9 +25,6 @@ from usa_wa_adapter_legislature.provisioning import (
 )
 from usa_wa_adapter_legislature.refresh import (
     _discover_members,
-    biennium_for_date,
-    biennium_start_date,
-    previous_biennium,
     run_refresh,
 )
 from usa_wa_adapter_legislature.transport import WireFetch
@@ -104,51 +101,6 @@ def _jtc_docket() -> list[dict]:
             },
         }
     ]
-
-
-@pytest.mark.parametrize(
-    "today,expected",
-    [
-        (date(2025, 1, 13), "2025-26"),
-        (date(2025, 12, 31), "2025-26"),
-        (date(2026, 6, 18), "2025-26"),
-        (date(2026, 12, 31), "2025-26"),
-        (date(2027, 1, 1), "2027-28"),
-        (date(2030, 7, 4), "2029-30"),
-    ],
-)
-def test_biennium_for_date_rolls_on_odd_years(today, expected):
-    """WA bienniums start on odd years; even-year dates roll back to the start."""
-    assert biennium_for_date(today) == expected
-
-
-@pytest.mark.parametrize(
-    "label,expected",
-    [
-        ("2025-26", date(2025, 1, 1)),
-        ("2027-28", date(2027, 1, 1)),
-        ("2099-00", date(2099, 1, 1)),
-    ],
-)
-def test_biennium_start_date_is_jan1_of_the_odd_year(label, expected):
-    """The window boundary for a rename = the biennium's start (Jan 1 of the odd year).
-
-    WSL exposes no real name-change date, so the boundary is the documented
-    biennium-start approximation."""
-    assert biennium_start_date(label) == expected
-
-
-@pytest.mark.parametrize(
-    "label,expected",
-    [
-        ("2025-26", "2023-24"),
-        ("2027-28", "2025-26"),
-        ("2001-02", "1999-00"),
-    ],
-)
-def test_previous_biennium_steps_back_two_years(label, expected):
-    """The prior biennium is the rename diff's "before" side."""
-    assert previous_biennium(label) == expected
 
 
 async def test_run_refresh_seeds_source_and_runs_adapter(db_session, usa_wa):

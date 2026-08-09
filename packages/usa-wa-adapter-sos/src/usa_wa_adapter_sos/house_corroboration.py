@@ -51,9 +51,9 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.coverage import SPONSOR_ROSTER_COVERAGE
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
-from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_pdc.adapter import election_years_for_biennium
 from usa_wa_adapter_pdc.normalize.positions import surname_match_set
 from usa_wa_adapter_sos.positions import HousePosition

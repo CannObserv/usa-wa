@@ -22,7 +22,7 @@ from ulid import ULID as _ULID
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier
-from usa_wa_adapter_legislature.synthesis import biennium_for_date, parse_biennium
+from clearinghouse_domain_legislative.terms import biennium_for_date, parse_biennium
 from usa_wa_adapter_pdc import build_pdc_spans as build_module
 from usa_wa_adapter_pdc.build_pdc_spans import PdcSpanResult, build_pdc_spans
 

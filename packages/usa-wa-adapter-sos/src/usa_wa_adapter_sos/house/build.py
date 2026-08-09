@@ -44,6 +44,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
@@ -74,7 +75,6 @@ from usa_wa_adapter_legislature.span_emit import (
     close_stale_spans,
 )
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
-from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.tenure_spans import build_tenure_spans
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_adapter_pdc.adapter import election_year_for_biennium, election_years_for_biennium

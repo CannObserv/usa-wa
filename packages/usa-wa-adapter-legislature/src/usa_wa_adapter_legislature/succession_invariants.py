@@ -49,8 +49,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.coverage import SPONSOR_ROSTER_COVERAGE
-from usa_wa_adapter_legislature.synthesis import biennium_for_date
 
 logger = get_logger(__name__)
 

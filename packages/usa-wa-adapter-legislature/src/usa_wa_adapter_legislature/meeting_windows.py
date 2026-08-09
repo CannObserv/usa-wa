@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from usa_wa_adapter_legislature.synthesis import parse_biennium
+from clearinghouse_domain_legislative.terms import parse_biennium
 
 COMMITTEE_MEETINGS_RESOURCE_PREFIX = "committee-meetings:"
 

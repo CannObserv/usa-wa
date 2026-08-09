@@ -36,12 +36,12 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
 )
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
-from usa_wa_adapter_legislature.synthesis import biennium_for_date
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_adapter_pdc.adapter import seating_biennium_for_election_year
 from usa_wa_adapter_pdc.normalize.pdc_matching import (

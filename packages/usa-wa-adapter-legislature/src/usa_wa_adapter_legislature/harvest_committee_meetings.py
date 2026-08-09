@@ -32,6 +32,7 @@ from clearinghouse_core.provenance import Citation, FetchEvent
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_core.seed_manifest import write_sidecars
 from clearinghouse_domain_legislative.identity import Organization
+from clearinghouse_domain_legislative.terms import bienniums_in_range
 from usa_wa_adapter_legislature.adapter import WALegislatureAdapter
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_seed import (
@@ -44,7 +45,6 @@ from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source,
     resolve_jurisdiction,
 )
-from usa_wa_adapter_legislature.synthesis import _biennium_start_year
 from usa_wa_adapter_legislature.transport import WSLClient
 
 logger = get_logger(__name__)
@@ -62,18 +62,6 @@ class HarvestSummary:
     committees: int
     seed_path: Path
     dry_run: bool
-
-
-def bienniums_in_range(from_biennium: str, to_biennium: str) -> list[str]:
-    """Inclusive list of biennium labels from ``from_biennium`` to ``to_biennium``.
-
-    Bienniums start on odd years; the range walks by 2. ``from`` must not be after
-    ``to``."""
-    start = _biennium_start_year(from_biennium)
-    end = _biennium_start_year(to_biennium)
-    if start > end:
-        raise ValueError(f"from-biennium {from_biennium!r} is after to-biennium {to_biennium!r}")
-    return [f"{y}-{(y + 1) % 100:02d}" for y in range(start, end + 1, 2)]
 
 
 async def _other_class_cohort(
