@@ -75,14 +75,15 @@ swept, and reasoned about in isolation:
   (a live fetch is a fallback for an un-archived key only). Joining `RawPayload` is load-bearing:
   a forced daily re-pull re-records a payload-less `FetchEvent`, so "latest" means *latest
   payload-bearing* event (#82).
-- **Resilient harvest** — how a Phase A sweep handles a bad year depends on the range. A source
-  with **unheld or future years** (e.g. `results`, which 404s a not-yet-certified election)
-  skips-and-logs the bad year in its own SAVEPOINT and commits the years it reached — one bad year
-  must not roll back the sweep, and a *whole-source* outage (every year skipped) raises a distinct
-  signal rather than reading as "nothing to do". A source whose range is **frozen and closed**
-  (e.g. `filings`, retired at 2018 — every year either exists or the feed is dead) may instead
-  deliberately abort-and-resume (a mid-sweep failure rolls back; re-run from the floor, closed
-  years cache-hit): with no future years to skip past, all-or-nothing costs nothing.
+- **Resilient harvest** — a Phase A sweep skips-and-logs a bad year in its own SAVEPOINT and
+  commits the years it reached; one bad year must not roll back the sweep, and a *whole-source*
+  outage (every year skipped) raises a distinct signal rather than reading as "nothing to do".
+  This holds for a **closed** range too (#169): abort-and-resume looks free only inside the cache
+  TTL — past it, a re-run re-pulls every already-fetched year against a low-QPS government host,
+  which is exactly the traffic the courtesy limiter exists to avoid. What *does* vary with the
+  range is the tally: a source with per-year discovery distinguishes an expected absence from a
+  failure (`results`: `cohorts_absent` vs `cohorts_skipped`), a source without it needs one tally
+  (`filings`).
 
 ### What makes the application "source-agnostic"
 
@@ -127,8 +128,8 @@ real seats.
 
 1. New `<source>/` subpackage: `transport` (+ offline re-parser, courtesy limiter), `adapter`
    (`BaseAdapter`; archive-only unless the fact is single-cohort-derivable), `normalize` (pure),
-   `cohort` (archive-first), `harvest` (resilient — per-year skip for unheld/future years, else
-   abort-and-resume for a frozen closed range; see *Resilient harvest* above).
+   `cohort` (archive-first), `harvest` (per-year SAVEPOINT + skip-and-log + a total-outage signal,
+   whether or not the range is closed; see *Resilient harvest* above).
 2. A new `Source`/`source_slug` in `provisioning.py`; a non-colliding archive-key scheme.
 3. Audit the feed across its range first; encode every gap/variant as a test.
 4. Point (or add) the application's cohort provider — do **not** widen an application module to
