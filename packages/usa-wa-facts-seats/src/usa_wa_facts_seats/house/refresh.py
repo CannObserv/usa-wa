@@ -36,7 +36,8 @@ from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_adapter_legislature.committee_member_cohort import MemberClient
+from usa_wa_adapter_legislature.sponsor_cohort import SponsorClient
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.adapter import ResultsAdapter, legresults_resource_id
 from usa_wa_adapter_sos.results.transport import LegislativeExportNotFound, SOSResultsClient
@@ -60,13 +61,14 @@ async def run_refresh(
     session: AsyncSession,
     *,
     biennium: str | None = None,
-    sponsor_client: WSLClient | None = None,
-    member_client: WSLClient | None = None,
+    sponsor_client: SponsorClient | None = None,
+    member_client: MemberClient | None = None,
     sos_client: SOSResultsClient | None = None,
 ) -> SosRefreshOutcome:
     """Execute one SOS refresh cycle: archive the current results cohort, then re-drive the
     House-Position span builder scoped to the current biennium. ``sponsor_client`` /
-    ``member_client`` / ``sos_client`` are injectable for tests."""
+    ``member_client`` / ``sos_client`` are injectable for tests — typed by the cohort
+    providers' structural Protocols since #189, so no SOAP transport is named here."""
     if biennium is None:
         biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
     current = biennium_for_date(datetime.now(UTC).date())

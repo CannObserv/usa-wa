@@ -57,6 +57,17 @@ Prefetch query — run via `ToolSearch` at session start:
 
 **Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder.** It is the reusable Layer-3 pattern: one adapter package per *jurisdiction+target* bundling every source that target publishes; each **source** a self-contained archive (own `Source`/`source_slug`/archive-key/transport/adapter/normalize/cohort/harvest); the **application** (spans/seats) source-agnostic, consuming a cohort interface — so a fact can draw on a new source without a rewrite (the `usa-wa-adapter-sos` filings + results sources are the worked example). Audit a source's coverage before building on it; never key a parser on an exact upstream string.
 
+**Six layers since #189 (AR-14), enforced by `import-linter`** — `uv run lint-imports`, wired into the pre-commit gate beside ruff, contracts + rationale in the root `pyproject.toml`:
+
+| Layer | Package(s) | Rule |
+|---|---|---|
+| 1 framework | `clearinghouse-core` | jurisdiction-agnostic primitives |
+| 2 domain | `clearinghouse-domain-legislative` | the legislative model **+ the term calendar, the span engine and the `CohortProvider` Protocols** |
+| 2b vocabulary | `usa-wa-common` | WA facts, source-free — **may not import an adapter** |
+| 3 adapters | `usa-wa-adapter-*` | sourcing only, one per jurisdiction+target — **no adapter may import a peer adapter** |
+| 3b facts | `usa-wa-facts-*` | applications composing cohorts across adapters — **never an adapter's `transport`** |
+| 4 deployment | `usa-wa-api`, `usa-wa-sync-powermap` | serve + sync — **never an adapter's `transport`** |
+
 Per-package module reference — what each file is for and why it exists:
 
 - [`docs/MODULES-FRAMEWORK.md`](docs/MODULES-FRAMEWORK.md) — Layers 1–2, the portable PM sync engine, the generated PM client

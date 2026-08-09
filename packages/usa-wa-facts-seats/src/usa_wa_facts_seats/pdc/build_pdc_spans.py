@@ -37,11 +37,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_domain_legislative.terms import biennium_for_date
+from usa_wa_adapter_legislature.cohorts import sponsor_roster_provider
 from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
 )
-from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
-from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_adapter_legislature.sponsor_cohort import (
+    SponsorClient,
+    SponsorRosterCohortProvider,
+)
 from usa_wa_adapter_pdc.pdc_cohort import PdcWinnerCohortProvider
 from usa_wa_adapter_pdc.provisioning import get_or_create_source as get_or_create_pdc_source
 from usa_wa_common.elections import seating_biennium_for_election_year
@@ -81,7 +84,7 @@ class PdcSpanResult:
 async def build_pdc_spans(
     session: AsyncSession,
     *,
-    sponsor_client: WSLClient | None = None,
+    sponsor_client: SponsorClient | None = None,
     restrict_to_biennium: str | None = None,
 ) -> PdcSpanResult:
     """Emit era-matched ``person_wa_pdc`` identifier links; return counts (identifier-only #101).
@@ -100,8 +103,11 @@ async def build_pdc_spans(
     wsl_source = await get_or_create_wsl_source(session, jurisdiction)
 
     cohorts = PdcWinnerCohortProvider(session=session, source_id=pdc_source.id)
-    sponsors = SponsorRosterCohortProvider(
-        sponsor_client or WSLClient("SponsorService"), session=session, source_id=wsl_source.id
+    # See house/build.py: factory by default, structural Protocol for injection (#189).
+    sponsors = (
+        SponsorRosterCohortProvider(sponsor_client, session=session, source_id=wsl_source.id)
+        if sponsor_client is not None
+        else sponsor_roster_provider(session, source_id=wsl_source.id)
     )
     house_cohorts = await cohorts.house_cohorts()
     senate_cohorts = await cohorts.senate_cohorts()

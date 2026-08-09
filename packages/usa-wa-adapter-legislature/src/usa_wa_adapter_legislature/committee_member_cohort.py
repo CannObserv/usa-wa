@@ -48,7 +48,7 @@ logger = get_logger(__name__)
 RosterKey = tuple[str, str]
 
 
-class _MemberClient(Protocol):
+class MemberClient(Protocol):
     async def parse_historical_committee_members(self, wire: bytes) -> list[dict[str, Any]]: ...
 
 
@@ -57,7 +57,7 @@ class CommitteeMemberCohortProvider:
 
     def __init__(
         self,
-        client: _MemberClient,
+        client: MemberClient,
         *,
         session: AsyncSession,
         source_id: _ULID,

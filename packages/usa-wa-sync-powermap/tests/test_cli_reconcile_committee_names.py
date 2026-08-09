@@ -7,7 +7,8 @@ exit codes (with ``_run`` patched, since ``main`` spins its own event loop via
 ``asyncio.run``, which cannot share the session-scoped test loop).
 
 The WSL stub returns a per-biennium roster so the rename diff (current vs prior) is
-exercised end to end through the CLI's ``WSLClient`` seam.
+exercised end to end through the CLI's roster-provider seam (``committee_roster_provider``
+since #189 — the CLI no longer constructs a ``WSLClient``).
 """
 
 import json
@@ -47,10 +48,13 @@ def _patch_wsl(monkeypatch, rosters):
         def __init__(self, *_a, **_k):
             pass
 
-        async def get_committees(self, biennium):
+        async def roster_records(self, biennium):
             return rosters.get(biennium, [])
 
-    monkeypatch.setattr(cli, "WSLClient", _FakeWSL)
+    async def _factory(_session, **_kw):
+        return _FakeWSL()
+
+    monkeypatch.setattr(cli, "committee_roster_provider", _factory)
 
 
 async def _add_committee(db_session, *, source_id, name, anchor):

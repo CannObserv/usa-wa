@@ -37,7 +37,7 @@ from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_adapter_legislature.sponsor_cohort import SponsorClient
 from usa_wa_adapter_pdc.adapter import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
     SENATE_WINNERS_RESOURCE_PREFIX,
@@ -65,11 +65,12 @@ async def run_refresh(
     session: AsyncSession,
     *,
     biennium: str | None = None,
-    sponsor_client: WSLClient | None = None,
+    sponsor_client: SponsorClient | None = None,
     pdc_client: PDCClient | None = None,
 ) -> PdcRefreshOutcome:
     """Execute one PDC refresh cycle: archive the current cohorts, then re-drive the span
-    builder scoped to the current biennium. ``sponsor_client`` / ``pdc_client`` are injectable
+    builder scoped to the current biennium. ``sponsor_client`` (typed by the cohort provider's
+    structural Protocol since #189, not by a SOAP transport) / ``pdc_client`` are injectable
     for tests."""
     if biennium is None:
         biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())

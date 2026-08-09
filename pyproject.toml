@@ -26,6 +26,7 @@ dev = [
     "respx>=0.21,<1",
     "ruff>=0.9,<1",
     "vcrpy>=7.0",
+    "import-linter>=2.0,<3",
 ]
 
 [tool.uv.sources]
@@ -105,4 +106,131 @@ known-first-party = [
     "usa_wa_common",
     "usa_wa_facts_seats",
     "usa_wa_sync_powermap",
+]
+
+# ---------------------------------------------------------------------------
+# import-linter (#189, AR-14) — the layering, as an executable contract.
+#
+# AR-14's finding was not that the layers were wrong but that they were a *claim*:
+# `docs/ARCHITECTURE.md` described a four-layer split while `usa-wa-adapter-sos`
+# imported 21 symbols from two peer adapters and the PM sync sidecar imported a SOAP
+# transport. A restructure nobody can check decays back to that within a few features,
+# because the cheapest next move is always "import it from wherever it already is".
+#
+# Run: `uv run lint-imports`. Wired into the same gate ruff runs in
+# (`.pre-commit-config.yaml`) and pinned by `scripts/tests/test_import_contracts.py`,
+# which also proves the contracts *fire* rather than merely parse.
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_packages = [
+    "clearinghouse_core",
+    "clearinghouse_domain_legislative",
+    "clearinghouse_sync_powermap",
+    "usa_wa_common",
+    "usa_wa_adapter_legislature",
+    "usa_wa_adapter_pdc",
+    "usa_wa_adapter_sos",
+    "usa_wa_facts_seats",
+    "usa_wa_api",
+    "usa_wa_sync_powermap",
+]
+include_external_packages = false
+
+[[tool.importlinter.contracts]]
+# The spine. Higher layers may import lower ones; never the reverse.
+name = "Layers: core < domain < common < adapter < facts < deployment"
+type = "layers"
+layers = [
+    "usa_wa_api : usa_wa_sync_powermap",
+    "usa_wa_facts_seats",
+    "usa_wa_adapter_legislature : usa_wa_adapter_pdc : usa_wa_adapter_sos",
+    "usa_wa_common",
+    "clearinghouse_domain_legislative : clearinghouse_sync_powermap",
+    "clearinghouse_core",
+]
+# `clearinghouse_core.testing.reset_migration_schemas` function-locally imports the
+# domain + sync packages so every declared schema is registered before it drops and
+# recreates them. A deliberate inversion of the layer order, scoped to one test-support
+# helper and already commented at the call site: it is *table registration*, not a
+# dependency of Layer 1 on Layer 2. Named exactly (not wildcarded) so a second, real
+# inversion in `clearinghouse_core` cannot hide behind it.
+ignore_imports = [
+    "clearinghouse_core.testing -> clearinghouse_domain_legislative.identity",
+    "clearinghouse_core.testing -> clearinghouse_sync_powermap",
+]
+
+[[tool.importlinter.contracts]]
+# The headline rule. One adapter package per jurisdiction+target, each a self-contained
+# archive of one publisher's wire — so no adapter may reach into a peer. Composition
+# across targets is what `usa_wa_facts_seats` is for.
+name = "No adapter imports a peer adapter"
+type = "independence"
+modules = [
+    "usa_wa_adapter_legislature",
+    "usa_wa_adapter_pdc",
+    "usa_wa_adapter_sos",
+]
+
+[[tool.importlinter.contracts]]
+# A Layer-4 deployment package doing Layer-3 sourcing: the PM sync sidecar was making
+# live SOAP calls to the Washington State Legislature from four reconcilers and a
+# producer. A sync path depends on the *archive* (a cohort provider), never on a wire.
+name = "Deployment packages never touch an adapter transport"
+type = "forbidden"
+# Direct imports only. A cohort provider *owns* a transport internally — that is the
+# seam — so following the chain would forbid depending on a provider at all, which is
+# the opposite of the rule. What must not happen is a deployment module naming the
+# transport itself and driving the wire.
+allow_indirect_imports = true
+source_modules = ["usa_wa_sync_powermap", "usa_wa_api"]
+forbidden_modules = [
+    "usa_wa_adapter_legislature.transport",
+    "usa_wa_adapter_pdc.transport",
+    "usa_wa_adapter_sos.filings.transport",
+    "usa_wa_adapter_sos.results.transport",
+]
+
+[[tool.importlinter.contracts]]
+# Same rule one layer down: a fact composes cohort *interfaces*. Reaching for a
+# transport re-welds the fact to a single source, which is the failure the 2026-07
+# votewa outage taught (ARCHITECTURE.md § sourcing vs application).
+name = "Facts depend on cohort interfaces, never on a transport"
+type = "forbidden"
+allow_indirect_imports = true  # as above: a provider legitimately owns its transport
+source_modules = ["usa_wa_facts_seats"]
+forbidden_modules = [
+    "usa_wa_adapter_legislature.transport",
+    "usa_wa_adapter_pdc.transport",
+    "usa_wa_adapter_sos.filings.transport",
+    "usa_wa_adapter_sos.results.transport",
+]
+# TWO KNOWN EXCEPTIONS, enumerated rather than wildcarded so any *new* one fails.
+#
+# `house/refresh.py` and `pdc/refresh.py` are the daily drivers, and each does two jobs
+# in one process: run the source's Phase-A harvest (which needs a live client) and then
+# rebuild the fact from the resulting archive. Only the second half is a fact. The
+# correct split is for each adapter to own "refresh my archive" and the fact to own
+# "rebuild from the archive" — a real change to two systemd entry points and their
+# `--force`/`--biennium` semantics, deliberately NOT bundled into #189's already-wide
+# diff. Tracked as the follow-on named in docs/MODULES-FACTS-SEATS.md; every *builder*
+# module in the package already satisfies the rule unaided.
+ignore_imports = [
+    "usa_wa_facts_seats.house.refresh -> usa_wa_adapter_sos.results.transport",
+    "usa_wa_facts_seats.pdc.refresh -> usa_wa_adapter_pdc.transport",
+]
+
+[[tool.importlinter.contracts]]
+# `usa-wa-common` is vocabulary: what is true about Washington's legislature, not about
+# any publisher of data on it. The moment it can import an adapter it stops being that
+# and becomes a second shared kernel — which is exactly how the first one formed.
+name = "usa-wa-common is source-free"
+type = "forbidden"
+source_modules = ["usa_wa_common"]
+forbidden_modules = [
+    "usa_wa_adapter_legislature",
+    "usa_wa_adapter_pdc",
+    "usa_wa_adapter_sos",
+    "usa_wa_facts_seats",
+    "usa_wa_sync_powermap",
+    "usa_wa_api",
 ]

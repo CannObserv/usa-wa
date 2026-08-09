@@ -43,7 +43,8 @@ def _patch_settings(monkeypatch, *, api_key="k"):
 def _patch_provider(monkeypatch, cohorts):
     """``cohorts`` maps biennium label → ``{id: name}`` (so current vs prior differ).
 
-    Patches both the provider constructor (to a stub) and the WSLClient it would wrap, so no
+    Patches the provider constructor (to a stub) — since #189 the CLI asks the WSL adapter's
+    `committee_meeting_provider` factory rather than wrapping a `WSLClient` it built, so no
     real WSDL is touched."""
 
     class _FakeProvider:
@@ -53,8 +54,10 @@ def _patch_provider(monkeypatch, cohorts):
         async def cohort(self, biennium):
             return dict(cohorts.get(biennium, {}))
 
-    monkeypatch.setattr(cli, "MeetingCohortProvider", _FakeProvider)
-    monkeypatch.setattr(cli, "WSLClient", lambda *_a, **_k: None)
+    async def _factory(_session, **_kw):
+        return _FakeProvider()
+
+    monkeypatch.setattr(cli, "committee_meeting_provider", _factory)
 
 
 async def _add_other(db_session, *, source_id, name, anchor):

@@ -34,9 +34,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.client import DeliveryBlockedError
-from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
+from usa_wa_adapter_legislature.cohorts import committee_roster_provider
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
-from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 from usa_wa_sync_powermap.committee_name_chain import (
     DEFAULT_MAX_RENAME_FRACTION,
@@ -141,9 +140,9 @@ async def _run(args: argparse.Namespace) -> dict:
     async with get_session_factory()() as session:
         jurisdiction = await resolve_jurisdiction(session)
         source = await get_or_create_source(session, jurisdiction)
-        provider = CommitteeRosterCohortProvider(
-            WSLClient("CommitteeService"), session=session, source_id=source.id
-        )
+        # The Source is get-or-created above (this path writes provenance), so it is
+        # passed explicitly rather than left to the factory's read-only lookup.
+        provider = await committee_roster_provider(session, source_id=source.id)
         pm_client = build_pm_client(settings)
         try:
             return await emit_rename_chain(

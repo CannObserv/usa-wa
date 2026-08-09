@@ -43,7 +43,7 @@ class _FakeWSL:
         self._rosters = rosters  # {biennium: [committee dict, ...]}
         self.calls = []
 
-    async def get_committees(self, biennium):
+    async def roster_records(self, biennium):
         self.calls.append(biennium)
         return self._rosters.get(biennium, [])
 

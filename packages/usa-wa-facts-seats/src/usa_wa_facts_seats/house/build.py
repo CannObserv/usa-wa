@@ -60,7 +60,14 @@ from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
+from usa_wa_adapter_legislature.cohorts import (
+    committee_member_provider,
+    sponsor_roster_provider,
+)
+from usa_wa_adapter_legislature.committee_member_cohort import (
+    CommitteeMemberCohortProvider,
+    MemberClient,
+)
 from usa_wa_adapter_legislature.operator_events_store import (
     cite_operator_events,
     current_events,
@@ -74,8 +81,10 @@ from usa_wa_adapter_legislature.roster_hygiene import (
     committee_member_ids_by_biennium,
     stale_exclusions_by_biennium,
 )
-from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
-from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_adapter_legislature.sponsor_cohort import (
+    SponsorClient,
+    SponsorRosterCohortProvider,
+)
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.cohort import SosResultsCohortProvider
 from usa_wa_common.ballot import HousePosition, position_for
@@ -140,8 +149,8 @@ class HouseSpanResult:
 async def build_house_position_spans(
     session: AsyncSession,
     *,
-    sponsor_client: WSLClient | None = None,
-    member_client: WSLClient | None = None,
+    sponsor_client: SponsorClient | None = None,
+    member_client: MemberClient | None = None,
     current_biennium: str | None = None,
     restrict_to_biennium: str | None = None,
     max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
@@ -169,11 +178,18 @@ async def build_house_position_spans(
         session, biennium=current, jurisdiction_id=jurisdiction.id
     )
 
-    sponsors = SponsorRosterCohortProvider(
-        sponsor_client or WSLClient("SponsorService"), session=session, source_id=wsl_source.id
+    # Default to the WSL adapter's own factory (#189): the fact names a cohort, never a
+    # transport. An injected client is typed by the provider's structural Protocol, so a
+    # test double needs no SOAP stack.
+    sponsors = (
+        SponsorRosterCohortProvider(sponsor_client, session=session, source_id=wsl_source.id)
+        if sponsor_client is not None
+        else sponsor_roster_provider(session, source_id=wsl_source.id)
     )
-    member_cohort = CommitteeMemberCohortProvider(
-        member_client or WSLClient("CommitteeService"), session=session, source_id=wsl_source.id
+    member_cohort = (
+        CommitteeMemberCohortProvider(member_client, session=session, source_id=wsl_source.id)
+        if member_client is not None
+        else committee_member_provider(session, source_id=wsl_source.id)
     )
     committee_ids = committee_member_ids_by_biennium(await member_cohort.archived_rosters())
     sos = SosResultsCohortProvider(session=session, source_id=sos_source.id)

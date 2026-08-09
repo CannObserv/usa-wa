@@ -44,7 +44,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
-from clearinghouse_core.provenance import Source
 from clearinghouse_domain_legislative.committee_succession import CommitteeSuccessionEvent
 from clearinghouse_domain_legislative.identity import EntityEvent, Organization
 from clearinghouse_domain_legislative.terms import biennium_for_date
@@ -53,18 +52,17 @@ from clearinghouse_sync_powermap.models import (
     DISPOSITION_AUTO_ATTACHED,
     DISPOSITION_UPDATED,
 )
+from usa_wa_adapter_legislature.cohorts import committee_roster_provider
 from usa_wa_adapter_legislature.committee_lifecycle import (
     CommitteeWindow,
     build_founded_floors,
     collect_committee_presence,
     derive_committee_windows,
 )
-from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
 from usa_wa_adapter_legislature.committee_succession_store import (
     current_events,
     superseded_events,
 )
-from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.registry import build_pm_client
 
@@ -386,19 +384,14 @@ async def produce_committee_events(
 
 
 async def _build_inputs(
-    session: AsyncSession, wsl_client: Any, biennium: str
+    session: AsyncSession, biennium: str
 ) -> tuple[
     dict[str, CommitteeWindow],
     Sequence[CommitteeSuccessionEvent],
     Sequence[CommitteeSuccessionEvent],
 ]:
     """Assemble the C1a windows (from the roster archive) + C2 current + superseded links."""
-    source = (
-        await session.execute(select(Source).where(Source.slug == _SOURCE))
-    ).scalar_one_or_none()
-    provider = CommitteeRosterCohortProvider(
-        wsl_client, session=session, source_id=(source.id if source else None)
-    )
+    provider = await committee_roster_provider(session)
     presence = await collect_committee_presence(provider)
     archived = await provider.archived_bienniums()
     links = await current_events(session)
@@ -439,10 +432,9 @@ async def _run(args: argparse.Namespace) -> dict:
     biennium = _resolve_biennium(args.biennium)
     settings = get_sidecar_settings()
     factory = get_session_factory()
-    wsl_client = WSLClient("CommitteeService")
     if args.dry_run:
         async with factory() as session:
-            windows, links, superseded = await _build_inputs(session, wsl_client, biennium)
+            windows, links, superseded = await _build_inputs(session, biennium)
             stats = await produce_committee_events(
                 session,
                 None,
@@ -457,7 +449,7 @@ async def _run(args: argparse.Namespace) -> dict:
     pm_client = build_pm_client(settings)
     try:
         async with factory() as session:
-            windows, links, superseded = await _build_inputs(session, wsl_client, biennium)
+            windows, links, superseded = await _build_inputs(session, biennium)
             stats = await produce_committee_events(
                 session, pm_client, windows=windows, links=links, superseded_links=superseded
             )

@@ -13,11 +13,33 @@ this document is the pattern that record instantiates.
 | Layer | Package(s) | Owns |
 |---|---|---|
 | 1 — framework | `clearinghouse-core` | jurisdiction-agnostic primitives: `BaseAdapter`, `AdapterRunner`, provenance (`Source`/`FetchEvent`/`RawPayload`/`Citation`), integrity sweep |
-| 2 — domain | `clearinghouse-domain-legislative` | the legislative model: `Person`/`Organization`/`Role`/`Assignment`, tenure spans |
-| 3 — adapters | `usa-wa-adapter-*` | **per jurisdiction+target**: turn a target's wire into canonical rows |
+| 2 — domain | `clearinghouse-domain-legislative` | the legislative model: `Person`/`Organization`/`Role`/`Assignment`; the **biennium term calendar** (`terms`), the **span engine** (`tenure_spans`/`span_emit`/`operator_overlay`) and the **`CohortProvider` Protocols** (`cohorts`) |
+| 2b — vocabulary | `usa-wa-common` | what is true about *Washington's* legislature rather than about any publisher of data on it: the election calendar, seat/position keying, name folding, party canonicalization, the ballot interfaces. **Source-free** |
+| 3 — adapters | `usa-wa-adapter-*` | **per jurisdiction+target**: turn a target's wire into canonical rows. **Sourcing only** |
+| 3b — facts | `usa-wa-facts-*` | **applications**: compose cohort providers across adapters into a canonical fact |
 | 4 — deployment | `usa-wa-api`, `usa-wa-sync-powermap` | serve + sync to Power Map |
 
+**The layering is a contract, not a description** (#189, AR-14). It is checked by
+`import-linter` (`uv run lint-imports`, in the pre-commit gate beside ruff; contracts in the
+root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py`):
+
+- `usa_wa_adapter_* ↛ usa_wa_adapter_*` — an adapter never imports a peer
+- `usa_wa_sync_powermap`, `usa_wa_api`, `usa_wa_facts_* ↛ usa_wa_adapter_*.transport`
+- `usa_wa_common ↛` any adapter, fact or deployment package
+- the layer order above, with no back-edges
+
+Layers **2b** and **3b** were added by #189. Before them there was no home for composition, so
+it happened inside whichever target-keyed adapter package first needed it: `usa-wa-adapter-sos`
+imported 21 symbols from two peer adapters, `usa-wa-adapter-legislature` became a shared kernel
+by accident (the calendar, the span engine and name matching all lived inside a SOAP adapter),
+and the PM sync sidecar made live SOAP calls to the Legislature from five modules. The rule
+that prevents the recurrence is the one worth remembering: **when a second target needs
+something, that is the signal it belongs in 2b or 3b — not that the first target's package
+should export it.**
+
 This document refines **Layer 3**: how one adapter package is organized internally.
+Layer 3b's shape is in [MODULES-FACTS-SEATS.md](MODULES-FACTS-SEATS.md), Layer 2b's in
+[MODULES-COMMON.md](MODULES-COMMON.md).
 
 ## Principle: sourcing is separate from application
 
@@ -92,7 +114,14 @@ swept, and reasoned about in isolation:
 ### What makes the application "source-agnostic"
 
 The `build.py`/`refresh.py` layer depends on a **cohort interface** (`{election_year: {LD:
-[position]}}`, a per-key citation-target accessor), not on a concrete source. Swapping which
+[position]}}`, a per-key citation-target accessor), not on a concrete source. Since #189 that
+interface is a real `Protocol`, not a convention: `usa_wa_common.ballot.HousePositionCohortProvider`
+for this fact, the generic `clearinghouse_domain_legislative.cohorts.*` for the rest, with
+conformance pinned by `scripts/tests/test_cohort_seam.py`. It had to be made real because the
+claim below was **not true** when #189 checked it: `SosResultsCohortProvider` exposed
+`house_positions` while `SosFilingCohortProvider` exposed `house_filings`, over an identical row
+type — so the two archives this section presents as interchangeable were not substitutable under
+any name, and nothing tested that they agreed. Swapping which
 archive feeds a fact is a one-line provider change; adding a *second* archive to corroborate it is
 additive. The projector (`projector.py`) is pure — no DB, no source knowledge — so it is trivially
 testable and reused across sources that yield the same row shape.
