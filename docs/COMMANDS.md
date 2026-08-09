@@ -82,7 +82,7 @@ Full options, exit codes and rationale: [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL
 | `python -m usa_wa_adapter_legislature.migrate_member_role_types` | Reclassify generic `member` Roles → PM catalog slugs (`committee_member`/`party_member`) to stop the #110 no-op-gate churn |
 | `python -m usa_wa_adapter_legislature.harvest_committees` | Committee historical backfill, Phase A (sub-project 3) |
 | `python -m usa_wa_sync_powermap.reconcile_committee_name_chain` | Full committee rename-chain emit, Phase B (sub-project 3) |
-| `python -m usa_wa_adapter_sos.filings.harvest` | Archive WA SOS votewa **filing** cohorts (candidacy metadata, `usa_wa_sos`) — Phase A (#100); pass `--to-year 2018` (2020+ cliff) |
+| `python -m usa_wa_adapter_sos.filings.harvest` | Archive WA SOS votewa **filing** cohorts (candidacy metadata, `usa_wa_sos`) — Phase A (#100); closed archive, caps at 2018 (#169) |
 
 ## Setup
 

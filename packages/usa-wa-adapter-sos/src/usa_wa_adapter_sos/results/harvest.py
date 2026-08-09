@@ -169,8 +169,11 @@ async def _main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--pause-seconds",
         type=float,
-        default=1.0,
-        help="central results.vote.wa.gov min-interval between calls (courtesy; default 1.0)",
+        default=None,
+        help=(
+            "central results.vote.wa.gov min-interval between calls (courtesy); unset leaves the "
+            "value seeded from USA_WA_SOS_RESULTS_MIN_REQUEST_INTERVAL (default 1.0) in place"
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -179,7 +182,10 @@ async def _main(argv: list[str] | None = None) -> int:
         print("DATABASE_URL is not set; aborting", file=sys.stderr)
         return 2
 
-    configure_results_rate_limit(args.pause_seconds)
+    # Only override the central limiter when the operator asked (#169) — an unconditional call
+    # let the flag's own default silently overwrite the env-seeded interval.
+    if args.pause_seconds is not None:
+        configure_results_rate_limit(args.pause_seconds)
     # The current *calendar* year, not the biennium's seating election year (#106): in 2025-26 the
     # latter is 2024, so defaulting to it would stop the sweep short of the very odd-year cohort
     # this harvest exists to archive. A year not yet held simply 404s and is skipped-and-logged.
