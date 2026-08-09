@@ -31,6 +31,8 @@ from datetime import UTC, datetime
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from clearinghouse_core.job import EXIT_CONFIG as _EXIT_CONFIG
+from clearinghouse_core.job import EXIT_DEGRADED as _EXIT_DEGRADED
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
@@ -48,6 +50,14 @@ logger = get_logger(__name__)
 #: 2020-onward claim naming the gap this ceiling exists to stop short of.
 DEFAULT_ELECTION_FLOOR = SOS_FILINGS_ELECTION_YEARS.floor_year
 
+#: Exit code for a whole-source outage (#169 / CR #196 finding 22). Imported from the shared job
+#: harness rather than re-declared so this CLI's exit contract is already correct when #179b
+#: migrates it onto ``run_job()``; systemd's ``OnFailure=`` fires on it like any other failure.
+EXIT_DEGRADED = _EXIT_DEGRADED
+
+#: Exit code for an operator config error — an empty year range (CR #196 finding 26).
+EXIT_CONFIG = _EXIT_CONFIG
+
 #: The last general this source serves. SOS retired the ``WhoFiled`` *Export To Excel* control to
 #: Power BI after the 2018 general; ``electionDate=202011`` and later return HTTP 500, permanently
 #: (verified live 2026-08-06, consistent with the 2026-07-18 audit that moved the House Position
@@ -60,6 +70,13 @@ DEFAULT_ELECTION_FLOOR = SOS_FILINGS_ELECTION_YEARS.floor_year
 #: resilience is what makes a wrong explicit bound survivable rather than fatal — the ceiling and
 #: the SAVEPOINT are complementary, neither substitutes for the other (#169).
 DEFAULT_ELECTION_CEILING = SOS_FILINGS_ELECTION_YEARS.ceiling_year
+if DEFAULT_ELECTION_CEILING is None:  # pragma: no cover — the claim is a closed archive
+    # ``ceiling_year`` is ``int | None`` and ``min(computed, None)`` is a TypeError, so state the
+    # closed-archive dependency here rather than crashing mid-sweep (CR #196 finding 29). If the
+    # claim ever legitimately re-opens, the fix is to drop the cap, not to widen this.
+    raise RuntimeError(
+        "the filings coverage claim has no ceiling; --to-year capping assumes a closed archive"
+    )
 
 
 @dataclass(frozen=True)
@@ -125,10 +142,14 @@ async def harvest_sos(
             skipped += 1
             logger.warning("sos_cohort_year_skipped", extra={"year": year, "error": str(exc)})
 
-    if archived == 0 and skipped > 0:
-        # Every year the source should have served failed — a whole-source outage, not one bad
-        # year in a good run. Per-year resilience keeps this exit 0 (no year crashed the sweep),
-        # so raise a single distinct signal lest "archived=0" read as "nothing to do".
+    if skipped > 0 and skipped == len(years):
+        # *Every* year failed — a whole-source outage, not one bad year in a good run.
+        #
+        # The test is "all years skipped", not "archived == 0" (CR #196 finding 23):
+        # ``archive_only`` returns False on a **cache hit**, so ``archived`` counts fetches, not
+        # successes. A sweep where four years cache-hit and one fails has archived == 0 while the
+        # source served four of five — firing the alarm loudest on the normal re-run path is how
+        # alarms get ignored.
         logger.warning("sos_harvest_total_outage", extra={"years": len(years), "skipped": skipped})
 
     return HarvestSummary(
@@ -185,6 +206,16 @@ async def _main(argv: list[str] | None = None) -> int:
         DEFAULT_ELECTION_CEILING,
     )
     years = general_election_years(args.from_year, to_year)
+    if not years:
+        # An empty range is an operator error, not a no-op success (CR #196 finding 26): the
+        # ceiling makes ``--from-year 2020`` select nothing, and printing "years=0 (committed)"
+        # with exit 0 hides exactly the years the ceiling exists to talk about.
+        print(
+            f"no general-election years in [{args.from_year}, {to_year}] — this source serves "
+            f"{DEFAULT_ELECTION_FLOOR}-{DEFAULT_ELECTION_CEILING}; aborting",
+            file=sys.stderr,
+        )
+        return EXIT_CONFIG
 
     engine = create_async_engine(database_url)
     try:
@@ -207,6 +238,13 @@ async def _main(argv: list[str] | None = None) -> int:
         f"cohorts_skipped={summary.cohorts_skipped} "
         f"{'(dry-run, rolled back)' if summary.dry_run else '(committed)'}"
     )
+    if summary.cohorts_skipped > 0 and summary.cohorts_skipped == summary.years:
+        # Every year failed. Per-year resilience means no year crashed the sweep, so without this
+        # the run exits 0 and the whole-source outage is a WARNING nobody consumes — the exact
+        # gap ``clearinghouse_core.runs`` was built to close (#178), which names this harvest's
+        # sibling in its own module docstring. #169 required it: "or the 2020+ case degrades from
+        # a loud exit 1 to a silent exit 0" (CR #196 finding 22).
+        return EXIT_DEGRADED
     return 0
 
 

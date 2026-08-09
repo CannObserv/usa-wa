@@ -84,6 +84,23 @@ class CoverageStatus(StrEnum):
 STATUSES: tuple[str, ...] = tuple(s.value for s in CoverageStatus)
 """The closed vocabulary. A fourth value is a schema change, not an adapter's choice."""
 
+STATUS_CHECK_NAME = "ck_source_coverage_status"
+"""Name of the CHECK constraint pinning :data:`STATUSES`. Shared with the migration."""
+
+
+def status_check_sql() -> str:
+    """Render the ``status`` CHECK expression **from** :data:`STATUSES`.
+
+    The vocabulary is declared once. Two independent copies of the same list — the tuple and a
+    hand-written constraint — let a fourth status update Python only and surface as an
+    ``IntegrityError`` in production; ``job_runs.outcome`` learned this at CR #191 finding 5 and
+    this is the same shape one table over (CR #196 finding 25). ``tests/test_source_coverage.py``
+    pins this expression against the migration's own copy, which alembic cannot import without
+    coupling a historical migration to a live module.
+    """
+    values = ", ".join(f"'{status}'" for status in STATUSES)
+    return f"status IN ({values})"
+
 
 @dataclass(frozen=True)
 class CoverageClaim:
@@ -114,6 +131,15 @@ class CoverageClaim:
                 "with no record of how the bound was established is the prose-in-a-comment "
                 "problem again, one table over"
             )
+        for label, bound in (("range_start", self.range_start), ("range_end", self.range_end)):
+            # :attr:`floor_year` slices the leading four characters, so a malformed bound would
+            # not fail here where it is declared — it would raise ``int()`` at whichever CLI
+            # imported the derived constant, far from the typo (CR #196 finding 28).
+            if bound is not None and not bound[:4].isdigit():
+                raise ValueError(
+                    f"{self.source_slug}/{self.dimension}: {label} {bound!r} must lead with a "
+                    "four-digit year (a bare year '2008' or a biennium label '1991-92')"
+                )
         if self.range_end is not None and self.range_end < self.range_start:
             raise ValueError(
                 f"{self.source_slug}/{self.dimension}: range_end {self.range_end!r} precedes "
@@ -136,20 +162,35 @@ def claim_for(
     claims: Iterable[CoverageClaim],
     dimension: str,
     *,
-    status: CoverageStatus = CoverageStatus.verified,
+    status: CoverageStatus | None = None,
 ) -> CoverageClaim:
-    """The single claim for ``dimension`` at ``status``.
+    """The single claim for ``dimension`` — by default whichever one the source **serves**.
+
+    ``status=None`` (the default) means "any served status", i.e. anything that is not
+    :attr:`CoverageStatus.absent`. That default is load-bearing: the floor derivations are
+    module-level, so pinning a status at the call site made re-auditing an ``assumed`` claim
+    into a ``verified`` one raise :class:`LookupError` at **import** and kill the CLI deriving
+    the floor — and promoting a claim is the workflow the ``assumed`` status exists to invite
+    (CR #196 finding 24). Pass an explicit status only to address a specific claim, which is
+    what asking for an ``absent`` gap requires.
 
     Raises :class:`LookupError` on none and on more than one. A builder asking "what is the
     floor" needs one answer; two matching spans means the declaration is ambiguous and the
     caller must say which it wants, rather than receive a silently-picked first.
     """
-    matches = [c for c in claims if c.dimension == dimension and c.status == status]
+    if status is None:
+        matches = [
+            c for c in claims if c.dimension == dimension and c.status != CoverageStatus.absent
+        ]
+        label = "served"
+    else:
+        matches = [c for c in claims if c.dimension == dimension and c.status == status]
+        label = status.value
     if not matches:
-        raise LookupError(f"no {status.value} coverage claim for dimension {dimension!r}")
+        raise LookupError(f"no {label} coverage claim for dimension {dimension!r}")
     if len(matches) > 1:
         raise LookupError(
-            f"ambiguous: {len(matches)} {status.value} coverage claims for dimension {dimension!r}"
+            f"ambiguous: {len(matches)} {label} coverage claims for dimension {dimension!r}"
         )
     return matches[0]
 
@@ -174,10 +215,7 @@ class SourceCoverage(Base, TimestampMixin):
     __tablename__ = "source_coverage"
     __table_args__ = (
         UniqueConstraint("source_id", "dimension", "range_start", name="uq_source_coverage_span"),
-        CheckConstraint(
-            "status IN ('" + "', '".join(STATUSES) + "')",
-            name="ck_source_coverage_status",
-        ),
+        CheckConstraint(status_check_sql(), name=STATUS_CHECK_NAME),
         {"schema": SCHEMA},
     )
 
@@ -219,12 +257,17 @@ class SourceCoverage(Base, TimestampMixin):
 async def seed_source_coverage(
     session: AsyncSession, source: Source, claims: Sequence[CoverageClaim]
 ) -> int:
-    """Write ``claims`` against ``source``, returning how many rows were inserted or changed.
+    """Reconcile ``source``'s coverage rows to ``claims``, returning how many rows changed.
 
-    Idempotent, and idempotent *loudly*: a re-run whose claims still match writes nothing
-    and returns 0, while a re-audited claim updates the existing row in place rather than
-    minting a second one — otherwise "what do we cover?" answers twice and disagrees with
-    itself. Operates in the caller's transaction.
+    A **full reconcile**, not an upsert: rows the declaration no longer makes are deleted.
+    Keyed on ``(dimension, range_start)``, an upsert alone left a stale row behind whenever a
+    re-audit *moved a floor* — the commonest re-audit outcome, and one that changes the row's
+    own key — so the source claimed both bounds at once (CR #196 finding 27). Retiring the
+    undeclared rows is what makes the docstring's promise true rather than aspirational.
+
+    Idempotent, and idempotent *loudly*: a re-run whose claims still match writes nothing and
+    returns 0, while a re-audited claim updates its row in place. Operates in the caller's
+    transaction.
     """
     existing = {
         (row.dimension, row.range_start): row
@@ -262,6 +305,12 @@ async def seed_source_coverage(
             continue
         row.range_end, row.status, row.audited_at, row.notes = desired
         changed += 1
+
+    declared = {(claim.dimension, claim.range_start) for claim in claims}
+    for key, row in existing.items():
+        if key not in declared:
+            await session.delete(row)
+            changed += 1
 
     if changed:
         await session.flush()

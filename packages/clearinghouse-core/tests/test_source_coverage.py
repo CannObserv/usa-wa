@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -10,12 +11,15 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from clearinghouse_core.provenance import Source
 from clearinghouse_core.source_coverage import (
+    STATUS_CHECK_NAME,
+    STATUSES,
     CoverageClaim,
     CoverageStatus,
     SourceCoverage,
     claim_for,
     known_gaps,
     seed_source_coverage,
+    status_check_sql,
 )
 
 _AUDITED = date(2026, 8, 6)
@@ -69,9 +73,19 @@ def test_a_claim_requires_a_reason():
         _claim(notes="")
 
 
+def test_a_claim_rejects_a_bound_that_does_not_lead_with_a_year():
+    """``floor_year`` slices the first four characters, so a malformed bound would not fail
+    where it was declared — it would raise ``int()`` at whichever CLI imported it (CR #196
+    finding 28). Validate at construction, next to the other two checks."""
+    with pytest.raises(ValueError, match="four-digit year"):
+        _claim(range_start="91-92", range_end=None)
+    with pytest.raises(ValueError, match="four-digit year"):
+        _claim(range_start="2008", range_end="20xx")
+
+
 def test_claim_for_selects_by_dimension_and_status():
-    """A source can hold several claims on one dimension — the verified span it serves and the
-    ``absent`` span it does not. Selecting by status is what keeps a known gap addressable."""
+    """A source can hold several claims on one dimension — the served span and the ``absent``
+    span it does not serve. Selecting by status is what keeps a known gap addressable."""
     served = _claim()
     gap = _claim(range_start="2020", range_end=None, status=CoverageStatus.absent, notes="retired")
     claims = (served, gap)
@@ -82,6 +96,52 @@ def test_claim_for_selects_by_dimension_and_status():
 
     with pytest.raises(LookupError, match="no_such_dimension"):
         claim_for(claims, "no_such_dimension")
+
+
+def test_claim_for_defaults_to_any_served_status_so_a_promotion_is_not_breaking():
+    """Re-auditing an ``assumed`` claim into a ``verified`` one is the *intended* workflow, and
+    it must not break the CLI that derives its floor from the claim (CR #196 finding 24).
+
+    The floor derivations are module-level, so pinning ``status=assumed`` at the call site made
+    the promotion raise ``LookupError`` at **import** — ``harvest_committee_members`` and
+    ``harvest_pdc`` both died on it. Default to "the one claim this source actually serves on
+    this dimension", whatever established it.
+    """
+    assumed = _claim(status=CoverageStatus.assumed, notes="never probed")
+    assert claim_for((assumed,), "election_year") is assumed
+
+    promoted = _claim(status=CoverageStatus.verified, notes="probed live")
+    assert claim_for((promoted,), "election_year") is promoted
+
+
+def test_claim_for_never_defaults_onto_a_gap():
+    """``absent`` is a claim about what is *not* served, so it can never answer "what is the
+    floor" — it has to be asked for by name."""
+    gap = _claim(status=CoverageStatus.absent, notes="retired")
+    with pytest.raises(LookupError, match="served coverage claim"):
+        claim_for((gap,), "election_year")
+
+
+def test_the_status_check_sql_is_derived_from_the_vocabulary():
+    """Adding a status must move the constraint with it — CR #191 finding 5, one table over."""
+    sql = status_check_sql()
+    for status in STATUSES:
+        assert f"'{status}'" in sql
+
+
+def test_model_check_constraint_matches_the_migrations_copy():
+    """``alembic/versions/`` cannot import this module without coupling a historical migration
+    to a live one, so the migration keeps its own literal. This is the seam that keeps the two
+    honest (the same pin ``test_runs.py`` carries for ``job_runs.outcome``)."""
+    migration = (
+        Path(__file__).resolve().parents[3]
+        / "alembic"
+        / "versions"
+        / "02bb603b7702_180_source_coverage.py"
+    ).read_text()
+    for status in STATUSES:
+        assert f"'{status}'" in migration, f"{status!r} missing from the migration's CHECK"
+    assert STATUS_CHECK_NAME in migration
 
 
 def test_claim_for_refuses_an_ambiguous_match():
@@ -149,6 +209,45 @@ async def test_seed_updates_a_re_audited_claim_in_place(db_session, usa_wa):
     assert rows[0].range_end == "2020"
     assert rows[0].audited_at.date() == date(2026, 9, 1)
     assert rows[0].notes == "feed came back"
+
+
+async def test_seed_retires_a_row_whose_range_start_moved(db_session, usa_wa):
+    """A re-audit that moves the **floor** is the commonest re-audit outcome, and it changes the
+    row's own key (CR #196 finding 27).
+
+    Keyed on ``(dimension, range_start)``, the moved claim inserted a second row and left the
+    first — so the source claimed both a 2008 floor and a 2006 one, which is exactly the
+    "answers twice and disagrees with itself" this function exists to prevent. The seed is a
+    full reconcile of the declared set, not an upsert over it.
+    """
+    source = await _source(db_session, usa_wa)
+    await seed_source_coverage(db_session, source, (_claim(),))
+
+    moved = _claim(range_start="2006", notes="re-probed: the archive reaches back further")
+    assert await seed_source_coverage(db_session, source, (moved,)) == 2  # 1 insert + 1 retire
+
+    rows = (await db_session.execute(select(SourceCoverage))).scalars().all()
+    assert [(r.range_start, r.range_end) for r in rows] == [("2006", "2018")]
+
+
+async def test_seed_leaves_a_sibling_claim_on_the_same_dimension_alone(db_session, usa_wa):
+    """The reconcile must not mistake the ``absent`` sibling for a stale row.
+
+    Filings deliberately holds two ``election_year`` claims — ``verified`` 2008-2018 and
+    ``absent`` 2020-onward — so retiring "everything else on this dimension" would delete the
+    gap that is the whole point of the table.
+    """
+    source = await _source(db_session, usa_wa)
+    claims = (
+        _claim(),
+        _claim(range_start="2020", range_end=None, status=CoverageStatus.absent, notes="retired"),
+    )
+    await seed_source_coverage(db_session, source, claims)
+
+    assert await seed_source_coverage(db_session, source, claims) == 0
+
+    rows = (await db_session.execute(select(SourceCoverage))).scalars().all()
+    assert sorted(r.range_start for r in rows) == ["2008", "2020"]
 
 
 async def test_status_vocabulary_is_check_constrained(db_session, usa_wa):

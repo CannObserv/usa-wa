@@ -74,6 +74,4 @@ WSL_COVERAGE: tuple[CoverageClaim, ...] = (
 SPONSOR_ROSTER_COVERAGE = claim_for(WSL_COVERAGE, SPONSOR_ROSTER)
 
 #: The committee-membership claim — the floor for the #82 harvest.
-COMMITTEE_MEMBERSHIP_COVERAGE = claim_for(
-    WSL_COVERAGE, COMMITTEE_MEMBERSHIP, status=CoverageStatus.assumed
-)
+COMMITTEE_MEMBERSHIP_COVERAGE = claim_for(WSL_COVERAGE, COMMITTEE_MEMBERSHIP)

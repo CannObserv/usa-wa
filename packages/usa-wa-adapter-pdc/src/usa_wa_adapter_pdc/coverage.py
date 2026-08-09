@@ -44,4 +44,4 @@ PDC_COVERAGE: tuple[CoverageClaim, ...] = (
 """Every coverage claim the PDC source makes. Seeded by ``provisioning.get_or_create_source``."""
 
 #: The election-year claim — the floor the #79 harvest sweeps from.
-PDC_ELECTION_YEARS = claim_for(PDC_COVERAGE, ELECTION_YEAR, status=CoverageStatus.assumed)
+PDC_ELECTION_YEARS = claim_for(PDC_COVERAGE, ELECTION_YEAR)

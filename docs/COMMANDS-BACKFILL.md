@@ -246,10 +246,13 @@ python -m usa_wa_sync_powermap.reconcile_committee_name_chain
 # the existing RawPayload, so only a new FetchEvent is written. --force skips the TTL check.
 # --dry-run harvests for real (it hits votewa) and rolls back — no provenance retained.
 # EXIT CODES: 0 success, printing e.g. "SOS harvest: years=6 cohorts_archived=6 cohorts_skipped=0
-# (committed)" — the trailing token is "(dry-run, rolled back)" under --dry-run. A year the source
-# could not serve raises cohorts_skipped without changing the exit code, so check that field (and
-# the sos_harvest_total_outage warning) rather than the exit code alone; 1 a NON-httpx exception
-# mid-sweep (a DB error), logged as sos_harvest_failed, nothing committed; 2 DATABASE_URL unset.
+# (committed)" — the trailing token is "(dry-run, rolled back)" under --dry-run. SOME years
+# skipped is still exit 0 (the reached years committed), so read cohorts_skipped for a partial
+# outage; 1 a NON-httpx exception mid-sweep (a DB error), logged as sos_harvest_failed, nothing
+# committed; 2 DATABASE_URL unset, or the year range selects nothing (e.g. --from-year above the
+# 2018 ceiling); 4 EVERY year skipped — a whole-source outage, also logged as
+# sos_harvest_total_outage. 4 is non-zero deliberately: per-year resilience means no year crashes
+# the sweep, so without it the outage would be a warning nobody consumes (#178 / CR #196 f22).
 # APP role (archive tables only, no owner DML). No sidecar pause needed — archive-only, so nothing
 # reaches PM.
 python -m usa_wa_adapter_sos.filings.harvest --dry-run                # stops at the 2018 ceiling

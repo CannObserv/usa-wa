@@ -77,7 +77,11 @@ swept, and reasoned about in isolation:
   payload-bearing* event (#82).
 - **Resilient harvest** — a Phase A sweep skips-and-logs a bad year in its own SAVEPOINT and
   commits the years it reached; one bad year must not roll back the sweep, and a *whole-source*
-  outage (every year skipped) raises a distinct signal rather than reading as "nothing to do".
+  outage — **every** year skipped, not merely "nothing fetched" — raises a distinct signal rather
+  than reading as "nothing to do", and exits non-zero (`EXIT_DEGRADED`) so `OnFailure=` fires.
+  The count that matters is skipped-vs-total: an archive-only harvest returns False on a cache
+  hit, so "nothing fetched" is the *normal* re-run, and keying the alarm on it fires loudest
+  exactly when nothing is wrong.
   This holds for a **closed** range too (#169): abort-and-resume looks free only inside the cache
   TTL — past it, a re-run re-pulls every already-fetched year against a low-QPS government host,
   which is exactly the traffic the courtesy limiter exists to avoid. What *does* vary with the

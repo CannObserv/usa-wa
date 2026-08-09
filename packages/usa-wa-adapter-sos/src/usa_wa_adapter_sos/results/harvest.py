@@ -134,11 +134,14 @@ async def harvest_results(
             skipped += 1
             logger.warning("results_cohort_year_skipped", extra={"year": year, "error": str(exc)})
 
-    if archived == 0 and skipped > 0:
-        # Every year the source *should* have served failed — a whole-source outage, not one bad
-        # year in a good run. Per-year resilience keeps this exit 0 (no year crashed the sweep), so
-        # raise a single distinct signal lest "archived=0" read as "nothing to do". A sweep of only
-        # race-less years (all ``absent``) is not an outage and deliberately stays quiet.
+    if skipped > 0 and skipped == len(years):
+        # *Every* year failed — a whole-source outage, not one bad year in a good run. A sweep of
+        # only race-less years (all ``absent``) is not an outage and deliberately stays quiet.
+        #
+        # The test is "all years skipped", not "archived == 0" (CR #196 finding 23):
+        # ``archive_only`` returns False on a **cache hit**, so ``archived`` counts fetches, not
+        # successes, and a sweep where the served years all cache-hit and one year fails would
+        # otherwise report a whole-source outage.
         logger.warning(
             "results_harvest_total_outage", extra={"years": len(years), "skipped": skipped}
         )

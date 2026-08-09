@@ -10,6 +10,7 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 
+from clearinghouse_core.job import EXIT_DEGRADED
 from clearinghouse_core.provenance import FetchEvent, RawPayload
 from clearinghouse_domain_legislative.identity import Assignment
 from usa_wa_adapter_sos.filings import harvest as harvest_module
@@ -138,6 +139,78 @@ async def test_harvest_warns_distinctly_on_total_outage(db_session, usa_wa, capl
             db_session, years=[2012, 2020], sos_client=_FakeSOSClient(status_fail_years=[2020])
         )
     assert "sos_harvest_total_outage" not in [r.message for r in caplog.records]
+
+
+async def test_a_cache_hit_run_with_one_bad_year_is_not_a_total_outage(db_session, usa_wa, caplog):
+    """``archive_only`` returns False on a **cache hit**, so ``cohorts_archived`` counts fetches,
+    not successes (CR #196 finding 23).
+
+    Keying the alarm on ``archived == 0`` therefore fired it on the ordinary re-run: every served
+    year cache-hits, one year fails, and a source serving four of five reported a whole-source
+    outage. An alarm that is loudest on the normal path is an alarm that gets ignored.
+    """
+    client = _FakeSOSClient(status_fail_years=[2020])
+    await harvest_sos(db_session, years=[2012, 2014], sos_client=client)  # populate the cache
+
+    with caplog.at_level(logging.WARNING):
+        summary = await harvest_sos(db_session, years=[2012, 2014, 2020], sos_client=client)
+
+    assert summary.cohorts_archived == 0, "the two good years are cache hits, not fetches"
+    assert summary.cohorts_skipped == 1
+    assert "sos_harvest_total_outage" not in [r.message for r in caplog.records]
+
+
+async def test_main_exits_degraded_on_a_total_outage(monkeypatch, capsys, test_engine):
+    """A whole-source outage must not exit 0 (CR #196 finding 22).
+
+    #169 required this explicitly — "or the 2020+ case degrades from a loud exit 1 to a silent
+    exit 0" — and a WARNING nobody consumes is precisely the failure ``clearinghouse_core.runs``
+    was built for (its module docstring names this harvest's sibling as the example). The code is
+    :data:`~clearinghouse_core.job.EXIT_DEGRADED`, so systemd's ``OnFailure=`` fires on it and
+    #179b's migration onto ``run_job()`` is a no-op for the exit contract.
+    """
+    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+
+    async def _fake_harvest(session, *, years, **_kwargs):
+        return HarvestSummary(
+            years=len(years), cohorts_archived=0, cohorts_skipped=len(years), dry_run=False
+        )
+
+    with (
+        patch.object(harvest_module, "configure_logging"),
+        patch.object(harvest_module, "harvest_sos", _fake_harvest),
+    ):
+        code = await harvest_module._main([])
+
+    assert code == EXIT_DEGRADED
+    assert "cohorts_skipped=" in capsys.readouterr().out
+
+
+async def test_main_exits_config_error_when_the_range_selects_no_years(monkeypatch, capsys):
+    """``--from-year`` above the ceiling selects nothing, and a silent success is the wrong answer
+    (CR #196 finding 26).
+
+    ``general_election_years(2020, 2018)`` is ``[]``, so before this the ceiling converted a
+    previously loud failure into ``years=0 ... (committed)`` and exit 0 — for exactly the years
+    the ceiling is about. Sibling CLIs treat an empty range as a config error (exit 2); this
+    matches them.
+    """
+    # An unroutable DSN: the point is that DATABASE_URL is *set*, so the range check is what
+    # rejects the run. Reaching for TEST_DATABASE_URL would drag this into the db tier (#185)
+    # for a database it never opens — the guard returns before the engine is built.
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://unused:unused@127.0.0.1:1/unused")
+    with patch.object(harvest_module, "configure_logging"):
+        code = await harvest_module._main(["--from-year", "2020"])
+
+    assert code == 2
+    assert "2018" in capsys.readouterr().err, "the message should name the ceiling"
+
+
+def test_the_ceiling_is_a_year_not_none():
+    """``ceiling_year`` is ``int | None``, and ``min(computed, None)`` is a TypeError (CR #196
+    finding 29). The filings claim is a closed archive, so the ceiling is always a year — this
+    states that dependency rather than leaving it to a runtime crash."""
+    assert isinstance(DEFAULT_ELECTION_CEILING, int)
 
 
 async def test_main_requires_database_url(monkeypatch, capsys):
