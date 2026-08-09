@@ -118,6 +118,39 @@ async def test_apply_record_adopts_remote_clock(db_session, fake_descriptor):
     assert row.updated_at == datetime(2041, 4, 3, 2, 0, tzinfo=UTC)
 
 
+async def test_reimported_record_does_not_reenqueue_writeback(db_session, fake_descriptor):
+    """Regression (the go-live 403 loop): a PM-imported row, re-read on the next
+    reconcile, must NOT be judged locally-newer and pushed back to PM.
+
+    The consequence ``test_apply_record_adopts_remote_clock`` stops one step short of:
+    that test proves the clock is mirrored, this one proves the *round trip* — apply the
+    same record twice and the second pass takes the PM-wins branch and leaves the outbox
+    empty. A local ``now()`` stamp on import instead of PM's clock would make the second
+    apply ``KEPT_LOCAL`` and enqueue a write-back that 403'd on an unscoped key, wedging
+    every cycle (117 failures at go-live).
+
+    Migrated from ``usa-wa-sync-powermap/tests/test_sidecar.py`` (usa-wa#186): it built a
+    bare ``SyncEngine`` and never touched the Sidecar, so it was specifying the engine
+    from a jurisdiction-specific file. Re-expressed over ``FakeDescriptor`` — the
+    behaviour was never jurisdiction-specific.
+
+    The PM clock must sit in the **past** for this to have teeth: the insert's
+    ``updated_at`` server-defaults to the real wall clock, so only a PM timestamp older
+    than *now* makes an un-adopted row read locally-newer on the second pass. With the
+    module's default (far-future) ``_record`` clock the assertions hold even with the
+    clock adopt removed — verified by mutation.
+    """
+    engine = SyncEngine([fake_descriptor], FakeClient())
+    record = _record("1", "Alpha", updated_at="2020-03-02T01:00:00Z")
+
+    await engine.apply_record(db_session, fake_descriptor, record)  # first reconcile: import
+    outcome = await engine.apply_record(db_session, fake_descriptor, record)  # next reconcile
+
+    assert outcome != APPLY_KEPT_LOCAL
+    entries = (await db_session.execute(select(OutboxEntry))).scalars().all()
+    assert entries == []
+
+
 async def test_lww_pm_newer_overwrites(db_session, fake_descriptor):
     await _add_entity(db_session, source_id="1", name="OldLocal")
     engine = SyncEngine([fake_descriptor], FakeClient())
