@@ -147,7 +147,11 @@ async def test_main_returns_2_when_database_url_unset(monkeypatch, capsys):
 
 async def test_main_returns_2_on_reversed_biennium_range(monkeypatch, capsys):
     """A from-biennium after to-biennium is a config error → exit 2 (no DB touched)."""
-    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    # Any syntactically valid DSN will do — the point is that ``DATABASE_URL`` is *set*,
+    # so the range check is what rejects the arguments. An unroutable one keeps the
+    # docstring's "no DB touched" honest, and keeps this test in the unit tier (#185):
+    # reaching for ``TEST_DATABASE_URL`` made it need a configured database it never used.
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://unused:unused@127.0.0.1:1/unused")
     with patch.object(harvest_module, "configure_logging"):
         code = await harvest_module._main(
             ["--from-biennium", "2025-26", "--to-biennium", "2023-24"]

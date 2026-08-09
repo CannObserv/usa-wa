@@ -29,6 +29,9 @@ Reachable at `https://usa-wa.exe.xyz:8001/` via the exe.dev proxy.
 ## Tests
 
 ```bash
+# Unit tier (#185) — no database at all; ~7s
+uv run pytest --no-cov -m 'not db and not integration'
+
 # Full suite (requires TEST_DATABASE_URL)
 uv run pytest
 
@@ -40,7 +43,8 @@ uv run pytest -m integration
 ```
 
 `TEST_DATABASE_URL` must be a dedicated test database, distinct from `DATABASE_URL` — the
-test conftest enforces this and `Base.metadata.drop_all` runs on teardown.
+test conftest enforces this, and teardown drops each declared schema CASCADE (not
+`Base.metadata.drop_all`, which fails on the circular bill ↔ bill_version FKs).
 
 ## Database migrations
 

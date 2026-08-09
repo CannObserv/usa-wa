@@ -25,7 +25,11 @@ from clearinghouse_core.testing import assert_test_url_safety, reset_migration_s
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.sessions import LegislativeSession
 
-pytestmark = pytest.mark.integration
+# ``db`` as well as ``integration`` (#185): this test opens its own engine against
+# ``TEST_DATABASE_URL`` instead of taking ``db_session``, so the conftest's
+# fixture-closure sweep cannot see that it needs a database. Without the marker,
+# ``pytest -m 'not db'`` would select it on a machine with none.
+pytestmark = [pytest.mark.integration, pytest.mark.db]
 
 
 async def _seed_jurisdiction(database_url: str) -> None:

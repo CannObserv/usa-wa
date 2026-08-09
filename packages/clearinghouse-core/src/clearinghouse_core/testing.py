@@ -78,6 +78,40 @@ def patch_job_runtime(monkeypatch: Any) -> RecordingSession:
     return session
 
 
+_UNREMEMBERED = object()
+"""Distinguishes "nobody has pinned a DSN" from "there is no production DSN"."""
+
+_PRODUCTION_URL: str | None | object = _UNREMEMBERED
+"""The production DSN belts 1 and 3 compare against. See :func:`remember_production_url`."""
+
+
+def remember_production_url(url: str | None) -> None:
+    """Pin the DSN :func:`assert_test_url_safety` treats as production.
+
+    The root ``conftest.py`` rewrites ``DATABASE_URL`` to an unroutable sentinel for the
+    whole test session (CR #191 finding 1), so that a CLI built on ``run_job()`` cannot
+    commit to production when a test calls its ``main()``. But belts 1 and 3 below
+    *derive* what to forbid from that same variable — read at call time, they saw
+    ``blocked`` and accepted anything, including a DSN connecting as the production role
+    (CR #196 finding 13). Callers that neuter the environment hand the real DSN here
+    first, so the guard keeps its teeth for every later call.
+
+    ``None`` is a **meaningful** pin, not a reset: it records "the environment named no
+    production database". Falling back to ``DATABASE_URL`` in that state would read the
+    sentinel the caller just installed, reintroducing the bug this exists to fix.
+    """
+    global _PRODUCTION_URL
+    _PRODUCTION_URL = url
+
+
+def production_database_url() -> str | None:
+    """The DSN the guard will compare against: the pin if one was made, else the
+    environment (so the helper still works outside a session that installs one)."""
+    if _PRODUCTION_URL is not _UNREMEMBERED:
+        return _PRODUCTION_URL  # type: ignore[return-value]
+    return os.environ.get("DATABASE_URL")
+
+
 def assert_test_url_safety(test_url: str) -> None:
     """Raise if ``test_url`` could reach production data.
 
@@ -89,18 +123,22 @@ def assert_test_url_safety(test_url: str) -> None:
 
     Three independent belts:
 
-    1. ``test_url`` must not equal the production ``DATABASE_URL``.
+    1. ``test_url`` must not equal the production DSN.
     2. The test database name must end in ``_test`` — catches a typo pointing
-       the test DSN at the prod database even when ``DATABASE_URL`` is unset.
-    3. The test DSN must not connect as the *same role* the production
-       ``DATABASE_URL`` uses. The forbidden role is derived from
-       ``DATABASE_URL``'s username rather than hardcoded, so this stays
-       jurisdiction-agnostic and self-maintaining for sibling deployments.
+       the test DSN at the prod database even when no production DSN is known.
+    3. The test DSN must not connect as the *same role* the production DSN uses.
+       The forbidden role is derived from that DSN's username rather than
+       hardcoded, so this stays jurisdiction-agnostic and self-maintaining for
+       sibling deployments.
+
+    Belts 1 and 3 read :func:`production_database_url`, **not** ``os.environ``
+    directly — the test session deliberately neuters ``DATABASE_URL``, and comparing
+    against the sentinel silently disabled both (CR #196 finding 13).
 
     Intentionally callable at module-import time *and* at test-body time so
     callers can re-assert immediately before any destructive operation.
     """
-    prod_url = os.environ.get("DATABASE_URL")
+    prod_url = production_database_url()
     if prod_url and test_url == prod_url:
         raise RuntimeError(
             "TEST_DATABASE_URL must not equal DATABASE_URL. "
