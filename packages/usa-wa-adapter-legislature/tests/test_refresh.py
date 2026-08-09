@@ -19,15 +19,13 @@ from clearinghouse_domain_legislative.identity import Assignment, Organization, 
 from usa_wa_adapter_legislature import refresh as refresh_module
 from usa_wa_adapter_legislature.adapter import WALegislatureAdapter
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.provisioning import (
-    get_or_create_source,
-    resolve_jurisdiction,
-)
+from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.refresh import (
     _discover_members,
     run_refresh,
 )
 from usa_wa_adapter_legislature.transport import WireFetch
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 CASSETTE_DIR = Path(__file__).parent / "cassettes"
 CASSETTE = "committee_service_get_active_committees_2025-26.yaml"

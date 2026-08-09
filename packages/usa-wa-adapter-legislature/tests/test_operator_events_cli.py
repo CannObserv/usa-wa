@@ -14,7 +14,7 @@ from usa_wa_adapter_legislature.operator_events import (
     validate_and_record,
 )
 from usa_wa_adapter_legislature.operator_events_store import get_or_create_operator_source
-from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 
 async def _source(session):

@@ -14,7 +14,7 @@ from usa_wa_adapter_legislature.committee_succession_store import (
     supersede_event,
     superseded_events,
 )
-from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 
 async def _source(session) -> Source:

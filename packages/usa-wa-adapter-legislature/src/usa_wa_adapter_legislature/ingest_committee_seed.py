@@ -37,10 +37,8 @@ from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committee_seed import DEFAULT_SEED_PATH, deserialize_seed
-from usa_wa_adapter_legislature.provisioning import (
-    get_or_create_source,
-    resolve_jurisdiction,
-)
+from usa_wa_adapter_legislature.provisioning import get_or_create_source
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 

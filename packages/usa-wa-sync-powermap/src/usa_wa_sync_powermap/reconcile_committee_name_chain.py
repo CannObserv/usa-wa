@@ -35,8 +35,9 @@ from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.client import DeliveryBlockedError
 from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
-from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
+from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 from usa_wa_sync_powermap.committee_name_chain import (
     DEFAULT_MAX_RENAME_FRACTION,
     DEFAULT_STORM_FLOOR,

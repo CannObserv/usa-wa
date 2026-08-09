@@ -43,7 +43,7 @@ from usa_wa_adapter_legislature.committee_succession_store import (
     record_succession_event,
     supersede_event,
 )
-from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 

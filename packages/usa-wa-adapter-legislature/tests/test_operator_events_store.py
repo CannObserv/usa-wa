@@ -17,7 +17,7 @@ from usa_wa_adapter_legislature.operator_events_store import (
     record_operator_event,
     supersede_event,
 )
-from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 
 async def _source(session) -> Source:

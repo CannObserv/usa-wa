@@ -43,11 +43,9 @@ from usa_wa_adapter_legislature.adapter import (
 )
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.probe_committee_extent import probe_committee_floor
-from usa_wa_adapter_legislature.provisioning import (
-    get_or_create_source,
-    resolve_jurisdiction,
-)
+from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 

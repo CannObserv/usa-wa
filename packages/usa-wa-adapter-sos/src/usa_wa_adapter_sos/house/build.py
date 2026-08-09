@@ -69,7 +69,6 @@ from usa_wa_adapter_legislature.operator_events_store import (
 from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
 )
-from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 from usa_wa_adapter_legislature.roster_hygiene import (
     STALE_MIN_COVERAGE_DEFAULT,
     committee_member_ids_by_biennium,
@@ -88,6 +87,7 @@ from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.cohort import SosResultsCohortProvider
 from usa_wa_common.ballot import HousePosition, position_for
 from usa_wa_common.elections import election_year_for_biennium, election_years_for_biennium
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 

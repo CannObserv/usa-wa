@@ -50,8 +50,9 @@ from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCo
 from usa_wa_adapter_legislature.harvest_committee_member_spans import build_committee_member_spans
 from usa_wa_adapter_legislature.harvest_sponsor_spans import build_sponsor_spans
 from usa_wa_adapter_legislature.meeting_windows import biennium_window, meetings_resource_id
-from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
+from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 

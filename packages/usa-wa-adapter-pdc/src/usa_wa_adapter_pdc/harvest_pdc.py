@@ -29,7 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 from usa_wa_adapter_pdc.adapter import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
     SENATE_WINNERS_RESOURCE_PREFIX,
@@ -38,6 +37,7 @@ from usa_wa_adapter_pdc.adapter import (
 from usa_wa_adapter_pdc.coverage import PDC_ELECTION_YEARS
 from usa_wa_adapter_pdc.provisioning import get_or_create_source
 from usa_wa_adapter_pdc.transport import PDCClient
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 

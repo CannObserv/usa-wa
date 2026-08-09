@@ -24,8 +24,8 @@ from usa_wa_adapter_legislature.operator_events_store import (
     get_or_create_operator_source,
     record_operator_event,
 )
-from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 from usa_wa_adapter_sos.house.build import HouseSpanResult, build_house_position_spans
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 CURRENT = "2025-26"
 

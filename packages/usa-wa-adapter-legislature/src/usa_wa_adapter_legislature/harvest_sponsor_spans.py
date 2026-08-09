@@ -46,7 +46,7 @@ from usa_wa_adapter_legislature.operator_events_store import (
     current_events,
     get_or_create_operator_source,
 )
-from usa_wa_adapter_legislature.provisioning import get_or_create_source, resolve_jurisdiction
+from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.roster_hygiene import (
     STALE_MIN_COVERAGE_DEFAULT,
     committee_member_ids_by_biennium,
@@ -60,6 +60,7 @@ from usa_wa_adapter_legislature.sponsor_observations import (
 )
 from usa_wa_adapter_legislature.sponsor_span_emit import emit_sponsor_spans
 from usa_wa_adapter_legislature.transport import WSLClient
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 

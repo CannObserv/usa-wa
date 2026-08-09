@@ -38,7 +38,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
-from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 from usa_wa_adapter_sos.coverage import SOS_RESULTS_ELECTION_YEARS
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.adapter import ResultsAdapter, legresults_resource_id
@@ -47,6 +46,7 @@ from usa_wa_adapter_sos.results.transport import (
     SOSResultsClient,
     configure_results_rate_limit,
 )
+from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 
