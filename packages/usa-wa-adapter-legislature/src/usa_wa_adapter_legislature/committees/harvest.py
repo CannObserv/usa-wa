@@ -15,7 +15,7 @@ Distinct from the meeting harvest (#39, Joint/Other) and the daily refresh
 (the RawPayload archive is the durable record). An inter-request ``pause`` drips the
 sweep against WSL, a vital upstream.
 
-    python -m usa_wa_adapter_legislature.harvest_committees \\
+    python -m usa_wa_adapter_legislature.committees.harvest \\
         --from-biennium 2011-12 --to-biennium 2025-26 [--pause-seconds 2] [--dry-run]
 
 Omit ``--from-biennium`` to auto-probe the earliest biennium GetCommittees returns
@@ -42,7 +42,7 @@ from usa_wa_adapter_legislature.adapter import (
     WALegislatureAdapter,
 )
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.probe_committee_extent import probe_committee_floor
+from usa_wa_adapter_legislature.committees.probe_extent import probe_committee_floor
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction

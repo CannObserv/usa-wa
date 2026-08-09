@@ -9,7 +9,7 @@ person **across endpoints** (does ``SponsorService.GetSponsors`` agree with
 if it diverges cross-endpoint, the committee normalizer must instead name-match its
 members against the sponsor cohort.
 
-**Read-only, no archival.** Like :mod:`probe_committee_extent`, it talks to
+**Read-only, no archival.** Like :mod:`committees.probe_extent`, it talks to
 :class:`~usa_wa_adapter_legislature.transport.WSLClient` directly — **not** the
 :class:`AdapterRunner` — so nothing writes a ``FetchEvent`` / ``RawPayload``. The
 matching is by name (``LastName``, ``FirstName``) so it can *detect* an ``Id`` mismatch

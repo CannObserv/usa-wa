@@ -4,7 +4,7 @@ from datetime import date
 
 from clearinghouse_domain_legislative.committee_succession import CommitteeSuccessionEvent
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Role
-from usa_wa_adapter_legislature.committee_lineage_invariants import (
+from usa_wa_adapter_legislature.committees.lineage_invariants import (
     check_committee_lineage_invariants,
 )
 

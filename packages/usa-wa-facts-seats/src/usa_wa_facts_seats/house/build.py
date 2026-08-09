@@ -64,7 +64,7 @@ from usa_wa_adapter_legislature.cohorts import (
     committee_member_provider,
     sponsor_roster_provider,
 )
-from usa_wa_adapter_legislature.committee_member_cohort import (
+from usa_wa_adapter_legislature.membership.cohort import (
     CommitteeMemberCohortProvider,
     MemberClient,
 )

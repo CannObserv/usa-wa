@@ -17,11 +17,11 @@ from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Sou
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
-from usa_wa_adapter_legislature.committee_membership_observations import (
+from usa_wa_adapter_legislature.membership.emit import emit_committee_spans
+from usa_wa_adapter_legislature.membership.projector import (
     KIND_COMMITTEE,
     build_committee_membership_observations,
 )
-from usa_wa_adapter_legislature.committee_span_emit import emit_committee_spans
 
 CURRENT = "2025-26"
 CID = "31635"

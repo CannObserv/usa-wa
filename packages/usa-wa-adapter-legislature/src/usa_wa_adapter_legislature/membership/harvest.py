@@ -4,7 +4,7 @@ For each biennium in a range, enumerate that biennium's House/Senate standing co
 **from the local roster archive** (``committees-roster:<biennium>``, written by the
 sub-project-3 committee harvest — no extra ``GetCommittees`` call; a biennium that harvest
 never covered falls back to a **live, unarchived** ``GetCommittees(biennium)`` pull — run
-``harvest_committees`` first if you want the enumeration itself to be provenanced) and fan
+``committees.harvest`` first if you want the enumeration itself to be provenanced) and fan
 ``CommitteeService.GetCommitteeMembers(biennium, agency, Name)`` over them through the
 :class:`AdapterRunner` under the ``committee-members-hist:<biennium>:<id>:<agency>:<name>``
 resource id — archiving each pristine SOAP wire (RawPayload, hashed, #54).
@@ -12,7 +12,7 @@ resource id — archiving each pristine SOAP wire (RawPayload, hashed, #54).
 **Persons only.** The runner materializes Person + ``wa_legislature_member_id`` identifier
 (idempotently — they already exist from the #77 sponsor harvest, and ``fill_only`` never
 clobbers). Committee *membership* is not a per-biennium row: it is a merged span built from
-this archive in Phase B (:mod:`harvest_committee_member_spans`).
+this archive in Phase B (:mod:`membership.build`).
 
 **Scope.** House/Senate standing committees only. The Joint/``Other`` class (``org_type=
 'other'``, meeting-derived, #39) has no membership op at all, consistent with that issue.
@@ -23,7 +23,7 @@ Pacing is **central**: ``--pause-seconds`` sets the global WSL request limiter (
 every ``GetCommitteeMembers`` POST drips against WSL. Roughly 40 committees × 14 biennia ≈
 560 paced calls. Closed rosters are cache hits on re-run.
 
-    python -m usa_wa_adapter_legislature.harvest_committee_members \\
+    python -m usa_wa_adapter_legislature.membership.harvest \\
         --from-biennium 1999-00 --pause-seconds 1
 """
 
@@ -46,7 +46,7 @@ from usa_wa_adapter_legislature.adapter import (
     committee_members_hist_resource_id,
 )
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
+from usa_wa_adapter_legislature.committees.cohort import CommitteeRosterCohortProvider
 from usa_wa_adapter_legislature.coverage import COMMITTEE_MEMBERSHIP_COVERAGE
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.transport import WSLClient, configure_wsl_rate_limit

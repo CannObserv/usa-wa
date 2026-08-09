@@ -1,4 +1,4 @@
-"""Tests for ingest_committee_seed.py — no-WSL seed materialization (#39)."""
+"""Tests for committees/ingest_seed.py — no-WSL seed materialization (#39)."""
 
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from clearinghouse_core.provenance import FetchEvent, RawPayload
 from clearinghouse_core.seed_manifest import SeedIntegrityError, write_sidecars
 from clearinghouse_domain_legislative.identity import Organization
-from usa_wa_adapter_legislature import ingest_committee_seed as ingest_module
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.committee_seed import SeedCommittee, serialize_seed
-from usa_wa_adapter_legislature.ingest_committee_seed import (
+from usa_wa_adapter_legislature.committees import ingest_seed as ingest_module
+from usa_wa_adapter_legislature.committees.ingest_seed import (
     SEED_RESOURCE_ID,
     ingest_committee_seed,
 )
+from usa_wa_adapter_legislature.committees.seed import SeedCommittee, serialize_seed
 
 
 def _write_seed(tmp_path, committees, *, bienniums=("2023-24", "2025-26")):

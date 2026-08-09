@@ -50,7 +50,7 @@ never transiently violated — the migration runs against the live constraint.
 
 **Owner role.** Retiring a row hard-deletes its ``citations``, which the app role is REVOKEd
 (#54 provenance immutability), so the CLI runs under ``DATABASE_URL_OWNER`` (like
-``baseline_unbaselined_committees``). The daily span re-drive stays app-role-safe because
+``committees.migrate_fetch_baseline``). The daily span re-drive stays app-role-safe because
 :func:`~clearinghouse_domain_legislative.span_emit._ensure_citations` is insert-only.
 
 **Deploy sequencing.** Run this in the *same* maintenance window as the backfill, with the

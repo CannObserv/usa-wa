@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 import pytest
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
-from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
+from usa_wa_adapter_legislature.committees.cohort import CommitteeRosterCohortProvider
 from usa_wa_adapter_legislature.transport import WireFetch
 
 

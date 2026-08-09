@@ -118,7 +118,7 @@ async def test_main_leaves_the_env_rate_limit_alone_without_the_flag(
     """``--pause-seconds`` defaults to ``None`` so the flag's own default stops overwriting the
     value the central WSL limiter was seeded with from ``USA_WA_WSL_MIN_REQUEST_INTERVAL`` (#169).
 
-    Consistency with :mod:`harvest_committee_members`, the shape already in the repo. Unlike the
+    Consistency with :mod:`membership.harvest`, the shape already in the repo. Unlike the
     SOS filings knob this was never *dead* config — the daily refresh drivers never call
     ``configure_wsl_rate_limit`` — but a CLI silently resetting a central governor is the same
     wart.

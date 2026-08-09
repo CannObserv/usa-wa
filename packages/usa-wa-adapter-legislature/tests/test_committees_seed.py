@@ -1,8 +1,8 @@
-"""Tests for committee_seed.py — frozen seed (de)serialization (#39)."""
+"""Tests for committees/seed.py — frozen seed (de)serialization (#39)."""
 
 from __future__ import annotations
 
-from usa_wa_adapter_legislature.committee_seed import (
+from usa_wa_adapter_legislature.committees.seed import (
     SeedCommittee,
     deserialize_seed,
     serialize_seed,

@@ -3,13 +3,13 @@
 import pytest
 
 from clearinghouse_domain_legislative.identity import Organization
-from usa_wa_adapter_legislature.committee_succession import (
+from usa_wa_adapter_legislature.committees.succession_cli import (
     LinkSpec,
     SuccessionError,
     load_specs,
     validate_and_record,
 )
-from usa_wa_adapter_legislature.committee_succession_store import get_or_create_operator_source
+from usa_wa_adapter_legislature.committees.succession_store import get_or_create_operator_source
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 

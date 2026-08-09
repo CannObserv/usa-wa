@@ -3,8 +3,8 @@
 from datetime import date
 
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
-from usa_wa_adapter_legislature.committee_lifecycle import CommitteeWindow
-from usa_wa_adapter_legislature.committee_lineage_suggest import (
+from usa_wa_adapter_legislature.committees.lifecycle import CommitteeWindow
+from usa_wa_adapter_legislature.committees.lineage_suggest import (
     CandidateInfo,
     build_candidate_infos,
     name_similarity,

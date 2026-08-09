@@ -19,10 +19,10 @@ from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Raw
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED, KIND_SEATED
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
-from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
-from usa_wa_adapter_legislature.harvest_committee_member_spans import (
+from usa_wa_adapter_legislature.membership.build import (
     build_committee_member_spans,
 )
+from usa_wa_adapter_legislature.membership.cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,

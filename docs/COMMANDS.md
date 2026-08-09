@@ -41,10 +41,10 @@ Full options, exit codes and rationale: [COMMANDS-SUCCESSION.md](COMMANDS-SUCCES
 | `python -m usa_wa_adapter_legislature.operators.invariants` | Assert chamber counts + seat occupancy; exit 1 on drift (#107; daily) |
 | `python -m usa_wa_facts_seats.senate_corroboration` | Cite elected senators + assert no odd-year Senate winner lacks an open seat; exit 1 on drift (#123; daily) |
 | `python -m usa_wa_facts_seats.house_corroboration` | Assert no odd-year House special winner lacks an open Position seat; `--sweep-biennia` historical audit; exit 1 on drift (#149; daily) |
-| `python -m usa_wa_adapter_legislature.committee_succession` | Record operator committee-succession links — the judgment layer (#124 C2) |
+| `python -m usa_wa_adapter_legislature.committees.succession_cli` | Record operator committee-succession links — the judgment layer (#124 C2) |
 | `python -m usa_wa_sync_powermap.committee_event_producer` | Emit committee lifecycle windows + succession links to PM as org events (#124 C3) |
-| `python -m usa_wa_adapter_legislature.committee_lineage_invariants` | Assert committee lineage coherence (INV1/INV2); exit 1 on drift (#124 C4; daily) |
-| `python -m usa_wa_adapter_legislature.committee_lineage_suggest` | Advisory: rank committee succession-candidate pairs (#124 C5) |
+| `python -m usa_wa_adapter_legislature.committees.lineage_invariants` | Assert committee lineage coherence (INV1/INV2); exit 1 on drift (#124 C4; daily) |
+| `python -m usa_wa_adapter_legislature.committees.lineage_suggest` | Advisory: rank committee succession-candidate pairs (#124 C5) |
 
 ### Power Map sync
 
@@ -61,7 +61,7 @@ Full options, exit codes and rationale: [COMMANDS-SYNC.md](COMMANDS-SYNC.md).
 | `python -m usa_wa_sync_powermap.prune_subscriptions` | Unsubscribe PM-only strangers; re-run to stale=0 (#73) |
 | `python -m usa_wa_sync_powermap.retract_assignments` | Retract spurious anchored assignments on PM (`op:"retract"`) + tombstone locally; sidecar-paused (#144 Phase 2) |
 | `python -m clearinghouse_core.integrity` | Provenance integrity sweep — rolling byte-slice (#54/#55; weekly) |
-| `python -m usa_wa_adapter_legislature.baseline_unbaselined_committees` | OWNER-role provenance repair (#64) |
+| `python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline` | OWNER-role provenance repair (#64) |
 
 ### Historical backfill and probes
 
@@ -69,18 +69,18 @@ Full options, exit codes and rationale: [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL
 
 | Command | Purpose |
 |---|---|
-| `python -m usa_wa_adapter_legislature.probe_committee_extent` | Write-free: how much committee history exists (#64) |
+| `python -m usa_wa_adapter_legislature.committees.probe_extent` | Write-free: how much committee history exists (#64) |
 | `python -m usa_wa_adapter_legislature.sponsors.probe_identity [--history]` | Write-free: is the WSL member Id stable (#27/#81) |
 | `python -m usa_wa_adapter_legislature.meetings.harvest` | Joint/Other backfill + seed freeze (#39) |
-| `python -m usa_wa_adapter_legislature.ingest_committee_seed` | No-WSL Joint/Other seed loader (#39) |
+| `python -m usa_wa_adapter_legislature.committees.ingest_seed` | No-WSL Joint/Other seed loader (#39) |
 | `python -m usa_wa_adapter_legislature.sponsors.harvest` | Historical member backfill — Persons only, Phase A (#77) |
 | `python -m usa_wa_adapter_legislature.sponsors.build` | Merged-span member Assignments, Phase B (#78) |
 | `python -m usa_wa_adapter_legislature.sponsors.migrate_spans` | Collapse stranded party/Senate rows (3-part legacy #78-3 + superseded 4-part #97) onto merged spans (owner role) |
-| `python -m usa_wa_adapter_legislature.harvest_committee_members` | Historical committee rosters — Persons only, Phase A (#82) |
-| `python -m usa_wa_adapter_legislature.harvest_committee_member_spans` | Merged committee-membership spans, Phase B (#82) |
-| `python -m usa_wa_adapter_legislature.migrate_committee_spans` | Retire per-biennium committee rows stranded by deeper spans (#82) |
-| `python -m usa_wa_adapter_legislature.migrate_member_role_types` | Reclassify generic `member` Roles → PM catalog slugs (`committee_member`/`party_member`) to stop the #110 no-op-gate churn |
-| `python -m usa_wa_adapter_legislature.harvest_committees` | Committee historical backfill, Phase A (sub-project 3) |
+| `python -m usa_wa_adapter_legislature.membership.harvest` | Historical committee rosters — Persons only, Phase A (#82) |
+| `python -m usa_wa_adapter_legislature.membership.build` | Merged committee-membership spans, Phase B (#82) |
+| `python -m usa_wa_adapter_legislature.membership.migrate_spans` | Retire per-biennium committee rows stranded by deeper spans (#82) |
+| `python -m usa_wa_adapter_legislature.migrate_role_types` | Reclassify generic `member` Roles → PM catalog slugs (`committee_member`/`party_member`) to stop the #110 no-op-gate churn |
+| `python -m usa_wa_adapter_legislature.committees.harvest` | Committee historical backfill, Phase A (sub-project 3) |
 | `python -m usa_wa_sync_powermap.reconcile_committee_name_chain` | Full committee rename-chain emit, Phase B (sub-project 3) |
 | `python -m usa_wa_adapter_sos.filings.harvest` | Archive WA SOS votewa **filing** cohorts (candidacy metadata, `usa_wa_sos`) — Phase A (#100); closed archive, caps at 2018 (#169) |
 

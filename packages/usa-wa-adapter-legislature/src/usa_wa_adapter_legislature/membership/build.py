@@ -1,18 +1,18 @@
 """Phase B committee-membership span builder (#82) — archive → merged Assignment spans.
 
 Reads every archived ``committee-members-hist:<biennium>:<id>:…`` roster **offline** (via
-:class:`~usa_wa_adapter_legislature.committee_member_cohort.CommitteeMemberCohortProvider`,
+:class:`~usa_wa_adapter_legislature.membership.cohort.CommitteeMemberCohortProvider`,
 no WSL re-pull), projects the rows to membership observations
-(:mod:`committee_membership_observations`), merges contiguous biennia into
+(:mod:`membership.projector`), merges contiguous biennia into
 :class:`~clearinghouse_domain_legislative.tenure_spans.TenureSpan`s, and emits one
 :class:`Assignment` per committee tenure with a Citation per (biennium, committee) roster
-(:mod:`committee_span_emit`).
+(:mod:`membership.emit`).
 
 Derives entirely from the local archive — re-runnable / re-tunable without touching WSL.
-Depends on the Phase A harvest (:mod:`harvest_committee_members`) having archived the
+Depends on the Phase A harvest (:mod:`membership.harvest`) having archived the
 rosters, and on the Persons (#77) + committee Orgs (sub-project 3) existing.
 
-    python -m usa_wa_adapter_legislature.harvest_committee_member_spans [--dry-run]
+    python -m usa_wa_adapter_legislature.membership.build [--dry-run]
 """
 
 from __future__ import annotations
@@ -36,12 +36,12 @@ from clearinghouse_domain_legislative.span_emit import (
 )
 from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
-from usa_wa_adapter_legislature.committee_membership_observations import (
+from usa_wa_adapter_legislature.membership.cohort import CommitteeMemberCohortProvider
+from usa_wa_adapter_legislature.membership.emit import emit_committee_spans
+from usa_wa_adapter_legislature.membership.projector import (
     KIND_COMMITTEE,
     build_committee_membership_observations,
 )
-from usa_wa_adapter_legislature.committee_span_emit import emit_committee_spans
 from usa_wa_adapter_legislature.operators.store import (
     cite_operator_events,
     current_events,

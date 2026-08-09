@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from clearinghouse_core.seed_manifest import verify
 from clearinghouse_domain_legislative.identity import Organization
-from usa_wa_adapter_legislature.committee_seed import deserialize_seed
+from usa_wa_adapter_legislature.committees.seed import deserialize_seed
 from usa_wa_adapter_legislature.meetings import harvest as harvest_module
 from usa_wa_adapter_legislature.meetings.harvest import harvest_committee_meetings
 from usa_wa_adapter_legislature.transport import WireFetch

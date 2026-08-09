@@ -12,7 +12,7 @@ from usa_wa_adapter_legislature.coverage import (
     SPONSOR_ROSTER_COVERAGE,
     WSL_COVERAGE,
 )
-from usa_wa_adapter_legislature.harvest_committee_members import DEFAULT_MEMBERSHIP_FLOOR
+from usa_wa_adapter_legislature.membership.harvest import DEFAULT_MEMBERSHIP_FLOOR
 from usa_wa_adapter_legislature.operators.invariants import SWEEP_FLOOR_YEAR
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.sponsors.probe_identity import DEFAULT_HISTORY_FLOOR

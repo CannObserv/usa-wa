@@ -1,7 +1,7 @@
 """Archive-first sponsor-roster cohort provider (#78 increment 2b, Phase B).
 
 Turns a biennium into its list of ``GetSponsors`` member rows — the member analog of
-:class:`~usa_wa_adapter_legislature.committee_roster_cohort.CommitteeRosterCohortProvider`.
+:class:`~usa_wa_adapter_legislature.committees.cohort.CommitteeRosterCohortProvider`.
 The span engine reads every archived biennium through this provider, projects the rows to
 tenure observations (:mod:`sponsors.projector`), and builds merged spans.
 

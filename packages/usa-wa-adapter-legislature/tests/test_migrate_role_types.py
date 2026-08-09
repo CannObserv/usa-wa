@@ -1,7 +1,7 @@
 """Tests for the #110 member-role reclassification migration."""
 
 from clearinghouse_domain_legislative.identity import Organization, Role
-from usa_wa_adapter_legislature.migrate_member_role_types import migrate_member_role_types
+from usa_wa_adapter_legislature.migrate_role_types import migrate_member_role_types
 
 
 async def _role(session, *, source_id, role_type):

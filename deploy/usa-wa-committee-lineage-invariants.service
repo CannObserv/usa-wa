@@ -26,7 +26,7 @@ EnvironmentFile=-/home/exedev/usa-wa/.env
 
 # --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
 # Exit 1 on any invariant violation → the OnFailure handler emails the operator.
-ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_adapter_legislature.committee_lineage_invariants
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_adapter_legislature.committees.lineage_invariants
 
 # A few count queries; bound it so a stuck DB fails deterministically, timer retries next fire.
 TimeoutStartSec=300

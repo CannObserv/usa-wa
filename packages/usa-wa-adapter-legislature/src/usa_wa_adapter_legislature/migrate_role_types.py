@@ -1,6 +1,6 @@
 """One-shot reclassify of the generic ``member`` Role slug to PM's catalog slugs (usa-wa#110).
 
-Two producers (``committee_span_emit``, ``sponsors.emit``) historically stamped every
+Two producers (``membership.emit``, ``sponsors.emit``) historically stamped every
 membership Role with the generic ``role_type='member'``. PM's role_types catalog (power-map#268)
 refines that into ``committee_member`` (committee membership) and ``party_member`` (party
 membership), so the local classifier sat permanently diverged from PM's ``role_type_slug`` — the
@@ -24,8 +24,8 @@ reconcile's gate reads a true no-op and adopts PM's clock → the churn stops.
 ``role_type`` is a plain canonical column (Roles carry no provenance ledger) → **app role**.
 Idempotent — a second run finds nothing to change. ``--dry-run`` previews; exit ``0``.
 
-    python -m usa_wa_adapter_legislature.migrate_member_role_types --dry-run
-    python -m usa_wa_adapter_legislature.migrate_member_role_types
+    python -m usa_wa_adapter_legislature.migrate_role_types --dry-run
+    python -m usa_wa_adapter_legislature.migrate_role_types
 """
 
 import argparse
@@ -103,7 +103,7 @@ async def migrate_member_role_types(session: AsyncSession) -> dict:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_adapter_legislature.migrate_member_role_types",
+        prog="python -m usa_wa_adapter_legislature.migrate_role_types",
         description="Reclassify generic `member` Roles to PM catalog slugs to stop churn (#110).",
     )
     parser.add_argument("--dry-run", action="store_true", help="preview without committing")

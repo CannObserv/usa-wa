@@ -68,12 +68,12 @@ from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.span_emit import ASSIGNMENT_CITATION_TYPE, SOURCE
 from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
-from usa_wa_adapter_legislature.committee_membership_observations import (
+from usa_wa_adapter_legislature.membership.cohort import CommitteeMemberCohortProvider
+from usa_wa_adapter_legislature.membership.emit import emit_committee_spans
+from usa_wa_adapter_legislature.membership.projector import (
     KIND_COMMITTEE,
     build_committee_membership_observations,
 )
-from usa_wa_adapter_legislature.committee_span_emit import emit_committee_spans
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction

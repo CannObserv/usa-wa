@@ -39,7 +39,7 @@ from clearinghouse_domain_legislative.span_emit import (
 from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
+from usa_wa_adapter_legislature.membership.cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.operators.store import (
     cite_operator_events,
     current_events,

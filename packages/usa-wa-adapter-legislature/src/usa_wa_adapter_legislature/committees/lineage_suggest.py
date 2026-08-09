@@ -3,7 +3,7 @@
 The operator attests succession links (C2) by judgment; this **suggests** which era-``Id``
 pairs to look at, never asserts one. It is the "fully automatic" grouping repurposed as a
 hint tool (the hybrid boundary): ground-truth stays with the operator, who runs
-``committee_succession`` to record the link.
+``committees.succession_cli`` to record the link.
 
 Signals combined per candidate pair (same chamber only):
 
@@ -36,12 +36,12 @@ from clearinghouse_core.logging import configure_logging
 from clearinghouse_core.provenance import Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Role
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.committee_lifecycle import (
+from usa_wa_adapter_legislature.committees.cohort import CommitteeRosterCohortProvider
+from usa_wa_adapter_legislature.committees.lifecycle import (
     CommitteeWindow,
     collect_committee_presence,
     derive_committee_windows,
 )
-from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
 from usa_wa_adapter_legislature.transport import WSLClient
 
 _SOURCE = "usa_wa_legislature"
@@ -266,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
     candidates = asyncio.run(_run(biennium, min_name_similarity=args.min_name_similarity))
     for c in candidates:
         print(_format(c))
-    print(f"{len(candidates)} candidate pair(s) — advisory; attest via committee_succession")
+    print(f"{len(candidates)} candidate pair(s) — advisory; attest via committees.succession_cli")
     return 0
 
 

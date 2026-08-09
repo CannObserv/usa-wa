@@ -4,7 +4,7 @@ A one-shot CLI that, for each biennium in a configurable range, fetches the
 ``CommitteeMeetingService.GetCommitteeMeetings`` window through the AdapterRunner —
 archiving the **pristine SOAP wire** (``RawPayload``, hashed, archival retention, #54)
 and upserting the Joint/`Other` ``org_type='other'`` rows — then **freezes the deduped
-durable cohort** to the checked-in seed (`committee_seed`) with `seed_manifest` sidecars.
+durable cohort** to the checked-in seed (`committees.seed`) with `seed_manifest` sidecars.
 
 This is *not* the daily loop: closed windows are immutable, so the runner's cache-or-fetch
 fetches each once and a re-run is a free cache hit (frugality — WSL is a vital upstream).
@@ -35,7 +35,7 @@ from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.terms import bienniums_in_range
 from usa_wa_adapter_legislature.adapter import WALegislatureAdapter
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.committee_seed import (
+from usa_wa_adapter_legislature.committees.seed import (
     DEFAULT_SEED_PATH,
     SeedCommittee,
     serialize_seed,

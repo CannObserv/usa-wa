@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person
-from usa_wa_adapter_legislature.harvest_committee_members import (
+from usa_wa_adapter_legislature.membership.harvest import (
     harvest_committee_members,
     standing_committees,
 )

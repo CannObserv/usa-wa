@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from usa_wa_adapter_legislature.committee_lifecycle import (
+from usa_wa_adapter_legislature.committees.lifecycle import (
     CommitteeWindow,
     collect_committee_presence,
     derive_committee_windows,
@@ -122,7 +122,7 @@ async def test_collect_committee_presence_reads_provider():
 
 from types import SimpleNamespace  # noqa: E402
 
-from usa_wa_adapter_legislature.committee_lifecycle import build_founded_floors  # noqa: E402
+from usa_wa_adapter_legislature.committees.lifecycle import build_founded_floors  # noqa: E402
 
 
 def _link(subject, linked, slug, year):

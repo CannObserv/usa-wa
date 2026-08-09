@@ -18,7 +18,7 @@ from sqlalchemy import event
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
-from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
+from usa_wa_adapter_legislature.membership.cohort import CommitteeMemberCohortProvider
 
 CURRENT = "2025-26"
 CID = "31635"

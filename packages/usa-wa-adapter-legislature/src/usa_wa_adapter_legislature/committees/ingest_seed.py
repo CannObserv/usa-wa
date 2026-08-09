@@ -12,7 +12,7 @@ Upsert is **fill-only** (``ON CONFLICT DO NOTHING``): the seed is a floor, not a
 authority — a body the daily refresh or PM curation already produced (possibly with a
 newer name) is left untouched.
 
-    python -m usa_wa_adapter_legislature.ingest_committee_seed [--seed-path PATH]
+    python -m usa_wa_adapter_legislature.committees.ingest_seed [--seed-path PATH]
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from clearinghouse_core.seed_manifest import verified_digest
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.committee_seed import DEFAULT_SEED_PATH, deserialize_seed
+from usa_wa_adapter_legislature.committees.seed import DEFAULT_SEED_PATH, deserialize_seed
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 

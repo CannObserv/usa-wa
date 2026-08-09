@@ -16,8 +16,8 @@ A NULL-hash event with **no** payload can't be hashed (nothing to baseline); it 
 counted (``skipped_no_payload``) and left alone — never treated as verified. Idempotent:
 once an event carries a hash it's no longer selected (``status=noop`` when none remain).
 
-    python -m usa_wa_adapter_legislature.baseline_unbaselined_committees --dry-run
-    python -m usa_wa_adapter_legislature.baseline_unbaselined_committees
+    python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline --dry-run
+    python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline
 """
 
 import argparse
@@ -97,7 +97,7 @@ def _owner_url() -> str:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_adapter_legislature.baseline_unbaselined_committees",
+        prog="python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline",
         description="Retroactively baseline pre-#54 committee fetch events (owner role).",
     )
     parser.add_argument(

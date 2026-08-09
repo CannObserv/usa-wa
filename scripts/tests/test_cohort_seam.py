@@ -52,7 +52,7 @@ def test_pdc_winner_provider_is_an_attested_cohort_provider():
 
 def test_committee_roster_provider_is_an_archived_biennium_cohort_provider():
     """The reconcilers' input contract: a biennium cohort plus its archived domain."""
-    from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
+    from usa_wa_adapter_legislature.committees.cohort import CommitteeRosterCohortProvider
 
     provider = CommitteeRosterCohortProvider(None, session=None, source_id=None)
     assert isinstance(provider, ArchivedBienniumCohortProvider)

@@ -33,7 +33,7 @@ def test_operator_events_reexports_the_same_seat_kinds():
 
 
 def test_adapter_span_kinds_are_the_domain_objects():
-    from usa_wa_adapter_legislature.committee_membership_observations import (
+    from usa_wa_adapter_legislature.membership.projector import (
         KIND_COMMITTEE as leg_committee,
     )
     from usa_wa_adapter_legislature.sponsors.projector import (

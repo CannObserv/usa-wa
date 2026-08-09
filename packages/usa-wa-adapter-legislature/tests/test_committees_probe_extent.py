@@ -8,7 +8,7 @@ probe answers "how much history exists" before sub-project 3 commits to fetching
 
 from types import SimpleNamespace
 
-from usa_wa_adapter_legislature import probe_committee_extent as probe
+from usa_wa_adapter_legislature.committees import probe_extent as probe
 
 
 class _FakeCommitteeClient:

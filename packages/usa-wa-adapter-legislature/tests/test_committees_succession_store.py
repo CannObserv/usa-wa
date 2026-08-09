@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
 from clearinghouse_domain_legislative.committee_succession import CommitteeSuccessionEvent
-from usa_wa_adapter_legislature.committee_succession_store import (
+from usa_wa_adapter_legislature.committees.succession_store import (
     current_events,
     get_or_create_operator_source,
     record_succession_event,

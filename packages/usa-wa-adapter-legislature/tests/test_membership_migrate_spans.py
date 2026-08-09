@@ -18,9 +18,9 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person
-from usa_wa_adapter_legislature import migrate_committee_spans as migrate_module
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
-from usa_wa_adapter_legislature.migrate_committee_spans import (
+from usa_wa_adapter_legislature.membership import migrate_spans as migrate_module
+from usa_wa_adapter_legislature.membership.migrate_spans import (
     MigrationResult,
     migrate_committee_spans,
 )

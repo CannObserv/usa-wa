@@ -46,9 +46,9 @@ from usa_wa_adapter_legislature.adapter import (
     committee_members_hist_resource_id,
 )
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors, bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
-from usa_wa_adapter_legislature.harvest_committee_member_spans import build_committee_member_spans
 from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
+from usa_wa_adapter_legislature.membership.build import build_committee_member_spans
+from usa_wa_adapter_legislature.membership.cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.sponsors.build import build_sponsor_spans
 from usa_wa_adapter_legislature.transport import WSLClient
@@ -171,7 +171,7 @@ async def _rebuild_committee_member_spans(
     """Re-drive the committee-membership span builder (#82) so the daily refresh materializes
     merged membership **spans** from the roster archive — the current biennium is a span's
     open end. The per-biennium inline emission the committee-member normalizer used to carry
-    is retired; this is its replacement (:mod:`harvest_committee_member_spans`).
+    is retired; this is its replacement (:mod:`membership.build`).
 
     Scoped to the current cohort (``restrict_to_biennium``) so it re-asserts only today's
     (member, committee) pairs — each with their full history — not every membership in the

@@ -18,8 +18,8 @@ Committee wire bytes are not measured (``GetCommittees`` returns parsed rows, no
 envelope, and committee payloads are small); the reported wire volume is the meeting
 docket, which dominates (~MB per window).
 
-    python -m usa_wa_adapter_legislature.probe_committee_extent
-    python -m usa_wa_adapter_legislature.probe_committee_extent --start-biennium 2025-26 --json
+    python -m usa_wa_adapter_legislature.committees.probe_extent
+    python -m usa_wa_adapter_legislature.committees.probe_extent --start-biennium 2025-26 --json
 """
 
 import argparse
@@ -158,7 +158,7 @@ async def probe_committee_floor(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_adapter_legislature.probe_committee_extent",
+        prog="python -m usa_wa_adapter_legislature.committees.probe_extent",
         description="Write-free probe of WSL committee/meeting historical extent.",
     )
     parser.add_argument(

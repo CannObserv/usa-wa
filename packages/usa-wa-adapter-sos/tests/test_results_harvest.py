@@ -182,7 +182,7 @@ async def test_main_leaves_the_env_rate_limit_alone_without_the_flag(
     """``--pause-seconds`` defaults to ``None`` so the flag's own default stops overwriting the
     value the central results limiter was seeded with from
     ``USA_WA_SOS_RESULTS_MIN_REQUEST_INTERVAL`` (#169) — the shape
-    :mod:`harvest_committee_members` already uses."""
+    :mod:`membership.harvest` already uses."""
     monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
 
     async def _fake_harvest(session, **_kwargs):

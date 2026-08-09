@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
-from usa_wa_adapter_legislature import baseline_unbaselined_committees as bl
+from usa_wa_adapter_legislature.committees import migrate_fetch_baseline as bl
 
 RESOURCE = "committees:2025-26"
 

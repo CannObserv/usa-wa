@@ -1,12 +1,12 @@
 """Committee-succession attestation CLI (usa-wa#124 C2) — the live interjection surface.
 
-    python -m usa_wa_adapter_legislature.committee_succession \
+    python -m usa_wa_adapter_legislature.committees.succession_cli \
         --subject 14294 --linked 28244 --slug succeeded_by --year 2021 \
         --evidence-url https://... [--notes "renamed + re-scoped"] [--entered-by greg]
 
-    python -m usa_wa_adapter_legislature.committee_succession --file links.json   # batch
-    python -m usa_wa_adapter_legislature.committee_succession --supersede <id> ... # correction
-    python -m usa_wa_adapter_legislature.committee_succession --list               # inspect
+    python -m usa_wa_adapter_legislature.committees.succession_cli --file links.json   # batch
+    python -m usa_wa_adapter_legislature.committees.succession_cli --supersede <id> ... # correction
+    python -m usa_wa_adapter_legislature.committees.succession_cli --list               # inspect
 
 App-role DML (writes ``committee_succession_events`` + provenance under
 ``usa_wa_operator``); shell access is the trust boundary, as with #107. Validates that
@@ -36,7 +36,7 @@ from clearinghouse_domain_legislative.committee_succession import (
 )
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.queries import live_only
-from usa_wa_adapter_legislature.committee_succession_store import (
+from usa_wa_adapter_legislature.committees.succession_store import (
     INHERIT_YEAR,
     current_events,
     get_or_create_operator_source,

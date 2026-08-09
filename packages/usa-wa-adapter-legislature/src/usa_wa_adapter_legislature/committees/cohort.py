@@ -83,7 +83,7 @@ class CommitteeRosterCohortProvider:
         so it needs the short ``Name`` + ``Agency`` the ``{source_id: LongName}`` cohort drops.
 
         The live fallback (an un-archived biennium) is **not** archived or hashed — it only
-        enumerates. Run ``harvest_committees`` first to provenance the enumeration itself.
+        enumerates. Run ``committees.harvest`` first to provenance the enumeration itself.
         """
         resource_id = f"{COMMITTEES_ROSTER_RESOURCE_PREFIX}{biennium}"
         wire = await self._archived_wire(resource_id)
