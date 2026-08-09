@@ -36,6 +36,7 @@ from clearinghouse_core.runner import AdapterRunner
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
 from usa_wa_adapter_legislature.refresh import biennium_for_date
 from usa_wa_adapter_pdc.adapter import election_year_for_biennium
+from usa_wa_adapter_sos.coverage import SOS_FILINGS_ELECTION_YEARS
 from usa_wa_adapter_sos.filings.adapter import SOSAdapter, whofiled_resource_id
 from usa_wa_adapter_sos.filings.transport import SOSFilingsClient, configure_sos_rate_limit
 from usa_wa_adapter_sos.provisioning import get_or_create_source
@@ -43,7 +44,9 @@ from usa_wa_adapter_sos.provisioning import get_or_create_source
 logger = get_logger(__name__)
 
 #: The PDC winner floor this backfill fills against — earlier years have no PDC cohort to join.
-DEFAULT_ELECTION_FLOOR = 2008
+#: Both bounds come from the declared coverage claim (#180), which also carries the ``absent``
+#: 2020-onward claim naming the gap this ceiling exists to stop short of.
+DEFAULT_ELECTION_FLOOR = SOS_FILINGS_ELECTION_YEARS.floor_year
 
 #: The last general this source serves. SOS retired the ``WhoFiled`` *Export To Excel* control to
 #: Power BI after the 2018 general; ``electionDate=202011`` and later return HTTP 500, permanently
@@ -56,7 +59,7 @@ DEFAULT_ELECTION_FLOOR = 2008
 #: assertion (a probe of whether votewa ever restores the export) and stays honoured. Per-year
 #: resilience is what makes a wrong explicit bound survivable rather than fatal — the ceiling and
 #: the SAVEPOINT are complementary, neither substitutes for the other (#169).
-DEFAULT_ELECTION_CEILING = 2018
+DEFAULT_ELECTION_CEILING = SOS_FILINGS_ELECTION_YEARS.ceiling_year
 
 
 @dataclass(frozen=True)

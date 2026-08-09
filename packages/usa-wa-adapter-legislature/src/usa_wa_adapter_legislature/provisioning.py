@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import RetentionPolicy, Source
+from clearinghouse_core.source_coverage import seed_source_coverage
+from usa_wa_adapter_legislature.coverage import WSL_COVERAGE
 from usa_wa_adapter_legislature.transport import WSL_BASE_URL
 
 
@@ -33,11 +35,20 @@ async def resolve_jurisdiction(session: AsyncSession) -> Jurisdiction:
 
 
 async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction) -> Source:
-    """Get-or-create the ``usa_wa_legislature`` SOAP :class:`Source` (idempotent)."""
+    """Get-or-create the ``usa_wa_legislature`` SOAP :class:`Source` (idempotent).
+
+    Also seeds the source's declared coverage claims (#180). On **both** paths, not only on
+    create: a deployment whose ``Source`` row predates the coverage table would otherwise never
+    acquire one, and the ``docs/ARCHITECTURE.md`` checklist step this backs — *coverage rows must
+    exist before an application builds on the feed* — is worth holding by construction rather
+    than by remembering to run something. :func:`seed_source_coverage` is a no-op write when the
+    rows already match the declaration, so the steady-state cost is one indexed SELECT.
+    """
     existing = (
         await session.execute(select(Source).where(Source.slug == "usa_wa_legislature"))
     ).scalar_one_or_none()
     if existing is not None:
+        await seed_source_coverage(session, existing, WSL_COVERAGE)
         return existing
     row = Source(
         jurisdiction_id=jurisdiction.id,
@@ -53,4 +64,5 @@ async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction
     )
     session.add(row)
     await session.flush()
+    await seed_source_coverage(session, row, WSL_COVERAGE)
     return row

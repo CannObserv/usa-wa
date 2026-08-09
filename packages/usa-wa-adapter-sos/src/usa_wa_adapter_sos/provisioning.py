@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import RetentionPolicy, Source
+from clearinghouse_core.source_coverage import seed_source_coverage
+from usa_wa_adapter_sos.coverage import SOS_FILINGS_COVERAGE, SOS_RESULTS_COVERAGE
 from usa_wa_adapter_sos.filings.transport import SOS_BASE_URL
 from usa_wa_adapter_sos.results.transport import RESULTS_BASE_URL
 
@@ -24,11 +26,17 @@ RESULTS_SOURCE_SLUG = "usa_wa_sos_results"
 
 
 async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction) -> Source:
-    """Get-or-create the ``usa_wa_sos`` REST :class:`Source` (idempotent)."""
+    """Get-or-create the ``usa_wa_sos`` REST :class:`Source` (idempotent).
+
+    Seeds this feed's declared coverage claims (#180) on both paths — including the ``absent``
+    2020-onward claim, so the Power BI retirement is a queryable fact rather than prose. See
+    :func:`usa_wa_adapter_legislature.provisioning.get_or_create_source` for why both paths.
+    """
     existing = (
         await session.execute(select(Source).where(Source.slug == SOS_SOURCE_SLUG))
     ).scalar_one_or_none()
     if existing is not None:
+        await seed_source_coverage(session, existing, SOS_FILINGS_COVERAGE)
         return existing
     row = Source(
         jurisdiction_id=jurisdiction.id,
@@ -44,16 +52,21 @@ async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction
     )
     session.add(row)
     await session.flush()
+    await seed_source_coverage(session, row, SOS_FILINGS_COVERAGE)
     return row
 
 
 async def get_or_create_results_source(session: AsyncSession, jurisdiction: Jurisdiction) -> Source:
     """Get-or-create the ``usa_wa_sos_results`` REST :class:`Source` (idempotent) — the results
-    source's own provenance root, distinct from the filings ``usa_wa_sos`` Source (#101)."""
+    source's own provenance root, distinct from the filings ``usa_wa_sos`` Source (#101).
+
+    Seeds this feed's declared coverage claims (#180) on both paths.
+    """
     existing = (
         await session.execute(select(Source).where(Source.slug == RESULTS_SOURCE_SLUG))
     ).scalar_one_or_none()
     if existing is not None:
+        await seed_source_coverage(session, existing, SOS_RESULTS_COVERAGE)
         return existing
     row = Source(
         jurisdiction_id=jurisdiction.id,
@@ -67,4 +80,5 @@ async def get_or_create_results_source(session: AsyncSession, jurisdiction: Juri
     )
     session.add(row)
     await session.flush()
+    await seed_source_coverage(session, row, SOS_RESULTS_COVERAGE)
     return row

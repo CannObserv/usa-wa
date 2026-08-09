@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
 from usa_wa_adapter_legislature.provisioning import resolve_jurisdiction
+from usa_wa_adapter_sos.coverage import SOS_RESULTS_ELECTION_YEARS
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.adapter import ResultsAdapter, legresults_resource_id
 from usa_wa_adapter_sos.results.transport import (
@@ -49,8 +50,9 @@ from usa_wa_adapter_sos.results.transport import (
 
 logger = get_logger(__name__)
 
-#: The earliest general-election year this source fills against (the PDC winner floor).
-DEFAULT_ELECTION_FLOOR = 2008
+#: The earliest general-election year this source fills against (the PDC winner floor) — the
+#: declared coverage claim (#180).
+DEFAULT_ELECTION_FLOOR = SOS_RESULTS_ELECTION_YEARS.floor_year
 
 
 @dataclass(frozen=True)
