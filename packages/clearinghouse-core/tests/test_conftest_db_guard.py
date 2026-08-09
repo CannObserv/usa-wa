@@ -18,8 +18,10 @@ import pytest
 from sqlalchemy.engine import make_url
 
 from clearinghouse_core.config import get_database_url
+from clearinghouse_core.testing import production_database_url
 
 PRODUCTION_DB_NAME = "usa_wa"
+BLOCKED_DB_NAME = "blocked_by_conftest"
 
 
 def test_database_url_does_not_point_at_production():
@@ -49,6 +51,27 @@ def test_the_sentinel_is_unroutable_rather_than_merely_different():
     url = make_url(get_database_url())
     assert url.host in {"127.0.0.1", "localhost"}
     assert url.port == 1
+
+
+def test_the_guard_did_not_blind_assert_test_url_safety():
+    """Neutering ``DATABASE_URL`` must not neuter the URL-safety guard (CR #196 f13).
+
+    Two of ``assert_test_url_safety``'s three belts derive the forbidden URL and role
+    from the production DSN. Read from the environment at call time they saw the
+    sentinel, so a DSN connecting as ``usa_wa_app`` against any ``*_test`` database was
+    accepted — and the callers (``reset_migration_schemas``, ``test_refresh_e2e``) drop
+    every declared schema CASCADE. The conftest therefore hands the real DSN to
+    :func:`remember_production_url` *before* overwriting the variable.
+
+    Asserting "not the sentinel" rather than "equals production" holds in both tiers:
+    with no ``DATABASE_URL`` in the environment the stash is ``None``, which is also
+    not the sentinel.
+    """
+    remembered = production_database_url()
+    assert remembered is None or make_url(remembered).database != BLOCKED_DB_NAME, (
+        "assert_test_url_safety would compare against the conftest sentinel; "
+        "belts 1 and 3 are dead for every runtime caller"
+    )
 
 
 @pytest.mark.skipif(

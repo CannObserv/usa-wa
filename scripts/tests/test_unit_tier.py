@@ -31,9 +31,29 @@ from typing import Any
 
 import pytest
 
+from clearinghouse_core import testing as core_testing
+
 REPO = Path(__file__).parent.parent.parent  # scripts/tests/ → repo
 PYPROJECT = REPO / "pyproject.toml"
 ROOT_CONFTEST = REPO / "conftest.py"
+DB_CONFTEST = REPO / "conftest_db.py"
+
+# Calls that mean a test reaches a database without going through the shared fixtures,
+# so the closure sweep cannot see it (CR #196 finding 15). Grepping the source for
+# ``create_async_engine(`` alone missed ``reset_migration_schemas``, which builds an
+# engine *internally* — a test calling only that would carry no marker and no tell-tale.
+#
+# Matched against parsed *call expressions*, not raw text: naming one of these in a
+# docstring is exactly what a test explaining the guard does, and a substring scan
+# flagged this file's own siblings for describing the mechanism.
+OWN_ENGINE_CALLS = frozenset(
+    {
+        "create_async_engine",
+        "create_engine",
+        "async_sessionmaker",
+        "reset_migration_schemas",
+    }
+)
 
 # Layer 3/4 — the per-jurisdiction adapters, API and sidecar. The shared harness sits
 # below them; anything it imports is imported by every package's tests.
@@ -58,13 +78,31 @@ def _imported_roots(path: Path) -> set[str]:
     return roots
 
 
+def _called_names(path: Path) -> set[str]:
+    """Every function name *called* in ``path`` — bare or as an attribute."""
+    called: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text())):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            called.add(func.id)
+        elif isinstance(func, ast.Attribute):
+            called.add(func.attr)
+    return called
+
+
 def _load_root_conftest(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """Import the root conftest fresh with every database variable stripped.
 
     ``monkeypatch.delenv`` records the prior values, so the conftest's own rewrite of
     ``DATABASE_URL`` during this import is undone on teardown and the live session
-    keeps the sentinel it started with.
+    keeps the sentinel it started with. The pinned production DSN needs the same
+    treatment: re-running the conftest under a stripped environment pins ``None``, and
+    without this the live session would inherit that and fall back to reading its own
+    sentinel (CR #196 finding 13).
     """
+    monkeypatch.setattr(core_testing, "_PRODUCTION_URL", core_testing._PRODUCTION_URL)
     for name in ("TEST_DATABASE_URL", "DATABASE_URL", "DATABASE_URL_OWNER"):
         monkeypatch.delenv(name, raising=False)
     spec = importlib.util.spec_from_file_location("_root_conftest_probe", ROOT_CONFTEST)
@@ -170,17 +208,90 @@ def test_items_requesting_the_shared_db_fixtures_are_marked_db(pytestconfig: pyt
 def test_tests_that_open_their_own_engine_declare_the_db_marker() -> None:
     """Integration tests bypassing ``db_session`` are invisible to the fixture sweep.
 
-    They build an engine against ``TEST_DATABASE_URL`` directly, so nothing in their
-    fixture closure gives them away — the marker has to be written down.
+    They build an engine against ``TEST_DATABASE_URL`` directly — or call a helper that
+    builds one for them — so nothing in their fixture closure gives them away and the
+    marker has to be written down.
     """
     unmarked = [
         path.relative_to(REPO).as_posix()
         for path in _test_files()
         if path != Path(__file__)
-        and "create_async_engine(" in (source := path.read_text())
-        and "mark.db" not in source
+        and OWN_ENGINE_CALLS.intersection(_called_names(path))
+        and "mark.db" not in path.read_text()
     ]
     assert unmarked == [], (
         f"{unmarked} open their own engine but carry no `db` marker; "
         "`pytest -m 'not db'` would try to run them without a database"
+    )
+
+
+def test_every_integration_test_is_also_a_db_test() -> None:
+    """``-m`` is last-wins against ``addopts``, so ``-m 'not db'`` alone silently drops
+    the ``not integration`` exclusion (CR #196 finding 14).
+
+    That is harmless only while every ``integration`` test is also a ``db`` test — true
+    today, by the fixture sweep or by hand. The first integration test that needs no
+    database (a live-HTTP probe, say) would start being selected by a tier advertised as
+    needing none. Heuristic in the same spirit as the tell-tale scan above: a file is
+    considered covered if it carries ``mark.db`` or names a shared DB fixture.
+    """
+    uncovered = [
+        path.relative_to(REPO).as_posix()
+        for path in _test_files()
+        if "mark.integration" in (source := path.read_text())
+        and "mark.db" not in source
+        and not any(fixture in source for fixture in ("db_session", "test_engine"))
+    ]
+    assert uncovered == [], (
+        f"{uncovered} are integration tests with no `db` coverage; either mark them "
+        "`db` or update the documented unit-tier command, which relies on the overlap"
+    )
+
+
+def test_the_marker_sweep_names_fixtures_that_actually_exist(pytestconfig: pytest.Config) -> None:
+    """``DB_FIXTURES`` lives in ``conftest.py``; the fixtures live in ``conftest_db.py``.
+
+    Renaming one without the other stops the sweep marking anything — loud in the unit
+    tier (``test_engine`` raises), silent on a box that has a test database, where the
+    'unit' tier would quietly become the full suite (CR #196 finding 19).
+    """
+    conftest = _live_root_conftest(pytestconfig)
+    db_plugin = pytestconfig.pluginmanager.get_plugin("conftest_db")
+    assert db_plugin is not None, "conftest_db is not registered as a plugin"
+
+    # pytest ≥8.4 wraps fixtures in ``FixtureFunctionDefinition``
+    # (``_fixture_function_marker``); older releases tag the function itself
+    # (``_pytestfixturefunction``). Accept either so a pytest bump doesn't fail this.
+    missing = [
+        name
+        for name in sorted(conftest.DB_FIXTURES)
+        if not any(
+            hasattr(getattr(db_plugin, name, None), attr)
+            for attr in ("_fixture_function_marker", "_pytestfixturefunction")
+        )
+    ]
+    assert missing == [], (
+        f"conftest.DB_FIXTURES names {missing}, which are not fixtures in "
+        f"{DB_CONFTEST.name}; the `db` marker sweep would silently stop matching"
+    )
+
+
+def test_the_marker_sweep_runs_before_pytest_deselects_by_mark(
+    pytestconfig: pytest.Config,
+) -> None:
+    """The sweep adds ``db`` in ``pytest_collection_modifyitems``; ``-m`` deselection
+    happens in ``_pytest.mark``'s implementation of the *same* hook.
+
+    It works because conftest plugins are called ahead of builtins, but that is hook
+    ordering by accident. ``tryfirst`` states it, so an inversion upstream cannot
+    silently turn ``-m 'not db'`` into a no-op — which on a box that *has* a test
+    database would look like a passing unit tier rather than a failure (CR #196
+    finding 18).
+    """
+    conftest = _live_root_conftest(pytestconfig)
+    opts = getattr(conftest.pytest_collection_modifyitems, "pytest_impl", {})
+
+    assert opts.get("tryfirst") is True, (
+        "pytest_collection_modifyitems must be declared @pytest.hookimpl(tryfirst=True) "
+        "so the `db` marker is applied before -m deselection reads it"
     )

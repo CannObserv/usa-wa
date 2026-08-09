@@ -21,13 +21,23 @@ keeps it from creeping back.
 """
 
 import os
+import sys
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from clearinghouse_core.config import get_settings
-from clearinghouse_core.testing import assert_test_url_safety
+from clearinghouse_core.testing import assert_test_url_safety, remember_production_url
+
+# ``pytest_plugins`` below resolves ``conftest_db`` by bare module name, which needs the
+# repo root importable. The default ``importmode=prepend`` puts it there, but a default
+# is not a contract — under ``importlib`` mode it does not (the same reasoning, and the
+# same append-don't-prepend choice, as ``scripts/tests/conftest.py``).
+_HERE = str(Path(__file__).parent)
+if _HERE not in sys.path:
+    sys.path.append(_HERE)
 
 #: Fixtures that hand a test a live connection. Requesting one — directly or through
 #: any fixture that requests one, since pytest resolves the whole closure — is what
@@ -70,7 +80,15 @@ if TEST_DATABASE_URL:
 # Escape hatch: the integration tests that legitimately drive a subprocess against the
 # test DB build an explicit child env (see ``test_refresh_e2e.py``), which overrides
 # this; and ``patch_job_runtime`` bypasses DSN resolution entirely.
+#
+# Before overwriting it, hand the real DSN to ``remember_production_url``:
+# ``assert_test_url_safety``'s belts 1 and 3 derive what to forbid *from* the production
+# DSN, and every runtime caller (``reset_migration_schemas``, ``test_refresh_e2e``) runs
+# after this point. Reading the environment at call time, they compared against
+# ``blocked`` and accepted a DSN connecting as the production role — the guard was
+# silently narrowed to belt 2 alone (CR #196 finding 13).
 BLOCKED_DATABASE_URL = "postgresql+asyncpg://blocked:blocked@127.0.0.1:1/blocked_by_conftest"
+remember_production_url(os.environ.get("DATABASE_URL"))
 os.environ["DATABASE_URL"] = BLOCKED_DATABASE_URL
 os.environ["DATABASE_URL_OWNER"] = BLOCKED_DATABASE_URL
 # Settings is @lru_cache'd and snapshots the environment at first construction, so drop
@@ -82,6 +100,7 @@ get_settings.cache_clear()
 pytest_plugins = ("conftest_db",)
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(items: Iterable[Any]) -> None:
     """Mark every test that resolves a shared DB fixture with ``db``.
 
@@ -93,6 +112,12 @@ def pytest_collection_modifyitems(items: Iterable[Any]) -> None:
     Tests that bypass the fixtures and open their own engine are invisible here and
     carry ``@pytest.mark.db`` in the file — ``scripts/tests/test_unit_tier.py`` checks
     that they do.
+
+    ``tryfirst`` because ``-m`` deselection is ``_pytest.mark``'s implementation of this
+    same hook: the marker has to be on the item before that reads it. Conftest plugins
+    already run ahead of builtins, so this states an ordering rather than changing one —
+    but an inversion upstream would turn ``-m 'not db'`` into a silent no-op on any box
+    that happens to have a test database (CR #196 finding 18).
     """
     for item in items:
         if DB_FIXTURES.intersection(getattr(item, "fixturenames", ())):
