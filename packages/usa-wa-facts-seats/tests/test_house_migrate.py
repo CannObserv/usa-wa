@@ -21,8 +21,8 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
-from usa_wa_adapter_sos.house import migrate as migrate_module
-from usa_wa_adapter_sos.house.migrate import migrate_house_source
+from usa_wa_facts_seats.house import migrate as migrate_module
+from usa_wa_facts_seats.house.migrate import migrate_house_source
 
 _PDC = "usa_wa_pdc"
 _WSL = "usa_wa_legislature"

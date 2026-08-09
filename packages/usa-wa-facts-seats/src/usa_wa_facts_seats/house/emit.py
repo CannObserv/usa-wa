@@ -15,7 +15,7 @@ Each biennium of a span cites that biennium's attesting cohort, supplied by the 
 which cites the WSL sponsor roster (``roster_events``) instead: the SOS wire never names an
 appointee, so the roster is the document that actually places the member in the LD.
 ``person_wa_pdc`` identifier links are a *separate* concern that stays in
-:mod:`usa_wa_adapter_pdc.normalize.pdc_span_emit` (they are PDC's, per-Person, not per-tenure).
+:mod:`usa_wa_facts_seats.pdc.identifiers` (they are PDC's, per-Person, not per-tenure).
 
 Homed in the SOS package because SOS owns the House Position seat since #101; it reuses the PDC
 seat-Role source-id / discriminator helpers (a Layer-3 sibling import, one-directional).

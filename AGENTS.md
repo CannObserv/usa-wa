@@ -64,7 +64,8 @@ Per-package module reference — what each file is for and why it exists:
 - [`docs/MODULES-LEGISLATURE.md`](docs/MODULES-LEGISLATURE.md) — WSL adapter: transport, normalizers, daily refresh, cohort providers, probes
 - [`docs/MODULES-LEGISLATURE-SPANS.md`](docs/MODULES-LEGISLATURE-SPANS.md) — tenure-span engine, operator succession, roster hygiene, span migrations
 - [`docs/MODULES-PDC.md`](docs/MODULES-PDC.md) — PDC SODA adapter (identifier-only)
-- [`docs/MODULES-SOS.md`](docs/MODULES-SOS.md) — SOS filings + results sources and the House Position seat application
+- [`docs/MODULES-SOS.md`](docs/MODULES-SOS.md) — SOS filings + results sources
+- [`docs/MODULES-FACTS-SEATS.md`](docs/MODULES-FACTS-SEATS.md) — Layer 3b `usa-wa-facts-seats`: the composition layer (House Position, Senate corroboration, PDC spans)
 - [`docs/MODULES-SYNC.md`](docs/MODULES-SYNC.md) — Layer 4: the API deployment, the PM sidecar and its producer CLIs, repo-root directories
 
 ## Infrastructure
@@ -198,7 +199,8 @@ JSON records carry `{timestamp, level, logger, message}` (#133; structlog's defa
 - [docs/MODULES-LEGISLATURE.md](docs/MODULES-LEGISLATURE.md) — WSL adapter ingest, normalization, daily refresh
 - [docs/MODULES-LEGISLATURE-SPANS.md](docs/MODULES-LEGISLATURE-SPANS.md) — tenure spans, operator succession, span migrations
 - [docs/MODULES-PDC.md](docs/MODULES-PDC.md) — PDC winner cohorts and identifier links
-- [docs/MODULES-SOS.md](docs/MODULES-SOS.md) — SOS filings/results sources, House Position seat builder
+- [docs/MODULES-SOS.md](docs/MODULES-SOS.md) — SOS filings/results sources
+- [docs/MODULES-FACTS-SEATS.md](docs/MODULES-FACTS-SEATS.md) — Layer 3b: the seat fact family and the four renamed systemd entry points
 - [docs/MODULES-SYNC.md](docs/MODULES-SYNC.md) — API deployment, PM sidecar, producer CLIs, repo-root layout
 - [docs/LWW-NOOP-GATE.md](docs/LWW-NOOP-GATE.md) — the local-newer no-op gate; read before adding a `write_enabled` producer descriptor
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — systemd units, failure alerting, DB roles, restart/lifecycle table

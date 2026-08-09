@@ -31,10 +31,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from clearinghouse_domain_legislative.tenure_spans import Observation
-from usa_wa_adapter_pdc.normalize.pdc_matching import HouseRosterEntry
-from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 from usa_wa_common.ballot import HousePosition, position_for
 from usa_wa_common.seats import house_span_discriminator
+from usa_wa_facts_seats.pdc.matching import HouseRosterEntry
+from usa_wa_facts_seats.pdc.observations import KIND_HOUSE
 
 #: The two WA House seats per LD — the closed world the elimination inference (#103) rests on.
 _HOUSE_QUALIFIERS = frozenset({"Position 1", "Position 2"})

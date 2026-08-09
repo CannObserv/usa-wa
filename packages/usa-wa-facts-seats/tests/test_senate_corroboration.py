@@ -17,8 +17,8 @@ from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.normalize.members import senate_seat_role_source_id
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
-from usa_wa_adapter_sos.senate_corroboration import corroborate_senate_winners
 from usa_wa_common.jurisdiction import resolve_jurisdiction
+from usa_wa_facts_seats.senate_corroboration import corroborate_senate_winners
 
 CURRENT = "2025-26"
 ODD_RESOURCE = "sos-legresults:20251104"

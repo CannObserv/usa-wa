@@ -154,7 +154,7 @@ new tests mirror source layout; TDD red→green per step; no inline imports; UTC
    Assignment rows + one FetchEvent/RawPayload; re-run is a cache hit.
 
 6. **Deploy wiring — daily refresh CLI (TDD).** `refresh.py`
-   (`python -m usa_wa_adapter_pdc.refresh`): resolve current biennium → `election_year = start - 1`,
+   (`python -m usa_wa_facts_seats.pdc.refresh`): resolve current biennium → `election_year = start - 1`,
    pull House winners, `fill_only=True` + `skip_unchanged=True` (mirrors P1b forced pulls). Systemd:
    a `usa-wa-pdc-refresh.{service,timer}` staggered off the WSL refresh (so WSL House Persons exist
    first), `OnFailure=` alert (#49), unit-ordering test (#52). **Verifiable when:** `test_refresh`

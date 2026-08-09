@@ -10,10 +10,10 @@ discriminator. Pure — no DB, no session. A member with no resolvable SOS posit
 from __future__ import annotations
 
 from clearinghouse_domain_legislative.tenure_spans import Observation
-from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster
-from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE
 from usa_wa_adapter_sos.filings.normalize import build_house_filings
-from usa_wa_adapter_sos.house.projector import build_house_seat_observations
+from usa_wa_facts_seats.house.projector import build_house_seat_observations
+from usa_wa_facts_seats.pdc.matching import build_house_roster
+from usa_wa_facts_seats.pdc.observations import KIND_HOUSE
 
 BIENNIUM = "2013-14"
 

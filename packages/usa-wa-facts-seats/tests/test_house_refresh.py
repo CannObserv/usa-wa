@@ -21,9 +21,9 @@ from ulid import ULID as _ULID
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person
-from usa_wa_adapter_sos.house import refresh as refresh_module
-from usa_wa_adapter_sos.house.refresh import run_refresh
 from usa_wa_adapter_sos.results.transport import LegislativeExportNotFound, WireFetch
+from usa_wa_facts_seats.house import refresh as refresh_module
+from usa_wa_facts_seats.house.refresh import run_refresh
 
 BIENNIUM = "2025-26"
 

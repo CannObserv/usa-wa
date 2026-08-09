@@ -1,4 +1,4 @@
-"""WA PDC refresh — ``python -m usa_wa_adapter_pdc.refresh``.
+"""WA PDC refresh — ``python -m usa_wa_facts_seats.pdc.refresh``.
 
 Daily counterpart to the WSL refresh, **identifier-only since #101**. It:
 
@@ -11,7 +11,7 @@ Daily counterpart to the WSL refresh, **identifier-only since #101**. It:
    #74 movers + the #75 Senate cohort), era-matched.
 
 **The House Position seat is no longer PDC's (#101).** It is built by the WSL+SOS builder
-(:func:`usa_wa_adapter_sos.house.build.build_house_position_spans`,
+(:func:`usa_wa_facts_seats.house.build.build_house_position_spans`,
 ``usa_wa_legislature``-sourced, symmetric with the Senate seat), driven daily by the SOS refresh.
 PDC is demoted to the identifier link only — which removes the #100 CR finding-1 two-builder
 depth mismatch (this refresh no longer rebuilds a shallow ``usa_wa_pdc`` House span for a sweep
@@ -43,10 +43,10 @@ from usa_wa_adapter_pdc.adapter import (
     SENATE_WINNERS_RESOURCE_PREFIX,
     PDCAdapter,
 )
-from usa_wa_adapter_pdc.build_pdc_spans import build_pdc_spans
 from usa_wa_adapter_pdc.provisioning import get_or_create_source
 from usa_wa_adapter_pdc.transport import PDCClient
 from usa_wa_common.elections import election_years_for_biennium, senate_election_years_for_biennium
+from usa_wa_facts_seats.pdc.build_pdc_spans import build_pdc_spans
 
 logger = get_logger(__name__)
 

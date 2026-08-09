@@ -1,7 +1,7 @@
 """PDC ``person_wa_pdc`` identifier links (#79; identifier-only since #101).
 
 The idempotent ``person_wa_pdc`` child-identifier upsert — PDC's demoted contribution. The House
-Position seat emission moved to :mod:`usa_wa_adapter_sos.house.emit` (#101); see
+Position seat emission moved to :mod:`usa_wa_facts_seats.house.emit` (#101); see
 ``packages/usa-wa-adapter-sos/tests/test_house_span_emit.py``.
 """
 
@@ -14,7 +14,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_domain_legislative.identity import Person, PersonIdentifier
-from usa_wa_adapter_pdc.normalize.pdc_span_emit import emit_pdc_identifiers
+from usa_wa_facts_seats.pdc.identifiers import emit_pdc_identifiers
 
 CURRENT = "2025-26"
 

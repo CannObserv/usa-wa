@@ -35,15 +35,15 @@ from clearinghouse_domain_legislative.span_kinds import (
     KIND_HOUSE,  # noqa: F401 (re-export for this package's builders/tests)
 )
 from clearinghouse_domain_legislative.tenure_spans import Observation
-from usa_wa_adapter_pdc.normalize.pdc_matching import (
+from usa_wa_common.names import surname_match_set
+from usa_wa_common.parties import canonicalize_party
+from usa_wa_common.seats import canonical_position, district_number, house_span_discriminator
+from usa_wa_facts_seats.pdc.matching import (
     HouseRosterEntry,
     SenateEntry,
     find_confirming_senator,
     match_house_member,
 )
-from usa_wa_common.names import surname_match_set
-from usa_wa_common.parties import canonicalize_party
-from usa_wa_common.seats import canonical_position, district_number, house_span_discriminator
 
 
 @dataclass

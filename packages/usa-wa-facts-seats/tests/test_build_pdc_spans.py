@@ -23,8 +23,8 @@ from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier
 from clearinghouse_domain_legislative.terms import biennium_for_date, parse_biennium
-from usa_wa_adapter_pdc import build_pdc_spans as build_module
-from usa_wa_adapter_pdc.build_pdc_spans import PdcSpanResult, build_pdc_spans
+from usa_wa_facts_seats.pdc import build_pdc_spans as build_module
+from usa_wa_facts_seats.pdc.build_pdc_spans import PdcSpanResult, build_pdc_spans
 
 CURRENT = "2025-26"
 

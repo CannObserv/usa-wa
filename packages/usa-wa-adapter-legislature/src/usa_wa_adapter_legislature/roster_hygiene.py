@@ -23,7 +23,7 @@ committee-active (verified against 1999-00→2025-26; the Speaker sits on Rules)
   duplicate row (no superseded rows, no migration).
 
 The sibling mover exclusion (#105 (a)) needs no external data and lives in
-``usa_wa_adapter_pdc.normalize.pdc_matching.build_house_roster``.
+``usa_wa_facts_seats.pdc.matching.build_house_roster``.
 """
 
 from __future__ import annotations

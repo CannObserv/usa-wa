@@ -1,7 +1,7 @@
 """Archive-first SOS filing-cohort provider (#100/#101, Phase B).
 
 Turns the archived votewa filing cohorts into the House **Position** the WSL+SOS builder
-(:func:`usa_wa_adapter_sos.house.build.build_house_position_spans`) consumes:
+(:func:`usa_wa_facts_seats.house.build.build_house_position_spans`) consumes:
 :meth:`house_filings` yields ``{election_year: {LD: [HouseFiling]}}`` re-parsed **offline** from
 each ``sos-whofiled:<YYYYMM>`` :class:`RawPayload` (written by :mod:`harvest_sos`) — no votewa
 re-pull — and :meth:`citation_events` yields the per-year attesting FetchEvent the positioned

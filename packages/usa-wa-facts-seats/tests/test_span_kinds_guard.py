@@ -42,7 +42,7 @@ def test_adapter_span_kinds_are_the_domain_objects():
     from usa_wa_adapter_legislature.sponsor_observations import (
         KIND_SENATE as leg_senate,
     )
-    from usa_wa_adapter_pdc.normalize.pdc_observations import KIND_HOUSE as pdc_house
+    from usa_wa_facts_seats.pdc.observations import KIND_HOUSE as pdc_house
 
     # Identity, not just equality: the hyphenated literals are not auto-interned, so
     # ``is`` proves the adapters import the constant instead of re-declaring it.

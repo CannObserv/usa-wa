@@ -24,8 +24,8 @@ other than the ballot winner* (a name change, or a predecessor not yet succeeded
 ``mismatched`` but does **not** fail the gate (a surname divergence is more often a legitimate
 ballot↔roster name change than a real missing succession).
 
-    python -m usa_wa_adapter_sos.house_corroboration                  # daily current-biennium gate
-    python -m usa_wa_adapter_sos.house_corroboration --sweep-biennia  # historical audit (report)
+    python -m usa_wa_facts_seats.house_corroboration                  # daily current-biennium gate
+    python -m usa_wa_facts_seats.house_corroboration --sweep-biennia  # historical audit (report)
 
 The daily gate probes the current biennium's odd cohort only (mirroring Senate).
 ``--sweep-biennia`` is the #119 pattern: a **report-only** point-in-time audit across every

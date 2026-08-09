@@ -14,10 +14,10 @@ from usa_wa_adapter_sos.coverage import (
     SOS_RESULTS_ELECTION_YEARS,
 )
 from usa_wa_adapter_sos.filings.harvest import DEFAULT_ELECTION_CEILING, DEFAULT_ELECTION_FLOOR
-from usa_wa_adapter_sos.house_corroboration import SWEEP_FLOOR_YEAR
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source, get_or_create_source
 from usa_wa_adapter_sos.results.harvest import DEFAULT_ELECTION_FLOOR as RESULTS_FLOOR
 from usa_wa_common.jurisdiction import resolve_jurisdiction
+from usa_wa_facts_seats.house_corroboration import SWEEP_FLOOR_YEAR
 
 
 def test_the_votewa_retirement_is_an_absent_claim_not_prose():

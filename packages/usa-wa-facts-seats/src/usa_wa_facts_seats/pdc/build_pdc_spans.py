@@ -9,7 +9,7 @@ the WSL sponsor archive), matches each winner to a WSL :class:`Person`, and emit
 the #75 Senate cohort).
 
 **PDC is identifier-only (#101).** The House Position **seat** is now built by the WSL+SOS
-builder (:func:`usa_wa_adapter_sos.house.build.build_house_position_spans`,
+builder (:func:`usa_wa_facts_seats.house.build.build_house_position_spans`,
 ``usa_wa_legislature``-sourced, symmetric with the Senate seat) — PDC no longer emits or sweeps
 House Position Assignments. This builder keeps only PDC's demoted contribution: the
 ``person_wa_pdc`` identifier linking a WSL Person to their PDC filer id. Retiring the House span
@@ -42,21 +42,21 @@ from usa_wa_adapter_legislature.provisioning import (
 )
 from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
 from usa_wa_adapter_legislature.transport import WSLClient
-from usa_wa_adapter_pdc.normalize.pdc_matching import (
+from usa_wa_adapter_pdc.pdc_cohort import PdcWinnerCohortProvider
+from usa_wa_adapter_pdc.provisioning import get_or_create_source as get_or_create_pdc_source
+from usa_wa_common.elections import seating_biennium_for_election_year
+from usa_wa_common.jurisdiction import resolve_jurisdiction
+from usa_wa_facts_seats.pdc.identifiers import emit_pdc_identifiers
+from usa_wa_facts_seats.pdc.matching import (
     HouseRosterEntry,
     SenateEntry,
     build_house_roster,
     build_senate_roster,
 )
-from usa_wa_adapter_pdc.normalize.pdc_observations import (
+from usa_wa_facts_seats.pdc.observations import (
     build_house_position_observations,
     build_senate_identity_links,
 )
-from usa_wa_adapter_pdc.normalize.pdc_span_emit import emit_pdc_identifiers
-from usa_wa_adapter_pdc.pdc_cohort import PdcWinnerCohortProvider
-from usa_wa_adapter_pdc.provisioning import get_or_create_source as get_or_create_pdc_source
-from usa_wa_common.elections import seating_biennium_for_election_year
-from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 

@@ -9,8 +9,8 @@ and emitting observations instead of per-biennium Assignments. Pure: no DB, no s
 
 from __future__ import annotations
 
-from usa_wa_adapter_pdc.normalize.pdc_matching import build_house_roster, build_senate_roster
-from usa_wa_adapter_pdc.normalize.pdc_observations import (
+from usa_wa_facts_seats.pdc.matching import build_house_roster, build_senate_roster
+from usa_wa_facts_seats.pdc.observations import (
     KIND_HOUSE,
     build_house_position_observations,
     build_senate_identity_links,

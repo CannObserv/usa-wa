@@ -23,9 +23,9 @@ from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_pdc import refresh as refresh_module
-from usa_wa_adapter_pdc.refresh import run_refresh
 from usa_wa_adapter_pdc.transport import WireFetch
+from usa_wa_facts_seats.pdc import refresh as refresh_module
+from usa_wa_facts_seats.pdc.refresh import run_refresh
 
 BIENNIUM = "2025-26"
 

@@ -22,13 +22,13 @@ biennium.
 | Command | Purpose |
 |---|---|
 | `python -m usa_wa_adapter_legislature.refresh` | Daily WSL pull — committees + meeting window + member cluster |
-| `python -m usa_wa_adapter_pdc.refresh` | Daily PDC pull — House Position seats (#69) + Senate cross-links (#75) |
+| `python -m usa_wa_facts_seats.pdc.refresh` | Daily PDC pull — House Position seats (#69) + Senate cross-links (#75) |
 | `python -m usa_wa_adapter_pdc.harvest_pdc` | Historical PDC winner cohorts — archive-only, Phase A (#79) |
-| `python -m usa_wa_adapter_pdc.build_pdc_spans` | Era-matched `person_wa_pdc` identifier links, Phase B (#79; identifier-only since #101) |
-| `python -m usa_wa_adapter_pdc.migrate_pdc_spans` | Retire pre-#79 per-biennium PDC House rows onto spans (#79) |
+| `python -m usa_wa_facts_seats.pdc.build_pdc_spans` | Era-matched `person_wa_pdc` identifier links, Phase B (#79; identifier-only since #101) |
+| `python -m usa_wa_facts_seats.pdc.migrate_pdc_spans` | Retire pre-#79 per-biennium PDC House rows onto spans (#79) |
 | `python -m usa_wa_adapter_sos.results.harvest` | Archive WA SOS **results** cohorts (the House Position source, `usa_wa_sos_results`) — Phase A (#101) |
-| `python -m usa_wa_adapter_sos.house.build` | WSL+SOS House Position seat spans (2008→present) incl. #103 elimination inference, Phase B (#101) |
-| `python -m usa_wa_adapter_sos.house.migrate` | Superseded-collapse (#103) + re-source usa_wa_pdc House rows → usa_wa_legislature (owner role, #101) |
+| `python -m usa_wa_facts_seats.house.build` | WSL+SOS House Position seat spans (2008→present) incl. #103 elimination inference, Phase B (#101) |
+| `python -m usa_wa_facts_seats.house.migrate` | Superseded-collapse (#103) + re-source usa_wa_pdc House rows → usa_wa_legislature (owner role, #101) |
 
 ### Succession, corroboration, and committee lineage
 
@@ -39,8 +39,8 @@ Full options, exit codes and rationale: [COMMANDS-SUCCESSION.md](COMMANDS-SUCCES
 | `python -m usa_wa_sync_powermap.reconcile_committee_active` | Reconcile PM `active` vs current roster (#44; weekly) |
 | `python -m usa_wa_adapter_legislature.operator_events` | Record operator succession events — the live interjection surface (#107) |
 | `python -m usa_wa_adapter_legislature.succession_invariants` | Assert chamber counts + seat occupancy; exit 1 on drift (#107; daily) |
-| `python -m usa_wa_adapter_sos.senate_corroboration` | Cite elected senators + assert no odd-year Senate winner lacks an open seat; exit 1 on drift (#123; daily) |
-| `python -m usa_wa_adapter_sos.house_corroboration` | Assert no odd-year House special winner lacks an open Position seat; `--sweep-biennia` historical audit; exit 1 on drift (#149; daily) |
+| `python -m usa_wa_facts_seats.senate_corroboration` | Cite elected senators + assert no odd-year Senate winner lacks an open seat; exit 1 on drift (#123; daily) |
+| `python -m usa_wa_facts_seats.house_corroboration` | Assert no odd-year House special winner lacks an open Position seat; `--sweep-biennia` historical audit; exit 1 on drift (#149; daily) |
 | `python -m usa_wa_adapter_legislature.committee_succession` | Record operator committee-succession links — the judgment layer (#124 C2) |
 | `python -m usa_wa_sync_powermap.committee_event_producer` | Emit committee lifecycle windows + succession links to PM as org events (#124 C3) |
 | `python -m usa_wa_adapter_legislature.committee_lineage_invariants` | Assert committee lineage coherence (INV1/INV2); exit 1 on drift (#124 C4; daily) |
@@ -210,7 +210,7 @@ python -m usa_wa_adapter_legislature.refresh
 # usa_wa_legislature-sourced and symmetric with the Senate seat (#101). Prod runs this daily at
 # 06:30 UTC (after the WSL refresh) via usa-wa-pdc-refresh.timer; the form below is the manual
 # surface. USA_WA_PDC_APP_TOKEN (optional).
-python -m usa_wa_adapter_pdc.refresh
+python -m usa_wa_facts_seats.pdc.refresh
 
 # SOS refresh (#101) — the daily driver of the WSL+SOS House state_representative Position seat.
 # Archives the current election's results cohort (sos-legresults:<YYYYMMDD>) via archive_only,
@@ -218,7 +218,7 @@ python -m usa_wa_adapter_pdc.refresh
 # Position seat spans (current biennium = the open end). Reads the sitting roster archive-first from
 # the WSL sponsor archive (who sits) + the SOS archive (the Position). Prod runs this daily at 06:45
 # UTC (after the WSL refresh) via usa-wa-sos-refresh.timer; independent of the PDC refresh.
-python -m usa_wa_adapter_sos.house.refresh
+python -m usa_wa_facts_seats.house.refresh
 ```
 
 ### PDC historical backfill (#79)
@@ -245,9 +245,9 @@ python -m usa_wa_adapter_pdc.harvest_pdc --from-year 2008 --pause-seconds 0.5
 # seating a FUTURE biennium (the just-run November even general, archived Nov-Dec) is skipped +
 # logged (pdc_cohort_future_biennium_skipped) until its roster exists — the next cycle links it
 # (#121 CR; the rollover-readiness audit is #135). The House Position SEAT is no longer built
-# here (that is usa_wa_adapter_sos.house.build, below). Idempotent.
-python -m usa_wa_adapter_pdc.build_pdc_spans --dry-run
-python -m usa_wa_adapter_pdc.build_pdc_spans
+# here (that is usa_wa_facts_seats.house.build, below). Idempotent.
+python -m usa_wa_facts_seats.pdc.build_pdc_spans --dry-run
+python -m usa_wa_facts_seats.pdc.build_pdc_spans
 
 # Migration — OWNER ROLE, run AFTER build_pdc_spans, sidecar paused. Retires the pre-#79
 # per-biennium usa_wa_pdc House rows ({member}:chamber-house:{biennium}, 3-part) stranded by the
@@ -255,8 +255,8 @@ python -m usa_wa_adapter_pdc.build_pdc_spans
 # anchor, hard-deletes the row + its citations (owner-only under #54). A row with no covering span
 # yet is left as orphans_no_span (re-run after the build). anchors_dropped (>0) = the sidecar
 # anchored the span first, orphaning the legacy PM assignment (the #80 start-date gap).
-python -m usa_wa_adapter_pdc.migrate_pdc_spans --dry-run
-python -m usa_wa_adapter_pdc.migrate_pdc_spans
+python -m usa_wa_facts_seats.pdc.migrate_pdc_spans --dry-run
+python -m usa_wa_facts_seats.pdc.migrate_pdc_spans
 ```
 
 ### WSL+SOS House Position backfill (#101)
@@ -316,10 +316,10 @@ python -m usa_wa_adapter_sos.results.harvest --from-year 2008 --pause-seconds 1.
 # (default 4; 0 disables). Runs in BOTH the daily re-drive and this backfill (idempotent), so span
 # identity holds. Only ballot-class positions carry back — an elimination-only mate does not seed its
 # own earlier tenure (that recursive cascade is Phase 2, deferred).
-python -m usa_wa_adapter_sos.house.build --dry-run
-python -m usa_wa_adapter_sos.house.build
+python -m usa_wa_facts_seats.house.build --dry-run
+python -m usa_wa_facts_seats.house.build
 
-# Migration — OWNER ROLE, one-shot, run AFTER usa_wa_adapter_sos.house.build. TWO passes:
+# Migration — OWNER ROLE, one-shot, run AFTER usa_wa_facts_seats.house.build. TWO passes:
 # (1) #103 within-source superseded collapse FIRST — elimination deepens some tenures, so an
 # existing anchored usa_wa_legislature row can be superseded by a new deeper-start row of the same
 # seat (the #97 sponsor pattern); each collapses onto its earlier-start covering keeper
@@ -333,8 +333,8 @@ python -m usa_wa_adapter_sos.house.build
 # retired row + its citations (owner-only #54). A PDC row with no covering keeper is left as
 # orphans_no_keeper. 3-part legacy rows are migrate_pdc_spans's job (skipped_legacy).
 # Idempotent; --dry-run.
-python -m usa_wa_adapter_sos.house.migrate --dry-run
-python -m usa_wa_adapter_sos.house.migrate
+python -m usa_wa_facts_seats.house.migrate --dry-run
+python -m usa_wa_facts_seats.house.migrate
 
 # DEPLOY SEQUENCING (the whole historical backfill — and any build that changes span depth, e.g.
 # enabling #103 elimination), SIDECAR PAUSED throughout, completed before the next 06:45 SOS timer
@@ -345,8 +345,8 @@ python -m usa_wa_adapter_sos.house.migrate
 # (#86 anchor conflict + operator alert).
 #   sudo systemctl stop usa-wa-sync-powermap
 #   python -m usa_wa_adapter_sos.results.harvest --from-year 2008        # Phase A (SOS results archive)
-#   python -m usa_wa_adapter_sos.house.build                   # Phase B: full-depth rebuild
-#   python -m usa_wa_adapter_sos.house.migrate                # OWNER role: superseded + PDC->WSL
+#   python -m usa_wa_facts_seats.house.build                   # Phase B: full-depth rebuild
+#   python -m usa_wa_facts_seats.house.migrate                # OWNER role: superseded + PDC->WSL
 #   sudo systemctl start usa-wa-sync-powermap                        # let the sidecar drain to PM
 # If the 06:45 timer beats this window: the daily build emits the new spans first and the sidecar
 # parks the colliding entries UNAVAILABLE (#86 anchor conflict, operator alert) — expected and

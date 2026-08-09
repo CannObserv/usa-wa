@@ -30,7 +30,7 @@ seats a senator with no automatic wire signal (Hunt, LD5, appointed June 2025 th
   ``mismatched_lds``) for a human to judge, not gated. Only a *wholly unoccupied* winner LD — the
   unambiguous missing ``seated`` — exits 1.
 
-    python -m usa_wa_adapter_sos.senate_corroboration
+    python -m usa_wa_facts_seats.senate_corroboration
 
 Citation is app-role DML (a ``Citation`` insert); the corroboration is read-only. Exit 0 clean /
 1 on a missing winner / 2 on a config error.

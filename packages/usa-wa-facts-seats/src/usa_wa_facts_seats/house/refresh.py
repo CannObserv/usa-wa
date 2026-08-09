@@ -1,4 +1,4 @@
-"""WA SOS refresh — ``python -m usa_wa_adapter_sos.house.refresh`` (#101).
+"""WA SOS refresh — ``python -m usa_wa_facts_seats.house.refresh`` (#101).
 
 The daily driver of the **WSL+SOS House Position seat** (symmetric with the Senate seat, #75).
 It:
@@ -6,7 +6,7 @@ It:
 1. Archives the current election's results cohort (``sos-legresults:<YYYYMMDD>``) through the
    runner's archive-only seam (#54), forced past the freshness TTL for daily determinism, and
 2. Re-drives the archive-first House-Position span builder
-   (:func:`usa_wa_adapter_sos.house.build.build_house_position_spans`) scoped to the current
+   (:func:`usa_wa_facts_seats.house.build.build_house_position_spans`) scoped to the current
    biennium — materializing ``usa_wa_legislature`` ``state_representative`` Position seat spans
    (the current biennium as the open end).
 
@@ -37,11 +37,11 @@ from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.transport import WSLClient
-from usa_wa_adapter_sos.house.build import build_house_position_spans
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.adapter import ResultsAdapter, legresults_resource_id
 from usa_wa_adapter_sos.results.transport import LegislativeExportNotFound, SOSResultsClient
 from usa_wa_common.elections import election_years_for_biennium
+from usa_wa_facts_seats.house.build import build_house_position_spans
 
 logger = get_logger(__name__)
 

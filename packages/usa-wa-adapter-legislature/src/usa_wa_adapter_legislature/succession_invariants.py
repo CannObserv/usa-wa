@@ -60,7 +60,7 @@ HOUSE_SEATS = 98
 
 #: The earliest year ``--sweep-biennia`` probes — the WSL sponsor-archive Senate floor (#77),
 #: read as a year off the declared coverage claim (#180). The same fact backs
-#: ``usa_wa_adapter_sos.house_corroboration.SWEEP_FLOOR_YEAR``, which used to declare it again.
+#: ``usa_wa_facts_seats.house_corroboration.SWEEP_FLOOR_YEAR``, which used to declare it again.
 SWEEP_FLOOR_YEAR = SPONSOR_ROSTER_COVERAGE.floor_year
 
 _SENATOR = "state_senator"

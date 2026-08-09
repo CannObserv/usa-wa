@@ -2,7 +2,7 @@
 
 The re-partition makes the House Position seat ``usa_wa_legislature``-sourced (symmetric with the
 Senate seat), built by the WSL+SOS builder
-(:func:`usa_wa_adapter_sos.house.build.build_house_position_spans`). Existing prod rows were
+(:func:`usa_wa_facts_seats.house.build.build_house_position_spans`). Existing prod rows were
 built by the retired PDC House emission and are ``usa_wa_pdc``-sourced; this migration retires each
 onto the ``usa_wa_legislature`` span that covers it, transferring the PM anchor — so the local
 cache holds ONE row per PM assignment and the anchor stays valid (PM keys assignments on
@@ -19,7 +19,7 @@ holding its PM anchor), and the sidecar then mints a **second** PM assignment fo
 (different ``start_date``) — a duplicate the #86 unique index can't catch (the two local rows carry
 different anchors). So each PDC row is mapped to the ``usa_wa_legislature`` span whose validity
 window contains its ``valid_from`` — the same ``_covering_span``/``_retire_onto`` pattern as
-:mod:`usa_wa_adapter_pdc.migrate_pdc_spans` (#91/#97).
+:mod:`usa_wa_facts_seats.pdc.migrate_pdc_spans` (#91/#97).
 
 **Run order: build BEFORE migrate.** ``build_house_spans`` must run first (full historical, so the
 deep ``usa_wa_legislature`` keeper spans exist), then this migration collapses the stranded PDC
@@ -43,7 +43,7 @@ already carries its own anchor, so the superseded row's anchor is dropped + warn
 assignment orphaned upstream, the #80 class).
 
 A **3-part legacy** PDC House row (``{member}:chamber-house:{biennium}``) is
-:mod:`usa_wa_adapter_pdc.migrate_pdc_spans`'s job — run that first; here it is left + counted
+:mod:`usa_wa_facts_seats.pdc.migrate_pdc_spans`'s job — run that first; here it is left + counted
 ``skipped_legacy``.
 
 **Owner role.** Deleting citations is REVOKEd from the app role (#54), so this runs under
