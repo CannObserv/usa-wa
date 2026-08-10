@@ -6,11 +6,16 @@ biennium under committees-roster:<biennium>; an inter-request pause between wind
 
 from __future__ import annotations
 
+import json
+from unittest.mock import patch
+
 import pytest
 from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization
+from usa_wa_adapter_legislature.committees import harvest as harvest_module
 from usa_wa_adapter_legislature.committees.harvest import harvest_committees
 from usa_wa_adapter_legislature.transport import WireFetch
 
@@ -198,3 +203,50 @@ async def test_harvest_parents_subcommittee_to_prior_biennium_committee(
     assert sub.parent_organization_id == parent.id
     # And the parent committee itself parents to the House chamber, not to the sub.
     assert parent.parent_organization_id != sub.id
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_reports_the_summary_and_ledgers_it(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
+
+    async def _fake_harvest(_session, **_kwargs):
+        return harvest_module.HarvestSummary(windows=2, upserted=11, dry_run=False)
+
+    with (
+        patch.object(harvest_module, "harvest_committees", _fake_harvest),
+        patch.object(harvest_module, "WSLClient"),
+    ):
+        code = harvest_module.main(
+            ["--from-biennium", "2023-24", "--to-biennium", "2025-26", "--json"]
+        )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == harvest_module.JOB_SLUG
+    assert payload["counters"] == {"windows": 2, "upserted": 11, "dry_run": False}
+
+
+def test_main_bad_biennium_range_is_still_exit_two(monkeypatch, capsys):
+    """An unusable range is an operator error, not a crash — the CLI returned 2 for it
+    before #179b and still does, now via ``JobResult(..., exit_code=EXIT_CONFIG)``."""
+    patch_job_runtime(monkeypatch)
+
+    with patch.object(harvest_module, "WSLClient"):
+        code = harvest_module.main(["--from-biennium", "2025-26", "--to-biennium", "2011-12"])
+
+    assert code == 2
+
+
+def test_main_failure_exits_one(monkeypatch):
+    patch_job_runtime(monkeypatch)
+
+    async def _boom(_session, **_kwargs):
+        raise RuntimeError("WSL down")
+
+    with (
+        patch.object(harvest_module, "harvest_committees", _boom),
+        patch.object(harvest_module, "WSLClient"),
+    ):
+        assert harvest_module.main(["--from-biennium", "2023-24", "--to-biennium", "2025-26"]) == 1

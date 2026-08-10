@@ -1,8 +1,12 @@
 """Committee-succession CLI (usa-wa#124 C2) — validation + record + supersede + batch."""
 
+from unittest.mock import patch
+
 import pytest
 
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization
+from usa_wa_adapter_legislature.committees import succession_cli as cli
 from usa_wa_adapter_legislature.committees.succession_cli import (
     LinkSpec,
     SuccessionError,
@@ -184,3 +188,38 @@ def test_load_specs_parses_batch():
 def test_load_specs_missing_field_rejected():
     with pytest.raises(SuccessionError, match="missing required field"):
         load_specs([{"subject": "1", "linked": "2", "slug": "succeeded_by"}])
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_validation_failure_is_still_exit_two(monkeypatch, capsys):
+    """Documented contract (COMMANDS-SUCCESSION.md): exit 2 on a validation failure.
+    Preserved via ``JobResult.failed(..., exit_code=EXIT_CONFIG)`` — the ledger records
+    the honest ``failed`` outcome while the operator-facing code stays 2."""
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _reject(_session, _args):
+        raise SuccessionError("a single link needs --subject --linked --slug --evidence-url")
+
+    with patch.object(cli, "_run", _reject):
+        code = cli.main(["--subject", "924"])  # missing --linked/--slug/--evidence-url
+
+    assert code == 2
+    assert (recording.committed, recording.rolled_back) == (0, 1)
+    assert "a single link needs" in capsys.readouterr().err
+
+
+def test_main_dry_run_rolls_back(monkeypatch):
+    """--dry-run validates + writes, then rolls back — the harness owns the rollback."""
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _fake_run(_session, _args):
+        return 0
+
+    with patch.object(cli, "_run", _fake_run):
+        assert cli.main(["--dry-run", "--list"]) == 0
+
+    # --list is read-only, so the harness commits an empty transaction rather than
+    # rolling back the listing (matching the pre-#179b `dry_run and not list` branch).
+    assert (recording.committed, recording.rolled_back) == (1, 0)

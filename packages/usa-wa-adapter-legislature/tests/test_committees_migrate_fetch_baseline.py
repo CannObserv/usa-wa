@@ -10,11 +10,16 @@ skip a payload-less NULL-hash event (nothing to hash) → don't touch baselined 
 """
 
 import hashlib
+import json
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 from sqlalchemy import select
 
+from clearinghouse_core import job as job_module
+from clearinghouse_core.config import DATABASE_ROLE_OWNER
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
+from clearinghouse_core.testing import patch_job_runtime
 from usa_wa_adapter_legislature.committees import migrate_fetch_baseline as bl
 
 RESOURCE = "committees:2025-26"
@@ -112,3 +117,47 @@ async def test_leaves_baselined_events_untouched(db_session, usa_wa):
         await db_session.execute(select(FetchEvent).where(FetchEvent.id == ev.id))
     ).scalar_one()
     assert refreshed.content_hash == existing  # unchanged
+
+
+# --- CLI (#179b: the shared job harness, owner role) ---------------------------
+
+
+def test_main_declares_the_owner_role(monkeypatch):
+    """The app role is REVOKEd UPDATE on the provenance ledger (#54), so this is a
+    declaration to ``run_job()`` now rather than a private ``_owner_url()`` helper."""
+    seen: dict = {}
+
+    def _capture(_name, _handler, **kwargs):
+        seen.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(bl, "run_job", _capture)
+    bl.main([])
+    assert seen["role"] == DATABASE_ROLE_OWNER
+
+
+def test_main_missing_owner_url_is_exit_two(monkeypatch, capsys):
+    """Was a bare RuntimeError traceback (exit 1); is now the harness's config exit 2,
+    matching every other owner-role CLI. Documented in COMMANDS-BACKFILL.md."""
+
+    def _raise(_role="app"):
+        raise RuntimeError("DATABASE_URL_OWNER is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    assert bl.main([]) == 2
+    assert "DATABASE_URL_OWNER" in capsys.readouterr().err
+
+
+def test_main_dry_run_rolls_back(monkeypatch, capsys):
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _fake(_session, **_kwargs):
+        return {"status": "baselined", "baselined": 3, "skipped_no_payload": 0}
+
+    with patch.object(bl, "baseline_unbaselined", _fake):
+        code = bl.main(["--dry-run", "--json"])
+
+    assert code == 0
+    assert (recording.committed, recording.rolled_back) == (0, 1)
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["counters"]["baselined"] == 3

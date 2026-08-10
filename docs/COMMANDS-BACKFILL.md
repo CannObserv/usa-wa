@@ -66,6 +66,8 @@ python -m usa_wa_adapter_legislature.meetings.harvest --from-biennium 2023-24 --
 # fresh deploy. verified_digest gates the seed bytes (fails closed on a sidecar mismatch),
 # writes a synthetic hashed FetchEvent + archived RawPayload, and fill-only upserts (existing
 # rows untouched — the seed is a floor, not an authority). Needs the committed seed file.
+# Exit 0 clean / 1 failed / 2 config. NEW at #179b: --dry-run (the harness gives every job
+# one) rolls the ingest back; the pre-#179b CLI had none and committed unconditionally.
 python -m usa_wa_adapter_legislature.committees.ingest_seed
 
 # Historical member (sponsor) harvest — Phase A of the #76 backfill epic (#77). Sweep

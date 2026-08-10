@@ -179,6 +179,9 @@ python -m clearinghouse_core.integrity --json         # machine-readable summary
 # keeping the fetch history + bytes (no deletion). Payload-less NULL-hash events are
 # skipped+counted. Idempotent. Needs DATABASE_URL_OWNER (the app role is REVOKEd UPDATE
 # on the ledger, #54). --dry-run previews.
+# Exit 0 clean / 1 failed / 2 config. CHANGED at #179b: a missing DATABASE_URL_OWNER used
+# to escape as a bare RuntimeError traceback (exit 1); it is now the harness's config
+# exit 2, matching the other four owner-role CLIs.
 python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline --dry-run
 python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline
 ```

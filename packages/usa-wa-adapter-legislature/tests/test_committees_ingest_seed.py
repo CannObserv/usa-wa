@@ -3,20 +3,24 @@
 from __future__ import annotations
 
 import hashlib
-import os
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from clearinghouse_core import job as job_module
 from clearinghouse_core.provenance import FetchEvent, RawPayload
 from clearinghouse_core.seed_manifest import SeedIntegrityError, write_sidecars
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committees import ingest_seed as ingest_module
 from usa_wa_adapter_legislature.committees.ingest_seed import (
     SEED_RESOURCE_ID,
+    IngestSummary,
     ingest_committee_seed,
 )
 from usa_wa_adapter_legislature.committees.seed import SeedCommittee, serialize_seed
@@ -144,27 +148,48 @@ async def test_ingest_fails_closed_on_tampered_seed(db_session, usa_wa, tmp_path
         await ingest_committee_seed(db_session, seed_path=seed_path)
 
 
-async def test_main_returns_2_when_database_url_unset(monkeypatch, capsys):
-    """Missing DATABASE_URL → stderr message + exit 2 (config error)."""
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    with patch.object(ingest_module, "configure_logging"):
-        code = await ingest_module._main([])
-    assert code == 2
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_returns_2_when_database_url_unset(monkeypatch, capsys):
+    """Unchanged: missing DATABASE_URL → stderr message + exit 2 (config error)."""
+
+    def _raise(_role="app"):
+        raise RuntimeError("DATABASE_URL is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    assert ingest_module.main([]) == 2
     assert "DATABASE_URL is not set" in capsys.readouterr().err
 
 
-async def test_main_returns_1_when_ingest_raises(monkeypatch, capsys, test_engine):
-    """An exception from the ingest is caught, logged, and produces exit 1."""
-    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+def test_main_returns_1_when_ingest_raises(monkeypatch):
+    """Unchanged: an exception from the ingest is caught, logged, and exits 1 — the
+    harness's ``job_failed`` record replaces the per-CLI ``logger.exception`` call."""
+    patch_job_runtime(monkeypatch)
 
     async def boom(*_args, **_kwargs):
         raise RuntimeError("simulated ingest failure")
 
-    with (
-        patch.object(ingest_module, "configure_logging"),
-        patch.object(ingest_module, "ingest_committee_seed", boom),
-        patch.object(ingest_module.logger, "exception") as mock_exception,
-    ):
-        code = await ingest_module._main([])
-    assert code == 1
-    mock_exception.assert_called_once_with("wsl_committee_seed_ingest_failed")
+    with patch.object(ingest_module, "ingest_committee_seed", boom):
+        assert ingest_module.main([]) == 1
+
+
+def test_main_dry_run_now_rolls_back(monkeypatch, capsys):
+    """New capability, not a changed contract: the seed ingest never had a --dry-run;
+    the harness gives every job one, and it rolls the ingest back."""
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _fake_ingest(_session, **_kwargs):
+        return IngestSummary(
+            in_seed=4, inserted=2, provenance_recorded=True, seed_path=Path("seed.json")
+        )
+
+    with patch.object(ingest_module, "ingest_committee_seed", _fake_ingest):
+        code = ingest_module.main(["--dry-run", "--json"])
+
+    assert code == 0
+    assert (recording.committed, recording.rolled_back) == (0, 1)
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == ingest_module.JOB_SLUG
+    assert payload["counters"]["in_seed"] == 4
+    assert payload["counters"]["inserted"] == 2

@@ -23,18 +23,20 @@ docket, which dominates (~MB per window).
 """
 
 import argparse
-import asyncio
-import json
-import sys
 from datetime import UTC, datetime
 from typing import Any
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.terms import biennium_for_date, previous_biennium
 from usa_wa_adapter_legislature.meetings.windows import biennium_window
 from usa_wa_adapter_legislature.transport import WSLClient
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178). ``needs_db=False``, so no row is written — the slug
+#: still names the job in its summary line and in ``--json``.
+JOB_SLUG = "wsl-committee-extent-probe"
 
 #: Default earliest-boundary heuristic: N consecutive empty bienniums = done.
 DEFAULT_MAX_EMPTY = 2
@@ -156,18 +158,13 @@ async def probe_committee_floor(
     }
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_adapter_legislature.committees.probe_extent",
-        description="Write-free probe of WSL committee/meeting historical extent.",
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the probe's own flags to the harness's shared parser."""
     parser.add_argument(
         "--start-biennium", default=None, help="start label (default: current from date)"
     )
     parser.add_argument("--max-empty", type=int, default=DEFAULT_MAX_EMPTY)
     parser.add_argument("--max-bienniums", type=int, default=DEFAULT_MAX_BIENNIUMS)
-    parser.add_argument("--json", action="store_true", help="emit the summary as JSON")
-    return parser
 
 
 async def _run(args: argparse.Namespace) -> dict:
@@ -183,13 +180,28 @@ async def _run(args: argparse.Namespace) -> dict:
     )
 
 
+async def _probe_job(ctx: JobContext) -> dict:
+    """Harness handler. No session: the probe reads WSL and writes nothing."""
+    return await _run(ctx.args)
+
+
 def main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    args = _build_parser().parse_args(argv)
-    summary = asyncio.run(_run(args))
-    print(json.dumps(summary, indent=None if args.json else 2, default=str))
-    return 0
+    """Run the write-free extent probe. Always exit ``0`` — the finding is the output.
+
+    ``needs_db=False``, so no DSN is resolved and no ledger row is written. ``--json``
+    is the harness's: it emits the run envelope with the probe summary under
+    ``counters``, rather than the bare dict printed before #179b.
+    """
+    return run_job(
+        JOB_SLUG,
+        _probe_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.committees.probe_extent",
+        description="Write-free probe of WSL committee/meeting historical extent.",
+        extra_args=_add_args,
+        needs_db=False,
+    )
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
