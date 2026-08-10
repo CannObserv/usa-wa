@@ -19,7 +19,7 @@ from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
 from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier
 from usa_wa_adapter_legislature.sponsors import harvest as harvest_sponsors_module
-from usa_wa_adapter_legislature.sponsors.harvest import harvest_sponsors
+from usa_wa_adapter_legislature.sponsors.harvest import HarvestSummary, harvest_sponsors
 from usa_wa_adapter_legislature.transport import WireFetch
 
 
@@ -151,7 +151,7 @@ def test_main_records_the_harvest_summary_as_ledger_counters(monkeypatch, capsys
     patch_job_runtime(monkeypatch)
 
     async def _fake_harvest(session, **_kwargs):
-        return SimpleNamespace(windows=3, upserted=17, dry_run=False)
+        return HarvestSummary(windows=3, upserted=17, dry_run=False)
 
     with (
         patch.object(harvest_sponsors_module, "harvest_sponsors", _fake_harvest),

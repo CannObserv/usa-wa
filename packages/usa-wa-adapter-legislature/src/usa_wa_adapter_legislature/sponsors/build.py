@@ -15,14 +15,12 @@ Depends on the #77 harvest having archived the rosters first. ``--dry-run`` roll
 from __future__ import annotations
 
 import argparse
-import asyncio
-import os
-import sys
 from datetime import UTC, datetime
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.operator_overlay import (
     apply_operator_events,
     from_rows,
@@ -63,6 +61,9 @@ from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "wsl-sponsor-span-build"
 
 
 async def build_sponsor_spans(
@@ -195,12 +196,8 @@ async def build_sponsor_spans(
     return SpanBuildResult(emitted=emitted, closed_stale=sweep.closed, sweep_aborted=sweep.aborted)
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Build merged-span member Assignments from the sponsor archive (#78 Phase B)."
-    )
-    parser.add_argument("--dry-run", action="store_true", help="build but roll back (preview)")
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the builder's own guard flags to the harness's shared parser."""
     parser.add_argument(
         "--max-close-fraction",
         type=close_fraction,
@@ -215,38 +212,30 @@ async def _main(argv: list[str] | None = None) -> int:
         help="committee-roster coverage floor for the #105 stale-row exclusion; a biennium "
         "under it is skipped. >1 disables the exclusion entirely (audit via --dry-run logs)",
     )
-    args = parser.parse_args(argv)
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
 
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            result = await build_sponsor_spans(
-                session,
-                max_close_fraction=args.max_close_fraction,
-                stale_min_coverage=args.stale_min_coverage,
-            )
-            if args.dry_run:
-                await session.rollback()
-            else:
-                await session.commit()
-    except Exception:
-        logger.exception("sponsor_span_build_failed")
-        return 1
-    finally:
-        await engine.dispose()
-
-    print(
-        f"Sponsor span build: emitted={result.emitted} closed_stale={result.closed_stale} "
-        f"sweep_aborted={result.sweep_aborted} "
-        f"{'(dry-run, rolled back)' if args.dry_run else '(committed)'}"
+async def _build_job(ctx: JobContext):
+    """Harness handler: build the spans and hand the result back as counters."""
+    return await build_sponsor_spans(
+        ctx.require_session(),
+        max_close_fraction=ctx.args.max_close_fraction,
+        stale_min_coverage=ctx.args.stale_min_coverage,
     )
-    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the Phase B span build. Exit ``0`` clean · ``1`` failed · ``2`` config."""
+    return run_job(
+        JOB_SLUG,
+        _build_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.sponsors.build",
+        description=(
+            "Build merged-span member Assignments from the sponsor archive (#78 Phase B)."
+        ),
+        extra_args=_add_args,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

@@ -39,21 +39,23 @@ Sullivan"s, LD29 vs LD21), which *validates* keying on ``Id`` over name. Corolla
 """
 
 import argparse
-import asyncio
-import json
-import sys
 from datetime import UTC, datetime
 from typing import Any
 
 from zeep.exceptions import Fault
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.terms import biennium_for_date, previous_biennium
 from usa_wa_adapter_legislature.coverage import SPONSOR_ROSTER_COVERAGE
 from usa_wa_adapter_legislature.normalize.members import is_person
 from usa_wa_adapter_legislature.transport import WSLClient, _is_biennium_out_of_range
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178). This probe is ``needs_db=False``, so it writes no row —
+#: the slug still names the job in its summary line and in ``--json``.
+JOB_SLUG = "wsl-member-identity-probe"
 
 #: The WSL ``GetSponsors`` history floor — the declared sponsor-roster coverage claim (#180),
 #: probed 2026-07-08 (1989-90 faults). The deep sweep (#81) walks back to here to confirm ``Id``
@@ -293,11 +295,8 @@ async def probe_member_identity(
     }
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_adapter_legislature.sponsors.probe_identity",
-        description="Write-free probe of WSL member Id stability (cross-endpoint + biennium).",
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the probe's own flags to the harness's shared parser."""
     parser.add_argument(
         "--biennium", default=None, help="current label (default: current from date)"
     )
@@ -317,8 +316,6 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_HISTORY_FLOOR,
         help=f"--history floor (default {DEFAULT_HISTORY_FLOOR}, the WSL GetSponsors floor)",
     )
-    parser.add_argument("--json", action="store_true", help="emit the summary as compact JSON")
-    return parser
 
 
 async def _run(args: argparse.Namespace) -> dict[str, Any]:
@@ -341,13 +338,31 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+async def _probe_job(ctx: JobContext) -> dict[str, Any]:
+    """Harness handler. No session: the probe reads WSL and writes nothing."""
+    return await _run(ctx.args)
+
+
 def main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    args = _build_parser().parse_args(argv)
-    summary = asyncio.run(_run(args))
-    print(json.dumps(summary, indent=None if args.json else 2, default=str))
-    return 0
+    """Run the write-free probe. Always exit ``0`` — the finding is the output, and a
+    stability *divergence* is a result to read, not a job failure.
+
+    ``needs_db=False``, so the harness resolves no DSN and writes no ledger row: there
+    is no database to write it to, and forcing one would emit two "ledger unavailable"
+    warnings per run (CR #191 finding 3). The summary is the harness's ``counters``;
+    ``--json`` emits the whole run envelope rather than the bare dict it printed before
+    #179b.
+    """
+    return run_job(
+        JOB_SLUG,
+        _probe_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.sponsors.probe_identity",
+        description="Write-free probe of WSL member Id stability (cross-endpoint + biennium).",
+        extra_args=_add_args,
+        needs_db=False,
+    )
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

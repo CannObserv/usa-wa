@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, date, datetime
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -22,6 +21,7 @@ from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Raw
 from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED, KIND_SEATED
+from clearinghouse_domain_legislative.span_emit import SpanBuildResult
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.membership.build import (
     build_committee_member_spans,
@@ -625,7 +625,7 @@ def test_main_forwards_its_guard_flags_and_ledgers_the_result(monkeypatch, capsy
 
     async def _fake_build(session, **kwargs):
         seen.update(kwargs)
-        return SimpleNamespace(emitted=4, closed_stale=1, sweep_aborted=False)
+        return SpanBuildResult(emitted=4, closed_stale=1, sweep_aborted=False)
 
     with patch.object(build_module, "build_sponsor_spans", _fake_build):
         code = build_module.main(
@@ -645,7 +645,7 @@ def test_main_dry_run_rolls_back(monkeypatch):
     recording = patch_job_runtime(monkeypatch)
 
     async def _fake_build(session, **_kwargs):
-        return SimpleNamespace(emitted=0, closed_stale=0, sweep_aborted=False)
+        return SpanBuildResult(emitted=0, closed_stale=0, sweep_aborted=False)
 
     with patch.object(build_module, "build_sponsor_spans", _fake_build):
         assert build_module.main(["--dry-run"]) == 0

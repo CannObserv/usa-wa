@@ -7,6 +7,13 @@ Split out of [COMMANDS.md](COMMANDS.md), which is where the index lives.
 Talk to WSL directly (NOT the runner) — no FetchEvent/RawPayload written. Answer
 scoping questions ("how much history exists", "is the Id stable") before ingest.
 
+Both run on the shared job harness with `needs_db=False` (#179b): no DSN is resolved and
+**no `job_runs` row is written** — there is no database to write one to. `--json` is the
+harness's, so it emits the whole run envelope (`job`/`outcome`/`counters`/`duration_ms`)
+with the probe's summary under `counters`, rather than the bare summary dict these two
+printed before #179b. Exit code is unchanged: always `0`; a divergence is a finding to
+read, not a job failure.
+
 ```bash
 # Committee historical extent probe (#64) — walks bienniums backward from current, tallying
 # committee/meeting counts + meeting wire bytes, stopping after N consecutive empty bienniums.
