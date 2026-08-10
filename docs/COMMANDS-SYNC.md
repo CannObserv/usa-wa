@@ -27,13 +27,18 @@ dry-run surface. No operator token — shell access is the trust boundary.
 Two qualifications on the fleet-wide "every job takes `--dry-run`/`--json`" claim in
 [COMMANDS.md](COMMANDS.md), both from CR #196 — they hold for all 44 jobs, not just these:
 
-- **`--dry-run` is on 42 of the 44.** `usa_wa_adapter_legislature.refresh` and
-  `usa_wa_sync_powermap.bootstrap` decline it (`run_job(..., dry_run=False)`): each owns a
-  transaction it commits unconditionally, and the bootstrap also POSTs subscriptions to PM,
-  so the flag could only have promised "roll back instead of committing" and then written
-  anyway — printing `dry_run=true` on the run that wrote. Passing it is an argparse error
-  on those two, deliberately. The bootstrap's safety property is idempotence instead: a
-  second run finds everything subscribed and does nothing.
+- **`--dry-run` is on 40 of the 44, and means a rollback on 33 of those.** Four jobs
+  decline it outright (`run_job(..., dry_run=False)`) — the WSL, SOS and PDC refreshes and
+  `usa_wa_sync_powermap.bootstrap` — because each owns a transaction it commits
+  unconditionally (the bootstrap also POSTs subscriptions to PM), so the flag could only
+  have promised "roll back instead of committing" and then written anyway, printing
+  `dry_run=true` on the run that wrote. Passing it there is an argparse error,
+  deliberately; the bootstrap's safety property is idempotence instead. Of the 40 that
+  keep it, 19 are rolled back by the harness, 14 read the flag themselves — including
+  `meetings.harvest`, whose `--dry-run` means *"harvest but do not write the seed"* and
+  says so in its own `--help` — and 7 are read-only, where it is vacuous. All of that is
+  enforced by `scripts/tests/test_dry_run_honesty.py`, so a new job cannot quietly join
+  the wrong bucket.
 - **A config error (`2`) writes no ledger row.** The DSN check runs before the engine
   exists, so `job_runs` / `GET /api/v1/health/jobs` records *runs*, not failed launches: a
   job that never started for want of `DATABASE_URL` (or `DATABASE_URL_OWNER`) leaves the

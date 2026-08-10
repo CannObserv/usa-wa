@@ -21,7 +21,7 @@ summary, and writes a `job_runs` row (`GET /api/v1/health/jobs`). **Exit codes u
 unless a doc below says otherwise (`0` ok / `1` failed / `2` config / `4` degraded, `3`
 reserved for "aborted, took no action") — see
 [MODULES-FRAMEWORK.md](MODULES-FRAMEWORK.md). Two CR #196 qualifications on that "all" —
-`--dry-run` is on 42 of 44, and an exit-`2` config error writes no ledger row — are in
+`--dry-run` is on 40 of 44, and an exit-`2` config error writes no ledger row — are in
 [COMMANDS-SYNC.md](COMMANDS-SYNC.md#the-harness-contract).
 
 ### Documented in this file

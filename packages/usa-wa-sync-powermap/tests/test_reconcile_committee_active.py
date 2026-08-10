@@ -402,7 +402,7 @@ async def test_all_era_bulk_deactivates_historical_cohort(db_session, usa_wa):
     assert len(pm.posted) == 5
 
 
-def test_build_parser_accepts_all_era_flag():
+def test_the_all_era_flag_survives_the_shared_parser():
     """C1b: the --all-era escape hatch is available for the deliberate bulk run."""
     args = parse_job_args(cli._add_args, ["--all-era", "--max-absent-fraction", "1.0"])
     assert args.all_era is True
