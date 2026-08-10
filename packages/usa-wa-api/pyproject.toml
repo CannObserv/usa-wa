@@ -8,7 +8,6 @@ dependencies = [
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
     "clearinghouse-sync-powermap",
-    "usa-wa-adapter-legislature",
     "fastapi>=0.115.0,<1",
     "uvicorn>=0.34.0,<1",
 ]
@@ -17,7 +16,6 @@ dependencies = [
 clearinghouse-core = { workspace = true }
 clearinghouse-domain-legislative = { workspace = true }
 clearinghouse-sync-powermap = { workspace = true }
-usa-wa-adapter-legislature = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

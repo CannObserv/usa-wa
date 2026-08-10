@@ -103,9 +103,10 @@ def test_claim_for_defaults_to_any_served_status_so_a_promotion_is_not_breaking(
     it must not break the CLI that derives its floor from the claim (CR #196 finding 24).
 
     The floor derivations are module-level, so pinning ``status=assumed`` at the call site made
-    the promotion raise ``LookupError`` at **import** — ``harvest_committee_members`` and
-    ``harvest_pdc`` both died on it. Default to "the one claim this source actually serves on
-    this dimension", whatever established it.
+    the promotion raise ``LookupError`` at **import** —
+    ``usa_wa_adapter_legislature.membership.harvest`` and ``usa_wa_adapter_pdc.harvest`` both died
+    on it. Default to "the one claim this source
+    actually serves on this dimension", whatever established it.
     """
     assumed = _claim(status=CoverageStatus.assumed, notes="never probed")
     assert claim_for((assumed,), "election_year") is assumed

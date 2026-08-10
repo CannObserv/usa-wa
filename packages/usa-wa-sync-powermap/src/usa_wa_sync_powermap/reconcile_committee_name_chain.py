@@ -3,7 +3,7 @@
 The deep-history counterpart of :mod:`reconcile_committee_names` (#46): instead of one
 current-vs-prior hop, it emits the **whole** rename chain. Reads every archived
 ``committees-roster:<biennium>`` roster offline via
-:class:`~usa_wa_adapter_legislature.committee_roster_cohort.CommitteeRosterCohortProvider`
+:class:`~usa_wa_adapter_legislature.committees.cohort.CommitteeRosterCohortProvider`
 (archive-first — no WSL re-pull), builds each stable id's full
 ``normalize_name(LongName)`` timeline via
 :func:`~usa_wa_sync_powermap.committee_name_chain.build_rename_chain`, and emits windowed

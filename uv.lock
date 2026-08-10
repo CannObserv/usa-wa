@@ -1405,7 +1405,6 @@ dependencies = [
     { name = "clearinghouse-domain-legislative" },
     { name = "clearinghouse-sync-powermap" },
     { name = "fastapi" },
-    { name = "usa-wa-adapter-legislature" },
     { name = "uvicorn" },
 ]
 
@@ -1415,7 +1414,6 @@ requires-dist = [
     { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
     { name = "clearinghouse-sync-powermap", editable = "packages/clearinghouse-sync-powermap" },
     { name = "fastapi", specifier = ">=0.115.0,<1" },
-    { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
     { name = "uvicorn", specifier = ">=0.34.0,<1" },
 ]
 

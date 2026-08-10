@@ -5,6 +5,8 @@ Covers the schema-wide ``pm_<entity>_id`` standardization and the new
 ``clearinghouse-sync-powermap``; here we only verify the mappings + round-trips.
 """
 
+from pathlib import Path
+
 from sqlalchemy import inspect, select
 from ulid import ULID
 
@@ -75,3 +77,43 @@ async def test_entity_event_round_trip(db_session):
     assert fetched.event_type_slug == "birth"
     assert (fetched.event_year, fetched.event_month, fetched.event_day) == (1970, 1, 1)
     assert fetched.pm_entity_event_id is None
+
+
+# --- CR #196 finding 40: the span-kind filter must be index-seekable ----------
+
+
+def test_the_span_kind_expression_index_is_declared():
+    """``/api/v1/assignments?span_kind=`` filters on ``split_part(source_id, ':', 2)``.
+
+    Without an index on that expression every filtered page is a Seq Scan **plus a
+    Sort**, which voids the premise the route's keyset pagination is built on
+    ("index-seekable at any depth"). Measured on a 200k-row probe: Seq Scan+Sort →
+    Index Scan, no sort.
+
+    The trailing ``id`` column is what lets the same index satisfy the route's
+    ``ORDER BY id`` — dropping it would leave the scan indexed but the sort intact, so
+    the assertion checks position, not just presence.
+    """
+    index = next(
+        (ix for ix in Assignment.__table__.indexes if ix.name == "ix_assignments_span_kind"),
+        None,
+    )
+    assert index is not None, "the span-kind expression index is gone"
+
+    rendered = [str(expr) for expr in index.expressions]
+    assert any("split_part" in expr for expr in rendered), rendered
+    assert rendered[-1].endswith("id"), f"id must trail so ORDER BY id is served: {rendered}"
+
+
+def test_the_span_kind_index_matches_the_migrations_copy():
+    """``alembic/versions/`` cannot import this module without coupling a historical
+    migration to a live one, so the migration keeps its own literal — the same seam
+    ``job_runs`` and ``source_coverage`` carry for their CHECK constraints."""
+    migration = (
+        Path(__file__).resolve().parents[3]
+        / "alembic"
+        / "versions"
+        / "0598c2e839ef_196_index_span_kind.py"
+    ).read_text()
+    assert "ix_assignments_span_kind" in migration
+    assert "split_part(source_id, ':', 2)" in migration

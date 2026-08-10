@@ -368,3 +368,21 @@ class DocumentIdentifier(Base, TimestampMixin):
     """Derived structured decomposition of ``value`` populated by P1b enrichment."""
 
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+def citable_entity_types() -> frozenset[str]:
+    """Every ``entity_type`` discriminator a :class:`Citation` (or :class:`Note`) can carry.
+
+    Derived from the ORM registry exactly the way the *writer* derives it —
+    ``clearinghouse_core.runner._citation_type`` is ``entity.__class__.__name__.lower()``
+    — so the accepted set cannot drift from what is actually written. A hand-maintained
+    list would have been wrong on the day it shipped: production carries
+    ``personidentifier`` (a third of all citations) alongside the four obvious canonical
+    entities, and every enumeration of this vocabulary in the codebase omits it
+    (CR #196 finding 41).
+
+    Callers must import the models they care about first; the registry only knows classes
+    that have been imported. The API imports the canonical models at router construction,
+    which is what makes this complete there.
+    """
+    return frozenset(mapper.class_.__name__.lower() for mapper in Base.registry.mappers)

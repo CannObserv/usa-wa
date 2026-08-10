@@ -82,6 +82,33 @@ usa_wa_adapter_<target>/
     emit.py migrate.py refresh.py
 ```
 
+### When a target publishes only one source (#183)
+
+`usa_wa_adapter_pdc` and `usa_wa_adapter_legislature` each own exactly **one** `Source` row, so
+there is no `<source_a>/` vs `<source_b>/` to divide: **the package top level *is* the source**, and
+`transport.py` / `adapter.py` / `normalize/` / `cohort.py` / `harvest.py` sit at it. Adding a `pdc/`
+or `wsl/` directory under `usa_wa_adapter_pdc` / `usa_wa_adapter_legislature` would restate the
+package name one level down and discriminate nothing — do not.
+
+What a single-source package *can* still have is several **archives** under that one `Source`: one
+feed, several resource-id schemes. WSL is the case — four SOAP services, four archive keys
+(`sponsors:`, `committees-roster:`, `committee-members-hist:`, `committee-meetings:`) — and *that*
+is what its subpackages divide on (plus `operators/`, the wire-free `usa_wa_operator` attestation
+Source). One archive per directory, the module names below inside each. The rule generalizes: split
+on the axis that actually varies, and if none does, stay flat.
+
+The vocabulary is load-bearing beyond directory layout. `harvest.py` means **Phase A** (archive the
+wire) and `build.py` means **Phase B** (spans from that archive) — before #183 the WSL package
+spelled those two `harvest_sponsors.py` and `harvest_sponsor_spans.py`, one plural apart, and the
+same for committee membership. A module whose name does not say which phase, layer or role it holds
+is the discoverability tax finding 13 measured; prefer the names in the tree above to a new coinage.
+
+**Function names still stutter, deliberately.** `harvest_sponsors()` lives in
+`sponsors/harvest.py`, `harvest_committees()` in `committees/harvest.py`. #183 renamed
+modules only: renaming a function forces assertion edits, and a move whose tests had to
+change is a move that changed behaviour. The sweep belongs with #179b, which is already
+rewriting these entry points onto the shared job harness (CR #196 finding 46).
+
 ### What makes a source "self-contained"
 
 Each source owns an independent provenance chain, so it can be harvested, re-audited, integrity-

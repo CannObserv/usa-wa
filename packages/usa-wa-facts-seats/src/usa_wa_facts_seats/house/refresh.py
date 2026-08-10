@@ -36,8 +36,8 @@ from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.committee_member_cohort import MemberClient
-from usa_wa_adapter_legislature.sponsor_cohort import SponsorClient
+from usa_wa_adapter_legislature.membership.cohort import MemberClient
+from usa_wa_adapter_legislature.sponsors.cohort import SponsorClient
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.adapter import ResultsAdapter, legresults_resource_id
 from usa_wa_adapter_sos.results.transport import LegislativeExportNotFound, SOSResultsClient

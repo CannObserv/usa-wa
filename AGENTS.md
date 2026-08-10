@@ -55,7 +55,7 @@ Prefetch query — run via `ToolSearch` at session start:
 
 `uv` workspace. Four-layer clearinghouse split — framework + domain shared across deployments; adapters + API per jurisdiction. See [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](docs/specs/2026-05-25-usa-wa-mvp-design.md).
 
-**Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder.** It is the reusable Layer-3 pattern: one adapter package per *jurisdiction+target* bundling every source that target publishes; each **source** a self-contained archive (own `Source`/`source_slug`/archive-key/transport/adapter/normalize/cohort/harvest); the **application** (spans/seats) source-agnostic, consuming a cohort interface — so a fact can draw on a new source without a rewrite (the `usa-wa-adapter-sos` filings + results sources are the worked example). Audit a source's coverage before building on it; never key a parser on an exact upstream string.
+**Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder.** It is the reusable Layer-3 pattern: one adapter package per *jurisdiction+target* bundling every source that target publishes; each **source** a self-contained archive (own `Source`/`source_slug`/archive-key/transport/adapter/normalize/cohort/harvest); the **application** (spans/seats) source-agnostic, consuming a cohort interface — so a fact can draw on a new source without a rewrite (the `usa-wa-adapter-sos` filings + results sources are the worked example). Audit a source's coverage before building on it; never key a parser on an exact upstream string. Inside a package (#183): single-source target ⇒ flat top level (no `pdc/` inside `usa_wa_adapter_pdc`); subpackage only on an axis that varies (WSL splits on its four archives); **`harvest.py` = Phase A, `build.py` = Phase B**, plus `projector`/`emit`/`migrate_*`.
 
 **Six layers since #189 (AR-14), enforced by `import-linter`** — `uv run lint-imports`, wired into the pre-commit gate beside ruff, contracts + rationale in the root `pyproject.toml`:
 
@@ -213,6 +213,7 @@ JSON records carry `{timestamp, level, logger, message}` (#133; structlog's defa
 - [docs/MODULES-SOS.md](docs/MODULES-SOS.md) — SOS filings/results sources
 - [docs/MODULES-FACTS-SEATS.md](docs/MODULES-FACTS-SEATS.md) — Layer 3b: the seat fact family and the four renamed systemd entry points
 - [docs/MODULES-SYNC.md](docs/MODULES-SYNC.md) — API deployment, PM sidecar, producer CLIs, repo-root layout
+- [docs/API.md](docs/API.md) — the read-only `/api/v1` surface: route inventory, pagination, and the response contracts
 - [docs/LWW-NOOP-GATE.md](docs/LWW-NOOP-GATE.md) — the local-newer no-op gate; read before adding a `write_enabled` producer descriptor
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — systemd units, failure alerting, DB roles, restart/lifecycle table
 - [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) — every environment variable and PM sidecar tunable, with defaults

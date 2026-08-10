@@ -17,7 +17,7 @@ from clearinghouse_sync_powermap.models import (
     DISPOSITION_UPDATED,
 )
 from clearinghouse_sync_powermap.testing import FakeClient
-from usa_wa_adapter_legislature.committee_lifecycle import CommitteeWindow
+from usa_wa_adapter_legislature.committees.lifecycle import CommitteeWindow
 from usa_wa_sync_powermap.committee_event_producer import (
     build_org_event_items,
     build_retract_items,

@@ -7,7 +7,7 @@ Emits, per **named** member row (step 0's ``is_person`` filters the name-blanked
 
 **Persons only (#78 increment 2c).** Party + Senate-seat tenure are no longer emitted
 per-biennium here — they are **merged spans** built from the full sponsor archive by the
-span engine (:mod:`usa_wa_adapter_legislature.harvest_sponsor_spans`), which the daily
+span engine (:mod:`usa_wa_adapter_legislature.sponsors.build`), which the daily
 refresh re-drives for the current biennium after archiving ``sponsors:<current>``. This
 normalizer's sole job is materializing the Person cluster the spans resolve against; the
 per-biennium ``_emit_party``/``_emit_chamber`` inline emission it used to carry is retired

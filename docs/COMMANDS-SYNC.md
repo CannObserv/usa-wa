@@ -28,7 +28,7 @@ python -m usa_wa_sync_powermap.backfill_contact_labels
 # Live-era scoping (#90): the diff is restricted to committees whose WSL Id appears in the
 # current OR immediately-prior biennium roster (present_ids ∪ prior_ids; the prior roster's
 # raw Ids read archive-first via CommitteeRosterCohortProvider). The historical committee
-# backfill (harvest_committees, model A) added ~152 defunct-era committee orgs, all defaulting
+# backfill (`committees/harvest.py`, model A) added ~152 defunct-era committee orgs, all defaulting
 # active=true; absent from the current roster they'd read as a mass retirement and trip the
 # floor every run. Scoping drops them before the diff (counted `scoped_out`) while a genuine
 # prior-biennium retirement (in prior, gone from current) still fires. Retirement window is
@@ -179,6 +179,6 @@ python -m clearinghouse_core.integrity --json         # machine-readable summary
 # keeping the fetch history + bytes (no deletion). Payload-less NULL-hash events are
 # skipped+counted. Idempotent. Needs DATABASE_URL_OWNER (the app role is REVOKEd UPDATE
 # on the ledger, #54). --dry-run previews.
-python -m usa_wa_adapter_legislature.baseline_unbaselined_committees --dry-run
-python -m usa_wa_adapter_legislature.baseline_unbaselined_committees
+python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline --dry-run
+python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline
 ```

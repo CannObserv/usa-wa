@@ -45,14 +45,14 @@ def test_sos_filing_provider_is_an_attested_cohort_provider():
 
 def test_pdc_winner_provider_is_an_attested_cohort_provider():
     """PDC's accessor was `house_events`; #189 gave it the seam's name too."""
-    from usa_wa_adapter_pdc.pdc_cohort import PdcWinnerCohortProvider
+    from usa_wa_adapter_pdc.cohort import PdcWinnerCohortProvider
 
     assert isinstance(PdcWinnerCohortProvider(session=None, source_id=None), AttestedCohortProvider)
 
 
 def test_committee_roster_provider_is_an_archived_biennium_cohort_provider():
     """The reconcilers' input contract: a biennium cohort plus its archived domain."""
-    from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
+    from usa_wa_adapter_legislature.committees.cohort import CommitteeRosterCohortProvider
 
     provider = CommitteeRosterCohortProvider(None, session=None, source_id=None)
     assert isinstance(provider, ArchivedBienniumCohortProvider)
@@ -61,7 +61,7 @@ def test_committee_roster_provider_is_an_archived_biennium_cohort_provider():
 def test_meeting_provider_is_a_biennium_cohort_provider():
     """The meeting cohort satisfies the narrower Protocol — it has no archived-biennium scan,
     and the reconciler that consumes it never asks for one."""
-    from usa_wa_adapter_legislature.meeting_cohort import MeetingCohortProvider
+    from usa_wa_adapter_legislature.meetings.cohort import MeetingCohortProvider
 
     provider = MeetingCohortProvider(None, session=None, source_id=None)
     assert isinstance(provider, BienniumCohortProvider)

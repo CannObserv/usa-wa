@@ -94,19 +94,19 @@ each write appends a hashed `FetchEvent` + `RawPayload` under the `usa_wa_operat
 # as with the redrive CLI. Provenance is append-only — a date-correction is --supersede
 # (a NEW row stamping the prior one's superseded_by_id), never a mutation (#54).
 # --dry-run validates + writes, then rolls back. Exit 2 on a validation failure.
-python -m usa_wa_adapter_legislature.operator_events \
+python -m usa_wa_adapter_legislature.operators.cli \
     --member-id 29091 --kind departed --reason died \
     --effective-date 2025-04-19 --evidence-url https://... --dry-run
-python -m usa_wa_adapter_legislature.operator_events \
+python -m usa_wa_adapter_legislature.operators.cli \
     --member-id 35410 --kind seated --reason appointed \
     --seat-kind chamber-senate --seat-discriminator 5 \
     --effective-date 2025-06-03 --evidence-url https://...
-python -m usa_wa_adapter_legislature.operator_events --file events.json   # JSON-array batch
-python -m usa_wa_adapter_legislature.operator_events --supersede <id> \
+python -m usa_wa_adapter_legislature.operators.cli --file events.json   # JSON-array batch
+python -m usa_wa_adapter_legislature.operators.cli --supersede <id> \
     --member-id 35410 --kind seated --reason appointed \
     --seat-kind chamber-senate --seat-discriminator 5 \
     --effective-date 2025-06-10 --evidence-url https://...   # date-correction of <id>
-python -m usa_wa_adapter_legislature.operator_events --list               # current events
+python -m usa_wa_adapter_legislature.operators.cli --list               # current events
 
 # Succession invariant check (#107) — read-only anti-drift backstop + the #107 acceptance
 # oracle. A MISSING operator event is silent (a member dies, nobody records it → a ghost-open
@@ -123,7 +123,7 @@ python -m usa_wa_adapter_legislature.operator_events --list               # curr
 # at 07:15 UTC via usa-wa-succession-invariants.timer, AFTER the WSL 06:00 / PDC 06:30 /
 # SOS 06:45 refreshes rebuild the current-biennium cohort. --expected-senate/--expected-house
 # override the WA chamber constants for a redistricting count change.
-python -m usa_wa_adapter_legislature.succession_invariants
+python -m usa_wa_adapter_legislature.operators.invariants
 
 # Historical duplicate-occupancy audit (#119) — the daily gate probes the OPEN cohort only, so
 # a duplicate occupancy that has since CLOSED is invisible to it forever (sub-biennium
@@ -137,9 +137,9 @@ python -m usa_wa_adapter_legislature.succession_invariants
 # "someone died NOW" sense). Counts are reported, not gated (House Position coverage floors at
 # 2003-04, so pre-2003 biennia legitimately under-count) — exits 0 unless --strict, which
 # exits 1 on any duplicate (the post-backfill regression guard).
-python -m usa_wa_adapter_legislature.succession_invariants --as-of 2009-01-01
-python -m usa_wa_adapter_legislature.succession_invariants --sweep-biennia
-python -m usa_wa_adapter_legislature.succession_invariants --sweep-biennia --strict  # CI guard
+python -m usa_wa_adapter_legislature.operators.invariants --as-of 2009-01-01
+python -m usa_wa_adapter_legislature.operators.invariants --sweep-biennia
+python -m usa_wa_adapter_legislature.operators.invariants --sweep-biennia --strict  # CI guard
 ```
 
 ## Committee lineage & lifecycle (#124)
@@ -168,17 +168,17 @@ python -m usa_wa_sync_powermap.reconcile_committee_active --all-era \
 # A wrong-successor / year fix is --supersede (a NEW row stamping the prior's superseded_by_id).
 # On a supersede: --year sets, --clear-year clears, omitting both inherits the prior's year.
 # --dry-run validates + writes, then rolls back. Exit 2 on a validation failure.
-python -m usa_wa_adapter_legislature.committee_succession \
+python -m usa_wa_adapter_legislature.committees.succession_cli \
     --subject 14294 --linked 28244 --slug succeeded_by --year 2021 \
     --evidence-url https://... [--notes "renamed + re-scoped"]
-python -m usa_wa_adapter_legislature.committee_succession --file links.json   # JSON-array batch
-python -m usa_wa_adapter_legislature.committee_succession --supersede <id> \
+python -m usa_wa_adapter_legislature.committees.succession_cli --file links.json   # JSON-array batch
+python -m usa_wa_adapter_legislature.committees.succession_cli --supersede <id> \
     --subject 14294 --linked 31000 --slug succeeded_by --year 2022 \
     --evidence-url https://...                                    # re-link / year correction
-python -m usa_wa_adapter_legislature.committee_succession --supersede <id> \
+python -m usa_wa_adapter_legislature.committees.succession_cli --supersede <id> \
     --subject 14294 --linked 28244 --slug succeeded_by --clear-year \
     --evidence-url https://...                        # clear the year (vs omit --year = inherit)
-python -m usa_wa_adapter_legislature.committee_succession --list               # current links
+python -m usa_wa_adapter_legislature.committees.succession_cli --list               # current links
 
 # C3 — emit the C1a windows + C2 links to PM as org entity events (create/refine, no-op
 # gated; anchors read from the read-mirror, not a local producer row). Also RETRACTS the
@@ -193,10 +193,10 @@ python -m usa_wa_sync_powermap.committee_event_producer --dry-run
 # → the OnFailure=usa-wa-notify-failure@ handler emails the operator. Prod runs it daily at
 # 07:30 UTC via usa-wa-committee-lineage-invariants.timer, AFTER the refreshes + reconcile
 # have deactivated defunct committees + closed their spans (else it pages on pre-existing drift).
-python -m usa_wa_adapter_legislature.committee_lineage_invariants
+python -m usa_wa_adapter_legislature.committees.lineage_invariants
 
 # C5 — advisory candidate report (read-only; suggests which era-Id pairs to attest via C2).
 # Ranks same-chamber name-similar pairs by name Jaccard + adjacent windows + shared members.
 # Nothing is written — ground truth stays with the operator.
-python -m usa_wa_adapter_legislature.committee_lineage_suggest
+python -m usa_wa_adapter_legislature.committees.lineage_suggest
 ```

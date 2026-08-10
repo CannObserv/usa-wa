@@ -57,7 +57,7 @@ def test_the_results_floor_is_the_claim():
 
 def test_the_house_sweep_floor_comes_from_the_wsl_claim_not_a_local_copy():
     """``SWEEP_FLOOR_YEAR = 1991`` was declared identically in this package and in
-    ``usa_wa_adapter_legislature.succession_invariants``, both meaning "the WSL sponsor-archive
+    ``usa_wa_adapter_legislature.operators.invariants``, both meaning "the WSL sponsor-archive
     floor". The duplicate is gone: this reads the WSL claim, so a re-audit of that feed moves
     both sweeps at once."""
     assert SWEEP_FLOOR_YEAR == SPONSOR_ROSTER_COVERAGE.floor_year == 1991

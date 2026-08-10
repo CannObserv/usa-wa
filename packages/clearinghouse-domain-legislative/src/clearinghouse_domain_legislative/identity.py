@@ -283,6 +283,24 @@ class Assignment(Base, TimestampMixin, LifecycleMixin):
             unique=True,
             postgresql_where=text("pm_assignment_id IS NOT NULL"),
         ),
+        # The span *kind* lives in position 2 of the span key (`<member>:<kind>:...`), so
+        # `/api/v1/assignments?span_kind=` filters on `split_part(source_id, ':', 2)` —
+        # which no plain index can serve, making every filtered page a Seq Scan **plus a
+        # Sort** and voiding the keyset pagination's index-seek premise (CR #196 f40).
+        # Measured on a 200k-row probe: Seq Scan+Sort -> Index Scan, no sort.
+        #
+        # Indexed on the *expression*, not on a `roles.role_type` proxy. The two agree
+        # exactly in production today, but `role_type` is a PM-synced classifier with a
+        # recorded drift incident (#110) while the span key is generated locally and
+        # deterministically by the span builders. Buying an index by filtering on the
+        # churning discriminator would be the wrong half of that trade.
+        #
+        # `id` trails so the route's `ORDER BY id` is served by the same index.
+        Index(
+            "ix_assignments_span_kind",
+            text("split_part(source_id, ':', 2)"),
+            "id",
+        ),
         {"schema": SCHEMA},
     )
 

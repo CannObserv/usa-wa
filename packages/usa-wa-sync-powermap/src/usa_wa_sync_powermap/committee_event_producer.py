@@ -53,13 +53,13 @@ from clearinghouse_sync_powermap.models import (
     DISPOSITION_UPDATED,
 )
 from usa_wa_adapter_legislature.cohorts import committee_roster_provider
-from usa_wa_adapter_legislature.committee_lifecycle import (
+from usa_wa_adapter_legislature.committees.lifecycle import (
     CommitteeWindow,
     build_founded_floors,
     collect_committee_presence,
     derive_committee_windows,
 )
-from usa_wa_adapter_legislature.committee_succession_store import (
+from usa_wa_adapter_legislature.committees.succession_store import (
     current_events,
     superseded_events,
 )

@@ -5,8 +5,8 @@ symmetric with the Senate** (#75): WSL owns *who sits* (the sponsor roster — L
 owns *which position* (the ballot Position 1/2 from the votewa filing archive). This projector
 joins them per biennium into
 :class:`~clearinghouse_domain_legislative.tenure_spans.Observation`s the merged-span builder
-consumes — the House analog of :func:`sponsor_observations` (which emits the Senate seat). No PDC
-winner cohort: PDC is demoted to the ``person_wa_pdc`` cross-link only.
+consumes — the House analog of :func:`sponsors.projector.build_sponsor_observations` (which emits
+the Senate seat). No PDC winner cohort: PDC is demoted to the ``person_wa_pdc`` cross-link only.
 
 Pure — no DB, no session. A sitting member with **no resolvable SOS position** (LD not in the
 archive, an SOS match miss, or a pre-2008 biennium below the votewa floor) emits **nothing**,
