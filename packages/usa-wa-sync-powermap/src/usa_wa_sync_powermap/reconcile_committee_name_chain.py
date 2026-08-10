@@ -28,7 +28,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from usa_wa_adapter_legislature.cohorts import committee_roster_provider
@@ -128,11 +127,11 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--storm-floor", type=int, default=DEFAULT_STORM_FLOOR)
 
 
-async def _run(args: argparse.Namespace) -> dict:
+async def _run(args: argparse.Namespace, factory: Any) -> dict:
     settings = get_sidecar_settings()
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — cannot emit to Power Map.")
-    async with get_session_factory()() as session:
+    async with factory() as session:
         jurisdiction = await resolve_jurisdiction(session)
         source = await get_or_create_source(session, jurisdiction)
         # The Source is get-or-created above (this path writes provenance), so it is
@@ -156,7 +155,8 @@ async def _run(args: argparse.Namespace) -> dict:
 async def _chain_job(ctx: JobContext) -> JobResult:
     """Harness handler. ``commit=False`` — ``_run`` get-or-creates the Source but the
     pre-#179b CLI never committed, so that write stays a no-op here too."""
-    return await run_pm_job(lambda: _run(ctx.args))
+    factory = ctx.require_session_factory()
+    return await run_pm_job(lambda: _run(ctx.args, factory))
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -66,7 +66,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.cohorts import BienniumCohortProvider
@@ -204,7 +203,7 @@ def _resolve_biennium(arg: str | None) -> str:
     return os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
 
 
-async def _run(args: argparse.Namespace) -> dict:
+async def _run(args: argparse.Namespace, factory: Any) -> dict:
     """Open a session + roster provider/PM client, run the reconciliation, return the summary.
 
     A ``dry_run`` still needs the roster provider (to obtain both rosters) but no PM client
@@ -214,7 +213,6 @@ async def _run(args: argparse.Namespace) -> dict:
     reconciler next door has always used."""
     biennium = _resolve_biennium(args.biennium)
     settings = get_sidecar_settings()
-    factory = get_session_factory()
     if args.dry_run:
         async with factory() as session:
             return await reconcile_committee_names(
@@ -247,7 +245,8 @@ async def _run(args: argparse.Namespace) -> dict:
 
 async def _reconcile_job(ctx: JobContext) -> JobResult:
     """Harness handler. ``commit=False``: this emits to PM and writes nothing locally."""
-    return await run_pm_job(lambda: _run(ctx.args))
+    factory = ctx.require_session_factory()
+    return await run_pm_job(lambda: _run(ctx.args, factory))
 
 
 def main(argv: list[str] | None = None) -> int:

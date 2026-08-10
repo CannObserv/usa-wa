@@ -296,7 +296,7 @@ def test_main_catches_transient_outage(monkeypatch):
     traceback (finding 7)."""
     patch_job_runtime(monkeypatch)
 
-    async def _boom(_args):
+    async def _boom(_args, _factory):
         raise RetryableClientError("429")
 
     monkeypatch.setattr(ra, "_run", _boom)

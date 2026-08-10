@@ -29,7 +29,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Organization
@@ -105,11 +104,11 @@ async def heal_committee_curation(session: AsyncSession, descriptor: Any, client
     }
 
 
-async def _run(dry_run: bool) -> dict:
+async def _run(dry_run: bool, factory: Any) -> dict:
     settings = get_sidecar_settings()
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — cannot read from Power Map.")
-    async with get_session_factory()() as session:
+    async with factory() as session:
         client = build_pm_client(settings)
         try:
             result = await heal_committee_curation(session, OrganizationDescriptor(), client)
@@ -125,7 +124,8 @@ async def _run(dry_run: bool) -> dict:
 
 async def _heal_job(ctx: JobContext) -> JobResult:
     """Harness handler. ``commit=False``; ``_run`` keeps its own session/commit."""
-    return await run_pm_job(lambda: _run(ctx.dry_run), failed_when=never)
+    factory = ctx.require_session_factory()
+    return await run_pm_job(lambda: _run(ctx.dry_run, factory), failed_when=never)
 
 
 def main(argv: list[str] | None = None) -> int:

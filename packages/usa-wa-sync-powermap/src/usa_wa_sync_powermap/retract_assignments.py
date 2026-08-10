@@ -42,7 +42,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Assignment
@@ -221,11 +220,11 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-async def _run(args: argparse.Namespace) -> dict:
+async def _run(args: argparse.Namespace, factory: Any) -> dict:
     settings = get_sidecar_settings()
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — cannot reach Power Map.")
-    async with get_session_factory()() as session:
+    async with factory() as session:
         client = build_pm_client(settings)
         try:
             result = await retract_assignments(
@@ -253,7 +252,8 @@ async def _retract_job(ctx: JobContext) -> JobResult:
     :func:`~usa_wa_sync_powermap.jobs.run_pm_job`.
     """
     try:
-        result = await _run(ctx.args)
+        factory = ctx.require_session_factory()
+        result = await _run(ctx.args, factory)
     except DeliveryBlockedError as exc:
         json.dump({"error": f"delivery blocked: {exc}"}, sys.stderr)
         sys.stderr.write("\n")

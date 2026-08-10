@@ -70,8 +70,21 @@ def patch_job_runtime(monkeypatch: Any) -> RecordingSession:
     session = RecordingSession()
 
     @asynccontextmanager
-    async def _fake_database() -> AsyncIterator[tuple[None, RecordingSession]]:
-        yield (None, session)
+    async def _fake_session() -> AsyncIterator[RecordingSession]:
+        yield session
+
+    def _fake_factory() -> Any:
+        """Stand in for ``async_sessionmaker``: calling it opens the recording session.
+
+        Non-``None`` because the self-session jobs take their factory from
+        ``ctx.require_session_factory()`` (CR #196 finding 49); handing them ``None`` here
+        would fail the helper's whole purpose of letting a ``main()`` be called safely.
+        """
+        return _fake_session()
+
+    @asynccontextmanager
+    async def _fake_database() -> AsyncIterator[tuple[Any, RecordingSession]]:
+        yield (_fake_factory, session)
 
     @asynccontextmanager
     async def _fake_ledger_session() -> AsyncIterator[RecordingSession]:
@@ -105,10 +118,19 @@ def parse_job_args(extra_args: Any, argv: list[str]) -> Any:
     CLI's own ``_build_parser()`` need a seam. Going through the real builder is the point:
     it proves the job's flags coexist with the shared ``--dry-run`` / ``--json`` rather
     than testing a parser the CLI no longer uses.
+
+    ``job.build_parser`` is public rather than private precisely because this helper — a
+    shipped module, not a test — depends on it (CR #196 finding 51); reaching through the
+    underscore would have made a rename here break a public surface with no signal.
+
+    Local import for the same reason as :func:`patch_job_runtime` above:
+    :mod:`clearinghouse_core.job` pulls in the ORM models, and this module is imported at
+    conftest time before the test engine exists. The repo's "no inline imports" rule
+    yields to that ordering constraint here, as it does there.
     """
     from clearinghouse_core import job as job_module
 
-    return job_module._build_parser("test-job", None, None, extra_args).parse_args(argv)
+    return job_module.build_parser("test-job", None, None, extra_args).parse_args(argv)
 
 
 _UNREMEMBERED = object()

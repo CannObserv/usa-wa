@@ -26,8 +26,8 @@ Examples::
 """
 
 import argparse
+from typing import Any
 
-from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.engine import SyncEngine
@@ -59,13 +59,12 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-async def _run(args: argparse.Namespace) -> dict:
+async def _run(args: argparse.Namespace, factory: Any) -> dict:
     """Build the PM client + reconciler and run the prune. PM reads are needed even for
     a dry-run (discovery + list_subscriptions), so the api key is always required."""
     settings = get_sidecar_settings()
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — required to read/modify subscriptions.")
-    factory = get_session_factory()
     client = build_pm_client(settings)
     engine = SyncEngine(build_descriptors(settings), client)
     reconciler = build_reconciler(client, engine, settings)
@@ -83,7 +82,8 @@ async def _run(args: argparse.Namespace) -> dict:
 async def _prune_job(ctx: JobContext) -> JobResult:
     """Harness handler. ``failed_when=never``: this job's only non-zero outcomes are a
     guardrail abort and an auth block — it has no per-row rejection tally."""
-    return await run_pm_job(lambda: _run(ctx.args), failed_when=never)
+    factory = ctx.require_session_factory()
+    return await run_pm_job(lambda: _run(ctx.args, factory), failed_when=never)
 
 
 def main(argv: list[str] | None = None) -> int:

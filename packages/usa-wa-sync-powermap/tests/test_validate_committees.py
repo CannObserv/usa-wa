@@ -27,6 +27,22 @@ from clearinghouse_sync_powermap.client import DeliveryBlockedError, RetryableCl
 from usa_wa_sync_powermap import validate_committees as vc
 from usa_wa_sync_powermap.jobs import EXIT_ABORTED
 
+
+def _session_factory(db_session):
+    """A session factory bound to the savepointed test session.
+
+    Since CR #196 finding 49 the CLI takes its factory from
+    ``ctx.require_session_factory()`` rather than importing ``get_session_factory``, so
+    the double is handed straight to ``_run`` instead of monkeypatched onto the module.
+    """
+
+    @asynccontextmanager
+    async def _ctx():
+        yield db_session
+
+    return _ctx
+
+
 # --- pure classifier: snapshot builders --------------------------------------
 
 
@@ -334,7 +350,7 @@ async def test_validate_includes_unbaselined_count(db_session, usa_wa):
 
 
 def _patch_run(monkeypatch, result):
-    async def _fake():
+    async def _fake(_factory):
         return result
 
     monkeypatch.setattr(vc, "_run", _fake)
@@ -363,7 +379,7 @@ def test_main_abort_exits_three(monkeypatch, capsys):
 def test_main_auth_block_exits_two(monkeypatch, capsys):
     patch_job_runtime(monkeypatch)
 
-    async def _fake():
+    async def _fake(_factory):
         raise DeliveryBlockedError("PM 403")
 
     monkeypatch.setattr(vc, "_run", _fake)
@@ -374,15 +390,11 @@ def test_main_auth_block_exits_two(monkeypatch, capsys):
 async def test_run_requires_api_key(monkeypatch, db_session):
     """Read-only still needs PM creds to fetch — fail closed on an absent key."""
 
-    @asynccontextmanager
-    async def _ctx():
-        yield db_session
-
-    monkeypatch.setattr(vc, "get_session_factory", lambda: _ctx)
+    factory = _session_factory(db_session)
     monkeypatch.setattr(
         vc,
         "get_sidecar_settings",
         lambda: SimpleNamespace(powermap_api_key="", powermap_base_url="http://pm"),
     )
     with pytest.raises(RuntimeError, match="POWERMAP_API_KEY"):
-        await vc._run()
+        await vc._run(factory)

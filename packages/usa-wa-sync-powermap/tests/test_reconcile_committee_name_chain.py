@@ -112,7 +112,7 @@ async def test_storm_boundary_reported(db_session, usa_wa):
 def test_main_clean_exits_zero(monkeypatch, capsys):
     patch_job_runtime(monkeypatch)
 
-    async def _fake(_args):
+    async def _fake(_args, _factory):
         return {"emitted": 3, "rejected": 0, "failed": 0, "aborted": None, "transitions": 3}
 
     monkeypatch.setattr(cli, "_run", _fake)
@@ -122,7 +122,7 @@ def test_main_clean_exits_zero(monkeypatch, capsys):
 def test_main_abort_exits_three(monkeypatch, capsys):
     patch_job_runtime(monkeypatch)
 
-    async def _fake(_args):
+    async def _fake(_args, _factory):
         return {"emitted": 0, "rejected": 0, "failed": 0, "aborted": "empty_archive"}
 
     monkeypatch.setattr(cli, "_run", _fake)
@@ -132,7 +132,7 @@ def test_main_abort_exits_three(monkeypatch, capsys):
 def test_main_auth_exits_two(monkeypatch, capsys):
     patch_job_runtime(monkeypatch)
 
-    async def _fake(_args):
+    async def _fake(_args, _factory):
         raise DeliveryBlockedError("PM 403")
 
     monkeypatch.setattr(cli, "_run", _fake)
@@ -142,7 +142,7 @@ def test_main_auth_exits_two(monkeypatch, capsys):
 def test_main_failures_exit_one(monkeypatch, capsys):
     patch_job_runtime(monkeypatch)
 
-    async def _fake(_args):
+    async def _fake(_args, _factory):
         return {"emitted": 1, "rejected": 1, "failed": 0, "aborted": None}
 
     monkeypatch.setattr(cli, "_run", _fake)
