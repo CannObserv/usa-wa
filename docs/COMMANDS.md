@@ -1,8 +1,9 @@
 # Commands
 
-Full command reference for `usa-wa`. The everyday subset is in [`AGENTS.md`](../AGENTS.md#common-commands); this file is the authoritative reference — full options, exit codes, and provenance/design rationale.
+Authoritative command reference for `usa-wa` — full options, exit codes, and design
+rationale. The everyday subset is in [`AGENTS.md`](../AGENTS.md#common-commands).
 
-Grouped references split out of this file so each stays loadable on its own:
+Grouped references split out so each stays loadable on its own:
 
 - [COMMANDS-SUCCESSION.md](COMMANDS-SUCCESSION.md) — operator succession events, odd-year corroboration, committee lineage
 - [COMMANDS-SYNC.md](COMMANDS-SYNC.md) — Power Map reconcilers, heals, validation, provenance and integrity
@@ -10,18 +11,18 @@ Grouped references split out of this file so each stays loadable on its own:
 
 ## Command index
 
-Every operational & backfill CLI — command + one-line purpose below, grouped by
-the reference that documents its full options, exit codes, and design rationale.
-Prod runs the daily/weekly ones on systemd timers (see
-[`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server Lifecycle); the rest are
-run-once / ad-hoc. Pair backfills with `USA_WA_BIENNIUM` to target a non-current
-biennium.
+Every operational & backfill CLI, grouped by the reference that documents it. Prod runs the
+daily/weekly ones on systemd timers ([`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server
+Lifecycle); the rest are run-once / ad-hoc. Pair backfills with `USA_WA_BIENNIUM` to target
+a non-current biennium.
 
-**All 44 run on the shared job harness (#179b)**: each takes `--dry-run`/`--json`, prints a
-`key=value` summary, and writes a `job_runs` row (`GET /api/v1/health/jobs`). **Exit codes
-unchanged** unless a doc below says otherwise — `0` ok / `1` failed / `2` config / `4`
-degraded, with `3` left to the jobs already using it for "aborted, took no action".
-See [MODULES-FRAMEWORK.md](MODULES-FRAMEWORK.md).
+**All 44 run on the shared job harness (#179b)**: each takes `--json`, prints a `key=value`
+summary, and writes a `job_runs` row (`GET /api/v1/health/jobs`). **Exit codes unchanged**
+unless a doc below says otherwise (`0` ok / `1` failed / `2` config / `4` degraded, `3`
+reserved for "aborted, took no action") — see
+[MODULES-FRAMEWORK.md](MODULES-FRAMEWORK.md). Two CR #196 qualifications on that "all" —
+`--dry-run` is on 42 of 44, and an exit-`2` config error writes no ledger row — are in
+[COMMANDS-SYNC.md](COMMANDS-SYNC.md#the-harness-contract).
 
 ### Documented in this file
 
@@ -200,8 +201,8 @@ surface. Pair with `USA_WA_BIENNIUM` to target a non-current biennium.
 # USA_WA_BIENNIUM). Also drives the member cluster: forced GetSponsors + a per-committee
 # GetCommitteeMembers(current, ...) fan-out (#82), then re-drives BOTH span builders for the
 # current cohort — party/Senate-seat (#78-2c) and committee membership (#82). fill_only (#65 —
-# additive, never clobbers PM-curated rows). Exit 1 means the committees pull reported errors;
-# the work it reached still commits.
+# additive, never clobbers PM-curated rows). Exit 1 = the committees pull reported errors; the
+# work it reached still commits — hence no --dry-run (CR #196).
 python -m usa_wa_adapter_legislature.refresh
 
 # PDC refresh (#69 + #75; IDENTIFIER-ONLY since #101) — emits the person_wa_pdc cross-source

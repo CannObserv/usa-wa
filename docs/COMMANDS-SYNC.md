@@ -8,6 +8,8 @@ Emit-only producer CLIs (PM stays the authority; they mirror curation back) plus
 read-only validation. Weekly timers in prod; the forms below are the manual /
 dry-run surface. No operator token — shell access is the trust boundary.
 
+### The harness contract
+
 **All of them run on the shared job harness since #179b**, which changes three things and
 **no exit code**:
 
@@ -21,6 +23,23 @@ dry-run surface. No operator token — shell access is the trust boundary.
   re-implemented per CLI. The ledger records the honest outcome beneath the bespoke code: a
   guardrail abort is **`degraded`** (the "ran to completion, took no action" case) carried
   on `3`; an auth block and a rejected-rows run are **`failed`** on `2` and `1`.
+
+Two qualifications on the fleet-wide "every job takes `--dry-run`/`--json`" claim in
+[COMMANDS.md](COMMANDS.md), both from CR #196 — they hold for all 44 jobs, not just these:
+
+- **`--dry-run` is on 42 of the 44.** `usa_wa_adapter_legislature.refresh` and
+  `usa_wa_sync_powermap.bootstrap` decline it (`run_job(..., dry_run=False)`): each owns a
+  transaction it commits unconditionally, and the bootstrap also POSTs subscriptions to PM,
+  so the flag could only have promised "roll back instead of committing" and then written
+  anyway — printing `dry_run=true` on the run that wrote. Passing it is an argparse error
+  on those two, deliberately. The bootstrap's safety property is idempotence instead: a
+  second run finds everything subscribed and does nothing.
+- **A config error (`2`) writes no ledger row.** The DSN check runs before the engine
+  exists, so `job_runs` / `GET /api/v1/health/jobs` records *runs*, not failed launches: a
+  job that never started for want of `DATABASE_URL` (or `DATABASE_URL_OWNER`) leaves the
+  ledger untouched and still shows its previous run. Diagnose an exit-`2` unit from
+  journald. Note this is a different `2` from the PM family's `EXIT_AUTH_BLOCKED` above,
+  which *does* land a `failed` row.
 
 ```bash
 # Contact-label backfill (#31) — re-observation of produced orgs holding a phone,
