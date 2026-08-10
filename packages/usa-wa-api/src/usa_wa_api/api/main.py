@@ -16,6 +16,7 @@ from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.engine import outbox_backlog
 from usa_wa_api.api.deps import get_db_session
 from usa_wa_api.api.redrive import router as redrive_router
+from usa_wa_api.api.v1 import router as v1_router
 
 logger = get_logger(__name__)
 
@@ -66,3 +67,6 @@ async def health_sync(session: AsyncSession = Depends(get_db_session)) -> dict:
 
 app.include_router(health_router)
 app.include_router(redrive_router)
+# The read-only product surface (#184). Mounted last: the unversioned probes above
+# are deployment contracts and keep their paths.
+app.include_router(v1_router)
