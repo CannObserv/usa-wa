@@ -36,6 +36,12 @@ nothing at all (the PM-authoritative reconcilers), pass ``commit=False``.
 **Exit codes.** ``0`` ok · ``1`` failed · ``2`` config error (matches argparse's own
 usage exit) · ``3`` is left to jobs with an established "aborted, took no action"
 convention, via ``JobResult(..., exit_code=3)`` · ``4`` degraded.
+
+**Roles.** ``role="owner"`` (#179b) resolves ``DATABASE_URL_OWNER`` instead of
+``DATABASE_URL`` for the five one-shot migrations that hard-delete provenance rows the
+app role is REVOKEd on (#54). The whole run — the ledger writes included — goes through
+a per-run engine built from that DSN, so an owner job needs no second DSN to record its
+#178 row and can never inherit a pool opened as the wrong role.
 """
 
 import argparse
@@ -52,9 +58,9 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from clearinghouse_core.config import get_database_url, get_settings
+from clearinghouse_core.config import DATABASE_ROLE_APP, get_database_url, get_settings
 from clearinghouse_core.database import dispose_engine, get_session_factory
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_core.runs import (
@@ -241,20 +247,64 @@ def _build_parser(
     return parser
 
 
+_role_factory: async_sessionmaker[AsyncSession] | None = None
+"""Session factory for a non-default-role run, installed by :func:`_engine_lifetime`.
+
+Module state rather than a threaded-through argument on purpose: ``_database`` and
+``_ledger_session`` are the two seams every CLI test patches (via
+:func:`clearinghouse_core.testing.patch_job_runtime`), and widening their signatures
+would have made the owner role a breaking change for every one of those tests.
+"""
+
+
+def _session_factory() -> async_sessionmaker[AsyncSession]:
+    """The factory this run's sessions come from: the per-run owner factory when the
+    job declared ``role="owner"``, else the process-shared app engine's."""
+    if _role_factory is not None:
+        return _role_factory
+    return get_session_factory()
+
+
+def _build_role_engine(url: str) -> tuple[Any, async_sessionmaker[AsyncSession]]:
+    """The per-run engine + session factory for a non-default role.
+
+    Its own function so it is one patchable seam in tests, rather than tests having to
+    stand in for ``create_async_engine``/``async_sessionmaker`` themselves.
+    """
+    engine = create_async_engine(url, echo=False)
+    return engine, async_sessionmaker(engine, expire_on_commit=False)
+
+
 @asynccontextmanager
-async def _engine_lifetime() -> AsyncIterator[None]:
-    """Guarantee the shared engine is disposed once, after everything that uses it.
+async def _engine_lifetime(role: str = DATABASE_ROLE_APP) -> AsyncIterator[None]:
+    """Guarantee this run's engine is disposed once, after everything that uses it.
 
     Wraps the *whole* run — the job's session **and** both ledger writes — because the
-    ledger deliberately uses its own session off the same shared engine: disposing
-    inside the job's session scope would leave the closing ledger write to build a
-    second engine that nothing tears down, and asyncio would close the loop on its
-    open asyncpg connections.
+    ledger deliberately uses its own session off the same engine: disposing inside the
+    job's session scope would leave the closing ledger write to build a second engine
+    that nothing tears down, and asyncio would close the loop on its open asyncpg
+    connections.
+
+    The app role borrows the process-shared engine (:func:`get_session_factory`). The
+    owner role gets a **per-run** engine instead: it is a different DSN, it is used by a
+    handful of one-shot migrations, and caching it process-wide would mean a job could
+    inherit a connection pool opened as the wrong role. Everything in the run — the
+    ledger included — is routed through it, so an owner job needs no second DSN to
+    record its #178 row.
     """
+    global _role_factory
+    if role == DATABASE_ROLE_APP:
+        try:
+            yield
+        finally:
+            await dispose_engine()
+        return
+    engine, _role_factory = _build_role_engine(get_database_url(role))
     try:
         yield
     finally:
-        await dispose_engine()
+        _role_factory = None
+        await engine.dispose()
 
 
 @asynccontextmanager
@@ -262,7 +312,7 @@ async def _database() -> AsyncIterator[tuple[async_sessionmaker[AsyncSession], A
     """Open the job's session — the single seam between the harness and
     :mod:`clearinghouse_core.database`, so no CLI has to build its own engine.
     Disposal belongs to :func:`_engine_lifetime`, which outlives this scope."""
-    factory = get_session_factory()
+    factory = _session_factory()
     async with factory() as session:
         yield factory, session
 
@@ -274,7 +324,7 @@ async def _ledger_session() -> AsyncIterator[AsyncSession]:
     Deliberately not the job's session: the ledger must commit independently of — and
     survive a rollback of — the work it is recording.
     """
-    factory = get_session_factory()
+    factory = _session_factory()
     async with factory() as session:
         yield session
 
@@ -360,6 +410,7 @@ async def _execute(
     needs_db: bool,
     commit: bool,
     ledger: bool,
+    role: str,
     started_at: datetime,
 ) -> JobResult:
     """Run the handler inside the harness's resource + transaction envelope."""
@@ -396,9 +447,9 @@ async def _execute(
         return result
 
     # One engine lifetime spans the opening ledger write, the work, and the closing
-    # ledger write — all three share the process-global engine, so disposal has to
-    # outlive the last of them.
-    async with _engine_lifetime():
+    # ledger write — all three share this run's engine, so disposal has to outlive the
+    # last of them.
+    async with _engine_lifetime(role):
         run_id = await _open_ledger_row(name, started_at) if ledger else None
         try:
             if needs_db:
@@ -427,6 +478,7 @@ def run_job(
     needs_db: bool = True,
     commit: bool = True,
     ledger: bool | None = None,
+    role: str = DATABASE_ROLE_APP,
 ) -> int:
     """Run ``handler`` as job ``name`` and return the process exit code.
 
@@ -435,6 +487,11 @@ def run_job(
     arguments; ``--dry-run`` and ``--json`` are always present. ``needs_db=False`` skips
     the session entirely (write-free probes); ``commit=False`` leaves the transaction to
     the handler.
+
+    ``role`` selects the DSN. ``"app"`` (the default) is the least-privilege everyday
+    role; ``"owner"`` resolves ``DATABASE_URL_OWNER`` and runs the whole job — ledger
+    writes included — on a per-run engine built from it. Only jobs that hard-delete
+    provenance rows the app role is REVOKEd on (#54) declare it.
 
     ``ledger`` defaults to ``needs_db``: a job that declared it needs no database does
     not get its config checked, so an unconditional ledger default made every run of a
@@ -454,7 +511,7 @@ def run_job(
 
     if needs_db:
         try:
-            get_database_url()
+            get_database_url(role)
         except RuntimeError as exc:
             # One env-resolution path for every job — not 29 raw os.environ reads, each
             # with its own message and its own exit code.
@@ -476,6 +533,7 @@ def run_job(
             needs_db=needs_db,
             commit=commit,
             ledger=write_ledger,
+            role=role,
             started_at=started_at,
         )
     )

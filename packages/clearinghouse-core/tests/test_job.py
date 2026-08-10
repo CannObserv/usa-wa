@@ -90,7 +90,9 @@ def fake_db(monkeypatch):
         yield (None, session)
 
     monkeypatch.setattr(job_module, "_database", _fake_database)
-    monkeypatch.setattr(job_module, "get_database_url", lambda: "postgresql+asyncpg://x/y")
+    monkeypatch.setattr(
+        job_module, "get_database_url", lambda *_a, **_k: "postgresql+asyncpg://x/y"
+    )
     return session
 
 
@@ -374,15 +376,13 @@ def test_owner_role_resolves_the_owner_dsn(monkeypatch):
         return "postgresql+asyncpg://owner@h/db"
 
     monkeypatch.setattr(job_module, "get_database_url", _url)
+    built: list[str] = []
 
-    factories: list = []
+    def _build(url: str):
+        built.append(url)
+        return _EngineStub(url), _SessionmakerStub()
 
-    def _factory(engine, **_kwargs):
-        factories.append(engine)
-        return _SessionmakerStub()
-
-    monkeypatch.setattr(job_module, "create_async_engine", _EngineStub)
-    monkeypatch.setattr(job_module, "async_sessionmaker", _factory)
+    monkeypatch.setattr(job_module, "_build_role_engine", _build)
 
     seen: dict = {}
 
@@ -391,8 +391,9 @@ def test_owner_role_resolves_the_owner_dsn(monkeypatch):
         return JobResult.ok()
 
     assert run_job("demo", handler, argv=[], role=DATABASE_ROLE_OWNER) == EXIT_OK
-    assert asked == [DATABASE_ROLE_OWNER]
-    assert factories and factories[0].url == "postgresql+asyncpg://owner@h/db"
+    # Once for the pre-flight config check, once to build the engine — never for "app".
+    assert set(asked) == {DATABASE_ROLE_OWNER}
+    assert built == ["postgresql+asyncpg://owner@h/db"]
     assert seen["session"] is not None
 
 
@@ -421,13 +422,12 @@ def test_owner_role_disposes_its_own_engine(monkeypatch):
     monkeypatch.setattr(job_module, "get_database_url", _url)
     engines: list = []
 
-    def _engine(url, **_kwargs):
+    def _build(url: str):
         made = _EngineStub(url)
         engines.append(made)
-        return made
+        return made, _SessionmakerStub()
 
-    monkeypatch.setattr(job_module, "create_async_engine", _engine)
-    monkeypatch.setattr(job_module, "async_sessionmaker", lambda *_a, **_k: _SessionmakerStub())
+    monkeypatch.setattr(job_module, "_build_role_engine", _build)
 
     async def handler(ctx: JobContext) -> JobResult:
         return JobResult.ok()
@@ -452,8 +452,9 @@ def test_owner_role_routes_every_session_through_the_owner_engine(monkeypatch, l
         raise AssertionError("owner job fell back to the process-shared app engine")
 
     monkeypatch.setattr(job_module, "get_database_url", _url)
-    monkeypatch.setattr(job_module, "create_async_engine", _EngineStub)
-    monkeypatch.setattr(job_module, "async_sessionmaker", lambda *_a, **_k: owner_factory)
+    monkeypatch.setattr(
+        job_module, "_build_role_engine", lambda url: (_EngineStub(url), owner_factory)
+    )
     monkeypatch.setattr(job_module, "get_session_factory", _no_shared_factory)
 
     seen: list = []

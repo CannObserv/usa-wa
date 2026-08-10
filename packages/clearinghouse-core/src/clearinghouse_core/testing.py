@@ -74,7 +74,10 @@ def patch_job_runtime(monkeypatch: Any) -> RecordingSession:
     monkeypatch.setattr(job_module, "open_run", _noop_open)
     monkeypatch.setattr(job_module, "close_run", _noop_close)
     monkeypatch.setattr(job_module, "record_run", _noop_record)
-    monkeypatch.setattr(job_module, "get_database_url", lambda: "postgresql+asyncpg://fake/test")
+    # Accepts the role argument the owner-role jobs pass (#179b); still callable bare.
+    monkeypatch.setattr(
+        job_module, "get_database_url", lambda *_a, **_k: "postgresql+asyncpg://fake/test"
+    )
     return session
 
 
