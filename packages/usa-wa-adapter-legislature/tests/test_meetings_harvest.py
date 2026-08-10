@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -187,3 +188,21 @@ def test_main_dry_run_still_commits_the_archive(monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert payload["job"] == harvest_module.JOB_SLUG
     assert payload["counters"]["dry_run"] is True
+
+
+def test_the_dry_run_flag_advertises_its_narrow_meaning(capsys):
+    """``--help`` must say what this job's ``--dry-run`` actually does (CR #196 f61).
+
+    The harness's shared string is "Run the work but roll back instead of committing",
+    which is **false** here: the archive writes commit through ``session.begin()`` either
+    way and the flag only skips the seed file. This CLI declared the accurate string
+    itself until #179b took its parser away, so the regression is a live one — and until
+    this test, deleting the ``dry_run_help`` override that restored it broke nothing
+    (364 tests passed with it gone).
+    """
+    with pytest.raises(SystemExit):
+        harvest_module.main(["--help"])
+    out = capsys.readouterr().out
+
+    assert "harvest but do not write the seed" in out
+    assert "roll back instead of committing" not in out

@@ -18,6 +18,14 @@ docstring — on the SOS and PDC refreshes too (finding 55), which run on timers
 Hence this guard, and hence AST rather than text: a docstring that says ``--dry-run`` is
 not a job that reads it.
 
+**What the "handler" verdict does and does not prove** (finding 64). It proves the module
+*reads* the flag; it cannot prove the module *acts* on it. A handler that logs
+``ctx.dry_run`` and then commits regardless satisfies this check. No cheap static test
+distinguishes the two — the honest scope is "nothing accepts ``--dry-run`` having never
+heard of it", which is the failure that actually happened twice. Fourteen jobs rest on
+that weaker claim; the other thirty are structural (declined, or the harness owns the
+rollback) and need no trust.
+
 Static parse — no imports, no DB, no subprocess. A CLI's ``main`` never runs here.
 """
 
@@ -27,9 +35,9 @@ import ast
 from pathlib import Path
 
 import pytest
-
-REPO = Path(__file__).parent.parent.parent
-PACKAGES = REPO / "packages"
+from _job_scan import jobs as _jobs
+from _job_scan import relative as _relative
+from _job_scan import run_job_keyword as _run_job_keyword
 
 #: Jobs that accept the flag, read nothing, and roll nothing back — because they **write
 #: nothing**. Vacuous rather than dishonest: there is no work to undo, so "roll back
@@ -47,34 +55,6 @@ READ_ONLY = {
     "usa_wa_facts_seats/house_corroboration.py": "report-only unless --strict",
     "usa_wa_sync_powermap/validate_committees.py": "read-only against both sides",
 }
-
-
-def _relative(path: Path) -> str:
-    parts = path.parts
-    return "/".join(parts[parts.index("src") + 1 :])
-
-
-def _jobs() -> list[Path]:
-    """Every ``python -m`` entry point that calls ``run_job``."""
-    return sorted(
-        path
-        for path in PACKAGES.glob("*/src/**/*.py")
-        if 'if __name__ == "__main__"' in path.read_text() and "run_job(" in path.read_text()
-    )
-
-
-def _run_job_keyword(tree: ast.Module, name: str) -> str | None:
-    """The literal source of ``run_job``'s ``name=`` argument, if it passes one."""
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        called = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
-        if called != "run_job":
-            continue
-        for keyword in node.keywords:
-            if keyword.arg == name:
-                return ast.unparse(keyword.value)
-    return None
 
 
 def _consults_dry_run(tree: ast.Module) -> bool:

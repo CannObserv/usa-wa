@@ -23,33 +23,10 @@ import ast
 from pathlib import Path
 
 import pytest
-
-REPO = Path(__file__).parent.parent.parent
-PACKAGES = REPO / "packages"
-
-#: Entry points that are deliberately **not** jobs. A job runs, reports and exits; these do
-#: not, so ``run_job``'s scaffold (one transaction, one terminal outcome, one ledger row)
-#: does not describe them.
-EXEMPT = {
-    # The sidecar daemon: `run_forever()`, no terminal outcome to record. Its health is the
-    # #85 failure-streak alerting and the systemd unit's own liveness, not a job_runs row.
-    "usa_wa_sync_powermap/__main__.py",
-}
-
-
-def _entry_points() -> list[Path]:
-    """Every module under ``packages/*/src`` with an ``if __name__ == "__main__"`` block."""
-    return sorted(
-        path
-        for path in PACKAGES.glob("*/src/**/*.py")
-        if 'if __name__ == "__main__"' in path.read_text()
-    )
-
-
-def _relative(path: Path) -> str:
-    """``usa_wa_sync_powermap/__main__.py`` — the package-relative module path."""
-    parts = path.parts
-    return "/".join(parts[parts.index("src") + 1 :])
+from _job_scan import EXEMPT, PACKAGES, REPO
+from _job_scan import entry_points as _entry_points
+from _job_scan import jobs as _jobs
+from _job_scan import relative as _relative
 
 
 def _calls_run_job(tree: ast.Module) -> bool:
@@ -71,10 +48,6 @@ def _job_slug(tree: ast.Module) -> str | None:
                 if isinstance(target, ast.Name) and target.id == "JOB_SLUG":
                     return str(node.value.value)
     return None
-
-
-def _jobs() -> list[Path]:
-    return [p for p in _entry_points() if _relative(p) not in EXEMPT]
 
 
 def test_the_sweep_found_something_to_guard() -> None:

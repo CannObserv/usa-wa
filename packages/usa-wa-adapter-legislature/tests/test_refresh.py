@@ -783,6 +783,12 @@ def test_the_refresh_declines_the_dry_run_flag():
     The #179b sweep gave this entry point its first parser. Left with the harness's default
     flag set, ``--dry-run`` would have pulled every committee, upserted meetings and
     members, rebuilt both span sets, committed, and printed ``dry_run=true``.
+
+    Kept alongside ``scripts/tests/test_dry_run_honesty.py`` rather than folded into it
+    (finding 65): that guard reads the ``dry_run=False`` keyword statically, so it proves
+    the *declaration*. This proves the **consequence** — that argparse really refuses the
+    flag end to end. Its twin lives in ``test_pm_bootstrap.py``; the SOS and PDC refreshes
+    rest on the guard alone, which is the declaration half only.
     """
     with pytest.raises(SystemExit) as excinfo:
         refresh_module.main(["--dry-run"])
