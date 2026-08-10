@@ -209,7 +209,7 @@ def test_main_exits_degraded_on_a_total_outage(monkeypatch, capsys):
     assert code == EXIT_DEGRADED
     payload = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert payload["outcome"] == "degraded"
-    assert payload["counters"]["cohorts_skipped"] == 3
+    assert payload["counters"]["cohorts_skipped"] == 5  # 2020..2024, odd years included (#106)
 
 
 def test_main_absent_only_sweep_is_not_degraded(monkeypatch):

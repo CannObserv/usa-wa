@@ -275,9 +275,9 @@ python -m usa_wa_facts_seats.pdc.migrate_pdc_spans
 # current (#106: odd years too — a WA general runs each November and an odd-year special seats
 # legislators, e.g. Hunt LD5 Senate Nov 2025; default --to-year = current calendar year); closed
 # years cache-hit on re-run; pacing via --pause-seconds. PER-YEAR RESILIENT: an HTTP 404/500 year is
-# `skipped` (only this raises the whole-source outage warning), a no-legislative-race year with no
-# CSV (2021/2023) is the expected `no_legislative_race`, each rolled back to its SAVEPOINT while the
-# reached years commit.
+# `cohorts_skipped` (only this raises the whole-source outage warning), a no-legislative-race year
+# with no CSV (2021/2023) is the expected `cohorts_absent`, rolled back per-SAVEPOINT while the
+# reached years commit. EXIT 0/1/2, plus 4 = every year skipped — NEW at #179b; see MODULES-SOS.md.
 python -m usa_wa_adapter_sos.results.harvest --dry-run
 python -m usa_wa_adapter_sos.results.harvest --from-year 2008 --pause-seconds 1.0
 
@@ -337,20 +337,19 @@ python -m usa_wa_facts_seats.house.migrate --dry-run
 python -m usa_wa_facts_seats.house.migrate
 
 # DEPLOY SEQUENCING (the whole historical backfill — and any build that changes span depth, e.g.
-# enabling #103 elimination), SIDECAR PAUSED throughout, completed before the next 06:45 SOS timer
-# fire. Order matters: build BEFORE migrate, so the deep usa_wa_legislature keeper spans exist for
-# the migration to collapse the stranded PDC + superseded rows onto (transferring their anchors) —
-# before anything drains to PM. Draining first would let PM dedup-match a new span onto a
-# still-anchored old row's assignment ((person, role, start_date)) and park the entry UNAVAILABLE
-# (#86 anchor conflict + operator alert).
+# enabling #103 elimination), SIDECAR PAUSED throughout, before the next 06:45 SOS timer fire.
+# Build BEFORE migrate, so the deep usa_wa_legislature keeper spans exist for the migration to
+# collapse the stranded PDC + superseded rows onto (transferring their anchors) before anything
+# drains to PM. Draining first lets PM dedup-match a new span onto a still-anchored old row's
+# assignment ((person, role, start_date)) and park the entry UNAVAILABLE (#86 + operator alert).
 #   sudo systemctl stop usa-wa-sync-powermap
 #   python -m usa_wa_adapter_sos.results.harvest --from-year 2008        # Phase A (SOS results archive)
 #   python -m usa_wa_facts_seats.house.build                   # Phase B: full-depth rebuild
 #   python -m usa_wa_facts_seats.house.migrate                # OWNER role: superseded + PDC->WSL
 #   sudo systemctl start usa-wa-sync-powermap                        # let the sidecar drain to PM
 # If the 06:45 timer beats this window: the daily build emits the new spans first and the sidecar
-# parks the colliding entries UNAVAILABLE (#86 anchor conflict, operator alert) — expected and
-# recoverable: run the migrate, then redrive (python -m usa_wa_api.cli.redrive).
+# parks the colliding entries UNAVAILABLE (#86, operator alert) — recoverable: run the migrate,
+# then redrive (python -m usa_wa_api.cli.redrive).
 ```
 
 ## Submodules
