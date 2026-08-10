@@ -124,3 +124,22 @@ def test_the_exempt_list_names_real_modules() -> None:
     its replacement slip past the guard unnoticed."""
     known = {_relative(p) for p in _entry_points()}
     assert EXEMPT <= known, f"EXEMPT names modules that no longer exist: {EXEMPT - known}"
+
+
+def test_no_package_exposes_a_console_script() -> None:
+    """The guard above scans ``packages/*/src`` for ``if __name__ == "__main__"``.
+
+    A ``[project.scripts]`` console entry point is the cheapest way to add job #45 in a
+    place none of these assertions can see — it needs no ``__main__`` block, so it would
+    ship with no ledger row, no ``JOB_SLUG``, and no collision check (CR #196 finding 52).
+    No package declares one today. Adding one should be a deliberate act that trips this
+    and extends ``_entry_points()``, not a quiet bypass.
+    """
+    manifests = [REPO / "pyproject.toml", *sorted(PACKAGES.glob("*/pyproject.toml"))]
+    offenders = [
+        str(p.relative_to(REPO)) for p in manifests if "[project.scripts]" in p.read_text()
+    ]
+    assert not offenders, (
+        f"{offenders} declare console scripts, which the entry-point scan cannot see. "
+        "Teach _entry_points() to read them before adding one."
+    )

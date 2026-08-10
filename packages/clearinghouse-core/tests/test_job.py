@@ -82,12 +82,20 @@ class _SessionmakerStub:
 
 @pytest.fixture
 def fake_db(monkeypatch):
-    """Replace the harness's database seam with an in-memory session."""
+    """Replace the harness's database seam with an in-memory session **and factory**.
+
+    The factory is not decoration: the self-session jobs reach it through
+    ``ctx.require_session_factory()`` (CR #196 finding 49), so a fixture that yielded
+    ``None`` there would make the seam untestable through the harness.
+    """
     session = _FakeSession()
+    factory = _SessionmakerStub()
+    factory.session = session
+    session.factory = factory
 
     @asynccontextmanager
     async def _fake_database():
-        yield (None, session)
+        yield (factory, session)
 
     monkeypatch.setattr(job_module, "_database", _fake_database)
     monkeypatch.setattr(
@@ -686,3 +694,112 @@ def test_git_sha_is_resolved_before_the_event_loop(monkeypatch):
         "so a blocking subprocess is stalling the loop again"
     )
     job_module._git_sha.cache_clear()
+
+
+# --- A job that cannot roll back must not advertise --dry-run (CR #196 finding 47) ---
+
+
+def test_a_job_that_cannot_roll_back_declines_the_dry_run_flag(fake_db):
+    """``dry_run=False`` removes the flag rather than accepting it and ignoring it.
+
+    The harness adds ``--dry-run`` to every job with the help text "Run the work but roll
+    back instead of committing". A ``commit=False`` job whose handler owns an
+    unconditional transaction — the WSL refresh, the PM subscription bootstrap — cannot
+    honour that, and silently committing behind the flag is worse than not offering it:
+    the summary line even printed ``dry_run=true`` on the run that wrote.
+    """
+
+    async def handler(ctx: JobContext) -> dict:
+        return {}
+
+    with pytest.raises(SystemExit) as excinfo:
+        run_job("no-rollback", handler, argv=["--dry-run"], dry_run=False)
+    # argparse's own "unrecognized arguments" exit, which is also the harness's EXIT_CONFIG.
+    assert excinfo.value.code == EXIT_CONFIG
+
+
+def test_declining_the_flag_still_hands_the_handler_a_false_dry_run(fake_db, capsys):
+    """The attribute has to exist regardless — ``_execute`` and ``_emit`` both read it."""
+    seen: list[bool] = []
+
+    async def handler(ctx: JobContext) -> dict:
+        seen.append(ctx.dry_run)
+        return {}
+
+    assert run_job("no-rollback", handler, argv=[], dry_run=False) == EXIT_OK
+    assert seen == [False]
+    assert "dry_run=true" not in capsys.readouterr().out
+
+
+def test_the_flag_is_offered_by_default(fake_db):
+    """The suppression is opt-in: every other job keeps the base flag."""
+
+    async def handler(ctx: JobContext) -> dict:
+        return {}
+
+    assert run_job("rollback-capable", handler, argv=["--dry-run"]) == EXIT_OK
+
+
+# --- The role factory is per-run, not process-wide (CR #196 finding 50) ---
+
+
+def test_concurrent_owner_runs_do_not_share_a_role_factory(monkeypatch):
+    """Two owner-role runs in one process must each see their own session factory.
+
+    As a module global, the first task to *finish* blanked the factory in its ``finally``
+    while the second was still inside its lifetime — so the survivor silently fell back to
+    the process-shared **app** engine. One job per process makes that unreachable today,
+    but ``job.py`` is the repo's reusable harness and nothing guards the invariant.
+    """
+    monkeypatch.setattr(job_module, "get_database_url", lambda role="app": f"postgres://{role}")
+
+    class _FakeEngine:
+        async def dispose(self) -> None:
+            return None
+
+    tags = iter(["factory-a", "factory-b"])
+    monkeypatch.setattr(job_module, "_build_role_engine", lambda url: (_FakeEngine(), next(tags)))
+
+    async def _scenario() -> dict[str, object]:
+        observed: dict[str, object] = {}
+
+        async def _one(name: str, hold: float) -> None:
+            async with job_module._engine_lifetime("owner"):
+                await asyncio.sleep(hold)
+                observed[name] = job_module._session_factory()
+
+        # ``a`` is still inside its lifetime when ``b`` opens and closes its own.
+        await asyncio.gather(_one("a", 0.02), _one("b", 0.0))
+        return observed
+
+    assert asyncio.run(_scenario()) == {"a": "factory-a", "b": "factory-b"}
+
+
+# --- Jobs that open their own sessions stay on this run's engine (CR #196 finding 49) ---
+
+
+def test_require_session_factory_hands_back_the_harness_factory(fake_db):
+    """The seam the self-session jobs use instead of ``get_session_factory()``."""
+    seen: list[object] = []
+
+    async def handler(ctx: JobContext) -> dict:
+        seen.append(ctx.require_session_factory())
+        return {}
+
+    assert run_job("own-session", handler, argv=[]) == EXIT_OK
+    assert seen == [fake_db.factory]
+
+
+def test_require_session_factory_raises_for_a_db_free_job(monkeypatch):
+    """Symmetric with ``require_session``: a probe has no factory to hand out."""
+    raised: list[str] = []
+
+    async def handler(ctx: JobContext) -> dict:
+        try:
+            ctx.require_session_factory()
+        except RuntimeError as exc:
+            raised.append(str(exc))
+        return {}
+
+    assert run_job("probe", handler, argv=[], needs_db=False) == EXIT_OK
+    assert "needs_db=False" in raised[0]

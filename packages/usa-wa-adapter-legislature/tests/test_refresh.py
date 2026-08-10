@@ -774,3 +774,16 @@ async def test_refresh_parses_committee_archive_once(db_session, usa_wa):
     # One offline re-parse per archived roster wire (the fan-out archived one per committee).
     assert member_client.calls, "fan-out should have archived rosters"
     assert member_client.parse_calls == len(member_client.calls)
+
+
+def test_the_refresh_declines_the_dry_run_flag():
+    """The daily refresh owns its transaction and commits unconditionally, so it must not
+    advertise a rollback it cannot perform (CR #196 finding 47).
+
+    The #179b sweep gave this entry point its first parser. Left with the harness's default
+    flag set, ``--dry-run`` would have pulled every committee, upserted meetings and
+    members, rebuilt both span sets, committed, and printed ``dry_run=true``.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        refresh_module.main(["--dry-run"])
+    assert excinfo.value.code == 2
