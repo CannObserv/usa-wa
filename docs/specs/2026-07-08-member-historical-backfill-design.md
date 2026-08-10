@@ -71,7 +71,7 @@ archive and can re-run/re-emit without touching the source.
 
 ### Phase A — Harvest + materialize Persons (fill-only) — #77
 
-`python -m usa_wa_adapter_legislature.harvest_sponsors`
+`python -m usa_wa_adapter_legislature.harvest`
 
 - Sweep `GetSponsors(biennium)` from the **1991-92 floor** to current through
   `AdapterRunner(fill_only=True)`. Each `sponsors:<biennium>` window archives its
@@ -137,7 +137,7 @@ members it observed** — the current biennium is just a span's open end. `build
 gains real `valid_to` + `is_active`. On a fresh deploy (archive holds only recent
 biennia) spans are as deep as the archive and deepen after the harvest — correct.
 
-**Migration — IMPLEMENTED (`migrate_sponsor_spans`, #78-3).** Span `source_id`s differ
+**Migration — IMPLEMENTED (`migrate_spans`, #78-3).** Span `source_id`s differ
 from today's per-biennium `{id}:{dim}:{biennium}` keys, so the span row is a *new*
 `Assignment` (new `id`), disjoint from the legacy rows. The migration does **not** reuse
 the legacy `id`; instead it keys off PM's own identity. **The successor is matched on
@@ -179,7 +179,7 @@ belongs to #80 (PM historical production strategy), the same gate the #77 produc
 
 ### PDC era-scoped backfill — #79
 
-`python -m usa_wa_adapter_pdc.harvest_pdc`
+`python -m usa_wa_adapter_pdc.harvest`
 
 - **The #75 crux.** #75 matches every winner cohort against the *current* roster
   (correct for "who sits now"). Historically each cohort must match the roster of the
@@ -228,7 +228,7 @@ this epic — so throttling is designed **centrally**, once, rather than as per-
 
 - **WSL egress — a transport-level limiter.** A single configurable rate limiter in
   `WSLClient` (min inter-request interval / token bucket, env-tunable) that *every*
-  caller routes through — the daily refresh, `harvest_sponsors` (#77), the committee
+  caller routes through — the daily refresh, `harvest` (#77), the committee
   membership sweep (#82, ~560 calls), and the existing committee harvest. Per-CLI
   `--pause-seconds` becomes an override of the central default, not the only guard, so
   a new caller can't accidentally burst against WSL by forgetting to pace itself.

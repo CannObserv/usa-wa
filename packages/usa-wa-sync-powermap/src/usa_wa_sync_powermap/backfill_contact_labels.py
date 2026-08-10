@@ -34,27 +34,27 @@ Examples::
     python -m usa_wa_sync_powermap.backfill_contact_labels
 """
 
-import argparse
-import asyncio
-import json
-import sys
 from typing import Any
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.database import get_session_factory
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.queries import live_only
-from clearinghouse_sync_powermap.client import DeliveryBlockedError, PayloadRejectedError
+from clearinghouse_sync_powermap.client import PayloadRejectedError
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.engine import TRANSIENT_EXCEPTIONS
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
+from usa_wa_sync_powermap.jobs import run_pm_job
 from usa_wa_sync_powermap.registry import build_pm_client
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pm-contact-label-backfill"
 
 #: Source whose orgs carry WSL-sourced phones — the only producer of contact rows
 #: today. Scopes the cohort so a future phone-bearing source isn't swept in silently.
@@ -162,27 +162,10 @@ async def backfill_contact_labels(
     return summary
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_sync_powermap.backfill_contact_labels",
-        description=(
-            "Re-observe produced orgs so PM adopts phone display_labels and "
-            "object-shape acronyms (#31, #33)."
-        ),
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Count the phone/acronym-bearing cohort without submitting any observation.",
-    )
-    return parser
-
-
-async def _run(dry_run: bool) -> dict:
+async def _run(dry_run: bool, factory: Any) -> dict:
     """Open a session (+ PM client when submitting), run the backfill, and commit
     any anchor writes. A ``dry_run`` reads only — no client is constructed."""
     settings = get_sidecar_settings()
-    factory = get_session_factory()
     if dry_run:
         async with factory() as session:
             return await backfill_contact_labels(
@@ -200,26 +183,30 @@ async def _run(dry_run: bool) -> dict:
         await client.aclose()
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Parse args, run the backfill, and print the summary as JSON.
+async def _backfill_job(ctx: JobContext) -> JobResult:
+    """Harness handler. ``commit=False``; ``_run`` keeps its own session/commit."""
+    factory = ctx.require_session_factory()
+    return await run_pm_job(lambda: _run(ctx.dry_run, factory))
 
-    Exit codes: ``0`` clean (or dry-run); ``1`` some rows rejected/failed; ``2`` a
-    global auth block (``DeliveryBlockedError``) aborted the run — reported as a
-    one-line diagnostic instead of a raw traceback, so the JSON contract holds.
+
+def main(argv: list[str] | None = None) -> int:
+    """Re-observe the produced orgs.
+
+    Exit codes (unchanged): ``0`` clean or dry-run; ``1`` some rows rejected/failed;
+    ``2`` a global auth block, reported as a one-line diagnostic on stderr rather than a
+    raw traceback.
     """
-    configure_logging()
-    args = _build_parser().parse_args(argv)
-    try:
-        result = asyncio.run(_run(args.dry_run))
-    except DeliveryBlockedError as exc:
-        json.dump(
-            {"error": "delivery blocked — check POWERMAP_API_KEY", "detail": str(exc)}, sys.stdout
-        )
-        sys.stdout.write("\n")
-        return 2
-    json.dump(result, sys.stdout)
-    sys.stdout.write("\n")
-    return 1 if result.get("rejected", 0) or result.get("failed", 0) else 0
+    return run_job(
+        JOB_SLUG,
+        _backfill_job,
+        argv=argv,
+        prog="python -m usa_wa_sync_powermap.backfill_contact_labels",
+        description=(
+            "Re-observe produced orgs so PM adopts phone display_labels and "
+            "object-shape acronyms (#31, #33)."
+        ),
+        commit=False,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

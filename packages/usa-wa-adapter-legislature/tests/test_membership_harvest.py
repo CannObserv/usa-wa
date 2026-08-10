@@ -7,13 +7,19 @@ membership is a Phase B span. Joint/`Other` committees are skipped (no membershi
 
 from __future__ import annotations
 
+import json
+from unittest.mock import patch
+
 import pytest
 from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Person
+from usa_wa_adapter_legislature.membership import harvest as harvest_module
 from usa_wa_adapter_legislature.membership.harvest import (
-    harvest_committee_members,
+    HarvestSummary,
+    harvest,
     standing_committees,
 )
 from usa_wa_adapter_legislature.transport import WireFetch
@@ -105,7 +111,7 @@ async def test_harvest_archives_one_roster_per_committee_and_materializes_person
         {("2023-24", "House", "Appropriations"): [_member(100), _member(200, last="Reeves")]}
     )
 
-    summary = await harvest_committee_members(
+    summary = await harvest(
         db_session,
         bienniums=["2023-24"],
         committee_client=committee_client,
@@ -133,7 +139,7 @@ async def test_harvest_skips_biennium_with_no_committees(db_session, usa_wa, wsl
     committee_client = _FakeCommitteeClient({"1995-96": []})
     member_client = _FakeMemberClient({})
 
-    summary = await harvest_committee_members(
+    summary = await harvest(
         db_session,
         bienniums=["1995-96"],
         committee_client=committee_client,
@@ -159,7 +165,7 @@ async def test_harvest_tolerates_a_committee_absent_that_biennium(db_session, us
         missing=[("1999-00", "House", "Gone")],
     )
 
-    summary = await harvest_committee_members(
+    summary = await harvest(
         db_session,
         bienniums=["1999-00"],
         committee_client=committee_client,
@@ -170,3 +176,49 @@ async def test_harvest_tolerates_a_committee_absent_that_biennium(db_session, us
     assert {p.source_id for p in (await db_session.execute(select(Person))).scalars().all()} == {
         "100"
     }
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_ledgers_the_summary(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
+
+    async def _fake_harvest(_session, **_kwargs):
+        return HarvestSummary(bienniums=3, rosters_pulled=42, upserted=7, dry_run=False)
+
+    with patch.object(harvest_module, "harvest", _fake_harvest):
+        code = harvest_module.main(["--to-biennium", "2025-26", "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == harvest_module.JOB_SLUG
+    assert payload["counters"]["rosters_pulled"] == 42
+
+
+def test_main_leaves_the_env_rate_limit_alone_without_the_flag(monkeypatch):
+    """#169, unchanged: --pause-seconds defaults to None so the flag's own default
+    never overwrites the env-seeded central limiter."""
+    patch_job_runtime(monkeypatch)
+
+    async def _fake_harvest(_session, **_kwargs):
+        return HarvestSummary(bienniums=0, rosters_pulled=0, upserted=0, dry_run=True)
+
+    with (
+        patch.object(harvest_module, "harvest", _fake_harvest),
+        patch.object(harvest_module, "configure_wsl_rate_limit") as configure,
+    ):
+        harvest_module.main(["--to-biennium", "2025-26", "--dry-run"])
+        assert configure.call_count == 0
+        harvest_module.main(["--to-biennium", "2025-26", "--dry-run", "--pause-seconds", "2.5"])
+        configure.assert_called_once_with(2.5)
+
+
+def test_main_failure_exits_one(monkeypatch):
+    patch_job_runtime(monkeypatch)
+
+    async def _boom(_session, **_kwargs):
+        raise RuntimeError("WSL down")
+
+    with patch.object(harvest_module, "harvest", _boom):
+        assert harvest_module.main(["--to-biennium", "2025-26"]) == 1

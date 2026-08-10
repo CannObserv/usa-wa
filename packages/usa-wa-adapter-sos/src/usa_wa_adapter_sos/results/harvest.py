@@ -27,16 +27,14 @@ Floor **2008** (the PDC winner floor + the earliest results this fills against).
 from __future__ import annotations
 
 import argparse
-import asyncio
-import os
-import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
 from usa_wa_adapter_sos.coverage import SOS_RESULTS_ELECTION_YEARS
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
@@ -49,6 +47,9 @@ from usa_wa_adapter_sos.results.transport import (
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "sos-results-harvest"
 
 #: The earliest general-election year this source fills against (the PDC winner floor) — the
 #: declared coverage claim (#180).
@@ -155,11 +156,8 @@ async def harvest_results(
     )
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Archive results.vote.wa.gov legislative cohorts (archive-only, #101 Phase A)."
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the sweep's own flags to the harness's shared parser."""
     parser.add_argument(
         "--from-year",
         type=int,
@@ -169,7 +167,6 @@ async def _main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--to-year", type=int, default=None, help="default: the current calendar year"
     )
-    parser.add_argument("--dry-run", action="store_true", help="harvest but roll back")
     parser.add_argument("--force", action="store_true", help="re-fetch past the freshness cache")
     parser.add_argument(
         "--pause-seconds",
@@ -180,13 +177,25 @@ async def _main(argv: list[str] | None = None) -> int:
             "value seeded from USA_WA_SOS_RESULTS_MIN_REQUEST_INTERVAL (default 1.0) in place"
         ),
     )
-    args = parser.parse_args(argv)
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
 
+async def _harvest_job(ctx: JobContext) -> JobResult:
+    """Harness handler: resolve the range, sweep, and grade the outcome.
+
+    **A whole-source outage is now ``degraded``, not ``ok`` (#179b, CR #196 finding 22.)**
+    ``harvest_results`` already detected the condition and logged
+    ``results_harvest_total_outage``; the CLI then returned ``0``, so the warning had no
+    consumer — the "exits 0 having done nothing" failure ``clearinghouse_core.runs`` was
+    built for, in the module its own docstring names as the example. The sibling
+    ``filings.harvest`` already exited :data:`~clearinghouse_core.job.EXIT_DEGRADED` for
+    the identical condition; this brings the two halves of one source into line.
+
+    The test is skipped-vs-total, not ``archived == 0``: ``archive_only`` returns False on
+    a cache hit, so a sweep whose served years all cache-hit is not an outage. An
+    absent-only sweep (a general with no legislative race, #106) is not one either.
+    ``degraded`` still commits, so the reached years persist.
+    """
+    args = ctx.args
     # Only override the central limiter when the operator asked (#169) — an unconditional call
     # let the flag's own default silently overwrite the env-seeded interval.
     if args.pause_seconds is not None:
@@ -196,30 +205,32 @@ async def _main(argv: list[str] | None = None) -> int:
     # this harvest exists to archive. A year not yet held simply 404s and is skipped-and-logged.
     to_year = args.to_year or datetime.now(UTC).year
     years = general_election_years(args.from_year, to_year)
-
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            summary = await harvest_results(
-                session, years=years, dry_run=args.dry_run, force=args.force
-            )
-            if args.dry_run:
-                await session.rollback()
-            else:
-                await session.commit()
-    except Exception:
-        logger.exception("results_harvest_failed")
-        return 1
-    finally:
-        await engine.dispose()
-
-    print(
-        f"Results harvest: years={summary.years} archived={summary.cohorts_archived} "
-        f"no_legislative_race={summary.cohorts_absent} skipped={summary.cohorts_skipped} "
-        f"{'(dry-run, rolled back)' if summary.dry_run else '(committed)'}"
+    summary = await harvest_results(
+        ctx.require_session(), years=years, dry_run=ctx.dry_run, force=args.force
     )
-    return 0
+    if summary.cohorts_skipped > 0 and summary.cohorts_skipped == summary.years:
+        return JobResult.degraded(summary)
+    return JobResult.ok(summary)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Archive the legislative results cohorts.
+
+    Exit ``0`` clean · ``1`` failed · ``2`` config · ``4``
+    (:data:`~clearinghouse_core.job.EXIT_DEGRADED`) a whole-source outage. The ``4`` is
+    new at #179b — see :func:`_harvest_job`.
+    """
+    return run_job(
+        JOB_SLUG,
+        _harvest_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_sos.results.harvest",
+        description=(
+            "Archive results.vote.wa.gov legislative cohorts (archive-only, #101 Phase A)."
+        ),
+        extra_args=_add_args,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

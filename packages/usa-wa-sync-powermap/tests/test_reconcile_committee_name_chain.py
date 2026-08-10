@@ -11,11 +11,13 @@ import json
 
 from ulid import ULID
 
+from clearinghouse_core.testing import parse_job_args, patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_sync_powermap.client import DeliveryBlockedError, ObservationResult
 from clearinghouse_sync_powermap.models import DISPOSITION_AUTO_ATTACHED
 from usa_wa_sync_powermap import reconcile_committee_name_chain as cli
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
+from usa_wa_sync_powermap.jobs import EXIT_ABORTED
 
 
 class _FakeProvider:
@@ -108,42 +110,47 @@ async def test_storm_boundary_reported(db_session, usa_wa):
 
 
 def test_main_clean_exits_zero(monkeypatch, capsys):
-    async def _fake(_args):
+    patch_job_runtime(monkeypatch)
+
+    async def _fake(_args, _factory):
         return {"emitted": 3, "rejected": 0, "failed": 0, "aborted": None, "transitions": 3}
 
     monkeypatch.setattr(cli, "_run", _fake)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
     assert cli.main([]) == 0
 
 
 def test_main_abort_exits_three(monkeypatch, capsys):
-    async def _fake(_args):
+    patch_job_runtime(monkeypatch)
+
+    async def _fake(_args, _factory):
         return {"emitted": 0, "rejected": 0, "failed": 0, "aborted": "empty_archive"}
 
     monkeypatch.setattr(cli, "_run", _fake)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
-    assert cli.main([]) == cli.EXIT_ABORTED == 3
+    assert cli.main([]) == EXIT_ABORTED == 3
 
 
 def test_main_auth_exits_two(monkeypatch, capsys):
-    async def _fake(_args):
+    patch_job_runtime(monkeypatch)
+
+    async def _fake(_args, _factory):
         raise DeliveryBlockedError("PM 403")
 
     monkeypatch.setattr(cli, "_run", _fake)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
     assert cli.main([]) == 2
 
 
 def test_main_failures_exit_one(monkeypatch, capsys):
-    async def _fake(_args):
+    patch_job_runtime(monkeypatch)
+
+    async def _fake(_args, _factory):
         return {"emitted": 1, "rejected": 1, "failed": 0, "aborted": None}
 
     monkeypatch.setattr(cli, "_run", _fake)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
-    assert cli.main([]) == 1
-    assert json.loads(capsys.readouterr().out)["rejected"] == 1
+    assert cli.main(["--json"]) == 1
+    counters = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert counters["rejected"] == 1
 
 
 def test_parser_defaults():
-    args = cli._build_parser().parse_args([])
+    args = parse_job_args(cli._add_args, [])
     assert args.dry_run is False

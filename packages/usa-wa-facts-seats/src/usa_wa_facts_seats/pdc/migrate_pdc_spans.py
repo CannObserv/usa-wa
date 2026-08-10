@@ -38,24 +38,25 @@ Idempotent; ``--dry-run`` rolls back.
 
 from __future__ import annotations
 
-import argparse
-import asyncio
-import os
-import sys
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.config import DATABASE_ROLE_OWNER
+from clearinghouse_core.job import JobContext, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import Citation
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pdc-span-migrate"
 
 _PDC_SOURCE = "usa_wa_pdc"
 _ASSIGNMENT_CITATION_TYPE = "assignment"
@@ -222,48 +223,26 @@ async def migrate_pdc_spans(session: AsyncSession) -> MigrationResult:
     return result
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Collapse per-biennium PDC House seats onto merged spans (#79)."
+async def _migrate_job(ctx: JobContext) -> MigrationResult:
+    """Harness handler; the session is the harness's owner-role one."""
+    return await migrate_pdc_spans(ctx.require_session())
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the PDC span migration under the **owner** role.
+
+    Retiring legacy rows deletes their citations, which the app role is REVOKEd (#54).
+    Exit ``0`` clean · ``1`` failed · ``2`` config (``DATABASE_URL_OWNER`` unset).
+    """
+    return run_job(
+        JOB_SLUG,
+        _migrate_job,
+        argv=argv,
+        prog="python -m usa_wa_facts_seats.pdc.migrate_pdc_spans",
+        description="Collapse per-biennium PDC House seats onto merged spans (#79).",
+        role=DATABASE_ROLE_OWNER,
     )
-    parser.add_argument("--dry-run", action="store_true", help="migrate but roll back (preview)")
-    args = parser.parse_args(argv)
-
-    database_url = os.environ.get("DATABASE_URL_OWNER")
-    if not database_url:
-        print(
-            "DATABASE_URL_OWNER is not set; aborting — retiring legacy rows deletes their "
-            "citations, which the app role is REVOKEd (#54); run under the owner role.",
-            file=sys.stderr,
-        )
-        return 2
-
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            result = await migrate_pdc_spans(session)
-            if args.dry_run:
-                await session.rollback()
-            else:
-                await session.commit()
-    except Exception:
-        logger.exception("pdc_span_migrate_failed")
-        return 1
-    finally:
-        await engine.dispose()
-
-    print(
-        f"PDC span migration: legacy_found={result.legacy_found} "
-        f"legacy_retired={result.legacy_retired} "
-        f"superseded_found={result.superseded_found} "
-        f"superseded_retired={result.superseded_retired} "
-        f"anchors_transferred={result.anchors_transferred} "
-        f"anchors_dropped={result.anchors_dropped} orphans_no_span={result.orphans_no_span} "
-        f"{'(dry-run, rolled back)' if args.dry_run else '(committed)'}"
-    )
-    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

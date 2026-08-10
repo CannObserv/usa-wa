@@ -111,7 +111,10 @@ async def test_refresh_module_writes_full_anchor_chain_to_test_db():
         check=False,
     )
     assert result.returncode == 0, f"refresh failed: stdout={result.stdout} stderr={result.stderr}"
-    assert "WSL refresh:" in result.stdout
+    # The summary line is the #179b harness's `key=value` form, not the CLI's old
+    # "WSL refresh: …" print. Exit code and counters are unchanged.
+    assert "job=wsl-refresh outcome=ok" in result.stdout
+    assert "committee_errors=0" in result.stdout
 
     engine = create_async_engine(test_db_url)
     try:

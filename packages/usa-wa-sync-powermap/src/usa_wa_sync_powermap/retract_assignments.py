@@ -42,8 +42,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.database import get_session_factory
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_sync_powermap.client import (
     DISPOSITION_AUTO_ATTACHED,
@@ -52,9 +52,13 @@ from clearinghouse_sync_powermap.client import (
     RetryableClientError,
 )
 from usa_wa_sync_powermap.config import get_sidecar_settings
+from usa_wa_sync_powermap.jobs import EXIT_AUTH_BLOCKED
 from usa_wa_sync_powermap.registry import build_pm_client
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pm-assignment-retract"
 
 #: The assignment observation channel (power-map#391 routes ``op:"retract"`` here).
 OBSERVE_PATH = "/api/v1/assignments/observations"
@@ -199,11 +203,8 @@ def exit_code(result: dict) -> int:
     return 1 if unsettled else 0
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_sync_powermap.retract_assignments",
-        description="Retract spurious anchored assignments on PM + tombstone locally (#144 Ph2).",
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute this job's own flags to the harness's shared parser."""
     parser.add_argument(
         "--source-id",
         action="append",
@@ -217,19 +218,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_SOURCE,
         help=f"producer source of the assignments (default {DEFAULT_SOURCE})",
     )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="resolve + preview targets WITHOUT POSTing the retraction to PM",
-    )
-    return parser
 
 
-async def _run(args: argparse.Namespace) -> dict:
+async def _run(args: argparse.Namespace, factory: Any) -> dict:
     settings = get_sidecar_settings()
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — cannot reach Power Map.")
-    async with get_session_factory()() as session:
+    async with factory() as session:
         client = build_pm_client(settings)
         try:
             result = await retract_assignments(
@@ -246,22 +241,54 @@ async def _run(args: argparse.Namespace) -> dict:
             await client.aclose()
 
 
-def main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    args = _build_parser().parse_args(argv)
+async def _retract_job(ctx: JobContext) -> JobResult:
+    """Harness handler.
+
+    Three terminal shapes rather than the family's four: an auth block (``2``), a
+    persistent PM outage past the backoff budget (:data:`EXIT_TRANSIENT_OUTAGE`, ``3`` —
+    ``degraded``, since nothing committed and a re-run converges), and
+    :func:`exit_code`'s unsettled-target rule (``1``). There is no guardrail abort here,
+    so this maps its own outcomes rather than calling
+    :func:`~usa_wa_sync_powermap.jobs.run_pm_job`.
+    """
     try:
-        result = asyncio.run(_run(args))
+        factory = ctx.require_session_factory()
+        result = await _run(ctx.args, factory)
     except DeliveryBlockedError as exc:
-        print(json.dumps({"error": f"delivery blocked: {exc}"}))
-        return 2
+        json.dump({"error": f"delivery blocked: {exc}"}, sys.stderr)
+        sys.stderr.write("\n")
+        return JobResult.failed(
+            {"error": "delivery_blocked", "detail": str(exc)}, exit_code=EXIT_AUTH_BLOCKED
+        )
     except RetryableClientError as exc:
         # Persistent 429/5xx past the backoff budget — no local commit happened (the session rolled
         # back), and PM retraction is idempotent, so a re-run once PM recovers converges cleanly.
-        print(json.dumps({"error": f"transient PM outage — safe to re-run: {exc}"}))
-        return EXIT_TRANSIENT_OUTAGE
-    print(json.dumps(result, indent=2, default=str))
-    return exit_code(result)
+        json.dump({"error": f"transient PM outage — safe to re-run: {exc}"}, sys.stderr)
+        sys.stderr.write("\n")
+        return JobResult.degraded(
+            {"error": "transient_outage", "detail": str(exc)}, exit_code=EXIT_TRANSIENT_OUTAGE
+        )
+    code = exit_code(result)
+    return JobResult.ok(result) if code == 0 else JobResult.failed(result, exit_code=code)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Retract spurious anchored assignments.
+
+    Exit codes (unchanged, COMMANDS-SYNC.md): ``0`` clean / idempotent re-run; ``1`` a
+    target left unsettled (not-found / unanchored / PM-refused); ``2`` a global auth
+    block; ``3`` a transient PM outage — safe to re-run.
+    """
+    return run_job(
+        JOB_SLUG,
+        _retract_job,
+        argv=argv,
+        prog="python -m usa_wa_sync_powermap.retract_assignments",
+        description=("Retract spurious anchored assignments on PM + tombstone locally (#144 Ph2)."),
+        extra_args=_add_args,
+        commit=False,
+    )
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

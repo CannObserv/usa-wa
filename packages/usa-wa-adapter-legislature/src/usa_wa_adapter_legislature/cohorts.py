@@ -54,7 +54,7 @@ async def committee_roster_provider(
 
     Satisfies `clearinghouse_domain_legislative.cohorts.ArchivedBienniumCohortProvider`:
     `cohort(biennium)`, `roster_records(biennium)` and `archived_bienniums()`. A closed prior
-    biennium is a cache hit on the archive `harvest_committees` wrote, not a fresh
+    biennium is a cache hit on the archive `harvest` wrote, not a fresh
     ``GetCommittees`` pull."""
     if source_id is None:
         source_id = await resolve_source_id(session)

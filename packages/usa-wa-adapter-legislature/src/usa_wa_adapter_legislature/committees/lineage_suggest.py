@@ -21,18 +21,16 @@ The composite score ranks the report; nothing is written.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import os
 import re
-import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging
+from clearinghouse_core.job import JobContext, run_job
 from clearinghouse_core.provenance import Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Role
 from clearinghouse_domain_legislative.terms import biennium_for_date
@@ -43,6 +41,9 @@ from usa_wa_adapter_legislature.committees.lifecycle import (
     derive_committee_windows,
 )
 from usa_wa_adapter_legislature.transport import WSLClient
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "committee-lineage-suggest"
 
 _SOURCE = "usa_wa_legislature"
 _ORG_TYPE = "committee"
@@ -218,25 +219,24 @@ async def build_candidate_infos(
     return infos
 
 
-async def _run(biennium: str, *, min_name_similarity: float) -> list[SuccessionCandidate]:
-    engine = create_async_engine(os.environ["DATABASE_URL"])
+async def _run(
+    session: AsyncSession, biennium: str, *, min_name_similarity: float
+) -> list[SuccessionCandidate]:
+    """Rank candidates against ``session`` — the harness's, since #179b: this module used
+    to build (and dispose) an engine straight off ``os.environ["DATABASE_URL"]``."""
     wsl_client = WSLClient("CommitteeService")
-    try:
-        async with AsyncSession(engine) as session:
-            source = (
-                await session.execute(select(Source).where(Source.slug == _SOURCE))
-            ).scalar_one_or_none()
-            provider = CommitteeRosterCohortProvider(
-                wsl_client, session=session, source_id=(source.id if source else None)
-            )
-            presence = await collect_committee_presence(provider)
-            archived = await provider.archived_bienniums()
-            windows = derive_committee_windows(
-                presence, current_biennium=biennium, archived_bienniums=archived
-            )
-            infos = await build_candidate_infos(session, windows)
-    finally:
-        await engine.dispose()
+    source = (
+        await session.execute(select(Source).where(Source.slug == _SOURCE))
+    ).scalar_one_or_none()
+    provider = CommitteeRosterCohortProvider(
+        wsl_client, session=session, source_id=(source.id if source else None)
+    )
+    presence = await collect_committee_presence(provider)
+    archived = await provider.archived_bienniums()
+    windows = derive_committee_windows(
+        presence, current_biennium=biennium, archived_bienniums=archived
+    )
+    infos = await build_candidate_infos(session, windows)
     return suggest_candidates(infos, min_name_similarity=min_name_similarity)
 
 
@@ -245,29 +245,47 @@ def _format(c: SuccessionCandidate) -> str:
     return f"{c.score:>6.3f}  {c.predecessor_id} {arrow} {c.successor_id}  [{', '.join(c.reasons)}]"
 
 
-def main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Suggest committee succession candidates (advisory, read-only; usa-wa#124 C5)."
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the suggester's own flags to the harness's shared parser."""
     parser.add_argument(
         "--biennium", default=None, help="Biennium label; default USA_WA_BIENNIUM/date."
     )
     parser.add_argument("--min-name-similarity", type=float, default=_MIN_NAME_SIMILARITY)
-    args = parser.parse_args(argv)
-    if not os.environ.get("DATABASE_URL"):
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
+
+
+async def _suggest_job(ctx: JobContext) -> dict:
+    """Harness handler: rank, print the advisory lines, count them for the ledger."""
     biennium = (
-        args.biennium
+        ctx.args.biennium
         or os.environ.get("USA_WA_BIENNIUM")
         or biennium_for_date(datetime.now(UTC).date())
     )
-    candidates = asyncio.run(_run(biennium, min_name_similarity=args.min_name_similarity))
-    for c in candidates:
-        print(_format(c))
-    print(f"{len(candidates)} candidate pair(s) — advisory; attest via committees.succession_cli")
-    return 0
+    candidates = await _run(
+        ctx.require_session(), biennium, min_name_similarity=ctx.args.min_name_similarity
+    )
+    for candidate in candidates:
+        print(_format(candidate))
+    print("advisory only — attest via committees.succession_cli")
+    return {"biennium": biennium, "candidates": len(candidates)}
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Suggest succession candidates. Exit ``0`` always · ``2`` config.
+
+    Advisory and read-only (``commit=False``): a suggestion is for a human to act on,
+    so a non-empty candidate list is not a failure.
+    """
+    return run_job(
+        JOB_SLUG,
+        _suggest_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.committees.lineage_suggest",
+        description=(
+            "Suggest committee succession candidates (advisory, read-only; usa-wa#124 C5)."
+        ),
+        extra_args=_add_args,
+        commit=False,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

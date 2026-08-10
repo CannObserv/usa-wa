@@ -15,20 +15,26 @@ import pytest
 from sqlalchemy import select
 from ulid import ULID
 
+from clearinghouse_core.testing import parse_job_args, patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_sync_powermap.client import DeliveryBlockedError, ObservationResult
 from clearinghouse_sync_powermap.models import DISPOSITION_AUTO_ATTACHED
 from usa_wa_sync_powermap import backfill_contact_labels as cli
 
 
-def _patch_factory(monkeypatch, db_session):
-    """Make get_session_factory yield the savepointed test session."""
+def _session_factory(db_session):
+    """A session factory bound to the savepointed test session.
+
+    Since CR #196 finding 49 the CLIs take their factory from
+    ``ctx.require_session_factory()`` rather than importing ``get_session_factory``, so
+    the double is handed straight to ``_run`` instead of monkeypatched onto the module.
+    """
 
     @asynccontextmanager
     async def _ctx():
         yield db_session
 
-    monkeypatch.setattr(cli, "get_session_factory", lambda: _ctx)
+    return _ctx
 
 
 def _patch_settings(monkeypatch, *, api_key="k"):
@@ -74,11 +80,11 @@ async def _add_acronym_only_org(db_session, *, source_id, anchor):
 
 
 def test_parser_defaults():
-    assert cli._build_parser().parse_args([]).dry_run is False
+    assert parse_job_args(None, []).dry_run is False
 
 
 def test_parser_dry_run_flag():
-    assert cli._build_parser().parse_args(["--dry-run"]).dry_run is True
+    assert parse_job_args(None, ["--dry-run"]).dry_run is True
 
 
 # --- _run ---------------------------------------------------------------------
@@ -87,10 +93,10 @@ def test_parser_dry_run_flag():
 async def test_run_dry_run_counts_without_submitting(monkeypatch, db_session, usa_wa):
     """Dry-run opens only a session (no client), counts the cohort, mutates nothing."""
     await _add_phone_org(db_session, source_id="C-1", anchor=ULID())
-    _patch_factory(monkeypatch, db_session)
+    factory = _session_factory(db_session)
     _patch_settings(monkeypatch, api_key="")  # absent key is fine for a read-only dry-run
 
-    result = await cli._run(dry_run=True)
+    result = await cli._run(True, factory)
 
     assert result == {
         "scanned": 1,
@@ -107,10 +113,10 @@ async def test_dry_run_includes_acronym_only_org(monkeypatch, db_session, usa_wa
     acronym fix only reaches already-anchored committees via a re-observe, and 4 WA
     committees carry an acronym but no phone — phone-only filtering would strand them."""
     await _add_acronym_only_org(db_session, source_id="A-1", anchor=ULID())
-    _patch_factory(monkeypatch, db_session)
+    factory = _session_factory(db_session)
     _patch_settings(monkeypatch, api_key="")
 
-    result = await cli._run(dry_run=True)
+    result = await cli._run(True, factory)
 
     assert result["scanned"] == 1
 
@@ -129,28 +135,28 @@ async def test_dry_run_excludes_org_with_neither_phone_nor_acronym(monkeypatch, 
     )
     db_session.add(bare)
     await db_session.flush()
-    _patch_factory(monkeypatch, db_session)
+    factory = _session_factory(db_session)
     _patch_settings(monkeypatch, api_key="")
 
-    result = await cli._run(dry_run=True)
+    result = await cli._run(True, factory)
 
     assert result["scanned"] == 0
 
 
 async def test_run_requires_api_key_when_submitting(monkeypatch, db_session):
     """Fail-closed: a real submission with no POWERMAP_API_KEY raises before any post."""
-    _patch_factory(monkeypatch, db_session)
+    factory = _session_factory(db_session)
     _patch_settings(monkeypatch, api_key="")
 
     with pytest.raises(RuntimeError, match="POWERMAP_API_KEY"):
-        await cli._run(dry_run=False)
+        await cli._run(False, factory)
 
 
 async def test_run_submits_and_commits(monkeypatch, db_session, usa_wa):
     """The submitting path builds a client, re-observes the cohort, and closes it."""
     anchor = ULID()
     await _add_phone_org(db_session, source_id="C-2", anchor=anchor)
-    _patch_factory(monkeypatch, db_session)
+    factory = _session_factory(db_session)
     _patch_settings(monkeypatch, api_key="k")
 
     closed = {"v": False}
@@ -167,7 +173,7 @@ async def test_run_submits_and_commits(monkeypatch, db_session, usa_wa):
 
     monkeypatch.setattr(cli, "build_pm_client", _FakeClient)
 
-    result = await cli._run(dry_run=False)
+    result = await cli._run(False, factory)
 
     assert result["accepted"] == 1
     assert closed["v"] is True  # client always closed
@@ -175,61 +181,63 @@ async def test_run_submits_and_commits(monkeypatch, db_session, usa_wa):
 
 def test_main_wires_args_and_prints_json(monkeypatch, capsys):
     """main parses --dry-run, calls _run with it, and prints the result as JSON."""
+    patch_job_runtime(monkeypatch)
     seen = {}
 
-    async def _fake_run(dry_run):
+    async def _fake_run(dry_run, _factory):
         seen["dry_run"] = dry_run
         return {"scanned": 2, "accepted": 0, "dry_run": dry_run}
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main(["--dry-run"])
+    rc = cli.main(["--json", "--dry-run"])
 
     assert rc == 0
     assert seen["dry_run"] is True
-    assert json.loads(capsys.readouterr().out) == {"scanned": 2, "accepted": 0, "dry_run": True}
+    counters = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert counters == {"scanned": 2, "accepted": 0, "dry_run": True}
 
 
 def test_main_nonzero_exit_on_failures(monkeypatch, capsys):
     """A run with any rejected/failed rows exits non-zero so $? signals it (#31 #10)."""
+    patch_job_runtime(monkeypatch)
 
-    async def _fake_run(dry_run):
+    async def _fake_run(dry_run, _factory):
         return {"scanned": 3, "accepted": 1, "rejected": 1, "failed": 1, "dry_run": dry_run}
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main([])
+    rc = cli.main(["--json"])
 
     assert rc == 1
-    assert json.loads(capsys.readouterr().out)["failed"] == 1
+    counters = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert counters["failed"] == 1
 
 
 def test_main_auth_block_exits_distinct_code(monkeypatch, capsys):
     """A global auth block surfaces as a one-line diagnostic + exit 2, not a traceback
     (#31 CR round-3 finding 13)."""
+    patch_job_runtime(monkeypatch)
 
-    async def _fake_run(dry_run):
+    async def _fake_run(dry_run, _factory):
         raise DeliveryBlockedError("PM 403 Insufficient scope")
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main([])
+    rc = cli.main(["--json"])
 
     assert rc == 2
-    body = json.loads(capsys.readouterr().out)
-    assert body["error"].startswith("delivery blocked")
+    body = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert body["error"] == "delivery_blocked"
 
 
 async def test_run_dry_run_leaves_rows_unmutated(monkeypatch, db_session, usa_wa):
     """A dry-run preview does not write an anchor or otherwise touch the rows."""
     await _add_phone_org(db_session, source_id="C-3", anchor=None)
-    _patch_factory(monkeypatch, db_session)
+    factory = _session_factory(db_session)
     _patch_settings(monkeypatch, api_key="")
 
-    await cli._run(dry_run=True)
+    await cli._run(True, factory)
 
     row = (await db_session.execute(select(Organization))).scalars().one()
     assert row.pm_organization_id is None

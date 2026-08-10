@@ -39,17 +39,16 @@ Read-only (app role, no writes). Exit 0 clean / 1 on a missing winner / 2 on a c
 from __future__ import annotations
 
 import argparse
-import asyncio
 import os
-import sys
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 
 from sqlalchemy import or_, select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID as _ULID
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.coverage import SPONSOR_ROSTER_COVERAGE
@@ -61,6 +60,9 @@ from usa_wa_common.jurisdiction import resolve_jurisdiction
 from usa_wa_common.names import surname_match_set
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "house-corroboration"
 
 #: The ``state_representative`` seat Role ``source_id`` prefix (``seat:house:ld-{n}:position-{p}``).
 _HOUSE_SEAT_PREFIX = "seat:house:ld-"
@@ -306,11 +308,8 @@ def sweep_exit_code(*, strict: bool, missing_count: int) -> int:
     return 1 if (strict and missing_count) else 0
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Corroborate odd-year SOS House special winners vs the open seats (#149)."
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the gate's own flags to the harness's shared parser."""
     parser.add_argument(
         "--biennium",
         default=os.environ.get("USA_WA_BIENNIUM"),
@@ -335,38 +334,58 @@ async def _main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="in sweep mode, exit 1 if any missing seat is found (post-backfill guard)",
     )
-    args = parser.parse_args(argv)
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
 
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            if args.sweep_biennia:
-                outcome = await sweep_house_winners(session, from_year=args.from_year)
-                print(
-                    f"House sweep: {len(outcome.missing)} missing seat(s), "
-                    f"{len(outcome.mismatched)} mismatched across odd years"
-                )
-                for odd_year, ld, position in outcome.missing:
-                    print(f"    MISSING {odd_year}: LD{ld} {position}")
-                for odd_year, ld, position in outcome.mismatched:
-                    print(f"    mismatched {odd_year}: LD{ld} {position}")
-                return sweep_exit_code(strict=args.strict, missing_count=len(outcome.missing))
-            result = await corroborate_house_winners(session, biennium=args.biennium)
-    finally:
-        await engine.dispose()
+async def _corroboration_job(ctx: JobContext) -> JobResult:
+    """Harness handler: the daily gate, or the #119 report-only sweep.
 
-    print(
-        f"House corroboration (odd {result.odd_year}): winners={result.winners} "
-        f"missing={result.missing_seats} mismatched={result.mismatched_seats} "
-        f"{'OK' if result.ok else 'VIOLATION'}"
+    Both exit contracts unchanged: the gate is ``0``/``1`` on ``result.ok``; the sweep is
+    report-only (``0``) unless ``--strict``. Read-only, so ``commit=False``.
+    """
+    args = ctx.args
+    session = ctx.require_session()
+    if args.sweep_biennia:
+        outcome = await sweep_house_winners(session, from_year=args.from_year)
+        print(
+            f"House sweep: {len(outcome.missing)} missing seat(s), "
+            f"{len(outcome.mismatched)} mismatched across odd years"
+        )
+        for odd_year, ld, position in outcome.missing:
+            print(f"    MISSING {odd_year}: LD{ld} {position}")
+        for odd_year, ld, position in outcome.mismatched:
+            print(f"    mismatched {odd_year}: LD{ld} {position}")
+        counters = {
+            "mode": "sweep",
+            "missing": len(outcome.missing),
+            "mismatched": len(outcome.mismatched),
+            "strict": bool(args.strict),
+        }
+        code = sweep_exit_code(strict=args.strict, missing_count=len(outcome.missing))
+        return JobResult.ok(counters) if code == 0 else JobResult.failed(counters, exit_code=code)
+
+    result = await corroborate_house_winners(session, biennium=args.biennium)
+    counters = {
+        "mode": "gate",
+        "odd_year": result.odd_year,
+        "winners": result.winners,
+        "missing_seats": len(result.missing_seats),
+        "mismatched_seats": len(result.mismatched_seats),
+    }
+    return JobResult.ok(counters) if result.ok else JobResult.failed(counters)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Corroborate the odd-year House winners. Exit ``0`` clean · ``1`` missing · ``2`` config."""
+    return run_job(
+        JOB_SLUG,
+        _corroboration_job,
+        argv=argv,
+        prog="python -m usa_wa_facts_seats.house_corroboration",
+        description="Corroborate odd-year SOS House special winners vs the open seats (#149).",
+        extra_args=_add_args,
+        commit=False,
     )
-    return 0 if result.ok else 1
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

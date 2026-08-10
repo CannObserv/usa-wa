@@ -20,16 +20,13 @@ Two invariants, both keyed on the ``active`` flag + the operator-attested links:
 
 from __future__ import annotations
 
-import argparse
-import asyncio
-import os
-import sys
 from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.committee_succession import (
     SLUG_MERGED_WITH,
     SLUG_SUCCEEDED_BY,
@@ -38,6 +35,9 @@ from clearinghouse_domain_legislative.committee_succession import (
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Role
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "committee-lineage-invariants"
 
 _SOURCE = "usa_wa_legislature"
 _ORG_TYPE = "committee"
@@ -127,26 +127,36 @@ def _log(result: LineageInvariantResult) -> None:
     )
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    argparse.ArgumentParser(
-        description="Assert the committee lineage/lifecycle coherence invariants (usa-wa#124)."
-    ).parse_args(argv)
+async def _invariants_job(ctx: JobContext) -> JobResult:
+    """Harness handler: check, log, and map the outcome onto the ledger.
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
-
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            result = await check_committee_lineage_invariants(session)
-    finally:
-        await engine.dispose()
+    A violation is ``failed`` (exit 1), not ``degraded``: the check ran fine and found
+    real drift, which is what the daily unit's ``OnFailure=`` exists to email on.
+    """
+    result = await check_committee_lineage_invariants(ctx.require_session())
     _log(result)
-    return 0 if result.ok else 1
+    counters = {
+        "inactive_with_live_members": result.inactive_with_live_members,
+        "active_predecessors": result.active_predecessors,
+    }
+    return JobResult.ok(counters) if result.ok else JobResult.failed(counters)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Assert lineage coherence. Exit ``0`` clean · ``1`` drift · ``2`` config.
+
+    Read-only, so ``commit=False``: there is nothing to commit, and the pre-#179b CLI
+    committed nothing either.
+    """
+    return run_job(
+        JOB_SLUG,
+        _invariants_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.committees.lineage_invariants",
+        description=("Assert the committee lineage/lifecycle coherence invariants (usa-wa#124)."),
+        commit=False,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

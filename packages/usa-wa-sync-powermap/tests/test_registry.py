@@ -135,7 +135,7 @@ class _Stop(Exception):
     """Sentinel to abort an entrypoint right after build_descriptors runs."""
 
 
-async def _assert_entrypoint_passes_settings(monkeypatch, module):
+async def _assert_entrypoint_passes_settings(monkeypatch, module, entrypoint):
     """#12: the daemon entrypoints must pass ``settings`` to build_descriptors so the
     configured ``powermap_search_match_cap`` actually reaches the descriptors —
     calling it with no args leaves the knob inert. Capture the arg, then abort before
@@ -153,19 +153,23 @@ async def _assert_entrypoint_passes_settings(monkeypatch, module):
         lambda: SidecarSettings(powermap_api_key="x", powermap_search_match_cap=123),
     )
     with pytest.raises(_Stop):
-        await module._amain()
+        await entrypoint()
     assert captured["settings"] is not None
     assert captured["settings"].powermap_search_match_cap == 123
 
 
 async def test_bootstrap_passes_settings_to_build_descriptors(monkeypatch):
-    await _assert_entrypoint_passes_settings(monkeypatch, bootstrap)
+    """The bootstrap's entrypoint is a ``run_job`` handler since #179b, so the probe
+    calls the handler rather than the retired ``_amain``."""
+    await _assert_entrypoint_passes_settings(
+        monkeypatch, bootstrap, lambda: bootstrap._bootstrap_job(None)
+    )
 
 
 async def test_daemon_main_passes_settings_to_build_descriptors(monkeypatch):
     from usa_wa_sync_powermap import __main__ as daemon
 
-    await _assert_entrypoint_passes_settings(monkeypatch, daemon)
+    await _assert_entrypoint_passes_settings(monkeypatch, daemon, daemon._amain)
 
 
 def test_build_pm_client_applies_pacing(monkeypatch):

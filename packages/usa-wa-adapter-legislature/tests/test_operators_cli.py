@@ -1,12 +1,15 @@
 """Operator-event CLI (#107) — validation + record + supersede + batch."""
 
 from datetime import date
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
 
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Person
 from clearinghouse_domain_legislative.operator_events import OperatorEvent
+from usa_wa_adapter_legislature.operators import cli
 from usa_wa_adapter_legislature.operators.cli import (
     EventSpec,
     OperatorEventError,
@@ -226,3 +229,33 @@ def test_load_specs_parses_batch():
 def test_load_specs_rejects_non_list():
     with pytest.raises(OperatorEventError, match="JSON array"):
         load_specs({"member_id": "1"})
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_validation_failure_is_still_exit_two(monkeypatch, capsys):
+    """Documented contract (COMMANDS-SUCCESSION.md): exit 2 on a validation failure."""
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _reject(_session, _args):
+        raise OperatorEventError("--member-id, --kind and --evidence-url are required")
+
+    with patch.object(cli, "_run", _reject):
+        assert cli.main(["--member-id", "100"]) == 2
+
+    assert (recording.committed, recording.rolled_back) == (0, 1)
+    assert "--member-id" in capsys.readouterr().err
+
+
+def test_main_list_commits_even_under_dry_run(monkeypatch):
+    """Preserves the pre-#179b ``dry_run and not list`` branch exactly."""
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _fake_run(_session, _args):
+        return 0
+
+    with patch.object(cli, "_run", _fake_run):
+        assert cli.main(["--dry-run", "--list"]) == 0
+
+    assert (recording.committed, recording.rolled_back) == (1, 0)

@@ -25,15 +25,13 @@ every underlying GetSponsors POST drips against WSL rather than the CLI pacing i
 from __future__ import annotations
 
 import argparse
-import asyncio
-import os
-import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date, bienniums_in_range
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX, WALegislatureAdapter
@@ -48,17 +46,20 @@ logger = get_logger(__name__)
 #: Default inter-request pace (seconds) applied to the central WSL limiter for the sweep.
 DEFAULT_PAUSE_SECONDS = 1.0
 
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "wsl-sponsor-harvest"
+
 
 @dataclass(frozen=True)
 class HarvestSummary:
-    """Outcome of one :func:`harvest_sponsors` run."""
+    """Outcome of one :func:`harvest` run."""
 
     windows: int
     upserted: int
     dry_run: bool
 
 
-async def harvest_sponsors(
+async def harvest(
     session: AsyncSession,
     *,
     bienniums: list[str],
@@ -103,11 +104,8 @@ async def harvest_sponsors(
     return HarvestSummary(windows=len(bienniums), upserted=upserted, dry_run=dry_run)
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Harvest historical member rosters (Persons only, #77 Phase A)."
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the sweep's own flags to the harness's shared parser."""
     parser.add_argument(
         "--from-biennium",
         default=DEFAULT_HISTORY_FLOOR,
@@ -124,52 +122,46 @@ async def _main(argv: list[str] | None = None) -> int:
             "in place"
         ),
     )
-    parser.add_argument("--dry-run", action="store_true", help="harvest but roll back (preview)")
     parser.add_argument(
         "--force",
         action="store_true",
         help="re-fetch + re-materialize even on a fresh cache hit",
     )
-    args = parser.parse_args(argv)
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
 
+async def _harvest_job(ctx: JobContext) -> HarvestSummary:
+    """Harness handler: resolve the range, pace the limiter, sweep.
+
+    Returns the summary unchanged — the harness reads any dataclass as ``ok`` with those
+    counters, so the ledger row carries ``windows``/``upserted``/``dry_run`` verbatim.
+    """
+    args = ctx.args
     to_biennium = args.to_biennium or biennium_for_date(datetime.now(UTC).date())
     bienniums = bienniums_in_range(args.from_biennium, to_biennium)
     # Central pacing for the whole sweep — but only when the operator asked (#169). An
     # unconditional call let the flag's own default silently overwrite the env-seeded interval.
     if args.pause_seconds is not None:
         configure_wsl_rate_limit(args.pause_seconds)
-
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            summary = await harvest_sponsors(
-                session,
-                bienniums=bienniums,
-                sponsor_client=WSLClient("SponsorService"),
-                dry_run=args.dry_run,
-                force=args.force,
-            )
-            if args.dry_run:
-                await session.rollback()
-            else:
-                await session.commit()
-    except Exception:
-        logger.exception("wsl_sponsor_harvest_failed")
-        return 1
-    finally:
-        await engine.dispose()
-
-    print(
-        f"Sponsor roster harvest: windows={summary.windows} upserted={summary.upserted} "
-        f"{'(dry-run, rolled back)' if summary.dry_run else '(committed)'}"
+    return await harvest(
+        ctx.require_session(),
+        bienniums=bienniums,
+        sponsor_client=WSLClient("SponsorService"),
+        dry_run=ctx.dry_run,
+        force=args.force,
     )
-    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the roster sweep. Exit ``0`` clean · ``1`` failed · ``2`` config (#179b)."""
+    return run_job(
+        JOB_SLUG,
+        _harvest_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.sponsors.harvest",
+        description="Harvest historical member rosters (Persons only, #77 Phase A).",
+        extra_args=_add_args,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

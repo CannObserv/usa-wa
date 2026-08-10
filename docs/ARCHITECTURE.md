@@ -99,15 +99,35 @@ on the axis that actually varies, and if none does, stay flat.
 
 The vocabulary is load-bearing beyond directory layout. `harvest.py` means **Phase A** (archive the
 wire) and `build.py` means **Phase B** (spans from that archive) — before #183 the WSL package
-spelled those two `harvest_sponsors.py` and `harvest_sponsor_spans.py`, one plural apart, and the
+spelled those two `harvest.py` and `harvest_sponsor_spans.py`, one plural apart, and the
 same for committee membership. A module whose name does not say which phase, layer or role it holds
 is the discoverability tax finding 13 measured; prefer the names in the tree above to a new coinage.
 
-**Function names still stutter, deliberately.** `harvest_sponsors()` lives in
-`sponsors/harvest.py`, `harvest_committees()` in `committees/harvest.py`. #183 renamed
-modules only: renaming a function forces assertion edits, and a move whose tests had to
-change is a move that changed behaviour. The sweep belongs with #179b, which is already
-rewriting these entry points onto the shared job harness (CR #196 finding 46).
+**Function names no longer stutter (#183, swept at #179b).** The entry point in
+`sponsors/harvest.py` is `harvest()`, not `harvest_sponsors()`; `committees/harvest.py`,
+`membership/harvest.py`, `meetings/harvest.py` and `usa_wa_adapter_pdc/harvest.py` are the
+same. The rule is *drop the noun the module path already carries*: `sponsors/build.py` has
+`build_spans()`, `sponsors/migrate_spans.py` has `migrate_spans()`,
+`committees/ingest_seed.py` has `ingest_seed()`, and `committees/probe_extent.py` has
+`probe_floor()` beside `probe_extent()`.
+
+#183 deferred this because renaming a function forces assertion edits, and a move whose
+tests had to change is a move that changed behaviour (CR #196 finding 46). #179b was
+already rewriting the same entry points onto the job harness, so the edits landed once.
+
+Two names deliberately keep a qualifier, and the test is **call-site ambiguity, not the
+module path**:
+
+- `membership/build.py` keeps `build_committee_member_spans()` — it is not in #183's list,
+  and `refresh.py` imports it beside the sponsor builder.
+- Because of that neighbour, `refresh.py` reaches the sponsor builder **module-qualified**
+  (`sponsor_build.build_spans(...)`) rather than importing a bare `build_spans` that would
+  sit one line from `build_committee_member_spans` telling the reader nothing about which
+  family it belongs to. Qualify at the call site; do not put the noun back in the name.
+
+`probe_extent()` also keeps its module's noun: the module exports two probes, only one can
+be the bare `probe()`, and `probe_extent()`/`probe_floor()` says more than `probe()`/
+`probe_floor()` would.
 
 ### What makes a source "self-contained"
 

@@ -20,16 +20,16 @@ create-new + retract-old (power-map#322).
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import os
 import sys
 from dataclasses import dataclass
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import EXIT_CONFIG, JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.committee_succession import (
     SLUGS,
     CommitteeSuccessionEvent,
@@ -46,6 +46,9 @@ from usa_wa_adapter_legislature.committees.succession_store import (
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "committee-succession-record"
 
 #: The producer source of committee Orgs — both ends of a link must be one of these.
 _COMMITTEE_SOURCE = "usa_wa_legislature"
@@ -249,11 +252,8 @@ async def _run(session: AsyncSession, args: argparse.Namespace) -> int:
     return 0
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Record operator committee-succession links (usa-wa#124 C2)."
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the recorder's own flags to the harness's shared parser."""
     parser.add_argument("--subject", help="the subject WSL committee Id (the event host / PM org)")
     parser.add_argument("--linked", help="the linked WSL committee Id (PM linked_entity)")
     parser.add_argument(
@@ -270,32 +270,43 @@ async def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--supersede", help="prior link id to correct (re-link or year change)")
     parser.add_argument("--file", help="JSON array of link objects (batch)")
     parser.add_argument("--list", action="store_true", help="list current succession links")
-    parser.add_argument("--dry-run", action="store_true", help="validate + write, then roll back")
-    args = parser.parse_args(argv)
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
 
-    engine = create_async_engine(database_url)
+async def _record_job(ctx: JobContext) -> JobResult:
+    """Harness handler: validate + record, mapping a validation failure onto exit 2.
+
+    ``commit=False`` and the transaction stays here, because the pre-#179b rule is not
+    "commit unless dry-run": ``--list`` is read-only and committed even under
+    ``--dry-run``. A ``SuccessionError`` is ``failed`` in the ledger with the documented
+    ``2`` on the wire (COMMANDS-SUCCESSION.md).
+    """
+    session = ctx.require_session()
     try:
-        async with AsyncSession(engine) as session:
-            try:
-                code = await _run(session, args)
-            except SuccessionError as exc:
-                print(f"error: {exc}", file=sys.stderr)
-                await session.rollback()
-                return 2
-            if args.dry_run and not args.list:
-                await session.rollback()
-                print("(dry-run, rolled back)")
-            else:
-                await session.commit()
-            return code
-    finally:
-        await engine.dispose()
+        await _run(session, ctx.args)
+    except SuccessionError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        await session.rollback()
+        return JobResult.failed({"error": str(exc)}, exit_code=EXIT_CONFIG)
+    if ctx.dry_run and not ctx.args.list:
+        await session.rollback()
+        print("(dry-run, rolled back)")
+    else:
+        await session.commit()
+    return JobResult.ok({"listed" if ctx.args.list else "recorded": True})
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Record operator succession links. Exit ``0`` clean · ``2`` validation/config."""
+    return run_job(
+        JOB_SLUG,
+        _record_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.committees.succession_cli",
+        description="Record operator committee-succession links (usa-wa#124 C2).",
+        extra_args=_add_args,
+        commit=False,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

@@ -8,6 +8,44 @@ Emit-only producer CLIs (PM stays the authority; they mirror curation back) plus
 read-only validation. Weekly timers in prod; the forms below are the manual /
 dry-run surface. No operator token — shell access is the trust boundary.
 
+### The harness contract
+
+**All of them run on the shared job harness since #179b**, which changes three things and
+**no exit code**:
+
+- Every one writes a `clearinghouse_core.job_runs` row (#178) and accepts `--json` (the run
+  envelope: `job`/`outcome`/`counters`/`duration_ms`/`exit_code`) as well as the default
+  human `key=value` line. The per-CLI "print the summary dict as JSON on stdout" is gone —
+  the summary is the envelope's `counters`.
+- The auth-block diagnostic moved from **stdout to stderr**, so the harness owns stdout's
+  last line and anything parsing the run summary is not handed two JSON objects.
+- The family's `0/1/2/3` mapping lives once in `usa_wa_sync_powermap.jobs` instead of being
+  re-implemented per CLI. The ledger records the honest outcome beneath the bespoke code: a
+  guardrail abort is **`degraded`** (the "ran to completion, took no action" case) carried
+  on `3`; an auth block and a rejected-rows run are **`failed`** on `2` and `1`.
+
+Two qualifications on the fleet-wide "every job takes `--dry-run`/`--json`" claim in
+[COMMANDS.md](COMMANDS.md), both from CR #196 — they hold for all 44 jobs, not just these:
+
+- **`--dry-run` is on 40 of the 44, and means a rollback on 33 of those.** Four jobs
+  decline it outright (`run_job(..., dry_run=False)`) — the WSL, SOS and PDC refreshes and
+  `usa_wa_sync_powermap.bootstrap` — because each owns a transaction it commits
+  unconditionally (the bootstrap also POSTs subscriptions to PM), so the flag could only
+  have promised "roll back instead of committing" and then written anyway, printing
+  `dry_run=true` on the run that wrote. Passing it there is an argparse error,
+  deliberately; the bootstrap's safety property is idempotence instead. Of the 40 that
+  keep it, 19 are rolled back by the harness, 14 read the flag themselves — including
+  `meetings.harvest`, whose `--dry-run` means *"harvest but do not write the seed"* and
+  says so in its own `--help` — and 7 are read-only, where it is vacuous. All of that is
+  enforced by `scripts/tests/test_dry_run_honesty.py`, so a new job cannot quietly join
+  the wrong bucket.
+- **A config error (`2`) writes no ledger row.** The DSN check runs before the engine
+  exists, so `job_runs` / `GET /api/v1/health/jobs` records *runs*, not failed launches: a
+  job that never started for want of `DATABASE_URL` (or `DATABASE_URL_OWNER`) leaves the
+  ledger untouched and still shows its previous run. Diagnose an exit-`2` unit from
+  journald. Note this is a different `2` from the PM family's `EXIT_AUTH_BLOCKED` above,
+  which *does* land a `failed` row.
+
 ```bash
 # Contact-label backfill (#31) — re-observation of produced orgs holding a phone,
 # so PM adopts the synthesized contact display_label. Idempotent + re-runnable;
@@ -179,6 +217,9 @@ python -m clearinghouse_core.integrity --json         # machine-readable summary
 # keeping the fetch history + bytes (no deletion). Payload-less NULL-hash events are
 # skipped+counted. Idempotent. Needs DATABASE_URL_OWNER (the app role is REVOKEd UPDATE
 # on the ledger, #54). --dry-run previews.
+# Exit 0 clean / 1 failed / 2 config. CHANGED at #179b: a missing DATABASE_URL_OWNER used
+# to escape as a bare RuntimeError traceback (exit 1); it is now the harness's config
+# exit 2, matching the other four owner-role CLIs.
 python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline --dry-run
 python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline
 ```

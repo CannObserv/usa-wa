@@ -76,7 +76,7 @@ invariant).
 
 The Phase A/B code is **preserved** (the bug was matching, not harvest/chain):
 
-- **Re-materialize** by re-running `harvest_committees`. The 18 rosters are
+- **Re-materialize** by re-running `harvest`. The 18 rosters are
   already archived, so this is cache-hit-fast (no WSL re-pull) and just re-inserts
   the 152 historical committee local rows (fill-only).
 - **Adopt by identifier.** With the guarded fix, `sweep_unanchored`
@@ -109,7 +109,7 @@ the deferred model-B enhancement.
 ## Operational sequencing (guarded, incremental)
 
 1. Land + deploy the `pm_match` + mirror fixes; restart the sidecar.
-2. Re-run `harvest_committees --force` to re-insert the 152 local rows (a plain
+2. Re-run `harvest --force` to re-insert the 152 local rows (a plain
    cache-hit re-run re-materializes nothing — the runner returns 0 without
    re-normalizing; `--force` re-fetches + re-normalizes past the freshness cache).
 3. **Monitor anchoring:** confirm the `UniqueViolation` crash signature is *gone*,

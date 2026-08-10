@@ -30,15 +30,13 @@ every ``GetCommitteeMembers`` POST drips against WSL. Roughly 40 committees × 1
 from __future__ import annotations
 
 import argparse
-import asyncio
-import os
-import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date, bienniums_in_range
 from usa_wa_adapter_legislature.adapter import (
@@ -53,6 +51,9 @@ from usa_wa_adapter_legislature.transport import WSLClient, configure_wsl_rate_l
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "wsl-committee-member-harvest"
 
 #: WSL's ``GetCommitteeMembers`` floor — below this, truncated old committee names fault. The
 #: declared committee-membership coverage claim (#180), which records this bound as **assumed**:
@@ -90,7 +91,7 @@ def standing_committees(records: list[dict]) -> list[tuple[str, str, str]]:
     return out
 
 
-async def harvest_committee_members(
+async def harvest(
     session: AsyncSession,
     *,
     bienniums: list[str],
@@ -152,11 +153,8 @@ async def harvest_committee_members(
     )
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Harvest historical committee rosters (Persons only, #82 Phase A)."
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the sweep's own flags to the harness's shared parser."""
     parser.add_argument(
         "--from-biennium",
         default=DEFAULT_MEMBERSHIP_FLOOR,
@@ -169,46 +167,34 @@ async def _main(argv: list[str] | None = None) -> int:
         default=None,
         help="min seconds between WSL calls (sets the central rate limiter)",
     )
-    parser.add_argument("--dry-run", action="store_true", help="harvest but roll back")
     parser.add_argument(
         "--force", action="store_true", help="re-fetch past the runner's freshness cache"
     )
-    args = parser.parse_args(argv)
 
+
+async def _harvest_job(ctx: JobContext) -> HarvestSummary:
+    """Harness handler: pace the limiter (only when asked, #169), resolve the range, sweep."""
+    args = ctx.args
     if args.pause_seconds is not None:
         configure_wsl_rate_limit(args.pause_seconds)
-
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
-
     to_biennium = args.to_biennium or biennium_for_date(datetime.now(UTC).date())
     bienniums = bienniums_in_range(args.from_biennium, to_biennium)
-
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            summary = await harvest_committee_members(
-                session, bienniums=bienniums, dry_run=args.dry_run, force=args.force
-            )
-            if summary.dry_run:
-                await session.rollback()
-            else:
-                await session.commit()
-    except Exception:
-        logger.exception("committee_member_harvest_failed")
-        return 1
-    finally:
-        await engine.dispose()
-
-    print(
-        f"Committee member harvest: bienniums={summary.bienniums} "
-        f"rosters={summary.rosters_pulled} upserted={summary.upserted} "
-        f"{'(dry-run, rolled back)' if summary.dry_run else '(committed)'}"
+    return await harvest(
+        ctx.require_session(), bienniums=bienniums, dry_run=ctx.dry_run, force=args.force
     )
-    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the membership sweep. Exit ``0`` clean · ``1`` failed · ``2`` config."""
+    return run_job(
+        JOB_SLUG,
+        _harvest_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.membership.harvest",
+        description="Harvest historical committee rosters (Persons only, #82 Phase A).",
+        extra_args=_add_args,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

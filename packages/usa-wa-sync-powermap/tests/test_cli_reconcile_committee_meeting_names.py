@@ -18,18 +18,27 @@ from types import SimpleNamespace
 import pytest
 from ulid import ULID
 
+from clearinghouse_core.testing import parse_job_args, patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_sync_powermap.client import DeliveryBlockedError, ObservationResult
 from clearinghouse_sync_powermap.models import DISPOSITION_AUTO_ATTACHED
 from usa_wa_sync_powermap import reconcile_committee_meeting_names as cli
+from usa_wa_sync_powermap.jobs import EXIT_ABORTED
 
 
-def _patch_factory(monkeypatch, db_session):
+def _session_factory(db_session):
+    """A session factory bound to the savepointed test session.
+
+    Since CR #196 finding 49 the CLIs take their factory from
+    ``ctx.require_session_factory()`` rather than importing ``get_session_factory``, so
+    the double is handed straight to ``_run`` instead of monkeypatched onto the module.
+    """
+
     @asynccontextmanager
     async def _ctx():
         yield db_session
 
-    monkeypatch.setattr(cli, "get_session_factory", lambda: _ctx)
+    return _ctx
 
 
 def _patch_settings(monkeypatch, *, api_key="k"):
@@ -78,7 +87,7 @@ async def _add_other(db_session, *, source_id, name, anchor):
 
 
 def test_parser_defaults():
-    args = cli._build_parser().parse_args([])
+    args = parse_job_args(cli._add_args, [])
     assert args.dry_run is False
     assert args.biennium is None
     assert args.max_rename_fraction == cli.DEFAULT_MAX_RENAME_FRACTION
@@ -87,8 +96,16 @@ def test_parser_defaults():
 
 
 def test_parser_accepts_overrides():
-    args = cli._build_parser().parse_args(
-        ["--biennium", "2023-24", "--min-overlap-fraction", "0.3", "--storm-floor-min-overlap", "8"]
+    args = parse_job_args(
+        cli._add_args,
+        [
+            "--biennium",
+            "2023-24",
+            "--min-overlap-fraction",
+            "0.3",
+            "--storm-floor-min-overlap",
+            "8",
+        ],
     )
     assert args.biennium == "2023-24"
     assert args.min_overlap_fraction == 0.3
@@ -127,14 +144,14 @@ def _args(**over):
 
 async def test_run_dry_run_counts_without_pm_client(monkeypatch, db_session, usa_wa):
     await _add_other(db_session, source_id="-140", name="x", anchor=ULID())
-    _patch_factory(monkeypatch, db_session)
+    factory = _session_factory(db_session)
     _patch_settings(monkeypatch, api_key="")  # absent key fine for a dry-run
     _patch_provider(
         monkeypatch,
         {"2025-26": {"-140": "New Name"}, "2023-24": {"-140": "Old Name"}},
     )
 
-    result = await cli._run(_args(dry_run=True))
+    result = await cli._run(_args(dry_run=True), factory)
 
     assert result["dry_run"] is True
     assert result["renamed"] == 1
@@ -142,18 +159,18 @@ async def test_run_dry_run_counts_without_pm_client(monkeypatch, db_session, usa
 
 
 async def test_run_requires_api_key_when_submitting(monkeypatch, db_session):
-    _patch_factory(monkeypatch, db_session)
+    factory = _session_factory(db_session)
     _patch_settings(monkeypatch, api_key="")
     _patch_provider(monkeypatch, {"2025-26": {"-140": "New Name"}})
 
     with pytest.raises(RuntimeError, match="POWERMAP_API_KEY"):
-        await cli._run(_args())
+        await cli._run(_args(), factory)
 
 
 async def test_run_submits_and_closes_client(monkeypatch, db_session, usa_wa):
     anchor = ULID()
     await _add_other(db_session, source_id="-140", name="x", anchor=anchor)
-    _patch_factory(monkeypatch, db_session)
+    factory = _session_factory(db_session)
     _patch_settings(monkeypatch, api_key="k")
     _patch_provider(
         monkeypatch,
@@ -174,7 +191,7 @@ async def test_run_submits_and_closes_client(monkeypatch, db_session, usa_wa):
 
     monkeypatch.setattr(cli, "build_pm_client", _FakePM)
 
-    result = await cli._run(_args())
+    result = await cli._run(_args(), factory)
 
     assert result["emitted"] == 1
     assert closed["v"] is True
@@ -184,53 +201,58 @@ async def test_run_submits_and_closes_client(monkeypatch, db_session, usa_wa):
 
 
 def test_main_wires_args_and_prints_json(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
     seen = {}
 
-    async def _fake_run(args):
+    async def _fake_run(args, _factory):
         seen["args"] = args
         return {"emitted": 1, "aborted": None, "rejected": 0, "failed": 0}
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main(["--biennium", "2025-26"])
+    rc = cli.main(["--json", "--biennium", "2025-26"])
 
     assert rc == 0
     assert seen["args"].biennium == "2025-26"
-    assert json.loads(capsys.readouterr().out)["emitted"] == 1
+    counters = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert counters["emitted"] == 1
 
 
 def test_main_abort_exits_distinct_code(monkeypatch, capsys):
-    async def _fake_run(_args):
+    patch_job_runtime(monkeypatch)
+
+    async def _fake_run(_args, _factory):
         return {"emitted": 0, "aborted": "empty_pull", "rejected": 0, "failed": 0}
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main([])
+    rc = cli.main(["--json"])
 
-    assert rc == cli.EXIT_ABORTED == 3
-    assert json.loads(capsys.readouterr().out)["aborted"] == "empty_pull"
+    assert rc == EXIT_ABORTED == 3
+    counters = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert counters["aborted"] == "empty_pull"
 
 
 def test_main_nonzero_exit_on_failures(monkeypatch, capsys):
-    async def _fake_run(_args):
+    patch_job_runtime(monkeypatch)
+
+    async def _fake_run(_args, _factory):
         return {"emitted": 1, "aborted": None, "rejected": 1, "failed": 0}
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
     assert cli.main([]) == 1
 
 
 def test_main_auth_block_exits_distinct_code(monkeypatch, capsys):
-    async def _fake_run(_args):
+    patch_job_runtime(monkeypatch)
+
+    async def _fake_run(_args, _factory):
         raise DeliveryBlockedError("PM 403 Insufficient scope")
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main([])
+    rc = cli.main(["--json"])
 
     assert rc == 2
-    assert json.loads(capsys.readouterr().out)["error"].startswith("delivery blocked")
+    assert json.loads(capsys.readouterr().err)["error"].startswith("delivery blocked")

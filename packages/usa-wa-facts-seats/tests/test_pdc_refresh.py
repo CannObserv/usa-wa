@@ -12,13 +12,13 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from unittest.mock import patch
 
 import httpx
 import pytest
 from sqlalchemy import select
 from ulid import ULID as _ULID
 
+from clearinghouse_core import job as job_module
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier
@@ -271,11 +271,14 @@ async def test_refresh_reuses_existing_source(db_session, usa_wa, wsl_source):
 # --- CLI ----------------------------------------------------------------------
 
 
-async def test_main_requires_database_url(monkeypatch, capsys):
+def test_main_requires_database_url(monkeypatch, capsys):
     """The daily entrypoint aborts with exit 2 when DATABASE_URL is unset (symmetric with the
     harvest / build / migrate CLIs)."""
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    with patch.object(refresh_module, "configure_logging"):
-        code = await refresh_module._main()
+
+    def _raise(_role="app"):
+        raise RuntimeError("DATABASE_URL is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    code = refresh_module.main([])
     assert code == 2
     assert "DATABASE_URL is not set" in capsys.readouterr().err

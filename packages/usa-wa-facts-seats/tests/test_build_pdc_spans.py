@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import UTC, datetime
 from unittest.mock import patch
 
@@ -19,8 +18,10 @@ import pytest
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
 
+from clearinghouse_core import job as job_module
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier
 from clearinghouse_domain_legislative.terms import biennium_for_date, parse_biennium
 from usa_wa_facts_seats.pdc import build_pdc_spans as build_module
@@ -362,28 +363,29 @@ async def test_no_archive_emits_nothing(db_session, usa_wa, wsl_source, pdc_sour
 # --- CLI ----------------------------------------------------------------------
 
 
-async def test_main_requires_database_url(monkeypatch, capsys):
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    with patch.object(build_module, "configure_logging"):
-        code = await build_module._main([])
+def test_main_requires_database_url(monkeypatch, capsys):
+    def _raise(_role="app"):
+        raise RuntimeError("DATABASE_URL is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    code = build_module.main([])
     assert code == 2
     assert "DATABASE_URL is not set" in capsys.readouterr().err
 
 
-async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
-    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+def test_main_dry_run_rolls_back(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
     fake = PdcSpanResult(identifiers=5, house_years=2, senate_years=2)
 
     async def _fake_build(session, **_kwargs):
         return fake
 
     with (
-        patch.object(build_module, "configure_logging"),
         patch.object(build_module, "build_pdc_spans", _fake_build),
     ):
-        code = await build_module._main(["--dry-run"])
+        code = build_module.main(["--dry-run"])
 
     assert code == 0
     out = capsys.readouterr().out
     assert "identifiers=5" in out
-    assert "dry-run, rolled back" in out
+    assert "dry_run=true" in out  # the harness's own dry-run marker

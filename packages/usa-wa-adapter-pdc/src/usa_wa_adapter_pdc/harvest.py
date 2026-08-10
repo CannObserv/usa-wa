@@ -20,13 +20,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
-import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_pdc.adapter import (
@@ -40,6 +40,9 @@ from usa_wa_adapter_pdc.transport import PDCClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pdc-harvest"
 
 #: The PDC campaign-finance dataset's practical floor — earlier years archive empty cohorts. The
 #: declared coverage claim (#180), which records it as **assumed**: an under-served year archives
@@ -64,7 +67,7 @@ def election_years(from_year: int, to_year: int) -> list[int]:
     return list(range(from_year, to_year + 1))
 
 
-async def harvest_pdc(
+async def harvest(
     session: AsyncSession,
     *,
     years: list[int],
@@ -106,11 +109,8 @@ async def harvest_pdc(
     return HarvestSummary(years=len(years), cohorts_archived=archived, dry_run=dry_run)
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Archive historical PDC winner cohorts (archive-only, #79 Phase A)."
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the sweep's own flags to the harness's shared parser."""
     parser.add_argument(
         "--from-year",
         type=int,
@@ -124,49 +124,39 @@ async def _main(argv: list[str] | None = None) -> int:
         help="default: the current calendar year (#121 — the biennium's seating year would "
         "miss the odd mid-biennium special cohort)",
     )
-    parser.add_argument("--dry-run", action="store_true", help="harvest but roll back")
     parser.add_argument("--force", action="store_true", help="re-fetch past the freshness cache")
     parser.add_argument(
         "--pause-seconds", type=float, default=0.0, help="seconds to drip between years (SODA)"
     )
-    args = parser.parse_args(argv)
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
 
+async def _harvest_job(ctx: JobContext) -> HarvestSummary:
+    """Harness handler: resolve the year range and sweep."""
+    args = ctx.args
     # Default sweep bound = the current calendar year (#121, the SOS harvest's choice): the
     # biennium's even seating year (2024 during 2025-26) would still miss the odd special cohort.
     to_year = args.to_year or datetime.now(UTC).year
     years = election_years(args.from_year, to_year)
-
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            summary = await harvest_pdc(
-                session,
-                years=years,
-                dry_run=args.dry_run,
-                force=args.force,
-                pause_seconds=args.pause_seconds,
-            )
-            if summary.dry_run:
-                await session.rollback()
-            else:
-                await session.commit()
-    except Exception:
-        logger.exception("pdc_harvest_failed")
-        return 1
-    finally:
-        await engine.dispose()
-
-    print(
-        f"PDC harvest: years={summary.years} cohorts_archived={summary.cohorts_archived} "
-        f"{'(dry-run, rolled back)' if summary.dry_run else '(committed)'}"
+    return await harvest(
+        ctx.require_session(),
+        years=years,
+        dry_run=ctx.dry_run,
+        force=args.force,
+        pause_seconds=args.pause_seconds,
     )
-    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Archive the PDC winner cohorts. Exit ``0`` clean · ``1`` failed · ``2`` config."""
+    return run_job(
+        JOB_SLUG,
+        _harvest_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_pdc.harvest",
+        description="Archive historical PDC winner cohorts (archive-only, #79 Phase A).",
+        extra_args=_add_args,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())
