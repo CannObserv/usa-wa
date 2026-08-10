@@ -26,10 +26,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID as _ULID
 
 from clearinghouse_core.provenance import Source
-from usa_wa_adapter_legislature.committee_member_cohort import CommitteeMemberCohortProvider
-from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
-from usa_wa_adapter_legislature.meeting_cohort import MeetingCohortProvider
-from usa_wa_adapter_legislature.sponsor_cohort import SponsorRosterCohortProvider
+from usa_wa_adapter_legislature.committees.cohort import CommitteeRosterCohortProvider
+from usa_wa_adapter_legislature.meetings.cohort import MeetingCohortProvider
+from usa_wa_adapter_legislature.membership.cohort import CommitteeMemberCohortProvider
+from usa_wa_adapter_legislature.sponsors.cohort import SponsorRosterCohortProvider
 from usa_wa_adapter_legislature.transport import WSLClient
 
 #: The WSL provenance `Source.slug` every cohort here is archived under. Equal to the

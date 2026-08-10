@@ -179,6 +179,6 @@ python -m clearinghouse_core.integrity --json         # machine-readable summary
 # keeping the fetch history + bytes (no deletion). Payload-less NULL-hash events are
 # skipped+counted. Idempotent. Needs DATABASE_URL_OWNER (the app role is REVOKEd UPDATE
 # on the ledger, #54). --dry-run previews.
-python -m usa_wa_adapter_legislature.baseline_unbaselined_committees --dry-run
-python -m usa_wa_adapter_legislature.baseline_unbaselined_committees
+python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline --dry-run
+python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline
 ```

@@ -38,7 +38,7 @@ The narrowing that makes autonomous retirement safe (resolved in the spec's Open
   trustworthy roster.)
 - **Skip archived / deleted.** The cohort is :func:`live_only`, so an archived
   (PM 422s ``active_on_archived_org``) or deleted committee is never a candidate.
-- **Live-era scoping (#90).** The historical committee backfill (``harvest_committees``,
+- **Live-era scoping (#90).** The historical committee backfill (``committees.harvest``,
   model A — each WSL ``Id`` its own org) added ~152 defunct-era committee orgs, all
   defaulting ``active=true``. Absent from the *current* roster they read as a mass
   retirement and trip the cohort floor every run. So the diff is scoped to the **live
@@ -91,7 +91,7 @@ from clearinghouse_sync_powermap.client import DeliveryBlockedError, PayloadReje
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from clearinghouse_sync_powermap.engine import TRANSIENT_EXCEPTIONS
 from usa_wa_adapter_legislature.cohorts import committee_roster_provider
-from usa_wa_adapter_legislature.committee_roster_cohort import CommitteeRosterCohortProvider
+from usa_wa_adapter_legislature.committees.cohort import CommitteeRosterCohortProvider
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
 from usa_wa_sync_powermap.registry import build_pm_client
@@ -212,7 +212,7 @@ async def reconcile_committee_active(
     **Era scoping (#90).** When a ``roster_provider`` is supplied the diff is restricted
     to the **live era** — committees whose ``source_id`` appears in the current *or*
     immediately-prior biennium roster (``present_ids ∪ prior_ids``). The historical
-    committee backfill (``harvest_committees``, model A — each WSL ``Id`` its own org)
+    committee backfill (``committees.harvest``, model A — each WSL ``Id`` its own org)
     floods the produced cohort with defunct-era Ids, all defaulting ``active=true``;
     absent from the current roster they would read as a mass retirement and trip the
     cohort floor every run (#90). Scoping drops them before the diff (counted
@@ -362,7 +362,7 @@ async def _build_roster_provider(session: AsyncSession) -> CommitteeRosterCohort
     The factory binds the WSL provenance source read-only — this reconcile never commits
     (PM is authority for ``active`` and mirrors it back) — so a closed prior biennium is a
     cache hit on the ``committees-roster:<biennium>`` archive written by
-    ``harvest_committees``, and a DB that never ran a WSL pull simply live-pulls."""
+    ``committees.harvest``, and a DB that never ran a WSL pull simply live-pulls."""
     return await committee_roster_provider(session)
 
 

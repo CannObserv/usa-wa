@@ -68,7 +68,7 @@ _REPRESENTATIVE = "state_representative"
 
 #: The earliest odd year ``--sweep-biennia`` probes — the WSL sponsor-archive floor (#77), read
 #: off that source's declared coverage claim (#180) rather than restated here; the identical
-#: literal also lived in ``usa_wa_adapter_legislature.succession_invariants``. House Position
+#: literal also lived in ``usa_wa_adapter_legislature.operators.invariants``. House Position
 #: coverage itself floors at 2003-04 (#118), so earlier odd years under-report (so the sweep is
 #: report-only).
 SWEEP_FLOOR_YEAR = SPONSOR_ROSTER_COVERAGE.floor_year
@@ -159,7 +159,7 @@ def _seat_scope(stmt, as_of: date | None):
     """Restrict a seat-Assignment query to the probe cohort — the live **open** cohort
     (``as_of is None``: ``is_active`` + both tombstones NULL, the daily gate) or a **point-in-time**
     snapshot (``as_of`` set: the validity window contains the date, the #119 sweep). Mirrors
-    ``succession_invariants._seat_scope``."""
+    ``operators.invariants._seat_scope``."""
     stmt = stmt.where(Assignment.deleted_at.is_(None), Assignment.archived_at.is_(None))
     if as_of is None:
         return stmt.where(Assignment.is_active.is_(True))

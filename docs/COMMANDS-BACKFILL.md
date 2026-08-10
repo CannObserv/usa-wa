@@ -10,21 +10,21 @@ scoping questions ("how much history exists", "is the Id stable") before ingest.
 ```bash
 # Committee historical extent probe (#64) — walks bienniums backward from current, tallying
 # committee/meeting counts + meeting wire bytes, stopping after N consecutive empty bienniums.
-python -m usa_wa_adapter_legislature.probe_committee_extent
-python -m usa_wa_adapter_legislature.probe_committee_extent --start-biennium 2025-26 --max-empty 2
+python -m usa_wa_adapter_legislature.committees.probe_extent
+python -m usa_wa_adapter_legislature.committees.probe_extent --start-biennium 2025-26 --max-empty 2
 
 # Member Id-stability probe (P1b #27 step 0) — answers "is the WSL member Id a stable
 # Person.source_id?" before member ingest: matches members BY NAME (not Id) across GetSponsors
 # vs GetActiveCommitteeMembers (cross-endpoint) and GetSponsors(current) vs GetSponsors(prior)
 # (cross-biennium), tallying Id agreement. Finding 2026-07-06: Id stable both axes → canonical
 # source_id = GetSponsors.Id. --json for compact output.
-python -m usa_wa_adapter_legislature.probe_member_identity
-python -m usa_wa_adapter_legislature.probe_member_identity --biennium 2025-26 --json
+python -m usa_wa_adapter_legislature.sponsors.probe_identity
+python -m usa_wa_adapter_legislature.sponsors.probe_identity --biennium 2025-26 --json
 # Deep-history sweep (#81): every consecutive biennium pair 1991-92→current, classifying
 # same-name/different-Id divergences into re-keys (same District — forks one person) vs name
 # collisions (different District — two people the Id separates). Finding 2026-07-08: Id STABLE
 # across all 17 boundaries, 0 re-keys (one benign collision: two "Brian Sullivan"s, LD29/LD21).
-python -m usa_wa_adapter_legislature.probe_member_identity --history
+python -m usa_wa_adapter_legislature.sponsors.probe_identity --history
 ```
 
 ## Historical backfill (epic #76 / sub-project 3 / #100)
@@ -40,7 +40,7 @@ Ordered by source, then by phase within it — three sources, not two:
 1. the WSL/legislature sweeps (members, committees, their span builders and
    migrations), which are most of the section;
 2. `usa_wa_sync_powermap.reconcile_committee_name_chain` — a PM-sync emitter,
-   documented here beside the `harvest_committees` Phase A whose archived
+   documented here beside the `committees.harvest` Phase A whose archived
    rosters it reads, not in [COMMANDS-SYNC.md](COMMANDS-SYNC.md) with the other
    reconcilers;
 3. the SOS filings archive last — a different upstream, epic, and archive key,
@@ -53,13 +53,13 @@ Ordered by source, then by phase within it — three sources, not two:
 # data/joint_other_committees_seed.json (+ .sha256/.meta.json sidecars). Hits live WSL (one
 # POST per window) AND mutates the DB — not read-only; --dry-run still upserts but skips the
 # seed write. Closed windows are cache hits on re-run. Commit the produced seed.
-python -m usa_wa_adapter_legislature.harvest_committee_meetings --from-biennium 2023-24 --to-biennium 2025-26
+python -m usa_wa_adapter_legislature.meetings.harvest --from-biennium 2023-24 --to-biennium 2025-26
 
 # Joint/Other seed ingest (#39) — the no-WSL counterpart: materialize the frozen cohort on a
 # fresh deploy. verified_digest gates the seed bytes (fails closed on a sidecar mismatch),
 # writes a synthetic hashed FetchEvent + archived RawPayload, and fill-only upserts (existing
 # rows untouched — the seed is a floor, not an authority). Needs the committed seed file.
-python -m usa_wa_adapter_legislature.ingest_committee_seed
+python -m usa_wa_adapter_legislature.committees.ingest_seed
 
 # Historical member (sponsor) harvest — Phase A of the #76 backfill epic (#77). Sweep
 # GetSponsors(biennium) from the 1991-92 floor to current through AdapterRunner(fill_only=True),
@@ -69,8 +69,8 @@ python -m usa_wa_adapter_legislature.ingest_committee_seed
 # op/resource key as the daily path. Pacing is central: --pause-seconds sets the WSL limiter — it
 # defaults to None (#169), so an unflagged run leaves USA_WA_WSL_MIN_REQUEST_INTERVAL in force.
 # Closed biennia cache-hit on re-run; --dry-run rolls back; --force re-materializes.
-python -m usa_wa_adapter_legislature.harvest_sponsors --dry-run   # 1991-92→current, roll back
-python -m usa_wa_adapter_legislature.harvest_sponsors --from-biennium 1991-92 --pause-seconds 1
+python -m usa_wa_adapter_legislature.sponsors.harvest --dry-run   # 1991-92→current, roll back
+python -m usa_wa_adapter_legislature.sponsors.harvest --from-biennium 1991-92 --pause-seconds 1
 
 # Historical member SPANS — Phase B of the #76 backfill (#78). Archive-derived, no WSL pull:
 # reads every archived sponsors:<biennium> offline (SponsorRosterCohortProvider re-parses via
@@ -91,8 +91,8 @@ python -m usa_wa_adapter_legislature.harvest_sponsors --from-biennium 1991-92 --
 # bienniums, so the merged span ends at the real departure boundary (sponsor_stale_row_excluded
 # per exclusion; --stale-min-coverage floor, default 0.9, skips a thin committee cohort —
 # stale_exclusion_skipped_low_coverage; >1 disables).
-python -m usa_wa_adapter_legislature.harvest_sponsor_spans --dry-run
-python -m usa_wa_adapter_legislature.harvest_sponsor_spans
+python -m usa_wa_adapter_legislature.sponsors.build --dry-run
+python -m usa_wa_adapter_legislature.sponsors.build
 
 # Span MIGRATION — #78-3 + #97, OWNER ROLE (deletes citations, #54). Collapse STRANDED
 # party/chamber-senate Assignments (each carrying a pm_assignment_id) onto the merged span that
@@ -118,19 +118,19 @@ python -m usa_wa_adapter_legislature.harvest_sponsor_spans
 # a deepened span the sidecar anchors BEFORE this runs gets its own PM assignment, after which the
 # stranded anchor can only be dropped (anchors_dropped). Restart after:
 # sudo systemctl start usa-wa-sync-powermap.
-python -m usa_wa_adapter_legislature.migrate_sponsor_spans --dry-run
-python -m usa_wa_adapter_legislature.migrate_sponsor_spans
+python -m usa_wa_adapter_legislature.sponsors.migrate_spans --dry-run
+python -m usa_wa_adapter_legislature.sponsors.migrate_spans
 
 # Committee MEMBERSHIP harvest — Phase A (#82). Enumerate each biennium's House/Senate standing
 # committees from the local committees-roster archive (no extra GetCommittees call; an un-archived
-# biennium falls back to a live, UNARCHIVED GetCommittees pull — run harvest_committees first if
+# biennium falls back to a live, UNARCHIVED GetCommittees pull — run committees.harvest first if
 # you want the enumeration itself provenanced) and fan
 # GetCommitteeMembers(biennium, agency, Name) over them, archiving each wire (#54). Persons only
 # (fill_only) — membership is a Phase B span. Joint/Other skipped (no membership op, #39). Floor
 # 1999-00 (below it WSL's truncated old names fault → swallowed to an empty roster). ~40
 # committees x ~14 biennia; --pause-seconds sets the central WSL limiter. Closed rosters cache-hit.
-python -m usa_wa_adapter_legislature.harvest_committee_members --dry-run
-python -m usa_wa_adapter_legislature.harvest_committee_members --from-biennium 1999-00 --pause-seconds 1
+python -m usa_wa_adapter_legislature.membership.harvest --dry-run
+python -m usa_wa_adapter_legislature.membership.harvest --from-biennium 1999-00 --pause-seconds 1
 
 # Committee membership SPANS — Phase B (#82). Archive-derived, no WSL pull: re-parses each
 # archived committee-members-hist roster offline, projects (member, committee, biennium)
@@ -142,8 +142,8 @@ python -m usa_wa_adapter_legislature.harvest_committee_members --from-biennium 1
 # closed_stale in the completion log; guarded against empty/mass closes (sweep_aborted=true when
 # tripped). A wholesale WSL committee-Id re-key makes EVERY old-Id span stale at once — that
 # legitimate mass close is the --max-close-fraction 1.0 case (flag validated to (0, 1]).
-python -m usa_wa_adapter_legislature.harvest_committee_member_spans --dry-run
-python -m usa_wa_adapter_legislature.harvest_committee_member_spans
+python -m usa_wa_adapter_legislature.membership.build --dry-run
+python -m usa_wa_adapter_legislature.membership.build
 
 # Committee span MIGRATION — #82, OWNER ROLE, run AFTER the Phase A harvest deepens spans.
 # A span starting at a legacy row's biennium upserts it in place (same 4-part key), so a shallow
@@ -159,8 +159,8 @@ python -m usa_wa_adapter_legislature.harvest_committee_member_spans
 # (a live PM assignment with the wrong start_date and no local mirror). Those are counted
 # `anchors_dropped` and warned per row; expect 0. Restart the sidecar after.
 # Idempotent; --dry-run rolls back.
-python -m usa_wa_adapter_legislature.migrate_committee_spans --dry-run
-python -m usa_wa_adapter_legislature.migrate_committee_spans
+python -m usa_wa_adapter_legislature.membership.migrate_spans --dry-run
+python -m usa_wa_adapter_legislature.membership.migrate_spans
 
 # Reclassify generic `member` Roles → PM catalog slugs (#110). Two emitters historically
 # stamped every membership Role with role_type='member', but PM's role_types catalog refines
@@ -173,8 +173,8 @@ python -m usa_wa_adapter_legislature.migrate_committee_spans
 # Reclassifying makes to_observation send the matching slug → the next reconcile's gate reads a
 # true no-op and adopts PM's clock, stopping the churn. APP role (role_type is a plain canonical
 # column). Idempotent; --dry-run rolls back. No sidecar pause needed (local reclassify only).
-python -m usa_wa_adapter_legislature.migrate_member_role_types --dry-run
-python -m usa_wa_adapter_legislature.migrate_member_role_types
+python -m usa_wa_adapter_legislature.migrate_role_types --dry-run
+python -m usa_wa_adapter_legislature.migrate_role_types
 
 # Committee historical backfill (sub-project 3, Phase A) — sweep GetCommittees(biennium)
 # over a range through AdapterRunner(fill_only=True): archive the full-roster wire under
@@ -190,9 +190,9 @@ python -m usa_wa_adapter_legislature.migrate_member_role_types
 # LWW-locked (local updated_at ≥ PM's org clock), so the sidecar mirror won't adopt their
 # PM name/acronym windows until PM's clock advances — run `heal_committee_curation` to
 # force-adopt them (else validate_committees shows them divergent with empty child tables).
-python -m usa_wa_adapter_legislature.harvest_committees --from-biennium 2011-12 --pause-seconds 2
-python -m usa_wa_adapter_legislature.harvest_committees --dry-run   # auto-probe floor, roll back
-python -m usa_wa_adapter_legislature.harvest_committees --from-biennium 1991-92 --force  # re-materialize
+python -m usa_wa_adapter_legislature.committees.harvest --from-biennium 2011-12 --pause-seconds 2
+python -m usa_wa_adapter_legislature.committees.harvest --dry-run   # auto-probe floor, roll back
+python -m usa_wa_adapter_legislature.committees.harvest --from-biennium 1991-92 --force  # re-materialize
 # then: python -m usa_wa_sync_powermap.heal_committee_curation   # mirror the created cohort's windows
 
 # Full committee rename-chain emission (sub-project 3, Phase B) — the deep-history sibling

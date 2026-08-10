@@ -99,7 +99,7 @@ def build_house_roster(
     appointments; the per-exclusion log line is the tripwire if the reverse ever appears.
 
     ``exclude_ids`` drops additional member ids the caller has corroborated as stale
-    (:func:`usa_wa_adapter_legislature.roster_hygiene.stale_member_ids`, #105 (b)).
+    (:func:`usa_wa_adapter_legislature.sponsors.roster_hygiene.stale_member_ids`, #105 (b)).
 
     ``keep_ids`` **exempts** ids from BOTH the mover and stale exclusions. Since #145 the House
     builder passes ``event_members − house_mover_ids(...)`` here, so keep_ids serves only the

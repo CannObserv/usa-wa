@@ -188,7 +188,7 @@ with a different shape, and each has exactly one owner of its content.
 | Table | Shape | Content written by | Read by |
 |---|---|---|---|
 | `entity_events` | PM-mirror-shaped | the PM read-mirror (`sync_entity_events`) | the C3 producer, to find its anchor |
-| `operator_events` | event-shaped | the operator-succession CLI (`usa_wa_adapter_legislature.operator_events`) | the span overlay, on every build |
+| `operator_events` | event-shaped | the operator-succession CLI (`usa_wa_adapter_legislature.operators.cli`) | the span overlay, on every build |
 | `committee_succession_events` | link-shaped | the committee-succession CLI | the C3 committee event producer |
 
 ### `entity_events` — PM-mirror-shaped

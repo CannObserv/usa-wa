@@ -12,7 +12,7 @@ things differ:
 
 1. **Source.** The current/prior cohorts come from two bienniums'
    ``GetCommitteeMeetings`` windows (deduped Joint/`Other` refs by stable ``Id``), via
-   :class:`~usa_wa_adapter_legislature.meeting_cohort.MeetingCohortProvider`, governing the
+   :class:`~usa_wa_adapter_legislature.meetings.cohort.MeetingCohortProvider`, governing the
    local ``org_type='other'`` class. The diff intersects ``Id``s present in **both** windows
    — a body absent from one window is dormancy, never a rename.
 
@@ -59,7 +59,7 @@ from clearinghouse_domain_legislative.terms import (
 from clearinghouse_sync_powermap.client import DeliveryBlockedError
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from usa_wa_adapter_legislature.cohorts import committee_meeting_provider
-from usa_wa_adapter_legislature.meeting_cohort import MeetingCohortProvider
+from usa_wa_adapter_legislature.meetings.cohort import MeetingCohortProvider
 from usa_wa_sync_powermap.committee_name_reconcile import (
     DEFAULT_MAX_RENAME_FRACTION,
     DEFAULT_MIN_OVERLAP_FRACTION,
@@ -102,7 +102,7 @@ async def reconcile_committee_meeting_names(
     emit windowed dated-name evidence for each body whose (normalized) clean ``Name`` changed.
 
     Builds the current/prior ``{Id: clean Name}`` cohorts from ``cohort_provider`` (a
-    :class:`~usa_wa_adapter_legislature.meeting_cohort.MeetingCohortProvider`) and hands them
+    :class:`~usa_wa_adapter_legislature.meetings.cohort.MeetingCohortProvider`) and hands them
     to the shared
     :func:`~usa_wa_sync_powermap.committee_name_reconcile.reconcile_names_from_maps` spine
     with ``org_type='other'`` and the re-tuned guard defaults. Guardrails, per-row

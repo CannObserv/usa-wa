@@ -1,13 +1,13 @@
 """PDC source coverage (#180) — what ``usa_wa_pdc`` serves, and how well we know it.
 
-One dimension, one claim, declared ``assumed``: :mod:`harvest_pdc` recorded the floor as
+One dimension, one claim, declared ``assumed``: :mod:`harvest` recorded the floor as
 "~2008 (the PDC campaign-finance dataset's coverage)" and nothing probed it. That is not a
 defect of the harvest — the PDC SODA feed has no error path at the floor, a year with no data
 simply archives an **empty** cohort — but it means the bound has never had to prove itself the
 way the votewa HTTP 500 forced the SOS filings bound to. ``assumed`` records the difference
 instead of letting an unchecked bound read as a checked one.
 
-Pure Python, imported by :mod:`harvest_pdc` for its ``--from-year`` default and projected into
+Pure Python, imported by :mod:`harvest` for its ``--from-year`` default and projected into
 ``clearinghouse_core.source_coverage`` by :mod:`usa_wa_adapter_pdc.provisioning`.
 """
 

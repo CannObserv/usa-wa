@@ -64,11 +64,11 @@ from usa_wa_adapter_legislature.cohorts import (
     committee_member_provider,
     sponsor_roster_provider,
 )
-from usa_wa_adapter_legislature.committee_member_cohort import (
+from usa_wa_adapter_legislature.membership.cohort import (
     CommitteeMemberCohortProvider,
     MemberClient,
 )
-from usa_wa_adapter_legislature.operator_events_store import (
+from usa_wa_adapter_legislature.operators.store import (
     cite_operator_events,
     current_events,
     get_or_create_operator_source,
@@ -76,14 +76,14 @@ from usa_wa_adapter_legislature.operator_events_store import (
 from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
 )
-from usa_wa_adapter_legislature.roster_hygiene import (
+from usa_wa_adapter_legislature.sponsors.cohort import (
+    SponsorClient,
+    SponsorRosterCohortProvider,
+)
+from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
     STALE_MIN_COVERAGE_DEFAULT,
     committee_member_ids_by_biennium,
     stale_exclusions_by_biennium,
-)
-from usa_wa_adapter_legislature.sponsor_cohort import (
-    SponsorClient,
-    SponsorRosterCohortProvider,
 )
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.cohort import SosResultsCohortProvider
@@ -166,10 +166,11 @@ async def build_house_position_spans(
     **Roster hygiene (#105).** Before projection each biennium's roster sheds (a) mover rows —
     a House row whose Id also appears in a named Senate row of the same wire (the
     ``build_house_roster`` Id exclusion), and (b) committee-corroborated stale rows — a named
-    member absent from that biennium's committee-roster archive (:mod:`roster_hygiene`, guarded
-    by ``stale_min_coverage``). Both turn a ghost-blocked 3-member LD back into the 2-member
-    shape the #103 elimination can seat an appointee in, and drop the ghost's seat assertion so
-    the #83 sweep closes it. ``member_client`` re-parses the committee archive offline."""
+    member absent from that biennium's committee-roster archive
+    (:mod:`sponsors.roster_hygiene`, guarded by ``stale_min_coverage``). Both turn a ghost-blocked
+    3-member LD back into the 2-member shape the #103 elimination can seat an appointee in, and
+    drop the ghost's seat assertion so the #83 sweep closes it. ``member_client`` re-parses the
+    committee archive offline."""
     jurisdiction = await resolve_jurisdiction(session)
     wsl_source = await get_or_create_wsl_source(session, jurisdiction)
     sos_source = await get_or_create_results_source(session, jurisdiction)
