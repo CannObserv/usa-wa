@@ -3,7 +3,7 @@
 `packages/usa-wa-api/` (the FastAPI deployment), `packages/usa-wa-sync-powermap/`
 (the PM sync binding and sidecar daemon, with its producer CLIs), and the
 repo-root directories. The portable engine these bind is in
-[MODULES-FRAMEWORK.md](MODULES-FRAMEWORK.md).
+[MODULES-FRAMEWORK.md](MODULES-FRAMEWORK.md) and [MODULES-SYNC-ENGINE.md](MODULES-SYNC-ENGINE.md).
 
 Since #181 that engine is a **package** — `clearinghouse_sync_powermap/engine/`
 (`context` / `anchors` / `write` / `read` under a `SyncEngine` façade) — with the
