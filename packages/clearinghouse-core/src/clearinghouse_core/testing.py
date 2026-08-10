@@ -98,6 +98,19 @@ def patch_job_runtime(monkeypatch: Any) -> RecordingSession:
     return session
 
 
+def parse_job_args(extra_args: Any, argv: list[str]) -> Any:
+    """Parse ``argv`` exactly as ``run_job()`` would for a job declaring ``extra_args``.
+
+    The parser moved inside the harness at #179b, so the parser tests that used to call a
+    CLI's own ``_build_parser()`` need a seam. Going through the real builder is the point:
+    it proves the job's flags coexist with the shared ``--dry-run`` / ``--json`` rather
+    than testing a parser the CLI no longer uses.
+    """
+    from clearinghouse_core import job as job_module
+
+    return job_module._build_parser("test-job", None, None, extra_args).parse_args(argv)
+
+
 _UNREMEMBERED = object()
 """Distinguishes "nobody has pinned a DSN" from "there is no production DSN"."""
 

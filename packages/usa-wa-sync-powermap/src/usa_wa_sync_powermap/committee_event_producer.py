@@ -30,10 +30,7 @@ archived PM event; a year-only correction keeps the identity and refines in plac
 from __future__ import annotations
 
 import argparse
-import asyncio
-import json
 import os
-import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -43,11 +40,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.database import get_session_factory
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.committee_succession import CommitteeSuccessionEvent
 from clearinghouse_domain_legislative.identity import EntityEvent, Organization
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from clearinghouse_sync_powermap.client import DeliveryBlockedError
 from clearinghouse_sync_powermap.models import (
     DISPOSITION_AUTO_ATTACHED,
     DISPOSITION_UPDATED,
@@ -64,9 +61,13 @@ from usa_wa_adapter_legislature.committees.succession_store import (
     superseded_events,
 )
 from usa_wa_sync_powermap.config import get_sidecar_settings
+from usa_wa_sync_powermap.jobs import run_pm_job
 from usa_wa_sync_powermap.registry import build_pm_client
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pm-committee-event-produce"
 
 _SOURCE = "usa_wa_legislature"
 _ORG_TYPE = "committee"
@@ -407,19 +408,11 @@ async def _build_inputs(
     return windows, links, superseded
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_sync_powermap.committee_event_producer",
-        description=(
-            "Emit committee lifecycle windows (founded/dissolved) + operator succession "
-            "links to PM as org entity events (usa-wa#124 C3)."
-        ),
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute this job's own flag to the harness's shared parser."""
     parser.add_argument(
         "--biennium", default=None, help="Biennium label; default USA_WA_BIENNIUM/date."
     )
-    parser.add_argument("--dry-run", action="store_true", help="Compute the diff without posting.")
-    return parser
 
 
 def _resolve_biennium(arg: str | None) -> str:
@@ -460,21 +453,30 @@ async def _run(args: argparse.Namespace) -> dict:
         await pm_client.aclose()
 
 
+async def _produce_job(ctx: JobContext) -> JobResult:
+    """Harness handler. ``commit=False``; ``_run`` keeps its own session/commit (the
+    ``retracted_at`` stamps, #127)."""
+    return await run_pm_job(lambda: _run(ctx.args))
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Exit 0 clean/dry-run; 1 if any event rejected; 2 on a global auth block."""
-    configure_logging()
-    args = _build_parser().parse_args(argv)
-    try:
-        result = asyncio.run(_run(args))
-    except DeliveryBlockedError as exc:
-        json.dump(
-            {"error": "delivery blocked — check POWERMAP_API_KEY", "detail": str(exc)}, sys.stdout
-        )
-        sys.stdout.write("\n")
-        return 2
-    json.dump(result, sys.stdout)
-    sys.stdout.write("\n")
-    return 1 if result.get("rejected", 0) else 0
+    """Emit the committee lifecycle + succession events.
+
+    Exit codes (unchanged): ``0`` clean or dry-run; ``1`` any event rejected; ``2`` a
+    global auth block.
+    """
+    return run_job(
+        JOB_SLUG,
+        _produce_job,
+        argv=argv,
+        prog="python -m usa_wa_sync_powermap.committee_event_producer",
+        description=(
+            "Emit committee lifecycle windows (founded/dissolved) + operator succession "
+            "links to PM as org entity events (usa-wa#124 C3)."
+        ),
+        extra_args=_add_args,
+        commit=False,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

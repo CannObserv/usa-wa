@@ -19,11 +19,13 @@ from types import SimpleNamespace
 import pytest
 from ulid import ULID
 
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import (
     Organization,
 )
 from clearinghouse_sync_powermap.client import DeliveryBlockedError, RetryableClientError
 from usa_wa_sync_powermap import validate_committees as vc
+from usa_wa_sync_powermap.jobs import EXIT_ABORTED
 
 # --- pure classifier: snapshot builders --------------------------------------
 
@@ -332,37 +334,41 @@ async def test_validate_includes_unbaselined_count(db_session, usa_wa):
 
 
 def _patch_run(monkeypatch, result):
-    async def _fake(_args):
+    async def _fake():
         return result
 
     monkeypatch.setattr(vc, "_run", _fake)
-    monkeypatch.setattr(vc, "configure_logging", lambda: None)
 
 
 def test_main_clean_exits_zero(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
     _patch_run(monkeypatch, {"divergent": 0, "aborted": None, "checked": 5})
-    assert vc.main([]) == 0
-    assert json.loads(capsys.readouterr().out)["checked"] == 5
+    assert vc.main(["--json"]) == 0
+    counters = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert counters["checked"] == 5
 
 
 def test_main_divergent_exits_one(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
     _patch_run(monkeypatch, {"divergent": 2, "aborted": None, "checked": 5})
     assert vc.main([]) == 1
 
 
 def test_main_abort_exits_three(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
     _patch_run(monkeypatch, {"divergent": 0, "aborted": "empty_cohort", "checked": 0})
-    assert vc.main([]) == vc.EXIT_ABORTED == 3
+    assert vc.main(["--json"]) == EXIT_ABORTED == 3
 
 
 def test_main_auth_block_exits_two(monkeypatch, capsys):
-    async def _fake(_args):
+    patch_job_runtime(monkeypatch)
+
+    async def _fake():
         raise DeliveryBlockedError("PM 403")
 
     monkeypatch.setattr(vc, "_run", _fake)
-    monkeypatch.setattr(vc, "configure_logging", lambda: None)
     assert vc.main([]) == 2
-    assert json.loads(capsys.readouterr().out)["error"].startswith("delivery blocked")
+    assert json.loads(capsys.readouterr().err)["error"].startswith("delivery blocked")
 
 
 async def test_run_requires_api_key(monkeypatch, db_session):
@@ -378,6 +384,5 @@ async def test_run_requires_api_key(monkeypatch, db_session):
         "get_sidecar_settings",
         lambda: SimpleNamespace(powermap_api_key="", powermap_base_url="http://pm"),
     )
-    args = vc._build_parser().parse_args([])
     with pytest.raises(RuntimeError, match="POWERMAP_API_KEY"):
-        await vc._run(args)
+        await vc._run()

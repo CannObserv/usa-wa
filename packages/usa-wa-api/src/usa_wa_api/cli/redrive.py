@@ -16,13 +16,14 @@ Examples::
 """
 
 import argparse
-import asyncio
-import json
-import sys
 
-from clearinghouse_core.database import get_session_factory
-from clearinghouse_core.logging import configure_logging
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from clearinghouse_core.job import JobContext, run_job
 from usa_wa_api.api.redrive import perform_redrive
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "outbox-redrive"
 
 
 def _non_negative_int(value: str) -> int:
@@ -49,11 +50,8 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_api.cli.redrive",
-        description="Re-drive dead-lettered (UNAVAILABLE) PM-sync outbox entries to PENDING.",
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the re-drive's own flags to the harness's shared parser."""
     parser.add_argument(
         "--entity-type",
         default=None,
@@ -71,43 +69,52 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Cap the number of entries re-driven (oldest first).",
     )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview the matched count without mutating any rows.",
-    )
-    return parser
 
 
 async def _run(
+    session: AsyncSession,
+    *,
     entity_type: str | None,
     older_than_seconds: int | None,
     limit: int | None,
     dry_run: bool,
 ) -> dict:
-    """Open a session, perform the (scoped) re-drive, and commit."""
-    factory = get_session_factory()
-    async with factory() as session:
-        result = await perform_redrive(
-            session,
-            entity_type=entity_type,
-            older_than_seconds=older_than_seconds,
-            limit=limit,
-            dry_run=dry_run,
-        )
-        if not dry_run:
-            await session.commit()
-        return result
+    """Perform the (scoped) re-drive in ``session``.
+
+    Since #179b the session is the harness's, and so is the commit — this used to open
+    its own and commit it.
+    """
+    return await perform_redrive(
+        session,
+        entity_type=entity_type,
+        older_than_seconds=older_than_seconds,
+        limit=limit,
+        dry_run=dry_run,
+    )
+
+
+async def _redrive_job(ctx: JobContext) -> dict:
+    """Harness handler; the harness owns the commit and the ``--dry-run`` rollback."""
+    args = ctx.args
+    return await _run(
+        ctx.require_session(),
+        entity_type=args.entity_type,
+        older_than_seconds=args.older_than_seconds,
+        limit=args.limit,
+        dry_run=ctx.dry_run,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Parse args, run the re-drive, and print the result as JSON. Returns exit code."""
-    configure_logging()
-    args = _build_parser().parse_args(argv)
-    result = asyncio.run(_run(args.entity_type, args.older_than_seconds, args.limit, args.dry_run))
-    json.dump(result, sys.stdout)
-    sys.stdout.write("\n")
-    return 0
+    """Re-drive the dead-lettered outbox entries. Exit ``0`` clean · ``1`` failed · ``2`` config."""
+    return run_job(
+        JOB_SLUG,
+        _redrive_job,
+        argv=argv,
+        prog="python -m usa_wa_api.cli.redrive",
+        description="Re-drive dead-lettered (UNAVAILABLE) PM-sync outbox entries to PENDING.",
+        extra_args=_add_args,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

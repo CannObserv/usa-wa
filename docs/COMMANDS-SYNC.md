@@ -8,6 +8,20 @@ Emit-only producer CLIs (PM stays the authority; they mirror curation back) plus
 read-only validation. Weekly timers in prod; the forms below are the manual /
 dry-run surface. No operator token — shell access is the trust boundary.
 
+**All of them run on the shared job harness since #179b**, which changes three things and
+**no exit code**:
+
+- Every one writes a `clearinghouse_core.job_runs` row (#178) and accepts `--json` (the run
+  envelope: `job`/`outcome`/`counters`/`duration_ms`/`exit_code`) as well as the default
+  human `key=value` line. The per-CLI "print the summary dict as JSON on stdout" is gone —
+  the summary is the envelope's `counters`.
+- The auth-block diagnostic moved from **stdout to stderr**, so the harness owns stdout's
+  last line and anything parsing the run summary is not handed two JSON objects.
+- The family's `0/1/2/3` mapping lives once in `usa_wa_sync_powermap.jobs` instead of being
+  re-implemented per CLI. The ledger records the honest outcome beneath the bespoke code: a
+  guardrail abort is **`degraded`** (the "ran to completion, took no action" case) carried
+  on `3`; an auth block and a rejected-rows run are **`failed`** on `2` and `1`.
+
 ```bash
 # Contact-label backfill (#31) — re-observation of produced orgs holding a phone,
 # so PM adopts the synthesized contact display_label. Idempotent + re-runnable;

@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy import select
 from ulid import ULID
 
+from clearinghouse_core.testing import parse_job_args, patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_sync_powermap.client import DeliveryBlockedError, ObservationResult
 from clearinghouse_sync_powermap.models import DISPOSITION_AUTO_ATTACHED
@@ -74,11 +75,11 @@ async def _add_acronym_only_org(db_session, *, source_id, anchor):
 
 
 def test_parser_defaults():
-    assert cli._build_parser().parse_args([]).dry_run is False
+    assert parse_job_args(None, []).dry_run is False
 
 
 def test_parser_dry_run_flag():
-    assert cli._build_parser().parse_args(["--dry-run"]).dry_run is True
+    assert parse_job_args(None, ["--dry-run"]).dry_run is True
 
 
 # --- _run ---------------------------------------------------------------------
@@ -175,6 +176,7 @@ async def test_run_submits_and_commits(monkeypatch, db_session, usa_wa):
 
 def test_main_wires_args_and_prints_json(monkeypatch, capsys):
     """main parses --dry-run, calls _run with it, and prints the result as JSON."""
+    patch_job_runtime(monkeypatch)
     seen = {}
 
     async def _fake_run(dry_run):
@@ -182,45 +184,46 @@ def test_main_wires_args_and_prints_json(monkeypatch, capsys):
         return {"scanned": 2, "accepted": 0, "dry_run": dry_run}
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main(["--dry-run"])
+    rc = cli.main(["--json", "--dry-run"])
 
     assert rc == 0
     assert seen["dry_run"] is True
-    assert json.loads(capsys.readouterr().out) == {"scanned": 2, "accepted": 0, "dry_run": True}
+    counters = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert counters == {"scanned": 2, "accepted": 0, "dry_run": True}
 
 
 def test_main_nonzero_exit_on_failures(monkeypatch, capsys):
     """A run with any rejected/failed rows exits non-zero so $? signals it (#31 #10)."""
+    patch_job_runtime(monkeypatch)
 
     async def _fake_run(dry_run):
         return {"scanned": 3, "accepted": 1, "rejected": 1, "failed": 1, "dry_run": dry_run}
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main([])
+    rc = cli.main(["--json"])
 
     assert rc == 1
-    assert json.loads(capsys.readouterr().out)["failed"] == 1
+    counters = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert counters["failed"] == 1
 
 
 def test_main_auth_block_exits_distinct_code(monkeypatch, capsys):
     """A global auth block surfaces as a one-line diagnostic + exit 2, not a traceback
     (#31 CR round-3 finding 13)."""
+    patch_job_runtime(monkeypatch)
 
     async def _fake_run(dry_run):
         raise DeliveryBlockedError("PM 403 Insufficient scope")
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main([])
+    rc = cli.main(["--json"])
 
     assert rc == 2
-    body = json.loads(capsys.readouterr().out)
-    assert body["error"].startswith("delivery blocked")
+    body = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert body["error"] == "delivery_blocked"
 
 
 async def test_run_dry_run_leaves_rows_unmutated(monkeypatch, db_session, usa_wa):

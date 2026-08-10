@@ -60,36 +60,36 @@ Examples::
 """
 
 import argparse
-import asyncio
-import json
 import os
-import sys
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.database import get_session_factory
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.cohorts import BienniumCohortProvider
 from clearinghouse_domain_legislative.terms import (
     biennium_for_date,
     biennium_start_date,
     previous_biennium,
 )
-from clearinghouse_sync_powermap.client import DeliveryBlockedError
 from clearinghouse_sync_powermap.descriptors import EntityDescriptor
 from usa_wa_adapter_legislature.cohorts import committee_roster_provider
 from usa_wa_sync_powermap.committee_name_reconcile import (
     DEFAULT_MAX_RENAME_FRACTION,
-    EXIT_ABORTED,
     reconcile_names_from_maps,
 )
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
+from usa_wa_sync_powermap.jobs import run_pm_job
 from usa_wa_sync_powermap.registry import build_pm_client
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pm-committee-name-reconcile"
 
 #: Local ``org_type`` of the rows this diff governs.
 _ORG_TYPE = "committee"
@@ -169,23 +169,12 @@ async def reconcile_committee_names(
     )
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_sync_powermap.reconcile_committee_names",
-        description=(
-            "Detect WSL committee renames across a biennium boundary (stable Id, changed "
-            "LongName) and emit windowed dated-name evidence to PM (#46)."
-        ),
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute this job's own flags to the harness's shared parser."""
     parser.add_argument(
         "--biennium",
         default=None,
         help="Current biennium label (e.g. 2025-26). Defaults to USA_WA_BIENNIUM or today.",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Run the diff and guardrails without posting any observation.",
     )
     parser.add_argument(
         "--max-rename-fraction",
@@ -207,7 +196,6 @@ def _build_parser() -> argparse.ArgumentParser:
             "wrong-biennium pull. Lower it only if a biennium genuinely added many committees."
         ),
     )
-    return parser
 
 
 def _resolve_biennium(arg: str | None) -> str:
@@ -257,27 +245,31 @@ async def _run(args: argparse.Namespace) -> dict:
         await pm_client.aclose()
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Parse args, run the reconciliation, and print the summary as JSON.
+async def _reconcile_job(ctx: JobContext) -> JobResult:
+    """Harness handler. ``commit=False``: this emits to PM and writes nothing locally."""
+    return await run_pm_job(lambda: _run(ctx.args))
 
-    Exit codes: ``0`` clean (or dry-run); :data:`EXIT_ABORTED` (3) a guardrail abort
-    (empty pull / rename storm — took no action); ``1`` ran but some rows rejected/failed;
-    ``2`` a global auth block (``DeliveryBlockedError``)."""
-    configure_logging()
-    args = _build_parser().parse_args(argv)
-    try:
-        result = asyncio.run(_run(args))
-    except DeliveryBlockedError as exc:
-        json.dump(
-            {"error": "delivery blocked — check POWERMAP_API_KEY", "detail": str(exc)}, sys.stdout
-        )
-        sys.stdout.write("\n")
-        return 2
-    json.dump(result, sys.stdout)
-    sys.stdout.write("\n")
-    if result.get("aborted"):
-        return EXIT_ABORTED
-    return 1 if (result.get("rejected", 0) or result.get("failed", 0)) else 0
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the rename reconciliation.
+
+    Exit codes (unchanged, :mod:`usa_wa_sync_powermap.jobs`): ``0`` clean or dry-run;
+    ``1`` some rows rejected/failed; ``2`` a global auth block; ``3``
+    (:data:`~usa_wa_sync_powermap.jobs.EXIT_ABORTED`) a guardrail abort — recorded in the
+    #178 ledger as ``degraded``, the run that completed without landing its work.
+    """
+    return run_job(
+        JOB_SLUG,
+        _reconcile_job,
+        argv=argv,
+        prog="python -m usa_wa_sync_powermap.reconcile_committee_names",
+        description=(
+            "Detect WSL committee renames across a biennium boundary (stable Id, changed "
+            "LongName) and emit windowed dated-name evidence to PM (#46)."
+        ),
+        extra_args=_add_args,
+        commit=False,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

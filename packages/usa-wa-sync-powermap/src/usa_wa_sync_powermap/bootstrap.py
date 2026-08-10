@@ -10,18 +10,23 @@ Run order at cutover: grant the key ``subscriptions:write`` → reset the
 propagate (non-zero exit, nothing committed) so a bad bootstrap is loud.
 """
 
-import asyncio
-
 from clearinghouse_core.database import get_session_factory
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.engine import SyncEngine
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.registry import build_descriptors, build_pm_client, build_reconciler
 
 logger = get_logger(__name__)
 
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pm-subscription-bootstrap"
 
-async def _amain() -> None:
+
+async def _bootstrap_job(ctx: JobContext) -> dict:
+    """Harness handler. ``commit=False``: the reconciler's own session commits, exactly as
+    the pre-#179b entrypoint did — failures still propagate (nothing committed), so a bad
+    bootstrap stays loud."""
     settings = get_sidecar_settings()
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — required for the PM bootstrap.")
@@ -35,25 +40,35 @@ async def _amain() -> None:
         async with factory() as session:
             report = await reconciler.sync_subscriptions(session)
             await session.commit()
-        logger.info(
-            "bootstrap_complete",
-            extra={
-                "discovered": report.discovered,
-                "newly_subscribed": report.newly_subscribed,
-                "backfilled": report.backfilled,
-                "backfill_skipped": report.backfill_skipped,
-                "not_found": report.not_found,
-                "skipped_unknown_type": report.skipped_unknown_type,
-            },
-        )
     finally:
         await client.aclose()
+    counters = {
+        "discovered": report.discovered,
+        "newly_subscribed": report.newly_subscribed,
+        "backfilled": report.backfilled,
+        "backfill_skipped": report.backfill_skipped,
+        "not_found": report.not_found,
+        "skipped_unknown_type": report.skipped_unknown_type,
+    }
+    logger.info("bootstrap_complete", extra=counters)
+    return counters
 
 
-def main() -> None:
-    configure_logging()
-    asyncio.run(_amain())
+def main(argv: list[str] | None = None) -> int:
+    """Bootstrap the PM subscription set. Exit ``0`` clean · ``1`` failed · ``2`` config.
+
+    **Changed at #179b**: a failure used to escape as a traceback (exit 1 from the Python
+    interpreter); it is now a logged ``failed`` run and the same exit 1, with a ledger row.
+    """
+    return run_job(
+        JOB_SLUG,
+        _bootstrap_job,
+        argv=argv,
+        prog="python -m usa_wa_sync_powermap.bootstrap",
+        description="One-shot PM subscription bootstrap (PM #203 / usa-wa#10).",
+        commit=False,
+    )
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

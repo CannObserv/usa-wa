@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 import pytest
 from ulid import ULID
 
+from clearinghouse_core.testing import parse_job_args
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_sync_powermap.client import (
     DeliveryBlockedError,
@@ -26,11 +27,9 @@ from clearinghouse_sync_powermap.client import (
     RetryableClientError,
 )
 from clearinghouse_sync_powermap.models import DISPOSITION_AUTO_ATTACHED, DISPOSITION_REJECTED
+from usa_wa_sync_powermap import reconcile_committee_active as cli
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
-from usa_wa_sync_powermap.reconcile_committee_active import (
-    _build_parser,
-    reconcile_committee_active,
-)
+from usa_wa_sync_powermap.reconcile_committee_active import reconcile_committee_active
 
 
 class _FakeWSL:
@@ -405,11 +404,11 @@ async def test_all_era_bulk_deactivates_historical_cohort(db_session, usa_wa):
 
 def test_build_parser_accepts_all_era_flag():
     """C1b: the --all-era escape hatch is available for the deliberate bulk run."""
-    args = _build_parser().parse_args(["--all-era", "--max-absent-fraction", "1.0"])
+    args = parse_job_args(cli._add_args, ["--all-era", "--max-absent-fraction", "1.0"])
     assert args.all_era is True
     assert args.max_absent_fraction == 1.0
     # Default is scoped (era scoping stays on for routine weekly runs).
-    assert _build_parser().parse_args([]).all_era is False
+    assert parse_job_args(cli._add_args, []).all_era is False
 
 
 async def test_no_provider_leaves_cohort_unscoped(db_session, usa_wa):

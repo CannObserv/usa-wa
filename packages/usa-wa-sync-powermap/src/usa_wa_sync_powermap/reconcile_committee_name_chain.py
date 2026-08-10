@@ -24,16 +24,13 @@ auth block · ``3`` empty-archive abort.
 from __future__ import annotations
 
 import argparse
-import asyncio
-import json
-import sys
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.database import get_session_factory
-from clearinghouse_core.logging import configure_logging, get_logger
-from clearinghouse_sync_powermap.client import DeliveryBlockedError
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from usa_wa_adapter_legislature.cohorts import committee_roster_provider
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_common.jurisdiction import resolve_jurisdiction
@@ -43,16 +40,19 @@ from usa_wa_sync_powermap.committee_name_chain import (
     build_rename_chain,
 )
 from usa_wa_sync_powermap.committee_name_reconcile import (
-    EXIT_ABORTED,
     _emit_names,
     live_cohort_by_source_id,
     produced_source_ids,
 )
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
+from usa_wa_sync_powermap.jobs import run_pm_job
 from usa_wa_sync_powermap.registry import build_pm_client
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pm-committee-name-chain-reconcile"
 
 _ORG_TYPE = "committee"
 
@@ -122,15 +122,10 @@ async def emit_rename_chain(
     return summary
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_sync_powermap.reconcile_committee_name_chain",
-        description="Emit the full committee rename chain from the archived rosters.",
-    )
-    parser.add_argument("--dry-run", action="store_true", help="preview without emitting")
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute this job's own flags to the harness's shared parser."""
     parser.add_argument("--max-rename-fraction", type=float, default=DEFAULT_MAX_RENAME_FRACTION)
     parser.add_argument("--storm-floor", type=int, default=DEFAULT_STORM_FLOOR)
-    return parser
 
 
 async def _run(args: argparse.Namespace) -> dict:
@@ -158,19 +153,28 @@ async def _run(args: argparse.Namespace) -> dict:
             await pm_client.aclose()
 
 
+async def _chain_job(ctx: JobContext) -> JobResult:
+    """Harness handler. ``commit=False`` — ``_run`` get-or-creates the Source but the
+    pre-#179b CLI never committed, so that write stays a no-op here too."""
+    return await run_pm_job(lambda: _run(ctx.args))
+
+
 def main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    args = _build_parser().parse_args(argv)
-    try:
-        summary = asyncio.run(_run(args))
-    except DeliveryBlockedError as exc:
-        print(json.dumps({"error": f"delivery blocked: {exc}"}))
-        return 2
-    print(json.dumps(summary, indent=2, default=str))
-    if summary.get("aborted"):
-        return EXIT_ABORTED
-    return 1 if (summary.get("rejected") or summary.get("failed")) else 0
+    """Emit the full rename chain.
+
+    Exit codes (unchanged, :mod:`usa_wa_sync_powermap.jobs`): ``0`` clean or dry-run;
+    ``1`` some rows rejected/failed; ``2`` a global auth block; ``3`` a guardrail abort.
+    """
+    return run_job(
+        JOB_SLUG,
+        _chain_job,
+        argv=argv,
+        prog="python -m usa_wa_sync_powermap.reconcile_committee_name_chain",
+        description="Emit the full committee rename chain from the archived rosters.",
+        extra_args=_add_args,
+        commit=False,
+    )
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

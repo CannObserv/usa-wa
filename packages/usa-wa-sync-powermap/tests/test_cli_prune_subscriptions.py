@@ -13,11 +13,13 @@ from types import SimpleNamespace
 
 from ulid import ULID
 
+from clearinghouse_core.testing import parse_job_args, patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_sync_powermap.client import DeliveryBlockedError
 from clearinghouse_sync_powermap.subscriptions import DEFAULT_MAX_PRUNE_FRACTION
 from usa_wa_sync_powermap import prune_subscriptions as cli
 from usa_wa_sync_powermap.config import SidecarSettings
+from usa_wa_sync_powermap.jobs import EXIT_ABORTED
 
 
 def _patch_factory(monkeypatch, db_session):
@@ -82,13 +84,13 @@ async def _add_committee(db_session, *, source_id, anchor):
 
 
 def test_parser_defaults():
-    args = cli._build_parser().parse_args([])
+    args = parse_job_args(cli._add_args, [])
     assert args.dry_run is False
     assert args.max_prune_fraction == DEFAULT_MAX_PRUNE_FRACTION
 
 
 def test_parser_accepts_overrides():
-    args = cli._build_parser().parse_args(["--dry-run", "--max-prune-fraction", "0.5"])
+    args = parse_job_args(cli._add_args, ["--dry-run", "--max-prune-fraction", "0.5"])
     assert args.dry_run is True
     assert args.max_prune_fraction == 0.5
 
@@ -148,39 +150,44 @@ async def test_run_dry_run_removes_nothing(monkeypatch, db_session, usa_wa):
 
 
 def test_main_prints_json_and_exits_zero(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
+
     async def _fake_run(_args):
         return {"registered": 2, "stale": 1, "removed": 1, "aborted": None, "dry_run": False}
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main([])
+    rc = cli.main(["--json"])
 
     assert rc == 0
-    assert json.loads(capsys.readouterr().out)["removed"] == 1
+    counters = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert counters["removed"] == 1
 
 
 def test_main_abort_exits_three(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
+
     async def _fake_run(_args):
         return {"registered": 2, "stale": 2, "removed": 0, "aborted": "prune_floor"}
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main([])
+    rc = cli.main(["--json"])
 
-    assert rc == cli.EXIT_ABORTED
-    assert json.loads(capsys.readouterr().out)["aborted"] == "prune_floor"
+    assert rc == EXIT_ABORTED
+    counters = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert counters["aborted"] == "prune_floor"
 
 
 def test_main_auth_block_exits_two(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
+
     async def _fake_run(_args):
         raise DeliveryBlockedError("PM 403")
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main([])
+    rc = cli.main(["--json"])
 
     assert rc == 2
-    assert "delivery blocked" in json.loads(capsys.readouterr().out)["error"]
+    assert "delivery blocked" in json.loads(capsys.readouterr().err)["error"]

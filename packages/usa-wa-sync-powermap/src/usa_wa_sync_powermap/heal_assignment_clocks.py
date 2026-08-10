@@ -23,25 +23,27 @@ exit ``0`` clean · ``2`` auth · ``3`` empty-cohort abort.
     python -m usa_wa_sync_powermap.heal_assignment_clocks
 """
 
-import argparse
 import asyncio
-import json
-import sys
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.database import get_session_factory
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.queries import live_only
-from clearinghouse_sync_powermap.client import DeliveryBlockedError, RetryableClientError
+from clearinghouse_sync_powermap.client import RetryableClientError
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import AssignmentDescriptor
+from usa_wa_sync_powermap.jobs import never, run_pm_job
 from usa_wa_sync_powermap.registry import build_pm_client
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pm-assignment-clock-heal"
 
 #: Exit code for a guardrail abort (empty cohort).
 EXIT_ABORTED = 3
@@ -139,16 +141,7 @@ async def heal_assignment_clocks(session: AsyncSession, descriptor: Any, client:
     }
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_sync_powermap.heal_assignment_clocks",
-        description="Adopt PM's clock onto LWW-skewed anchored assignments to stop churn (#102).",
-    )
-    parser.add_argument("--dry-run", action="store_true", help="preview without committing")
-    return parser
-
-
-async def _run(args: argparse.Namespace) -> dict:
+async def _run(dry_run: bool) -> dict:
     settings = get_sidecar_settings()
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — cannot read from Power Map.")
@@ -156,7 +149,7 @@ async def _run(args: argparse.Namespace) -> dict:
         client = build_pm_client(settings)
         try:
             result = await heal_assignment_clocks(session, AssignmentDescriptor(), client)
-            if args.dry_run:
+            if dry_run:
                 await session.rollback()
                 result = {**result, "dry_run": True}
             else:
@@ -166,17 +159,29 @@ async def _run(args: argparse.Namespace) -> dict:
             await client.aclose()
 
 
+async def _heal_job(ctx: JobContext) -> JobResult:
+    """Harness handler. ``commit=False`` and ``_run`` keeps its own session/commit — the
+    PM producer CLIs interleave PM calls with local writes, and rewriting that ownership
+    would have changed twelve jobs' transaction semantics in a sweep whose whole point was
+    to leave behaviour alone."""
+    return await run_pm_job(lambda: _run(ctx.dry_run), failed_when=never)
+
+
 def main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    args = _build_parser().parse_args(argv)
-    try:
-        result = asyncio.run(_run(args))
-    except DeliveryBlockedError as exc:
-        print(json.dumps({"error": f"delivery blocked: {exc}"}))
-        return 2
-    print(json.dumps(result, indent=2, default=str))
-    return EXIT_ABORTED if result.get("aborted") else 0
+    """Heal LWW-skewed assignment clocks.
+
+    Exit codes (unchanged): ``0`` clean or dry-run; ``2`` a global auth block; ``3`` a
+    guardrail abort, ledgered as ``degraded``.
+    """
+    return run_job(
+        JOB_SLUG,
+        _heal_job,
+        argv=argv,
+        prog="python -m usa_wa_sync_powermap.heal_assignment_clocks",
+        description="Adopt PM's clock onto LWW-skewed anchored assignments to stop churn (#102).",
+        commit=False,
+    )
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

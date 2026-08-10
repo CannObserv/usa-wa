@@ -26,37 +26,27 @@ Examples::
 """
 
 import argparse
-import asyncio
-import json
-import sys
 
 from clearinghouse_core.database import get_session_factory
-from clearinghouse_core.logging import configure_logging, get_logger
-from clearinghouse_sync_powermap.client import DeliveryBlockedError
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.engine import SyncEngine
 from clearinghouse_sync_powermap.subscriptions import DEFAULT_MAX_PRUNE_FRACTION
 from usa_wa_sync_powermap.config import get_sidecar_settings
+from usa_wa_sync_powermap.jobs import never, run_pm_job
 from usa_wa_sync_powermap.registry import build_descriptors, build_pm_client, build_reconciler
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pm-subscription-prune"
 
 #: Guardrail abort (empty desired set / prune floor) — took no action.
 EXIT_ABORTED = 3
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_sync_powermap.prune_subscriptions",
-        description=(
-            "Unsubscribe PM entities outside the mirror set — the reclaim half of #73 "
-            "Axis 1 (the ~1,000 strangers the old whole-subtree walk left subscribed)."
-        ),
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Compute the stale diff and guardrails without unsubscribing anything.",
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute this job's own flag to the harness's shared parser."""
     parser.add_argument(
         "--max-prune-fraction",
         type=float,
@@ -67,7 +57,6 @@ def _build_parser() -> argparse.ArgumentParser:
             "discovery collapse, not a real cleanup."
         ),
     )
-    return parser
 
 
 async def _run(args: argparse.Namespace) -> dict:
@@ -91,25 +80,31 @@ async def _run(args: argparse.Namespace) -> dict:
         await client.aclose()
 
 
-def main(argv: list[str] | None = None) -> int:
-    """Parse args, run the prune, and print the summary as JSON.
+async def _prune_job(ctx: JobContext) -> JobResult:
+    """Harness handler. ``failed_when=never``: this job's only non-zero outcomes are a
+    guardrail abort and an auth block — it has no per-row rejection tally."""
+    return await run_pm_job(lambda: _run(ctx.args), failed_when=never)
 
-    Exit codes: ``0`` clean (or dry-run); :data:`EXIT_ABORTED` (3) a guardrail abort
-    (empty desired set / prune floor — took no action); ``2`` a global auth block
-    (``DeliveryBlockedError`` — check ``POWERMAP_API_KEY``)."""
-    configure_logging()
-    args = _build_parser().parse_args(argv)
-    try:
-        result = asyncio.run(_run(args))
-    except DeliveryBlockedError as exc:
-        json.dump(
-            {"error": "delivery blocked — check POWERMAP_API_KEY", "detail": str(exc)}, sys.stdout
-        )
-        sys.stdout.write("\n")
-        return 2
-    json.dump(result, sys.stdout)
-    sys.stdout.write("\n")
-    return EXIT_ABORTED if result.get("aborted") else 0
+
+def main(argv: list[str] | None = None) -> int:
+    """Prune stale PM subscriptions.
+
+    Exit codes (unchanged, :mod:`usa_wa_sync_powermap.jobs`): ``0`` clean or dry-run;
+    ``2`` a global auth block; ``3`` a guardrail abort (empty desired set / prune floor —
+    took no action), ledgered as ``degraded``.
+    """
+    return run_job(
+        JOB_SLUG,
+        _prune_job,
+        argv=argv,
+        prog="python -m usa_wa_sync_powermap.prune_subscriptions",
+        description=(
+            "Unsubscribe PM entities outside the mirror set — the reclaim half of #73 "
+            "Axis 1 (the ~1,000 strangers the old whole-subtree walk left subscribed)."
+        ),
+        extra_args=_add_args,
+        commit=False,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
