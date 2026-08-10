@@ -18,7 +18,10 @@ ballot evidence, so this lives SOS-side (SOS→legislature, never the reverse). 
 
 Runs daily 07:00 UTC (`usa-wa-senate-corroboration.timer`), after the WSL + SOS refreshes rebuild
 the open Senate cohort and archive the odd results wire. App-role DML (the citation is an idempotent
-`Citation` insert; the corroboration is read-only). Exit 0 clean / 1 on a missing winner / 2 config.
+`Citation` insert; the corroboration is read-only). Exit 0 clean / 1 on a missing winner / 2 config
+— unchanged by #179b. **The citations still commit on a violation**: this gate writes and *then*
+exits 1, so it keeps `commit=False` and its own transaction rather than letting the harness roll
+the citations back behind an unchanged exit code.
 
 ```bash
 # Daily gate (also the ad-hoc invocation); --dry-run builds citations then rolls back.
@@ -93,7 +96,9 @@ each write appends a hashed `FetchEvent` + `RawPayload` under the `usa_wa_operat
 # App-role DML (writes operator_events + provenance); shell access is the trust boundary,
 # as with the redrive CLI. Provenance is append-only — a date-correction is --supersede
 # (a NEW row stamping the prior one's superseded_by_id), never a mutation (#54).
-# --dry-run validates + writes, then rolls back. Exit 2 on a validation failure.
+# --dry-run validates + writes, then rolls back — but --list is read-only and commits even
+# under --dry-run, which is why this job keeps its own transaction on the #179b harness.
+# Exit 2 on a validation failure (unchanged).
 python -m usa_wa_adapter_legislature.operators.cli \
     --member-id 29091 --kind departed --reason died \
     --effective-date 2025-04-19 --evidence-url https://... --dry-run
@@ -167,7 +172,9 @@ python -m usa_wa_sync_powermap.reconcile_committee_active --all-era \
 # committee_succession_events + provenance under usa_wa_operator); provenance is append-only.
 # A wrong-successor / year fix is --supersede (a NEW row stamping the prior's superseded_by_id).
 # On a supersede: --year sets, --clear-year clears, omitting both inherits the prior's year.
-# --dry-run validates + writes, then rolls back. Exit 2 on a validation failure.
+# --dry-run validates + writes, then rolls back — but --list is read-only and commits even
+# under --dry-run, which is why this job keeps its own transaction on the #179b harness.
+# Exit 2 on a validation failure (unchanged).
 python -m usa_wa_adapter_legislature.committees.succession_cli \
     --subject 14294 --linked 28244 --slug succeeded_by --year 2021 \
     --evidence-url https://... [--notes "renamed + re-scoped"]

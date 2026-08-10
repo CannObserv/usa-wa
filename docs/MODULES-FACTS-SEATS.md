@@ -10,6 +10,14 @@ Detailed behaviour of each module is unchanged and documented where it was befor
 the House Position builder chain in [MODULES-SOS.md](MODULES-SOS.md), the PDC span/identifier
 chain in [MODULES-PDC.md](MODULES-PDC.md). This file records the **shape**.
 
+All eight CLIs here run on the #179b job harness with their exit codes unchanged. Two keep
+`commit=False` and their own transaction, because their commit is **not** conditional on
+success: `senate_corroboration` field-cites the elected senators and *then* exits 1 on a
+missing winner (a `failed` result under a committing harness would roll those citations back
+behind an unchanged exit code), and both refreshes committed unconditionally through an
+explicit `session.begin()` and had no `--dry-run` to honour. `house/migrate.py` and
+`pdc/migrate_pdc_spans.py` declare `role="owner"` instead of reading `DATABASE_URL_OWNER`.
+
 ```
 packages/
   usa-wa-facts-seats/                 — Layer 3b: the WA legislative-seat fact family

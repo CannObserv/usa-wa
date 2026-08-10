@@ -17,6 +17,12 @@ Prod runs the daily/weekly ones on systemd timers (see
 run-once / ad-hoc. Pair backfills with `USA_WA_BIENNIUM` to target a non-current
 biennium.
 
+**All 44 run on the shared job harness (#179b)**: each takes `--dry-run`/`--json`, prints a
+`key=value` summary, and writes a `job_runs` row (`GET /api/v1/health/jobs`). **Exit codes
+unchanged** unless a doc below says otherwise — `0` ok / `1` failed / `2` config / `4`
+degraded, with `3` left to the jobs already using it for "aborted, took no action".
+See [MODULES-FRAMEWORK.md](MODULES-FRAMEWORK.md).
+
 ### Documented in this file
 
 | Command | Purpose |
@@ -188,28 +194,26 @@ Prod runs these on systemd timers; the forms below are the ad-hoc / backfill
 surface. Pair with `USA_WA_BIENNIUM` to target a non-current biennium.
 
 ```bash
-# WSL refresh — one-shot pull from CommitteeService.GetActiveCommittees, plus an
-# additive current-biennium meeting-window pull for Joint/Other discovery (#39).
-# Prod runs this daily at 06:00 UTC via the usa-wa-wsl-refresh.timer systemd
-# unit; the command below is the manual / backfill form (pair with USA_WA_BIENNIUM).
-# Also drives the member cluster: forced GetSponsors + a per-committee
+# WSL refresh — one-shot pull from CommitteeService.GetActiveCommittees, plus an additive
+# current-biennium meeting-window pull for Joint/Other discovery (#39). Prod runs this daily at
+# 06:00 UTC via usa-wa-wsl-refresh.timer; the form below is the manual / backfill one (pair with
+# USA_WA_BIENNIUM). Also drives the member cluster: forced GetSponsors + a per-committee
 # GetCommitteeMembers(current, ...) fan-out (#82), then re-drives BOTH span builders for the
-# current cohort — party/Senate-seat (#78-2c) and committee membership (#82). fill_only
-# (#65 — additive, never clobbers PM-curated rows).
+# current cohort — party/Senate-seat (#78-2c) and committee membership (#82). fill_only (#65 —
+# additive, never clobbers PM-curated rows). Exit 1 means the committees pull reported errors;
+# the work it reached still commits.
 python -m usa_wa_adapter_legislature.refresh
 
 # PDC refresh (#69 + #75; IDENTIFIER-ONLY since #101) — emits the person_wa_pdc cross-source
 # identifier links (House winners + #74 movers + #75 Senate), archive-first from the PDC Campaign
 # Finance Summary Socrata dataset (3h9x-7bvm) on data.wa.gov. Archives every winner cohort the
 # current biennium's membership can be decided by (#121): both House generals (even seating + odd
-# mid-biennium special) and the three senate-winners:<Y> cohorts (staggered evens + the odd
-# special) via archive_only — each in its own SAVEPOINT (a transient Socrata failure skips one
-# cohort, not the daily unit; a raceless year returns an empty row set, a success) — then
-# re-drives build_pdc_spans scoped to the current biennium for the links. The House Position SEAT
-# is no longer PDC's — it is the WSL+SOS builder's (usa-wa-sos-refresh, below),
+# mid-biennium special) and the three senate-winners:<Y> cohorts, each in its own SAVEPOINT (a
+# transient Socrata failure skips one cohort, not the daily unit; a raceless year returns an empty
+# row set, a success) — then re-drives build_pdc_spans scoped to the current biennium. The House
+# Position SEAT is no longer PDC's — it is the WSL+SOS builder's (usa-wa-sos-refresh, below),
 # usa_wa_legislature-sourced and symmetric with the Senate seat (#101). Prod runs this daily at
-# 06:30 UTC (after the WSL refresh) via usa-wa-pdc-refresh.timer; the form below is the manual
-# surface. USA_WA_PDC_APP_TOKEN (optional).
+# 06:30 UTC (after the WSL refresh) via usa-wa-pdc-refresh.timer. USA_WA_PDC_APP_TOKEN (optional).
 python -m usa_wa_facts_seats.pdc.refresh
 
 # SOS refresh (#101) — the daily driver of the WSL+SOS House state_representative Position seat.
@@ -285,11 +289,11 @@ python -m usa_wa_adapter_sos.results.harvest --from-year 2008 --pause-seconds 1.
 # roster (WSL sponsor archive) x the SOS results archive (the Position) -> merged usa_wa_legislature
 # state_representative Position seat spans, cite-every-biennium onto sos-legresults:<Y>. A sitting
 # member with no resolvable SOS position gets no seat (OQ1: emit nothing, counted missing_position)
-# — UNLESS within-LD elimination (#103) resolves it: an LD with exactly 2 sitting members, exactly
-# 1 ballot-claimed seat, and exactly 1 unmatched member gives that member the remaining position
-# (a mid-biennium appointee, or a ballot<->roster name change). Inferred (member, biennium) pairs
-# cite the WSL sponsor roster (the wire that names them), are logged (house_seat_inferred), and
-# surface as coverage["inferred"]. DEPENDS ON Phase A + the WSL sponsor archive/Persons (#77).
+# — UNLESS within-LD elimination (#103) resolves it: an LD with exactly 2 sitting members, 1
+# ballot-claimed seat and 1 unmatched member gives that member the remaining position (a
+# mid-biennium appointee, or a ballot<->roster name change). Inferred (member, biennium) pairs cite
+# the sponsor roster, log house_seat_inferred, and surface as coverage["inferred"].
+# DEPENDS ON Phase A + the WSL sponsor archive/Persons (#77).
 # Ends with the #83 stale-span sweep (usa_wa_legislature, chamber-house); same mass-close guard
 # (--max-close-fraction, (0,1], 1.0 disables). --biennium scopes to a biennium's current members
 # (each keeps full history). ROSTER HYGIENE (#105): each biennium's roster sheds (a) mover rows
@@ -299,23 +303,20 @@ python -m usa_wa_adapter_sos.results.harvest --from-year 2008 --pause-seconds 1.
 # sponsor_stale_row_excluded), guarded by --stale-min-coverage (default 0.9: a biennium whose
 # committee cohort names <90% of the wire's named members skips the exclusion —
 # stale_exclusion_skipped_low_coverage — so a thin archive never reads as mass departure; >1
-# disables entirely) AND by the tail rule (excluded only when committee-absent in that biennium
-# and every later one — later presence = archive gap, rescued:
-# stale_exclusion_rescued_by_later_presence). Both un-block the #103 elimination (the LD reads 2-member again) and drop
-# the ghost's seat assertion so the sweep closes it. Audit historically: --dry-run + read the
-# exclusion log lines before an unrestricted rebuild.
+# disables entirely) AND by the tail rule (excluded only when committee-absent in that biennium and
+# every later one — later presence = an archive gap: stale_exclusion_rescued_by_later_presence).
+# Both un-block the #103 elimination and drop the ghost's seat assertion so the sweep closes it.
 # PRE-2009 BACK-CHAIN (#118 Phase 1): the SOS ballot floors at the 2008 general, so a pre-2009 House
-# member has no ballot to position. A WA rep holds a specific Position continuously, so this walks
-# the archived biennia newest->oldest and carries each ballot-anchored Position back through
-# uninterrupted same-LD tenure (the direct seed), letting the #103 elimination resolve the mate each
-# biennium (the 1-hop cascade). Reaches the 2001-map era pre-2009 biennia (2003-04..2007-08); the
-# 1991-2001 era has no reachable ballot anchor (#140). Back-chained seats cite the sponsor roster,
-# log house_seat_backchained (with max hop depth), and surface as coverage["seeded"]. Guardrails: a
+# member has no ballot to position. A WA rep holds a Position continuously, so this walks the
+# archived biennia newest->oldest and carries each ballot-anchored Position back through
+# uninterrupted same-LD tenure, letting the #103 elimination resolve the mate each biennium.
+# Reaches 2003-04..2007-08; the 1991-2001 era has no reachable anchor (#140). Back-chained seats
+# cite the sponsor roster, log house_seat_backchained, surface as coverage["seeded"]. Guardrails: a
 # redistricting era break (1993-94/2003-04/2013-14/2023-24 — WA keeps LD numbers, so the break is
 # explicit) and an LD move / tenure gap both stop the chain; --max-backchain-hops caps the depth
-# (default 4; 0 disables). Runs in BOTH the daily re-drive and this backfill (idempotent), so span
-# identity holds. Only ballot-class positions carry back — an elimination-only mate does not seed its
-# own earlier tenure (that recursive cascade is Phase 2, deferred).
+# (default 4; 0 disables). Runs in BOTH the daily re-drive and this backfill (idempotent). Only
+# ballot-class positions carry back — an elimination-only mate does not seed its own earlier
+# tenure (that recursive cascade is Phase 2, deferred).
 python -m usa_wa_facts_seats.house.build --dry-run
 python -m usa_wa_facts_seats.house.build
 
@@ -329,10 +330,9 @@ python -m usa_wa_facts_seats.house.build
 # the SURVIVING usa_wa_legislature span that COVERS them (mapped by (person, role) + validity
 # window — NOT exact source_id: PDC omits the pre-2018 position, so a cross-2018 incumbent's
 # existing PDC span is shallow …:2019-20 while the SOS builder emits a deeper …:2017-18). Transfers
-# the PM anchor (PM keys on (person, role, start), so the deep keeper IS that tenure), deletes the
-# retired row + its citations (owner-only #54). A PDC row with no covering keeper is left as
-# orphans_no_keeper. 3-part legacy rows are migrate_pdc_spans's job (skipped_legacy).
-# Idempotent; --dry-run.
+# the PM anchor, deletes the retired row + its citations (owner-only #54). A PDC row with no
+# covering keeper is orphans_no_keeper; 3-part legacy rows are migrate_pdc_spans's job
+# (skipped_legacy). Idempotent; --dry-run.
 python -m usa_wa_facts_seats.house.migrate --dry-run
 python -m usa_wa_facts_seats.house.migrate
 
@@ -346,7 +346,7 @@ python -m usa_wa_facts_seats.house.migrate
 #   python -m usa_wa_adapter_sos.results.harvest --from-year 2008        # Phase A (SOS results archive)
 #   python -m usa_wa_facts_seats.house.build                   # Phase B: full-depth rebuild
 #   python -m usa_wa_facts_seats.house.migrate                # OWNER role: superseded + PDC->WSL
-#   sudo systemctl start usa-wa-sync-powermap                        # let the sidecar drain to PM
+#   sudo systemctl start usa-wa-sync-powermap                  # let the sidecar drain to PM
 # If the 06:45 timer beats this window: the daily build emits the new spans first and the sidecar
 # parks the colliding entries UNAVAILABLE (#86, operator alert) — recoverable: run the migrate,
 # then redrive (python -m usa_wa_api.cli.redrive).
