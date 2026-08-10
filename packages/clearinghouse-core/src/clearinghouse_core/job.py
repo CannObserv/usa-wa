@@ -53,6 +53,7 @@ import sys
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -125,6 +126,22 @@ class JobContext:
                 f"job {self.name!r} asked for a session but was declared needs_db=False"
             )
         return self.session
+
+    def require_session_factory(self) -> async_sessionmaker[AsyncSession]:
+        """Return the job's session factory, or raise if it declared it needs no database.
+
+        The symmetric twin of :meth:`require_session`, for the jobs that open their own
+        sessions (the PM producers interleave PM calls with local writes across several).
+        Taking the factory from here rather than calling
+        :func:`~clearinghouse_core.database.get_session_factory` directly is what keeps
+        those jobs on **this run's** engine — the app engine today, but the per-run owner
+        engine the moment one declares ``role="owner"`` (CR #196 finding 49).
+        """
+        if self.session_factory is None:
+            raise RuntimeError(
+                f"job {self.name!r} asked for a session factory but was declared needs_db=False"
+            )
+        return self.session_factory
 
 
 @dataclass(frozen=True)
@@ -226,16 +243,31 @@ def _git_sha() -> str | None:
     return sha[:40] if completed.returncode == 0 and sha else None
 
 
-def _build_parser(
-    name: str, description: str | None, prog: str | None, extra_args: ArgsBuilder | None
+def build_parser(
+    name: str,
+    description: str | None,
+    prog: str | None,
+    extra_args: ArgsBuilder | None,
+    dry_run: bool = True,
 ) -> argparse.ArgumentParser:
-    """Build the shared parser: base args first, then the job's own."""
+    """Build the shared parser: base args first, then the job's own.
+
+    ``dry_run=False`` **omits** the flag rather than accepting one the job cannot honour
+    (CR #196 finding 47). A ``commit=False`` job whose handler owns an unconditional
+    transaction — the WSL refresh, the PM subscription bootstrap — would otherwise
+    advertise "roll back instead of committing", commit anyway, and print ``dry_run=true``
+    on the summary line of the run that wrote. An argparse error is the honest answer.
+    """
     parser = argparse.ArgumentParser(prog=prog, description=description or f"{name} job")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Run the work but roll back instead of committing.",
-    )
+    if dry_run:
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Run the work but roll back instead of committing.",
+        )
+    else:
+        # ``_execute`` and ``_emit`` both read the attribute unconditionally.
+        parser.set_defaults(dry_run=False)
     parser.add_argument(
         "--json",
         dest="json_output",
@@ -247,21 +279,32 @@ def _build_parser(
     return parser
 
 
-_role_factory: async_sessionmaker[AsyncSession] | None = None
+_role_factory: ContextVar[async_sessionmaker[AsyncSession] | None] = ContextVar(
+    "clearinghouse_core.job._role_factory", default=None
+)
 """Session factory for a non-default-role run, installed by :func:`_engine_lifetime`.
 
-Module state rather than a threaded-through argument on purpose: ``_database`` and
+Ambient state rather than a threaded-through argument on purpose: ``_database`` and
 ``_ledger_session`` are the two seams every CLI test patches (via
 :func:`clearinghouse_core.testing.patch_job_runtime`), and widening their signatures
 would have made the owner role a breaking change for every one of those tests.
+
+A **ContextVar** rather than a module global (CR #196 finding 50). Each ``asyncio`` task
+copies the context at creation, so two concurrent runs each see their own factory. As a
+plain global, whichever run *finished* first blanked it in its ``finally`` while the other
+was still inside its lifetime — and the survivor then fell through to the process-shared
+**app** engine, silently running an owner job's remaining work as the wrong role. One job
+per process makes that unreachable in today's CLIs, but this module is the repo's reusable
+harness and nothing else guards the invariant.
 """
 
 
 def _session_factory() -> async_sessionmaker[AsyncSession]:
     """The factory this run's sessions come from: the per-run owner factory when the
     job declared ``role="owner"``, else the process-shared app engine's."""
-    if _role_factory is not None:
-        return _role_factory
+    factory = _role_factory.get()
+    if factory is not None:
+        return factory
     return get_session_factory()
 
 
@@ -292,18 +335,20 @@ async def _engine_lifetime(role: str = DATABASE_ROLE_APP) -> AsyncIterator[None]
     ledger included — is routed through it, so an owner job needs no second DSN to
     record its #178 row.
     """
-    global _role_factory
     if role == DATABASE_ROLE_APP:
         try:
             yield
         finally:
             await dispose_engine()
         return
-    engine, _role_factory = _build_role_engine(get_database_url(role))
+    engine, factory = _build_role_engine(get_database_url(role))
+    token = _role_factory.set(factory)
     try:
         yield
     finally:
-        _role_factory = None
+        # ``reset`` restores this context's previous value rather than clobbering it to
+        # None, so a concurrent run's factory is never collateral damage.
+        _role_factory.reset(token)
         await engine.dispose()
 
 
@@ -479,6 +524,7 @@ def run_job(
     commit: bool = True,
     ledger: bool | None = None,
     role: str = DATABASE_ROLE_APP,
+    dry_run: bool = True,
 ) -> int:
     """Run ``handler`` as job ``name`` and return the process exit code.
 
@@ -506,7 +552,7 @@ def run_job(
     traceback in the log rather than a bare traceback on stderr.
     """
     configure_logging()
-    args = _build_parser(name, description, prog, extra_args).parse_args(argv)
+    args = build_parser(name, description, prog, extra_args, dry_run).parse_args(argv)
     write_ledger = needs_db if ledger is None else ledger
 
     if needs_db:

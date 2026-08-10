@@ -428,8 +428,10 @@ async def _refresh_job(ctx: JobContext) -> JobResult:
 def main(argv: list[str] | None = None) -> int:
     """Run one refresh cycle. Exit ``0`` clean · ``1`` committee errors · ``2`` config.
 
-    ``--dry-run`` is not offered a rollback here: the handler owns the transaction (see
-    :func:`_refresh_job`), so the flag the harness always adds is accepted and ignored.
+    **No ``--dry-run``** (``dry_run=False``, CR #196 finding 47). The handler owns the
+    transaction (see :func:`_refresh_job`), so there is no rollback for the flag to mean;
+    accepting it would have promised "roll back instead of committing" and then pulled,
+    upserted and committed a whole refresh cycle anyway. An argparse error is honest.
     """
     return run_job(
         JOB_SLUG,
@@ -438,6 +440,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m usa_wa_adapter_legislature.refresh",
         description="Run one WSL adapter refresh cycle (committees + meetings + members).",
         commit=False,
+        dry_run=False,
     )
 
 

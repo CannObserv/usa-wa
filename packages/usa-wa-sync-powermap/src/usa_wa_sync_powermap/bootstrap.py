@@ -10,7 +10,6 @@ Run order at cutover: grant the key ``subscriptions:write`` → reset the
 propagate (non-zero exit, nothing committed) so a bad bootstrap is loud.
 """
 
-from clearinghouse_core.database import get_session_factory
 from clearinghouse_core.job import JobContext, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_sync_powermap.engine import SyncEngine
@@ -35,7 +34,7 @@ async def _bootstrap_job(ctx: JobContext) -> dict:
     client = build_pm_client(settings)
     engine = SyncEngine(descriptors, client)
     reconciler = build_reconciler(client, engine, settings)
-    factory = get_session_factory()
+    factory = ctx.require_session_factory()
     try:
         async with factory() as session:
             report = await reconciler.sync_subscriptions(session)
@@ -59,6 +58,11 @@ def main(argv: list[str] | None = None) -> int:
 
     **Changed at #179b**: a failure used to escape as a traceback (exit 1 from the Python
     interpreter); it is now a logged ``failed`` run and the same exit 1, with a ledger row.
+
+    **No ``--dry-run``** (``dry_run=False``, CR #196 finding 47). This registers
+    subscriptions on PM over the network and commits the local cache in its own session,
+    so the flag could honour neither half of "run the work but roll back". It is
+    idempotent instead: a second run finds everything subscribed and does nothing.
     """
     return run_job(
         JOB_SLUG,
@@ -67,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m usa_wa_sync_powermap.bootstrap",
         description="One-shot PM subscription bootstrap (PM #203 / usa-wa#10).",
         commit=False,
+        dry_run=False,
     )
 
 
