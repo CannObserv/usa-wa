@@ -26,16 +26,13 @@ provider falls back to a *live* ``GetSponsors`` pull for an un-archived biennium
 
 from __future__ import annotations
 
-import argparse
-import asyncio
-import os
-import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.cohorts import sponsor_roster_provider
 from usa_wa_adapter_legislature.provisioning import (
@@ -62,6 +59,9 @@ from usa_wa_facts_seats.pdc.observations import (
 )
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pdc-identifier-build"
 
 
 def _roster_member_ids(
@@ -198,41 +198,24 @@ async def build_pdc_spans(
     return result
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Emit era-matched PDC person_wa_pdc identifier links from archive "
-        "(#79; identifier-only since #101)."
+async def _build_job(ctx: JobContext) -> PdcSpanResult:
+    """Harness handler: emit the identifier links and hand the result back as counters."""
+    return await build_pdc_spans(ctx.require_session())
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Emit the PDC identifier links. Exit ``0`` clean · ``1`` failed · ``2`` config."""
+    return run_job(
+        JOB_SLUG,
+        _build_job,
+        argv=argv,
+        prog="python -m usa_wa_facts_seats.pdc.build_pdc_spans",
+        description=(
+            "Emit era-matched PDC person_wa_pdc identifier links from archive "
+            "(#79; identifier-only since #101)."
+        ),
     )
-    parser.add_argument("--dry-run", action="store_true", help="build but roll back (preview)")
-    args = parser.parse_args(argv)
-
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
-
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            result = await build_pdc_spans(session)
-            if args.dry_run:
-                await session.rollback()
-            else:
-                await session.commit()
-    except Exception:
-        logger.exception("pdc_span_build_failed")
-        return 1
-    finally:
-        await engine.dispose()
-
-    print(
-        f"PDC identifier build: identifiers={result.identifiers} "
-        f"house_years={result.house_years} senate_years={result.senate_years} "
-        f"{'(dry-run, rolled back)' if args.dry_run else '(committed)'}"
-    )
-    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

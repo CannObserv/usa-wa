@@ -8,16 +8,17 @@ are NOT touched here (era matching needs a roster the harvest doesn't hold).
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime
 from unittest.mock import patch
 
 from sqlalchemy import func, select
 
+from clearinghouse_core import job as job_module
 from clearinghouse_core.provenance import FetchEvent, RawPayload
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment
 from usa_wa_adapter_pdc import harvest as harvest_module
-from usa_wa_adapter_pdc.harvest import HarvestSummary, election_years, harvest_pdc
+from usa_wa_adapter_pdc.harvest import HarvestSummary, election_years, harvest
 from usa_wa_adapter_pdc.transport import WireFetch
 
 
@@ -50,7 +51,7 @@ def test_election_years_cover_every_general_inclusive():
 
 async def test_harvest_archives_both_chambers_per_year_without_normalizing(db_session, usa_wa):
     client = _FakePDCClient()
-    summary = await harvest_pdc(db_session, years=[2012, 2014], pdc_client=client, dry_run=False)
+    summary = await harvest(db_session, years=[2012, 2014], pdc_client=client, dry_run=False)
 
     assert client.house_calls == [2012, 2014]
     assert client.senate_calls == [2012, 2014]
@@ -69,8 +70,8 @@ async def test_harvest_archives_both_chambers_per_year_without_normalizing(db_se
 
 async def test_reharvest_is_cache_hit(db_session, usa_wa):
     client = _FakePDCClient()
-    await harvest_pdc(db_session, years=[2012], pdc_client=client, dry_run=False)
-    second = await harvest_pdc(db_session, years=[2012], pdc_client=client, dry_run=False)
+    await harvest(db_session, years=[2012], pdc_client=client, dry_run=False)
+    second = await harvest(db_session, years=[2012], pdc_client=client, dry_run=False)
 
     assert second.cohorts_archived == 0  # within TTL → cache hit, no re-fetch
     assert client.house_calls == [2012]  # only the first run fetched
@@ -79,19 +80,20 @@ async def test_reharvest_is_cache_hit(db_session, usa_wa):
 # --- CLI ----------------------------------------------------------------------
 
 
-async def test_main_requires_database_url(monkeypatch, capsys):
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    with patch.object(harvest_module, "configure_logging"):
-        code = await harvest_module._main([])
-    assert code == 2
+def test_main_requires_database_url(monkeypatch, capsys):
+    def _raise(_role="app"):
+        raise RuntimeError("DATABASE_URL is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    assert harvest_module.main([]) == 2
     assert "DATABASE_URL is not set" in capsys.readouterr().err
 
 
-async def test_main_default_to_year_is_current_calendar_year(monkeypatch, capsys, test_engine):
+def test_main_default_to_year_is_current_calendar_year(monkeypatch, capsys):
     """#121: the default sweep bound is the current calendar year (the SOS harvest's choice) —
     the old biennium-seating-year default (2024 during 2025-26) would still miss the 2025 odd
     cohort."""
-    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    patch_job_runtime(monkeypatch)
     captured = {}
 
     async def _fake_harvest(session, *, years, **_kwargs):
@@ -99,30 +101,28 @@ async def test_main_default_to_year_is_current_calendar_year(monkeypatch, capsys
         return HarvestSummary(years=len(years), cohorts_archived=0, dry_run=True)
 
     with (
-        patch.object(harvest_module, "configure_logging"),
-        patch.object(harvest_module, "harvest_pdc", _fake_harvest),
+        patch.object(harvest_module, "harvest", _fake_harvest),
     ):
-        code = await harvest_module._main(["--dry-run"])
+        code = harvest_module.main(["--dry-run"])
 
     assert code == 0
     current_year = datetime.now(UTC).year
     assert captured["years"] == list(range(2008, current_year + 1))
 
 
-async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
-    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+def test_main_dry_run_rolls_back(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
     fake = HarvestSummary(years=2, cohorts_archived=4, dry_run=True)
 
     async def _fake_harvest(session, **_kwargs):
         return fake
 
     with (
-        patch.object(harvest_module, "configure_logging"),
-        patch.object(harvest_module, "harvest_pdc", _fake_harvest),
+        patch.object(harvest_module, "harvest", _fake_harvest),
     ):
-        code = await harvest_module._main(["--from-year", "2012", "--to-year", "2014", "--dry-run"])
+        code = harvest_module.main(["--from-year", "2012", "--to-year", "2014", "--dry-run"])
 
     assert code == 0
     out = capsys.readouterr().out
     assert "cohorts_archived=4" in out
-    assert "dry-run, rolled back" in out
+    assert "dry_run=true" in out  # the harness's own dry-run marker

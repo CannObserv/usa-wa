@@ -6,12 +6,17 @@ biennium under committees-roster:<biennium>; an inter-request pause between wind
 
 from __future__ import annotations
 
+import json
+from unittest.mock import patch
+
 import pytest
 from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization
-from usa_wa_adapter_legislature.committees.harvest import harvest_committees
+from usa_wa_adapter_legislature.committees import harvest as harvest_module
+from usa_wa_adapter_legislature.committees.harvest import harvest
 from usa_wa_adapter_legislature.transport import WireFetch
 
 
@@ -65,7 +70,7 @@ async def test_harvest_archives_each_biennium_and_materializes(db_session, usa_w
     async def _fake_sleep(seconds):
         pauses.append(seconds)
 
-    summary = await harvest_committees(
+    summary = await harvest(
         db_session,
         bienniums=["2023-24", "2025-26"],
         committee_client=client,
@@ -104,7 +109,7 @@ async def test_harvest_is_fill_only_never_clobbers(db_session, usa_wa, wsl_sourc
     await db_session.flush()
 
     client = _FakeCommitteeClient({"2023-24": ([_committee(31635, "WSL Produced Name")], b"<b/>")})
-    await harvest_committees(db_session, bienniums=["2023-24"], committee_client=client)
+    await harvest(db_session, bienniums=["2023-24"], committee_client=client)
 
     refreshed = (
         await db_session.execute(select(Organization).where(Organization.source_id == "31635"))
@@ -114,8 +119,8 @@ async def test_harvest_is_fill_only_never_clobbers(db_session, usa_wa, wsl_sourc
 
 async def test_harvest_re_run_is_cache_hit(db_session, usa_wa, wsl_source):
     client = _FakeCommitteeClient({"2023-24": ([_committee(31635, "X")], b"<b/>")})
-    await harvest_committees(db_session, bienniums=["2023-24"], committee_client=client)
-    await harvest_committees(db_session, bienniums=["2023-24"], committee_client=client)
+    await harvest(db_session, bienniums=["2023-24"], committee_client=client)
+    await harvest(db_session, bienniums=["2023-24"], committee_client=client)
 
     # second run inside TTL is a cache hit → only one fetch, one archived payload
     assert client.calls == ["2023-24"]
@@ -129,7 +134,7 @@ async def test_harvest_force_re_materializes_despite_fresh_cache(db_session, usa
     but the roster stayed archived, so a plain cache-hit re-run inserts nothing).
     The byte-identical wire still dedups to one RawPayload (revalidation, not re-store)."""
     client = _FakeCommitteeClient({"2023-24": ([_committee(31635, "X")], b"<b/>")})
-    await harvest_committees(db_session, bienniums=["2023-24"], committee_client=client)
+    await harvest(db_session, bienniums=["2023-24"], committee_client=client)
 
     # Simulate the incident rollback: roster stays archived, the org row is gone.
     org = (
@@ -148,14 +153,12 @@ async def test_harvest_force_re_materializes_despite_fresh_cache(db_session, usa
         ).scalar_one()
 
     # A plain re-run is a cache hit → re-materializes nothing (the plan's wrong premise).
-    cache_run = await harvest_committees(db_session, bienniums=["2023-24"], committee_client=client)
+    cache_run = await harvest(db_session, bienniums=["2023-24"], committee_client=client)
     assert cache_run.upserted == 0
     assert await _count() == 0
 
     # force=True re-fetches and re-inserts the rolled-back row despite the fresh cache.
-    forced = await harvest_committees(
-        db_session, bienniums=["2023-24"], committee_client=client, force=True
-    )
+    forced = await harvest(db_session, bienniums=["2023-24"], committee_client=client, force=True)
     assert forced.upserted == 1
     assert await _count() == 1
 
@@ -187,7 +190,7 @@ async def test_harvest_parents_subcommittee_to_prior_biennium_committee(
             ),
         }
     )
-    await harvest_committees(db_session, bienniums=["2021-22", "2023-24"], committee_client=client)
+    await harvest(db_session, bienniums=["2021-22", "2023-24"], committee_client=client)
 
     parent = (
         await db_session.execute(select(Organization).where(Organization.source_id == "875"))
@@ -198,3 +201,50 @@ async def test_harvest_parents_subcommittee_to_prior_biennium_committee(
     assert sub.parent_organization_id == parent.id
     # And the parent committee itself parents to the House chamber, not to the sub.
     assert parent.parent_organization_id != sub.id
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_reports_the_summary_and_ledgers_it(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
+
+    async def _fake_harvest(_session, **_kwargs):
+        return harvest_module.HarvestSummary(windows=2, upserted=11, dry_run=False)
+
+    with (
+        patch.object(harvest_module, "harvest", _fake_harvest),
+        patch.object(harvest_module, "WSLClient"),
+    ):
+        code = harvest_module.main(
+            ["--from-biennium", "2023-24", "--to-biennium", "2025-26", "--json"]
+        )
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == harvest_module.JOB_SLUG
+    assert payload["counters"] == {"windows": 2, "upserted": 11, "dry_run": False}
+
+
+def test_main_bad_biennium_range_is_still_exit_two(monkeypatch, capsys):
+    """An unusable range is an operator error, not a crash — the CLI returned 2 for it
+    before #179b and still does, now via ``JobResult(..., exit_code=EXIT_CONFIG)``."""
+    patch_job_runtime(monkeypatch)
+
+    with patch.object(harvest_module, "WSLClient"):
+        code = harvest_module.main(["--from-biennium", "2025-26", "--to-biennium", "2011-12"])
+
+    assert code == 2
+
+
+def test_main_failure_exits_one(monkeypatch):
+    patch_job_runtime(monkeypatch)
+
+    async def _boom(_session, **_kwargs):
+        raise RuntimeError("WSL down")
+
+    with (
+        patch.object(harvest_module, "harvest", _boom),
+        patch.object(harvest_module, "WSLClient"),
+    ):
+        assert harvest_module.main(["--from-biennium", "2023-24", "--to-biennium", "2025-26"]) == 1

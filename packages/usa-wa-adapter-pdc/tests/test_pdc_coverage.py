@@ -12,7 +12,7 @@ from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 
 def test_the_pdc_floor_is_declared_assumed():
-    """``harvest_pdc`` called it "~2008 (the PDC campaign-finance dataset's coverage)" — an
+    """``harvest`` called it "~2008 (the PDC campaign-finance dataset's coverage)" — an
     approximation nobody probed. ``assumed`` records that rather than dressing it as verified;
     an under-served year archives an *empty* cohort here, so the floor has never had to prove
     itself the way the SOS 500 forced the votewa bound to."""

@@ -61,10 +61,10 @@ chain, and emits windowed `former`/`legal` dated-name evidence to PM via the
    backward walk (no meeting calls) from current to the earliest non-empty biennium
    (stop after N consecutive empties). Reuse/extend `probe_committee_extent`'s walk;
    fake-WSL tests for the boundary.
-4. **`harvest_committees` CLI — test + impl.** Sweep `bienniums_in_range(floor,
+4. **`harvest` CLI — test + impl.** Sweep `bienniums_in_range(floor,
    current)` through `AdapterRunner(fill_only=True)`, archiving
    `committees-roster:<biennium>` + inserting by `Id`; `--pause-seconds` between
-   windows; `--from`/`--to`/`--dry-run`. Model on `harvest_committee_meetings` minus
+   windows; `--from`/`--to`/`--dry-run`. Model on `harvest` minus
    the seed-freeze. Tests: fill-only archival across a range, materialize-by-`Id`, no
    clobber of a PM-curated existing row, idempotent re-run (cache hits), pause invoked.
 
@@ -96,7 +96,7 @@ chain, and emits windowed `former`/`legal` dated-name evidence to PM via the
 9. **Suite + lint + docs.** `uv run pytest` + `ruff` green; document both CLIs +
    the new resource id in AGENTS.md / COMMANDS.md.
 10. **Operational (prod).** Run the committee-only probe (capture the true floor);
-    `harvest_committees --dry-run` then live (with a pause); spot-check the emitted
+    `harvest --dry-run` then live (with a pause); spot-check the emitted
     chain on `reconcile_committee_name_chain --dry-run` before the first live emit;
     then emit; re-run `validate_committees` to confirm no divergence introduced.
 

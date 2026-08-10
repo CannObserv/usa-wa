@@ -23,18 +23,17 @@ optional ``USA_WA_PDC_APP_TOKEN`` raises Socrata's rate limit.
 
 from __future__ import annotations
 
-import asyncio
 import os
-import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from clearinghouse_core.job import JobContext, run_job
 from clearinghouse_core.jurisdictions import Jurisdiction
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.sponsors.cohort import SponsorClient
@@ -49,6 +48,9 @@ from usa_wa_common.elections import election_years_for_biennium, senate_election
 from usa_wa_facts_seats.pdc.build_pdc_spans import build_pdc_spans
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pdc-refresh"
 
 _JURISDICTION_SLUG = "usa-wa"
 
@@ -144,28 +146,31 @@ async def run_refresh(
     return outcome
 
 
-async def _main() -> int:
-    configure_logging()
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
-    engine = create_async_engine(database_url)
-    try:
-        try:
-            async with AsyncSession(engine) as session, session.begin():
-                outcome = await run_refresh(session)
-        except Exception:
-            logger.exception("pdc_refresh_failed")
-            return 1
-        print(
-            f"PDC refresh: cohorts_archived={outcome.cohorts_archived} "
-            f"identifiers={outcome.identifiers}"
-        )
-        return 0
-    finally:
-        await engine.dispose()
+async def _refresh_job(ctx: JobContext) -> PdcRefreshOutcome:
+    """Harness handler, keeping the explicit ``session.begin()`` (``commit=False``) — the
+    pre-#179b CLI committed unconditionally through it and had no ``--dry-run``."""
+    session = ctx.require_session()
+    async with session.begin():
+        return await run_refresh(session)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run one PDC refresh cycle. Exit ``0`` clean · ``1`` failed · ``2`` config.
+
+    **No ``--dry-run``** (``dry_run=False``, CR #196 finding 55) — the twin of the SOS
+    refresh: its own ``session.begin()`` commits regardless, so the flag could only have
+    promised a rollback and archived the cohort anyway.
+    """
+    return run_job(
+        JOB_SLUG,
+        _refresh_job,
+        argv=argv,
+        prog="python -m usa_wa_facts_seats.pdc.refresh",
+        description="Run one PDC refresh cycle (archive the cohort + re-drive the identifiers).",
+        commit=False,
+        dry_run=False,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

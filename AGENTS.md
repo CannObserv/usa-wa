@@ -70,7 +70,8 @@ Prefetch query — run via `ToolSearch` at session start:
 
 Per-package module reference — what each file is for and why it exists:
 
-- [`docs/MODULES-FRAMEWORK.md`](docs/MODULES-FRAMEWORK.md) — Layers 1–2, the portable PM sync engine, the generated PM client
+- [`docs/MODULES-FRAMEWORK.md`](docs/MODULES-FRAMEWORK.md) — Layers 1–2: the framework + domain primitives
+- [`docs/MODULES-SYNC-ENGINE.md`](docs/MODULES-SYNC-ENGINE.md) — the portable PM sync engine + the generated PM client
 - [`docs/MODULES-COMMON.md`](docs/MODULES-COMMON.md) — Layer 2b `usa-wa-common`: WA vocabulary (calendar, seats, names, parties, ballot) and the cohort seam
 - [`docs/MODULES-LEGISLATURE.md`](docs/MODULES-LEGISLATURE.md) — WSL adapter: transport, normalizers, daily refresh, cohort providers, probes
 - [`docs/MODULES-LEGISLATURE-SPANS.md`](docs/MODULES-LEGISLATURE-SPANS.md) — tenure-span engine, operator succession, roster hygiene, span migrations
@@ -205,14 +206,7 @@ JSON records carry `{timestamp, level, logger, message}` (#133; structlog's defa
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the reusable Layer-3 pattern; read before adding an adapter, a source, or a span/seat builder
 - [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model: entities, lifecycle axes, spans-as-assignments, the three event shapes; read before adding a fact
-- [docs/MODULES-FRAMEWORK.md](docs/MODULES-FRAMEWORK.md) — Layer 1–2 primitives, the PM sync engine, regenerating the PM client
-- [docs/MODULES-COMMON.md](docs/MODULES-COMMON.md) — Layer 2b: the WA vocabulary package and the `CohortProvider` seam
-- [docs/MODULES-LEGISLATURE.md](docs/MODULES-LEGISLATURE.md) — WSL adapter ingest, normalization, daily refresh
-- [docs/MODULES-LEGISLATURE-SPANS.md](docs/MODULES-LEGISLATURE-SPANS.md) — tenure spans, operator succession, span migrations
-- [docs/MODULES-PDC.md](docs/MODULES-PDC.md) — PDC winner cohorts and identifier links
-- [docs/MODULES-SOS.md](docs/MODULES-SOS.md) — SOS filings/results sources
-- [docs/MODULES-FACTS-SEATS.md](docs/MODULES-FACTS-SEATS.md) — Layer 3b: the seat fact family and the four renamed systemd entry points
-- [docs/MODULES-SYNC.md](docs/MODULES-SYNC.md) — API deployment, PM sidecar, producer CLIs, repo-root layout
+- the nine `docs/MODULES-*.md` per-package references are listed under § Project Layout above — one entry each, not repeated here
 - [docs/API.md](docs/API.md) — the read-only `/api/v1` surface: route inventory, pagination, and the response contracts
 - [docs/LWW-NOOP-GATE.md](docs/LWW-NOOP-GATE.md) — the local-newer no-op gate; read before adding a `write_enabled` producer descriptor
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — systemd units, failure alerting, DB roles, restart/lifecycle table

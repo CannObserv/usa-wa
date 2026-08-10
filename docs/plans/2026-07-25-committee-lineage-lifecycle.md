@@ -10,7 +10,7 @@ Design spec: [`docs/specs/2026-07-25-committee-lineage-lifecycle-design.md`](../
 
 ## Problem
 
-The `harvest_committees` model-A backfill left ~150 historical committee Orgs stuck `active=true`, lifespan-unbounded, because `reconcile_committee_active`'s #90 live-era scoping excludes non-current WSL `Id`s from retirement. There is no coherent Org timeline and no cross-`Id` succession record (the "Senate Labor & Commerce" lineage: 3+ era `Id`s all `active=true`, only 28244 holding live members). power-map#321 shipped the event surface to fix this; usa-wa must now consume it.
+The `harvest` model-A backfill left ~150 historical committee Orgs stuck `active=true`, lifespan-unbounded, because `reconcile_committee_active`'s #90 live-era scoping excludes non-current WSL `Id`s from retirement. There is no coherent Org timeline and no cross-`Id` succession record (the "Senate Labor & Commerce" lineage: 3+ era `Id`s all `active=true`, only 28244 holding live members). power-map#321 shipped the event surface to fix this; usa-wa must now consume it.
 
 ## Approach
 

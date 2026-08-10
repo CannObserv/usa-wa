@@ -26,15 +26,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import os
 import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import EXIT_CONFIG, JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date, bienniums_in_range
 from usa_wa_adapter_legislature.adapter import (
@@ -42,7 +42,7 @@ from usa_wa_adapter_legislature.adapter import (
     WALegislatureAdapter,
 )
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.committees.probe_extent import probe_committee_floor
+from usa_wa_adapter_legislature.committees.probe_extent import probe_floor
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction
@@ -52,17 +52,20 @@ logger = get_logger(__name__)
 #: Default inter-request pause (seconds) between window fetches — drips the sweep.
 DEFAULT_PAUSE_SECONDS = 2.0
 
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "wsl-committee-harvest"
+
 
 @dataclass(frozen=True)
 class HarvestSummary:
-    """Outcome of one :func:`harvest_committees` run."""
+    """Outcome of one :func:`harvest` run."""
 
     windows: int
     upserted: int
     dry_run: bool
 
 
-async def harvest_committees(
+async def harvest(
     session: AsyncSession,
     *,
     bienniums: list[str],
@@ -132,7 +135,7 @@ async def _resolve_bienniums(
     """Explicit ``--from`` wins; else probe the committee floor (GetCommittees-only)."""
     if from_biennium is not None:
         return bienniums_in_range(from_biennium, to_biennium)
-    floor = await probe_committee_floor(committee_client, start_biennium=to_biennium)
+    floor = await probe_floor(committee_client, start_biennium=to_biennium)
     earliest = floor["earliest_with_data"]
     if earliest is None:
         raise ValueError("committee floor probe found no data")
@@ -140,65 +143,56 @@ async def _resolve_bienniums(
     return bienniums_in_range(earliest, to_biennium)
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Harvest historical committee rosters (sub-project 3, Phase A)."
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the sweep's own flags to the harness's shared parser."""
     parser.add_argument(
         "--from-biennium", default=None, help="e.g. 2011-12 (else auto-probe the floor)"
     )
     parser.add_argument("--to-biennium", default=None, help="default: current from date")
     parser.add_argument("--pause-seconds", type=float, default=DEFAULT_PAUSE_SECONDS)
-    parser.add_argument("--dry-run", action="store_true", help="harvest but roll back (preview)")
     parser.add_argument(
         "--force",
         action="store_true",
         help="re-fetch + re-materialize even on a fresh cache hit (post-incident "
         "re-materialization / retrospective-change revalidation)",
     )
-    args = parser.parse_args(argv)
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
 
+async def _harvest_job(ctx: JobContext) -> HarvestSummary | JobResult:
+    """Harness handler: resolve the range (probing the floor when unset), then sweep.
+
+    An unusable range is an operator error, not a crash, so it keeps the ``2`` the CLI
+    returned for it before #179b — ``EXIT_CONFIG``, the same code a missing DSN gets.
+    """
+    args = ctx.args
     to_biennium = args.to_biennium or biennium_for_date(datetime.now(UTC).date())
     committee_client = WSLClient("CommitteeService")
     try:
         bienniums = await _resolve_bienniums(args.from_biennium, to_biennium, committee_client)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
-        return 2
-
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            summary = await harvest_committees(
-                session,
-                bienniums=bienniums,
-                committee_client=committee_client,
-                pause_seconds=args.pause_seconds,
-                dry_run=args.dry_run,
-                force=args.force,
-            )
-            if args.dry_run:
-                await session.rollback()
-            else:
-                await session.commit()
-    except Exception:
-        logger.exception("wsl_committee_harvest_failed")
-        return 1
-    finally:
-        await engine.dispose()
-
-    print(
-        f"Committee roster harvest: windows={summary.windows} upserted={summary.upserted} "
-        f"{'(dry-run, rolled back)' if summary.dry_run else '(committed)'}"
+        return JobResult.failed({"error": str(exc)}, exit_code=EXIT_CONFIG)
+    return await harvest(
+        ctx.require_session(),
+        bienniums=bienniums,
+        committee_client=committee_client,
+        pause_seconds=args.pause_seconds,
+        dry_run=ctx.dry_run,
+        force=args.force,
     )
-    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the roster sweep. Exit ``0`` clean · ``1`` failed · ``2`` config/bad range."""
+    return run_job(
+        JOB_SLUG,
+        _harvest_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.committees.harvest",
+        description="Harvest historical committee rosters (sub-project 3, Phase A).",
+        extra_args=_add_args,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

@@ -1,11 +1,16 @@
 """C5 committee lineage-candidate curation assist (usa-wa#124) — pure ranking."""
 
+import json
 from datetime import date
+from unittest.mock import patch
 
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
+from usa_wa_adapter_legislature.committees import lineage_suggest as suggest_module
 from usa_wa_adapter_legislature.committees.lifecycle import CommitteeWindow
 from usa_wa_adapter_legislature.committees.lineage_suggest import (
     CandidateInfo,
+    SuccessionCandidate,
     build_candidate_infos,
     name_similarity,
     significant_tokens,
@@ -149,3 +154,31 @@ def test_ranked_by_score_descending():
     out = suggest_candidates(infos)
     scores = [c.score for c in out]
     assert scores == sorted(scores, reverse=True)
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_reports_the_candidate_count(monkeypatch, capsys):
+    """Advisory + read-only: still always exit 0, and the harness's session replaces
+    the engine the module used to build for itself from ``os.environ``."""
+    patch_job_runtime(monkeypatch)
+
+    async def _fake_run(_session, _biennium, **_kwargs):
+        return [
+            SuccessionCandidate(
+                predecessor_id="924",
+                successor_id="966",
+                score=0.9,
+                reasons=["name"],
+                direction_certain=True,
+            )
+        ]
+
+    with patch.object(suggest_module, "_run", _fake_run):
+        code = suggest_module.main(["--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == suggest_module.JOB_SLUG
+    assert payload["counters"]["candidates"] == 1

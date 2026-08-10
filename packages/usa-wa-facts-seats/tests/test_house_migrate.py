@@ -14,11 +14,11 @@ the deeper keepers — the ``superseded_*`` tests cover that pass. Run **after**
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from unittest.mock import patch
 
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
 
+from clearinghouse_core import job as job_module
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from usa_wa_facts_seats.house import migrate as migrate_module
@@ -595,9 +595,11 @@ async def test_pdc_row_lands_its_anchor_on_the_surviving_keeper(db_session, usa_
     assert [s.source_id for s in survivors] == ["100:chamber-house:ld-48-position-1:2017-18"]
 
 
-async def test_main_requires_owner_role(monkeypatch, capsys):
-    monkeypatch.delenv("DATABASE_URL_OWNER", raising=False)
-    with patch.object(migrate_module, "configure_logging"):
-        code = await migrate_module._main([])
+def test_main_requires_owner_role(monkeypatch, capsys):
+    def _raise(_role="app"):
+        raise RuntimeError("DATABASE_URL_OWNER is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    code = migrate_module.main([])
     assert code == 2
     assert "DATABASE_URL_OWNER is not set" in capsys.readouterr().err

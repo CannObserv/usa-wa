@@ -18,11 +18,11 @@ The result is incoherent Org state. Worked example — the "Senate Labor & Comme
 | 10171 | Senate Committee on Labor, Commerce, Research & Development | 2026-07-03 (harvest) | ⚠️ true | 1 | 13 | 0 |
 | … (further era Ids) | | | ⚠️ true | | | 0 |
 
-Systemic footprint (as of 2026-07-24): **186 committee orgs — 184 `active=true`, 2 false, 0 archived, 0 deleted.** 34 came from daily discovery (all genuinely current); **152 from the `harvest_committees` backfill, of which 150 remain `active=true`.**
+Systemic footprint (as of 2026-07-24): **186 committee orgs — 184 `active=true`, 2 false, 0 archived, 0 deleted.** 34 came from daily discovery (all genuinely current); **152 from the `harvest` backfill, of which 150 remain `active=true`.**
 
 ### Root cause
 
-1. `harvest_committees` (model A) materializes every era's roster; every backfilled Org defaults `active=true` — the harvest has no signal that an old-era `Id` is defunct.
+1. `harvest` (model A) materializes every era's roster; every backfilled Org defaults `active=true` — the harvest has no signal that an old-era `Id` is defunct.
 2. `reconcile_committee_active` **live-era scoping (#90)** deliberately excludes any `Id` not in the current-or-prior biennium roster (`scoped_out`), to stop the 152 reading as a mass retirement that trips the abort floor. **Side effect: the historical Ids can never be retired** — permanent `active=true` zombies with no lifecycle dating.
 
 ### What is already coherent

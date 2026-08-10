@@ -372,7 +372,7 @@ async def test_rolling_sweep_detects_mismatch(db_session):
 def _parse(argv: list[str]):
     """Parse ``argv`` through the same composed parser the harness builds — base args
     plus the sweep's own — so these dispatch tests can't drift from the real CLI."""
-    return job_module._build_parser("integrity-sweep", None, None, integrity._add_args).parse_args(
+    return job_module.build_parser("integrity-sweep", None, None, integrity._add_args).parse_args(
         argv
     )
 

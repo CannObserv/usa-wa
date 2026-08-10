@@ -17,6 +17,7 @@ import pytest
 from ulid import ULID as _ULID
 
 from clearinghouse_core import job as job_module
+from clearinghouse_core.config import DATABASE_ROLE_APP, DATABASE_ROLE_OWNER
 from clearinghouse_core.job import (
     EXIT_CONFIG,
     EXIT_DEGRADED,
@@ -51,17 +52,55 @@ class _FakeSession:
         self.rolled_back += 1
 
 
+class _EngineStub:
+    """``create_async_engine`` stand-in for the owner-role path, which builds a
+    per-run engine instead of borrowing the process-shared one."""
+
+    def __init__(self, url: str, **_kwargs) -> None:
+        self.url = url
+        self.disposed = 0
+
+    async def dispose(self) -> None:
+        self.disposed += 1
+
+
+class _SessionmakerStub:
+    """``async_sessionmaker`` stand-in: calling it yields a recording session."""
+
+    def __init__(self) -> None:
+        self.session = _FakeSession()
+
+    def __call__(self):
+        return self
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, *_exc) -> bool:
+        return False
+
+
 @pytest.fixture
 def fake_db(monkeypatch):
-    """Replace the harness's database seam with an in-memory session."""
+    """Replace the harness's database seam with an in-memory session **and factory**.
+
+    The factory is not decoration: the self-session jobs reach it through
+    ``ctx.require_session_factory()`` (CR #196 finding 49), so a fixture that yielded
+    ``None`` there would make the seam untestable through the harness.
+    """
     session = _FakeSession()
+    factory = _SessionmakerStub()
+    factory.session = session
+    session.factory = factory
 
     @asynccontextmanager
     async def _fake_database():
-        yield (None, session)
+        yield (factory, session)
 
     monkeypatch.setattr(job_module, "_database", _fake_database)
-    monkeypatch.setattr(job_module, "get_database_url", lambda: "postgresql+asyncpg://x/y")
+    monkeypatch.setattr(
+        job_module, "get_database_url", lambda *_a, **_k: "postgresql+asyncpg://x/y"
+    )
     return session
 
 
@@ -302,7 +341,7 @@ def test_commit_false_leaves_the_transaction_to_the_handler(fake_db):
 def test_missing_database_url_is_a_config_exit_not_a_crash(monkeypatch, capsys):
     """One env-resolution path — ``get_database_url()`` — not 29 raw os.environ reads."""
 
-    def _raise() -> str:
+    def _raise(_role: str = DATABASE_ROLE_APP) -> str:
         raise RuntimeError("DATABASE_URL is not set. ...")
 
     monkeypatch.setattr(job_module, "get_database_url", _raise)
@@ -317,7 +356,7 @@ def test_missing_database_url_is_a_config_exit_not_a_crash(monkeypatch, capsys):
 def test_a_db_free_job_never_touches_the_database(monkeypatch):
     """Write-free probes opt out of the session entirely."""
 
-    def _raise() -> str:  # pragma: no cover — must not be called
+    def _raise(_role: str = DATABASE_ROLE_APP) -> str:  # pragma: no cover — must not be called
         raise AssertionError("get_database_url() called for a db-free job")
 
     monkeypatch.setattr(job_module, "get_database_url", _raise)
@@ -329,6 +368,129 @@ def test_a_db_free_job_never_touches_the_database(monkeypatch):
 
     assert run_job("demo", handler, argv=[], needs_db=False) == EXIT_OK
     assert seen == {"session": None}
+
+
+# --- the owner role (#179b) ---------------------------------------------------
+
+
+def test_owner_role_resolves_the_owner_dsn(monkeypatch):
+    """Five migrations hard-delete citations the app role is REVOKEd on (#54), so they
+    run under ``DATABASE_URL_OWNER``. Before #179b each read it off ``os.environ``
+    itself — the same split brain #179 closed for ``DATABASE_URL``."""
+    asked: list[str] = []
+
+    def _url(role: str = DATABASE_ROLE_APP) -> str:
+        asked.append(role)
+        return "postgresql+asyncpg://owner@h/db"
+
+    monkeypatch.setattr(job_module, "get_database_url", _url)
+    built: list[str] = []
+
+    def _build(url: str):
+        built.append(url)
+        return _EngineStub(url), _SessionmakerStub()
+
+    monkeypatch.setattr(job_module, "_build_role_engine", _build)
+
+    seen: dict = {}
+
+    async def handler(ctx: JobContext) -> JobResult:
+        seen["session"] = ctx.session
+        return JobResult.ok()
+
+    assert run_job("demo", handler, argv=[], role=DATABASE_ROLE_OWNER) == EXIT_OK
+    # Once for the pre-flight config check, once to build the engine — never for "app".
+    assert set(asked) == {DATABASE_ROLE_OWNER}
+    assert built == ["postgresql+asyncpg://owner@h/db"]
+    assert seen["session"] is not None
+
+
+def test_missing_owner_url_is_a_config_exit(monkeypatch, capsys):
+    """Exit 2 — the code every one of the five owner CLIs already returned by hand."""
+
+    def _raise(_role: str = DATABASE_ROLE_APP) -> str:
+        raise RuntimeError("DATABASE_URL_OWNER is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+
+    async def handler(ctx: JobContext) -> JobResult:  # pragma: no cover — never reached
+        return JobResult.ok()
+
+    assert run_job("demo", handler, argv=[], role=DATABASE_ROLE_OWNER) == EXIT_CONFIG
+    assert "DATABASE_URL_OWNER" in capsys.readouterr().err
+
+
+def test_owner_role_disposes_its_own_engine(monkeypatch):
+    """The owner engine is per-run and not the process-shared one, so the harness — not
+    the CLI — still owns its ``finally``."""
+
+    def _url(role: str = DATABASE_ROLE_APP) -> str:
+        return "postgresql+asyncpg://owner@h/db"
+
+    monkeypatch.setattr(job_module, "get_database_url", _url)
+    engines: list = []
+
+    def _build(url: str):
+        made = _EngineStub(url)
+        engines.append(made)
+        return made, _SessionmakerStub()
+
+    monkeypatch.setattr(job_module, "_build_role_engine", _build)
+
+    async def handler(ctx: JobContext) -> JobResult:
+        return JobResult.ok()
+
+    run_job("demo", handler, argv=[], role=DATABASE_ROLE_OWNER, ledger=True)
+
+    assert [e.disposed for e in engines] == [1]
+
+
+def test_owner_role_routes_every_session_through_the_owner_engine(monkeypatch, ledger_calls):
+    """Including the ledger's. An owner job must not need ``DATABASE_URL`` as well —
+    otherwise the #178 row for the riskiest jobs in the repo is the one most likely to
+    go missing, and the owner role can always write ``job_runs`` anyway."""
+    owner_factory = _SessionmakerStub()
+
+    def _url(role: str = DATABASE_ROLE_APP) -> str:
+        if role == DATABASE_ROLE_APP:  # pragma: no cover — must not be reached
+            raise AssertionError("owner job resolved the app DSN")
+        return "postgresql+asyncpg://owner@h/db"
+
+    def _no_shared_factory():  # pragma: no cover — must not be reached
+        raise AssertionError("owner job fell back to the process-shared app engine")
+
+    monkeypatch.setattr(job_module, "get_database_url", _url)
+    monkeypatch.setattr(
+        job_module, "_build_role_engine", lambda url: (_EngineStub(url), owner_factory)
+    )
+    monkeypatch.setattr(job_module, "get_session_factory", _no_shared_factory)
+
+    seen: list = []
+
+    async def handler(ctx: JobContext) -> JobResult:
+        seen.append(job_module._session_factory())
+        return JobResult.ok({"retired": 2})
+
+    run_job("owner-demo", handler, argv=[], role=DATABASE_ROLE_OWNER, ledger=True)
+
+    assert seen == [owner_factory]
+    assert [c[0] for c in ledger_calls] == ["open", "close"]
+    assert ledger_calls[0][1]["job_slug"] == "owner-demo"
+
+
+def test_the_app_role_still_uses_the_process_shared_engine(fake_db, monkeypatch):
+    """The owner path is additive: nothing changes for the 39 app-role jobs."""
+    shared = object()
+    monkeypatch.setattr(job_module, "get_session_factory", lambda: shared)
+
+    seen: list = []
+
+    async def handler(ctx: JobContext) -> JobResult:
+        seen.append(job_module._session_factory())
+        return JobResult.ok()
+
+    assert run_job("demo", handler, argv=[]) == EXIT_OK
+    assert seen == [shared]
 
 
 def test_require_session_raises_when_the_job_declared_no_database(fake_db):
@@ -532,3 +694,135 @@ def test_git_sha_is_resolved_before_the_event_loop(monkeypatch):
         "so a blocking subprocess is stalling the loop again"
     )
     job_module._git_sha.cache_clear()
+
+
+# --- A job that cannot roll back must not advertise --dry-run (CR #196 finding 47) ---
+
+
+def test_a_job_that_cannot_roll_back_declines_the_dry_run_flag(fake_db):
+    """``dry_run=False`` removes the flag rather than accepting it and ignoring it.
+
+    The harness adds ``--dry-run`` to every job with the help text "Run the work but roll
+    back instead of committing". A ``commit=False`` job whose handler owns an
+    unconditional transaction — the WSL refresh, the PM subscription bootstrap — cannot
+    honour that, and silently committing behind the flag is worse than not offering it:
+    the summary line even printed ``dry_run=true`` on the run that wrote.
+    """
+
+    async def handler(ctx: JobContext) -> dict:
+        return {}
+
+    with pytest.raises(SystemExit) as excinfo:
+        run_job("no-rollback", handler, argv=["--dry-run"], dry_run=False)
+    # argparse's own "unrecognized arguments" exit, which is also the harness's EXIT_CONFIG.
+    assert excinfo.value.code == EXIT_CONFIG
+
+
+def test_declining_the_flag_still_hands_the_handler_a_false_dry_run(fake_db, capsys):
+    """The attribute has to exist regardless — ``_execute`` and ``_emit`` both read it."""
+    seen: list[bool] = []
+
+    async def handler(ctx: JobContext) -> dict:
+        seen.append(ctx.dry_run)
+        return {}
+
+    assert run_job("no-rollback", handler, argv=[], dry_run=False) == EXIT_OK
+    assert seen == [False]
+    assert "dry_run=true" not in capsys.readouterr().out
+
+
+def test_the_flag_is_offered_by_default(fake_db):
+    """The suppression is opt-in: every other job keeps the base flag."""
+
+    async def handler(ctx: JobContext) -> dict:
+        return {}
+
+    assert run_job("rollback-capable", handler, argv=["--dry-run"]) == EXIT_OK
+
+
+# --- The role factory is per-run, not process-wide (CR #196 finding 50) ---
+
+
+def test_concurrent_owner_runs_do_not_share_a_role_factory(monkeypatch):
+    """Two owner-role runs in one process must each see their own session factory.
+
+    As a module global, the first task to *finish* blanked the factory in its ``finally``
+    while the second was still inside its lifetime — so the survivor silently fell back to
+    the process-shared **app** engine. One job per process makes that unreachable today,
+    but ``job.py`` is the repo's reusable harness and nothing guards the invariant.
+    """
+    monkeypatch.setattr(job_module, "get_database_url", lambda role="app": f"postgres://{role}")
+
+    class _FakeEngine:
+        async def dispose(self) -> None:
+            return None
+
+    tags = iter(["factory-a", "factory-b"])
+    monkeypatch.setattr(job_module, "_build_role_engine", lambda url: (_FakeEngine(), next(tags)))
+
+    async def _scenario() -> dict[str, object]:
+        observed: dict[str, object] = {}
+
+        async def _one(name: str, hold: float) -> None:
+            async with job_module._engine_lifetime("owner"):
+                await asyncio.sleep(hold)
+                observed[name] = job_module._session_factory()
+
+        # ``a`` is still inside its lifetime when ``b`` opens and closes its own.
+        await asyncio.gather(_one("a", 0.02), _one("b", 0.0))
+        return observed
+
+    assert asyncio.run(_scenario()) == {"a": "factory-a", "b": "factory-b"}
+
+
+# --- Jobs that open their own sessions stay on this run's engine (CR #196 finding 49) ---
+
+
+def test_require_session_factory_hands_back_the_harness_factory(fake_db):
+    """The seam the self-session jobs use instead of ``get_session_factory()``."""
+    seen: list[object] = []
+
+    async def handler(ctx: JobContext) -> dict:
+        seen.append(ctx.require_session_factory())
+        return {}
+
+    assert run_job("own-session", handler, argv=[]) == EXIT_OK
+    assert seen == [fake_db.factory]
+
+
+def test_require_session_factory_raises_for_a_db_free_job(monkeypatch):
+    """Symmetric with ``require_session``: a probe has no factory to hand out."""
+    raised: list[str] = []
+
+    async def handler(ctx: JobContext) -> dict:
+        try:
+            ctx.require_session_factory()
+        except RuntimeError as exc:
+            raised.append(str(exc))
+        return {}
+
+    assert run_job("probe", handler, argv=[], needs_db=False) == EXIT_OK
+    assert "needs_db=False" in raised[0]
+
+
+def test_a_narrower_dry_run_can_state_its_own_meaning(fake_db, capsys):
+    """``dry_run_help`` for the job whose flag is real but not a rollback.
+
+    ``meetings/harvest.py`` declared "harvest but do not write the seed" itself until
+    #179b took its parser away and left it advertising the generic rollback string, which
+    is false there — its archive writes commit either way (CR #196 finding 56).
+    """
+
+    async def handler(ctx: JobContext) -> dict:
+        return {}
+
+    with pytest.raises(SystemExit):
+        run_job(
+            "narrow",
+            handler,
+            argv=["--help"],
+            dry_run_help="harvest but do not write the seed",
+        )
+    out = capsys.readouterr().out
+    assert "harvest but do not write the seed" in out
+    assert "roll back instead of committing" not in out

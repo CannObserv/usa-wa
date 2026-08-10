@@ -19,8 +19,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 class RecordingSession:
     """AsyncSession stand-in that records the job harness's transaction decisions.
 
-    Returned by :func:`patch_job_runtime`; only the two methods the harness itself
-    calls are implemented, so a test that asserts commit-vs-rollback needs no database.
+    Returned by :func:`patch_job_runtime`; only the surface the harness — or a
+    ``commit=False`` handler that owns its own transaction — actually uses is
+    implemented, so a test that asserts commit-vs-rollback needs no database.
     """
 
     def __init__(self) -> None:
@@ -34,6 +35,22 @@ class RecordingSession:
     async def rollback(self) -> None:
         """Record a rollback."""
         self.rolled_back += 1
+
+    @asynccontextmanager
+    async def begin(self) -> AsyncIterator[RecordingSession]:
+        """Record an explicit transaction block, committing on clean exit.
+
+        The jobs that keep ``commit=False`` because their commit is not conditional on
+        success — the WSL refresh, the meeting-seed harvest — do so through
+        ``async with session.begin()``, and without this they failed under the helper
+        with ``AttributeError`` rather than exercising the decision under test.
+        """
+        try:
+            yield self
+        except Exception:
+            await self.rollback()
+            raise
+        await self.commit()
 
 
 def patch_job_runtime(monkeypatch: Any) -> RecordingSession:
@@ -53,8 +70,21 @@ def patch_job_runtime(monkeypatch: Any) -> RecordingSession:
     session = RecordingSession()
 
     @asynccontextmanager
-    async def _fake_database() -> AsyncIterator[tuple[None, RecordingSession]]:
-        yield (None, session)
+    async def _fake_session() -> AsyncIterator[RecordingSession]:
+        yield session
+
+    def _fake_factory() -> Any:
+        """Stand in for ``async_sessionmaker``: calling it opens the recording session.
+
+        Non-``None`` because the self-session jobs take their factory from
+        ``ctx.require_session_factory()`` (CR #196 finding 49); handing them ``None`` here
+        would fail the helper's whole purpose of letting a ``main()`` be called safely.
+        """
+        return _fake_session()
+
+    @asynccontextmanager
+    async def _fake_database() -> AsyncIterator[tuple[Any, RecordingSession]]:
+        yield (_fake_factory, session)
 
     @asynccontextmanager
     async def _fake_ledger_session() -> AsyncIterator[RecordingSession]:
@@ -74,8 +104,33 @@ def patch_job_runtime(monkeypatch: Any) -> RecordingSession:
     monkeypatch.setattr(job_module, "open_run", _noop_open)
     monkeypatch.setattr(job_module, "close_run", _noop_close)
     monkeypatch.setattr(job_module, "record_run", _noop_record)
-    monkeypatch.setattr(job_module, "get_database_url", lambda: "postgresql+asyncpg://fake/test")
+    # Accepts the role argument the owner-role jobs pass (#179b); still callable bare.
+    monkeypatch.setattr(
+        job_module, "get_database_url", lambda *_a, **_k: "postgresql+asyncpg://fake/test"
+    )
     return session
+
+
+def parse_job_args(extra_args: Any, argv: list[str]) -> Any:
+    """Parse ``argv`` exactly as ``run_job()`` would for a job declaring ``extra_args``.
+
+    The parser moved inside the harness at #179b, so the parser tests that used to call a
+    CLI's own ``_build_parser()`` need a seam. Going through the real builder is the point:
+    it proves the job's flags coexist with the shared ``--dry-run`` / ``--json`` rather
+    than testing a parser the CLI no longer uses.
+
+    ``job.build_parser`` is public rather than private precisely because this helper — a
+    shipped module, not a test — depends on it (CR #196 finding 51); reaching through the
+    underscore would have made a rename here break a public surface with no signal.
+
+    Local import for the same reason as :func:`patch_job_runtime` above:
+    :mod:`clearinghouse_core.job` pulls in the ORM models, and this module is imported at
+    conftest time before the test engine exists. The repo's "no inline imports" rule
+    yields to that ordering constraint here, as it does there.
+    """
+    from clearinghouse_core import job as job_module
+
+    return job_module.build_parser("test-job", None, None, extra_args).parse_args(argv)
 
 
 _UNREMEMBERED = object()

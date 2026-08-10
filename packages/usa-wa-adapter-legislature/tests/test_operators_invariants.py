@@ -1,9 +1,15 @@
 """Succession invariant checks (#107) — chamber-count + duplicate-occupancy."""
 
+import json
 from datetime import date
+from unittest.mock import patch
 
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
+from usa_wa_adapter_legislature.operators import invariants as inv_module
 from usa_wa_adapter_legislature.operators.invariants import (
+    AuditOutcome,
+    InvariantResult,
     MemberConflict,
     SeatConflict,
     _run_audit,
@@ -356,3 +362,49 @@ def test_audit_exit_code():
     assert audit_exit_code(strict=True, conflict_count=0) == 0  # strict but clean
     assert audit_exit_code(strict=False, conflict_count=3) == 0  # report-only default
     assert audit_exit_code(strict=False, conflict_count=0) == 0
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_exit_one_on_a_violation(monkeypatch, capsys):
+    """Unchanged daily contract: 0 clean / 1 on drift (the OnFailure= email)."""
+    patch_job_runtime(monkeypatch)
+
+    async def _violating(_session, **_kwargs):
+        return InvariantResult(
+            senate_open=48,
+            house_open=98,
+            expected_senate=49,
+            expected_house=98,
+            duplicate_seats=[],
+            duplicate_members=[],
+        )
+
+    with patch.object(inv_module, "check_invariants", _violating):
+        code = inv_module.main(["--json"])
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == inv_module.JOB_SLUG
+    assert payload["outcome"] == "failed"
+    assert payload["counters"]["senate_open"] == 48
+
+
+def test_main_rejects_mutually_exclusive_audit_flags(monkeypatch, capsys):
+    """Unchanged: --as-of with --sweep-biennia is exit 2 (an operator error)."""
+    patch_job_runtime(monkeypatch)
+    assert inv_module.main(["--as-of", "2025-01-01", "--sweep-biennia"]) == 2
+    assert "mutually exclusive" in capsys.readouterr().err
+
+
+def test_main_audit_mode_honours_the_strict_exit_code(monkeypatch):
+    """The #119 report-only default and its --strict escalation both survive the move."""
+    patch_job_runtime(monkeypatch)
+
+    async def _audit(_session, *, probes):
+        return AuditOutcome(seat_conflicts=[("x", "y")], member_conflicts=[])
+
+    with patch.object(inv_module, "_run_audit", _audit):
+        assert inv_module.main(["--as-of", "2025-01-01"]) == 0
+        assert inv_module.main(["--as-of", "2025-01-01", "--strict"]) == 1

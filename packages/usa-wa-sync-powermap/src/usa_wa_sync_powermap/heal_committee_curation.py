@@ -24,25 +24,24 @@ against PM. No operator token (shell = trust boundary, as with the reconcile CLI
     python -m usa_wa_sync_powermap.heal_committee_curation
 """
 
-import argparse
-import asyncio
-import json
-import sys
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.database import get_session_factory
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.queries import live_only
-from clearinghouse_sync_powermap.client import DeliveryBlockedError
 from usa_wa_sync_powermap.config import get_sidecar_settings
 from usa_wa_sync_powermap.descriptors import OrganizationDescriptor
+from usa_wa_sync_powermap.jobs import never, run_pm_job
 from usa_wa_sync_powermap.registry import build_pm_client
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pm-committee-curation-heal"
 
 #: Producer source whose anchored cohort this heals.
 _SOURCE = "usa_wa_legislature"
@@ -105,24 +104,15 @@ async def heal_committee_curation(session: AsyncSession, descriptor: Any, client
     }
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_sync_powermap.heal_committee_curation",
-        description="Force-adopt PM curation for LWW-locked anchored orgs (#65).",
-    )
-    parser.add_argument("--dry-run", action="store_true", help="preview without committing")
-    return parser
-
-
-async def _run(args: argparse.Namespace) -> dict:
+async def _run(dry_run: bool, factory: Any) -> dict:
     settings = get_sidecar_settings()
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — cannot read from Power Map.")
-    async with get_session_factory()() as session:
+    async with factory() as session:
         client = build_pm_client(settings)
         try:
             result = await heal_committee_curation(session, OrganizationDescriptor(), client)
-            if args.dry_run:
+            if dry_run:
                 await session.rollback()
                 result = {**result, "dry_run": True}
             else:
@@ -132,17 +122,27 @@ async def _run(args: argparse.Namespace) -> dict:
             await client.aclose()
 
 
+async def _heal_job(ctx: JobContext) -> JobResult:
+    """Harness handler. ``commit=False``; ``_run`` keeps its own session/commit."""
+    factory = ctx.require_session_factory()
+    return await run_pm_job(lambda: _run(ctx.dry_run, factory), failed_when=never)
+
+
 def main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    args = _build_parser().parse_args(argv)
-    try:
-        result = asyncio.run(_run(args))
-    except DeliveryBlockedError as exc:
-        print(json.dumps({"error": f"delivery blocked: {exc}"}))
-        return 2
-    print(json.dumps(result, indent=2, default=str))
-    return EXIT_ABORTED if result.get("aborted") else 0
+    """Force-adopt PM curation.
+
+    Exit codes (unchanged): ``0`` clean or dry-run; ``2`` a global auth block; ``3`` a
+    guardrail abort, ledgered as ``degraded``.
+    """
+    return run_job(
+        JOB_SLUG,
+        _heal_job,
+        argv=argv,
+        prog="python -m usa_wa_sync_powermap.heal_committee_curation",
+        description="Force-adopt PM curation for LWW-locked anchored orgs (#65).",
+        commit=False,
+    )
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

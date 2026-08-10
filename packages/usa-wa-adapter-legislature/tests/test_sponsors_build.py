@@ -7,8 +7,10 @@ per-biennium citations.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, date, datetime
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import func, select
@@ -16,8 +18,10 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED, KIND_SEATED
+from clearinghouse_domain_legislative.span_emit import SpanBuildResult
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.membership.build import (
     build_committee_member_spans,
@@ -27,7 +31,8 @@ from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
 )
-from usa_wa_adapter_legislature.sponsors.build import build_sponsor_spans
+from usa_wa_adapter_legislature.sponsors import build as build_module
+from usa_wa_adapter_legislature.sponsors.build import build_spans
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 
@@ -110,7 +115,7 @@ async def test_phase_b_builds_merged_spans_from_archive(db_session, usa_wa, wsl_
     await _archive(db_session, wsl_source, "2023-24", b"<r23/>")
     await _archive(db_session, wsl_source, "2025-26", b"<r25/>")
 
-    result = await build_sponsor_spans(
+    result = await build_spans(
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium="2025-26"
     )
 
@@ -150,7 +155,7 @@ async def test_operator_departed_closes_spans_through_builder(db_session, usa_wa
         evidence_url="https://example.gov/rivers",
     )
 
-    await build_sponsor_spans(
+    await build_spans(
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium="2025-26"
     )
 
@@ -204,7 +209,7 @@ async def test_operator_seated_synthesizes_appointee_without_roster_citation(
         seat_discriminator="5",
     )
 
-    await build_sponsor_spans(
+    await build_spans(
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium="2025-26"
     )
 
@@ -225,7 +230,7 @@ async def test_operator_seated_synthesizes_appointee_without_roster_citation(
 
 
 async def test_phase_b_no_archive_emits_nothing(db_session, usa_wa, wsl_source):
-    result = await build_sponsor_spans(
+    result = await build_spans(
         db_session, sponsor_client=_FakeSponsorClient([]), current_biennium="2025-26"
     )
     assert result.emitted == 0
@@ -265,7 +270,7 @@ async def test_restrict_to_biennium_scopes_rebuild_to_current_cohort(
         }
     )
 
-    result = await build_sponsor_spans(
+    result = await build_spans(
         db_session,
         sponsor_client=client,
         current_biennium="2025-26",
@@ -303,7 +308,7 @@ async def test_restricted_rebuild_closes_departed_members_open_spans(
     )
 
     # Sitting-era build: both members' spans open (end == current 2023-24).
-    await build_sponsor_spans(db_session, sponsor_client=client, current_biennium="2023-24")
+    await build_spans(db_session, sponsor_client=client, current_biennium="2023-24")
     departed_seat = (
         await db_session.execute(
             select(Assignment).where(Assignment.source_id == "200:chamber-senate:9:2023-24")
@@ -313,7 +318,7 @@ async def test_restricted_rebuild_closes_departed_members_open_spans(
 
     # New biennium: 200 departed. The restricted daily re-drive must close their spans.
     await _archive(db_session, wsl_source, "2025-26", b"<b:2025-26>")
-    await build_sponsor_spans(
+    await build_spans(
         db_session,
         sponsor_client=client,
         current_biennium="2025-26",
@@ -395,7 +400,7 @@ async def test_max_close_fraction_threads_through_the_builder(
     # Default fraction: 6 of 8 open rows stale → abort, surfaced in the completion log
     # AND the returned result (the CLI prints it, #83 CR round 3).
     with caplog.at_level(logging.INFO):
-        result = await build_sponsor_spans(
+        result = await build_spans(
             db_session,
             sponsor_client=client,
             current_biennium="2025-26",
@@ -407,7 +412,7 @@ async def test_max_close_fraction_threads_through_the_builder(
     assert completes and completes[-1].sweep_aborted is True
 
     # Operator override: raised fraction lets the legitimate mass close through.
-    result = await build_sponsor_spans(
+    result = await build_spans(
         db_session,
         sponsor_client=client,
         current_biennium="2025-26",
@@ -469,7 +474,7 @@ async def test_stale_named_row_party_span_ends_at_committee_departure(
     await _archive_committee_roster(db_session, wsl_source, "2019-20", "888", b"<r:100,900/>")
     await _archive_committee_roster(db_session, wsl_source, "2021-22", "888", b"<r:100/>")
 
-    result = await build_sponsor_spans(
+    result = await build_spans(
         db_session,
         sponsor_client=_WireMappingSponsorClient(rosters),
         member_client=_WireMappingMemberClient(),
@@ -533,7 +538,7 @@ async def test_event_member_stale_in_a_later_biennium_is_not_exempted(
         seat_discriminator="28",
     )
 
-    await build_sponsor_spans(
+    await build_spans(
         db_session,
         sponsor_client=_WireMappingSponsorClient(rosters),
         member_client=_WireMappingMemberClient(),
@@ -565,7 +570,7 @@ async def test_missing_committee_archive_excludes_nothing(db_session, usa_wa, ws
     await db_session.flush()
     await _archive(db_session, wsl_source, "2025-26", b"<b:2025-26>")
 
-    result = await build_sponsor_spans(
+    result = await build_spans(
         db_session,
         sponsor_client=_WireMappingSponsorClient({"2025-26": [_member(100)]}),
         member_client=_WireMappingMemberClient(),
@@ -596,7 +601,7 @@ async def test_builders_accept_a_shared_member_cohort(db_session, usa_wa, wsl_so
     client = _CountingMemberClient()
     provider = CommitteeMemberCohortProvider(client, session=db_session, source_id=wsl_source.id)
 
-    await build_sponsor_spans(
+    await build_spans(
         db_session,
         sponsor_client=_WireMappingSponsorClient({"2025-26": [_member(100)]}),
         member_cohort=provider,
@@ -607,3 +612,52 @@ async def test_builders_accept_a_shared_member_cohort(db_session, usa_wa, wsl_so
     )
 
     assert client.parse_calls == 1
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_forwards_its_guard_flags_and_ledgers_the_result(monkeypatch, capsys):
+    """The span builder's own flags survive the move onto ``run_job()``, and the
+    result object it already returns becomes the #178 row's counters."""
+    patch_job_runtime(monkeypatch)
+    seen: dict = {}
+
+    async def _fake_build(session, **kwargs):
+        seen.update(kwargs)
+        return SpanBuildResult(emitted=4, closed_stale=1, sweep_aborted=False)
+
+    with patch.object(build_module, "build_spans", _fake_build):
+        code = build_module.main(
+            ["--json", "--max-close-fraction", "1.0", "--stale-min-coverage", "0.25"]
+        )
+
+    assert code == 0
+    assert seen["max_close_fraction"] == 1.0
+    assert seen["stale_min_coverage"] == 0.25
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == build_module.JOB_SLUG
+    assert payload["counters"] == {"emitted": 4, "closed_stale": 1, "sweep_aborted": False}
+
+
+def test_main_dry_run_rolls_back(monkeypatch):
+    """--dry-run is now the harness's, and the harness owns the rollback."""
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _fake_build(session, **_kwargs):
+        return SpanBuildResult(emitted=0, closed_stale=0, sweep_aborted=False)
+
+    with patch.object(build_module, "build_spans", _fake_build):
+        assert build_module.main(["--dry-run"]) == 0
+
+    assert (recording.committed, recording.rolled_back) == (0, 1)
+
+
+def test_main_failure_exits_one(monkeypatch):
+    patch_job_runtime(monkeypatch)
+
+    async def _boom(session, **_kwargs):
+        raise RuntimeError("span build blew up")
+
+    with patch.object(build_module, "build_spans", _boom):
+        assert build_module.main([]) == 1

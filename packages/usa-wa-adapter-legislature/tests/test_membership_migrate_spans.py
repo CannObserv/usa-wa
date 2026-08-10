@@ -8,7 +8,7 @@ covering span, carrying its PM anchor.
 
 from __future__ import annotations
 
-import os
+import json
 from datetime import UTC, date, datetime
 from unittest.mock import patch
 
@@ -16,7 +16,10 @@ import pytest
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
 
+from clearinghouse_core import job as job_module
+from clearinghouse_core.config import DATABASE_ROLE_OWNER
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.membership import migrate_spans as migrate_module
@@ -354,16 +357,29 @@ async def test_migration_is_idempotent(db_session, usa_wa, wsl_source):
 # --- CLI ----------------------------------------------------------------------
 
 
-async def test_main_returns_2_when_owner_url_unset(monkeypatch, capsys):
-    monkeypatch.delenv("DATABASE_URL_OWNER", raising=False)
-    with patch.object(migrate_module, "configure_logging"):
-        code = await migrate_module._main([])
-    assert code == 2
+def test_main_declares_the_owner_role(monkeypatch):
+    seen: dict = {}
+
+    def _capture(_name, _handler, **kwargs):
+        seen.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(migrate_module, "run_job", _capture)
+    migrate_module.main([])
+    assert seen["role"] == DATABASE_ROLE_OWNER
+
+
+def test_main_returns_2_when_owner_url_unset(monkeypatch, capsys):
+    def _raise(_role="app"):
+        raise RuntimeError("DATABASE_URL_OWNER is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    assert migrate_module.main([]) == 2
     assert "DATABASE_URL_OWNER is not set" in capsys.readouterr().err
 
 
-async def test_main_dry_run_rolls_back_and_returns_0(monkeypatch, capsys, test_engine):
-    monkeypatch.setenv("DATABASE_URL_OWNER", os.environ["TEST_DATABASE_URL"])
+def test_main_dry_run_rolls_back_and_returns_0(monkeypatch, capsys):
+    recording = patch_job_runtime(monkeypatch)
     fake = MigrationResult(
         spans_built=5, legacy_found=2, anchors_transferred=2, legacy_retired=2, orphans_no_span=0
     )
@@ -371,13 +387,13 @@ async def test_main_dry_run_rolls_back_and_returns_0(monkeypatch, capsys, test_e
     async def _fake_migrate(session, **_kwargs):
         return fake
 
-    with (
-        patch.object(migrate_module, "configure_logging"),
-        patch.object(migrate_module, "migrate_committee_spans", _fake_migrate),
-    ):
-        code = await migrate_module._main(["--dry-run"])
+    with patch.object(migrate_module, "migrate_committee_spans", _fake_migrate):
+        code = migrate_module.main(["--dry-run", "--json"])
 
     assert code == 0
-    out = capsys.readouterr().out
-    assert "legacy_found=2 anchors_transferred=2 retired=2" in out
-    assert "dry-run, rolled back" in out
+    assert (recording.committed, recording.rolled_back) == (0, 1)
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["dry_run"] is True
+    assert payload["counters"]["legacy_found"] == 2
+    assert payload["counters"]["anchors_transferred"] == 2
+    assert payload["counters"]["legacy_retired"] == 2

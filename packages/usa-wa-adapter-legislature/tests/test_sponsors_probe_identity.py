@@ -9,9 +9,14 @@ record the finding in the plan's Revisions.
 
 from __future__ import annotations
 
+import json
+from unittest.mock import patch
+
 import pytest
 from zeep.exceptions import Fault
 
+from clearinghouse_core import job as job_module
+from usa_wa_adapter_legislature.sponsors import probe_identity as probe_module
 from usa_wa_adapter_legislature.sponsors.probe_identity import (
     biennium_chain,
     compare_id_stability,
@@ -254,3 +259,28 @@ async def test_sweep_treats_below_floor_biennium_as_absent() -> None:
     assert r["deepest_with_data"] == "2023-24"
     absent = [b for b in r["boundaries"] if b.get("absent")]
     assert absent and absent[0]["boundary"] == "2021-22->2023-24"
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_stays_database_free(monkeypatch, capsys):
+    """A write-free probe declares ``needs_db=False``, so it neither resolves a DSN nor
+    writes a ledger row — the harness's ledger default follows ``needs_db`` precisely so
+    a probe does not emit two "ledger unavailable" warnings on every run (CR #191 #3)."""
+
+    def _raise(_role="app"):  # pragma: no cover — must not be called
+        raise AssertionError("a write-free probe resolved a DSN")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+
+    async def _fake_run(_args):
+        return {"id_is_stable": True, "compared": 7}
+
+    with patch.object(probe_module, "_run", _fake_run):
+        code = probe_module.main(["--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == probe_module.JOB_SLUG
+    assert payload["counters"] == {"id_is_stable": True, "compared": 7}

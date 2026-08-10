@@ -15,18 +15,27 @@ from types import SimpleNamespace
 import pytest
 from ulid import ULID
 
+from clearinghouse_core.testing import parse_job_args, patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_sync_powermap.client import DeliveryBlockedError, ObservationResult
 from clearinghouse_sync_powermap.models import DISPOSITION_AUTO_ATTACHED
 from usa_wa_sync_powermap import reconcile_committee_active as cli
+from usa_wa_sync_powermap.jobs import EXIT_ABORTED
 
 
-def _patch_factory(monkeypatch, db_session):
+def _session_factory(db_session):
+    """A session factory bound to the savepointed test session.
+
+    Since CR #196 finding 49 the CLIs take their factory from
+    ``ctx.require_session_factory()`` rather than importing ``get_session_factory``, so
+    the double is handed straight to ``_run`` instead of monkeypatched onto the module.
+    """
+
     @asynccontextmanager
     async def _ctx():
         yield db_session
 
-    monkeypatch.setattr(cli, "get_session_factory", lambda: _ctx)
+    return _ctx
 
 
 def _patch_settings(monkeypatch, *, api_key="k"):
@@ -89,14 +98,14 @@ async def _add_committee(db_session, *, source_id, anchor, active=True):
 
 
 def test_parser_defaults():
-    args = cli._build_parser().parse_args([])
+    args = parse_job_args(cli._add_args, [])
     assert args.dry_run is False
     assert args.biennium is None
     assert args.max_absent_fraction == cli.DEFAULT_MAX_ABSENT_FRACTION
 
 
 def test_parser_accepts_overrides():
-    args = cli._build_parser().parse_args(["--biennium", "2023-24", "--max-absent-fraction", "0.9"])
+    args = parse_job_args(cli._add_args, ["--biennium", "2023-24", "--max-absent-fraction", "0.9"])
     assert args.biennium == "2023-24"
     assert args.max_absent_fraction == 0.9
 
@@ -123,13 +132,13 @@ async def test_run_dry_run_counts_without_pm_client(monkeypatch, db_session, usa
     """Dry-run opens a session + WSL client (for the roster) but no PM client."""
     await _add_committee(db_session, source_id="100", anchor=ULID())
     await _add_committee(db_session, source_id="200", anchor=ULID())
-    _patch_factory(monkeypatch, db_session)
+    factory = _session_factory(db_session)
     _patch_settings(monkeypatch, api_key="")  # absent key is fine for a dry-run
     # 200 is absent from the current roster but present in the prior — a live-era retire.
     _patch_wsl(monkeypatch, [{"Id": 100}], prior=[{"Id": 100}, {"Id": 200}])
 
     args = SimpleNamespace(biennium="2025-26", dry_run=True, max_absent_fraction=1.0, all_era=False)
-    result = await cli._run(args)
+    result = await cli._run(args, factory)
 
     assert result["dry_run"] is True
     assert result["absent"] == 1
@@ -137,7 +146,7 @@ async def test_run_dry_run_counts_without_pm_client(monkeypatch, db_session, usa
 
 
 async def test_run_requires_api_key_when_submitting(monkeypatch, db_session):
-    _patch_factory(monkeypatch, db_session)
+    factory = _session_factory(db_session)
     _patch_settings(monkeypatch, api_key="")
     _patch_wsl(monkeypatch, [{"Id": 100}])
 
@@ -145,14 +154,14 @@ async def test_run_requires_api_key_when_submitting(monkeypatch, db_session):
         biennium="2025-26", dry_run=False, max_absent_fraction=1.0, all_era=False
     )
     with pytest.raises(RuntimeError, match="POWERMAP_API_KEY"):
-        await cli._run(args)
+        await cli._run(args, factory)
 
 
 async def test_run_submits_and_closes_client(monkeypatch, db_session, usa_wa):
     anchor = ULID()
     await _add_committee(db_session, source_id="100", anchor=ULID())
     await _add_committee(db_session, source_id="200", anchor=anchor)
-    _patch_factory(monkeypatch, db_session)
+    factory = _session_factory(db_session)
     _patch_settings(monkeypatch, api_key="k")
     # 200 absent from current, present in prior → a live-era retirement candidate.
     _patch_wsl(monkeypatch, [{"Id": 100}], prior=[{"Id": 100}, {"Id": 200}])
@@ -174,7 +183,7 @@ async def test_run_submits_and_closes_client(monkeypatch, db_session, usa_wa):
     args = SimpleNamespace(
         biennium="2025-26", dry_run=False, max_absent_fraction=1.0, all_era=False
     )
-    result = await cli._run(args)
+    result = await cli._run(args, factory)
 
     assert result["retired"] == 1
     assert closed["v"] is True  # client always closed
@@ -184,56 +193,60 @@ async def test_run_submits_and_closes_client(monkeypatch, db_session, usa_wa):
 
 
 def test_main_wires_args_and_prints_json(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
     seen = {}
 
-    async def _fake_run(args):
+    async def _fake_run(args, _factory):
         seen["args"] = args
         return {"retired": 1, "aborted": None, "rejected": 0, "failed": 0}
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main(["--biennium", "2025-26"])
+    rc = cli.main(["--json", "--biennium", "2025-26"])
 
     assert rc == 0
     assert seen["args"].biennium == "2025-26"
-    assert json.loads(capsys.readouterr().out)["retired"] == 1
+    counters = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert counters["retired"] == 1
 
 
 def test_main_abort_exits_distinct_code(monkeypatch, capsys):
     """A guardrail abort exits with EXIT_ABORTED (3) — distinct from a partial-failure 1
     so a cron can tell "took no action" from "acted, some rows failed"."""
+    patch_job_runtime(monkeypatch)
 
-    async def _fake_run(_args):
+    async def _fake_run(_args, _factory):
         return {"retired": 0, "aborted": "cohort_floor", "rejected": 0, "failed": 0}
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main([])
+    rc = cli.main(["--json"])
 
-    assert rc == cli.EXIT_ABORTED == 3
-    assert json.loads(capsys.readouterr().out)["aborted"] == "cohort_floor"
+    assert rc == EXIT_ABORTED == 3
+    counters = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
+    assert counters["aborted"] == "cohort_floor"
 
 
 def test_main_nonzero_exit_on_failures(monkeypatch, capsys):
-    async def _fake_run(_args):
+    patch_job_runtime(monkeypatch)
+
+    async def _fake_run(_args, _factory):
         return {"retired": 1, "aborted": None, "rejected": 1, "failed": 0}
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
     assert cli.main([]) == 1
 
 
 def test_main_auth_block_exits_distinct_code(monkeypatch, capsys):
-    async def _fake_run(_args):
+    patch_job_runtime(monkeypatch)
+
+    async def _fake_run(_args, _factory):
         raise DeliveryBlockedError("PM 403 Insufficient scope")
 
     monkeypatch.setattr(cli, "_run", _fake_run)
-    monkeypatch.setattr(cli, "configure_logging", lambda: None)
 
-    rc = cli.main([])
+    rc = cli.main(["--json"])
 
     assert rc == 2
-    assert json.loads(capsys.readouterr().out)["error"].startswith("delivery blocked")
+    assert json.loads(capsys.readouterr().err)["error"].startswith("delivery blocked")

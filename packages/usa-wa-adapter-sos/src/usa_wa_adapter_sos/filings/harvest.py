@@ -22,18 +22,17 @@ avoid.
 from __future__ import annotations
 
 import argparse
-import asyncio
-import os
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import EXIT_CONFIG as _EXIT_CONFIG
 from clearinghouse_core.job import EXIT_DEGRADED as _EXIT_DEGRADED
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_sos.coverage import SOS_FILINGS_ELECTION_YEARS
@@ -50,13 +49,16 @@ logger = get_logger(__name__)
 #: 2020-onward claim naming the gap this ceiling exists to stop short of.
 DEFAULT_ELECTION_FLOOR = SOS_FILINGS_ELECTION_YEARS.floor_year
 
-#: Exit code for a whole-source outage (#169 / CR #196 finding 22). Imported from the shared job
-#: harness rather than re-declared so this CLI's exit contract is already correct when #179b
-#: migrates it onto ``run_job()``; systemd's ``OnFailure=`` fires on it like any other failure.
+#: Exit code for a whole-source outage (#169 / CR #196 finding 22). Re-exported from the shared
+#: job harness, which since #179b also *produces* it here: the handler returns
+#: ``JobResult.degraded`` and ``run_job`` maps that to this code, so ``OnFailure=`` fires.
 EXIT_DEGRADED = _EXIT_DEGRADED
 
 #: Exit code for an operator config error — an empty year range (CR #196 finding 26).
 EXIT_CONFIG = _EXIT_CONFIG
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "sos-filings-harvest"
 
 #: The last general this source serves. SOS retired the ``WhoFiled`` *Export To Excel* control to
 #: Power BI after the 2018 general; ``electionDate=202011`` and later return HTTP 500, permanently
@@ -157,11 +159,8 @@ async def harvest_sos(
     )
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Archive historical votewa filing cohorts (archive-only, #100 Phase A)."
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the sweep's own flags to the harness's shared parser."""
     parser.add_argument(
         "--from-year",
         type=int,
@@ -177,7 +176,6 @@ async def _main(argv: list[str] | None = None) -> int:
             f"{DEFAULT_ELECTION_CEILING} — the last general this source serves)"
         ),
     )
-    parser.add_argument("--dry-run", action="store_true", help="harvest but roll back")
     parser.add_argument("--force", action="store_true", help="re-fetch past the freshness cache")
     parser.add_argument(
         "--pause-seconds",
@@ -188,13 +186,16 @@ async def _main(argv: list[str] | None = None) -> int:
             "seeded from USA_WA_SOS_MIN_REQUEST_INTERVAL (default 1.0) in place"
         ),
     )
-    args = parser.parse_args(argv)
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
 
+async def _harvest_job(ctx: JobContext) -> JobResult:
+    """Harness handler: resolve the (capped) range, sweep, and grade the outcome.
+
+    A whole-source outage is ``degraded`` — the run completed and its work did not land —
+    which the harness maps to :data:`EXIT_DEGRADED`, and which still **commits**: a
+    skip-and-continue sweep's reached work is real work.
+    """
+    args = ctx.args
     # Only override the central limiter when the operator actually asked (#169): an unconditional
     # call let the flag's own default overwrite the env-seeded interval, making
     # USA_WA_SOS_MIN_REQUEST_INTERVAL dead config — this CLI is its only production caller.
@@ -208,45 +209,42 @@ async def _main(argv: list[str] | None = None) -> int:
     years = general_election_years(args.from_year, to_year)
     if not years:
         # An empty range is an operator error, not a no-op success (CR #196 finding 26): the
-        # ceiling makes ``--from-year 2020`` select nothing, and printing "years=0 (committed)"
-        # with exit 0 hides exactly the years the ceiling exists to talk about.
-        print(
+        # ceiling makes ``--from-year 2020`` select nothing, and reporting "years=0" with exit 0
+        # hides exactly the years the ceiling exists to talk about.
+        message = (
             f"no general-election years in [{args.from_year}, {to_year}] — this source serves "
-            f"{DEFAULT_ELECTION_FLOOR}-{DEFAULT_ELECTION_CEILING}; aborting",
-            file=sys.stderr,
+            f"{DEFAULT_ELECTION_FLOOR}-{DEFAULT_ELECTION_CEILING}; aborting"
         )
-        return EXIT_CONFIG
+        print(message, file=sys.stderr)
+        return JobResult.failed({"error": message}, exit_code=EXIT_CONFIG)
 
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            summary = await harvest_sos(
-                session, years=years, dry_run=args.dry_run, force=args.force
-            )
-            if args.dry_run:
-                await session.rollback()
-            else:
-                await session.commit()
-    except Exception:
-        logger.exception("sos_harvest_failed")
-        return 1
-    finally:
-        await engine.dispose()
-
-    print(
-        f"SOS harvest: years={summary.years} cohorts_archived={summary.cohorts_archived} "
-        f"cohorts_skipped={summary.cohorts_skipped} "
-        f"{'(dry-run, rolled back)' if summary.dry_run else '(committed)'}"
+    summary = await harvest_sos(
+        ctx.require_session(), years=years, dry_run=ctx.dry_run, force=args.force
     )
     if summary.cohorts_skipped > 0 and summary.cohorts_skipped == summary.years:
         # Every year failed. Per-year resilience means no year crashed the sweep, so without this
         # the run exits 0 and the whole-source outage is a WARNING nobody consumes — the exact
-        # gap ``clearinghouse_core.runs`` was built to close (#178), which names this harvest's
-        # sibling in its own module docstring. #169 required it: "or the 2020+ case degrades from
-        # a loud exit 1 to a silent exit 0" (CR #196 finding 22).
-        return EXIT_DEGRADED
-    return 0
+        # gap ``clearinghouse_core.runs`` was built to close (#178). #169 required it: "or the
+        # 2020+ case degrades from a loud exit 1 to a silent exit 0" (CR #196 finding 22).
+        return JobResult.degraded(summary)
+    return JobResult.ok(summary)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Archive the votewa filing cohorts.
+
+    Exit ``0`` clean · ``1`` failed · ``2`` config or an empty year range ·
+    ``4`` (:data:`EXIT_DEGRADED`) a whole-source outage.
+    """
+    return run_job(
+        JOB_SLUG,
+        _harvest_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_sos.filings.harvest",
+        description="Archive historical votewa filing cohorts (archive-only, #100 Phase A).",
+        extra_args=_add_args,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

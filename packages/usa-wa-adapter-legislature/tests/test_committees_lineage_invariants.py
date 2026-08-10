@@ -1,10 +1,15 @@
 """C4 committee lineage coherence invariants (usa-wa#124)."""
 
+import json
 from datetime import date
+from unittest.mock import patch
 
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.committee_succession import CommitteeSuccessionEvent
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Role
+from usa_wa_adapter_legislature.committees import lineage_invariants as inv_module
 from usa_wa_adapter_legislature.committees.lineage_invariants import (
+    LineageInvariantResult,
     check_committee_lineage_invariants,
 )
 
@@ -117,3 +122,39 @@ async def test_inv_completes_on_a_lineage_cycle(db_session, usa_wa):
     await _link(db_session, "966", "924", slug="succeeded_by")  # the cycle
     result = await check_committee_lineage_invariants(db_session)
     assert result.ok  # both predecessors inactive; the cycle is coherent
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_exit_zero_when_coherent(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
+
+    async def _clean(_session):
+        return LineageInvariantResult()
+
+    with patch.object(inv_module, "check_committee_lineage_invariants", _clean):
+        code = inv_module.main(["--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == inv_module.JOB_SLUG
+    assert payload["outcome"] == "ok"
+
+
+def test_main_exit_one_on_a_violation(monkeypatch, capsys):
+    """Unchanged daily contract: exit 1 on drift is what OnFailure= emails on."""
+    patch_job_runtime(monkeypatch)
+
+    async def _violating(_session):
+        result = LineageInvariantResult()
+        result.inactive_with_live_members = ["924"]
+        return result
+
+    with patch.object(inv_module, "check_committee_lineage_invariants", _violating):
+        code = inv_module.main(["--json"])
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["outcome"] == "failed"
+    assert payload["counters"]["inactive_with_live_members"] == ["924"]

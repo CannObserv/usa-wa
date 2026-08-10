@@ -11,13 +11,13 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from unittest.mock import patch
 
 import httpx
 import pytest
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
 
+from clearinghouse_core import job as job_module
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person
@@ -281,9 +281,11 @@ async def test_refresh_warns_on_noncurrent_biennium(db_session, usa_wa, wsl_sour
     assert "sos_refresh_noncurrent_biennium" in [r.message for r in caplog.records]
 
 
-async def test_main_requires_database_url(monkeypatch, capsys):
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    with patch.object(refresh_module, "configure_logging"):
-        code = await refresh_module._main()
+def test_main_requires_database_url(monkeypatch, capsys):
+    def _raise(_role="app"):
+        raise RuntimeError("DATABASE_URL is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    code = refresh_module.main([])
     assert code == 2
     assert "DATABASE_URL is not set" in capsys.readouterr().err

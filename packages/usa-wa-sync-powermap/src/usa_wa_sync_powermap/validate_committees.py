@@ -37,10 +37,7 @@ Examples::
     python -m usa_wa_sync_powermap.validate_committees --json
 """
 
-import argparse
 import asyncio
-import json
-import sys
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -48,19 +45,23 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.database import get_session_factory
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent
 from clearinghouse_domain_legislative.identity import (
     Organization,
     OrganizationAcronym,
     OrganizationName,
 )
-from clearinghouse_sync_powermap.client import DeliveryBlockedError, RetryableClientError
+from clearinghouse_sync_powermap.client import RetryableClientError
 from usa_wa_sync_powermap.config import get_sidecar_settings
+from usa_wa_sync_powermap.jobs import run_pm_job
 from usa_wa_sync_powermap.registry import build_pm_client
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "pm-committee-validate"
 
 #: Producer source whose cohort this validates.
 _SOURCE = "usa_wa_legislature"
@@ -435,21 +436,12 @@ async def validate_committees(session: AsyncSession, pm_client: Any) -> dict:
 # --- CLI ----------------------------------------------------------------------
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_sync_powermap.validate_committees",
-        description="Read-only local↔PM committee validation.",
-    )
-    parser.add_argument("--json", action="store_true", help="emit the summary as JSON")
-    return parser
-
-
-async def _run(args: argparse.Namespace) -> dict:
+async def _run(factory: Any) -> dict:
     """Open a session + PM client, run the validation, always close the client."""
     settings = get_sidecar_settings()
     if not settings.powermap_api_key:
         raise RuntimeError("POWERMAP_API_KEY is not set — cannot read from Power Map.")
-    async with get_session_factory()() as session:
+    async with factory() as session:
         pm_client = build_pm_client(settings)
         try:
             return await validate_committees(session, pm_client)
@@ -457,19 +449,33 @@ async def _run(args: argparse.Namespace) -> dict:
             await pm_client.aclose()
 
 
+def _divergent(summary: dict) -> bool:
+    """This job's ``1`` condition is a divergence count, not a rejected-rows tally."""
+    return bool(summary.get("divergent"))
+
+
+async def _validate_job(ctx: JobContext) -> JobResult:
+    """Harness handler. Read-only against both sides, so ``commit=False``."""
+    factory = ctx.require_session_factory()
+    return await run_pm_job(lambda: _run(factory), failed_when=_divergent)
+
+
 def main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    args = _build_parser().parse_args(argv)
-    try:
-        summary = asyncio.run(_run(args))
-    except DeliveryBlockedError as exc:
-        print(json.dumps({"error": f"delivery blocked: {exc}"}))
-        return 2
-    print(json.dumps(summary, indent=None if args.json else 2, default=str))
-    if summary.get("aborted"):
-        return EXIT_ABORTED
-    return 1 if summary.get("divergent") else 0
+    """Validate local↔PM committee agreement.
+
+    Exit codes (unchanged): ``0`` clean; ``1`` divergent; ``2`` a global auth block;
+    ``3`` a guardrail abort. ``--json`` is now the harness's, so it emits the run envelope
+    with the validation summary under ``counters`` (#179b).
+    """
+    return run_job(
+        JOB_SLUG,
+        _validate_job,
+        argv=argv,
+        prog="python -m usa_wa_sync_powermap.validate_committees",
+        description="Read-only local↔PM committee validation.",
+        commit=False,
+    )
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

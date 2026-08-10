@@ -17,17 +17,16 @@ The daily refresh handles only the current window (see `refresh.py`); this handl
 from __future__ import annotations
 
 import argparse
-import asyncio
-import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID as _ULID
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import EXIT_CONFIG, JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import Citation, FetchEvent
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_core.seed_manifest import write_sidecars
@@ -47,13 +46,16 @@ from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "wsl-committee-meeting-harvest"
+
 _SOURCE = "usa_wa_legislature"
 _OTHER = "other"
 
 
 @dataclass(frozen=True)
 class HarvestSummary:
-    """Outcome of one :func:`harvest_committee_meetings` run."""
+    """Outcome of one :func:`harvest` run."""
 
     windows: int
     upserted: int
@@ -91,7 +93,7 @@ async def _other_class_cohort(
     return list(result.scalars().all())
 
 
-async def harvest_committee_meetings(
+async def harvest(
     session: AsyncSession,
     *,
     bienniums: list[str],
@@ -164,47 +166,53 @@ async def harvest_committee_meetings(
     )
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(description="Harvest the Joint/Other committee seed (#39).")
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the sweep's own flags to the harness's shared parser."""
     parser.add_argument("--from-biennium", required=True, help="e.g. 2023-24")
     parser.add_argument("--to-biennium", required=True, help="e.g. 2025-26")
     parser.add_argument("--seed-path", type=Path, default=DEFAULT_SEED_PATH)
-    parser.add_argument("--dry-run", action="store_true", help="harvest but do not write the seed")
-    args = parser.parse_args(argv)
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
+
+async def _harvest_job(ctx: JobContext) -> HarvestSummary | JobResult:
+    """Harness handler, owning its own transaction (``commit=False``).
+
+    **``--dry-run`` here means "do not write the seed file", not "roll back".** The
+    archive writes always committed, through the explicit ``session.begin()`` kept
+    below; letting the harness roll them back on ``--dry-run`` would silently start
+    discarding archived wire behind an unchanged exit code.
+    """
     try:
-        bienniums = bienniums_in_range(args.from_biennium, args.to_biennium)
+        bienniums = bienniums_in_range(ctx.args.from_biennium, ctx.args.to_biennium)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
-        return 2
+        return JobResult.failed({"error": str(exc)}, exit_code=EXIT_CONFIG)
+    session = ctx.require_session()
+    async with session.begin():
+        return await harvest(
+            session,
+            bienniums=bienniums,
+            seed_path=ctx.args.seed_path,
+            dry_run=ctx.dry_run,
+        )
 
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session, session.begin():
-            summary = await harvest_committee_meetings(
-                session,
-                bienniums=bienniums,
-                seed_path=args.seed_path,
-                dry_run=args.dry_run,
-            )
-    except Exception:
-        logger.exception("wsl_committee_harvest_failed")
-        return 1
-    finally:
-        await engine.dispose()
 
-    print(
-        f"Committee harvest: windows={summary.windows} upserted={summary.upserted} "
-        f"committees={summary.committees} "
-        f"seed={'(dry-run, not written)' if summary.dry_run else summary.seed_path}"
+def main(argv: list[str] | None = None) -> int:
+    """Harvest the Joint/Other seed. Exit ``0`` clean · ``1`` failed · ``2`` config/range."""
+    return run_job(
+        JOB_SLUG,
+        _harvest_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.meetings.harvest",
+        description="Harvest the Joint/Other committee seed (#39).",
+        extra_args=_add_args,
+        commit=False,
+        # The one job whose --dry-run is real but NARROWER than a rollback (CR #196
+        # finding 56). It declared this exact string itself before #179b; the sweep took
+        # its parser away and left it advertising the generic "roll back instead of
+        # committing", which is false here — the archive writes commit either way.
+        dry_run_help="harvest but do not write the seed",
     )
-    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

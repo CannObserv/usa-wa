@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -12,15 +12,18 @@ import vcr
 from sqlalchemy import select, text
 from ulid import ULID as _ULID
 
+from clearinghouse_core import job as job_module
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
-from clearinghouse_core.runner import AdapterRunner
+from clearinghouse_core.runner import AdapterRunner, RunSummary
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person
 from usa_wa_adapter_legislature import refresh as refresh_module
 from usa_wa_adapter_legislature.adapter import WALegislatureAdapter
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.refresh import (
+    RefreshOutcome,
     _discover_members,
     run_refresh,
 )
@@ -400,7 +403,7 @@ async def test_span_rebuild_failure_is_isolated_by_savepoint(db_session, usa_wa)
         recorder.use_cassette(CASSETTE),
         patch("usa_wa_adapter_legislature.refresh.biennium_for_date", return_value="2025-26"),
         patch(
-            "usa_wa_adapter_legislature.refresh.build_sponsor_spans",
+            "usa_wa_adapter_legislature.sponsors.build.build_spans",
             side_effect=RuntimeError("span build boom"),
         ),
     ):
@@ -661,44 +664,85 @@ async def test_run_refresh_raises_when_jurisdiction_missing(db_session):
         await run_refresh(db_session, biennium="2025-26")
 
 
-async def test_main_returns_2_when_database_url_unset(monkeypatch, capsys):
-    """Missing DATABASE_URL → stderr message + exit code 2 (config error)."""
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    with patch.object(refresh_module, "configure_logging"):
-        # Patched no-op: configure_logging mutates root-logger handlers
-        # globally; leaving it untouched would persist a stdout JSON handler
-        # for every subsequent test in the session.
-        code = await refresh_module._main()
-    assert code == 2
-    captured = capsys.readouterr()
-    assert "DATABASE_URL is not set" in captured.err
+# --- CLI (#179b: the shared job harness) --------------------------------------
 
 
-async def test_main_returns_1_when_run_refresh_raises(monkeypatch, capsys, test_engine):
-    """An exception from run_refresh is caught, logged, and produces exit 1.
+def test_main_returns_2_when_database_url_unset(monkeypatch, capsys):
+    """Unchanged: missing DATABASE_URL → stderr message + exit code 2 (config error)."""
 
-    Depends on ``test_engine`` (not ``db_session``) because we only need the
-    schema setup side effect — ``_main`` opens its own engine against
-    TEST_DATABASE_URL and ``run_refresh`` is patched to raise before any
-    queries fire, so a savepointed session would be unused.
-    """
-    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    def _raise(_role="app"):
+        raise RuntimeError("DATABASE_URL is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    assert refresh_module.main([]) == 2
+    assert "DATABASE_URL is not set" in capsys.readouterr().err
+
+
+def test_main_returns_1_when_run_refresh_raises(monkeypatch):
+    """Unchanged: an exception from run_refresh is caught, logged, and exits 1."""
+    patch_job_runtime(monkeypatch)
 
     async def boom(*_args, **_kwargs):
         raise RuntimeError("simulated WSL failure")
 
-    with (
-        patch.object(refresh_module, "configure_logging"),
-        patch.object(refresh_module, "run_refresh", boom),
-        patch.object(refresh_module.logger, "exception") as mock_exception,
-    ):
-        code = await refresh_module._main()
+    with patch.object(refresh_module, "run_refresh", boom):
+        assert refresh_module.main([]) == 1
+
+
+def test_main_commits_the_partial_refresh_even_when_committees_errored(monkeypatch, capsys):
+    """Exit 1 on committee errors is the documented contract — and the reached work
+    still commits, as it did through the pre-#179b ``session.begin()``.
+
+    So the handler commits explicitly under ``commit=False`` rather than returning
+    ``failed`` to a committing harness, which would have rolled the partial refresh back
+    — a silent behaviour change hiding behind an unchanged exit code.
+    """
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _errored(*_args, **_kwargs):
+        return RefreshOutcome(
+            committees=RunSummary(
+                discovered=5, fetched=5, skipped_cache_hit=0, upserted_entities=4, errors=1
+            ),
+            meetings_upserted=2,
+            members_upserted=3,
+            member_spans=1,
+            committee_spans=1,
+        )
+
+    with patch.object(refresh_module, "run_refresh", _errored):
+        code = refresh_module.main(["--json"])
 
     assert code == 1
-    mock_exception.assert_called_once_with("wsl_refresh_failed")
-    # The success-path summary line must not have printed.
-    captured = capsys.readouterr()
-    assert "WSL refresh:" not in captured.out
+    assert (recording.committed, recording.rolled_back) == (1, 0)
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == refresh_module.JOB_SLUG
+    assert payload["outcome"] == "failed"
+    assert payload["counters"]["committee_errors"] == 1
+
+
+def test_main_clean_refresh_exits_zero_and_ledgers_its_counters(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
+
+    async def _clean(*_args, **_kwargs):
+        return RefreshOutcome(
+            committees=RunSummary(
+                discovered=5, fetched=5, skipped_cache_hit=0, upserted_entities=5, errors=0
+            ),
+            meetings_upserted=2,
+            members_upserted=3,
+            member_spans=1,
+            committee_spans=1,
+        )
+
+    with patch.object(refresh_module, "run_refresh", _clean):
+        code = refresh_module.main(["--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["outcome"] == "ok"
+    assert payload["counters"]["members_upserted"] == 3
+    assert payload["counters"]["meetings_upserted"] == 2
 
 
 async def test_refresh_parses_committee_archive_once(db_session, usa_wa):
@@ -730,3 +774,22 @@ async def test_refresh_parses_committee_archive_once(db_session, usa_wa):
     # One offline re-parse per archived roster wire (the fan-out archived one per committee).
     assert member_client.calls, "fan-out should have archived rosters"
     assert member_client.parse_calls == len(member_client.calls)
+
+
+def test_the_refresh_declines_the_dry_run_flag():
+    """The daily refresh owns its transaction and commits unconditionally, so it must not
+    advertise a rollback it cannot perform (CR #196 finding 47).
+
+    The #179b sweep gave this entry point its first parser. Left with the harness's default
+    flag set, ``--dry-run`` would have pulled every committee, upserted meetings and
+    members, rebuilt both span sets, committed, and printed ``dry_run=true``.
+
+    Kept alongside ``scripts/tests/test_dry_run_honesty.py`` rather than folded into it
+    (finding 65): that guard reads the ``dry_run=False`` keyword statically, so it proves
+    the *declaration*. This proves the **consequence** — that argparse really refuses the
+    flag end to end. Its twin lives in ``test_pm_bootstrap.py``; the SOS and PDC refreshes
+    rest on the guard alone, which is the declaration half only.
+    """
+    with pytest.raises(SystemExit) as excinfo:
+        refresh_module.main(["--dry-run"])
+    assert excinfo.value.code == 2

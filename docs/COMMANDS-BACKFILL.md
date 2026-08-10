@@ -7,6 +7,13 @@ Split out of [COMMANDS.md](COMMANDS.md), which is where the index lives.
 Talk to WSL directly (NOT the runner) — no FetchEvent/RawPayload written. Answer
 scoping questions ("how much history exists", "is the Id stable") before ingest.
 
+Both run on the shared job harness with `needs_db=False` (#179b): no DSN is resolved and
+**no `job_runs` row is written** — there is no database to write one to. `--json` is the
+harness's, so it emits the whole run envelope (`job`/`outcome`/`counters`/`duration_ms`)
+with the probe's summary under `counters`, rather than the bare summary dict these two
+printed before #179b. Exit code is unchanged: always `0`; a divergence is a finding to
+read, not a job failure.
+
 ```bash
 # Committee historical extent probe (#64) — walks bienniums backward from current, tallying
 # committee/meeting counts + meeting wire bytes, stopping after N consecutive empty bienniums.
@@ -53,12 +60,17 @@ Ordered by source, then by phase within it — three sources, not two:
 # data/joint_other_committees_seed.json (+ .sha256/.meta.json sidecars). Hits live WSL (one
 # POST per window) AND mutates the DB — not read-only; --dry-run still upserts but skips the
 # seed write. Closed windows are cache hits on re-run. Commit the produced seed.
+# Exit 0 clean / 1 failed / 2 config or a reversed range. UNCHANGED at #179b, deliberately:
+# this is the one CLI whose --dry-run does NOT roll the database back, so the job keeps its
+# own transaction (commit=False) rather than handing it to the harness.
 python -m usa_wa_adapter_legislature.meetings.harvest --from-biennium 2023-24 --to-biennium 2025-26
 
 # Joint/Other seed ingest (#39) — the no-WSL counterpart: materialize the frozen cohort on a
 # fresh deploy. verified_digest gates the seed bytes (fails closed on a sidecar mismatch),
 # writes a synthetic hashed FetchEvent + archived RawPayload, and fill-only upserts (existing
 # rows untouched — the seed is a floor, not an authority). Needs the committed seed file.
+# Exit 0 clean / 1 failed / 2 config. NEW at #179b: --dry-run (the harness gives every job
+# one) rolls the ingest back; the pre-#179b CLI had none and committed unconditionally.
 python -m usa_wa_adapter_legislature.committees.ingest_seed
 
 # Historical member (sponsor) harvest — Phase A of the #76 backfill epic (#77). Sweep

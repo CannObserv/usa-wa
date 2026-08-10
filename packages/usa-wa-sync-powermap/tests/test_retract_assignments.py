@@ -13,6 +13,7 @@ from datetime import UTC, date, datetime
 import pytest
 from ulid import ULID
 
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from clearinghouse_sync_powermap.client import ObservationResult, RetryableClientError
 from usa_wa_sync_powermap import retract_assignments as ra
@@ -293,8 +294,9 @@ async def test_post_with_backoff_reraises_after_budget():
 def test_main_catches_transient_outage(monkeypatch):
     """A persistent 429/5xx that exhausts the backoff surfaces as a clean exit 3, not a
     traceback (finding 7)."""
+    patch_job_runtime(monkeypatch)
 
-    async def _boom(_args):
+    async def _boom(_args, _factory):
         raise RetryableClientError("429")
 
     monkeypatch.setattr(ra, "_run", _boom)

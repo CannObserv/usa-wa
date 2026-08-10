@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, date, datetime
+from unittest.mock import patch
 
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Person
 from clearinghouse_domain_legislative.operator_events import KIND_SEATED, KIND_VACATED
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
@@ -25,6 +27,7 @@ from usa_wa_adapter_legislature.operators.store import (
     record_operator_event,
 )
 from usa_wa_common.jurisdiction import resolve_jurisdiction
+from usa_wa_facts_seats.house import build as build_module
 from usa_wa_facts_seats.house.build import HouseSpanResult, build_house_position_spans
 
 CURRENT = "2025-26"
@@ -1189,3 +1192,38 @@ async def test_stale_named_row_is_excluded_and_appointee_seated(db_session, usa_
         .all()
     )
     assert senn == []
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_forwards_its_flags_and_ledgers_the_result(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
+    seen: dict = {}
+
+    async def _fake_build(_session, **kwargs):
+        seen.update(kwargs)
+        return HouseSpanResult(house_spans=12, bienniums=3, closed_stale=1)
+
+    with patch.object(build_module, "build_house_position_spans", _fake_build):
+        code = build_module.main(["--json", "--biennium", "2025-26", "--max-backchain-hops", "2"])
+
+    assert code == 0
+    assert seen["current_biennium"] == "2025-26"
+    assert seen["restrict_to_biennium"] == "2025-26"
+    assert seen["max_backchain_hops"] == 2
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == build_module.JOB_SLUG
+    assert payload["counters"]["house_spans"] == 12
+
+
+def test_main_dry_run_rolls_back(monkeypatch):
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _fake_build(_session, **_kwargs):
+        return HouseSpanResult()
+
+    with patch.object(build_module, "build_house_position_spans", _fake_build):
+        assert build_module.main(["--dry-run"]) == 0
+
+    assert (recording.committed, recording.rolled_back) == (0, 1)

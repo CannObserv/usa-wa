@@ -35,15 +35,13 @@ timer-run.
 from __future__ import annotations
 
 import argparse
-import asyncio
-import os
-import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.operator_overlay import (
     apply_operator_events,
     from_rows,
@@ -99,6 +97,9 @@ from usa_wa_facts_seats.pdc.matching import build_house_roster, house_mover_ids
 from usa_wa_facts_seats.pdc.observations import KIND_HOUSE
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "house-position-span-build"
 
 _HOUSE_ASSIGNMENT_SOURCE = "usa_wa_legislature"
 
@@ -386,12 +387,8 @@ async def build_house_position_spans(
     return result
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Build WSL+SOS House Position seat spans from archive (#101)."
-    )
-    parser.add_argument("--dry-run", action="store_true", help="build but roll back (preview)")
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the builder's own flags to the harness's shared parser."""
     parser.add_argument(
         "--biennium",
         default=None,
@@ -419,42 +416,32 @@ async def _main(argv: list[str] | None = None) -> int:
         help="cap on #118 back-chain hops from a ballot anchor (pre-2009 Position depth); the "
         "redistricting era break is the hard stop. 0 disables back-chaining",
     )
-    args = parser.parse_args(argv)
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
 
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            result = await build_house_position_spans(
-                session,
-                current_biennium=args.biennium,
-                restrict_to_biennium=args.biennium,
-                max_close_fraction=args.max_close_fraction,
-                stale_min_coverage=args.stale_min_coverage,
-                max_backchain_hops=args.max_backchain_hops,
-            )
-            if args.dry_run:
-                await session.rollback()
-            else:
-                await session.commit()
-    except Exception:
-        logger.exception("house_span_build_failed")
-        return 1
-    finally:
-        await engine.dispose()
-
-    print(
-        f"House Position span build: house_spans={result.house_spans} "
-        f"bienniums={result.bienniums} closed_stale={result.closed_stale} "
-        f"sweep_aborted={result.sweep_aborted} "
-        f"{'(dry-run, rolled back)' if args.dry_run else '(committed)'}"
+async def _build_job(ctx: JobContext) -> HouseSpanResult:
+    """Harness handler: build the Position spans and hand the result back as counters."""
+    args = ctx.args
+    return await build_house_position_spans(
+        ctx.require_session(),
+        current_biennium=args.biennium,
+        restrict_to_biennium=args.biennium,
+        max_close_fraction=args.max_close_fraction,
+        stale_min_coverage=args.stale_min_coverage,
+        max_backchain_hops=args.max_backchain_hops,
     )
-    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Build the House Position spans. Exit ``0`` clean · ``1`` failed · ``2`` config."""
+    return run_job(
+        JOB_SLUG,
+        _build_job,
+        argv=argv,
+        prog="python -m usa_wa_facts_seats.house.build",
+        description="Build WSL+SOS House Position seat spans from archive (#101).",
+        extra_args=_add_args,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

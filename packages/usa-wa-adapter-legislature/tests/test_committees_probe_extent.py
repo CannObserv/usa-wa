@@ -6,8 +6,11 @@ bienniums (the earliest-boundary heuristic). No runner, no DB, no archival — t
 probe answers "how much history exists" before sub-project 3 commits to fetching it.
 """
 
+import json
 from types import SimpleNamespace
+from unittest.mock import patch
 
+from clearinghouse_core import job as job_module
 from usa_wa_adapter_legislature.committees import probe_extent as probe
 
 
@@ -100,7 +103,7 @@ async def test_committee_floor_walks_to_earliest_nonempty():
         {"2025-26": [{"Id": 1}], "2023-24": [{"Id": 1}], "2021-22": [{"Id": 1}]}
         # 2019-20, 2017-18 absent → empty
     )
-    result = await probe.probe_committee_floor(client, start_biennium="2025-26", max_empty=2)
+    result = await probe.probe_floor(client, start_biennium="2025-26", max_empty=2)
     labels = [r["biennium"] for r in result["bienniums"]]
     assert labels == ["2025-26", "2023-24", "2021-22", "2019-20", "2017-18"]
     assert result["earliest_with_data"] == "2021-22"
@@ -111,7 +114,7 @@ async def test_committee_floor_walks_to_earliest_nonempty():
 async def test_committee_floor_makes_no_meeting_calls():
     """It only touches get_committees — the whole point is to skip the slow docket pull."""
     client = _FloorCommitteeClient({"2025-26": [{"Id": 1}]})
-    await probe.probe_committee_floor(client, start_biennium="2025-26", max_empty=2)
+    await probe.probe_floor(client, start_biennium="2025-26", max_empty=2)
     # _FloorCommitteeClient has no meeting method at all — a meeting call would AttributeError.
     assert client.calls[0] == "2025-26"
 
@@ -130,3 +133,27 @@ async def test_safety_bound_caps_the_walk():
     )
     assert len(result["bienniums"]) == 5
     assert result["stopped_after_empty"] == 0  # hit the cap, not the empty run
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_stays_database_free(monkeypatch, capsys):
+    """Write-free probe: ``needs_db=False``, so no DSN is resolved and no ledger row
+    is written (the harness's default follows ``needs_db``, CR #191 finding 3)."""
+
+    def _raise(_role="app"):  # pragma: no cover — must not be called
+        raise AssertionError("a write-free probe resolved a DSN")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+
+    async def _fake_run(_args):
+        return {"earliest_with_data": "2011-12", "stopped_after_empty": 2}
+
+    with patch.object(probe, "_run", _fake_run):
+        code = probe.main(["--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == probe.JOB_SLUG
+    assert payload["counters"]["earliest_with_data"] == "2011-12"

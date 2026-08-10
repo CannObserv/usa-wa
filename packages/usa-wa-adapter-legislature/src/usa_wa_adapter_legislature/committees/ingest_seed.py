@@ -18,19 +18,17 @@ newer name) is left untouched.
 from __future__ import annotations
 
 import argparse
-import asyncio
-import os
-import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID as _ULID
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
 from clearinghouse_core.seed_manifest import verified_digest
 from clearinghouse_domain_legislative.identity import Organization
@@ -46,10 +44,13 @@ _SOURCE = "usa_wa_legislature"
 #: Stable provenance handle for a seed ingest (distinct from live fetch resource ids).
 SEED_RESOURCE_ID = "committee-seed:joint-other"
 
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "wsl-committee-seed-ingest"
+
 
 @dataclass(frozen=True)
 class IngestSummary:
-    """Outcome of one :func:`ingest_committee_seed` run."""
+    """Outcome of one :func:`ingest_seed` run."""
 
     in_seed: int
     inserted: int
@@ -78,7 +79,7 @@ async def _seed_already_recorded(
     return (await session.execute(stmt)).scalar_one_or_none() is not None
 
 
-async def ingest_committee_seed(
+async def ingest_seed(
     session: AsyncSession,
     *,
     seed_path: Path = DEFAULT_SEED_PATH,
@@ -161,34 +162,32 @@ async def ingest_committee_seed(
     )
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(description="Ingest the frozen Joint/Other seed (#39).")
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the ingest's own flag to the harness's shared parser."""
     parser.add_argument("--seed-path", type=Path, default=DEFAULT_SEED_PATH)
-    args = parser.parse_args(argv)
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
 
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session, session.begin():
-            summary = await ingest_committee_seed(session, seed_path=args.seed_path)
-    except Exception:
-        logger.exception("wsl_committee_seed_ingest_failed")
-        return 1
-    finally:
-        await engine.dispose()
+async def _ingest_job(ctx: JobContext) -> IngestSummary:
+    """Harness handler; the harness owns the commit (and the ``--dry-run`` rollback)."""
+    return await ingest_seed(ctx.require_session(), seed_path=ctx.args.seed_path)
 
-    provenance = "recorded" if summary.provenance_recorded else "deduped"
-    print(
-        f"Committee seed ingest: in_seed={summary.in_seed} inserted={summary.inserted} "
-        f"(existing left untouched) provenance={provenance} seed={summary.seed_path}"
+
+def main(argv: list[str] | None = None) -> int:
+    """Ingest the frozen seed. Exit ``0`` clean · ``1`` failed · ``2`` config.
+
+    ``--dry-run`` is new (#179b gives every job one) and rolls the ingest back; the
+    ingest never had one before, and the explicit ``session.begin()`` it used committed
+    unconditionally.
+    """
+    return run_job(
+        JOB_SLUG,
+        _ingest_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.committees.ingest_seed",
+        description="Ingest the frozen Joint/Other seed (#39).",
+        extra_args=_add_args,
     )
-    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())
