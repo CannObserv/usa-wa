@@ -19,8 +19,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 class RecordingSession:
     """AsyncSession stand-in that records the job harness's transaction decisions.
 
-    Returned by :func:`patch_job_runtime`; only the two methods the harness itself
-    calls are implemented, so a test that asserts commit-vs-rollback needs no database.
+    Returned by :func:`patch_job_runtime`; only the surface the harness — or a
+    ``commit=False`` handler that owns its own transaction — actually uses is
+    implemented, so a test that asserts commit-vs-rollback needs no database.
     """
 
     def __init__(self) -> None:
@@ -34,6 +35,22 @@ class RecordingSession:
     async def rollback(self) -> None:
         """Record a rollback."""
         self.rolled_back += 1
+
+    @asynccontextmanager
+    async def begin(self) -> AsyncIterator[RecordingSession]:
+        """Record an explicit transaction block, committing on clean exit.
+
+        The jobs that keep ``commit=False`` because their commit is not conditional on
+        success — the WSL refresh, the meeting-seed harvest — do so through
+        ``async with session.begin()``, and without this they failed under the helper
+        with ``AttributeError`` rather than exercising the decision under test.
+        """
+        try:
+            yield self
+        except Exception:
+            await self.rollback()
+            raise
+        await self.commit()
 
 
 def patch_job_runtime(monkeypatch: Any) -> RecordingSession:

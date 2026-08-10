@@ -28,19 +28,17 @@ Idempotent — a second run finds nothing to change. ``--dry-run`` previews; exi
     python -m usa_wa_adapter_legislature.migrate_role_types
 """
 
-import argparse
-import asyncio
-import json
-import sys
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.database import get_session_factory
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Role
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "wsl-role-type-migrate"
 
 _SOURCE = "usa_wa_legislature"
 _STALE_SLUG = "member"
@@ -101,33 +99,21 @@ async def migrate_member_role_types(session: AsyncSession) -> dict:
     }
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m usa_wa_adapter_legislature.migrate_role_types",
-        description="Reclassify generic `member` Roles to PM catalog slugs to stop churn (#110).",
-    )
-    parser.add_argument("--dry-run", action="store_true", help="preview without committing")
-    return parser
-
-
-async def _run(args: argparse.Namespace) -> dict:
-    async with get_session_factory()() as session:
-        result = await migrate_member_role_types(session)
-        if args.dry_run:
-            await session.rollback()
-            result = {**result, "dry_run": True}
-        else:
-            await session.commit()
-        return result
+async def _migrate_job(ctx: JobContext) -> dict:
+    """Harness handler; the harness owns the commit and the ``--dry-run`` rollback."""
+    return await migrate_member_role_types(ctx.require_session())
 
 
 def main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    args = _build_parser().parse_args(argv)
-    result = asyncio.run(_run(args))
-    print(json.dumps(result, indent=2, default=str))
-    return 0
+    """Reclassify member roles. Exit ``0`` clean · ``1`` failed · ``2`` config."""
+    return run_job(
+        JOB_SLUG,
+        _migrate_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.migrate_role_types",
+        description="Reclassify generic `member` Roles to PM catalog slugs to stop churn (#110).",
+    )
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

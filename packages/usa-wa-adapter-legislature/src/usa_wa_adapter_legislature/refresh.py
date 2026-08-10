@@ -25,16 +25,15 @@ back to the prior odd year (``2026-06-18`` → ``2025-26``). Override via
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import os
-import sys
 from datetime import UTC, datetime
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import Citation, FetchEvent
 from clearinghouse_core.runner import AdapterRunner, RunSummary
 from clearinghouse_domain_legislative.identity import Organization
@@ -55,6 +54,9 @@ from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "wsl-refresh"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -394,38 +396,50 @@ async def _discover_current_meeting_window(runner: AdapterRunner, biennium: str)
         return 0
 
 
-async def _main() -> int:
-    configure_logging()
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
-    engine = create_async_engine(database_url)
-    try:
-        try:
-            async with AsyncSession(engine) as session, session.begin():
-                outcome = await run_refresh(session)
-        except Exception:
-            # Surface the failure cleanly so cron/journal gets a single
-            # actionable line plus the traceback in logs, and the process
-            # exits 1 (operator-style) instead of dumping a bare traceback.
-            logger.exception("wsl_refresh_failed")
-            return 1
-        committees = outcome.committees
-        print(
-            f"WSL refresh: committees(discovered={committees.discovered} "
-            f"fetched={committees.fetched} "
-            f"skipped={committees.skipped_cache_hit} "
-            f"upserted={committees.upserted_entities} "
-            f"errors={committees.errors}) "
-            f"meetings(upserted={outcome.meetings_upserted}) "
-            f"members(upserted={outcome.members_upserted} spans={outcome.member_spans} "
-            f"committee_spans={outcome.committee_spans})"
-        )
-        return 0 if committees.errors == 0 else 1
-    finally:
-        await engine.dispose()
+async def _refresh_job(ctx: JobContext) -> JobResult:
+    """Harness handler, owning its own transaction (``commit=False``).
+
+    The pre-#179b CLI committed through an explicit ``session.begin()`` **and then**
+    returned 1 when the committees pull reported errors — the partial refresh landed
+    either way. Returning ``failed`` to a committing harness would silently roll that
+    work back behind an unchanged exit code, so the commit stays here and the outcome
+    is reported afterwards.
+    """
+    session = ctx.require_session()
+    async with session.begin():
+        outcome = await run_refresh(session)
+    committees = outcome.committees
+    counters = {
+        "committees_discovered": committees.discovered,
+        "committees_fetched": committees.fetched,
+        "committees_skipped_cache_hit": committees.skipped_cache_hit,
+        "committees_upserted": committees.upserted_entities,
+        "committee_errors": committees.errors,
+        "meetings_upserted": outcome.meetings_upserted,
+        "members_upserted": outcome.members_upserted,
+        "member_spans": outcome.member_spans,
+        "committee_spans": outcome.committee_spans,
+    }
+    if committees.errors == 0:
+        return JobResult.ok(counters)
+    return JobResult.failed(counters)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run one refresh cycle. Exit ``0`` clean · ``1`` committee errors · ``2`` config.
+
+    ``--dry-run`` is not offered a rollback here: the handler owns the transaction (see
+    :func:`_refresh_job`), so the flag the harness always adds is accepted and ignored.
+    """
+    return run_job(
+        JOB_SLUG,
+        _refresh_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.refresh",
+        description="Run one WSL adapter refresh cycle (committees + meetings + members).",
+        commit=False,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

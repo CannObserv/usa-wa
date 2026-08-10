@@ -60,6 +60,9 @@ Ordered by source, then by phase within it — three sources, not two:
 # data/joint_other_committees_seed.json (+ .sha256/.meta.json sidecars). Hits live WSL (one
 # POST per window) AND mutates the DB — not read-only; --dry-run still upserts but skips the
 # seed write. Closed windows are cache hits on re-run. Commit the produced seed.
+# Exit 0 clean / 1 failed / 2 config or a reversed range. UNCHANGED at #179b, deliberately:
+# this is the one CLI whose --dry-run does NOT roll the database back, so the job keeps its
+# own transaction (commit=False) rather than handing it to the harness.
 python -m usa_wa_adapter_legislature.meetings.harvest --from-biennium 2023-24 --to-biennium 2025-26
 
 # Joint/Other seed ingest (#39) — the no-WSL counterpart: materialize the frozen cohort on a

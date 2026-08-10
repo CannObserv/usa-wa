@@ -38,21 +38,23 @@ biennia legitimately under-count) — the audit exits 0 unless ``--strict`` is g
 from __future__ import annotations
 
 import argparse
-import asyncio
-import os
 import sys
 from dataclasses import dataclass, field
 from datetime import date
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import EXIT_CONFIG, JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.coverage import SPONSOR_ROSTER_COVERAGE
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "succession-invariants"
 
 #: Current WA chamber sizes (49 LDs). A senator per LD; two representatives (Position 1/2) per LD.
 SENATE_SEATS = 49
@@ -348,11 +350,8 @@ def audit_exit_code(*, strict: bool, conflict_count: int) -> int:
     return 1 if (strict and conflict_count) else 0
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Assert the WA succession invariants (chamber counts + occupancy) (#107)."
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the check's own flags to the harness's shared parser."""
     parser.add_argument("--expected-senate", type=int, default=SENATE_SEATS)
     parser.add_argument("--expected-house", type=int, default=HOUSE_SEATS)
     parser.add_argument(
@@ -376,49 +375,79 @@ async def _main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="in audit mode, exit 1 if any duplicate occupancy is found (post-backfill guard)",
     )
-    args = parser.parse_args(argv)
 
+
+async def _invariants_job(ctx: JobContext) -> JobResult:
+    """Harness handler: the daily gate, or the #119 report-only audit.
+
+    Two exit contracts, both unchanged: the gate is ``0``/``1`` on ``result.ok``; the
+    audit is report-only (``0``) unless ``--strict``, which escalates a conflict to
+    ``1``. A ``degraded`` outcome would be wrong for either — the check completed and
+    what it found is the answer.
+    """
+    args = ctx.args
     if args.as_of is not None and args.sweep_biennia:
         print("--as-of and --sweep-biennia are mutually exclusive", file=sys.stderr)
-        return 2
+        return JobResult.failed(
+            {"error": "--as-of and --sweep-biennia are mutually exclusive"},
+            exit_code=EXIT_CONFIG,
+        )
+    session = ctx.require_session()
+    if args.as_of is not None or args.sweep_biennia:
+        if args.sweep_biennia:
+            probes = [date(y, 1, 1) for y in sweep_years(args.from_year, date.today().year)]
+        else:
+            probes = [args.as_of]
+        outcome = await _run_audit(session, probes=probes)
+        print(
+            f"Duplicate-occupancy audit: {len(outcome.seat_conflicts)} seat + "
+            f"{len(outcome.member_conflicts)} member conflict(s) across probes"
+        )
+        counters = {
+            "mode": "audit",
+            "probes": len(probes),
+            "seat_conflicts": len(outcome.seat_conflicts),
+            "member_conflicts": len(outcome.member_conflicts),
+            "strict": bool(args.strict),
+        }
+        code = audit_exit_code(strict=args.strict, conflict_count=outcome.total)
+        if code == 0:
+            return JobResult.ok(counters)
+        return JobResult.failed(counters, exit_code=code)
 
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
-
-    audit = args.as_of is not None or args.sweep_biennia
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            if audit:
-                if args.sweep_biennia:
-                    probes = [date(y, 1, 1) for y in sweep_years(args.from_year, date.today().year)]
-                else:
-                    probes = [args.as_of]
-                outcome = await _run_audit(session, probes=probes)
-                print(
-                    f"Duplicate-occupancy audit: {len(outcome.seat_conflicts)} seat + "
-                    f"{len(outcome.member_conflicts)} member conflict(s) across probes"
-                )
-                return audit_exit_code(strict=args.strict, conflict_count=outcome.total)
-            result = await check_invariants(
-                session,
-                expected_senate=args.expected_senate,
-                expected_house=args.expected_house,
-            )
-    finally:
-        await engine.dispose()
-
-    _log(result)
-    print(
-        f"Succession invariants: senate={result.senate_open}/{result.expected_senate} "
-        f"house={result.house_open}/{result.expected_house} "
-        f"dup_seats={len(result.duplicate_seats)} dup_members={len(result.duplicate_members)} "
-        f"{'OK' if result.ok else 'VIOLATION'}"
+    result = await check_invariants(
+        session,
+        expected_senate=args.expected_senate,
+        expected_house=args.expected_house,
     )
-    return 0 if result.ok else 1
+    _log(result)
+    counters = {
+        "mode": "gate",
+        "senate_open": result.senate_open,
+        "house_open": result.house_open,
+        "expected_senate": result.expected_senate,
+        "expected_house": result.expected_house,
+        "duplicate_seats": len(result.duplicate_seats),
+        "duplicate_members": len(result.duplicate_members),
+    }
+    return JobResult.ok(counters) if result.ok else JobResult.failed(counters)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Assert the succession invariants. Exit ``0`` clean · ``1`` drift · ``2`` config.
+
+    Read-only (``commit=False``) — the pre-#179b CLI committed nothing either.
+    """
+    return run_job(
+        JOB_SLUG,
+        _invariants_job,
+        argv=argv,
+        prog="python -m usa_wa_adapter_legislature.operators.invariants",
+        description="Assert the WA succession invariants (chamber counts + occupancy) (#107).",
+        extra_args=_add_args,
+        commit=False,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())
