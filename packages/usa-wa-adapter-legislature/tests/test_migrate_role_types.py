@@ -1,6 +1,11 @@
 """Tests for the #110 member-role reclassification migration."""
 
+import json
+from unittest.mock import patch
+
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization, Role
+from usa_wa_adapter_legislature import migrate_role_types as role_module
 from usa_wa_adapter_legislature.migrate_role_types import migrate_member_role_types
 
 
@@ -55,3 +60,22 @@ async def test_idempotent_second_run_is_a_noop(db_session):
     second = await migrate_member_role_types(db_session)
     assert second["checked"] == 0
     assert second["reclassified_total"] == 0
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_dry_run_rolls_back(monkeypatch, capsys):
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _fake(_session):
+        return {"checked": 5, "reclassified_total": 3}
+
+    with patch.object(role_module, "migrate_member_role_types", _fake):
+        code = role_module.main(["--dry-run", "--json"])
+
+    assert code == 0
+    assert (recording.committed, recording.rolled_back) == (0, 1)
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == role_module.JOB_SLUG
+    assert payload["counters"]["reclassified_total"] == 3

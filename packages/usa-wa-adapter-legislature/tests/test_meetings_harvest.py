@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-import os
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from clearinghouse_core import job as job_module
 from clearinghouse_core.seed_manifest import verify
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization
 from usa_wa_adapter_legislature.committees.seed import deserialize_seed
 from usa_wa_adapter_legislature.meetings import harvest as harvest_module
-from usa_wa_adapter_legislature.meetings.harvest import harvest_committee_meetings
+from usa_wa_adapter_legislature.meetings.harvest import HarvestSummary, harvest_committee_meetings
 from usa_wa_adapter_legislature.transport import WireFetch
 
 
@@ -120,46 +123,67 @@ async def test_harvest_dry_run_writes_no_seed(db_session, usa_wa, tmp_path):
     assert not seed_path.exists()
 
 
-async def test_main_returns_2_when_database_url_unset(monkeypatch, capsys):
-    """Missing DATABASE_URL → stderr message + exit 2 (config error)."""
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    with patch.object(harvest_module, "configure_logging"):
-        code = await harvest_module._main(
-            ["--from-biennium", "2025-26", "--to-biennium", "2025-26"]
-        )
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_returns_2_when_database_url_unset(monkeypatch, capsys):
+    """Unchanged: missing DATABASE_URL → stderr message + exit 2 (config error)."""
+
+    def _raise(_role="app"):
+        raise RuntimeError("DATABASE_URL is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    code = harvest_module.main(["--from-biennium", "2025-26", "--to-biennium", "2025-26"])
     assert code == 2
     assert "DATABASE_URL is not set" in capsys.readouterr().err
 
 
-async def test_main_returns_2_on_reversed_biennium_range(monkeypatch, capsys):
-    """A from-biennium after to-biennium is a config error → exit 2 (no DB touched)."""
-    # Any syntactically valid DSN will do — the point is that ``DATABASE_URL`` is *set*,
-    # so the range check is what rejects the arguments. An unroutable one keeps the
-    # docstring's "no DB touched" honest, and keeps this test in the unit tier (#185):
-    # reaching for ``TEST_DATABASE_URL`` made it need a configured database it never used.
-    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://unused:unused@127.0.0.1:1/unused")
-    with patch.object(harvest_module, "configure_logging"):
-        code = await harvest_module._main(
-            ["--from-biennium", "2025-26", "--to-biennium", "2023-24"]
-        )
+def test_main_returns_2_on_reversed_biennium_range(monkeypatch, capsys):
+    """Unchanged: a from-biennium after to-biennium is a config error → exit 2."""
+    patch_job_runtime(monkeypatch)
+    code = harvest_module.main(["--from-biennium", "2025-26", "--to-biennium", "2023-24"])
     assert code == 2
     assert "after" in capsys.readouterr().err
 
 
-async def test_main_returns_1_when_harvest_raises(monkeypatch, capsys, test_engine):
-    """An exception from the harvest is caught, logged, and produces exit 1."""
-    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+def test_main_returns_1_when_harvest_raises(monkeypatch):
+    """Unchanged: an exception from the harvest is caught, logged, and exits 1."""
+    patch_job_runtime(monkeypatch)
 
     async def boom(*_args, **_kwargs):
         raise RuntimeError("simulated harvest failure")
 
-    with (
-        patch.object(harvest_module, "configure_logging"),
-        patch.object(harvest_module, "harvest_committee_meetings", boom),
-        patch.object(harvest_module.logger, "exception") as mock_exception,
-    ):
-        code = await harvest_module._main(
-            ["--from-biennium", "2025-26", "--to-biennium", "2025-26"]
-        )
+    with patch.object(harvest_module, "harvest_committee_meetings", boom):
+        code = harvest_module.main(["--from-biennium", "2025-26", "--to-biennium", "2025-26"])
     assert code == 1
-    mock_exception.assert_called_once_with("wsl_committee_harvest_failed")
+
+
+def test_main_dry_run_still_commits_the_archive(monkeypatch, capsys):
+    """The one CLI whose ``--dry-run`` does NOT mean "roll back the database".
+
+    Its documented meaning is "harvest but do not write the seed file" — the archive
+    writes always committed, through an explicit ``session.begin()``. Handing the
+    transaction to the harness would have made ``--dry-run`` silently start discarding
+    archived wire, so this job keeps ``commit=False`` and its own ``begin()``.
+    """
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _fake_harvest(_session, **kwargs):
+        return HarvestSummary(
+            windows=1,
+            upserted=2,
+            committees=1,
+            dry_run=kwargs["dry_run"],
+            seed_path=Path("seed.json"),
+        )
+
+    with patch.object(harvest_module, "harvest_committee_meetings", _fake_harvest):
+        code = harvest_module.main(
+            ["--from-biennium", "2025-26", "--to-biennium", "2025-26", "--dry-run", "--json"]
+        )
+
+    assert code == 0
+    assert recording.rolled_back == 0
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == harvest_module.JOB_SLUG
+    assert payload["counters"]["dry_run"] is True

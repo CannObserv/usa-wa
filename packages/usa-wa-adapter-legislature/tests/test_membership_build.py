@@ -7,15 +7,20 @@ per-(biennium, committee) citations. Also pins the daily re-drive's cohort scopi
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED
+from clearinghouse_domain_legislative.span_emit import SpanBuildResult
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
+from usa_wa_adapter_legislature.membership import build as build_module
 from usa_wa_adapter_legislature.membership.build import build_committee_member_spans
 from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
@@ -307,3 +312,36 @@ async def test_max_close_fraction_threads_through_the_builder(db_session, usa_wa
     )
     assert result.sweep_aborted is False and result.closed_stale == 6
     assert all(not r.is_active for r in stale)
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_forwards_the_guard_flag_and_ledgers_the_result(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
+    seen: dict = {}
+
+    async def _fake_build(_session, **kwargs):
+        seen.update(kwargs)
+        return SpanBuildResult(emitted=9, closed_stale=2, sweep_aborted=False)
+
+    with patch.object(build_module, "build_committee_member_spans", _fake_build):
+        code = build_module.main(["--json", "--max-close-fraction", "1.0"])
+
+    assert code == 0
+    assert seen["max_close_fraction"] == 1.0
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == build_module.JOB_SLUG
+    assert payload["counters"] == {"emitted": 9, "closed_stale": 2, "sweep_aborted": False}
+
+
+def test_main_dry_run_rolls_back(monkeypatch):
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _fake_build(_session, **_kwargs):
+        return SpanBuildResult(emitted=0)
+
+    with patch.object(build_module, "build_committee_member_spans", _fake_build):
+        assert build_module.main(["--dry-run"]) == 0
+
+    assert (recording.committed, recording.rolled_back) == (0, 1)
