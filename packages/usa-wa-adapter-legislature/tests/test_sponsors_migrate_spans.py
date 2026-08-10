@@ -28,8 +28,8 @@ from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Raw
 from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Person
 from usa_wa_adapter_legislature.sponsors import migrate_spans as migrate_module
-from usa_wa_adapter_legislature.sponsors.build import build_sponsor_spans
-from usa_wa_adapter_legislature.sponsors.migrate_spans import MigrationResult, migrate_sponsor_spans
+from usa_wa_adapter_legislature.sponsors.build import build_spans
+from usa_wa_adapter_legislature.sponsors.migrate_spans import MigrationResult, migrate_spans
 
 CURRENT = "2025-26"
 
@@ -197,7 +197,7 @@ async def _setup_person_and_spans(db_session, usa_wa, wsl_source):
     await db_session.flush()
     await _archive(db_session, wsl_source, "2023-24")
     fe_id = await _archive(db_session, wsl_source, "2025-26")
-    await build_sponsor_spans(
+    await build_spans(
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium=CURRENT
     )
     person = (
@@ -226,7 +226,7 @@ async def test_legacy_rows_collapse_and_transfer_anchor(db_session, usa_wa, wsl_
         fetch_event_id=fe_id,
     )
 
-    result = await migrate_sponsor_spans(
+    result = await migrate_spans(
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium=CURRENT
     )
 
@@ -275,7 +275,7 @@ async def test_chamber_house_and_committee_rows_untouched(db_session, usa_wa, ws
         pm_id=_ULID(),
     )
 
-    result = await migrate_sponsor_spans(
+    result = await migrate_spans(
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium=CURRENT
     )
 
@@ -299,7 +299,7 @@ async def test_orphan_legacy_row_with_no_successor_is_left(db_session, usa_wa, w
         pm_id=_ULID(),
     )
 
-    result = await migrate_sponsor_spans(
+    result = await migrate_spans(
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium=CURRENT
     )
 
@@ -319,10 +319,10 @@ async def test_migration_is_idempotent(db_session, usa_wa, wsl_source):
         pm_id=_ULID(),
     )
 
-    first = await migrate_sponsor_spans(
+    first = await migrate_spans(
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium=CURRENT
     )
-    second = await migrate_sponsor_spans(
+    second = await migrate_spans(
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium=CURRENT
     )
 
@@ -342,7 +342,7 @@ async def test_covering_span_disambiguates_same_role_tenures(db_session, usa_wa,
         await _archive(db_session, wsl_source, biennium)
     rosters = {b: [_member(100)] for b in ("2019-20", "2023-24", "2025-26")}
     client = _WireMappingSponsorClient(rosters)
-    await build_sponsor_spans(db_session, sponsor_client=client, current_biennium=CURRENT)
+    await build_spans(db_session, sponsor_client=client, current_biennium=CURRENT)
 
     person = (
         await db_session.execute(select(Person).where(Person.source_id == "100"))
@@ -369,9 +369,7 @@ async def test_covering_span_disambiguates_same_role_tenures(db_session, usa_wa,
         pm_id=pm_id,
     )
 
-    result = await migrate_sponsor_spans(
-        db_session, sponsor_client=client, current_biennium=CURRENT
-    )
+    result = await migrate_spans(db_session, sponsor_client=client, current_biennium=CURRENT)
 
     assert result.anchors_transferred == 1
     await db_session.refresh(active)
@@ -406,7 +404,7 @@ async def test_superseded_shallow_span_retired_onto_deeper_span(db_session, usa_
         pm_id=pm_id,
     )
 
-    result = await migrate_sponsor_spans(
+    result = await migrate_spans(
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium=CURRENT
     )
 
@@ -441,7 +439,7 @@ async def test_superseded_anchor_dropped_when_keeper_already_anchored(
         pm_id=_ULID(),
     )
 
-    result = await migrate_sponsor_spans(
+    result = await migrate_spans(
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium=CURRENT
     )
 
@@ -466,9 +464,7 @@ async def test_disjoint_dormancy_4part_spans_both_kept(db_session, usa_wa, wsl_s
     bienniums = ("2019-20", "2023-24", "2025-26")
     client = _WireMappingSponsorClient({b: [_member(100)] for b in bienniums})
 
-    result = await migrate_sponsor_spans(
-        db_session, sponsor_client=client, current_biennium=CURRENT
-    )
+    result = await migrate_spans(db_session, sponsor_client=client, current_biennium=CURRENT)
 
     assert result.superseded_found == 0
     assert await _count(db_session, Assignment, source_id="100:chamber-senate:5:2019-20") == 1
@@ -506,7 +502,7 @@ async def test_legacy_and_superseded_coexist_retire_onto_surviving_keeper(
         pm_id=pm_legacy,
     )
 
-    result = await migrate_sponsor_spans(
+    result = await migrate_spans(
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium=CURRENT
     )
 
@@ -596,7 +592,7 @@ def test_main_dry_run_rolls_back_and_returns_0(monkeypatch, capsys):
     async def _fake_migrate(session, **_kwargs):
         return fake
 
-    with patch.object(migrate_module, "migrate_sponsor_spans", _fake_migrate):
+    with patch.object(migrate_module, "migrate_spans", _fake_migrate):
         code = migrate_module.main(["--dry-run", "--json"])
 
     assert code == 0
@@ -609,7 +605,7 @@ def test_main_dry_run_rolls_back_and_returns_0(monkeypatch, capsys):
 
 
 def test_main_forwards_max_close_fraction(monkeypatch):
-    """--max-close-fraction is parsed and forwarded to migrate_sponsor_spans (→ the #83 sweep)."""
+    """--max-close-fraction is parsed and forwarded to migrate_spans (→ the #83 sweep)."""
     patch_job_runtime(monkeypatch)
     seen = {}
 
@@ -623,7 +619,7 @@ def test_main_forwards_max_close_fraction(monkeypatch):
             orphans_no_span=0,
         )
 
-    with patch.object(migrate_module, "migrate_sponsor_spans", _fake_migrate):
+    with patch.object(migrate_module, "migrate_spans", _fake_migrate):
         code = migrate_module.main(["--dry-run", "--max-close-fraction", "1.0"])
 
     assert code == 0

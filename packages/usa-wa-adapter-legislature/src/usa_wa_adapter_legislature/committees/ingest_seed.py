@@ -50,7 +50,7 @@ JOB_SLUG = "wsl-committee-seed-ingest"
 
 @dataclass(frozen=True)
 class IngestSummary:
-    """Outcome of one :func:`ingest_committee_seed` run."""
+    """Outcome of one :func:`ingest_seed` run."""
 
     in_seed: int
     inserted: int
@@ -79,7 +79,7 @@ async def _seed_already_recorded(
     return (await session.execute(stmt)).scalar_one_or_none() is not None
 
 
-async def ingest_committee_seed(
+async def ingest_seed(
     session: AsyncSession,
     *,
     seed_path: Path = DEFAULT_SEED_PATH,
@@ -169,7 +169,7 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 
 async def _ingest_job(ctx: JobContext) -> IngestSummary:
     """Harness handler; the harness owns the commit (and the ``--dry-run`` rollback)."""
-    return await ingest_committee_seed(ctx.require_session(), seed_path=ctx.args.seed_path)
+    return await ingest_seed(ctx.require_session(), seed_path=ctx.args.seed_path)
 
 
 def main(argv: list[str] | None = None) -> int:

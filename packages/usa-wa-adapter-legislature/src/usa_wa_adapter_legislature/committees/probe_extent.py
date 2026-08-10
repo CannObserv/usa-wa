@@ -115,7 +115,7 @@ async def probe_extent(
     }
 
 
-async def probe_committee_floor(
+async def probe_floor(
     committee_client: Any,
     *,
     start_biennium: str,
@@ -143,7 +143,7 @@ async def probe_committee_floor(
         else:
             consecutive_empty = 0
             earliest_with_data = biennium
-        logger.info("probe_committee_floor", extra={"biennium": biennium, "committees": c_count})
+        logger.info("probe_floor", extra={"biennium": biennium, "committees": c_count})
         if consecutive_empty >= max_empty:
             break
         biennium = previous_biennium(biennium)

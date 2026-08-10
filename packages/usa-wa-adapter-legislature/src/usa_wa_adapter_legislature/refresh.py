@@ -49,7 +49,7 @@ from usa_wa_adapter_legislature.meetings.windows import biennium_window, meeting
 from usa_wa_adapter_legislature.membership.build import build_committee_member_spans
 from usa_wa_adapter_legislature.membership.cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
-from usa_wa_adapter_legislature.sponsors.build import build_sponsor_spans
+from usa_wa_adapter_legislature.sponsors import build as sponsor_build
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
@@ -219,7 +219,7 @@ async def _rebuild_member_spans(
         async with session.begin_nested():
             # Scope to the current cohort — rebuild only spans for members in today's pull
             # (their full history), not every member's whole archive every day (#78-2c CR).
-            result = await build_sponsor_spans(
+            result = await sponsor_build.build_spans(
                 session,
                 sponsor_client=sponsor_client,
                 member_cohort=member_cohort,

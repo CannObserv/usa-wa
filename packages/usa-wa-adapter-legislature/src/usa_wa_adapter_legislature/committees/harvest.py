@@ -42,7 +42,7 @@ from usa_wa_adapter_legislature.adapter import (
     WALegislatureAdapter,
 )
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.committees.probe_extent import probe_committee_floor
+from usa_wa_adapter_legislature.committees.probe_extent import probe_floor
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction
@@ -58,14 +58,14 @@ JOB_SLUG = "wsl-committee-harvest"
 
 @dataclass(frozen=True)
 class HarvestSummary:
-    """Outcome of one :func:`harvest_committees` run."""
+    """Outcome of one :func:`harvest` run."""
 
     windows: int
     upserted: int
     dry_run: bool
 
 
-async def harvest_committees(
+async def harvest(
     session: AsyncSession,
     *,
     bienniums: list[str],
@@ -135,7 +135,7 @@ async def _resolve_bienniums(
     """Explicit ``--from`` wins; else probe the committee floor (GetCommittees-only)."""
     if from_biennium is not None:
         return bienniums_in_range(from_biennium, to_biennium)
-    floor = await probe_committee_floor(committee_client, start_biennium=to_biennium)
+    floor = await probe_floor(committee_client, start_biennium=to_biennium)
     earliest = floor["earliest_with_data"]
     if earliest is None:
         raise ValueError("committee floor probe found no data")
@@ -172,7 +172,7 @@ async def _harvest_job(ctx: JobContext) -> HarvestSummary | JobResult:
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return JobResult.failed({"error": str(exc)}, exit_code=EXIT_CONFIG)
-    return await harvest_committees(
+    return await harvest(
         ctx.require_session(),
         bienniums=bienniums,
         committee_client=committee_client,

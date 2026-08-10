@@ -67,7 +67,7 @@ def election_years(from_year: int, to_year: int) -> list[int]:
     return list(range(from_year, to_year + 1))
 
 
-async def harvest_pdc(
+async def harvest(
     session: AsyncSession,
     *,
     years: list[int],
@@ -137,7 +137,7 @@ async def _harvest_job(ctx: JobContext) -> HarvestSummary:
     # biennium's even seating year (2024 during 2025-26) would still miss the odd special cohort.
     to_year = args.to_year or datetime.now(UTC).year
     years = election_years(args.from_year, to_year)
-    return await harvest_pdc(
+    return await harvest(
         ctx.require_session(),
         years=years,
         dry_run=ctx.dry_run,

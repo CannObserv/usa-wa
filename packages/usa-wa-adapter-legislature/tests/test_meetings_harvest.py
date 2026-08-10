@@ -1,4 +1,4 @@
-"""Tests for harvest_committee_meetings.py — backfill sweep + seed freeze (#39)."""
+"""Tests for harvest.py — backfill sweep + seed freeze (#39)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization
 from usa_wa_adapter_legislature.committees.seed import deserialize_seed
 from usa_wa_adapter_legislature.meetings import harvest as harvest_module
-from usa_wa_adapter_legislature.meetings.harvest import HarvestSummary, harvest_committee_meetings
+from usa_wa_adapter_legislature.meetings.harvest import HarvestSummary, harvest
 from usa_wa_adapter_legislature.transport import WireFetch
 
 
@@ -54,7 +54,7 @@ async def test_harvest_dedups_cohort_and_freezes_verified_seed(db_session, usa_w
     client = _ScriptedMeetingClient({2023: [jtc, leap], 2025: [jtc]})  # LEAP dormant in 2025
     seed_path = tmp_path / "joint_other_committees_seed.json"
 
-    summary = await harvest_committee_meetings(
+    summary = await harvest(
         db_session,
         bienniums=["2023-24", "2025-26"],
         seed_path=seed_path,
@@ -96,7 +96,7 @@ async def test_seed_is_scoped_to_this_runs_windows(db_session, usa_wa, tmp_path)
     )
     jtc = _ref(-140, "Joint", "Joint Transportation Committee", "JTC")
     seed_path = tmp_path / "seed.json"
-    summary = await harvest_committee_meetings(
+    summary = await harvest(
         db_session,
         bienniums=["2025-26"],
         seed_path=seed_path,
@@ -111,7 +111,7 @@ async def test_harvest_dry_run_writes_no_seed(db_session, usa_wa, tmp_path):
     """--dry-run harvests (upserts) but leaves no seed file on disk."""
     jtc = _ref(-140, "Joint", "Joint Transportation Committee", "JTC")
     seed_path = tmp_path / "seed.json"
-    summary = await harvest_committee_meetings(
+    summary = await harvest(
         db_session,
         bienniums=["2025-26"],
         seed_path=seed_path,
@@ -153,7 +153,7 @@ def test_main_returns_1_when_harvest_raises(monkeypatch):
     async def boom(*_args, **_kwargs):
         raise RuntimeError("simulated harvest failure")
 
-    with patch.object(harvest_module, "harvest_committee_meetings", boom):
+    with patch.object(harvest_module, "harvest", boom):
         code = harvest_module.main(["--from-biennium", "2025-26", "--to-biennium", "2025-26"])
     assert code == 1
 
@@ -177,7 +177,7 @@ def test_main_dry_run_still_commits_the_archive(monkeypatch, capsys):
             seed_path=Path("seed.json"),
         )
 
-    with patch.object(harvest_module, "harvest_committee_meetings", _fake_harvest):
+    with patch.object(harvest_module, "harvest", _fake_harvest):
         code = harvest_module.main(
             ["--from-biennium", "2025-26", "--to-biennium", "2025-26", "--dry-run", "--json"]
         )

@@ -103,7 +103,7 @@ async def test_committee_floor_walks_to_earliest_nonempty():
         {"2025-26": [{"Id": 1}], "2023-24": [{"Id": 1}], "2021-22": [{"Id": 1}]}
         # 2019-20, 2017-18 absent → empty
     )
-    result = await probe.probe_committee_floor(client, start_biennium="2025-26", max_empty=2)
+    result = await probe.probe_floor(client, start_biennium="2025-26", max_empty=2)
     labels = [r["biennium"] for r in result["bienniums"]]
     assert labels == ["2025-26", "2023-24", "2021-22", "2019-20", "2017-18"]
     assert result["earliest_with_data"] == "2021-22"
@@ -114,7 +114,7 @@ async def test_committee_floor_walks_to_earliest_nonempty():
 async def test_committee_floor_makes_no_meeting_calls():
     """It only touches get_committees — the whole point is to skip the slow docket pull."""
     client = _FloorCommitteeClient({"2025-26": [{"Id": 1}]})
-    await probe.probe_committee_floor(client, start_biennium="2025-26", max_empty=2)
+    await probe.probe_floor(client, start_biennium="2025-26", max_empty=2)
     # _FloorCommitteeClient has no meeting method at all — a meeting call would AttributeError.
     assert client.calls[0] == "2025-26"
 

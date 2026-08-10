@@ -79,7 +79,7 @@ from clearinghouse_core.provenance import Citation
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.span_emit import MAX_CLOSE_FRACTION_DEFAULT, close_fraction
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.sponsors.build import build_sponsor_spans
+from usa_wa_adapter_legislature.sponsors.build import build_spans
 
 logger = get_logger(__name__)
 
@@ -205,7 +205,7 @@ async def _retire_onto(
         counters.dropped += 1
 
 
-async def migrate_sponsor_spans(
+async def migrate_spans(
     session: AsyncSession,
     *,
     current_biennium: str | None = None,
@@ -216,12 +216,12 @@ async def migrate_sponsor_spans(
     4-part shallow (#97) party/Senate row onto its successor span (transfer the PM anchor +
     retire the stranded row, index-safe). Idempotent.
 
-    ``max_close_fraction`` is forwarded to :func:`build_sponsor_spans`' #83 stale-span sweep;
+    ``max_close_fraction`` is forwarded to :func:`build_spans`' #83 stale-span sweep;
     the #97 full-depth run didn't trip the guard (the post-emit open set diluted the fraction),
     but a deliberate mass-close re-run can pass ``1.0`` to disable it."""
     current = current_biennium or biennium_for_date(datetime.now(UTC).date())
     spans_built = (
-        await build_sponsor_spans(
+        await build_spans(
             session,
             sponsor_client=sponsor_client,
             current_biennium=current,
@@ -306,7 +306,7 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 
 async def _migrate_job(ctx: JobContext) -> MigrationResult:
     """Harness handler; the session is the harness's owner-role one."""
-    return await migrate_sponsor_spans(
+    return await migrate_spans(
         ctx.require_session(), max_close_fraction=ctx.args.max_close_fraction
     )
 

@@ -21,7 +21,7 @@ from usa_wa_adapter_legislature.committees import ingest_seed as ingest_module
 from usa_wa_adapter_legislature.committees.ingest_seed import (
     SEED_RESOURCE_ID,
     IngestSummary,
-    ingest_committee_seed,
+    ingest_seed,
 )
 from usa_wa_adapter_legislature.committees.seed import SeedCommittee, serialize_seed
 
@@ -45,7 +45,7 @@ async def test_ingest_materializes_cohort_with_synthetic_provenance(db_session, 
         ],
     )
 
-    summary = await ingest_committee_seed(db_session, seed_path=seed_path)
+    summary = await ingest_seed(db_session, seed_path=seed_path)
     assert summary.in_seed == 2
     assert summary.inserted == 2
     assert summary.provenance_recorded is True
@@ -100,7 +100,7 @@ async def test_ingest_is_fill_only_leaving_existing_rows_untouched(db_session, u
         [SeedCommittee("-140", "Joint Joint Transportation Committee", "JTC", "JTC", None)],
     )
 
-    summary = await ingest_committee_seed(db_session, seed_path=seed_path)
+    summary = await ingest_seed(db_session, seed_path=seed_path)
     assert summary.in_seed == 1
     assert summary.inserted == 0  # conflict → skipped
 
@@ -117,10 +117,10 @@ async def test_reingesting_same_seed_skips_duplicate_provenance(db_session, usa_
         tmp_path,
         [SeedCommittee("-140", "Joint Joint Transportation Committee", "JTC", "JTC", None)],
     )
-    first = await ingest_committee_seed(db_session, seed_path=seed_path)
+    first = await ingest_seed(db_session, seed_path=seed_path)
     assert first.provenance_recorded is True
 
-    second = await ingest_committee_seed(db_session, seed_path=seed_path)
+    second = await ingest_seed(db_session, seed_path=seed_path)
     assert second.provenance_recorded is False
     assert second.inserted == 0  # org already present
 
@@ -145,7 +145,7 @@ async def test_ingest_fails_closed_on_tampered_seed(db_session, usa_wa, tmp_path
     seed_path.write_bytes(seed_path.read_bytes() + b"\n# tamper\n")  # sidecar now stale
 
     with pytest.raises(SeedIntegrityError):
-        await ingest_committee_seed(db_session, seed_path=seed_path)
+        await ingest_seed(db_session, seed_path=seed_path)
 
 
 # --- CLI (#179b: the shared job harness) --------------------------------------
@@ -170,7 +170,7 @@ def test_main_returns_1_when_ingest_raises(monkeypatch):
     async def boom(*_args, **_kwargs):
         raise RuntimeError("simulated ingest failure")
 
-    with patch.object(ingest_module, "ingest_committee_seed", boom):
+    with patch.object(ingest_module, "ingest_seed", boom):
         assert ingest_module.main([]) == 1
 
 
@@ -184,7 +184,7 @@ def test_main_dry_run_now_rolls_back(monkeypatch, capsys):
             in_seed=4, inserted=2, provenance_recorded=True, seed_path=Path("seed.json")
         )
 
-    with patch.object(ingest_module, "ingest_committee_seed", _fake_ingest):
+    with patch.object(ingest_module, "ingest_seed", _fake_ingest):
         code = ingest_module.main(["--dry-run", "--json"])
 
     assert code == 0

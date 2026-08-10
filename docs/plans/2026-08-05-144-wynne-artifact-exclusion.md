@@ -29,7 +29,7 @@ delete gets re-created. A durable correction must exclude the member at the **de
 Add a small **curated, evidenced artifact denylist** — `ARTIFACT_EXCLUSIONS_BY_BIENNIUM:
 {biennium -> {member_id}}` — in a new pure module, and union it into the `exclude_ids_by_biennium`
 set that `build_sponsor_observations` already honours (the existing #105 (b) exclusion seam). The
-merge happens in `harvest_sponsor_spans.build_sponsor_spans` **after** the operator-event exemption
+merge happens in `harvest_sponsor_spans.build_spans` **after** the operator-event exemption
 subtraction, so the denylist is a hard exclusion nothing else can remove. #54-safe (the archive is
 never rewritten; the correction lives in the canonical-derivation layer). Wynne carries no operator
 events, so no interaction with the #107/#157 overlay.
@@ -61,7 +61,7 @@ it the next backfill would re-produce the retracted assignment.
    party observation survives.
 2. **GREEN** — add `member_artifacts.py` (`ARTIFACT_EXCLUSIONS_BY_BIENNIUM` + pure
    `with_artifact_exclusions`), each entry docstring-cited to the WA Leg roster PDF.
-3. Wire `with_artifact_exclusions` into `harvest_sponsor_spans.build_sponsor_spans` after the
+3. Wire `with_artifact_exclusions` into `harvest_sponsor_spans.build_spans` after the
    operator-exemption subtraction.
 4. **Verify** — full suite green; ruff clean. Optionally re-run an unrestricted `harvest_sponsor_spans`
    on a scratch/dry basis to confirm Wynne's 2001-02 spans are no longer asserted (existing closed

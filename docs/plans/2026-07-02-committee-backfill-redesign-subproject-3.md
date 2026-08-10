@@ -29,7 +29,7 @@ committee, so we must create a new org; only an identifier-less same-name org is
 adopted. **(2)** Harden `sync_org_names` and `sync_org_acronyms` to skip-and-log a
 `pm_org_name_id` / `pm_org_acronym_id` already present under a *different* org
 instead of letting the `flush` crash the cycle. Then re-run the (unchanged)
-`harvest_committees` to re-materialize the 152 local rows; the sidecar
+`harvest` to re-materialize the 152 local rows; the sidecar
 identifier-matches the ~100 orphan PM orgs (adopt) and creates the rest, monitored
 for the absence of the crash signature; finally re-emit the rename chain.
 
@@ -78,12 +78,12 @@ for the absence of the crash signature; finally re-emit the rename chain.
    (skip-and-log). Note the redesign in AGENTS.md where the Id-keyed CLIs are
    described.
 6. **Operational — deploy + re-materialize (guarded).** (a) Restart the sidecar on
-   the fixes. (b) Re-run `harvest_committees --from-biennium 1991-92 --to-biennium
+   the fixes. (b) Re-run `harvest --from-biennium 1991-92 --to-biennium
    2025-26 --force` to re-insert the 152 local rows. **Revision (mechanics):** a plain
    re-run does *not* re-materialize — the rosters are archived within the 1-day TTL, so
    the runner's cache-or-fetch short-circuits (`upserted=0`, no re-normalize/upsert).
    The rolled-back org rows only come back if the runner actually re-normalizes, so
-   `harvest_committees` gained a `--force` flag (TDD'd) that re-fetches + re-normalizes
+   `harvest` gained a `--force` flag (TDD'd) that re-fetches + re-normalizes
    past the cache; the byte-identical wire still dedups to the existing RawPayload
    (revalidation, not re-store), and fill-only leaves unaffected committees untouched.
    Same 18-paced-`GetCommittees` WSL profile the original harvest used.
@@ -114,5 +114,5 @@ for the absence of the crash signature; finally re-emit the rename chain.
   behind proven-clean anchoring; a regression must not silently re-wedge the
   sidecar. If the crash signature reappears, stop and roll back the re-materialized
   local rows (same procedure as the incident recovery).
-- **Idempotent re-run.** `harvest_committees` must stay fill-only + cache-bound so
+- **Idempotent re-run.** `harvest` must stay fill-only + cache-bound so
   re-running is safe; anchoring remains the sidecar's job, not the harvest's.

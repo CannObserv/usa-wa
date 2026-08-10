@@ -66,7 +66,7 @@ logger = get_logger(__name__)
 JOB_SLUG = "wsl-sponsor-span-build"
 
 
-async def build_sponsor_spans(
+async def build_spans(
     session: AsyncSession,
     *,
     sponsor_client: WSLClient | None = None,
@@ -216,7 +216,7 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 
 async def _build_job(ctx: JobContext):
     """Harness handler: build the spans and hand the result back as counters."""
-    return await build_sponsor_spans(
+    return await build_spans(
         ctx.require_session(),
         max_close_fraction=ctx.args.max_close_fraction,
         stale_min_coverage=ctx.args.stale_min_coverage,

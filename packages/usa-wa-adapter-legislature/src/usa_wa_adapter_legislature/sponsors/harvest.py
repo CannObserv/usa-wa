@@ -52,14 +52,14 @@ JOB_SLUG = "wsl-sponsor-harvest"
 
 @dataclass(frozen=True)
 class HarvestSummary:
-    """Outcome of one :func:`harvest_sponsors` run."""
+    """Outcome of one :func:`harvest` run."""
 
     windows: int
     upserted: int
     dry_run: bool
 
 
-async def harvest_sponsors(
+async def harvest(
     session: AsyncSession,
     *,
     bienniums: list[str],
@@ -142,7 +142,7 @@ async def _harvest_job(ctx: JobContext) -> HarvestSummary:
     # unconditional call let the flag's own default silently overwrite the env-seeded interval.
     if args.pause_seconds is not None:
         configure_wsl_rate_limit(args.pause_seconds)
-    return await harvest_sponsors(
+    return await harvest(
         ctx.require_session(),
         bienniums=bienniums,
         sponsor_client=WSLClient("SponsorService"),

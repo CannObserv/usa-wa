@@ -55,7 +55,7 @@ _OTHER = "other"
 
 @dataclass(frozen=True)
 class HarvestSummary:
-    """Outcome of one :func:`harvest_committee_meetings` run."""
+    """Outcome of one :func:`harvest` run."""
 
     windows: int
     upserted: int
@@ -93,7 +93,7 @@ async def _other_class_cohort(
     return list(result.scalars().all())
 
 
-async def harvest_committee_meetings(
+async def harvest(
     session: AsyncSession,
     *,
     bienniums: list[str],
@@ -188,7 +188,7 @@ async def _harvest_job(ctx: JobContext) -> HarvestSummary | JobResult:
         return JobResult.failed({"error": str(exc)}, exit_code=EXIT_CONFIG)
     session = ctx.require_session()
     async with session.begin():
-        return await harvest_committee_meetings(
+        return await harvest(
             session,
             bienniums=bienniums,
             seed_path=ctx.args.seed_path,

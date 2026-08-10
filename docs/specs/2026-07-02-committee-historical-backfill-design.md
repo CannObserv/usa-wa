@@ -77,7 +77,7 @@ can re-run/re-tune/re-emit without touching WSL.
 
 ### Phase A — Harvest + materialize (fill-only)
 
-`python -m usa_wa_adapter_legislature.harvest_committees`
+`python -m usa_wa_adapter_legislature.harvest`
 
 - **Find the floor first.** The sub-project-1 both-empty probe never terminates for
   committees (unbounded backward history). Phase A runs a **committee-only extent

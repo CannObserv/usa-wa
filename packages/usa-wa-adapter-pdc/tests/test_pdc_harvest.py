@@ -18,7 +18,7 @@ from clearinghouse_core.provenance import FetchEvent, RawPayload
 from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment
 from usa_wa_adapter_pdc import harvest as harvest_module
-from usa_wa_adapter_pdc.harvest import HarvestSummary, election_years, harvest_pdc
+from usa_wa_adapter_pdc.harvest import HarvestSummary, election_years, harvest
 from usa_wa_adapter_pdc.transport import WireFetch
 
 
@@ -51,7 +51,7 @@ def test_election_years_cover_every_general_inclusive():
 
 async def test_harvest_archives_both_chambers_per_year_without_normalizing(db_session, usa_wa):
     client = _FakePDCClient()
-    summary = await harvest_pdc(db_session, years=[2012, 2014], pdc_client=client, dry_run=False)
+    summary = await harvest(db_session, years=[2012, 2014], pdc_client=client, dry_run=False)
 
     assert client.house_calls == [2012, 2014]
     assert client.senate_calls == [2012, 2014]
@@ -70,8 +70,8 @@ async def test_harvest_archives_both_chambers_per_year_without_normalizing(db_se
 
 async def test_reharvest_is_cache_hit(db_session, usa_wa):
     client = _FakePDCClient()
-    await harvest_pdc(db_session, years=[2012], pdc_client=client, dry_run=False)
-    second = await harvest_pdc(db_session, years=[2012], pdc_client=client, dry_run=False)
+    await harvest(db_session, years=[2012], pdc_client=client, dry_run=False)
+    second = await harvest(db_session, years=[2012], pdc_client=client, dry_run=False)
 
     assert second.cohorts_archived == 0  # within TTL → cache hit, no re-fetch
     assert client.house_calls == [2012]  # only the first run fetched
@@ -101,7 +101,7 @@ def test_main_default_to_year_is_current_calendar_year(monkeypatch, capsys):
         return HarvestSummary(years=len(years), cohorts_archived=0, dry_run=True)
 
     with (
-        patch.object(harvest_module, "harvest_pdc", _fake_harvest),
+        patch.object(harvest_module, "harvest", _fake_harvest),
     ):
         code = harvest_module.main(["--dry-run"])
 
@@ -118,7 +118,7 @@ def test_main_dry_run_rolls_back(monkeypatch, capsys):
         return fake
 
     with (
-        patch.object(harvest_module, "harvest_pdc", _fake_harvest),
+        patch.object(harvest_module, "harvest", _fake_harvest),
     ):
         code = harvest_module.main(["--from-year", "2012", "--to-year", "2014", "--dry-run"])
 

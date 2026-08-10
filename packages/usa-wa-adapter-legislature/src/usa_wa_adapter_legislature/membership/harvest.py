@@ -91,7 +91,7 @@ def standing_committees(records: list[dict]) -> list[tuple[str, str, str]]:
     return out
 
 
-async def harvest_committee_members(
+async def harvest(
     session: AsyncSession,
     *,
     bienniums: list[str],
@@ -179,7 +179,7 @@ async def _harvest_job(ctx: JobContext) -> HarvestSummary:
         configure_wsl_rate_limit(args.pause_seconds)
     to_biennium = args.to_biennium or biennium_for_date(datetime.now(UTC).date())
     bienniums = bienniums_in_range(args.from_biennium, to_biennium)
-    return await harvest_committee_members(
+    return await harvest(
         ctx.require_session(), bienniums=bienniums, dry_run=ctx.dry_run, force=args.force
     )
 

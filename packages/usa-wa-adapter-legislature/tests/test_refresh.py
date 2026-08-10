@@ -403,7 +403,7 @@ async def test_span_rebuild_failure_is_isolated_by_savepoint(db_session, usa_wa)
         recorder.use_cassette(CASSETTE),
         patch("usa_wa_adapter_legislature.refresh.biennium_for_date", return_value="2025-26"),
         patch(
-            "usa_wa_adapter_legislature.refresh.build_sponsor_spans",
+            "usa_wa_adapter_legislature.sponsors.build.build_spans",
             side_effect=RuntimeError("span build boom"),
         ),
     ):
