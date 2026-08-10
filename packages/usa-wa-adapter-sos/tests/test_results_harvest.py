@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
-import os
 from datetime import UTC, datetime
 from unittest.mock import patch
 
 import httpx
 from sqlalchemy import func, select
 
+from clearinghouse_core import job as job_module
+from clearinghouse_core.job import EXIT_DEGRADED
 from clearinghouse_core.provenance import FetchEvent
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment
 from usa_wa_adapter_sos.results import harvest as harvest_module
 from usa_wa_adapter_sos.results.harvest import (
@@ -124,11 +127,11 @@ async def test_absent_legislative_csv_is_not_an_outage(db_session, usa_wa, caplo
     assert "results_harvest_total_outage" not in [r.message for r in caplog.records]
 
 
-async def test_main_defaults_through_the_current_calendar_year(monkeypatch, capsys, test_engine):
+def test_main_defaults_through_the_current_calendar_year(monkeypatch, capsys):
     """The default ``--to-year`` must be the current calendar year, not the biennium's *seating*
     election year: in 2025-26 the latter is 2024, so the odd-year sweep would stop before the very
     cohort #106 exists to archive."""
-    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    patch_job_runtime(monkeypatch)
     captured: dict[str, list[int]] = {}
 
     async def _fake_harvest(session, *, years, **_kwargs):
@@ -138,25 +141,25 @@ async def test_main_defaults_through_the_current_calendar_year(monkeypatch, caps
         )
 
     with (
-        patch.object(harvest_module, "configure_logging"),
         patch.object(harvest_module, "harvest_results", _fake_harvest),
     ):
-        code = await harvest_module._main(["--from-year", "2024", "--dry-run"])
+        code = harvest_module.main(["--from-year", "2024", "--dry-run"])
 
     assert code == 0
     assert captured["years"][-1] == datetime.now(UTC).year
 
 
-async def test_main_requires_database_url(monkeypatch, capsys):
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    with patch.object(harvest_module, "configure_logging"):
-        code = await harvest_module._main([])
-    assert code == 2
+def test_main_requires_database_url(monkeypatch, capsys):
+    def _raise(_role="app"):
+        raise RuntimeError("DATABASE_URL is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    assert harvest_module.main([]) == 2
     assert "DATABASE_URL is not set" in capsys.readouterr().err
 
 
-async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
-    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+def test_main_dry_run_rolls_back(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
     fake = HarvestSummary(
         years=2, cohorts_archived=2, cohorts_absent=0, cohorts_skipped=0, dry_run=True
     )
@@ -165,25 +168,73 @@ async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
         return fake
 
     with (
-        patch.object(harvest_module, "configure_logging"),
         patch.object(harvest_module, "harvest_results", _fake_harvest),
     ):
-        code = await harvest_module._main(["--from-year", "2020", "--to-year", "2024", "--dry-run"])
+        code = harvest_module.main(["--from-year", "2020", "--to-year", "2024", "--dry-run"])
 
     assert code == 0
     out = capsys.readouterr().out
-    assert "archived=2" in out
-    assert "dry-run, rolled back" in out
+    assert "cohorts_archived=2" in out
+    assert "dry_run=true" in out  # the harness's own dry-run marker
 
 
-async def test_main_leaves_the_env_rate_limit_alone_without_the_flag(
-    monkeypatch, capsys, test_engine
-):
+def test_main_exits_degraded_on_a_total_outage(monkeypatch, capsys):
+    """CR #196 finding 22, closed here.
+
+    ``results_harvest_total_outage`` was logged as a WARNING and the CLI still returned
+    **0** — the exact "exits 0 having done nothing" failure #178 exists to make visible,
+    in the very module ``clearinghouse_core.runs`` names as its example. Its sibling
+    ``filings.harvest`` already returned EXIT_DEGRADED for the identical condition, so
+    this is bringing two halves of one source into line, not inventing a policy.
+
+    The test is "every year skipped", not "archived == 0": ``archive_only`` returns False
+    on a cache hit, so a sweep whose served years all cache-hit is not an outage. And a
+    sweep of only race-less years (all ``absent``) is not one either — that is the odd-year
+    sweep working.
+    """
+    patch_job_runtime(monkeypatch)
+
+    async def _outage(session, *, years, **_kwargs):
+        return HarvestSummary(
+            years=len(years),
+            cohorts_archived=0,
+            cohorts_absent=0,
+            cohorts_skipped=len(years),
+            dry_run=False,
+        )
+
+    with patch.object(harvest_module, "harvest_results", _outage):
+        code = harvest_module.main(["--from-year", "2020", "--to-year", "2024", "--json"])
+
+    assert code == EXIT_DEGRADED
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["outcome"] == "degraded"
+    assert payload["counters"]["cohorts_skipped"] == 3
+
+
+def test_main_absent_only_sweep_is_not_degraded(monkeypatch):
+    """A general with no legislative race is an expected absence, not an outage (#106)."""
+    patch_job_runtime(monkeypatch)
+
+    async def _absent(session, *, years, **_kwargs):
+        return HarvestSummary(
+            years=len(years),
+            cohorts_archived=0,
+            cohorts_absent=len(years),
+            cohorts_skipped=0,
+            dry_run=False,
+        )
+
+    with patch.object(harvest_module, "harvest_results", _absent):
+        assert harvest_module.main(["--from-year", "2021", "--to-year", "2023"]) == 0
+
+
+def test_main_leaves_the_env_rate_limit_alone_without_the_flag(monkeypatch, capsys):
     """``--pause-seconds`` defaults to ``None`` so the flag's own default stops overwriting the
     value the central results limiter was seeded with from
     ``USA_WA_SOS_RESULTS_MIN_REQUEST_INTERVAL`` (#169) — the shape
     :mod:`membership.harvest` already uses."""
-    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    patch_job_runtime(monkeypatch)
 
     async def _fake_harvest(session, **_kwargs):
         return HarvestSummary(
@@ -191,12 +242,11 @@ async def test_main_leaves_the_env_rate_limit_alone_without_the_flag(
         )
 
     with (
-        patch.object(harvest_module, "configure_logging"),
         patch.object(harvest_module, "harvest_results", _fake_harvest),
         patch.object(harvest_module, "configure_results_rate_limit") as configure,
     ):
-        await harvest_module._main(["--dry-run"])
+        harvest_module.main(["--dry-run"])
         assert configure.call_count == 0
 
-        await harvest_module._main(["--dry-run", "--pause-seconds", "2.0"])
+        harvest_module.main(["--dry-run", "--pause-seconds", "2.0"])
         configure.assert_called_once_with(2.0)
