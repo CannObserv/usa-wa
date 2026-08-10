@@ -803,3 +803,26 @@ def test_require_session_factory_raises_for_a_db_free_job(monkeypatch):
 
     assert run_job("probe", handler, argv=[], needs_db=False) == EXIT_OK
     assert "needs_db=False" in raised[0]
+
+
+def test_a_narrower_dry_run_can_state_its_own_meaning(fake_db, capsys):
+    """``dry_run_help`` for the job whose flag is real but not a rollback.
+
+    ``meetings/harvest.py`` declared "harvest but do not write the seed" itself until
+    #179b took its parser away and left it advertising the generic rollback string, which
+    is false there — its archive writes commit either way (CR #196 finding 56).
+    """
+
+    async def handler(ctx: JobContext) -> dict:
+        return {}
+
+    with pytest.raises(SystemExit):
+        run_job(
+            "narrow",
+            handler,
+            argv=["--help"],
+            dry_run_help="harvest but do not write the seed",
+        )
+    out = capsys.readouterr().out
+    assert "harvest but do not write the seed" in out
+    assert "roll back instead of committing" not in out

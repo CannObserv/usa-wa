@@ -249,21 +249,29 @@ def build_parser(
     prog: str | None,
     extra_args: ArgsBuilder | None,
     dry_run: bool = True,
+    dry_run_help: str | None = None,
 ) -> argparse.ArgumentParser:
     """Build the shared parser: base args first, then the job's own.
 
     ``dry_run=False`` **omits** the flag rather than accepting one the job cannot honour
-    (CR #196 finding 47). A ``commit=False`` job whose handler owns an unconditional
-    transaction — the WSL refresh, the PM subscription bootstrap — would otherwise
-    advertise "roll back instead of committing", commit anyway, and print ``dry_run=true``
-    on the summary line of the run that wrote. An argparse error is the honest answer.
+    (CR #196 findings 47 and 55). A ``commit=False`` job whose handler owns an
+    unconditional transaction — the WSL / SOS / PDC refreshes, the PM subscription
+    bootstrap — would otherwise advertise "roll back instead of committing", commit
+    anyway, and print ``dry_run=true`` on the summary line of the run that wrote. An
+    argparse error is the honest answer.
+
+    ``dry_run_help`` is the third case: a job whose ``--dry-run`` is real but **narrower**
+    than a rollback. ``meetings/harvest.py`` declared its own accurate
+    "harvest but do not write the seed" before #179b and inherited the generic — and
+    wrong — string when the sweep took its parser away (finding 56). The override gives
+    that back without re-forking the flag.
     """
     parser = argparse.ArgumentParser(prog=prog, description=description or f"{name} job")
     if dry_run:
         parser.add_argument(
             "--dry-run",
             action="store_true",
-            help="Run the work but roll back instead of committing.",
+            help=dry_run_help or "Run the work but roll back instead of committing.",
         )
     else:
         # ``_execute`` and ``_emit`` both read the attribute unconditionally.
@@ -525,6 +533,7 @@ def run_job(
     ledger: bool | None = None,
     role: str = DATABASE_ROLE_APP,
     dry_run: bool = True,
+    dry_run_help: str | None = None,
 ) -> int:
     """Run ``handler`` as job ``name`` and return the process exit code.
 
@@ -552,7 +561,7 @@ def run_job(
     traceback in the log rather than a bare traceback on stderr.
     """
     configure_logging()
-    args = build_parser(name, description, prog, extra_args, dry_run).parse_args(argv)
+    args = build_parser(name, description, prog, extra_args, dry_run, dry_run_help).parse_args(argv)
     write_ledger = needs_db if ledger is None else ledger
 
     if needs_db:

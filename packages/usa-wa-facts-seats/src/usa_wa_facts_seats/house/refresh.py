@@ -146,8 +146,7 @@ async def _refresh_job(ctx: JobContext) -> SosRefreshOutcome:
     """Harness handler, keeping the explicit ``session.begin()`` (``commit=False``).
 
     The pre-#179b CLI committed unconditionally through that block and had no
-    ``--dry-run``; leaving the transaction here keeps that exactly, and the flag the
-    harness always adds is accepted and ignored.
+    ``--dry-run``; leaving the transaction here keeps that exactly.
     """
     session = ctx.require_session()
     async with session.begin():
@@ -155,7 +154,13 @@ async def _refresh_job(ctx: JobContext) -> SosRefreshOutcome:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run one SOS refresh cycle. Exit ``0`` clean · ``1`` failed · ``2`` config."""
+    """Run one SOS refresh cycle. Exit ``0`` clean · ``1`` failed · ``2`` config.
+
+    **No ``--dry-run``** (``dry_run=False``, CR #196 finding 55). This commits through its
+    own ``session.begin()`` regardless, so the flag would have archived the cohort,
+    re-driven the House builder, committed, and reported ``dry_run=true``. It had no such
+    flag before #179b; the sweep added it and nothing read it.
+    """
     return run_job(
         JOB_SLUG,
         _refresh_job,
@@ -163,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m usa_wa_facts_seats.house.refresh",
         description="Run one SOS refresh cycle (archive the cohort + re-drive the House builder).",
         commit=False,
+        dry_run=False,
     )
 
 

@@ -206,6 +206,11 @@ def main(argv: list[str] | None = None) -> int:
         description="Harvest the Joint/Other committee seed (#39).",
         extra_args=_add_args,
         commit=False,
+        # The one job whose --dry-run is real but NARROWER than a rollback (CR #196
+        # finding 56). It declared this exact string itself before #179b; the sweep took
+        # its parser away and left it advertising the generic "roll back instead of
+        # committing", which is false here — the archive writes commit either way.
+        dry_run_help="harvest but do not write the seed",
     )
 
 

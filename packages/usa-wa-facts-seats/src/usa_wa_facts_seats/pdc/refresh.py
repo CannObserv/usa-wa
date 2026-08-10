@@ -155,7 +155,12 @@ async def _refresh_job(ctx: JobContext) -> PdcRefreshOutcome:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run one PDC refresh cycle. Exit ``0`` clean · ``1`` failed · ``2`` config."""
+    """Run one PDC refresh cycle. Exit ``0`` clean · ``1`` failed · ``2`` config.
+
+    **No ``--dry-run``** (``dry_run=False``, CR #196 finding 55) — the twin of the SOS
+    refresh: its own ``session.begin()`` commits regardless, so the flag could only have
+    promised a rollback and archived the cohort anyway.
+    """
     return run_job(
         JOB_SLUG,
         _refresh_job,
@@ -163,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m usa_wa_facts_seats.pdc.refresh",
         description="Run one PDC refresh cycle (archive the cohort + re-drive the identifiers).",
         commit=False,
+        dry_run=False,
     )
 
 
