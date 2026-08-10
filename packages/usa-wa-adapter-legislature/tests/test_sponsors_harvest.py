@@ -7,14 +7,16 @@ per biennium under `sponsors:<biennium>`; closed biennia cache-hit on re-run.
 
 from __future__ import annotations
 
-import os
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from sqlalchemy import func, select
 
+from clearinghouse_core import job as job_module
 from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Person, PersonIdentifier
 from usa_wa_adapter_legislature.sponsors import harvest as harvest_sponsors_module
 from usa_wa_adapter_legislature.sponsors.harvest import harvest_sponsors
@@ -112,9 +114,10 @@ async def test_harvest_skips_name_blanked_stubs(db_session, usa_wa, wsl_source):
     assert await _count(db_session, Person) == 1  # only the named member
 
 
-async def test_main_leaves_the_env_rate_limit_alone_without_the_flag(
-    monkeypatch, test_engine, capsys
-):
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_leaves_the_env_rate_limit_alone_without_the_flag(monkeypatch):
     """``--pause-seconds`` defaults to ``None`` so the flag's own default stops overwriting the
     value the central WSL limiter was seeded with from ``USA_WA_WSL_MIN_REQUEST_INTERVAL`` (#169).
 
@@ -123,21 +126,64 @@ async def test_main_leaves_the_env_rate_limit_alone_without_the_flag(
     ``configure_wsl_rate_limit`` — but a CLI silently resetting a central governor is the same
     wart.
     """
-    monkeypatch.setenv("DATABASE_URL", os.environ["TEST_DATABASE_URL"])
+    patch_job_runtime(monkeypatch)
 
     async def _fake_harvest(session, **_kwargs):
         return SimpleNamespace(windows=0, upserted=0, dry_run=True)
 
     with (
-        patch.object(harvest_sponsors_module, "configure_logging"),
         patch.object(harvest_sponsors_module, "harvest_sponsors", _fake_harvest),
         patch.object(harvest_sponsors_module, "WSLClient"),
         patch.object(harvest_sponsors_module, "configure_wsl_rate_limit") as configure,
     ):
-        await harvest_sponsors_module._main(["--to-biennium", "2025-26", "--dry-run"])
+        assert harvest_sponsors_module.main(["--to-biennium", "2025-26", "--dry-run"]) == 0
         assert configure.call_count == 0
 
-        await harvest_sponsors_module._main(
+        harvest_sponsors_module.main(
             ["--to-biennium", "2025-26", "--dry-run", "--pause-seconds", "3.5"]
         )
         configure.assert_called_once_with(3.5)
+
+
+def test_main_records_the_harvest_summary_as_ledger_counters(monkeypatch, capsys):
+    """The summary dataclass every harvest already builds becomes the #178 row's
+    ``counters`` — that is the whole migration for a job of this shape."""
+    patch_job_runtime(monkeypatch)
+
+    async def _fake_harvest(session, **_kwargs):
+        return SimpleNamespace(windows=3, upserted=17, dry_run=False)
+
+    with (
+        patch.object(harvest_sponsors_module, "harvest_sponsors", _fake_harvest),
+        patch.object(harvest_sponsors_module, "WSLClient"),
+    ):
+        code = harvest_sponsors_module.main(["--to-biennium", "2025-26", "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == harvest_sponsors_module.JOB_SLUG
+    assert payload["outcome"] == "ok"
+    assert payload["counters"] == {"windows": 3, "upserted": 17, "dry_run": False}
+
+
+def test_main_maps_a_handler_failure_to_exit_one(monkeypatch):
+    """Unchanged contract: 0 clean, 1 on failure, 2 config."""
+    patch_job_runtime(monkeypatch)
+
+    async def _boom(session, **_kwargs):
+        raise RuntimeError("WSL down")
+
+    with (
+        patch.object(harvest_sponsors_module, "harvest_sponsors", _boom),
+        patch.object(harvest_sponsors_module, "WSLClient"),
+    ):
+        assert harvest_sponsors_module.main(["--to-biennium", "2025-26"]) == 1
+
+
+def test_main_missing_database_url_is_still_exit_two(monkeypatch, capsys):
+    def _raise(_role="app"):
+        raise RuntimeError("DATABASE_URL is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    assert harvest_sponsors_module.main([]) == 2
+    assert "DATABASE_URL" in capsys.readouterr().err

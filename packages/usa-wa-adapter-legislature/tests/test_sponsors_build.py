@@ -7,8 +7,11 @@ per-biennium citations.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, date, datetime
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import func, select
@@ -16,6 +19,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED, KIND_SEATED
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
@@ -27,6 +31,7 @@ from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
 )
+from usa_wa_adapter_legislature.sponsors import build as build_module
 from usa_wa_adapter_legislature.sponsors.build import build_sponsor_spans
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
@@ -607,3 +612,52 @@ async def test_builders_accept_a_shared_member_cohort(db_session, usa_wa, wsl_so
     )
 
     assert client.parse_calls == 1
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_forwards_its_guard_flags_and_ledgers_the_result(monkeypatch, capsys):
+    """The span builder's own flags survive the move onto ``run_job()``, and the
+    result object it already returns becomes the #178 row's counters."""
+    patch_job_runtime(monkeypatch)
+    seen: dict = {}
+
+    async def _fake_build(session, **kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(emitted=4, closed_stale=1, sweep_aborted=False)
+
+    with patch.object(build_module, "build_sponsor_spans", _fake_build):
+        code = build_module.main(
+            ["--json", "--max-close-fraction", "1.0", "--stale-min-coverage", "0.25"]
+        )
+
+    assert code == 0
+    assert seen["max_close_fraction"] == 1.0
+    assert seen["stale_min_coverage"] == 0.25
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == build_module.JOB_SLUG
+    assert payload["counters"] == {"emitted": 4, "closed_stale": 1, "sweep_aborted": False}
+
+
+def test_main_dry_run_rolls_back(monkeypatch):
+    """--dry-run is now the harness's, and the harness owns the rollback."""
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _fake_build(session, **_kwargs):
+        return SimpleNamespace(emitted=0, closed_stale=0, sweep_aborted=False)
+
+    with patch.object(build_module, "build_sponsor_spans", _fake_build):
+        assert build_module.main(["--dry-run"]) == 0
+
+    assert (recording.committed, recording.rolled_back) == (0, 1)
+
+
+def test_main_failure_exits_one(monkeypatch):
+    patch_job_runtime(monkeypatch)
+
+    async def _boom(session, **_kwargs):
+        raise RuntimeError("span build blew up")
+
+    with patch.object(build_module, "build_sponsor_spans", _boom):
+        assert build_module.main([]) == 1

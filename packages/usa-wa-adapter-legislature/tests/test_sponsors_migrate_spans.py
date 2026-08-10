@@ -13,7 +13,7 @@ partial unique index (no ``drop_anchor_unique_indexes``).
 
 from __future__ import annotations
 
-import os
+import json
 from datetime import UTC, date, datetime
 from unittest.mock import patch
 
@@ -21,8 +21,11 @@ import pytest
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
 
+from clearinghouse_core import job as job_module
+from clearinghouse_core.config import DATABASE_ROLE_OWNER
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Person
 from usa_wa_adapter_legislature.sponsors import migrate_spans as migrate_module
 from usa_wa_adapter_legislature.sponsors.build import build_sponsor_spans
@@ -554,24 +557,38 @@ def test_superseded_pairs_keeps_disjoint_dormancy_tenures():
     assert migrate_module._superseded_pairs({("person", "role"): [early, later]}) == []
 
 
-# --- CLI (_main) --------------------------------------------------------------
+# --- CLI (#179b: the shared job harness, owner role) ---------------------------
 
 
-async def test_main_returns_2_when_owner_url_unset(monkeypatch, capsys):
-    """Missing DATABASE_URL_OWNER → stderr message + exit 2 (config error).
+def test_main_declares_the_owner_role(monkeypatch):
+    """The DSN choice is now a declaration to ``run_job()``, not a hand-rolled
+    ``os.environ`` read — retiring a legacy row deletes its citations, which the app
+    role is REVOKEd on (#54)."""
+    seen: dict = {}
 
-    The migration runs under the owner role — retiring a legacy row deletes its citations,
-    which the app role is REVOKEd (#54)."""
-    monkeypatch.delenv("DATABASE_URL_OWNER", raising=False)
-    with patch.object(migrate_module, "configure_logging"):
-        code = await migrate_module._main([])
-    assert code == 2
+    def _capture(name, handler, **kwargs):
+        seen.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(migrate_module, "run_job", _capture)
+    migrate_module.main([])
+    assert seen["role"] == DATABASE_ROLE_OWNER
+
+
+def test_main_returns_2_when_owner_url_unset(monkeypatch, capsys):
+    """Unchanged exit contract: missing DATABASE_URL_OWNER → stderr message + exit 2."""
+
+    def _raise(role="app"):
+        raise RuntimeError("DATABASE_URL_OWNER is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    assert migrate_module.main([]) == 2
     assert "DATABASE_URL_OWNER is not set" in capsys.readouterr().err
 
 
-async def test_main_dry_run_rolls_back_and_returns_0(monkeypatch, capsys, test_engine):
-    """--dry-run prints the summary, rolls back, and exits 0 (migrate itself is stubbed)."""
-    monkeypatch.setenv("DATABASE_URL_OWNER", os.environ["TEST_DATABASE_URL"])
+def test_main_dry_run_rolls_back_and_returns_0(monkeypatch, capsys):
+    """--dry-run reports the summary, rolls back, and exits 0 (migrate itself is stubbed)."""
+    recording = patch_job_runtime(monkeypatch)
     fake = MigrationResult(
         spans_built=3, legacy_found=2, anchors_transferred=2, legacy_retired=2, orphans_no_span=0
     )
@@ -579,22 +596,21 @@ async def test_main_dry_run_rolls_back_and_returns_0(monkeypatch, capsys, test_e
     async def _fake_migrate(session, **_kwargs):
         return fake
 
-    with (
-        patch.object(migrate_module, "configure_logging"),
-        patch.object(migrate_module, "migrate_sponsor_spans", _fake_migrate),
-    ):
-        code = await migrate_module._main(["--dry-run"])
+    with patch.object(migrate_module, "migrate_sponsor_spans", _fake_migrate):
+        code = migrate_module.main(["--dry-run", "--json"])
 
     assert code == 0
-    out = capsys.readouterr().out
-    assert "legacy_found=2 legacy_retired=2" in out
-    assert "superseded_found=0 superseded_retired=0" in out
-    assert "dry-run, rolled back" in out
+    assert (recording.committed, recording.rolled_back) == (0, 1)
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["dry_run"] is True
+    assert payload["counters"]["legacy_found"] == 2
+    assert payload["counters"]["legacy_retired"] == 2
+    assert payload["counters"]["superseded_retired"] == 0
 
 
-async def test_main_forwards_max_close_fraction(monkeypatch, test_engine):
+def test_main_forwards_max_close_fraction(monkeypatch):
     """--max-close-fraction is parsed and forwarded to migrate_sponsor_spans (→ the #83 sweep)."""
-    monkeypatch.setenv("DATABASE_URL_OWNER", os.environ["TEST_DATABASE_URL"])
+    patch_job_runtime(monkeypatch)
     seen = {}
 
     async def _fake_migrate(session, **kwargs):
@@ -607,11 +623,8 @@ async def test_main_forwards_max_close_fraction(monkeypatch, test_engine):
             orphans_no_span=0,
         )
 
-    with (
-        patch.object(migrate_module, "configure_logging"),
-        patch.object(migrate_module, "migrate_sponsor_spans", _fake_migrate),
-    ):
-        code = await migrate_module._main(["--dry-run", "--max-close-fraction", "1.0"])
+    with patch.object(migrate_module, "migrate_sponsor_spans", _fake_migrate):
+        code = migrate_module.main(["--dry-run", "--max-close-fraction", "1.0"])
 
     assert code == 0
     assert seen["max_close_fraction"] == 1.0
