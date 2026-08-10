@@ -9,7 +9,6 @@ span, transferring the PM anchor — the #82 stranded-row pattern, scoped to the
 
 from __future__ import annotations
 
-import os
 from datetime import UTC, date, datetime
 from unittest.mock import patch
 
@@ -17,7 +16,9 @@ import pytest
 from sqlalchemy import func, select
 from ulid import ULID as _ULID
 
+from clearinghouse_core import job as job_module
 from clearinghouse_core.jurisdictions import Jurisdiction
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from usa_wa_common.seats import house_seat_role_source_id
 from usa_wa_facts_seats.pdc import migrate_pdc_spans as migrate_module
@@ -413,16 +414,18 @@ async def test_disjoint_dormancy_spans_both_kept(db_session, usa_wa, house_org):
     assert await _count(db_session, Assignment, source="usa_wa_pdc") == 2  # both kept
 
 
-async def test_main_requires_owner_url(monkeypatch, capsys):
-    monkeypatch.delenv("DATABASE_URL_OWNER", raising=False)
-    with patch.object(migrate_module, "configure_logging"):
-        code = await migrate_module._main([])
+def test_main_requires_owner_url(monkeypatch, capsys):
+    def _raise(_role="app"):
+        raise RuntimeError("DATABASE_URL_OWNER is not set. ...")
+
+    monkeypatch.setattr(job_module, "get_database_url", _raise)
+    code = migrate_module.main([])
     assert code == 2
     assert "DATABASE_URL_OWNER is not set" in capsys.readouterr().err
 
 
-async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
-    monkeypatch.setenv("DATABASE_URL_OWNER", os.environ["TEST_DATABASE_URL"])
+def test_main_dry_run_rolls_back(monkeypatch, capsys):
+    patch_job_runtime(monkeypatch)
     fake = MigrationResult(
         legacy_found=2,
         anchors_transferred=5,
@@ -436,14 +439,13 @@ async def test_main_dry_run_rolls_back(monkeypatch, capsys, test_engine):
         return fake
 
     with (
-        patch.object(migrate_module, "configure_logging"),
         patch.object(migrate_module, "migrate_pdc_spans", _fake),
     ):
-        code = await migrate_module._main(["--dry-run"])
+        code = migrate_module.main(["--dry-run"])
 
     assert code == 0
     out = capsys.readouterr().out
-    assert "legacy_found=2 legacy_retired=2" in out
-    assert "superseded_found=3 superseded_retired=3" in out
+    assert "legacy_found=2" in out and "legacy_retired=2" in out
+    assert "superseded_found=3" in out and "superseded_retired=3" in out
     assert "anchors_transferred=5" in out
-    assert "dry-run, rolled back" in out
+    assert "dry_run=true" in out  # the harness's own dry-run marker

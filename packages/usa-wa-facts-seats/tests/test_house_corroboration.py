@@ -10,16 +10,22 @@ results wire + hand-built open House seats.
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, date, datetime
+from unittest.mock import patch
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 from usa_wa_common.seats import house_seat_role_source_id
+from usa_wa_facts_seats import house_corroboration as corroboration_module
 from usa_wa_facts_seats.house_corroboration import (
+    HouseCorroborationResult,
+    HouseSweepOutcome,
     _seat_from_role_source_id,
     corroborate_house_winners,
     house_occupants,
@@ -308,3 +314,37 @@ def test_sweep_exit_code_contract():
     assert sweep_exit_code(strict=True, missing_count=0) == 0  # strict but clean
     assert sweep_exit_code(strict=False, missing_count=2) == 0  # report-only default
     assert sweep_exit_code(strict=False, missing_count=0) == 0
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_exit_one_on_a_missing_winner_seat(monkeypatch, capsys):
+    """Unchanged daily contract (COMMANDS-SUCCESSION.md): 0 clean / 1 on a missing seat."""
+    patch_job_runtime(monkeypatch)
+
+    async def _missing(_session, **_kwargs):
+        return HouseCorroborationResult(
+            odd_year=2025, winners=2, missing_seats=[("5", "Position 1")]
+        )
+
+    with patch.object(corroboration_module, "corroborate_house_winners", _missing):
+        code = corroboration_module.main(["--json"])
+
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == corroboration_module.JOB_SLUG
+    assert payload["outcome"] == "failed"
+    assert payload["counters"]["missing_seats"] == 1
+
+
+def test_main_sweep_mode_honours_strict(monkeypatch):
+    """#119 report-only default, escalated by --strict — both survive the move."""
+    patch_job_runtime(monkeypatch)
+
+    async def _sweep(_session, **_kwargs):
+        return HouseSweepOutcome(missing=[(2021, "5", "Position 1")], mismatched=[])
+
+    with patch.object(corroboration_module, "sweep_house_winners", _sweep):
+        assert corroboration_module.main(["--sweep-biennia"]) == 0
+        assert corroboration_module.main(["--sweep-biennia", "--strict"]) == 1

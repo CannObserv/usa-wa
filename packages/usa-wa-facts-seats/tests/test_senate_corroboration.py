@@ -7,18 +7,25 @@ operator event). Fully offline — an archived results wire + hand-built open Se
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, date, datetime
+from unittest.mock import patch
 
 from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload
+from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.normalize.members import senate_seat_role_source_id
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_common.jurisdiction import resolve_jurisdiction
-from usa_wa_facts_seats.senate_corroboration import corroborate_senate_winners
+from usa_wa_facts_seats import senate_corroboration as corroboration_module
+from usa_wa_facts_seats.senate_corroboration import (
+    SenateCorroborationResult,
+    corroborate_senate_winners,
+)
 
 CURRENT = "2025-26"
 ODD_RESOURCE = "sos-legresults:20251104"
@@ -195,3 +202,41 @@ async def test_noncurrent_biennium_pin_warns(db_session, usa_wa, caplog):
     with caplog.at_level(logging.WARNING):
         await corroborate_senate_winners(db_session, biennium=CURRENT)  # today's biennium
     assert "senate_corroboration_noncurrent_biennium" not in [r.message for r in caplog.records]
+
+
+# --- CLI (#179b: the shared job harness) --------------------------------------
+
+
+def test_main_commits_the_citations_even_on_a_violation(monkeypatch, capsys):
+    """This gate **writes** (Citations) and then exits 1 on a missing winner. The commit
+    was unconditional-unless-dry-run before #179b, so the handler keeps the transaction
+    (``commit=False``) — a ``JobResult.failed`` under a committing harness would roll the
+    citations back behind an unchanged exit code."""
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _missing(_session, **_kwargs):
+        return SenateCorroborationResult(
+            odd_year=2025, winners=1, citations_added=1, missing_lds=[5]
+        )
+
+    with patch.object(corroboration_module, "corroborate_senate_winners", _missing):
+        code = corroboration_module.main(["--json"])
+
+    assert code == 1
+    assert (recording.committed, recording.rolled_back) == (1, 0)
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["job"] == corroboration_module.JOB_SLUG
+    assert payload["outcome"] == "failed"
+    assert payload["counters"]["citations_added"] == 1
+
+
+def test_main_dry_run_rolls_back(monkeypatch):
+    recording = patch_job_runtime(monkeypatch)
+
+    async def _clean(_session, **_kwargs):
+        return SenateCorroborationResult(odd_year=2025, winners=1, citations_added=1)
+
+    with patch.object(corroboration_module, "corroborate_senate_winners", _clean):
+        assert corroboration_module.main(["--dry-run"]) == 0
+
+    assert (recording.committed, recording.rolled_back) == (0, 1)

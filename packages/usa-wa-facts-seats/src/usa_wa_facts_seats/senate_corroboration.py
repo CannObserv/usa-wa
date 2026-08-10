@@ -39,17 +39,16 @@ Citation is app-role DML (a ``Citation`` insert); the corroboration is read-only
 from __future__ import annotations
 
 import argparse
-import asyncio
 import os
-import sys
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID as _ULID
 
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from clearinghouse_domain_legislative.span_emit import (
     ASSIGNMENT_CITATION_TYPE,
@@ -65,6 +64,9 @@ from usa_wa_common.jurisdiction import resolve_jurisdiction
 from usa_wa_common.names import surname_match_set
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "senate-corroboration"
 
 #: The ``state_senator`` seat Role ``source_id`` prefix (one seat per LD, ``seat:senate:ld-{n}``).
 _SENATE_SEAT_PREFIX = "seat:senate:ld-"
@@ -257,47 +259,57 @@ def _log(result: SenateCorroborationResult) -> None:
     )
 
 
-async def _main(argv: list[str] | None = None) -> int:
-    configure_logging()
-    parser = argparse.ArgumentParser(
-        description="Cite + corroborate the odd-year SOS Senate winners vs the open seats (#123)."
-    )
+def _add_args(parser: argparse.ArgumentParser) -> None:
+    """Contribute the gate's own flag to the harness's shared parser."""
     parser.add_argument(
         "--biennium",
         default=os.environ.get("USA_WA_BIENNIUM"),
         help="operating biennium (e.g. 2025-26); defaults to $USA_WA_BIENNIUM, else the "
         "date-current biennium. Consistent with the WSL/PDC/SOS refreshes' override",
     )
-    parser.add_argument(
-        "--dry-run", action="store_true", help="corroborate + build citations but roll back"
+
+
+async def _corroboration_job(ctx: JobContext) -> JobResult:
+    """Harness handler, owning its own transaction (``commit=False``).
+
+    This gate **writes** — it field-cites the elected senators — and then exits 1 on a
+    missing winner. The pre-#179b commit was unconditional-unless-dry-run, so returning
+    ``failed`` to a committing harness would have rolled those citations back behind an
+    unchanged exit code. The commit stays here; the outcome is reported afterwards.
+    """
+    session = ctx.require_session()
+    result = await corroborate_senate_winners(session, biennium=ctx.args.biennium)
+    if ctx.dry_run:
+        await session.rollback()
+    else:
+        await session.commit()
+    counters = {
+        "odd_year": result.odd_year,
+        "winners": result.winners,
+        "citations_added": result.citations_added,
+        "missing_lds": result.missing_lds,
+        "mismatched_lds": result.mismatched_lds,
+    }
+    return JobResult.ok(counters) if result.ok else JobResult.failed(counters)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Cite + corroborate the odd-year Senate winners.
+
+    Exit ``0`` clean · ``1`` a missing winner · ``2`` config — unchanged.
+    """
+    return run_job(
+        JOB_SLUG,
+        _corroboration_job,
+        argv=argv,
+        prog="python -m usa_wa_facts_seats.senate_corroboration",
+        description=(
+            "Cite + corroborate the odd-year SOS Senate winners vs the open seats (#123)."
+        ),
+        extra_args=_add_args,
+        commit=False,
     )
-    args = parser.parse_args(argv)
-
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
-
-    engine = create_async_engine(database_url)
-    try:
-        async with AsyncSession(engine) as session:
-            result = await corroborate_senate_winners(session, biennium=args.biennium)
-            if args.dry_run:
-                await session.rollback()
-            else:
-                await session.commit()
-    finally:
-        await engine.dispose()
-
-    print(
-        f"Senate corroboration (odd {result.odd_year}): winners={result.winners} "
-        f"cited={result.citations_added} missing={result.missing_lds} "
-        f"mismatched={result.mismatched_lds} "
-        f"{'OK' if result.ok else 'VIOLATION'}"
-        f"{' (dry-run, rolled back)' if args.dry_run else ''}"
-    )
-    return 0 if result.ok else 1
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())

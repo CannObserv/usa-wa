@@ -22,18 +22,17 @@ recur** (a cross-2018 member builds the same deep span daily and historically).
 
 from __future__ import annotations
 
-import asyncio
 import os
-import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from clearinghouse_core.job import JobContext, run_job
 from clearinghouse_core.jurisdictions import Jurisdiction
-from clearinghouse_core.logging import configure_logging, get_logger
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.membership.cohort import MemberClient
@@ -45,6 +44,9 @@ from usa_wa_common.elections import election_years_for_biennium
 from usa_wa_facts_seats.house.build import build_house_position_spans
 
 logger = get_logger(__name__)
+
+#: Stable ledger identity (#178) — a module path can move without orphaning run history.
+JOB_SLUG = "sos-refresh"
 
 _JURISDICTION_SLUG = "usa-wa"
 
@@ -140,28 +142,29 @@ async def run_refresh(
     return SosRefreshOutcome(cohorts_archived=archived, house_spans=result.house_spans)
 
 
-async def _main() -> int:
-    configure_logging()
-    database_url = os.environ.get("DATABASE_URL")
-    if not database_url:
-        print("DATABASE_URL is not set; aborting", file=sys.stderr)
-        return 2
-    engine = create_async_engine(database_url)
-    try:
-        try:
-            async with AsyncSession(engine) as session, session.begin():
-                outcome = await run_refresh(session)
-        except Exception:
-            logger.exception("sos_refresh_failed")
-            return 1
-        print(
-            f"SOS refresh: cohorts_archived={outcome.cohorts_archived} "
-            f"house_spans={outcome.house_spans}"
-        )
-        return 0
-    finally:
-        await engine.dispose()
+async def _refresh_job(ctx: JobContext) -> SosRefreshOutcome:
+    """Harness handler, keeping the explicit ``session.begin()`` (``commit=False``).
+
+    The pre-#179b CLI committed unconditionally through that block and had no
+    ``--dry-run``; leaving the transaction here keeps that exactly, and the flag the
+    harness always adds is accepted and ignored.
+    """
+    session = ctx.require_session()
+    async with session.begin():
+        return await run_refresh(session)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run one SOS refresh cycle. Exit ``0`` clean · ``1`` failed · ``2`` config."""
+    return run_job(
+        JOB_SLUG,
+        _refresh_job,
+        argv=argv,
+        prog="python -m usa_wa_facts_seats.house.refresh",
+        description="Run one SOS refresh cycle (archive the cohort + re-drive the House builder).",
+        commit=False,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
-    sys.exit(asyncio.run(_main()))
+    raise SystemExit(main())
