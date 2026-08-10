@@ -213,6 +213,7 @@ JSON records carry `{timestamp, level, logger, message}` (#133; structlog's defa
 - [docs/MODULES-SOS.md](docs/MODULES-SOS.md) — SOS filings/results sources
 - [docs/MODULES-FACTS-SEATS.md](docs/MODULES-FACTS-SEATS.md) — Layer 3b: the seat fact family and the four renamed systemd entry points
 - [docs/MODULES-SYNC.md](docs/MODULES-SYNC.md) — API deployment, PM sidecar, producer CLIs, repo-root layout
+- [docs/API.md](docs/API.md) — the read-only `/api/v1` surface: route inventory, pagination, and the response contracts
 - [docs/LWW-NOOP-GATE.md](docs/LWW-NOOP-GATE.md) — the local-newer no-op gate; read before adding a `write_enabled` producer descriptor
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — systemd units, failure alerting, DB roles, restart/lifecycle table
 - [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) — every environment variable and PM sidecar tunable, with defaults

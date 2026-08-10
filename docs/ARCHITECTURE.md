@@ -103,6 +103,12 @@ spelled those two `harvest_sponsors.py` and `harvest_sponsor_spans.py`, one plur
 same for committee membership. A module whose name does not say which phase, layer or role it holds
 is the discoverability tax finding 13 measured; prefer the names in the tree above to a new coinage.
 
+**Function names still stutter, deliberately.** `harvest_sponsors()` lives in
+`sponsors/harvest.py`, `harvest_committees()` in `committees/harvest.py`. #183 renamed
+modules only: renaming a function forces assertion edits, and a move whose tests had to
+change is a move that changed behaviour. The sweep belongs with #179b, which is already
+rewriting these entry points onto the shared job harness (CR #196 finding 46).
+
 ### What makes a source "self-contained"
 
 Each source owns an independent provenance chain, so it can be harvested, re-audited, integrity-

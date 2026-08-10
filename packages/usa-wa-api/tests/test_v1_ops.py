@@ -261,3 +261,39 @@ class TestProvenance:
             f"/api/v1/provenance/assignment/{cited_entity}?cursor=not-a-ulid"
         )
         assert response.status_code == 422
+
+
+# --- CR #196 finding 41: entity_type is a closed set; entity_id is not -------
+
+
+async def test_provenance_rejects_an_unknown_entity_type(client):
+    """A typo in the discriminator is a 422, not an empty page.
+
+    ``entity_type`` is a closed set this system controls (the lowercase mapped-class
+    name the writer derives), so ``persons`` for ``person`` should be told. Silently
+    returning an empty page made a typo indistinguishable from "no provenance
+    recorded" — the exact conflation this surface exists to remove.
+    """
+    response = await client.get(f"/api/v1/provenance/persons/{ULID()}")
+
+    assert response.status_code == 422
+    assert "persons" in response.json()["detail"]
+
+
+async def test_provenance_accepts_every_type_actually_written(client):
+    """Including ``personidentifier``, which is a third of production's citations and
+    was absent from every hand-written enumeration of this vocabulary — which is why
+    the accepted set is derived from the ORM registry rather than listed."""
+    for entity_type in ("person", "personidentifier", "organization", "role", "assignment"):
+        response = await client.get(f"/api/v1/provenance/{entity_type}/{ULID()}")
+        assert response.status_code == 200, entity_type
+        assert response.json()["items"] == []
+
+
+def test_the_accepted_vocabulary_is_derived_not_listed():
+    """A hand-maintained list would have shipped wrong on day one."""
+    from clearinghouse_core.provenance import citable_entity_types
+
+    known = citable_entity_types()
+    for entity_type in ("person", "personidentifier", "organization", "role", "assignment"):
+        assert entity_type in known, entity_type
