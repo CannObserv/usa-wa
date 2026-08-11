@@ -65,7 +65,7 @@ class HarvestSummary:
     dry_run: bool
 
 
-def _write_seed(seed_path: Path, content: bytes, extra: dict) -> None:
+def _write_seed(seed_path: Path, content: bytes, extra: dict[str, object]) -> None:
     """Create the seed's directory, write its bytes, write its sidecars.
 
     Synchronous on purpose: :func:`_freeze_seed` hands it to a worker thread. Grouping
@@ -77,7 +77,7 @@ def _write_seed(seed_path: Path, content: bytes, extra: dict) -> None:
     write_sidecars(seed_path, content, extra=extra)
 
 
-async def _freeze_seed(seed_path: Path, content: bytes, extra: dict) -> None:
+async def _freeze_seed(seed_path: Path, content: bytes, extra: dict[str, object]) -> None:
     """Freeze the seed without blocking the event loop (#196).
 
     The ``--dry-run`` guard stays in the caller: this is reached only on a run that is

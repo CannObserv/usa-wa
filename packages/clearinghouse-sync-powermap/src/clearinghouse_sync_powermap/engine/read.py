@@ -120,11 +120,18 @@ class ReplayResult:
     """Outcome of one :meth:`Reconciler.replay_from_floor` pass (usa-wa#159).
 
     ``applied`` is how many feed items the trailing re-read processed through the LWW
-    upsert path (most are idempotent no-ops on already-current rows). ``healed`` is the
-    subset that actually changed a local row (``inserted``/``updated``) — the **would-heal
-    delta** the Phase-A shadow rollout measures: a persistently non-zero ``healed`` is
-    proof replay is recovering events the live feed dropped/skipped (its reason to
-    exist). ``fell_off`` is True when the replay floor sat below PM's oldest-retained
+    upsert path. **Since the #160 residual it excludes items short-circuited on a 304** —
+    i.e. exactly the already-current rows that used to dominate it as idempotent no-ops —
+    so the number steps down sharply the first cycle conditional GET is enabled, and it is
+    no longer a proxy for the window's size. The skipped count is the ``skipped`` half of
+    :meth:`Reconciler.conditional_get_stats` on the same cycle-summary line; ``applied +
+    skipped`` is the old quantity. ``healed`` is the subset that actually changed a local
+    row (``inserted``/``updated``) — the **would-heal delta** the Phase-A shadow rollout
+    measures: a persistently non-zero ``healed`` is proof replay is recovering events the
+    live feed dropped/skipped (its reason to exist). **``healed`` is unaffected by the 304
+    short-circuit** (a 304 means nothing to heal), so the Phase-B go/no-go gate reads the
+    same before and after — which is why the ``applied`` discontinuity is acceptable.
+    ``fell_off`` is True when the replay floor sat below PM's oldest-retained
     watermark (``meta.min_seq``, power-map#388): the ``[floor, min_seq)`` slice was
     pruned from the 90-day window, so replay could not cover it and the caller must fall
     back to a full cohort scan for that gap. ``floor``/``high_water`` are surfaced for
@@ -579,38 +586,47 @@ class Reconciler:
 
     async def _anchored_row_etag(
         self, session: AsyncSession, descriptor: EntityDescriptor, pm_id: Any
-    ) -> tuple[Any | None, str | None]:
-        """``(local row, stored detail ETag)`` for a feed item's PM id (usa-wa#160).
+    ) -> str | None:
+        """The stored detail ETag for a feed item's PM id, or ``None`` (usa-wa#160).
 
         The replay path's entry into the store: the cohort reconcile already holds the row
         it is walking, but a feed/replay item names only a PM id, and the store is keyed on
-        the local one. Both ``None`` when nothing anchors to ``pm_id`` — a first sighting
-        reads unconditionally and stores its validator after the insert.
+        the local one. ``None`` when nothing anchors to ``pm_id`` — a first sighting reads
+        unconditionally and stores its validator after the insert.
+
+        Only the validator is returned, not the row: the caller must re-resolve the anchor
+        *after* the apply anyway (see :meth:`_store_feed_etag`), so handing back a row that
+        must not be trusted post-apply would be an invitation to misuse it.
         """
         row = await self._anchors.row_by_anchor(session, descriptor, pm_id)
         if row is None:
-            return None, None
-        return row, await self._load_detail_etag(session, descriptor.entity_type, row.id)
+            return None
+        return await self._load_detail_etag(session, descriptor.entity_type, row.id)
 
     async def _store_feed_etag(
         self,
         session: AsyncSession,
         descriptor: EntityDescriptor,
         pm_id: Any,
-        row: Any | None,
         etag: str | None,
     ) -> None:
         """Persist a replayed item's fresh ETag so the next trailing pass can 304 it (#160).
 
-        ``row`` is the pre-fetch anchor lookup; ``None`` means the apply just inserted (or
-        declined to insert) the row, so re-resolve it — otherwise a row first seen inside
-        the replay window would never acquire a validator. No ETag (PM omitted the header)
-        or still no row (an update-only descriptor declined the record) stores nothing.
+        The anchor is re-resolved **after** the apply, deliberately (#160 CR): the store is
+        keyed on the local id, and the apply can land the record on a different local row
+        than the pre-fetch lookup returned — ``local_match`` keys on the natural key, which
+        need not be the row currently holding the anchor. Keying off the stale pre-fetch row
+        would strand the validator on a superseded row (harmless — the next pass reads
+        unconditionally — but it leaves a dead ``ConditionalGetState`` behind and forfeits
+        the 304). Re-resolving is the same single query either way, since a first sighting
+        inside the replay window has no pre-fetch row to reuse.
+
+        No ETag (PM omitted the header) or no row (an update-only descriptor declined the
+        record) stores nothing.
         """
         if etag is None:
             return
-        if row is None:
-            row = await self._anchors.row_by_anchor(session, descriptor, pm_id)
+        row = await self._anchors.row_by_anchor(session, descriptor, pm_id)
         if row is None:
             return
         await self._store_detail_etag(session, descriptor.entity_type, row.id, etag)
@@ -735,22 +751,29 @@ class Reconciler:
                     await self._heal_dead_anchor(session, descriptor, row, now=now)
                 continue
             use_conditional = conditional and self._ctx.conditional_get_enabled
-            anchored_row = None
             new_etag = None
             if use_conditional:
-                # The ETag store is keyed on the LOCAL id, so the anchored row has to be
-                # resolved before the read. ``None`` (an entity we hold no anchor for yet)
-                # simply reads unconditionally — same request the plain path would make.
-                anchored_row, stored = await self._anchored_row_etag(
-                    session, descriptor, item.entity_id
-                )
+                # The ETag store is keyed on the LOCAL id, so the anchor has to be resolved
+                # before the read. No anchor (an entity we hold no row for yet) simply reads
+                # unconditionally — same request the plain path would make.
+                stored = await self._anchored_row_etag(session, descriptor, item.entity_id)
                 fetch = await descriptor.fetch_record_conditional(
                     self._ctx.client, item.entity_id, if_none_match=stored
                 )
                 if fetch.not_modified:
                     # PM's detail ETag covers child tables (incl. events) via the
-                    # touch-cascade, so a 304 means the record we last applied is still
-                    # current — the re-apply it replaces was an LWW no-op.
+                    # touch-cascade, so a 304 means PM holds nothing we have not already
+                    # applied — there is no PM→local delta to mirror.
+                    #
+                    # What the skip *does* forgo (#160 CR): `apply_record`'s local-newer
+                    # branch, which re-enqueues an outbox UPDATE when OUR row is ahead of
+                    # PM's. So this is not "the re-apply was a no-op" in every case — for a
+                    # row edited locally between two replay passes it was a write-back
+                    # re-trigger. Acceptable because that re-trigger is a backstop, not the
+                    # path: producers enqueue the UPDATE at write time, and the anchored
+                    # reconcile's own 304 fast-path already skips the same branch. A 304
+                    # strands no *enrich* signal either — unlike the reconcile, the feed
+                    # path never ran `maybe_enqueue_enrich` to begin with.
                     self._conditional_get_skipped += 1
                     continue
                 record, new_etag = fetch.record, fetch.etag
@@ -765,9 +788,7 @@ class Reconciler:
                 healed += 1
             if use_conditional:
                 self._conditional_get_fetched += 1
-                await self._store_feed_etag(
-                    session, descriptor, item.entity_id, anchored_row, new_etag
-                )
+                await self._store_feed_etag(session, descriptor, item.entity_id, new_etag)
         return processed, healed
 
     async def replay_from_floor(

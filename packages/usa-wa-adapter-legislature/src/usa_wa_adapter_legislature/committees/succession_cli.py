@@ -20,17 +20,20 @@ create-new + retract-old (power-map#322).
 from __future__ import annotations
 
 import argparse
-import asyncio
-import json
 import os
 import sys
 from dataclasses import dataclass
-from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.job import EXIT_CONFIG, JobContext, JobResult, run_job
+from clearinghouse_core.job import (
+    EXIT_CONFIG,
+    JobContext,
+    JobResult,
+    load_json_batch,
+    run_job,
+)
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.committee_succession import (
     SLUGS,
@@ -222,15 +225,6 @@ def _spec_from_args(args: argparse.Namespace) -> LinkSpec:
     )
 
 
-async def _load_file_specs(path: str) -> list[LinkSpec]:
-    """Read a ``--file`` batch body without blocking the event loop (#196).
-
-    Only the read goes to a worker thread; parsing and validation stay here, so a
-    ``SuccessionError`` still surfaces from the same place it always did.
-    """
-    return load_specs(json.loads(await asyncio.to_thread(Path(path).read_text)))
-
-
 def _format_event(event: CommitteeSuccessionEvent) -> str:
     year = f" ({event.effective_year})" if event.effective_year is not None else ""
     return (
@@ -251,7 +245,7 @@ async def _run(session: AsyncSession, args: argparse.Namespace) -> int:
     source = await get_or_create_operator_source(session, jurisdiction)
 
     if args.file:
-        specs = await _load_file_specs(args.file)
+        specs = await load_json_batch(args.file, load_specs)
     else:
         specs = [_spec_from_args(args)]
 

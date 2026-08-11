@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import select
 
+from clearinghouse_core.job import load_json_batch
 from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Person
 from clearinghouse_domain_legislative.operator_events import OperatorEvent
@@ -265,7 +266,7 @@ async def test_the_file_batch_is_read_off_the_event_loop(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Path, "read_text", _recording)
 
-    specs = await cli._load_file_specs(str(path))
+    specs = await load_json_batch(str(path), cli.load_specs)
 
     assert [s.member_id for s in specs] == ["29091"]
     assert read_threads, "the batch file was never read"
@@ -277,7 +278,7 @@ async def test_a_malformed_file_batch_still_raises_its_operator_error(tmp_path):
     path = tmp_path / "events.json"
     path.write_text(json.dumps({"member_id": "1"}))
     with pytest.raises(OperatorEventError, match="JSON array"):
-        await cli._load_file_specs(str(path))
+        await load_json_batch(str(path), cli.load_specs)
 
 
 # --- CLI (#179b: the shared job harness) --------------------------------------
