@@ -63,8 +63,10 @@ class SidecarSettings(BaseSettings):
     replay_enabled: bool = True
     replay_margin: int = 10_000
     replay_cadence: timedelta = timedelta(hours=1)
-    #: Conditional GET on the anchored-cohort reconcile (usa-wa#160): send PM's stored
-    #: ETag as If-None-Match and skip a full re-fetch + re-apply on a 304 (power-map#385).
+    #: Conditional GET on the two backstop read paths — the anchored-cohort reconcile and
+    #: the trailing changes-feed replay (usa-wa#160): send PM's stored ETag as If-None-Match
+    #: and skip a full re-fetch + re-apply on a 304 (power-map#385). The *live* feed stays
+    #: unconditional (a feed item means PM changed the entity → a guaranteed 200).
     #: Kill switch (default true) so a suspected PM ETag bug can be disabled without a
     #: redeploy — off = the unchanged unconditional full-fetch every pass.
     conditional_get_enabled: bool = True
