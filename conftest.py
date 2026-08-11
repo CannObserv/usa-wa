@@ -95,9 +95,10 @@ os.environ["DATABASE_URL_OWNER"] = BLOCKED_DATABASE_URL
 # any instance built before this point.
 get_settings.cache_clear()
 
-#: The database fixtures. A plugin rather than more of this file so the tier boundary
-#: is legible: everything above this line is what ``-m 'not db'`` relies on.
-pytest_plugins = ("conftest_db",)
+#: The database fixtures, and the unit tier's own coverage profile (#198). Plugins
+#: rather than more of this file so the tier boundary is legible: everything above this
+#: line is what ``-m 'not db'`` relies on.
+pytest_plugins = ("conftest_db", "conftest_coverage")
 
 
 @pytest.hookimpl(tryfirst=True)

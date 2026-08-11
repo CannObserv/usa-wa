@@ -145,10 +145,10 @@ export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 # Run tests
 uv run pytest
 
-# Unit tier (#185) — no database of any kind; the fast inner loop
-uv run pytest --no-cov -m 'not db and not integration'
+# Unit tier (#185) — no database at all; own coverage gate (#198), so no flags
+uv run pytest -m 'not db and not integration'
 
-# Run a subset of tests (skip the coverage gate, which measures all of packages/)
+# A subset — --no-cov: neither gate measures a slice
 uv run pytest --no-cov packages/usa-wa-api/tests/test_health.py
 
 # Run integration tests (requires PostgreSQL)
