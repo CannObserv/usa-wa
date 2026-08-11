@@ -1,13 +1,21 @@
 [Unit]
-Description=usa-wa — SOS results refresh (WSL+SOS House Position seat) one-shot
+Description=usa-wa — SOS results REBUILD (WSL+SOS House Position seat) one-shot
+# The Phase-B half of the daily SOS cycle (#201): re-drives the House Position span builder
+# from the archive. The timer fires THIS unit, which pulls its Phase-A half in.
 # usa-wa-migrate.service: schema must be at head before the DML-only refresh runs.
 # usa-wa-wsl-refresh.service: the House Position seat reads the sitting roster from the
 # WSL sponsor archive and binds to the WSL House Persons, so the WSL refresh must have
 # written sponsors:<biennium> + materialized the Persons first. Ordering only — a
 # failed/absent predecessor must not wedge the timer on an already-populated box (the
 # builder logs span_person_absent / house_seat_cohort and skips an unmatched member).
-After=network-online.target postgresql.service usa-wa-migrate.service usa-wa-wsl-refresh.service
-Wants=network-online.target
+# usa-wa-sos-archive-refresh.service: the Phase-A half, so today's votewa cohorts land
+# before the rebuild reads them. Wants=, NOT Requires= (#201): the builder is archive-first,
+# so on a votewa outage it must still re-derive the seat from the LAST GOOD archive — the
+# seat keeps tracking the WSL roster, which votewa has no part in. Requires= would cancel
+# this unit whenever the source was down and hide the fact behind one alert instead of two;
+# the archive half raises its own OnFailure=, so nothing goes unreported.
+After=network-online.target postgresql.service usa-wa-migrate.service usa-wa-wsl-refresh.service usa-wa-sos-archive-refresh.service
+Wants=network-online.target usa-wa-sos-archive-refresh.service
 # Alert the operator on a failed/timed-out refresh (#49).
 OnFailure=usa-wa-notify-failure@%n.service
 
@@ -23,9 +31,9 @@ ExecStartPre=/home/exedev/usa-wa/scripts/assert-main-checkout.sh
 # Pin PATH so `uv` resolves regardless of the inherited systemd default.
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
-# App role only (DML — no DDL). USA_WA_SOS_RESULTS_MIN_REQUEST_INTERVAL (optional) sets
-# the results.vote.wa.gov courtesy floor; absent is fine. Later EnvironmentFiles override
-# earlier ones.
+# App role only (DML — no DDL). No source tunable is read here since #201 (the votewa
+# courtesy floor belongs to usa-wa-sos-archive-refresh.service); USA_WA_BIENNIUM (optional)
+# pins the biennium rebuilt. Later EnvironmentFiles override earlier ones.
 EnvironmentFile=/etc/usa-wa/.env
 EnvironmentFile=-/home/exedev/usa-wa/.env
 
@@ -33,8 +41,9 @@ EnvironmentFile=-/home/exedev/usa-wa/.env
 # at unit start (AGENTS.md § Server Lifecycle, #30).
 ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_facts_seats.house.refresh
 
-# Bound the results.vote.wa.gov GET + the WSL GetSponsors fallback so a hung endpoint fails
-# deterministically; the timer retries on the next fire.
+# Bound the WSL GetSponsors fallback (the only wire this half can touch, and only for an
+# un-archived biennium) so a hung endpoint fails deterministically; the timer retries on the
+# next fire.
 TimeoutStartSec=300
 
 # This unit is started by usa-wa-sos-refresh.timer; no [Install] WantedBy.

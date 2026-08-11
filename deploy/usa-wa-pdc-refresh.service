@@ -1,12 +1,18 @@
 [Unit]
-Description=usa-wa — PDC SODA refresh (House member District + Position) one-shot
+Description=usa-wa — PDC REBUILD (person_wa_pdc identifier links) one-shot
+# The Phase-B half of the daily PDC cycle (#201): re-drives the identifier links from the
+# archive. The timer fires THIS unit, which pulls its Phase-A half in.
 # usa-wa-migrate.service: schema must be at head before the DML-only refresh runs.
 # usa-wa-wsl-refresh.service: PDC binds Position onto the WSL House Persons, so the
 # WSL refresh must have materialized them first. Ordering only — a failed/absent
 # predecessor must not wedge the timer on an already-populated box (the normalizer
 # logs pdc_house_person_absent and skips an unmatched winner).
-After=network-online.target postgresql.service usa-wa-migrate.service usa-wa-wsl-refresh.service
-Wants=network-online.target
+# usa-wa-pdc-archive-refresh.service: the Phase-A half, so today's winner cohorts land
+# before the rebuild reads them. Wants=, NOT Requires= (#201): the builder is archive-first,
+# so a Socrata outage must not cancel the rebuild — it re-derives from the LAST GOOD archive,
+# and the archive half raises its own OnFailure= so the outage is still reported.
+After=network-online.target postgresql.service usa-wa-migrate.service usa-wa-wsl-refresh.service usa-wa-pdc-archive-refresh.service
+Wants=network-online.target usa-wa-pdc-archive-refresh.service
 # Alert the operator on a failed/timed-out refresh (#49).
 OnFailure=usa-wa-notify-failure@%n.service
 
@@ -22,8 +28,9 @@ ExecStartPre=/home/exedev/usa-wa/scripts/assert-main-checkout.sh
 # Pin PATH so `uv` resolves regardless of the inherited systemd default.
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
-# App role only (DML — no DDL). USA_WA_PDC_APP_TOKEN (optional) raises Socrata's
-# rate limit; absent is fine. Later EnvironmentFiles override earlier ones.
+# App role only (DML — no DDL). No source tunable is read here since #201 (Socrata's
+# USA_WA_PDC_APP_TOKEN belongs to usa-wa-pdc-archive-refresh.service); USA_WA_BIENNIUM
+# (optional) pins the biennium rebuilt. Later EnvironmentFiles override earlier ones.
 EnvironmentFile=/etc/usa-wa/.env
 EnvironmentFile=-/home/exedev/usa-wa/.env
 
@@ -31,8 +38,9 @@ EnvironmentFile=-/home/exedev/usa-wa/.env
 # at unit start (AGENTS.md § Server Lifecycle, #30).
 ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_facts_seats.pdc.refresh
 
-# Bound the WSL GetSponsors SOAP call + the PDC SODA GET so a hung endpoint fails
-# deterministically; the timer retries on the next fire.
+# Bound the WSL GetSponsors SOAP fallback (the only wire this half can touch, and only for
+# an un-archived biennium) so a hung endpoint fails deterministically; the timer retries on
+# the next fire.
 TimeoutStartSec=300
 
 # This unit is started by usa-wa-pdc-refresh.timer; no [Install] WantedBy.

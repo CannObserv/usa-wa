@@ -57,6 +57,29 @@ def test_every_layering_contract_is_declared():
     assert {c["name"] for c in _contracts()} == EXPECTED_CONTRACTS
 
 
+def test_the_facts_transport_contract_carries_no_exceptions():
+    """#201 closed the two `ignore_imports` #189 deferred.
+
+    `house/refresh.py` and `pdc/refresh.py` each ran a source's Phase-A harvest (live client)
+    *and* rebuilt the fact from the resulting archive; only the second half is a fact. The
+    archive half moved to the adapters (`…results.archive_refresh`, `…pdc.archive_refresh`), so
+    the contract now holds unaided. An exception is the cheapest way to re-weld a fact to a
+    single source — the failure the 2026-07 votewa outage taught — and the previous pair carried
+    a *false* provenance claim ("tracked as the follow-on named in MODULES-FACTS-SEATS.md",
+    which said no such thing) for two releases. Adding one back must be a deliberate act that
+    fails here, not a line in a table nobody re-reads.
+    """
+    contract = next(
+        c
+        for c in _contracts()
+        if c["name"] == "Facts depend on cohort interfaces, never on a transport"
+    )
+    assert not contract.get("ignore_imports"), (
+        "the facts→transport contract has exceptions again: "
+        f"{contract.get('ignore_imports')}. Move the sourcing half into the adapter instead."
+    )
+
+
 def test_every_workspace_package_is_a_root_package():
     """A package missing from `root_packages` is invisible to every contract — the same
     silent-omission failure mode `test_workspace_registries.py` exists for."""
@@ -109,6 +132,14 @@ def test_contracts_are_currently_kept():
             "packages/usa-wa-sync-powermap/src/usa_wa_sync_powermap/_contract_probe.py",
             "from usa_wa_adapter_legislature.transport import WSLClient  # noqa: F401",
             "Deployment packages never touch an adapter transport",
+        ),
+        # A fact driving a wire — the shape #189 had to grant two exceptions for and #201
+        # removed. Unlike the others this contract was never proved to fire, because the only
+        # two violations in the tree were exempted.
+        (
+            "packages/usa-wa-facts-seats/src/usa_wa_facts_seats/_contract_probe.py",
+            "from usa_wa_adapter_pdc.transport import PDCClient  # noqa: F401",
+            "Facts depend on cohort interfaces, never on a transport",
         ),
         # Vocabulary reaching down into a source — how the first shared kernel formed.
         (

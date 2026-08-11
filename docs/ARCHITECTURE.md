@@ -73,6 +73,8 @@ usa_wa_adapter_<target>/
     normalize.py        #   pure wire -> typed rows
     cohort.py           #   archive-first provider: {key: [rows]} re-parsed from RawPayload (#56/#82)
     harvest.py          #   Phase A CLI: sweep the range, archive each wire, resilient (see note)
+    archive_refresh.py  #   Phase A daily: re-archive THIS biennium's cohorts, forced (#201).
+                        #   Sourcing is the source's job; the fact only rebuilds from it
   <source_b>/           # another feed from the same target — its own everything
     ...
   provisioning.py       # get-or-create every Source row this package owns

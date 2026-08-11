@@ -12,8 +12,10 @@ detail behind them.
 | API (live) | FastAPI | 8000 | `systemctl` (`usa-wa.service`) |
 | PM sync sidecar | asyncio daemon | — | `systemctl` (`usa-wa-sync-powermap.service`) |
 | WSL refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-wsl-refresh.timer` → `.service`; 06:00 UTC). Pulls committees **and** the current-biennium meeting window for additive Joint/`Other` discovery (#39) |
-| PDC refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-pdc-refresh.timer` → `.service`; 06:30 UTC, #69; **identifier-only since #101**). Archives the current winner cohorts + re-drives the builder → `person_wa_pdc` cross-links only (the House Position seat is the SOS refresh's since #101). Ordered after the WSL refresh (binds onto its House Persons + sponsor archive) |
-| SOS refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-sos-refresh.timer` → `.service`; 06:45 UTC, #101). Archives the current biennium's results cohorts — both the even seating year and the odd mid-biennium special (#106), each SAVEPOINT-guarded — + re-drives the WSL+SOS House Position span builder → `usa_wa_legislature` `state_representative` Position seat **spans**. Ordered after the WSL refresh (reads its sponsor archive + binds its Persons); independent of the PDC refresh |
+| PDC archive refresh (daily) | oneshot, no timer | — | `systemctl` (`usa-wa-pdc-archive-refresh.service`, #201 Phase A). Archives the current biennium's winner cohorts (#121: both House generals + the three Senate cohorts), each SAVEPOINT-guarded, forced past the TTL. **No timer of its own** — pulled in by the rebuild unit below (`Wants=`) and ordered before it. Exit 4 = every cohort unserved |
+| PDC refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-pdc-refresh.timer` → `.service`; 06:30 UTC, #69; **identifier-only since #101, rebuild-only since #201**). Re-drives the builder off the archive → `person_wa_pdc` cross-links only (the House Position seat is the SOS refresh's since #101). Ordered after the WSL refresh (binds onto its House Persons + sponsor archive) and after its own archive half — `Wants=`, not `Requires=`: a Socrata outage alerts on the archive unit while this one re-derives from the last good archive |
+| SOS archive refresh (daily) | oneshot, no timer | — | `systemctl` (`usa-wa-sos-archive-refresh.service`, #201 Phase A). Archives the current biennium's results cohorts — both the even seating year and the odd mid-biennium special (#106), each SAVEPOINT-guarded, forced past the TTL. **No timer of its own** — pulled in by the rebuild unit below. Exit 4 = every cohort unserved |
+| SOS refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-sos-refresh.timer` → `.service`; 06:45 UTC, #101; **rebuild-only since #201**). Re-drives the WSL+SOS House Position span builder off the archive → `usa_wa_legislature` `state_representative` Position seat **spans**. Ordered after the WSL refresh (reads its sponsor archive + binds its Persons) and after its own archive half (`Wants=`, not `Requires=` — see above); independent of the PDC refresh |
 | Senate corroboration (daily) | oneshot + timer | — | `systemctl` (`usa-wa-senate-corroboration.timer` → `.service`; 07:00 UTC, #123). Consumes the odd-year `senate_winners()` cohort: field-cites each elected senator's open span `valid_from` to `sos-legresults:<odd>` (2a) + asserts no odd-year Senate winner lacks an open seat (2b — a silent missing operator `seated`); exit 1 → operator email. App-role DML (idempotent Citation insert). Ordered after the WSL + SOS refreshes rebuild the open Senate cohort + archive the odd results wire |
 | House corroboration (daily) | oneshot + timer | — | `systemctl` (`usa-wa-house-corroboration.timer` → `.service`; 07:05 UTC, #149). The House sibling of Senate 2b — consumes the odd-year `house_winners()` cohort and asserts no odd-year House **special** winner `(LD, position)` lacks an open `state_representative` Position seat (the LD30/Hickel unseated-appointee shape a unit test can't catch); exit 1 → operator email. Read-only (no citation half — the House Position spans already cite the odd wire). `--sweep-biennia` is the #119 report-only historical audit. Ordered after the WSL + SOS refreshes rebuild the open House cohort + archive the odd results wire |
 | Succession invariants (daily) | oneshot + timer | — | `systemctl` (`usa-wa-succession-invariants.timer` → `.service`; 07:15 UTC, #107). Read-only assertion of the open-seat cohort — 49 Senate / 98 House chamber counts + no duplicate occupancy; exit 1 → operator email (a missing operator succession event is otherwise silent). Ordered after the WSL/PDC/SOS refreshes rebuild the cohort |
@@ -35,6 +37,9 @@ The same guard pins README's fresh-host provisioning block.
 The unattended oneshots fail silently on a headless box — a `failed` state in the
 journal nobody is watching. Each failable oneshot (`usa-wa-migrate`,
 `usa-wa-wsl-refresh`, `usa-wa-pdc-refresh`, `usa-wa-sos-refresh`,
+`usa-wa-pdc-archive-refresh`, `usa-wa-sos-archive-refresh` (#201 — each half of a
+daily cycle alerts on its own, so a source outage and a rebuild failure are
+distinguishable from the email alone),
 `usa-wa-reconcile-committee-active`, `usa-wa-reconcile-committee-names`,
 `usa-wa-reconcile-committee-meeting-names`, `usa-wa-integrity-sweep`,
 `usa-wa-senate-corroboration`, `usa-wa-house-corroboration`,
@@ -108,6 +113,7 @@ wide enough to bound the loop (`StartLimitIntervalSec >= RestartSec * StartLimit
 entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
 `usa-wa-sync-powermap.service`, `usa-wa-wsl-refresh.service`,
 `usa-wa-pdc-refresh.service`, `usa-wa-sos-refresh.service`,
+`usa-wa-pdc-archive-refresh.service`, `usa-wa-sos-archive-refresh.service`,
 `usa-wa-reconcile-committee-active.service`,
 `usa-wa-reconcile-committee-names.service`,
 `usa-wa-reconcile-committee-meeting-names.service`,
@@ -155,6 +161,7 @@ silently deploys nothing.
 | After editing `deploy/usa-wa-wsl-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-wsl-refresh.timer` |
 | After editing `deploy/usa-wa-pdc-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-pdc-refresh.timer` |
 | After editing `deploy/usa-wa-sos-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-sos-refresh.timer` |
+| After editing `deploy/usa-wa-{pdc,sos}-archive-refresh.service` | `sudo cp` + `sudo systemctl daemon-reload` (no timer and no `[Install]` — each is pulled in by its rebuild unit, so there is nothing to enable or restart) |
 | After editing `deploy/usa-wa-reconcile-committee-active.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-active.timer` |
 | After editing `deploy/usa-wa-reconcile-committee-names.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-names.timer` |
 | After editing `deploy/usa-wa-reconcile-committee-meeting-names.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-meeting-names.timer` |
@@ -166,8 +173,9 @@ silently deploys nothing.
 | After editing `deploy/usa-wa-notify-failure@.service` | `sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
 | After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
 | Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
-| Run the PDC refresh now (ad-hoc) | `sudo systemctl start usa-wa-pdc-refresh.service` |
-| Run the SOS refresh now (ad-hoc) | `sudo systemctl start usa-wa-sos-refresh.service` |
+| Run the PDC refresh now (ad-hoc) | `sudo systemctl start usa-wa-pdc-refresh.service` (runs **both** halves — the `Wants=` pulls the archive unit in) |
+| Run the SOS refresh now (ad-hoc) | `sudo systemctl start usa-wa-sos-refresh.service` (both halves, as above) |
+| Refresh only a source's archive (ad-hoc) | `sudo systemctl start usa-wa-{pdc,sos}-archive-refresh.service` |
 | Run the committee active reconcile now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-active.service` |
 | Run the committee rename detection now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-names.service` |
 | Run the Joint/Other rename detection now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-meeting-names.service` |

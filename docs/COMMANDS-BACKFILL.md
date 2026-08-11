@@ -2,6 +2,43 @@
 
 Split out of [COMMANDS.md](COMMANDS.md), which is where the index lives.
 
+## Archive vs rebuild — which half each flag governs (#201)
+
+The daily PDC and SOS cycles are **two jobs, not one**. The adapter owns "refresh my archive"
+(Phase A — a live client), the fact owns "rebuild from that archive" (Phase B — a cohort
+interface). Before #201 both ran in one process, which is why `usa-wa-facts-seats` held the only
+two `import-linter` exceptions in the tree.
+
+| Half | Command | Unit | Ledger slug |
+|---|---|---|---|
+| PDC archive | `python -m usa_wa_adapter_pdc.archive_refresh` | `usa-wa-pdc-archive-refresh.service` | `pdc-archive-refresh` |
+| PDC rebuild | `python -m usa_wa_facts_seats.pdc.refresh` | `usa-wa-pdc-refresh.service` | `pdc-refresh` |
+| SOS archive | `python -m usa_wa_adapter_sos.results.archive_refresh` | `usa-wa-sos-archive-refresh.service` | `sos-archive-refresh` |
+| SOS rebuild | `python -m usa_wa_facts_seats.house.refresh` | `usa-wa-sos-refresh.service` | `sos-refresh` |
+
+- **`--force` belongs to the ARCHIVE half, and only there.** It bypasses the Source's freshness
+  TTL, and the rebuild holds no cache — the builders re-derive from the archive every run and are
+  idempotent. The daily archive refreshes force *by default* (the day's archive must be the day's
+  wire; the dedup guard still bounds `RawPayload` growth on a byte-identical re-pull); the
+  historical sweeps (`…pdc.harvest`, `…results.harvest`) expose `--force` as an opt-in flag.
+  Neither rebuild has a `--force` to give.
+- **`USA_WA_BIENNIUM` governs BOTH halves**, independently: it scopes which cohorts are archived
+  and which biennium's spans are rebuilt. Each half resolves it on its own and warns when it names
+  a closed biennium (`*_noncurrent_biennium`), so a stale pin is loud twice, not silently
+  half-applied. Pin it for both when running a non-current biennium by hand.
+- **`--dry-run`**: the archive halves take the harness's (they archive and roll back). Neither
+  rebuild offers one — each commits through its own `session.begin()`, so the flag could only have
+  lied (CR #196 finding 55).
+- **Failure semantics.** Each half has its own `job_runs` row and its own `OnFailure=` alert. The
+  archive half exits `4` (`EXIT_DEGRADED`) when *every* cohort was unserved — a whole-source
+  outage, which pre-split exited 0 behind a WARNING nothing consumed. A failed archive does **not**
+  cancel the rebuild: the rebuild unit `Wants=` its archive unit rather than `Requires=` it, so on
+  a votewa/Socrata outage the fact is still re-derived from the last good archive and keeps
+  tracking the WSL roster, which neither source has a part in.
+- **Running one by hand.** `sudo systemctl start usa-wa-sos-refresh.service` runs *both* halves
+  (the `Wants=` pulls the archive in). To rebuild without touching the source — the common case
+  when debugging a span — run the rebuild module directly.
+
 ## Discovery probes (write-free)
 
 Talk to WSL directly (NOT the runner) — no FetchEvent/RawPayload written. Answer

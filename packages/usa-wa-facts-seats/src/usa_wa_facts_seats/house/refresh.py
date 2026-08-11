@@ -1,14 +1,19 @@
 """WA SOS refresh — ``python -m usa_wa_facts_seats.house.refresh`` (#101).
 
 The daily driver of the **WSL+SOS House Position seat** (symmetric with the Senate seat, #75).
-It:
+Since #201 it does exactly one thing: re-drive the archive-first House-Position span builder
+(:func:`usa_wa_facts_seats.house.build.build_house_position_spans`) scoped to the current
+biennium — materializing ``usa_wa_legislature`` ``state_representative`` Position seat spans
+(the current biennium as the open end).
 
-1. Archives the current election's results cohort (``sos-legresults:<YYYYMMDD>``) through the
-   runner's archive-only seam (#54), forced past the freshness TTL for daily determinism, and
-2. Re-drives the archive-first House-Position span builder
-   (:func:`usa_wa_facts_seats.house.build.build_house_position_spans`) scoped to the current
-   biennium — materializing ``usa_wa_legislature`` ``state_representative`` Position seat spans
-   (the current biennium as the open end).
+**The archive half moved to the source (#201).** Archiving the ``sos-legresults:<YYYYMMDD>``
+cohorts is :mod:`usa_wa_adapter_sos.results.archive_refresh`
+(``usa-wa-sos-archive-refresh.service``), ordered before this unit. Running both in one process
+made this fact import an adapter ``transport``, which is the thing a fact must never do — it
+re-welds the application to one source, the failure the 2026-07 votewa outage taught. The
+rebuild consumes cohort *interfaces*, so it is source-agnostic and, crucially, still useful when
+the archive half failed: it re-derives the seat from the **last good** archive while continuing
+to track the WSL roster, which votewa has no part in.
 
 **Ordering.** Runs **after** the WSL refresh: the sitting House roster (who sits / LD / party) is
 read archive-first from the WSL sponsor archive (``sponsors:<biennium>``, written by the WSL
@@ -26,36 +31,27 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-import httpx
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, run_job
-from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.membership.cohort import MemberClient
 from usa_wa_adapter_legislature.sponsors.cohort import SponsorClient
-from usa_wa_adapter_sos.provisioning import get_or_create_results_source
-from usa_wa_adapter_sos.results.adapter import ResultsAdapter, legresults_resource_id
-from usa_wa_adapter_sos.results.transport import LegislativeExportNotFound, SOSResultsClient
-from usa_wa_common.elections import election_years_for_biennium
 from usa_wa_facts_seats.house.build import build_house_position_spans
 
 logger = get_logger(__name__)
 
 #: Stable ledger identity (#178) — a module path can move without orphaning run history.
+#: Unchanged by the #201 split: this half kept the seat the unit exists to materialize, and
+#: the archive half took a new slug rather than forking this one's history.
 JOB_SLUG = "sos-refresh"
-
-_JURISDICTION_SLUG = "usa-wa"
 
 
 @dataclass(frozen=True)
 class SosRefreshOutcome:
     """Counts from one SOS refresh cycle."""
 
-    cohorts_archived: int
     house_spans: int
 
 
@@ -65,12 +61,11 @@ async def run_refresh(
     biennium: str | None = None,
     sponsor_client: SponsorClient | None = None,
     member_client: MemberClient | None = None,
-    sos_client: SOSResultsClient | None = None,
 ) -> SosRefreshOutcome:
-    """Execute one SOS refresh cycle: archive the current results cohort, then re-drive the
-    House-Position span builder scoped to the current biennium. ``sponsor_client`` /
-    ``member_client`` / ``sos_client`` are injectable for tests — typed by the cohort
-    providers' structural Protocols since #189, so no SOAP transport is named here."""
+    """Re-drive the House-Position span builder scoped to the current biennium, reading every
+    cohort archive-first. ``sponsor_client`` / ``member_client`` are injectable for tests —
+    typed by the cohort providers' structural Protocols since #189, so no transport is named
+    here (and since #201, none is imported either)."""
     if biennium is None:
         biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
     current = biennium_for_date(datetime.now(UTC).date())
@@ -80,47 +75,8 @@ async def run_refresh(
             extra={"biennium": biennium, "current_biennium": current},
         )
 
-    election_years = election_years_for_biennium(biennium)
-    jurisdiction = (
-        await session.execute(select(Jurisdiction).where(Jurisdiction.slug == _JURISDICTION_SLUG))
-    ).scalar_one()
-    source = await get_or_create_results_source(session, jurisdiction)
-
-    adapter = ResultsAdapter(election_years=election_years, client=sos_client or SOSResultsClient())
-    runner = AdapterRunner(
-        adapter,
-        session,
-        source=source,
-        jurisdiction=jurisdiction,
-        natural_key=("source", "source_id"),
-        fill_only=True,
-    )
-
-    # 1. Archive every general a biennium's membership can be decided by (#106): the even seating
-    #    year and the odd mid-biennium special (Nov 2025 seated Hunt + four House appointees). Each
-    #    cohort archives in its OWN SAVEPOINT — an odd-year cohort 404s from January until the
-    #    November election is certified, and a race-less year carries no Legislative CSV; either
-    #    would otherwise fail the daily unit (and page the operator via OnFailure=). Forced past the
-    #    freshness TTL for daily determinism (the dedup guard still bounds RawPayload growth on a
-    #    byte-identical re-pull).
-    archived = 0
-    seating_year = election_years[0]  # the even seating cohort — see election_years_for_biennium
-    for year in election_years:
-        try:
-            async with session.begin_nested():
-                if await runner.archive_only(legresults_resource_id(year), force=True):
-                    archived += 1
-        except (httpx.HTTPError, LegislativeExportNotFound) as exc:
-            # Mirror the harvest's INFO/WARNING split (#106 A3), so a routine miss isn't a daily
-            # alert (this project alerts on WARNING rises, #85). The odd special cohort is EXPECTED
-            # absent for most of the biennium — it 404s from January until that November's election
-            # is certified, and a race-less year carries no CSV — so its miss is INFO. Only the even
-            # SEATING cohort (a past election that should serve) failing is a genuine WARNING.
-            level = logger.warning if year == seating_year else logger.info
-            level("sos_refresh_cohort_year_skipped", extra={"year": year, "error": str(exc)})
-
-    # 2. Re-drive the House-Position span builder scoped to the current biennium (each scoped
-    #    member keeps their full cross-biennium span history; the current biennium is the open end).
+    # Each scoped member keeps their full cross-biennium span history; the current biennium is
+    # the open end.
     result = await build_house_position_spans(
         session,
         sponsor_client=sponsor_client,
@@ -132,14 +88,12 @@ async def run_refresh(
         "sos_refresh_complete",
         extra={
             "biennium": biennium,
-            "election_years": election_years,
-            "cohorts_archived": archived,
             "house_spans": result.house_spans,
             "closed_stale": result.closed_stale,
             "sweep_aborted": result.sweep_aborted,
         },
     )
-    return SosRefreshOutcome(cohorts_archived=archived, house_spans=result.house_spans)
+    return SosRefreshOutcome(house_spans=result.house_spans)
 
 
 async def _refresh_job(ctx: JobContext) -> SosRefreshOutcome:
@@ -157,16 +111,20 @@ def main(argv: list[str] | None = None) -> int:
     """Run one SOS refresh cycle. Exit ``0`` clean · ``1`` failed · ``2`` config.
 
     **No ``--dry-run``** (``dry_run=False``, CR #196 finding 55). This commits through its
-    own ``session.begin()`` regardless, so the flag would have archived the cohort,
-    re-driven the House builder, committed, and reported ``dry_run=true``. It had no such
-    flag before #179b; the sweep added it and nothing read it.
+    own ``session.begin()`` regardless, so the flag would have re-driven the House builder,
+    committed, and reported ``dry_run=true``. It had no such flag before #179b; the sweep
+    added it and nothing read it.
+
+    **No ``--force``** either (#201): forcing past a freshness TTL is the archive half's
+    business, and this half holds no cache — the builder is idempotent and re-derives from
+    the archive every run.
     """
     return run_job(
         JOB_SLUG,
         _refresh_job,
         argv=argv,
         prog="python -m usa_wa_facts_seats.house.refresh",
-        description="Run one SOS refresh cycle (archive the cohort + re-drive the House builder).",
+        description="Re-drive the House Position span builder from the archive (#201).",
         commit=False,
         dry_run=False,
     )
