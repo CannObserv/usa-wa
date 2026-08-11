@@ -10,8 +10,12 @@ refresh that returns a summary dataclass, a reconciler that owns its own exit co
 import argparse
 import asyncio
 import json
+import locale
+import threading
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
+from unittest import mock
 
 import pytest
 from ulid import ULID as _ULID
@@ -25,6 +29,7 @@ from clearinghouse_core.job import (
     EXIT_OK,
     JobContext,
     JobResult,
+    load_json_batch,
     run_job,
 )
 from clearinghouse_core.runs import OUTCOME_DEGRADED, OUTCOME_FAILED, OUTCOME_OK
@@ -826,3 +831,69 @@ def test_a_narrower_dry_run_can_state_its_own_meaning(fake_db, capsys):
     out = capsys.readouterr().out
     assert "harvest but do not write the seed" in out
     assert "roll back instead of committing" not in out
+
+
+# --- load_json_batch (#196 CR items 5 + 7) ----------------------------------
+
+
+async def test_load_json_batch_reads_off_the_event_loop(tmp_path):
+    """The read runs in a worker thread, not on the loop (#196)."""
+    path = tmp_path / "batch.json"
+    path.write_text('[{"a": 1}]', encoding="utf-8")
+
+    loop_thread = threading.current_thread()
+    seen: list[threading.Thread] = []
+
+    def loader(payload):
+        return payload
+
+    real_read_text = Path.read_text
+
+    def recording_read_text(self, *args, **kwargs):
+        seen.append(threading.current_thread())
+        return real_read_text(self, *args, **kwargs)
+
+    with mock.patch.object(Path, "read_text", recording_read_text):
+        result = await load_json_batch(str(path), loader)
+
+    assert result == [{"a": 1}]
+    assert seen and seen[0] is not loop_thread
+
+
+async def test_load_json_batch_decodes_utf8_regardless_of_locale(tmp_path):
+    """The batch is decoded as UTF-8 explicitly, not via the locale default (#196 CR 7).
+
+    ``open()``/``read_text()`` without an encoding follow the process locale, so a batch
+    authored on one box and read on another can mis-decode or raise. The specs these
+    files carry include legislator names, which are exactly where a non-ASCII byte lives.
+    """
+    path = tmp_path / "batch.json"
+    path.write_bytes('[{"name": "Muñoz"}]'.encode())
+
+    captured: dict[str, object] = {}
+
+    def loader(payload):
+        captured["payload"] = payload
+        return payload
+
+    # Force a decoder that would mangle the UTF-8 bytes if it were consulted.
+    with mock.patch.object(locale, "getpreferredencoding", lambda *a, **k: "ascii"):
+        result = await load_json_batch(str(path), loader)
+
+    assert captured["payload"] == [{"name": "Muñoz"}]
+    assert result == [{"name": "Muñoz"}]
+
+
+async def test_load_json_batch_propagates_the_loaders_error(tmp_path):
+    """Parsing and validation stay with the caller, so its error type still surfaces."""
+    path = tmp_path / "batch.json"
+    path.write_text('{"not": "a list"}', encoding="utf-8")
+
+    class _CallerError(Exception):
+        pass
+
+    def loader(payload):
+        raise _CallerError("must be a JSON array")
+
+    with pytest.raises(_CallerError):
+        await load_json_batch(str(path), loader)

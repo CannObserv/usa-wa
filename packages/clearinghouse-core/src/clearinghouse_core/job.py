@@ -57,6 +57,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -241,6 +242,23 @@ def _git_sha() -> str | None:
         return None
     sha = completed.stdout.strip()
     return sha[:40] if completed.returncode == 0 and sha else None
+
+
+async def load_json_batch[BatchT](path: str, loader: Callable[[Any], list[BatchT]]) -> list[BatchT]:
+    """Read a ``--file`` JSON batch off the event loop, then hand it to ``loader`` (#196).
+
+    Only the **read** goes to a worker thread. Parsing and validation stay on the loop in
+    the caller's ``loader``, so a job's own error type (``OperatorEventError``,
+    ``SuccessionError``, …) still surfaces from exactly where it always did — the shape
+    every ``--file`` CLI's tests already pin.
+
+    Decoding is pinned to **UTF-8** rather than inheriting the process locale (#196 CR).
+    ``open()`` and a bare ``read_text()`` follow ``locale.getpreferredencoding()``, so an
+    operator batch written on one box could mis-decode or raise on another; these files
+    carry legislator names, which is exactly where a non-ASCII byte turns up.
+    """
+    payload = await asyncio.to_thread(Path(path).read_text, encoding="utf-8")
+    return loader(json.loads(payload))
 
 
 def build_parser(

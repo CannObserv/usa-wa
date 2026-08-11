@@ -1,5 +1,6 @@
 """Round-trip tests for the ``ULID`` SQLAlchemy column type."""
 
+import asyncio
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -68,9 +69,15 @@ async def test_ulid_accepts_uuid_at_bind(db_session, state_type):
 
 
 async def test_ulid_time_ordering_preserved(db_session, state_type):
-    """ULIDs created later sort after earlier ones — the property we rely on for B-tree locality."""
+    """ULIDs minted a millisecond apart sort in time order — what B-tree locality relies on.
+
+    The ULID prefix is a millisecond timestamp; inside one millisecond the sort order falls to
+    the random suffix, so the two mints are separated by more than a tick (#205).
+    """
     earlier = ULID()
+    await asyncio.sleep(0.002)
     later = ULID()
+    assert earlier.timestamp < later.timestamp
     assert earlier < later
 
     now = datetime.now(UTC)

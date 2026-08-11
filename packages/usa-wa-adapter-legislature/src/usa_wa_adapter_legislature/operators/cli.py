@@ -23,7 +23,6 @@ run (the daily refresh re-drives them); provenance is append-only, corrections v
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from dataclasses import dataclass
@@ -32,7 +31,13 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.job import EXIT_CONFIG, JobContext, JobResult, run_job
+from clearinghouse_core.job import (
+    EXIT_CONFIG,
+    JobContext,
+    JobResult,
+    load_json_batch,
+    run_job,
+)
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.operator_events import (
     DEPARTED_REASONS,
@@ -246,8 +251,7 @@ async def _run(session: AsyncSession, args: argparse.Namespace) -> int:
     source = await get_or_create_operator_source(session, jurisdiction)
 
     if args.file:
-        with open(args.file) as handle:  # noqa: ASYNC230 — one-shot CLI file IO at startup; no concurrency to starve. See #196.
-            specs = load_specs(json.load(handle))
+        specs = await load_json_batch(args.file, load_specs)
     else:
         specs = [_spec_from_args(args)]
 

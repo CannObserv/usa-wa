@@ -233,11 +233,13 @@ class Sidecar:
         ok = await self._run_catalog_sync(now)
         ok = await self._run_backstop(now) and ok
         ok = await self._run_reconciles(now) and ok
-        # Capture the reconciles' conditional-GET tally (they accumulate on the shared
-        # engine across their per-descriptor sessions) for the cycle summary (#160).
+        ok = await self._run_replay(now) and ok
+        # Capture the conditional-GET tally (it accumulates on the shared engine across
+        # the reconciles' per-descriptor sessions) for the cycle summary (#160). Read
+        # *after* the replay, not between: since the #160 residual the replay backstop is
+        # conditional too, and capturing before it would report its 304s a cycle late.
         if self._engine is not None:
             self._last_conditional_get = self._engine.conditional_get_stats
-        ok = await self._run_replay(now) and ok
         async with self._session_factory() as session:
             try:
                 # The drain commits incrementally via this hook (#8); the trailing

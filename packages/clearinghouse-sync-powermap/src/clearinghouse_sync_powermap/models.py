@@ -249,10 +249,13 @@ class ConditionalGetState(Base, TimestampMixin):
 
     Conditional GET (power-map#385/#292): PM returns a strong ``ETag`` on every entity
     detail GET, honouring ``If-None-Match`` with ``304 Not Modified``. The anchored-cohort
-    reconcile stores the last-seen validator here and sends it next pass, so an unchanged
-    row costs a cheap ``304`` instead of a full-body re-fetch + re-apply. Keyed on
-    ``(entity_type, local_id)`` (the twin of :class:`EnrichFingerprint`); the row is 1:1
-    with its PM anchor.
+    reconcile **and the trailing changes-feed replay** (usa-wa#159) store the last-seen
+    validator here and send it next pass, so an unchanged row costs a cheap ``304`` instead
+    of a full-body re-fetch + re-apply. Keyed on ``(entity_type, local_id)`` (the twin of
+    :class:`EnrichFingerprint`); the row is 1:1 with its PM anchor. One shared store: both
+    backstops re-read the same rows, so a validator either wrote earns the other a ``304``.
+    The **live** changes feed is deliberately not a client — a feed item means PM changed
+    the entity, so its stored validator is stale by construction.
 
     Only the **detail** ETag is stored: PM's detail ETag covers child tables — the
     ``updated_at`` touch-cascade bumps the parent on names/identifiers/links/contact/

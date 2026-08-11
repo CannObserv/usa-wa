@@ -1,11 +1,15 @@
 """Operator-event CLI (#107) — validation + record + supersede + batch."""
 
+import json
+import threading
 from datetime import date
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
 
+from clearinghouse_core.job import load_json_batch
 from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Person
 from clearinghouse_domain_legislative.operator_events import OperatorEvent
@@ -229,6 +233,52 @@ def test_load_specs_parses_batch():
 def test_load_specs_rejects_non_list():
     with pytest.raises(OperatorEventError, match="JSON array"):
         load_specs({"member_id": "1"})
+
+
+async def test_the_file_batch_is_read_off_the_event_loop(tmp_path, monkeypatch):
+    """``--file`` is read in a worker thread, not on the loop (#196).
+
+    The read used to sit inline in the handler coroutine behind a ``# noqa: ASYNC230``.
+    Practical impact is nil — one file, one job, no concurrency to starve — but the
+    suppression made the gate lie, so the shape is pinned here rather than asserted in
+    a comment.
+    """
+    path = tmp_path / "events.json"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "member_id": "29091",
+                    "kind": "departed",
+                    "reason": "died",
+                    "effective_date": "2025-04-19",
+                    "evidence_url": "https://a",
+                }
+            ]
+        )
+    )
+    read_threads: list[int] = []
+    real_read_text = Path.read_text
+
+    def _recording(self, *args, **kwargs):
+        read_threads.append(threading.get_ident())
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _recording)
+
+    specs = await load_json_batch(str(path), cli.load_specs)
+
+    assert [s.member_id for s in specs] == ["29091"]
+    assert read_threads, "the batch file was never read"
+    assert threading.get_ident() not in read_threads
+
+
+async def test_a_malformed_file_batch_still_raises_its_operator_error(tmp_path):
+    """Moving the read off the loop must not move where its errors surface (#196)."""
+    path = tmp_path / "events.json"
+    path.write_text(json.dumps({"member_id": "1"}))
+    with pytest.raises(OperatorEventError, match="JSON array"):
+        await load_json_batch(str(path), cli.load_specs)
 
 
 # --- CLI (#179b: the shared job harness) --------------------------------------
