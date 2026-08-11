@@ -303,11 +303,31 @@ None. All seven issues are in scope for this plan.
 
 ## Orchestrator runtime checklist
 
-1. **Before every batch:** `git checkout main && git pull --ff-only`. Workers worktree from
-   local `main`; a stale local `main` bases their work on the wrong commit (Rule 1).
+1. **Before every batch:** `git pull --ff-only` on `main`. Workers worktree from local
+   `main`; a stale local `main` bases their work on the wrong commit (Rule 1).
 2. **Never** `git push origin HEAD:main` from a feature branch (Rule 2).
-3. **Batch A only:** `git checkout -b batch/g` before spawning, so it is the merge target.
-   Single-agent batches B–E use the worker's own feature branch.
+3. **THE MAIN CHECKOUT NEVER LEAVES `main`.** This repo overrides the generic skill's
+   "check out the batch branch before spawning agents" step. Every code-running unit
+   carries `ExecStartPre=scripts/assert-main-checkout.sh` (#87), so a feature branch left
+   checked out at `/home/exedev/usa-wa` **stops the deployment**: `usa-wa.service` refuses
+   to start and flaps toward its start limit, firing `OnFailure=` alert emails.
+
+   *This happened during Batch B.* `batch/g` and then `fix/195-refresh-e2e-assertions` were
+   created with `git checkout -b` in the main checkout; a parallel operator restarting the
+   API found it could not start and had to stop it cleanly to prevent alert-email flapping.
+   The generic skill instruction is wrong for this repo — AGENTS.md § Server Lifecycle says
+   plainly: *do feature work in a git worktree.*
+
+   The pattern that respects both:
+   - Multi-agent batch: `git branch batch/<x> main` (create, **do not** check out), then
+     `bash skills/using-git-worktrees/scripts/worktree-create.sh batch/<x>` and do every
+     merge, test run and CR fix **inside that worktree**.
+   - Single-agent batch: create no local branch at all. Let the worker commit on its
+     auto-provisioned `worktree-agent-*` branch, then
+     `git push origin worktree-agent-<id>:<feature-branch>` and open the PR from that.
+     Use a throwaway worktree if the branch must be checked out to run the suite.
+   - Verify before walking away: `git -C /home/exedev/usa-wa branch --show-current` must
+     print `main`, and `systemctl is-active usa-wa` must print `active`.
 4. **Verify slot availability** before launching:
    `bash skills/using-git-worktrees/scripts/worktree-list.sh --porcelain | grep -c '^worktree '`
    minus 1 for the main checkout, against the ceiling of 3.
@@ -327,3 +347,10 @@ None. All seven issues are in scope for this plan.
    Postgres.
 8. **After each merge to main:** `sudo systemctl restart usa-wa` — and after Batch C, also
    `sudo cp deploy/<unit> /etc/systemd/system/ && sudo systemctl daemon-reload`.
+9. **`usa-wa-sync-powermap` is deliberately held** as of 2026-08-11 — a parallel workstream
+   stopped and `disable`d it over Power Map API utilization. **Do not restart it**, and do
+   not read its `inactive` state as a fault. The AGENTS.md wrap-up step
+   (`systemctl restart usa-wa usa-wa-sync-powermap`) must be narrowed to `usa-wa` alone
+   until that hold is lifted by whoever placed it. Note that #160's conditional GET does
+   **not** relieve utilization pressure: a 304 still costs a full round trip and a
+   rate-limit token — it cuts bandwidth, not request count.
