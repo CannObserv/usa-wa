@@ -1355,6 +1355,41 @@ async def test_cycle_summary_surfaces_conditional_get_tally(db_session, caplog):
     assert rec.conditional_get_skipped == 12 and rec.conditional_get_fetched == 3
 
 
+async def test_run_cycle_captures_conditional_get_stats_after_replay():
+    """#160 residual: the replay backstop is conditional too, so the tally must be read
+    *after* ``_run_replay`` — capturing between the reconciles and the replay reported the
+    replay's 304s a cycle late."""
+
+    class _StubEngine:
+        def __init__(self):
+            self.stats = (0, 0)
+
+        def reset_conditional_get_stats(self):
+            self.stats = (0, 0)
+
+        @property
+        def conditional_get_stats(self):
+            return self.stats
+
+        async def replay_from_floor(self, session, *, now):
+            self.stats = (5, 1)  # the replay's own 304-skipped/fetched contribution
+            return ReplayResult(applied=1, healed=0, fell_off=False, floor=1, high_water=2)
+
+    engine = _StubEngine()
+    sidecar = Sidecar(
+        engine=engine,  # type: ignore[arg-type]
+        descriptors=[],
+        session_factory=lambda: _ReplaySession(),  # no stamp → replay due
+        replay_enabled=True,
+        replay_cadence=timedelta(hours=1),
+    )
+    sidecar.tick = lambda s, *, now, commit: _noop()
+
+    await sidecar.run_cycle()
+
+    assert sidecar._last_conditional_get == (5, 1)
+
+
 async def test_run_cycle_resets_and_captures_conditional_get_stats():
     """run_cycle zeroes the engine's conditional-GET tally at the start and captures it
     after the reconciles for the summary (#160)."""
