@@ -86,7 +86,7 @@ Per-package module reference — what each file is for and why it exists:
 
 `8001` = `8000 + 1`. The exe.dev proxy transparently forwards ports 3000–9999; the dev server is reachable at `https://usa-wa.exe.xyz:8001/`.
 
-The full service table (13 systemd units and what each one does), the `OnFailure=` alerting chain (#49), and the owner/app/test DB role split (#22) are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Two rules from there that bind on every task: migrations need the **owner** role (`DATABASE_URL_OWNER`) and everything else runs as the app role (`DATABASE_URL`); `USA_WA_ALERT_EMAIL` must be set or alerting fails closed.
+The full service table (every systemd unit and what each one does), the `OnFailure=` alerting chain (#49), and the owner/app/test DB role split (#22) are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Two rules from there that bind on every task: migrations need the **owner** role (`DATABASE_URL_OWNER`) and everything else runs as the app role (`DATABASE_URL`); `USA_WA_ALERT_EMAIL` must be set or alerting fails closed.
 
 ## Server Lifecycle
 

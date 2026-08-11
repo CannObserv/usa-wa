@@ -146,10 +146,10 @@ async def harvest_results(
             # (timeouts/connect resets): both mean the source couldn't serve this year, so skip
             # the year not the sweep. A DB/SQLAlchemy error is not an httpx error, so it aborts.
             skipped += 1
-            level = (
+            log = (
                 logger.warning if expected_years is None or year in expected_years else logger.info
             )
-            level("results_cohort_year_skipped", extra={"year": year, "error": str(exc)})
+            log("results_cohort_year_skipped", extra={"year": year, "error": str(exc)})
 
     if skipped > 0 and skipped == len(years):
         # *Every* year failed — a whole-source outage, not one bad year in a good run. A sweep of
