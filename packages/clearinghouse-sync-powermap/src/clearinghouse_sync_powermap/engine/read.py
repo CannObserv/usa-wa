@@ -151,16 +151,18 @@ class Reconciler:
         #: throttle shape as the writer's ``_warned_stuck``; a restart re-warns once.
         self._warned_dead_anchors: set = set()
         #: Cumulative conditional-GET tallies across this cycle's per-descriptor reconciles
-        #: (usa-wa#160): rows the reconcile skipped on a 304 vs. fetched full on a 200/first
-        #: pass. Accumulated here (each reconcile runs in its own session but one shared
-        #: engine); the sidecar reads them for the cycle summary and resets per cycle.
+        #: **and the replay backstop** (usa-wa#160): reads skipped on a 304 vs. fetched full
+        #: on a 200/first pass. Accumulated here (each runs in its own session but one
+        #: shared engine); the sidecar reads them for the cycle summary and resets per cycle.
         self._conditional_get_skipped = 0
         self._conditional_get_fetched = 0
 
     @property
     def conditional_get_stats(self) -> tuple[int, int]:
         """``(skipped, fetched)`` conditional-GET tallies accumulated since the last reset
-        (usa-wa#160): rows the reconcile skipped on a ``304`` vs. re-fetched full."""
+        (usa-wa#160): reads the anchored-cohort reconcile and the replay backstop skipped on
+        a ``304`` vs. re-fetched full. The live changes feed never contributes — it stays
+        unconditional by design (see :meth:`_apply_feed_page`)."""
         return (self._conditional_get_skipped, self._conditional_get_fetched)
 
     def reset_conditional_get_stats(self) -> None:
@@ -575,6 +577,44 @@ class Reconciler:
         state.detail_etag = etag
         await session.flush()
 
+    async def _anchored_row_etag(
+        self, session: AsyncSession, descriptor: EntityDescriptor, pm_id: Any
+    ) -> tuple[Any | None, str | None]:
+        """``(local row, stored detail ETag)`` for a feed item's PM id (usa-wa#160).
+
+        The replay path's entry into the store: the cohort reconcile already holds the row
+        it is walking, but a feed/replay item names only a PM id, and the store is keyed on
+        the local one. Both ``None`` when nothing anchors to ``pm_id`` — a first sighting
+        reads unconditionally and stores its validator after the insert.
+        """
+        row = await self._anchors.row_by_anchor(session, descriptor, pm_id)
+        if row is None:
+            return None, None
+        return row, await self._load_detail_etag(session, descriptor.entity_type, row.id)
+
+    async def _store_feed_etag(
+        self,
+        session: AsyncSession,
+        descriptor: EntityDescriptor,
+        pm_id: Any,
+        row: Any | None,
+        etag: str | None,
+    ) -> None:
+        """Persist a replayed item's fresh ETag so the next trailing pass can 304 it (#160).
+
+        ``row`` is the pre-fetch anchor lookup; ``None`` means the apply just inserted (or
+        declined to insert) the row, so re-resolve it — otherwise a row first seen inside
+        the replay window would never acquire a validator. No ETag (PM omitted the header)
+        or still no row (an update-only descriptor declined the record) stores nothing.
+        """
+        if etag is None:
+            return
+        if row is None:
+            row = await self._anchors.row_by_anchor(session, descriptor, pm_id)
+        if row is None:
+            return
+        await self._store_detail_etag(session, descriptor.entity_type, row.id, etag)
+
     async def has_local_anchor(
         self, session: AsyncSession, descriptor: EntityDescriptor, pm_id: Any
     ) -> bool:
@@ -628,7 +668,7 @@ class Reconciler:
         return applied
 
     async def _apply_feed_page(
-        self, session: AsyncSession, page: ChangePage, *, now: datetime
+        self, session: AsyncSession, page: ChangePage, *, now: datetime, conditional: bool = False
     ) -> tuple[int, int]:
         """Apply every item in one changes-feed page; return ``(processed, healed)``.
 
@@ -644,6 +684,17 @@ class Reconciler:
         ``healed`` is the subset whose LWW outcome actually changed a local row
         (``inserted``/``updated``) — the replay would-heal delta. Delete-routed items
         count toward neither (the dominant replay-recovered case is a stale upsert).
+
+        ``conditional`` (usa-wa#160) sends the row's stored PM ETag as ``If-None-Match``
+        and skips the item on a ``304``. **Only the replay caller passes it**, and that
+        asymmetry is the point: a live feed item *means* PM changed the entity, so its
+        stored validator is stale by construction — the conditional read would be a
+        guaranteed ``200`` bought with two extra local queries (the anchor lookup + the
+        ETag load) per item. Replay re-reads a trailing window of items it has *already*
+        applied, which is exactly where the validator still matches. Gated by the shared
+        ``conditional_get_enabled`` kill switch; a 304 skips only the PM→local apply (the
+        feed path has no enrich to strand — re-enrich lives on the reconcile backstop
+        alone, see the module docstring).
         """
         processed = 0
         healed = 0
@@ -683,13 +734,40 @@ class Reconciler:
                     # No tombstone column: defer to the heal routine's warn-and-leave.
                     await self._heal_dead_anchor(session, descriptor, row, now=now)
                 continue
-            record = await descriptor.fetch_record(self._ctx.client, item.entity_id)
+            use_conditional = conditional and self._ctx.conditional_get_enabled
+            anchored_row = None
+            new_etag = None
+            if use_conditional:
+                # The ETag store is keyed on the LOCAL id, so the anchored row has to be
+                # resolved before the read. ``None`` (an entity we hold no anchor for yet)
+                # simply reads unconditionally — same request the plain path would make.
+                anchored_row, stored = await self._anchored_row_etag(
+                    session, descriptor, item.entity_id
+                )
+                fetch = await descriptor.fetch_record_conditional(
+                    self._ctx.client, item.entity_id, if_none_match=stored
+                )
+                if fetch.not_modified:
+                    # PM's detail ETag covers child tables (incl. events) via the
+                    # touch-cascade, so a 304 means the record we last applied is still
+                    # current — the re-apply it replaces was an LWW no-op.
+                    self._conditional_get_skipped += 1
+                    continue
+                record, new_etag = fetch.record, fetch.etag
+            else:
+                record = await descriptor.fetch_record(self._ctx.client, item.entity_id)
             if record is None:
+                # PM record gone (404) — unchanged from the unconditional path: skip.
                 continue
             outcome = await self.apply_record(session, descriptor, record)
             processed += 1
             if outcome in (APPLY_INSERTED, APPLY_UPDATED):
                 healed += 1
+            if use_conditional:
+                self._conditional_get_fetched += 1
+                await self._store_feed_etag(
+                    session, descriptor, item.entity_id, anchored_row, new_etag
+                )
         return processed, healed
 
     async def replay_from_floor(
@@ -753,7 +831,11 @@ class Reconciler:
                     "powermap_replay_horizon_fell_off",
                     extra={"floor": floor, "min_seq": page.min_seq, "high_water": high_water},
                 )
-            page_processed, page_healed = await self._apply_feed_page(session, page, now=now)
+            # Conditional (usa-wa#160): this window is re-read every pass, so most items
+            # are ones we already applied — the case a stored ETag turns into a 304.
+            page_processed, page_healed = await self._apply_feed_page(
+                session, page, now=now, conditional=True
+            )
             applied += page_processed
             healed += page_healed
             nxt = page.next_after

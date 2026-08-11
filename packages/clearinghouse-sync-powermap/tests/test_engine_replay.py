@@ -22,7 +22,7 @@ from clearinghouse_sync_powermap.engine import (
     SyncEngine,
     _replay_floor,
 )
-from clearinghouse_sync_powermap.models import SyncState
+from clearinghouse_sync_powermap.models import ConditionalGetState, SyncState
 from clearinghouse_sync_powermap.testing import FakeClient, FakeEntity
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
@@ -182,3 +182,195 @@ async def test_replay_skips_when_feed_unbootstrapped(db_session, fake_descriptor
         await db_session.execute(select(SyncState).where(SyncState.stream == REPLAY_STREAM))
     ).scalar_one()
     assert state.last_reconcile_at == NOW  # stamped → cadence applies uniformly
+
+
+# --- usa-wa#160 residual: conditional GET on the replay fetch path ---------------
+#
+# The gating decision (issue #160, second half): ``_apply_feed_page`` is shared by the
+# live feed and this replay, and only replay re-reads items it has already applied — so
+# only replay can earn a 304. The live feed is left byte-identical (a feed item *means*
+# PM changed the entity → a conditional GET there is a guaranteed 200 plus two wasted
+# local lookups). These tests pin both sides of that split.
+
+
+def _replay_page(pm_id, *, after=40000, next_after=45000):
+    item = ChangeItem(entity_type="fake", entity_id=pm_id, changed_at=NOW, change_kind="updated")
+    return {after: ChangePage(items=[item], next_after=next_after)}
+
+
+async def _bootstrap_high_water(session, cursor="50000"):
+    session.add(SyncState(stream=CHANGES_STREAM, cursor=cursor))
+    await session.flush()
+
+
+async def test_replay_sends_stored_etag_and_304_skips_apply(db_session, fake_descriptor):
+    """usa-wa#160: a replayed item whose stored ETag still matches costs a 304 — no body,
+    no apply — and counts as skipped, not applied."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="1", name="Local", pm_id=pm_id)
+    db_session.add(
+        ConditionalGetState(entity_type="fake", local_id=row.id, detail_etag='"stored-1"')
+    )
+    await _bootstrap_high_water(db_session)
+
+    client = ReplayClient(
+        pages_by_after=_replay_page(pm_id),
+        # PM would win on the clock if the body were fetched — the 304 must pre-empt it.
+        entities={pm_id: _record("1", "PMName", pm_id=pm_id, updated_at="2099-01-01T00:00:00Z")},
+        not_modified_ids={pm_id},
+    )
+    engine = SyncEngine([fake_descriptor], client)
+
+    result = await engine.replay_from_floor(db_session, now=NOW)
+
+    assert result.applied == 0 and result.healed == 0
+    await db_session.refresh(row)
+    assert row.name == "Local"  # no apply on a 304
+    assert client.conditional_fetched[0][2] == '"stored-1"'  # sent the stored validator
+    assert engine.conditional_get_stats == (1, 0)  # (skipped, fetched)
+
+
+async def test_replay_200_applies_and_stores_fresh_etag(db_session, fake_descriptor):
+    """No stored validator → an unconditional-equivalent conditional read; the 200 applies
+    and persists PM's fresh ETag so the next trailing pass can 304."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="1", name="Stale", pm_id=pm_id)
+    await _bootstrap_high_water(db_session)
+
+    client = ReplayClient(
+        pages_by_after=_replay_page(pm_id),
+        entities={pm_id: _record("1", "Healed", pm_id=pm_id, updated_at="2099-01-01T00:00:00Z")},
+        entity_etags={pm_id: '"fresh-9"'},
+    )
+    engine = SyncEngine([fake_descriptor], client)
+
+    result = await engine.replay_from_floor(db_session, now=NOW)
+
+    assert result.applied == 1 and result.healed == 1
+    assert client.conditional_fetched[0][2] is None  # nothing stored yet
+    await db_session.refresh(row)
+    assert row.name == "Healed"
+    stored = await db_session.scalar(
+        select(ConditionalGetState.detail_etag).where(ConditionalGetState.local_id == row.id)
+    )
+    assert stored == '"fresh-9"'
+    assert engine.conditional_get_stats == (0, 1)
+
+
+async def test_replay_stores_etag_for_a_newly_inserted_row(db_session, fake_descriptor):
+    """An item we hold no anchor for yet (a first sighting inside the window) has no local
+    id to key the store on *before* the fetch — resolve it after the insert so the row does
+    not stay unconditional forever."""
+    pm_id = ULID()
+    await _bootstrap_high_water(db_session)
+
+    client = ReplayClient(
+        pages_by_after=_replay_page(pm_id),
+        entities={pm_id: _record("1", "Fresh", pm_id=pm_id, updated_at="2099-01-01T00:00:00Z")},
+        entity_etags={pm_id: '"fresh-1"'},
+    )
+    engine = SyncEngine([fake_descriptor], client)
+
+    result = await engine.replay_from_floor(db_session, now=NOW)
+
+    assert result.applied == 1
+    row = (await db_session.execute(select(FakeEntity))).scalar_one()
+    stored = await db_session.scalar(
+        select(ConditionalGetState.detail_etag).where(ConditionalGetState.local_id == row.id)
+    )
+    assert stored == '"fresh-1"'
+
+
+async def test_replay_404_still_skips_the_item(db_session, fake_descriptor):
+    """A conditional 404 (PM record gone) must behave exactly as the unconditional one did:
+    the item is skipped, the local row untouched, and nothing is stored."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="1", name="Local", pm_id=pm_id)
+    await _bootstrap_high_water(db_session)
+
+    client = ReplayClient(pages_by_after=_replay_page(pm_id))  # no entity → record None
+    engine = SyncEngine([fake_descriptor], client)
+
+    result = await engine.replay_from_floor(db_session, now=NOW)
+
+    assert result.applied == 0 and result.healed == 0
+    await db_session.refresh(row)
+    assert row.name == "Local"
+    assert (await db_session.execute(select(ConditionalGetState))).first() is None
+    assert engine.conditional_get_stats == (0, 0)  # neither skipped nor fetched
+
+
+async def test_replay_deleted_item_never_reaches_the_conditional_fetch(db_session, fake_descriptor):
+    """The delete/merge/heal branch runs *before* the fetch and must stay that way — a
+    ``deleted`` item costs no conditional PM read at all."""
+    pm_id = ULID()
+    winner = ULID()
+    row = await _add_anchored(db_session, source_id="1", name="Loser", pm_id=pm_id)
+    await _bootstrap_high_water(db_session)
+
+    item = ChangeItem(
+        entity_type="fake",
+        entity_id=pm_id,
+        changed_at=NOW,
+        change_kind="deleted",
+        merged_into=winner,
+    )
+    client = ReplayClient(pages_by_after={40000: ChangePage(items=[item], next_after=45000)})
+    engine = SyncEngine([fake_descriptor], client)
+
+    await engine.replay_from_floor(db_session, now=NOW)
+
+    await db_session.refresh(row)
+    assert row.pm_fake_id == winner  # re-anchored by the heal path
+    assert client.conditional_fetched == []  # the delete branch short-circuited first
+
+
+async def test_replay_kill_switch_uses_unconditional_fetch(db_session, fake_descriptor):
+    """``conditional_get_enabled=False`` → the plain fetch on replay too, no ETag store."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="1", name="Stale", pm_id=pm_id)
+    await _bootstrap_high_water(db_session)
+
+    client = ReplayClient(
+        pages_by_after=_replay_page(pm_id),
+        entities={pm_id: _record("1", "Healed", pm_id=pm_id, updated_at="2099-01-01T00:00:00Z")},
+        entity_etags={pm_id: '"fresh-9"'},
+    )
+    engine = SyncEngine([fake_descriptor], client, conditional_get_enabled=False)
+
+    result = await engine.replay_from_floor(db_session, now=NOW)
+
+    assert result.applied == 1
+    await db_session.refresh(row)
+    assert row.name == "Healed"
+    assert client.conditional_fetched == []
+    assert (await db_session.execute(select(ConditionalGetState))).first() is None
+    assert engine.conditional_get_stats == (0, 0)
+
+
+async def test_live_feed_fetch_stays_unconditional(db_session, fake_descriptor):
+    """The gating decision, pinned: the live changes feed does NOT go conditional. A feed
+    item means PM changed the entity, so a conditional GET there is a guaranteed 200 plus a
+    wasted anchor + ETag lookup per item."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="1", name="Stale", pm_id=pm_id)
+    db_session.add(
+        ConditionalGetState(entity_type="fake", local_id=row.id, detail_etag='"stored-1"')
+    )
+    await db_session.flush()
+
+    item = ChangeItem(entity_type="fake", entity_id=pm_id, changed_at=NOW, change_kind="updated")
+    client = FakeClient(
+        changes_pages=[ChangePage(items=[item], next_after=42)],
+        entities={pm_id: _record("1", "FromFeed", pm_id=pm_id, updated_at="2099-01-01T00:00:00Z")},
+        not_modified_ids={pm_id},  # would 304 if the feed sent the stored validator
+    )
+    engine = SyncEngine([fake_descriptor], client)
+
+    applied = await engine.process_feed(db_session, now=NOW)
+
+    assert applied == 1  # full body applied, no 304 short-circuit
+    await db_session.refresh(row)
+    assert row.name == "FromFeed"
+    assert client.conditional_fetched == []
+    assert engine.conditional_get_stats == (0, 0)
