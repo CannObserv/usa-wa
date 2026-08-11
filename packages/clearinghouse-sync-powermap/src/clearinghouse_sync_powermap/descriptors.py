@@ -353,7 +353,7 @@ class EntityDescriptor(ABC):
     async def fetch_record_conditional(
         self, client: Any, pm_id: Any, *, if_none_match: str | None
     ) -> "EntityFetch":
-        """Conditional fetch for the reconcile backstop (usa-wa#160 / power-map#385).
+        """Conditional fetch for the reconcile + replay backstops (usa-wa#160/power-map#385).
 
         Sends the stored ``If-None-Match`` validator; on a ``304`` returns
         ``not_modified=True`` (the caller skips apply + re-enrich entirely — PM's detail
