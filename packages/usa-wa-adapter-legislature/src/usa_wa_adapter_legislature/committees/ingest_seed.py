@@ -18,6 +18,7 @@ newer name) is left untouched.
 from __future__ import annotations
 
 import argparse
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,7 +35,11 @@ from clearinghouse_core.seed_manifest import verified_digest
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.committees.seed import DEFAULT_SEED_PATH, deserialize_seed
+from usa_wa_adapter_legislature.committees.seed import (
+    DEFAULT_SEED_PATH,
+    SeedCommittee,
+    deserialize_seed,
+)
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
@@ -46,6 +51,40 @@ SEED_RESOURCE_ID = "committee-seed:joint-other"
 
 #: Stable ledger identity (#178) — a module path can move without orphaning run history.
 JOB_SLUG = "wsl-committee-seed-ingest"
+
+
+@dataclass(frozen=True)
+class _LoadedSeed:
+    """The seed as read from disk: resolved path, bytes, verified digest, rows."""
+
+    path: Path
+    content: bytes
+    content_hash: bytes
+    committees: list[SeedCommittee]
+
+
+def _read_seed(seed_path: Path) -> _LoadedSeed:
+    """Resolve, read, verify and parse the seed — the whole blocking half, in one place.
+
+    Synchronous on purpose: :func:`_load_seed` hands it to a worker thread. Grouping the
+    four steps means one hop rather than four, and it sweeps in the sidecar read hiding
+    inside ``verified_digest`` — blocking too, but a call into another module and so
+    invisible to ruff's ``ASYNC`` rules.
+    """
+    resolved = seed_path.resolve()
+    content = resolved.read_bytes()
+    return _LoadedSeed(
+        path=resolved,
+        content=content,
+        # raises SeedIntegrityError on mismatch
+        content_hash=verified_digest(resolved, content),
+        committees=deserialize_seed(content),
+    )
+
+
+async def _load_seed(seed_path: Path) -> _LoadedSeed:
+    """Load the seed without blocking the event loop (#196)."""
+    return await asyncio.to_thread(_read_seed, seed_path)
 
 
 @dataclass(frozen=True)
@@ -85,10 +124,11 @@ async def ingest_seed(
     seed_path: Path = DEFAULT_SEED_PATH,
 ) -> IngestSummary:
     """Verify + load the seed; fill-only upsert the Joint/`Other` cohort."""
-    seed_path = seed_path.resolve()  # noqa: ASYNC240 — one-shot CLI file IO at startup; no concurrency to starve (#196)
-    content = seed_path.read_bytes()
-    content_hash = verified_digest(seed_path, content)  # raises SeedIntegrityError on mismatch
-    committees = deserialize_seed(content)
+    loaded = await _load_seed(seed_path)
+    seed_path = loaded.path
+    content = loaded.content
+    content_hash = loaded.content_hash
+    committees = loaded.committees
 
     jurisdiction = await resolve_jurisdiction(session)
     source = await get_or_create_source(session, jurisdiction)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -122,6 +123,36 @@ async def test_harvest_dry_run_writes_no_seed(db_session, usa_wa, tmp_path):
     assert summary.dry_run is True
     assert summary.committees == 1
     assert not seed_path.exists()
+
+
+async def test_the_seed_freeze_happens_off_the_event_loop(tmp_path, monkeypatch):
+    """mkdir + seed write + sidecars run in one worker thread, not on the loop (#196).
+
+    The write used to sit inline in :func:`harvest` behind a ``# noqa: ASYNC240``, with
+    the neighbouring ``mkdir`` and ``write_sidecars`` blocking just as hard and invisibly
+    to ruff. The ``--dry-run`` guard is unchanged and stays in the caller: this helper is
+    only reached when the seed is meant to be written.
+    """
+    seed_path = tmp_path / "nested" / "seed.json"
+    content = b'{"bienniums": ["2025-26"], "committees": []}\n'
+    write_threads: list[int] = []
+    real_write_bytes = Path.write_bytes
+
+    def _recording(self, data):
+        write_threads.append(threading.get_ident())
+        return real_write_bytes(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", _recording)
+
+    await harvest_module._freeze_seed(seed_path, content, {"bienniums": ["2025-26"]})
+
+    assert seed_path.read_bytes() == content
+    assert verify(seed_path, content)
+    assert json.loads((tmp_path / "nested" / "seed.json.meta.json").read_text())["bienniums"] == [
+        "2025-26"
+    ]
+    assert write_threads, "the seed was never written"
+    assert threading.get_ident() not in write_threads
 
 
 # --- CLI (#179b: the shared job harness) --------------------------------------
