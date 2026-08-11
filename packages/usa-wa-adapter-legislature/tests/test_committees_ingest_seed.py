@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -146,6 +147,48 @@ async def test_ingest_fails_closed_on_tampered_seed(db_session, usa_wa, tmp_path
 
     with pytest.raises(SeedIntegrityError):
         await ingest_seed(db_session, seed_path=seed_path)
+
+
+async def test_the_seed_is_read_and_verified_off_the_event_loop(tmp_path, monkeypatch):
+    """Resolve + read + verify + parse run in one worker thread, not on the loop (#196).
+
+    The read used to sit inline in :func:`ingest_seed` behind a ``# noqa: ASYNC240``,
+    and the sidecar read inside ``verified_digest`` was blocking too — invisible to
+    ruff, since it is a call into another module. One hop covers both.
+    """
+    seed_path, content = _write_seed(
+        tmp_path,
+        [SeedCommittee("-140", "Joint Joint Transportation Committee", "JTC", "JTC", None)],
+    )
+    read_threads: list[int] = []
+    real_read_bytes = Path.read_bytes
+
+    def _recording(self):
+        read_threads.append(threading.get_ident())
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", _recording)
+
+    loaded = await ingest_module._load_seed(seed_path)
+
+    assert loaded.path == seed_path.resolve()
+    assert loaded.content == content
+    assert loaded.content_hash == hashlib.sha256(content).digest()
+    assert [c.source_id for c in loaded.committees] == ["-140"]
+    assert read_threads, "the seed was never read"
+    assert threading.get_ident() not in read_threads
+
+
+async def test_a_tampered_seed_still_fails_closed_off_the_loop(tmp_path):
+    """Moving the read off the loop must not move where its errors surface (#196)."""
+    seed_path, _ = _write_seed(
+        tmp_path,
+        [SeedCommittee("-140", "Joint Joint Transportation Committee", "JTC", "JTC", None)],
+    )
+    seed_path.write_bytes(seed_path.read_bytes() + b"\n# tamper\n")
+
+    with pytest.raises(SeedIntegrityError):
+        await ingest_module._load_seed(seed_path)
 
 
 # --- CLI (#179b: the shared job harness) --------------------------------------

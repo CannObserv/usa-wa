@@ -17,6 +17,7 @@ The daily refresh handles only the current window (see `refresh.py`); this handl
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,6 +63,28 @@ class HarvestSummary:
     committees: int
     seed_path: Path
     dry_run: bool
+
+
+def _write_seed(seed_path: Path, content: bytes, extra: dict) -> None:
+    """Create the seed's directory, write its bytes, write its sidecars.
+
+    Synchronous on purpose: :func:`_freeze_seed` hands it to a worker thread. Grouping
+    the three steps means one hop rather than three, and it sweeps in the ``mkdir`` and
+    the sidecar writes — blocking too, but invisible to ruff's ``ASYNC`` rules.
+    """
+    seed_path.parent.mkdir(parents=True, exist_ok=True)
+    seed_path.write_bytes(content)
+    write_sidecars(seed_path, content, extra=extra)
+
+
+async def _freeze_seed(seed_path: Path, content: bytes, extra: dict) -> None:
+    """Freeze the seed without blocking the event loop (#196).
+
+    The ``--dry-run`` guard stays in the caller: this is reached only on a run that is
+    meant to write, so the flag's narrow meaning ("harvest but do not write the seed")
+    is unchanged.
+    """
+    await asyncio.to_thread(_write_seed, seed_path, content, extra)
 
 
 async def _other_class_cohort(
@@ -146,12 +169,10 @@ async def harvest(
     ]
     content = serialize_seed(committees, bienniums=bienniums)
     if not dry_run:
-        seed_path.parent.mkdir(parents=True, exist_ok=True)
-        seed_path.write_bytes(content)  # noqa: ASYNC240 — one-shot CLI file IO at startup; no concurrency to starve. See #196.
-        write_sidecars(
+        await _freeze_seed(
             seed_path,
             content,
-            extra={"bienniums": bienniums, "committee_count": len(committees)},
+            {"bienniums": bienniums, "committee_count": len(committees)},
         )
     logger.info(
         "wsl_committee_seed_frozen",

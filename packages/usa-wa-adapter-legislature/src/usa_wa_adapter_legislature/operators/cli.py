@@ -23,11 +23,13 @@ run (the daily refresh re-drives them); provenance is append-only, corrections v
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -226,6 +228,15 @@ def _spec_from_args(args: argparse.Namespace) -> EventSpec:
     )
 
 
+async def _load_file_specs(path: str) -> list[EventSpec]:
+    """Read a ``--file`` batch body without blocking the event loop (#196).
+
+    Only the read goes to a worker thread; parsing and validation stay here, so an
+    ``OperatorEventError`` still surfaces from the same place it always did.
+    """
+    return load_specs(json.loads(await asyncio.to_thread(Path(path).read_text)))
+
+
 def _format_event(event: OperatorEvent) -> str:
     seat = f" seat={event.seat_kind}:{event.seat_discriminator}" if event.seat_kind else ""
     return (
@@ -246,8 +257,7 @@ async def _run(session: AsyncSession, args: argparse.Namespace) -> int:
     source = await get_or_create_operator_source(session, jurisdiction)
 
     if args.file:
-        with open(args.file) as handle:  # noqa: ASYNC230 — one-shot CLI file IO at startup; no concurrency to starve. See #196.
-            specs = load_specs(json.load(handle))
+        specs = await _load_file_specs(args.file)
     else:
         specs = [_spec_from_args(args)]
 
