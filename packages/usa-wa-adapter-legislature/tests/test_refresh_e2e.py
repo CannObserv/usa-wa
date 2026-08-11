@@ -175,11 +175,12 @@ async def test_refresh_module_writes_full_anchor_chain_to_test_db():
             # So ``len(payloads) == len(events)`` is NOT the invariant. What holds is:
             # exactly one archived body per distinct dedup key.
             assert raw_payloads, "the refresh must archive at least one RawPayload"
+            # Keyed by event: one-payload-per-event is a DB constraint
+            # (``uq_raw_payloads_fetch_event``), and ``fetch_event_id`` is a NOT NULL FK,
+            # so neither "no two payloads share an event" nor "every payload's event is
+            # one of these" is assertable here — the schema already forbids the negation.
+            # Only the dedup-key relation below is behaviour this test can actually fail on.
             payload_by_event = {p.fetch_event_id: p for p in raw_payloads}
-            assert len(payload_by_event) == len(raw_payloads), (
-                "a FetchEvent must not carry more than one RawPayload"
-            )
-            assert set(payload_by_event) <= {e.id for e in fetch_events}
             bodies_per_dedup_key: dict[tuple[str, bytes], int] = {}
             for event in fetch_events:
                 key = (event.resource_id, event.content_hash)
@@ -211,6 +212,25 @@ async def test_refresh_module_writes_full_anchor_chain_to_test_db():
             assert len(chambers) == 2
             assert len(committees) >= 1
 
+            # The members-history pull FANS OUT per committee (`refresh.py`), and prefix
+            # presence alone would pass a regression that collapsed it to a single call.
+            # Bound it instead of counting it: the upper bound is structural — the loop
+            # makes at most one fetch per committee it iterates, over a set strictly
+            # narrower than this one (live ∧ cited by the current biennium's archive) —
+            # and the lower bound just has to be above 1 to prove it fanned. An exact
+            # `== len(committees)` would be WRONG: the loop skips committees with no
+            # agency mapping and committees with no `short_name`, and reproducing that
+            # eligibility predicate here is the same staleness trap in a new costume.
+            members_hist = [
+                e
+                for e in fetch_events
+                if e.resource_id.startswith(COMMITTEE_MEMBERS_HIST_RESOURCE_PREFIX)
+            ]
+            assert 1 < len(members_hist) <= len(committees), (
+                f"members-history fan-out looks wrong: {len(members_hist)} events "
+                f"for {len(committees)} committees"
+            )
+
             sessions = (await session.execute(select(LegislativeSession))).scalars().all()
             biennium = [s for s in sessions if s.classification == "biennium"]
             regulars = [s for s in sessions if s.classification == "regular"]
@@ -224,8 +244,11 @@ async def test_refresh_module_writes_full_anchor_chain_to_test_db():
             # normalize Persons and further Orgs, each earning its own Citation. The
             # standing invariant is that the chain CLOSES — every citation resolves to an
             # event from this run, and every committee is provenance-anchored.
+            # ``Citation.fetch_event_id`` is a NOT NULL FK, so "every citation resolves to
+            # an event" is a schema guarantee, not something this test can fail on. What it
+            # CAN prove is the other direction — that the entities the refresh created are
+            # provenance-anchored.
             assert citations, "the refresh must write at least one Citation"
-            assert {c.fetch_event_id for c in citations} <= {e.id for e in fetch_events}
             cited_org_ids = {c.entity_id for c in citations if c.entity_type == "organization"}
             assert {c.id for c in committees} <= cited_org_ids, (
                 "every committee must be anchored by a Citation"
