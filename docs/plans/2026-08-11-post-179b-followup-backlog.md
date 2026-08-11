@@ -347,10 +347,56 @@ None. All seven issues are in scope for this plan.
    Postgres.
 8. **After each merge to main:** `sudo systemctl restart usa-wa` — and after Batch C, also
    `sudo cp deploy/<unit> /etc/systemd/system/ && sudo systemctl daemon-reload`.
-9. **`usa-wa-sync-powermap` is deliberately held** as of 2026-08-11 — a parallel workstream
-   stopped and `disable`d it over Power Map API utilization. **Do not restart it**, and do
-   not read its `inactive` state as a fault. The AGENTS.md wrap-up step
-   (`systemctl restart usa-wa usa-wa-sync-powermap`) must be narrowed to `usa-wa` alone
-   until that hold is lifted by whoever placed it. Note that #160's conditional GET does
-   **not** relieve utilization pressure: a 304 still costs a full round trip and a
-   rate-limit token — it cuts bandwidth, not request count.
+9. **OPERATIONAL HOLD — every scheduled unit is stopped as of 2026-08-11.** Wider than first
+   reported to this workstream, and verified on the box rather than assumed:
+
+   - `usa-wa-sync-powermap.service` is `disabled` **and** carries a drop-in,
+     `/etc/systemd/system/usa-wa-sync-powermap.service.d/hold.conf`, whose
+     `ConditionPathExists=/etc/usa-wa/sync-powermap-hold-lifted` makes a start *fail* rather
+     than silently succeed. It exists because a plain stop was not enough — the documented
+     wrap-up step resurrected the daemon. **This orchestration caused that**: a
+     `systemctl restart usa-wa usa-wa-sync-powermap` at 16:52:59 UTC restarted it mid-incident.
+   - **Every `usa-wa-*.timer` is `disabled`** (`PRESET enabled`): wsl-refresh, pdc-refresh,
+     sos-refresh, both corroborations, succession + lineage invariants, all three weekly
+     reconciles, integrity sweep. No scheduled work runs at all.
+
+   **Cause (from the drop-in):** the #159 replay backstop saturated the PM API — ~118k
+   requests in 19h, 1.73 req/s against the 2 req/s `POWERMAP_MIN_REQUEST_INTERVAL` ceiling,
+   re-reading a 10,000-seq trailing window hourly and reporting an *identical*
+   `applied=3963 healed=3290` every pass. PM returned 503. Tracked as **#211** (saturation),
+   **#212** (`apply_record` reports `APPLY_UPDATED` at LWW parity, so `replay_healed` can
+   never reach zero — the root cause of the non-converging tally), **#213** (feed/replay
+   skips 404 dead anchors instead of healing them).
+
+   **Rules for this backlog while the hold stands:**
+   - **Restart `usa-wa` only.** The AGENTS.md wrap-up
+     (`systemctl restart usa-wa usa-wa-sync-powermap`) is *wrong* here.
+   - **Do not `enable` any timer or the sidecar.** Lifting the hold is the operator's call and
+     is gated on the #211/#212/#213 fixes, not on this backlog.
+   - `sudo cp` + `daemon-reload` for unit changes is safe — it installs files without enabling
+     anything. Batch C's two new archive units are `static` by design.
+   - **#160 did not and could not fix this.** #211 says so explicitly. A 304 still costs a
+     round trip and a rate-limit token: conditional GET cuts bandwidth, not request count.
+   - **Batch C's split cannot be verified in production** until the timers are re-enabled. Its
+     correctness rests on the suite, `verify-units.sh`, `systemd-analyze verify`, and the
+     installed-unit dependency check — all of which passed.
+
+10. **Batch E (#202) must re-measure, not trust this document.** Batches A and C both grew the
+    context surface after the plan's figures were taken. Measured against
+    `.skills/context-token-ratio` (2.32 bytes/token) at `72cc627`:
+
+    | File | Budget | At plan time | Now | Delta cause |
+    |---|---|---|---|---|
+    | `docs/COMMANDS-BACKFILL.md` | 10,000 | 9,221 | **10,449** | Batch C § Archive vs rebuild |
+    | `docs/COMMANDS.md` | 10,000 | 9,979 | **10,155** | Batch C, two new commands |
+    | `AGENTS.md` | 6,000 | 6,431 | ~6,429 | unchanged (Batch C dropped a stale count) |
+    | `docs/MODULES-SYNC.md` | 10,000 | 10,122 | 10,122 | unchanged |
+    | `docs/MODULES-SYNC-ENGINE.md` | 10,000 | 8,323 | 8,888 | Batch A (#160) |
+    | `docs/MODULES-SOS.md` | 10,000 | 8,614 | 9,044 | Batch C |
+    | `docs/DEPLOYMENT.md` | 10,000 | 7,958 | 8,658 | Batch C |
+
+    So Batch E's target is **four** over-budget files, not the two the plan was scoped
+    against — `AGENTS.md`, `MODULES-SYNC.md`, and now `COMMANDS.md` + `COMMANDS-BACKFILL.md`.
+    `COMMANDS.md` was already flagged in #202's thread as needing "a split, not another
+    shave"; Batch C is the addition that proved it. The worker must run the measurement
+    itself and treat this table as a starting point, not an answer.
