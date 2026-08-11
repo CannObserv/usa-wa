@@ -1,0 +1,42 @@
+[Unit]
+Description=usa-wa — SOS results ARCHIVE refresh (Phase A: votewa cohorts) one-shot
+# The Phase-A half of the daily SOS cycle (#201). Archives the current biennium's
+# sos-legresults:<YYYYMMDD> cohorts; usa-wa-sos-refresh.service then rebuilds the House
+# Position seat from that archive. It pulls this unit in (Wants=) and orders itself after
+# it — deliberately weak: a votewa outage alerts HERE (OnFailure= below) and the rebuild
+# still runs off the last good archive rather than being cancelled with it.
+# usa-wa-migrate.service: schema must be at head before the DML-only archive runs.
+# No WSL predecessor: this half only writes RawPayload/FetchEvent rows from the SOS wire.
+After=network-online.target postgresql.service usa-wa-migrate.service
+Wants=network-online.target
+# Alert the operator on a failed/timed-out/degraded archive (#49). Exit 4 (EXIT_DEGRADED,
+# every cohort unserved = a whole-source outage) is non-zero, so it fires this too.
+OnFailure=usa-wa-notify-failure@%n.service
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/usa-wa
+
+# Refuse to start off a non-main checkout (#87): the enforcement behind the
+# "main is the deployed code" convention, which #84 showed is not self-enforcing.
+ExecStartPre=/home/exedev/usa-wa/scripts/assert-main-checkout.sh
+
+# Pin PATH so `uv` resolves regardless of the inherited systemd default.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# App role only (DML — no DDL). USA_WA_SOS_RESULTS_MIN_REQUEST_INTERVAL (optional) sets
+# the results.vote.wa.gov courtesy floor; absent is fine. USA_WA_BIENNIUM (optional) pins
+# the biennium whose cohorts are archived. Later EnvironmentFiles override earlier ones.
+EnvironmentFile=/etc/usa-wa/.env
+EnvironmentFile=-/home/exedev/usa-wa/.env
+
+# --frozen --no-sync: run against the installed venv as-is; never re-lock or sync
+# at unit start (AGENTS.md § Server Lifecycle, #30).
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_adapter_sos.results.archive_refresh
+
+# Bound the results.vote.wa.gov GETs so a hung endpoint fails deterministically; the
+# rebuild unit is ordered after this one, so its start waits on this bound too.
+TimeoutStartSec=300
+
+# This unit is pulled in by usa-wa-sos-refresh.service (Wants=); no timer, no [Install].

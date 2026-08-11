@@ -204,20 +204,11 @@ forbidden_modules = [
     "usa_wa_adapter_sos.filings.transport",
     "usa_wa_adapter_sos.results.transport",
 ]
-# TWO KNOWN EXCEPTIONS, enumerated rather than wildcarded so any *new* one fails.
-#
-# `house/refresh.py` and `pdc/refresh.py` are the daily drivers, and each does two jobs
-# in one process: run the source's Phase-A harvest (which needs a live client) and then
-# rebuild the fact from the resulting archive. Only the second half is a fact. The
-# correct split is for each adapter to own "refresh my archive" and the fact to own
-# "rebuild from the archive" — a real change to two systemd entry points and their
-# `--force`/`--biennium` semantics, deliberately NOT bundled into #189's already-wide
-# diff. Tracked as issue #201 (CR #196 finding 34 — this comment previously claimed a
-# follow-on note that did not exist); every *builder* module already satisfies the rule.
-ignore_imports = [
-    "usa_wa_facts_seats.house.refresh -> usa_wa_adapter_sos.results.transport",
-    "usa_wa_facts_seats.pdc.refresh -> usa_wa_adapter_pdc.transport",
-]
+# NO EXCEPTIONS (#201). #189 granted two — the daily drivers each ran a source's Phase-A
+# harvest and then rebuilt the fact from the resulting archive — and #201 split them:
+# each adapter owns "refresh my archive" (`…results.archive_refresh`,
+# `…pdc.archive_refresh`, their own units), the fact owns "rebuild from the archive".
+# Kept exception-free by `scripts/tests/test_import_contracts.py`.
 
 [[tool.importlinter.contracts]]
 # `usa-wa-common` is vocabulary: what is true about Washington's legislature, not about

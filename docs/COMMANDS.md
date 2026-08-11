@@ -205,23 +205,32 @@ surface. Pair with `USA_WA_BIENNIUM` to target a non-current biennium.
 # work it reached still commits — hence no --dry-run (CR #196).
 python -m usa_wa_adapter_legislature.refresh
 
-# PDC refresh (#69 + #75; IDENTIFIER-ONLY since #101) — emits the person_wa_pdc cross-source
-# identifier links (House winners + #74 movers + #75 Senate), archive-first from the PDC Campaign
-# Finance Summary Socrata dataset (3h9x-7bvm) on data.wa.gov. Archives every winner cohort the
-# current biennium's membership can be decided by (#121): both House generals (even seating + odd
-# mid-biennium special) and the three senate-winners:<Y> cohorts, each in its own SAVEPOINT (a
-# transient Socrata failure skips one cohort, not the daily unit; a raceless year returns an empty
-# row set, a success) — then re-drives build_pdc_spans scoped to the current biennium. The House
-# Position SEAT is no longer PDC's — it is the WSL+SOS builder's (usa-wa-sos-refresh, below),
-# usa_wa_legislature-sourced and symmetric with the Senate seat (#101). Prod runs this daily at
-# 06:30 UTC (after the WSL refresh) via usa-wa-pdc-refresh.timer. USA_WA_PDC_APP_TOKEN (optional).
+# Each daily cycle is TWO jobs since #201 — archive (adapter, Phase A) then rebuild (fact, Phase
+# B) — one unit each. Flag semantics across the halves: COMMANDS-BACKFILL.md § Archive vs rebuild.
+
+# PDC cohort ARCHIVE (#201 Phase A) — archives every winner cohort the current biennium's
+# membership can be decided by (#121: both House generals + the three senate-winners:<Y>), each in
+# its own SAVEPOINT (a transient Socrata failure skips one cohort; a raceless year is an empty
+# cohort, a success), forced past the TTL. usa-wa-pdc-archive-refresh.service, pulled in by the
+# rebuild below. USA_WA_PDC_APP_TOKEN (optional). Exit 4 = every cohort unserved.
+python -m usa_wa_adapter_pdc.archive_refresh
+
+# PDC refresh (#69 + #75; IDENTIFIER-ONLY since #101, REBUILD-ONLY since #201) — re-drives
+# build_pdc_spans scoped to the current biennium off that archive, emitting the person_wa_pdc
+# cross-source links (House winners + #74 movers + #75 Senate). The House Position SEAT is the
+# WSL+SOS builder's (usa-wa-sos-refresh, below), usa_wa_legislature-sourced (#101). Prod runs this
+# daily at 06:30 UTC (after the WSL refresh) via usa-wa-pdc-refresh.timer.
 python -m usa_wa_facts_seats.pdc.refresh
 
-# SOS refresh (#101) — the daily driver of the WSL+SOS House state_representative Position seat.
-# Archives the current election's results cohort (sos-legresults:<YYYYMMDD>) via archive_only,
-# then re-drives build_house_position_spans scoped to the current biennium -> usa_wa_legislature
-# Position seat spans (current biennium = the open end). Reads the sitting roster archive-first from
-# the WSL sponsor archive (who sits) + the SOS archive (the Position). Prod runs this daily at 06:45
+# SOS results ARCHIVE (#201 Phase A) — archives the current biennium's results cohorts
+# (sos-legresults:<YYYYMMDD>: even seating + odd mid-biennium special, #106), SAVEPOINT-guarded and
+# forced. usa-wa-sos-archive-refresh.service. Exit 4 = every cohort unserved.
+python -m usa_wa_adapter_sos.results.archive_refresh
+
+# SOS refresh (#101; REBUILD-ONLY since #201) — the daily driver of the WSL+SOS House
+# state_representative Position seat: re-drives build_house_position_spans scoped to the current
+# biennium -> usa_wa_legislature Position seat spans (current biennium = the open end), reading the
+# WSL sponsor archive (who sits) + the SOS archive (the Position). Prod runs this daily at 06:45
 # UTC (after the WSL refresh) via usa-wa-sos-refresh.timer; independent of the PDC refresh.
 python -m usa_wa_facts_seats.house.refresh
 ```

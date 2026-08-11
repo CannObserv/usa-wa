@@ -33,6 +33,7 @@ from systemd_units import (
     parse_seconds,
     parse_unit_deps,
     unit_value,
+    unit_values,
 )
 
 # Intended dependency graph, encoded as data. After=/Before=/OnFailure= are
@@ -87,15 +88,26 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
+    # PDC cohort ARCHIVE refresh (#201) — the Phase-A half the fact rebuild used to run
+    # in-process. Sources only (Socrata → RawPayload), so it needs no WSL predecessor; it is
+    # pulled in and ordered by the rebuild unit below, not by a timer of its own.
+    "usa-wa-pdc-archive-refresh.service": {
+        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
     # PDC refresh (#69) binds Position onto the WSL House Persons, so it additionally
     # orders After the WSL refresh (best-effort; a missing predecessor just leaves an
-    # unmatched winner logged, not wedged).
+    # unmatched winner logged, not wedged). Since #201 it is the REBUILD half only, and
+    # additionally orders After its archive half (Wants=, not Requires= — see
+    # test_archive_half_is_wanted_never_required).
     "usa-wa-pdc-refresh.service": {
         "After": {
             "network-online.target",
             "postgresql.service",
             "usa-wa-migrate.service",
             "usa-wa-wsl-refresh.service",
+            "usa-wa-pdc-archive-refresh.service",
         },
         "Before": set(),
         "OnFailure": NOTIFY,
@@ -111,7 +123,15 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
             "postgresql.service",
             "usa-wa-migrate.service",
             "usa-wa-wsl-refresh.service",
+            "usa-wa-sos-archive-refresh.service",
         },
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
+    # SOS results ARCHIVE refresh (#201) — the Phase-A half. Sources only (votewa →
+    # RawPayload); no WSL predecessor, no timer of its own.
+    "usa-wa-sos-archive-refresh.service": {
+        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
         "Before": set(),
         "OnFailure": NOTIFY,
     },
@@ -334,6 +354,45 @@ def test_parse_seconds_handles_systemd_forms():
     assert parse_seconds("2h") == 7200
     with pytest.raises(ValueError):
         parse_seconds("5furlongs")  # unrecognized unit fails loudly, not silently
+
+
+#: The #201 archive/rebuild split, as unit topology: each timer still fires the REBUILD unit,
+#: which pulls its Phase-A archive unit in with ``Wants=`` and orders itself ``After=`` it.
+ARCHIVE_CHAIN = {
+    "usa-wa-sos-refresh.service": "usa-wa-sos-archive-refresh.service",
+    "usa-wa-pdc-refresh.service": "usa-wa-pdc-archive-refresh.service",
+}
+
+
+@pytest.mark.parametrize(("rebuild", "archive"), sorted(ARCHIVE_CHAIN.items()))
+def test_archive_half_is_wanted_never_required(rebuild, archive):
+    """``Wants=``, deliberately, not ``Requires=``/``BindsTo=`` (#201).
+
+    The rebuild is archive-first: on a source outage it must still re-derive the fact from the
+    **last good** archive — the seat keeps tracking the WSL roster, which does not depend on
+    votewa/Socrata at all. ``Requires=`` would cancel the rebuild when its archive half failed,
+    freezing the fact on a source problem and hiding it behind one alert instead of two. The
+    archive half raises its own ``OnFailure=``, so a failure is never silent.
+    """
+    path = DEPLOY / rebuild
+    wants = {token for value in unit_values(path, "Unit", "Wants") for token in value.split()}
+    hard = {
+        token
+        for key in ("Requires", "BindsTo", "Requisite")
+        for value in unit_values(path, "Unit", key)
+        for token in value.split()
+    }
+    after, _before, _on_failure = parse_unit_deps(path)
+
+    assert archive in wants, f"{rebuild} does not pull in {archive}"
+    assert archive not in hard, (
+        f"{rebuild} hard-depends on {archive}: a source outage would cancel the rebuild "
+        "instead of letting it re-derive from the last good archive"
+    )
+    assert archive in after, f"{rebuild} does not order itself after {archive}"
+    # The archive half is pulled in by the rebuild, not scheduled independently: a second timer
+    # would decouple the two halves' cadences and re-introduce a race the ordering removes.
+    assert not (DEPLOY / archive.replace(".service", ".timer")).exists()
 
 
 def test_every_unit_has_an_expected_entry():

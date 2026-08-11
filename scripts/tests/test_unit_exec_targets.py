@@ -116,6 +116,29 @@ def test_every_exec_start_target_resolves(unit: str, command: str) -> None:
     assert local.stat().st_mode & 0o111, f"{unit} runs {binary}, which is not executable"
 
 
+#: The #201 archive/rebuild split, pinned per unit: the archive half runs an **adapter** Phase-A
+#: driver, the rebuild half a **facts** module. Both directions matter. A rebuild unit pointed
+#: back at a module that sources would restore the `import-linter` exception #201 deleted, and an
+#: archive unit pointed at a fact would put a live transport back in `usa-wa-facts-seats`. The
+#: list-equality also pins ONE ExecStart per unit: chaining the two halves as two ExecStart= lines
+#: in one unit was the rejected alternative (a harvest failure would then cancel the rebuild and
+#: both halves would share one ledger identity).
+SPLIT_TARGETS = {
+    "usa-wa-sos-archive-refresh.service": "usa_wa_adapter_sos.results.archive_refresh",
+    "usa-wa-pdc-archive-refresh.service": "usa_wa_adapter_pdc.archive_refresh",
+    "usa-wa-sos-refresh.service": "usa_wa_facts_seats.house.refresh",
+    "usa-wa-pdc-refresh.service": "usa_wa_facts_seats.pdc.refresh",
+}
+
+
+@pytest.mark.parametrize(
+    ("unit", "module"), [pytest.param(u, m, id=u) for u, m in sorted(SPLIT_TARGETS.items())]
+)
+def test_the_archive_rebuild_split_stays_on_its_units(unit: str, module: str) -> None:
+    """Each half of the #201 split runs the module its layer owns, one ExecStart apiece."""
+    assert [_module_target(command) for u, command in _exec_starts() if u == unit] == [module]
+
+
 def test_the_guard_rejects_a_renamed_module() -> None:
     """The assertion has teeth.
 

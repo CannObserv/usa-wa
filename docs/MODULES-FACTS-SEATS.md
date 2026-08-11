@@ -30,7 +30,8 @@ packages/
         build.py      —   Phase B driver: read the cohorts offline, merge into TenureSpans, emit
         emit.py       —   bind spans to the Layer-2 generic emitter, cite every biennium
         backchain.py  —   #118 carry-back of a Position from a later ballot anchor
-        refresh.py    —   the daily driver (systemd: usa-wa-sos-refresh.service)
+        refresh.py    —   the daily REBUILD driver (systemd: usa-wa-sos-refresh.service).
+                          Archive-refresh moved to the adapter at #201 — see below
         migrate.py    —   the one-shot #101 re-source migration
       house_corroboration.py   — House seat coverage/corroboration audit (systemd unit)
       senate_corroboration.py  — Senate ballot attestation, #106 A' (systemd unit)
@@ -42,9 +43,32 @@ packages/
         identifiers.py    —   was `…normalize.pdc_span_emit`: the `person_wa_pdc` child-identifier
                               upsert (identifier-only since #101)
         build_pdc_spans.py / migrate_pdc_spans.py / refresh.py — the PDC Phase-B driver, its
-                              one-shot migration, and the daily refresh (systemd:
+                              one-shot migration, and the daily REBUILD (systemd:
                               usa-wa-pdc-refresh.service)
 ```
+
+## The archive/rebuild split (#201)
+
+Both `refresh.py` modules used to do **two** jobs in one process: run the source's Phase-A
+harvest (which needs a live client) and then rebuild the fact from the resulting archive. Only
+the second half is a fact, and the first half is why this package held the only two
+`import-linter` exceptions in the tree — a *false* provenance comment in `pyproject.toml`
+pointed at a follow-on note in this very file that had never been written. Both are gone.
+
+| Half | Owner | Module | Unit |
+|---|---|---|---|
+| Archive (Phase A) | adapter | `usa_wa_adapter_sos.results.archive_refresh` | `usa-wa-sos-archive-refresh.service` |
+| Rebuild (Phase B) | fact | `usa_wa_facts_seats.house.refresh` | `usa-wa-sos-refresh.service` |
+| Archive (Phase A) | adapter | `usa_wa_adapter_pdc.archive_refresh` | `usa-wa-pdc-archive-refresh.service` |
+| Rebuild (Phase B) | fact | `usa_wa_facts_seats.pdc.refresh` | `usa-wa-pdc-refresh.service` |
+
+The timers are unchanged and still fire the **rebuild** units, each of which `Wants=` + `After=`
+its archive unit — weak on purpose, so a source outage alerts on the archive unit while the
+rebuild still re-derives the fact from the last good archive. Two jobs means two `job_runs` rows
+and two `/health/jobs` slugs, so one half's staleness can no longer hide behind the other's.
+Flag semantics (`--force` is the archive half's; `USA_WA_BIENNIUM` governs both):
+[COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md) § Archive vs rebuild. **Two new unit files —
+`sudo cp` + `daemon-reload` at merge** (see below).
 
 ## Entry-point renames (deployment-affecting)
 
@@ -69,7 +93,9 @@ the move; `scripts/tests/test_docs_timer_drift.py` holds the units and the docs 
 May import Layer 1, Layer 2, `usa-wa-common` and any `usa-wa-adapter-*`. May **not** import an
 adapter's `transport` — a fact depends on cohort *interfaces*, never on a live wire — and may
 not be imported by an adapter. Enforced by the `import-linter` contracts in the root
-`pyproject.toml`.
+`pyproject.toml` — **with no exceptions since #201** (see § The archive/rebuild split);
+`scripts/tests/test_import_contracts.py` asserts the `ignore_imports` list stays empty and that
+the contract rejects a real fact→transport import.
 
 ## Why one package, not three
 

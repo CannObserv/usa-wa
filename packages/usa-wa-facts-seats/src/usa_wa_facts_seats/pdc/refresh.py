@@ -1,14 +1,15 @@
 """WA PDC refresh — ``python -m usa_wa_facts_seats.pdc.refresh``.
 
-Daily counterpart to the WSL refresh, **identifier-only since #101**. It:
+Daily counterpart to the WSL refresh, **identifier-only since #101**. Since #201 it does exactly
+one thing: re-drive the archive-first identifier builder (:func:`build_pdc_spans`) scoped to the
+current biennium — emitting the ``person_wa_pdc`` cross-source identifier links (House winners +
+the #74 movers + the #75 Senate cohort), era-matched.
 
-1. Archives every PDC winner cohort the current biennium's membership can be decided by (#121)
-   — both House generals (even seating + odd mid-biennium special) and the three staggered/
-   special ``senate-winners:<Y>`` cohorts — through the runner's archive-only seam (#54), each
-   in its own SAVEPOINT (a transient Socrata failure skips one cohort, not the daily unit), and
-2. Re-drives the archive-first identifier builder (:func:`build_pdc_spans`) scoped to the current
-   biennium — emitting the ``person_wa_pdc`` cross-source identifier links (House winners + the
-   #74 movers + the #75 Senate cohort), era-matched.
+**The archive half moved to the source (#201).** Archiving the ``house-winners:<Y>`` /
+``senate-winners:<Y>`` cohorts is :mod:`usa_wa_adapter_pdc.archive_refresh`
+(``usa-wa-pdc-archive-refresh.service``), ordered before this unit. Running both here made this
+fact import an adapter ``transport``; the rebuild consumes cohort *interfaces* and still runs
+usefully off the last good archive when the source is down.
 
 **The House Position seat is no longer PDC's (#101).** It is built by the WSL+SOS builder
 (:func:`usa_wa_facts_seats.house.build.build_house_position_spans`,
@@ -17,8 +18,7 @@ PDC is demoted to the identifier link only — which removes the #100 CR finding
 depth mismatch (this refresh no longer rebuilds a shallow ``usa_wa_pdc`` House span for a sweep
 to close). The era roster comes archive-first from the WSL sponsor archive (``sponsors:<biennium>``,
 written by the WSL refresh, which runs first); a live ``GetSponsors`` fallback covers an
-un-archived biennium. Runs **after** the WSL refresh so the Persons it binds to exist. An
-optional ``USA_WA_PDC_APP_TOKEN`` raises Socrata's rate limit.
+un-archived biennium. Runs **after** the WSL refresh so the Persons it binds to exist.
 """
 
 from __future__ import annotations
@@ -27,39 +27,25 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-import httpx
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, run_job
-from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.sponsors.cohort import SponsorClient
-from usa_wa_adapter_pdc.adapter import (
-    HOUSE_WINNERS_RESOURCE_PREFIX,
-    SENATE_WINNERS_RESOURCE_PREFIX,
-    PDCAdapter,
-)
-from usa_wa_adapter_pdc.provisioning import get_or_create_source
-from usa_wa_adapter_pdc.transport import PDCClient
-from usa_wa_common.elections import election_years_for_biennium, senate_election_years_for_biennium
 from usa_wa_facts_seats.pdc.build_pdc_spans import build_pdc_spans
 
 logger = get_logger(__name__)
 
 #: Stable ledger identity (#178) — a module path can move without orphaning run history.
+#: Unchanged by the #201 split (the archive half took a new slug rather than forking this one).
 JOB_SLUG = "pdc-refresh"
-
-_JURISDICTION_SLUG = "usa-wa"
 
 
 @dataclass(frozen=True)
 class PdcRefreshOutcome:
     """Counts from one PDC refresh cycle (identifier-only since #101)."""
 
-    cohorts_archived: int
     identifiers: int
 
 
@@ -68,12 +54,10 @@ async def run_refresh(
     *,
     biennium: str | None = None,
     sponsor_client: SponsorClient | None = None,
-    pdc_client: PDCClient | None = None,
 ) -> PdcRefreshOutcome:
-    """Execute one PDC refresh cycle: archive the current cohorts, then re-drive the span
-    builder scoped to the current biennium. ``sponsor_client`` (typed by the cohort provider's
-    structural Protocol since #189, not by a SOAP transport) / ``pdc_client`` are injectable
-    for tests."""
+    """Re-drive the identifier builder scoped to the current biennium, reading both cohorts
+    archive-first. ``sponsor_client`` is injectable for tests — typed by the cohort provider's
+    structural Protocol since #189, not by a SOAP transport."""
     if biennium is None:
         biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
     current = biennium_for_date(datetime.now(UTC).date())
@@ -83,67 +67,18 @@ async def run_refresh(
             extra={"biennium": biennium, "current_biennium": current},
         )
 
-    jurisdiction = (
-        await session.execute(select(Jurisdiction).where(Jurisdiction.slug == _JURISDICTION_SLUG))
-    ).scalar_one()
-    source = await get_or_create_source(session, jurisdiction)
-
-    adapter = PDCAdapter(
-        biennium=biennium,
-        client=pdc_client or PDCClient(app_token=os.environ.get("USA_WA_PDC_APP_TOKEN")),
-    )
-    runner = AdapterRunner(
-        adapter,
-        session,
-        source=source,
-        jurisdiction=jurisdiction,
-        natural_key=("source", "source_id"),
-        fill_only=True,
-    )
-
-    # 1. Archive every cohort the biennium's membership can be decided by (#121): both House
-    #    generals (even seating + odd mid-biennium special) and the three Senate cohorts
-    #    (staggered evens + the odd special). Forced past the freshness TTL for daily
-    #    determinism (the dedup guard still bounds RawPayload growth on a byte-identical
-    #    re-pull). Each cohort archives in its OWN SAVEPOINT (the #106 A4 pattern): a raceless
-    #    year is a *success* here (SODA returns an empty row set, not a 404), so the guard only
-    #    covers a transient Socrata failure — which must not fail the whole daily unit while
-    #    the other cohorts and the identifier re-drive can still complete.
-    house_years = election_years_for_biennium(biennium)
-    senate_years = senate_election_years_for_biennium(biennium)
-    resource_ids = [f"{HOUSE_WINNERS_RESOURCE_PREFIX}{y}" for y in house_years]
-    resource_ids += [f"{SENATE_WINNERS_RESOURCE_PREFIX}{y}" for y in senate_years]
-    archived = 0
-    for resource_id in resource_ids:
-        try:
-            async with session.begin_nested():
-                if await runner.archive_only(resource_id, force=True):
-                    archived += 1
-        except httpx.HTTPError as exc:
-            logger.warning(
-                "pdc_refresh_cohort_skipped", extra={"resource_id": resource_id, "error": str(exc)}
-            )
-
-    # 2. Re-drive the identifier builder scoped to the current biennium (#101: identifier-only —
-    #    the House Position seat is the WSL+SOS builder's, driven by the SOS refresh; PDC emits
-    #    only the person_wa_pdc cross-links here).
+    # #101: identifier-only — the House Position seat is the WSL+SOS builder's, driven by the
+    # SOS refresh; PDC emits only the person_wa_pdc cross-links here.
     result = await build_pdc_spans(
         session,
         sponsor_client=sponsor_client,
         restrict_to_biennium=biennium,
     )
-    outcome = PdcRefreshOutcome(cohorts_archived=archived, identifiers=result.identifiers)
     logger.info(
         "pdc_refresh_complete",
-        extra={
-            "biennium": biennium,
-            "house_years": house_years,
-            "senate_years": senate_years,
-            "cohorts_archived": archived,
-            "identifiers": result.identifiers,
-        },
+        extra={"biennium": biennium, "identifiers": result.identifiers},
     )
-    return outcome
+    return PdcRefreshOutcome(identifiers=result.identifiers)
 
 
 async def _refresh_job(ctx: JobContext) -> PdcRefreshOutcome:
@@ -159,14 +94,15 @@ def main(argv: list[str] | None = None) -> int:
 
     **No ``--dry-run``** (``dry_run=False``, CR #196 finding 55) — the twin of the SOS
     refresh: its own ``session.begin()`` commits regardless, so the flag could only have
-    promised a rollback and archived the cohort anyway.
+    promised a rollback. **No ``--force``** either (#201): the TTL bypass belongs to the
+    archive half, which is the only one holding a cache.
     """
     return run_job(
         JOB_SLUG,
         _refresh_job,
         argv=argv,
         prog="python -m usa_wa_facts_seats.pdc.refresh",
-        description="Run one PDC refresh cycle (archive the cohort + re-drive the identifiers).",
+        description="Re-drive the PDC identifier links from the archive (#201).",
         commit=False,
         dry_run=False,
     )

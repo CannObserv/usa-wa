@@ -22,11 +22,16 @@ and the only one that can raise the whole-source outage warning).
 Floor **2008** (the PDC winner floor + the earliest results this fills against).
 
     python -m usa_wa_adapter_sos.results.harvest --from-year 2008 --to-year 2025 [--dry-run]
+
+The **daily** Phase-A driver lives beside it (:mod:`usa_wa_adapter_sos.results.archive_refresh`,
+#201) and drives :func:`harvest_results` over the current biennium's two cohorts with
+``force=True``; ``expected_years`` is the one behavioural difference it needs.
 """
 
 from __future__ import annotations
 
 import argparse
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -90,6 +95,7 @@ async def harvest_results(
     results_client: SOSResultsClient | None = None,
     dry_run: bool = False,
     force: bool = False,
+    expected_years: Collection[int] | None = None,
 ) -> HarvestSummary:
     """Archive each year's legislative-results cohort (archive-only), **per-year resilient**.
 
@@ -102,7 +108,14 @@ async def harvest_results(
     The two failure modes are tallied apart (#106). A **missing Legislative CSV** means the state
     held that general but ran no legislative race (2021 + 2023 — no specials) → ``cohorts_absent``,
     an expected outcome of the odd-year sweep. Only an **HTTP failure** — the source couldn't serve
-    a year it should have — counts ``cohorts_skipped`` and can raise the whole-source signal."""
+    a year it should have — counts ``cohorts_skipped`` and can raise the whole-source signal.
+
+    ``expected_years`` names the years whose HTTP failure is a genuine **WARNING**; any other
+    year's is INFO. It exists for the daily archive refresh (#201), which sweeps the current
+    biennium every morning: that biennium's odd cohort 404s from January until November's
+    election is certified, so warning on it would page the operator for eleven months (this
+    project alerts on WARNING rises, #85). Default ``None`` = every year is expected, which is
+    the historical sweep's semantics — a closed year that fails to serve is always a warning."""
     jurisdiction = await resolve_jurisdiction(session)
     source = await get_or_create_results_source(session, jurisdiction)
     adapter = ResultsAdapter(election_years=years, client=results_client or SOSResultsClient())
@@ -133,7 +146,10 @@ async def harvest_results(
             # (timeouts/connect resets): both mean the source couldn't serve this year, so skip
             # the year not the sweep. A DB/SQLAlchemy error is not an httpx error, so it aborts.
             skipped += 1
-            logger.warning("results_cohort_year_skipped", extra={"year": year, "error": str(exc)})
+            level = (
+                logger.warning if expected_years is None or year in expected_years else logger.info
+            )
+            level("results_cohort_year_skipped", extra={"year": year, "error": str(exc)})
 
     if skipped > 0 and skipped == len(years):
         # *Every* year failed — a whole-source outage, not one bad year in a good run. A sweep of
