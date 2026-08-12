@@ -121,13 +121,13 @@ Reachable at `https://usa-wa.exe.xyz:8001/` via the exe.dev proxy.
 ## Tests
 
 ```bash
-# Unit tier (#185) — no database at all; ~7s
-uv run pytest --no-cov -m 'not db and not integration'
+# Unit tier (#185) — no database, own coverage gate (#198)
+uv run pytest -m 'not db and not integration'
 
 # Full suite — requires TEST_DATABASE_URL set to a non-prod database
 uv run pytest
 
-# Single file (--no-cov: the gate measures all of packages/)
+# Single file — --no-cov: neither gate measures a slice
 uv run pytest --no-cov packages/usa-wa-api/tests/test_health.py
 
 # Integration-marked only (excluded by default)
@@ -135,7 +135,7 @@ uv run pytest -m integration
 ```
 
 `db` is applied automatically to anything resolving `test_engine`/`db_session`, by hand
-where a test opens its own engine (root `conftest.py` / `conftest_db.py`).
+where a test opens its own engine (root `conftest*.py`).
 
 ## Database migrations
 

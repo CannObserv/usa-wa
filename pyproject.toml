@@ -55,6 +55,22 @@ markers = [
 filterwarnings = [
     "error::DeprecationWarning",
 ]
+# The unit tier's coverage profile (#198), applied by `conftest_coverage.py` whenever a
+# run selects the whole workspace minus every `db`/`integration` test. Scope is a glob,
+# never a module list: shipping code only (the ~1000 deselected test modules score zero
+# and would swamp the total), and a module added tomorrow is measured tomorrow.
+#
+# 64 is measured, not chosen. At the commit that added it the tier covered 65.47% of
+# `packages/*/src/**` (7205/11005 statements), against 95.75% for the full run — so the
+# floor sits ~1.5pp low, about 160 statements of slack. Enough that one PR adding a
+# DB-backed module does not fail an unrelated build; tight enough to notice a tier that
+# stops exercising things. Ratchet it up as the number climbs; it is not an aspiration.
+#
+# Gating costs the tier its speed — instrumentation takes it from ~11s to ~27s — so
+# `--no-cov` stays documented for the inner loop. It is the *gate* that had to stop
+# needing a flag, not the loop.
+unit_cov_include = ["packages/*/src/**"]
+unit_cov_fail_under = "64"
 
 [tool.coverage.run]
 source = ["packages"]

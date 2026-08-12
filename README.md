@@ -46,13 +46,14 @@ Full route inventory, the pagination contract and the identifier form:
 ## Tests
 
 ```bash
-# Unit tier (#185) — no database at all; ~7s
-uv run pytest --no-cov -m 'not db and not integration'
+# Unit tier (#185) — no database at all; own coverage gate over packages/*/src/**
+# (#198), so no flags needed. Add --no-cov for a faster, ungated inner loop
+uv run pytest -m 'not db and not integration'
 
-# Full suite (requires TEST_DATABASE_URL)
+# Full suite (requires TEST_DATABASE_URL) — gates 80% of everything measured
 uv run pytest
 
-# Single file (skip the coverage gate, which measures all of packages/)
+# Single file (--no-cov: neither gate measures a slice)
 uv run pytest --no-cov packages/usa-wa-api/tests/test_health.py
 
 # Integration tests only (excluded by default)
