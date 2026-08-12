@@ -93,10 +93,26 @@ def live_coverage(cov_controller: Any) -> list[coverage.Coverage]:
     ]
 
 
+def cli_named(config: pytest.Config, *flags: str) -> str | None:
+    """The first of ``flags`` the operator put on the command line, or ``None``.
+
+    ``invocation_params.args`` is the operator's own argv, and deliberately **excludes**
+    ``addopts`` — which is where this project already sets ``--cov=packages``. Consulting
+    addopts as well would mean the unit profile never applied to anything.
+
+    Matches both spellings argparse accepts: ``--flag value`` and ``--flag=value``.
+    """
+    for arg in config.invocation_params.args:
+        for flag in flags:
+            if arg == flag or arg.startswith(f"{flag}="):
+                return flag
+    return None
+
+
 def retune_coverage(config: pytest.Config) -> str | None:
     """Point the live ``Coverage`` objects at the unit scope and floor.
 
-    Returns the line to announce, or ``None`` when there is nothing to retune — a
+    Returns the line to announce, or ``None`` when there is nothing to say — a
     ``--no-cov`` run, or a checkout that configured neither knob.
     """
     plugin = config.pluginmanager.get_plugin(COV_PLUGIN_NAME)
@@ -110,17 +126,40 @@ def retune_coverage(config: pytest.Config) -> str | None:
     if not include or not fail_under:
         return None
 
+    # The operator set the coverage gate by hand on this run, so leave it exactly as
+    # asked (#198 CR-16). Swapping a *weaker* floor in for an explicitly requested
+    # stronger one is the precise failure this profile exists to end — `--cov-fail-under=90`
+    # was passing at 65% before this guard. Bailing out entirely, rather than honouring
+    # their floor over our narrower scope, keeps the whole-tree floor: the stricter of the
+    # two, and the one they were already reasoning about when they typed the flag.
+    manual = cli_named(config, "--cov-fail-under", "--cov")
+    if manual is not None:
+        return f"unit tier: coverage profile NOT applied — {manual} given on the command line"
+
     reporters = live_coverage(plugin.cov_controller)
     if not reporters:
         return None
+    try:
+        floor = float(fail_under)
+    except ValueError:
+        # Consistent with this module's contract: anything that stops us retuning leaves
+        # the whole-tree floor standing, so a typo makes the tier fail loudly on 54%
+        # rather than raising out of a collection hook (#198 CR-19).
+        return (
+            f"unit tier: coverage profile NOT applied — unit_cov_fail_under="
+            f"{fail_under!r} is not a number (the whole-tree floor stands)"
+        )
+
+    # The whole-tree number comes from the coverage config, NOT from
+    # `plugin.options.cov_fail_under`: the latter is the *effective* value, so quoting it
+    # would echo the operator's own `--cov-fail-under` back at them as though it were the
+    # configured gate (#198 CR-16). Quoting the real one is the point of the line — a
+    # reader who sees "Required test coverage of 64%" needs to know 80% did not evaporate.
+    whole_tree = reporters[0].config.fail_under
     for cov in reporters:
         cov.config.report_include = include
-    # Read before overwriting: pytest-cov seeds this from `[tool.coverage.report]
-    # fail_under`, and quoting it is the whole point of the line — a reader who sees
-    # "Required test coverage of 64%" needs to know the 80% gate did not evaporate.
-    whole_tree = plugin.options.cov_fail_under
-    plugin.options.cov_fail_under = float(fail_under)
-    replaced = "no floor" if whole_tree is None else f">={whole_tree:g}%"
+    plugin.options.cov_fail_under = floor
+    replaced = "no floor" if not whole_tree else f">={whole_tree:g}%"
     return (
         f"unit tier: coverage scoped to {' '.join(include)} at >={fail_under}% "
         f"(the full run gates everything measured at {replaced})"

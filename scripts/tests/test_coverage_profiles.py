@@ -218,10 +218,10 @@ testpaths = ["pkg"]
 addopts = "-m 'not integration' --cov=pkg --cov-report=term"
 markers = ["db: db", "integration: integration"]
 unit_cov_include = ["pkg/*/src/**"]
-unit_cov_fail_under = "90"
+unit_cov_fail_under = "{unit_floor}"
 
 [tool.coverage.report]
-fail_under = 0
+fail_under = {whole_tree_floor}
 """
 
 SYNTHETIC_SOURCE = """
@@ -252,16 +252,22 @@ def test_needs_a_database():
 """
 
 
-def test_the_unit_floor_fails_a_run_that_is_under_it(tmp_path: Path) -> None:
-    """A gate that never fires is an exemption wearing a number.
+def _synthetic_run(
+    tmp_path: Path,
+    *extra_args: str,
+    unit_floor: str = "90",
+    whole_tree_floor: int = 0,
+) -> subprocess.CompletedProcess[str]:
+    """Build the synthetic project and run its unit tier in a subprocess.
 
-    Proved on a synthetic tree rather than this one: here the two directions cannot both
-    be shown, because *this* test runs inside the tier whose exit code is the other
-    direction. The synthetic project mirrors this one's shape — sources *and* tests
-    under the measured root — and sets the whole-tree floor to 0, so the only thing that
-    can fail the run is the unit profile.
+    The project mirrors this one's shape — sources *and* tests under the measured root —
+    so the scope swap is observable. ``whole_tree_floor`` defaults to 0 so the unit
+    profile is normally the only thing that can fail the run; raise it to observe the
+    floor that stands when the profile declines to apply.
     """
-    (tmp_path / "pyproject.toml").write_text(SYNTHETIC_PYPROJECT)
+    (tmp_path / "pyproject.toml").write_text(
+        SYNTHETIC_PYPROJECT.format(unit_floor=unit_floor, whole_tree_floor=whole_tree_floor)
+    )
     (tmp_path / "conftest.py").write_text('pytest_plugins = ("conftest_coverage",)\n')
     src = tmp_path / "pkg" / "shipped" / "src"
     src.mkdir(parents=True)
@@ -279,7 +285,7 @@ def test_the_unit_floor_fails_a_run_that_is_under_it(tmp_path: Path) -> None:
     }
     env["PYTHONPATH"] = os.pathsep.join([str(REPO), str(src)])
 
-    result = subprocess.run(
+    return subprocess.run(
         # -q so the only place a filename can appear is the coverage report itself.
         [
             sys.executable,
@@ -290,6 +296,7 @@ def test_the_unit_floor_fails_a_run_that_is_under_it(tmp_path: Path) -> None:
             "not db and not integration",
             "-p",
             "no:cacheprovider",
+            *extra_args,
         ],
         cwd=tmp_path,
         env=env,
@@ -297,6 +304,16 @@ def test_the_unit_floor_fails_a_run_that_is_under_it(tmp_path: Path) -> None:
         text=True,
         check=False,
     )
+
+
+def test_the_unit_floor_fails_a_run_that_is_under_it(tmp_path: Path) -> None:
+    """A gate that never fires is an exemption wearing a number.
+
+    Proved on a synthetic tree rather than this one: here the two directions cannot both
+    be shown, because *this* test runs inside the tier whose exit code is the other
+    direction.
+    """
+    result = _synthetic_run(tmp_path)
 
     assert result.returncode != 0, f"the unit floor did not fire:\n{result.stdout}"
     assert "Required test coverage of 90" in result.stdout, result.stdout
@@ -307,6 +324,55 @@ def test_the_unit_floor_fails_a_run_that_is_under_it(tmp_path: Path) -> None:
     # broken the first time, with `Central.finish()` swapping in an unscoped reporter.
     assert "test_shipped.py" not in result.stdout, result.stdout
     assert "src/shipped.py" in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize("spelling", ["--cov-fail-under=95", "--cov-fail-under 95"])
+def test_an_explicit_floor_on_the_command_line_wins(tmp_path: Path, spelling: str) -> None:
+    """The profile must never swap a weaker floor in for one the operator asked for.
+
+    Before this guard, ``pytest -m 'not db and not integration' --cov-fail-under=90``
+    exited **0** at 65% on this repo: the profile overwrote 90 with its own 64 and
+    announced the operator's own flag back to them as the whole-tree gate. Someone raising
+    the bar in CI got it silently lowered — the exact "a green run and a red run look the
+    same" failure #198 exists to end, pointing the other way.
+
+    Both argparse spellings, because matching only ``--flag=value`` would leave the
+    space-separated form silently overridden.
+    """
+    result = _synthetic_run(tmp_path, *spelling.split(" "))
+
+    assert "NOT applied" in result.stdout, (
+        f"the profile applied anyway, overriding {spelling}:\n{result.stdout}"
+    )
+    assert "Required test coverage of 95" in result.stdout, result.stdout
+    assert "Required test coverage of 90" not in result.stdout, (
+        f"the unit floor replaced the operator's:\n{result.stdout}"
+    )
+
+
+def test_an_explicit_cov_scope_on_the_command_line_wins(tmp_path: Path) -> None:
+    """Same guard for the other half. ``--cov=<subset>`` is an explicit scope, and the
+    profile's ``report_include`` would otherwise clobber it — measuring something the
+    operator did not ask about, then gating on it."""
+    result = _synthetic_run(tmp_path, "--cov=pkg/shipped/src")
+
+    assert "NOT applied" in result.stdout, result.stdout
+
+
+def test_a_malformed_unit_floor_leaves_the_whole_tree_floor_standing(tmp_path: Path) -> None:
+    """This module's contract is that anything stopping the retune leaves the whole-tree
+    floor in place, so the tier fails loudly rather than passing on nothing.
+
+    ``float()`` on a typo'd ini value used to raise straight out of the collection hook —
+    the one path that honoured neither half of that promise. Whole-tree floor set high
+    here so "the floor still stands" is observable rather than merely asserted.
+    """
+    result = _synthetic_run(tmp_path, unit_floor="sixty-four", whole_tree_floor=99)
+
+    assert "NOT applied" in result.stdout, result.stdout
+    assert "not a number" in result.stdout, result.stdout
+    assert "Required test coverage of 99" in result.stdout, result.stdout
+    assert "Traceback" not in result.stderr, f"the hook raised instead:\n{result.stderr}"
 
 
 # --- the documented commands -----------------------------------------------------------
