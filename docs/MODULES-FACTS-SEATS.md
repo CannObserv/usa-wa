@@ -67,7 +67,7 @@ its archive unit — weak on purpose, so a source outage alerts on the archive u
 rebuild still re-derives the fact from the last good archive. Two jobs means two `job_runs` rows
 and two `/health/jobs` slugs, so one half's staleness can no longer hide behind the other's.
 Flag semantics (`--force` is the archive half's; `USA_WA_BIENNIUM` governs both):
-[COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md) § Archive vs rebuild. **Two new unit files —
+[COMMANDS.md](COMMANDS.md#archive-vs-rebuild--which-half-each-flag-governs-201). **Two new unit files —
 `sudo cp` + `daemon-reload` at merge** (see below).
 
 ## Entry-point renames (deployment-affecting)
@@ -85,7 +85,7 @@ Four systemd units changed their `ExecStart` module path. **`sudo cp deploy/<uni
 
 Non-timer CLIs renamed the same way: `usa_wa_facts_seats.house.build` / `.migrate` /
 `.backchain`, `usa_wa_facts_seats.pdc.build_pdc_spans` / `.migrate_pdc_spans`. Every occurrence
-in [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md) and [COMMANDS.md](COMMANDS.md) was updated with
+in [COMMANDS-SEATS.md](COMMANDS-SEATS.md) and [COMMANDS.md](COMMANDS.md) was updated with
 the move; `scripts/tests/test_docs_timer_drift.py` holds the units and the docs in agreement.
 
 ## Layering rules

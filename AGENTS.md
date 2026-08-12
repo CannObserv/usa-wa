@@ -20,36 +20,11 @@ SocratiCode is the preferred semantic-search tool for this repo (once indexed; t
 
 **Negative rule.** For broad semantic questions ("where is X", "how does Y work", "what depends on Z"), use SocratiCode MCP tools first. Reach for `grep`/`ripgrep` only on exact strings (error messages, log lines, known symbols). Reserve the Explore subagent for path-pattern walks (e.g. "all `*.py` under `packages/usa-wa-api/src/usa_wa_api/api/`"), not semantic search.
 
-| Goal | Tool |
-|------|------|
-| Where is X defined / how does Y work / what files touch Z | `codebase_search` |
-| Exact string/regex match (errors, log lines, known symbols) | `grep` / `rg` |
-| Blast radius of changing/deleting a file or function | `codebase_impact` |
-| What does an entry point actually do? | `codebase_flow` |
-| Callers and callees of a function | `codebase_symbol` |
-| Imports/dependents of a file | `grep` — **not** `codebase_graph_query` (see below) |
-| DB schemas, deployment topology, runbook context | `codebase_context` / `codebase_context_search` |
-
-**The file-dependency graph does not work on this repo.** `codebase_graph_build` resolves **3 edges
-across 374 files** (81.8% of symbols unresolved), and `codebase_graph_query` on a module with 25
-imports returns "No dependency information found". A rebuild does not fix it — the resolver does not
-map `usa_wa_adapter_legislature.tenure_spans` onto
-`packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/tenure_spans.py`, i.e. it cannot
-follow a `uv` workspace `src` layout where the directory name is dashed and the module name is
-underscored. So `codebase_graph_query`, `codebase_graph_circular`, `codebase_graph_stats`, and the
-file-mode of `codebase_impact` return empty or misleading results here — treat empty output as
-"tool broken", never as "no dependents". Derive import edges with `grep` instead, e.g.:
-
-```bash
-grep -rnE '^[[:space:]]*(from|import)[[:space:]]+usa_wa_adapter_' packages/*/src --include='*.py'
-```
-
-`codebase_search`, `codebase_symbol`, and the context tools are unaffected and remain preferred.
-Filed upstream as gregoryfoster/skills#107; revisit this note when it is fixed.
-
-Prefetch query — run via `ToolSearch` at session start:
-
-`select:mcp__plugin_socraticode_socraticode__codebase_search,mcp__plugin_socraticode_socraticode__codebase_symbol,mcp__plugin_socraticode_socraticode__codebase_symbols,mcp__plugin_socraticode_socraticode__codebase_flow,mcp__plugin_socraticode_socraticode__codebase_impact,mcp__plugin_socraticode_socraticode__codebase_graph_query,mcp__plugin_socraticode_socraticode__codebase_status,mcp__plugin_socraticode_socraticode__codebase_context,mcp__plugin_socraticode_socraticode__codebase_context_search`
+**The file-dependency graph is broken here.** Empty output from `codebase_graph_query` /
+`_circular` / `_stats` or the file-mode of `codebase_impact` means "tool broken", never "no
+dependents" — derive import edges with `grep`. The goal→tool table, the measurements behind that
+finding, and the session-start `ToolSearch` prefetch query:
+[`docs/CODE-EXPLORATION.md`](docs/CODE-EXPLORATION.md).
 
 ## Project Layout
 
@@ -78,7 +53,8 @@ Per-package module reference — what each file is for and why it exists:
 - [`docs/MODULES-PDC.md`](docs/MODULES-PDC.md) — PDC SODA adapter (identifier-only)
 - [`docs/MODULES-SOS.md`](docs/MODULES-SOS.md) — SOS filings + results sources
 - [`docs/MODULES-FACTS-SEATS.md`](docs/MODULES-FACTS-SEATS.md) — Layer 3b `usa-wa-facts-seats`: the composition layer (House Position, Senate corroboration, PDC spans)
-- [`docs/MODULES-SYNC.md`](docs/MODULES-SYNC.md) — Layer 4: the API deployment, the PM sidecar and its producer CLIs, repo-root directories
+- [`docs/MODULES-SYNC.md`](docs/MODULES-SYNC.md) — Layer 4: the API deployment, the PM sidecar daemon, repo-root directories
+- [`docs/MODULES-SYNC-PRODUCERS.md`](docs/MODULES-SYNC-PRODUCERS.md) — the one-shot PM producer CLIs: reconcilers, heals, validation, retraction
 
 ## Infrastructure
 
@@ -105,12 +81,8 @@ sudo systemctl restart usa-wa usa-wa-sync-powermap
 
 Unit files are installed as root-owned **copies**, so `sudo cp deploy/<unit> /etc/systemd/system/` before `daemon-reload` — reload alone re-reads the stale copy and deploys nothing. The per-unit restart table, the `uv sync --locked` rationale, and the `verify-units.sh` pre-commit gate (#51) are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
-**Dev server workflow.** Run on port `8001` so the live service stays up. Load env first:
-
-```bash
-export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
-uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload --log-config packages/usa-wa-api/src/usa_wa_api/log_config.json
-```
+**Dev server workflow.** Run on port `8001` so the live service stays up, loading the env
+first — both commands are in § Common Commands below.
 
 **After finishing work.** Always restart the systemd service to pick up changes merged to main:
 
@@ -146,6 +118,7 @@ export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 uv run pytest
 
 # Unit tier (#185) — no database at all; own coverage gate (#198), so no flags
+# needed. Add --no-cov for a faster (~11s vs ~27s), ungated inner loop
 uv run pytest -m 'not db and not integration'
 
 # A subset — --no-cov: neither gate measures a slice
@@ -206,7 +179,8 @@ JSON records carry `{timestamp, level, logger, message}` (#133; structlog's defa
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the reusable Layer-3 pattern; read before adding an adapter, a source, or a span/seat builder
 - [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model: entities, lifecycle axes, spans-as-assignments, the three event shapes; read before adding a fact
-- the nine `docs/MODULES-*.md` per-package references are listed under § Project Layout above — one entry each, not repeated here
+- the ten `docs/MODULES-*.md` per-package references are listed under § Project Layout above — one entry each, not repeated here
+- [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→tool table, the broken file-dependency graph, the `ToolSearch` prefetch query
 - [docs/API.md](docs/API.md) — the read-only `/api/v1` surface: route inventory, pagination, and the response contracts
 - [docs/LWW-NOOP-GATE.md](docs/LWW-NOOP-GATE.md) — the local-newer no-op gate; read before adding a `write_enabled` producer descriptor
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — systemd units, failure alerting, DB roles, restart/lifecycle table
@@ -215,4 +189,5 @@ JSON records carry `{timestamp, level, logger, message}` (#133; structlog's defa
 - [docs/COMMANDS-SUCCESSION.md](docs/COMMANDS-SUCCESSION.md) — operator succession, odd-year corroboration, committee lineage
 - [docs/COMMANDS-SYNC.md](docs/COMMANDS-SYNC.md) — PM reconcilers, heals, validation, provenance and integrity
 - [docs/COMMANDS-BACKFILL.md](docs/COMMANDS-BACKFILL.md) — historical harvests, span builders, one-shot migrations, write-free probes
+- [docs/COMMANDS-SEATS.md](docs/COMMANDS-SEATS.md) — the seat-fact backfills: PDC identifier links (#79), WSL+SOS House Position (#101)
 - [docs/SKILLS.md](docs/SKILLS.md) — vendored agent skills: inventory, symlink layout, refresh procedure

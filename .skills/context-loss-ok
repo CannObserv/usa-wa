@@ -1,0 +1,19 @@
+# Judged losses from the #202 curation (Batch E). WARRANT :: CONTENT
+#
+# Each line below was read against its replacement before being warranted.
+
+# The MODULES-SYNC.md index entry described a doc that this same run split; the
+# producer CLIs it names now live in docs/MODULES-SYNC-PRODUCERS.md, which gets
+# its own entry on the next line of the list.
+retarget :: - [`docs/MODULES-SYNC.md`](docs/MODULES-SYNC.md) — Layer 4: the API deployment, the PM sidecar and its producer CLIs, repo-root directories
+
+# The count is part of the pointer: this run added a tenth docs/MODULES-*.md, so
+# "the nine" points at a list that no longer exists. Replaced by "the ten".
+retarget :: - the nine `docs/MODULES-*.md` per-package references are listed under § Project Layout above — one entry each, not repeated here
+
+# This lead-in introduced a fenced block whose two commands are verbatim in
+# § Common Commands of the same file (the export line three times over, the
+# uvicorn line twice). The block was dropped under the duplication warrant; the
+# rule it carried — port 8001, load env first — survives in the rewritten
+# sentence, which now points at § Common Commands instead of a colon.
+duplicate :: **Dev server workflow.** Run on port `8001` so the live service stays up. Load env first:
