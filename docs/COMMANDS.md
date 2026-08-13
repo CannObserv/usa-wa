@@ -141,7 +141,8 @@ uv run pytest
 # Single file — --no-cov: neither gate measures a slice
 uv run pytest --no-cov packages/usa-wa-api/tests/test_health.py
 
-# Integration-marked only (excluded by default)
+# Integration-marked only (excluded by default) — coverage floor waived (#216):
+# green exits 0, red exits non-zero, no flags needed
 uv run pytest -m integration
 ```
 
