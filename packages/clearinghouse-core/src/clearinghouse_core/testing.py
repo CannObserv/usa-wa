@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import os
 import threading
+import warnings
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -258,9 +259,18 @@ def _lock_timeout_seconds() -> float:
 
     The default is generous — a full suite queuing behind another (~a few minutes)
     must not spuriously fail — but finite, so a wedged holder surfaces as a clear
-    error rather than a silent hang.
+    error rather than a silent hang. A malformed value fails naming the variable,
+    not with a bare ``float()`` traceback from inside the session fixture.
     """
-    return float(os.environ.get("TEST_DATABASE_LOCK_TIMEOUT", _DEFAULT_LOCK_TIMEOUT_SECONDS))
+    raw = os.environ.get("TEST_DATABASE_LOCK_TIMEOUT")
+    if raw is None:
+        return _DEFAULT_LOCK_TIMEOUT_SECONDS
+    try:
+        return float(raw)
+    except ValueError:
+        raise RuntimeError(
+            f"TEST_DATABASE_LOCK_TIMEOUT must be a number of seconds, got {raw!r}"
+        ) from None
 
 
 def advisory_lock_key(database_url: str) -> int:
@@ -387,13 +397,26 @@ class DbSessionLock:
         """Close the holder connection (disconnect frees the lock) and its thread.
 
         No-op when not held, so the session-end hook can call it unconditionally.
+        A failed close warns instead of raising: this runs inside
+        ``pytest_sessionfinish``, where an exception is a last-moment INTERNALERROR
+        on an otherwise-green suite — and the structural backstops (daemon thread;
+        Postgres frees session advisory locks on disconnect) cover exactly this case.
         """
         if self._conn is None or self._loop is None or self._thread is None:
             return
-        future = asyncio.run_coroutine_threadsafe(self._conn.close(), self._loop)
-        future.result(timeout=30.0)
-        self._stop_thread(self._loop, self._thread)
-        self._loop = self._thread = self._conn = self._key = None
+        try:
+            future = asyncio.run_coroutine_threadsafe(self._conn.close(), self._loop)
+            future.result(timeout=30.0)
+        except Exception as exc:
+            warnings.warn(
+                f"test-db lock release failed ({exc!r}); relying on the disconnect "
+                "backstop to free the advisory lock",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        finally:
+            self._stop_thread(self._loop, self._thread)
+            self._loop = self._thread = self._conn = self._key = None
 
     @staticmethod
     def _stop_thread(loop: asyncio.AbstractEventLoop, thread: threading.Thread) -> None:

@@ -17,7 +17,9 @@ session until timeout. Every test that builds its own holder therefore monkeypat
 
 from __future__ import annotations
 
+import asyncio
 import os
+import threading
 
 import asyncpg
 import pytest
@@ -76,6 +78,33 @@ def test_lock_timeout_defaults_and_reads_the_env(monkeypatch):
 
 def test_release_without_acquire_is_a_noop():
     DbSessionLock().release()  # must not raise
+
+
+def test_a_malformed_lock_timeout_names_the_variable(monkeypatch):
+    """An operator typo ("600s") must fail naming the variable and unit, not with a
+    bare ``float()`` traceback from inside the session fixture (CR #218/3)."""
+    monkeypatch.setenv("TEST_DATABASE_LOCK_TIMEOUT", "600s")
+    with pytest.raises(RuntimeError, match="TEST_DATABASE_LOCK_TIMEOUT"):
+        testing._lock_timeout_seconds()
+
+
+def test_release_warns_instead_of_raising_when_close_fails():
+    """``release()`` runs inside ``pytest_sessionfinish``; an exception there is a
+    last-moment INTERNALERROR on a green suite. A failed close warns and leans on the
+    structural backstops (daemon thread; disconnect frees the lock) instead (CR #218/2)."""
+    lock = DbSessionLock()
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+
+    class _BadConn:
+        async def close(self):
+            raise ConnectionError("boom")
+
+    lock._loop, lock._thread, lock._conn, lock._key = loop, thread, _BadConn(), 1
+    with pytest.warns(RuntimeWarning, match="disconnect backstop"):
+        lock.release()
+    assert not lock.held
 
 
 def test_sessionfinish_releases_after_fixture_teardown(pytestconfig, monkeypatch):

@@ -257,6 +257,9 @@ class Reconciler:
         # UPDATE, and the clock still equals PM's → APPLY_NOOP. A strictly-newer PM
         # record reports APPLY_UPDATED even when no mirrored column changed (a PM
         # touch-only bump): the clock genuinely advanced and is adopted below.
+        # This detection requires the shared base's *Python-side* ``onupdate``
+        # (clearinghouse_core.models) — a server-side onupdate would leave the
+        # attribute unrefreshed after flush and break the comparison.
         changed = descriptor.last_updated(row) != lu_pm
         self._anchors.adopt_remote_clock(descriptor, row, record)
         return APPLY_UPDATED if changed else APPLY_NOOP
@@ -729,7 +732,7 @@ class Reconciler:
         *,
         now: datetime,
         conditional: bool = False,
-        dead_ids: set | None = None,
+        dead_ids: set[ULID] | None = None,
     ) -> tuple[int, int]:
         """Apply every item in one changes-feed page; return ``(processed, healed)``.
 
@@ -905,7 +908,7 @@ class Reconciler:
         # Pass-level dead-id memory (usa-wa#213): the trailing window often holds many
         # stale items for one gone entity — heal it once, then skip its re-fetches for
         # the rest of this pass (across pages, hence threaded here, not per page).
-        dead_ids: set = set()
+        dead_ids: set[ULID] = set()
         while True:
             pages += 1
             if pages > MAX_RECONCILE_PAGES:
