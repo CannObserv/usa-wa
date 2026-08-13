@@ -138,6 +138,42 @@ async def test_replay_is_idempotent_on_current_rows(db_session, fake_descriptor)
     assert (await db_session.execute(select(FakeEntity))).scalar_one().name == "Fresh"
 
 
+async def test_replay_converged_window_reports_zero_healed(db_session, fake_descriptor):
+    """usa-wa#212 headline: a replayed item whose row is at LWW parity with PM — the
+    converged steady state every applied item settles into, since ``adopt_remote_clock``
+    mirrors PM's clock — is processed but NOT healed. Previously the tie fell into the
+    PM-wins branch and was misreported as ``updated``, so ``replay_healed`` re-counted
+    the whole window every pass (~3,290 phantom heals) and could never reach zero."""
+    pm_id = ULID()
+    ts = "2026-01-01T00:00:00Z"
+    row = FakeEntity(
+        source="wsl",
+        source_id="1",
+        name="Same",
+        pm_fake_id=pm_id,
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    db_session.add(row)
+    await db_session.flush()
+    db_session.add(SyncState(stream=CHANGES_STREAM, cursor="50000"))
+    await db_session.flush()
+
+    item = ChangeItem(entity_type="fake", entity_id=pm_id, changed_at=NOW, change_kind="updated")
+    client = ReplayClient(
+        pages_by_after={40000: ChangePage(items=[item], next_after=45000)},
+        # The exact record already applied: same values, same clock (parity).
+        entities={pm_id: _record("1", "Same", pm_id=pm_id, updated_at=ts)},
+    )
+    engine = SyncEngine([fake_descriptor], client)
+
+    result = await engine.replay_from_floor(db_session, now=NOW)
+
+    assert result.applied == 1 and result.healed == 0
+    await db_session.refresh(row)
+    assert row.name == "Same"
+    assert row.updated_at == datetime(2026, 1, 1, tzinfo=UTC)
+
+
 async def test_replay_flags_horizon_fall_off(db_session, fake_descriptor, caplog):
     """A floor below PM's oldest-retained min_seq (power-map#388) means the pruned
     [floor, min_seq) slice can't be replayed → fell_off True + a warning, so the caller

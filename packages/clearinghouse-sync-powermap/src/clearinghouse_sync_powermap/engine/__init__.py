@@ -95,6 +95,7 @@ from clearinghouse_sync_powermap.engine.context import (
 from clearinghouse_sync_powermap.engine.read import (
     APPLY_INSERTED,
     APPLY_KEPT_LOCAL,
+    APPLY_NOOP,
     APPLY_SKIPPED,
     APPLY_UPDATED,
     CHANGES_STREAM,
@@ -120,6 +121,7 @@ from clearinghouse_sync_powermap.models import OutboxEntry
 __all__ = [
     "APPLY_INSERTED",
     "APPLY_KEPT_LOCAL",
+    "APPLY_NOOP",
     "APPLY_SKIPPED",
     "APPLY_UPDATED",
     "CHANGES_STREAM",

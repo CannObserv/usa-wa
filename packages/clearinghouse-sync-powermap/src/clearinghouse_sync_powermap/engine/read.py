@@ -109,6 +109,14 @@ MAX_RECONCILE_PAGES = 1000
 #: Outcomes of applying one PM record under LWW (returned for observability/tests).
 APPLY_INSERTED = "inserted"
 APPLY_UPDATED = "updated"
+#: The PM-wins branch re-upserted identical values — no column changed (usa-wa#212).
+#: This is the converged steady state at LWW clock parity: ``adopt_remote_clock``
+#: mirrors PM's clock onto the row on every apply, so re-reading an already-applied
+#: record (each replay pass re-reads its whole trailing window) lands here. Excluded
+#: from the replay ``healed`` delta, so a converged system legitimately reports zero
+#: heals — previously every such re-apply was misreported as ``updated`` and
+#: ``replay_healed`` was structurally incapable of reaching zero.
+APPLY_NOOP = "noop"
 APPLY_KEPT_LOCAL = "kept_local"
 #: An update-only descriptor (org/person/role/assignment) declined to mirror a PM
 #: record it has never produced (``upsert_from_pm`` returned None) — not an insert.
@@ -128,9 +136,13 @@ class ReplayResult:
     skipped`` is the old quantity. ``healed`` is the subset that actually changed a local
     row (``inserted``/``updated``) — the **would-heal delta** the Phase-A shadow rollout
     measures: a persistently non-zero ``healed`` is proof replay is recovering events the
-    live feed dropped/skipped (its reason to exist). **``healed`` is unaffected by the 304
-    short-circuit** (a 304 means nothing to heal), so the Phase-B go/no-go gate reads the
-    same before and after — which is why the ``applied`` discontinuity is acceptable.
+    live feed dropped/skipped (its reason to exist). Since usa-wa#212 an identical-value
+    re-apply reports ``noop`` and is excluded, so ``healed`` legitimately reaches zero on
+    a converged system — before that, every already-converged item in the window was
+    misreported as ``updated`` and the signal could never reach zero. **``healed`` is
+    unaffected by the 304 short-circuit** (a 304 means nothing to heal), so the Phase-B
+    go/no-go gate reads the same before and after — which is why the ``applied``
+    discontinuity is acceptable.
     ``fell_off`` is True when the replay floor sat below PM's oldest-retained
     watermark (``meta.min_seq``, power-map#388): the ``[floor, min_seq)`` slice was
     pruned from the 90-day window, so replay could not cover it and the caller must fall
@@ -188,7 +200,11 @@ class Reconciler:
           mirror an unproduced record, skip).
         - Local row strictly newer than the PM record → keep local; enqueue an
           UPDATE to push it up (only when the entity is write-enabled).
-        - Otherwise (PM newer, or tie) → PM wins; overwrite the local row.
+        - Otherwise (PM newer, or tie) → PM wins; overwrite the local row. Reports
+          ``APPLY_UPDATED`` only when a column actually changed; a re-upsert of
+          identical values (the converged steady state at clock parity) reports
+          ``APPLY_NOOP`` (usa-wa#212), so consumers counting repairs can converge
+          to zero.
         """
         existing = await descriptor.local_match(session, record)
         if existing is None:
@@ -226,8 +242,22 @@ class Reconciler:
             return APPLY_KEPT_LOCAL
 
         row = await descriptor.upsert_from_pm(session, record, existing=existing)
+        if row is None:
+            # Defensive: an update-only descriptor declining even with ``existing``
+            # passed — nothing was written, so don't report an update.
+            return APPLY_SKIPPED
+        # Honest outcome (usa-wa#212): did the upsert actually change a column?
+        # ``upsert_from_pm`` flushes before returning, so a net column change lets the
+        # ``onupdate`` bump the row's clock to ``now()`` — the same signal
+        # ``adopt_remote_clock``'s parity guard relies on (see its docstring). At LWW
+        # parity (the converged steady state: the clock was mirrored on the prior
+        # apply) an identical re-upsert registers no net change, the flush emits no
+        # UPDATE, and the clock still equals PM's → APPLY_NOOP. A strictly-newer PM
+        # record reports APPLY_UPDATED even when no mirrored column changed (a PM
+        # touch-only bump): the clock genuinely advanced and is adopted below.
+        changed = descriptor.last_updated(row) != lu_pm
         self._anchors.adopt_remote_clock(descriptor, row, record)
-        return APPLY_UPDATED
+        return APPLY_UPDATED if changed else APPLY_NOOP
 
     # --- merge-orphan self-heal (usa-wa#31 / power-map#235) -------------------
 
@@ -446,6 +476,11 @@ class Reconciler:
         anchor id and applies it through the LWW :meth:`apply_record` path, so a
         curation edit whose feed event was dropped is recovered (and a row that is
         already current is a no-op via LWW parity).
+
+        The return value counts every row re-fetched and run through the arbiter —
+        including ``noop`` verifications of already-converged rows (usa-wa#212) — a
+        coverage/throughput count, deliberately not a heal count (the sidecar discards
+        it; tests pin the walk's extent with it).
 
         Keyset-paged by primary key (``sweep_batch_size`` at a time), mirroring
         ``OutboxWriter.sweep_unanchored``, so a large anchored cohort never materialises
@@ -696,10 +731,12 @@ class Reconciler:
         advancement (the live feed advances ``changes_feed``, replay stamps
         ``changes_replay``).
 
-        ``processed`` counts upserted items (the historical ``process_feed`` return);
-        ``healed`` is the subset whose LWW outcome actually changed a local row
-        (``inserted``/``updated``) — the replay would-heal delta. Delete-routed items
-        count toward neither (the dominant replay-recovered case is a stale upsert).
+        ``processed`` counts items run through the LWW arbiter (the historical
+        ``process_feed`` return); ``healed`` is the subset whose LWW outcome actually
+        changed a local row (``inserted``/``updated``) — the replay would-heal delta. A
+        ``noop`` re-apply of identical values counts toward ``processed`` but never
+        ``healed`` (usa-wa#212). Delete-routed items count toward neither (the dominant
+        replay-recovered case is a stale upsert).
 
         ``conditional`` (usa-wa#160) sends the row's stored PM ETag as ``If-None-Match``
         and skips the item on a ``304``. **Only the replay caller passes it**, and that

@@ -16,6 +16,7 @@ from clearinghouse_sync_powermap.client import (
 )
 from clearinghouse_sync_powermap.engine import (
     APPLY_KEPT_LOCAL,
+    APPLY_NOOP,
     APPLY_SKIPPED,
     APPLY_UPDATED,
     CHANGES_STREAM,
@@ -1744,6 +1745,92 @@ async def test_apply_record_stamps_clock_when_row_otherwise_changed(db_session):
 
     assert row.name == "Renamed by PM"
     assert row.updated_at == ts  # not clobbered to now() by onupdate
+
+
+# --- usa-wa#212: honest apply outcomes — parity re-applies are APPLY_NOOP --------
+
+
+async def test_apply_record_parity_reports_noop(db_session, fake_descriptor):
+    """usa-wa#212: re-applying the exact record a prior pass already applied — clock
+    parity AND identical values, the converged steady state (``adopt_remote_clock``
+    mirrors PM's clock on every import) — reports APPLY_NOOP, not APPLY_UPDATED.
+
+    This is the phantom-heal fix: replay re-reads its whole trailing window every
+    pass, and each already-converged item used to be misreported as ``updated``, so
+    ``replay_healed`` (the headline backstop signal) was structurally incapable of
+    reaching zero and masked the #211 runaway for 19 hours."""
+    pm_id = ULID()
+    ts = datetime(2026, 1, 1, tzinfo=UTC)
+    row = FakeEntity(source="wsl", source_id="n1", name="Same", pm_fake_id=pm_id, updated_at=ts)
+    db_session.add(row)
+    await db_session.flush()
+    engine = SyncEngine([fake_descriptor], FakeClient())
+    record = {
+        "source": "wsl",
+        "source_id": "n1",
+        "name": "Same",
+        "id": str(pm_id),
+        "updated_at": "2026-01-01T00:00:00Z",
+    }
+
+    outcome = await engine.apply_record(db_session, fake_descriptor, record)
+
+    assert outcome == APPLY_NOOP
+    # ...and the no-op is also write-free: the row is not dirty, so no UPDATE at flush.
+    assert db_session.is_modified(row, include_collections=False) is False
+    assert row.updated_at == ts
+
+
+async def test_apply_record_pm_newer_touch_only_reports_updated(db_session, fake_descriptor):
+    """The deliberate boundary of the #212 no-op: a PM record with a strictly NEWER
+    clock but identical mirrored values (a PM touch-only bump) still reports
+    APPLY_UPDATED — the clock genuinely advanced and is adopted, and the item was a
+    real missed event, not a converged re-read. Only exact parity is a NOOP."""
+    pm_id = ULID()
+    ts = datetime(2026, 1, 1, tzinfo=UTC)
+    row = FakeEntity(source="wsl", source_id="n2", name="Same", pm_fake_id=pm_id, updated_at=ts)
+    db_session.add(row)
+    await db_session.flush()
+    engine = SyncEngine([fake_descriptor], FakeClient())
+    record = {
+        "source": "wsl",
+        "source_id": "n2",
+        "name": "Same",  # identical values...
+        "id": str(pm_id),
+        "updated_at": "2026-02-01T00:00:00Z",  # ...but a strictly newer PM clock
+    }
+
+    outcome = await engine.apply_record(db_session, fake_descriptor, record)
+    await db_session.flush()
+
+    assert outcome == APPLY_UPDATED
+    assert row.updated_at == datetime(2026, 2, 1, tzinfo=UTC)  # PM's clock adopted
+
+
+async def test_apply_record_parity_with_changed_fields_still_updates(db_session, fake_descriptor):
+    """Clock parity with a genuinely different payload (an edge PM should never emit —
+    a field change without a clock bump) is NOT a no-op: the tie branch still upserts,
+    the onupdate proves the column change, and the outcome stays APPLY_UPDATED."""
+    pm_id = ULID()
+    ts = datetime(2026, 1, 1, tzinfo=UTC)
+    row = FakeEntity(source="wsl", source_id="n3", name="Old", pm_fake_id=pm_id, updated_at=ts)
+    db_session.add(row)
+    await db_session.flush()
+    engine = SyncEngine([fake_descriptor], FakeClient())
+    record = {
+        "source": "wsl",
+        "source_id": "n3",
+        "name": "Renamed by PM",  # real change...
+        "id": str(pm_id),
+        "updated_at": "2026-01-01T00:00:00Z",  # ...at clock parity
+    }
+
+    outcome = await engine.apply_record(db_session, fake_descriptor, record)
+    await db_session.flush()
+
+    assert outcome == APPLY_UPDATED
+    assert row.name == "Renamed by PM"
+    assert row.updated_at == ts  # clock re-stamped to PM's, not left at now()
 
 
 async def test_anchored_cohort_304_skips_apply_and_stores_nothing(db_session):
