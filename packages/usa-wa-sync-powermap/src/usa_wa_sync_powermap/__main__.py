@@ -34,6 +34,8 @@ async def _amain() -> None:
         client,
         nonconvergence_threshold=settings.nonconvergence_threshold,
         replay_margin=settings.replay_margin,
+        replay_retain=settings.replay_retain,
+        replay_max_items=settings.replay_max_items,
         conditional_get_enabled=settings.conditional_get_enabled,
     )
     reconciler = build_reconciler(client, engine, settings)

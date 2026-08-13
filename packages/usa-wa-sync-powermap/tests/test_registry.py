@@ -62,13 +62,41 @@ def test_conditional_get_enabled_defaults_true():
 
 
 def test_replay_backstop_settings_defaults():
-    # usa-wa#159: the changes-feed replay backstop ships on, re-reads a generous
-    # trailing seq window (must exceed PM's worst-case in-flight-write span), and runs
-    # hourly (cheap — subscription-filtered, low churn — and prompt on a skip).
+    # usa-wa#159/#211: the changes-feed replay backstop ships on and runs hourly. The
+    # margin is the one-off bootstrap depth (fresh stream only, #211); steady-state
+    # passes floor at the verified watermark minus the retained in-flight trail
+    # (replay_retain) and are budget-capped (replay_max_items) — the fix for the #211
+    # rate-limit saturation, where a flat 10k window re-read forever held ~2 req/s.
     s = SidecarSettings(powermap_api_key="x")
     assert s.replay_enabled is True
     assert s.replay_margin == 10_000
     assert s.replay_cadence == timedelta(hours=1)
+    assert s.replay_retain == 1_000
+    assert s.replay_max_items == 2_000
+
+
+async def test_daemon_main_passes_replay_tunables_to_engine(monkeypatch):
+    """usa-wa#211: the daemon must thread replay_retain/replay_max_items into the
+    SyncEngine, or the env knobs are inert and the engine silently runs its library
+    defaults (the #12 wiring-test pattern, aimed at the engine constructor)."""
+    from usa_wa_sync_powermap import __main__ as daemon
+
+    captured = {}
+
+    def _fake_engine(*args, **kwargs):
+        captured.update(kwargs)
+        raise _Stop
+
+    monkeypatch.setattr(daemon, "SyncEngine", _fake_engine)
+    monkeypatch.setattr(
+        daemon,
+        "get_sidecar_settings",
+        lambda: SidecarSettings(powermap_api_key="x", replay_retain=77, replay_max_items=88),
+    )
+    with pytest.raises(_Stop):
+        await daemon._amain()
+    assert captured["replay_retain"] == 77
+    assert captured["replay_max_items"] == 88
 
 
 def test_subscription_backstop_cadence_defaults_to_six_hours():
