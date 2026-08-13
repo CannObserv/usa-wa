@@ -217,8 +217,9 @@ class Sidecar:
         """Run one isolated cycle; return the cycle verdict (True = fully clean).
 
         Component order: catalog sync → re-discovery backstop → per-descriptor
-        reconciles → main tick (feed → sweep → drain). Each component runs in its
-        own session + error boundary, so any one failing leaves the rest running.
+        reconciles → replay backstop → main tick (feed → sweep → drain). Each
+        component runs in its own session + error boundary, so any one failing
+        leaves the rest running.
         Containment must not defeat the retry-pressure signal (#85): any contained
         component failure flips the verdict to False, which :meth:`run_forever`
         turns into exponential backoff + streak alerting.
