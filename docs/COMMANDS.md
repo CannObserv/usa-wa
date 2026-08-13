@@ -30,7 +30,10 @@ reserved for "aborted, took no action") — see
 | Command | Purpose |
 |---|---|
 | `python -m usa_wa_adapter_legislature.refresh` | Daily WSL pull — committees + meeting window + member cluster |
-| `python -m usa_wa_facts_seats.pdc.refresh` | Daily PDC pull — House Position seats (#69) + Senate cross-links (#75) |
+| `python -m usa_wa_adapter_pdc.archive_refresh` | Daily PDC winner-cohort archive — Phase A of the PDC cycle (#201); exit 4 = every cohort unserved |
+| `python -m usa_wa_facts_seats.pdc.refresh` | Daily PDC rebuild — `person_wa_pdc` identifier links off the archive (#69; identifier-only since #101, rebuild-only since #201) |
+| `python -m usa_wa_adapter_sos.results.archive_refresh` | Daily SOS results archive — Phase A of the SOS cycle (#201); exit 4 = every cohort unserved |
+| `python -m usa_wa_facts_seats.house.refresh` | Daily House Position rebuild — the WSL+SOS span builder off the archive (#101; rebuild-only since #201) |
 
 ### Seat-fact backfills
 
