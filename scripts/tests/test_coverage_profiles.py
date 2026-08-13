@@ -19,6 +19,13 @@ rather than a rubber stamp:
 4. the pytest-cov attributes the profile retunes still exist,
 5. the documented commands no longer carry ``--no-cov``.
 
+The integration tier (#216) gets the opposite treatment — an exemption, not a floor:
+its e2e test drives the refresh through ``subprocess.run``, so the child's lines are
+invisible to coverage and the tier's number gates nothing real. These tests pin the
+exit-code contract the exemption exists for: a green ``-m integration`` run exits 0
+with no flags, a red one exits non-zero, and an explicit coverage flag on the command
+line still wins.
+
 Pure file parse, plus one subprocess run of a synthetic project — no DB.
 """
 
@@ -190,6 +197,51 @@ def test_an_empty_selection_is_not_the_unit_tier() -> None:
     assert not conftest_coverage.selects_only_unit_tests(_FakeConfig(), [])
 
 
+def test_a_marker_only_all_integration_selection_is_the_integration_tier() -> None:
+    """``-m integration`` — and narrowings like ``-m 'integration and not slow'`` — select
+    nothing but ``integration``-marked items, which is the rule: the tier is detected by
+    what got selected, not by the text of ``-m``. A co-carried ``db`` marker (the e2e
+    refresh test bears both) does not disqualify an item."""
+    items = [_FakeItem("integration"), _FakeItem("integration", "db")]
+
+    assert conftest_coverage.selects_only_integration_tests(
+        _FakeConfig(markexpr="integration"), items
+    )
+    assert conftest_coverage.selects_only_integration_tests(
+        _FakeConfig(markexpr="integration and not slow"), items
+    )
+
+
+def test_a_mixed_selection_is_not_the_integration_tier() -> None:
+    """``-m 'not db'`` is last-wins against addopts, so it silently re-includes the
+    integration tests *beside* the unit ones. A mixed selection is neither tier — the
+    whole-tree floor stands and fails loudly, rather than the exemption leaking to a run
+    that is mostly unit tests."""
+    assert not conftest_coverage.selects_only_integration_tests(
+        _FakeConfig(markexpr="not db"), [_FakeItem(), _FakeItem("integration")]
+    )
+
+
+def test_a_sliced_unfiltered_or_empty_selection_is_not_the_integration_tier() -> None:
+    """Same boundaries as the unit tier: a path arg or ``-k`` means "a slice", no marker
+    expression means "not a tier", and an empty selection is nothing at all."""
+    integration_item = _FakeItem("integration")
+
+    assert not conftest_coverage.selects_only_integration_tests(
+        _FakeConfig(source=pytest.Config.ArgsSource.ARGS, markexpr="integration"),
+        [integration_item],
+    )
+    assert not conftest_coverage.selects_only_integration_tests(
+        _FakeConfig(markexpr="integration", keyword="refresh"), [integration_item]
+    )
+    assert not conftest_coverage.selects_only_integration_tests(
+        _FakeConfig(markexpr=""), [integration_item]
+    )
+    assert not conftest_coverage.selects_only_integration_tests(
+        _FakeConfig(markexpr="integration"), []
+    )
+
+
 # --- the pytest-cov seam ---------------------------------------------------------------
 
 
@@ -249,6 +301,20 @@ def test_covered():
 @pytest.mark.db
 def test_needs_a_database():
     raise AssertionError("deselected by the unit tier")
+
+
+@pytest.mark.integration
+def test_integration():
+    assert covered() == 1
+"""
+
+SYNTHETIC_RED_INTEGRATION_TESTS = """
+import pytest
+
+
+@pytest.mark.integration
+def test_red_integration():
+    raise AssertionError("a red integration run must exit non-zero")
 """
 
 
@@ -257,13 +323,18 @@ def _synthetic_run(
     *extra_args: str,
     unit_floor: str = "90",
     whole_tree_floor: int = 0,
+    markexpr: str = "not db and not integration",
+    red_integration: bool = False,
 ) -> subprocess.CompletedProcess[str]:
-    """Build the synthetic project and run its unit tier in a subprocess.
+    """Build the synthetic project and run one of its tiers in a subprocess.
 
     The project mirrors this one's shape — sources *and* tests under the measured root —
-    so the scope swap is observable. ``whole_tree_floor`` defaults to 0 so the unit
-    profile is normally the only thing that can fail the run; raise it to observe the
-    floor that stands when the profile declines to apply.
+    so the scope swap is observable. ``markexpr`` picks the tier (unit by default,
+    ``"integration"`` for the exempt tier); ``red_integration`` adds a failing
+    integration test. ``whole_tree_floor`` defaults to 0 so the unit profile is normally
+    the only thing that can fail the run; raise it to observe the floor that stands when
+    a profile declines to apply — or, for the integration tier, the floor the waive must
+    remove for a green run to exit 0.
     """
     (tmp_path / "pyproject.toml").write_text(
         SYNTHETIC_PYPROJECT.format(unit_floor=unit_floor, whole_tree_floor=whole_tree_floor)
@@ -275,6 +346,8 @@ def _synthetic_run(
     tests = tmp_path / "pkg" / "shipped" / "tests"
     tests.mkdir()
     (tests / "test_shipped.py").write_text(SYNTHETIC_TESTS)
+    if red_integration:
+        (tests / "test_red.py").write_text(SYNTHETIC_RED_INTEGRATION_TESTS)
 
     env = {
         key: value
@@ -293,7 +366,7 @@ def _synthetic_run(
             "pytest",
             "-q",
             "-m",
-            "not db and not integration",
+            markexpr,
             "-p",
             "no:cacheprovider",
             *extra_args,
@@ -373,6 +446,51 @@ def test_a_malformed_unit_floor_leaves_the_whole_tree_floor_standing(tmp_path: P
     assert "not a number" in result.stdout, result.stdout
     assert "Required test coverage of 99" in result.stdout, result.stdout
     assert "Traceback" not in result.stderr, f"the hook raised instead:\n{result.stderr}"
+
+
+# --- the integration tier is exempt (#216) ---------------------------------------------
+
+
+def test_a_green_integration_run_exits_zero_with_no_flags(tmp_path: Path) -> None:
+    """The deliverable of #216: exit code 0 on green, no flags needed.
+
+    The whole-tree floor is set high enough that only the waive can let this run pass —
+    without it, one integration test cannot cover 99% of the tree and the run exits
+    non-zero exactly as the real tier did (3 tests against an 80% floor scored ~33%).
+    """
+    result = _synthetic_run(tmp_path, markexpr="integration", whole_tree_floor=99)
+
+    assert "integration tier: coverage floor waived" in result.stdout, result.stdout
+    assert "1 passed" in result.stdout, result.stdout
+    assert "Required test coverage" not in result.stdout, (
+        f"a floor still gated the exempt tier:\n{result.stdout}"
+    )
+    assert result.returncode == 0, (
+        f"a green integration run exited {result.returncode}:\n{result.stdout}"
+    )
+
+
+def test_a_red_integration_run_exits_nonzero(tmp_path: Path) -> None:
+    """The exemption must remove only the coverage gate, never the test failures."""
+    result = _synthetic_run(
+        tmp_path, markexpr="integration", whole_tree_floor=99, red_integration=True
+    )
+
+    assert "integration tier: coverage floor waived" in result.stdout, result.stdout
+    assert "1 failed" in result.stdout, result.stdout
+    assert result.returncode != 0, f"a red integration run exited 0:\n{result.stdout}"
+
+
+@pytest.mark.parametrize("flag", ["--cov-fail-under=99", "--cov=pkg/shipped/src"])
+def test_an_explicit_coverage_flag_on_an_integration_run_wins(tmp_path: Path, flag: str) -> None:
+    """Same rule as the unit profile (#198 CR-16): an operator who typed a coverage flag
+    gets exactly the gate they asked about — the waive backs off entirely and the floor
+    they were reasoning about stands."""
+    result = _synthetic_run(tmp_path, *flag.split("="), markexpr="integration", whole_tree_floor=99)
+
+    assert "integration tier: coverage floor NOT waived" in result.stdout, result.stdout
+    assert "Required test coverage of 99" in result.stdout, result.stdout
+    assert result.returncode != 0, f"the floor was waived despite {flag}:\n{result.stdout}"
 
 
 # --- the documented commands -----------------------------------------------------------

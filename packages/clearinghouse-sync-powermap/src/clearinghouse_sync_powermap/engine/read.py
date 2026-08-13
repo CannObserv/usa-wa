@@ -14,8 +14,9 @@ façade. That direction is forced: the read path decides when a write is owed, t
 path never decides when to read.
 
 **Why the dead-anchor heal lives here and not in ``anchors``.** The issue's sketch filed it
-under anchors, but both of its triggers are read-path events — a ``deleted`` changes-feed
-item (:meth:`Reconciler.process_feed`) and a 404 on the cohort re-fetch
+under anchors, but all of its triggers are read-path events — a ``deleted`` changes-feed
+item (:meth:`Reconciler.process_feed`), a 404 on a feed/replay item's detail fetch
+(:meth:`Reconciler._apply_feed_page`, usa-wa#213), and a 404 on the cohort re-fetch
 (:meth:`Reconciler._reconcile_anchored_cohort`) — and its body calls
 :meth:`Reconciler.apply_record` to adopt the winner's canonical fields. Filing it under
 anchors would put ``anchors → read`` alongside the unavoidable ``read → anchors``, i.e. a
@@ -42,9 +43,10 @@ enqueue an UPDATE), so the clock comparison lives in exactly one place:
   (usa-wa#35).
 
 DEAD-ANCHOR self-heal (usa-wa#31/#36/#37) — a PM-side merge deletes the loser and keeps the
-winner, orphaning our anchor. Both read paths detect it and route to
+winner, orphaning our anchor. Every read path detects it and routes to
 :meth:`Reconciler._heal_dead_anchor`: ``process_feed`` on a ``deleted`` event (the timely
-signal) and ``_reconcile_anchored_cohort`` on a re-fetch 404 (the backstop). The winner is
+signal), the shared feed/replay apply on a detail-fetch 404 (usa-wa#213), and
+``_reconcile_anchored_cohort`` on a re-fetch 404 (the backstop). The winner is
 resolved from one of two signals, in order of trust:
 
   - PM's explicit ``merged_into`` on the ``deleted`` event (power-map#235, consumed in
@@ -109,6 +111,14 @@ MAX_RECONCILE_PAGES = 1000
 #: Outcomes of applying one PM record under LWW (returned for observability/tests).
 APPLY_INSERTED = "inserted"
 APPLY_UPDATED = "updated"
+#: The PM-wins branch re-upserted identical values — no column changed (usa-wa#212).
+#: This is the converged steady state at LWW clock parity: ``adopt_remote_clock``
+#: mirrors PM's clock onto the row on every apply, so re-reading an already-applied
+#: record (each replay pass re-reads its whole trailing window) lands here. Excluded
+#: from the replay ``healed`` delta, so a converged system legitimately reports zero
+#: heals — previously every such re-apply was misreported as ``updated`` and
+#: ``replay_healed`` was structurally incapable of reaching zero.
+APPLY_NOOP = "noop"
 APPLY_KEPT_LOCAL = "kept_local"
 #: An update-only descriptor (org/person/role/assignment) declined to mirror a PM
 #: record it has never produced (``upsert_from_pm`` returned None) — not an insert.
@@ -128,9 +138,13 @@ class ReplayResult:
     skipped`` is the old quantity. ``healed`` is the subset that actually changed a local
     row (``inserted``/``updated``) — the **would-heal delta** the Phase-A shadow rollout
     measures: a persistently non-zero ``healed`` is proof replay is recovering events the
-    live feed dropped/skipped (its reason to exist). **``healed`` is unaffected by the 304
-    short-circuit** (a 304 means nothing to heal), so the Phase-B go/no-go gate reads the
-    same before and after — which is why the ``applied`` discontinuity is acceptable.
+    live feed dropped/skipped (its reason to exist). Since usa-wa#212 an identical-value
+    re-apply reports ``noop`` and is excluded, so ``healed`` legitimately reaches zero on
+    a converged system — before that, every already-converged item in the window was
+    misreported as ``updated`` and the signal could never reach zero. **``healed`` is
+    unaffected by the 304 short-circuit** (a 304 means nothing to heal), so the Phase-B
+    go/no-go gate reads the same before and after — which is why the ``applied``
+    discontinuity is acceptable.
     ``fell_off`` is True when the replay floor sat below PM's oldest-retained
     watermark (``meta.min_seq``, power-map#388): the ``[floor, min_seq)`` slice was
     pruned from the 90-day window, so replay could not cover it and the caller must fall
@@ -188,7 +202,11 @@ class Reconciler:
           mirror an unproduced record, skip).
         - Local row strictly newer than the PM record → keep local; enqueue an
           UPDATE to push it up (only when the entity is write-enabled).
-        - Otherwise (PM newer, or tie) → PM wins; overwrite the local row.
+        - Otherwise (PM newer, or tie) → PM wins; overwrite the local row. Reports
+          ``APPLY_UPDATED`` only when a column actually changed; a re-upsert of
+          identical values (the converged steady state at clock parity) reports
+          ``APPLY_NOOP`` (usa-wa#212), so consumers counting repairs can converge
+          to zero.
         """
         existing = await descriptor.local_match(session, record)
         if existing is None:
@@ -226,8 +244,25 @@ class Reconciler:
             return APPLY_KEPT_LOCAL
 
         row = await descriptor.upsert_from_pm(session, record, existing=existing)
+        if row is None:
+            # Defensive: an update-only descriptor declining even with ``existing``
+            # passed — nothing was written, so don't report an update.
+            return APPLY_SKIPPED
+        # Honest outcome (usa-wa#212): did the upsert actually change a column?
+        # ``upsert_from_pm`` flushes before returning, so a net column change lets the
+        # ``onupdate`` bump the row's clock to ``now()`` — the same signal
+        # ``adopt_remote_clock``'s parity guard relies on (see its docstring). At LWW
+        # parity (the converged steady state: the clock was mirrored on the prior
+        # apply) an identical re-upsert registers no net change, the flush emits no
+        # UPDATE, and the clock still equals PM's → APPLY_NOOP. A strictly-newer PM
+        # record reports APPLY_UPDATED even when no mirrored column changed (a PM
+        # touch-only bump): the clock genuinely advanced and is adopted below.
+        # This detection requires the shared base's *Python-side* ``onupdate``
+        # (clearinghouse_core.models) — a server-side onupdate would leave the
+        # attribute unrefreshed after flush and break the comparison.
+        changed = descriptor.last_updated(row) != lu_pm
         self._anchors.adopt_remote_clock(descriptor, row, record)
-        return APPLY_UPDATED
+        return APPLY_UPDATED if changed else APPLY_NOOP
 
     # --- merge-orphan self-heal (usa-wa#31 / power-map#235) -------------------
 
@@ -447,6 +482,11 @@ class Reconciler:
         curation edit whose feed event was dropped is recovered (and a row that is
         already current is a no-op via LWW parity).
 
+        The return value counts every row re-fetched and run through the arbiter —
+        including ``noop`` verifications of already-converged rows (usa-wa#212) — a
+        coverage/throughput count, deliberately not a heal count (the sidecar discards
+        it; tests pin the walk's extent with it).
+
         Keyset-paged by primary key (``sweep_batch_size`` at a time), mirroring
         ``OutboxWriter.sweep_unanchored``, so a large anchored cohort never materialises
         all at once. Unlike the sweep, the anchor is *not* mutated here, so the
@@ -650,7 +690,9 @@ class Reconciler:
         before upsert. A ``deleted`` event is the timely merge-orphan signal: if it
         names a row we anchored, route it to :meth:`_heal_dead_anchor` (re-anchor to
         the merge-winner, or retire on a genuine delete, #31); a delete for an entity
-        we never produced is still skipped. ``now`` stamps any retirement (threaded
+        we never produced is still skipped. A 404 on the detail fetch of an anchored
+        row routes to the same heal (usa-wa#213 — previously a silent skip that left
+        the dead anchor unhealed forever). ``now`` stamps any retirement (threaded
         from the sidecar tick; falls back to wall clock for ad-hoc callers).
 
         Read-path scope note: a permanent client error here (the typed
@@ -684,22 +726,36 @@ class Reconciler:
         return applied
 
     async def _apply_feed_page(
-        self, session: AsyncSession, page: ChangePage, *, now: datetime, conditional: bool = False
+        self,
+        session: AsyncSession,
+        page: ChangePage,
+        *,
+        now: datetime,
+        conditional: bool = False,
+        dead_ids: set[ULID] | None = None,
     ) -> tuple[int, int]:
         """Apply every item in one changes-feed page; return ``(processed, healed)``.
 
         The shared body of the live feed (:meth:`process_feed`) and the trailing replay
         backstop (:meth:`replay_from_floor`, usa-wa#159), factored out so the two paths
         can never diverge — a replayed event heals exactly the way a live one would
-        (merge/delete routing included), and re-applying an already-current item is an
-        idempotent LWW no-op. Does NOT touch any feed cursor; the caller owns cursor
-        advancement (the live feed advances ``changes_feed``, replay stamps
-        ``changes_replay``).
+        (merge/delete routing *and* the detail-fetch-404 routing included, usa-wa#213),
+        and re-applying an already-current item is an idempotent LWW no-op. Does NOT
+        touch any feed cursor; the caller owns cursor advancement (the live feed
+        advances ``changes_feed``, replay stamps ``changes_replay``).
 
-        ``processed`` counts upserted items (the historical ``process_feed`` return);
-        ``healed`` is the subset whose LWW outcome actually changed a local row
-        (``inserted``/``updated``) — the replay would-heal delta. Delete-routed items
-        count toward neither (the dominant replay-recovered case is a stale upsert).
+        ``dead_ids`` (usa-wa#213) is the per-pass memory of PM ids already found dead —
+        via a ``deleted`` event or a detail-fetch 404 — so a window holding many stale
+        items for the same gone entity costs one fetch, not one per item (one dead org
+        accounted for ~20 fetches per replay pass). The replay caller threads one set
+        across its whole multi-page pass; ``None`` scopes the throttle to this page.
+
+        ``processed`` counts items run through the LWW arbiter (the historical
+        ``process_feed`` return); ``healed`` is the subset whose LWW outcome actually
+        changed a local row (``inserted``/``updated``) — the replay would-heal delta. A
+        ``noop`` re-apply of identical values counts toward ``processed`` but never
+        ``healed`` (usa-wa#212). Delete-routed items count toward neither (the dominant
+        replay-recovered case is a stale upsert).
 
         ``conditional`` (usa-wa#160) sends the row's stored PM ETag as ``If-None-Match``
         and skips the item on a ``304``. **Only the replay caller passes it**, and that
@@ -714,11 +770,16 @@ class Reconciler:
         """
         processed = 0
         healed = 0
+        if dead_ids is None:
+            dead_ids = set()
         for item in page.items:
             descriptor = self._ctx.descriptor_for(item.entity_type)
             if descriptor is None or descriptor.read_source == "none":
                 continue
             if item.change_kind == "deleted":
+                # The id is dead in PM either way — remember it so a later upsert item
+                # for it in this pass doesn't buy a guaranteed 404 (#213).
+                dead_ids.add(item.entity_id)
                 row = await self._anchors.row_by_anchor(session, descriptor, item.entity_id)
                 if row is None or descriptor.is_deleted(row):
                     continue
@@ -750,6 +811,10 @@ class Reconciler:
                     # No tombstone column: defer to the heal routine's warn-and-leave.
                     await self._heal_dead_anchor(session, descriptor, row, now=now)
                 continue
+            if item.entity_id in dead_ids:
+                # Already found dead earlier in this pass (a deleted event or a 404) —
+                # skip the re-fetch; the heal already ran once for this id (#213).
+                continue
             use_conditional = conditional and self._ctx.conditional_get_enabled
             new_etag = None
             if use_conditional:
@@ -780,7 +845,15 @@ class Reconciler:
             else:
                 record = await descriptor.fetch_record(self._ctx.client, item.entity_id)
             if record is None:
-                # PM record gone (404) — unchanged from the unconditional path: skip.
+                # PM record gone (404): a dead anchor surfaced by a live/replayed upsert
+                # item. Route it through the same heal the reconcile backstop's re-fetch
+                # 404 uses — re-anchor via merged-into/identifier re-match, retire, or
+                # warn-once — so feed and backstop behave identically (usa-wa#213; the
+                # silent skip here left dead anchors re-fetched forever, never healed).
+                dead_ids.add(item.entity_id)
+                row = await self._anchors.row_by_anchor(session, descriptor, item.entity_id)
+                if row is not None and not descriptor.is_deleted(row):
+                    await self._heal_dead_anchor(session, descriptor, row, now=now)
                 continue
             outcome = await self.apply_record(session, descriptor, record)
             processed += 1
@@ -832,6 +905,10 @@ class Reconciler:
         healed = 0
         fell_off = False
         pages = 0
+        # Pass-level dead-id memory (usa-wa#213): the trailing window often holds many
+        # stale items for one gone entity — heal it once, then skip its re-fetches for
+        # the rest of this pass (across pages, hence threaded here, not per page).
+        dead_ids: set[ULID] = set()
         while True:
             pages += 1
             if pages > MAX_RECONCILE_PAGES:
@@ -855,7 +932,7 @@ class Reconciler:
             # Conditional (usa-wa#160): this window is re-read every pass, so most items
             # are ones we already applied — the case a stored ETag turns into a 304.
             page_processed, page_healed = await self._apply_feed_page(
-                session, page, now=now, conditional=True
+                session, page, now=now, conditional=True, dead_ids=dead_ids
             )
             applied += page_processed
             healed += page_healed

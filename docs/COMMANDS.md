@@ -138,10 +138,16 @@ uv run pytest -m 'not db and not integration'
 # Full suite — requires TEST_DATABASE_URL set to a non-prod database
 uv run pytest
 
+# Concurrent db-marked sessions (e.g. another worktree) serialize on a session-wide
+# Postgres advisory lock (#208); a queued session waits TEST_DATABASE_LOCK_TIMEOUT
+# seconds (default 600), then fails naming the situation ("another pytest session
+# holds the test database") instead of silently corrupting the holder
+
 # Single file — --no-cov: neither gate measures a slice
 uv run pytest --no-cov packages/usa-wa-api/tests/test_health.py
 
-# Integration-marked only (excluded by default)
+# Integration-marked only (excluded by default) — coverage floor waived (#216):
+# green exits 0, red exits non-zero, no flags needed
 uv run pytest -m integration
 ```
 

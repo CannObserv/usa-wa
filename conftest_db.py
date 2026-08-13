@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.models import Base
-from clearinghouse_core.testing import declared_schemas
+from clearinghouse_core.testing import acquire_test_db_lock, declared_schemas, release_test_db_lock
 
 
 @pytest.fixture(scope="session")
@@ -49,6 +49,14 @@ async def test_engine():
     moment a database is actually required. Its *safety* is asserted at conftest
     import instead, while the real ``DATABASE_URL`` is still visible to compare
     against — see the root :file:`conftest.py`.
+
+    Concurrency (#208): before the first DROP, take the process-wide session
+    advisory lock (``clearinghouse_core.testing.DbSessionLock``). Concurrent
+    pytest sessions against the shared test DB — two worktrees, say — serialize
+    on it; a queued session waits up to ``TEST_DATABASE_LOCK_TIMEOUT`` seconds
+    (default 600), then fails here with a clear "another pytest session holds the
+    test database" error instead of silently corrupting the holder. Released by
+    ``pytest_sessionfinish`` below, *after* this fixture's teardown drops.
     """
     test_database_url = os.environ.get("TEST_DATABASE_URL")
     if not test_database_url:
@@ -57,6 +65,7 @@ async def test_engine():
             "Load env: export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs) — "
             "or run the unit tier, which needs none: uv run pytest -m 'not db'"
         )
+    acquire_test_db_lock(test_database_url)
     engine = create_async_engine(test_database_url)
     schemas = declared_schemas()
     async with engine.begin() as conn:
@@ -74,6 +83,21 @@ async def test_engine():
         for schema in schemas:
             await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
     await engine.dispose()
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session, exitstatus):
+    """Release the #208 test-DB session lock once everything DB-touching is done.
+
+    ``trylast`` is load-bearing: session-fixture teardown happens inside
+    ``_pytest.runner``'s *own* ``pytest_sessionfinish``, and conftest hooks run
+    before builtins — without it this would release mid-teardown, un-guarding
+    ``test_engine``'s final CASCADE drops. No-op in the unit tier (never acquired).
+    The lock is acquired by ``test_engine`` above or by
+    ``reset_migration_schemas`` (whichever a session hits first), so the release
+    lives here, at the only point common to both.
+    """
+    release_test_db_lock()
 
 
 @pytest.fixture

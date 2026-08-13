@@ -117,6 +117,10 @@ export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 # Run tests
 uv run pytest
 
+# Concurrent sessions (other worktrees) serialize on a Postgres advisory lock (#208):
+# a second db-marked run queues up to TEST_DATABASE_LOCK_TIMEOUT s (default 600), then
+# fails loudly — "another pytest session holds the test database"
+
 # Unit tier (#185) — no database at all; own coverage gate (#198), so no flags
 # needed. Add --no-cov for a faster (~11s vs ~27s), ungated inner loop
 uv run pytest -m 'not db and not integration'
@@ -124,7 +128,8 @@ uv run pytest -m 'not db and not integration'
 # A subset — --no-cov: neither gate measures a slice
 uv run pytest --no-cov packages/usa-wa-api/tests/test_health.py
 
-# Run integration tests (requires PostgreSQL)
+# Run integration tests (requires PostgreSQL; hits live services). Exempt from the
+# coverage floor (#216) — green exits 0, red exits non-zero, no flags needed
 uv run pytest -m integration
 
 # Run linter
