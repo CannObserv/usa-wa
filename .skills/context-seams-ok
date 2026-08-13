@@ -1,0 +1,46 @@
+# Judged seams from the #202 curation (Batch E). One entry per line.
+#
+# Two legitimate classes, both pre-existing repo conventions that this run did
+# not create and must not silently "fix":
+#
+# 1. back-reference — a reference doc pointing back at the AGENTS.md section it
+#    was demoted from. Every anchor below was re-verified against the edited
+#    AGENTS.md: § Code Exploration Policy, § Common Commands, § Server Lifecycle
+#    and § Environment Variables all still exist, and measure-context reports
+#    dead_anchors: []. The pointer is the navigational contract, not a stale ref.
+#
+# 2. provenance-heading — an issue number inside a heading. The repo uses this
+#    deliberately across nine docs; the numbers are the design record, and the
+#    slugs they generate are already load-bearing anchors (COMMANDS-BACKFILL.md
+#    links COMMANDS.md#archive-vs-rebuild--which-half-each-flag-governs-201).
+#    Renaming them here would break links this same run wired.
+
+# --- back-references to AGENTS.md ------------------------------------------
+docs/ARCHITECTURE.md :: and the module in [`AGENTS.md`](../AGENTS.md).
+docs/CODE-EXPLORATION.md :: (../AGENTS.md#code-exploration-policy) § Code Exploration
+docs/COMMANDS.md :: The everyday subset is in [`AGENTS.md`](../AGENTS.md#common-commands).
+docs/COMMANDS.md :: daily/weekly ones on systemd timers ([`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server
+docs/COMMANDS.md :: restart matrix, and [`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server Lifecycle
+docs/DEPLOYMENT.md :: that apply on nearly every task stay in [`AGENTS.md`](../AGENTS.md); this is the
+docs/ENVIRONMENT.md :: [`AGENTS.md`](../AGENTS.md#environment-variables); the DB roles these DSNs map
+docs/SKILLS.md :: | `curating-context` | Curate the agent-context surface (`AGENTS.md` + the docs it links)
+docs/SKILLS.md :: `curating-context` (#161) keeps `AGENTS.md` and the docs it links under a token budget
+
+# --- provenance in heading text --------------------------------------------
+docs/ARCHITECTURE.md :: When a target publishes only one source (#183)
+docs/COMMANDS-BACKFILL.md :: Historical backfill (epic #76 / sub-project 3 / #100)
+docs/COMMANDS-SEATS.md :: PDC historical backfill (#79)
+docs/COMMANDS-SEATS.md :: WSL+SOS House Position backfill (#101)
+docs/COMMANDS-SUCCESSION.md :: Senate odd-year corroboration (#123)
+docs/COMMANDS-SUCCESSION.md :: House odd-year special-winner corroboration (#149)
+docs/COMMANDS-SUCCESSION.md :: Operator succession (#107)
+docs/COMMANDS-SUCCESSION.md :: Committee lineage & lifecycle (#124)
+docs/COMMANDS.md :: Archive vs rebuild — which half each flag governs (#201)
+docs/DEPLOYMENT.md :: Failure alerting (#49)
+docs/DEPLOYMENT.md :: DB role topology (defense-in-depth, issue #22)
+docs/DEPLOYMENT.md :: Main-only checkout (issue #87)
+docs/DEPLOYMENT.md :: Deploy convention: units never sync the venv (issue #30)
+docs/DEPLOYMENT.md :: Validating unit edits (#51)
+docs/LWW-NOOP-GATE.md :: Sibling: the rejected-UPDATE replay guard (#132)
+docs/MODULES-FACTS-SEATS.md :: The archive/rebuild split (#201)
+docs/MODULES-LEGISLATURE.md :: Package layout (#183)

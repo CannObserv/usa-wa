@@ -4,7 +4,8 @@ The portable Power Map sync engine (`clearinghouse-sync-powermap`, Layer-1-adjac
 zero usa-wa imports) and the generated PM client. Split out of
 [MODULES-FRAMEWORK.md](MODULES-FRAMEWORK.md) at CR #196 so each stays loadable on its
 own; the Layer-1/2 primitives these build on remain there. The deployment that *drives*
-this engine — the sidecar and its producer CLIs — is in [MODULES-SYNC.md](MODULES-SYNC.md).
+this engine is in [MODULES-SYNC.md](MODULES-SYNC.md) (the sidecar daemon) and
+[MODULES-SYNC-PRODUCERS.md](MODULES-SYNC-PRODUCERS.md) (the one-shot producer CLIs).
 
 ```
 packages/
