@@ -95,15 +95,41 @@ DEFAULT_MAX_ATTEMPTS = 60
 #: operator-visible flag. Configurable via ``SidecarSettings.nonconvergence_threshold``.
 DEFAULT_NONCONVERGENCE_THRESHOLD = 3
 
-#: Default replay margin in outbox-seq units (usa-wa#159): each replay cycle re-reads
-#: the changes feed from ``high_water − margin`` so a concurrent-commit-skipped seq
-#: (a lower seq that committed *after* the live consumer advanced past it — the
-#: power-map#387 at-least-once hazard) is re-delivered and re-applied under LWW. The
-#: margin must exceed PM's worst-case in-flight-write / bulk-import span (the largest
-#: gap between an assigned seq and its commit); 10_000 is generous for a low-churn
-#: dataset — the feed is subscription-filtered, so a wide raw-seq window still yields
-#: only our few items and stays cheap. Env-tunable via ``SidecarSettings.replay_margin``.
+#: Default replay margin in outbox-seq units (usa-wa#159/#211): the **bootstrap depth**
+#: of the very first replay pass on a stream with no verified watermark — it reads from
+#: ``high_water − margin`` once, to cover any concurrent-commit-skipped seq (a lower seq
+#: that committed *after* the live consumer advanced past it — the power-map#387
+#: at-least-once hazard) in the pre-replay history. Since usa-wa#211 the margin no
+#: longer prices the steady state: every later pass floors at ``verified − retain``
+#: (:data:`DEFAULT_REPLAY_RETAIN`), so a generous bootstrap costs one budget-capped
+#: crawl per fresh deploy, not a flat re-read every hour (the #211 saturation).
+#: Env-tunable via ``SidecarSettings.replay_margin``.
 DEFAULT_REPLAY_MARGIN = 10_000
+
+#: Default retained trail in outbox-seq units (usa-wa#211): each steady-state replay
+#: pass re-reads from ``verified − retain``, where ``verified`` is the seq the previous
+#: completed pass caught up to. The trail only needs to cover PM's worst-case
+#: in-flight-write span — the largest count of seqs *other writers commit* between one
+#: write's seq assignment and its own commit (the window in which the live consumer can
+#: advance past it). Individual PM API transactions commit in milliseconds (span of a
+#: handful); 1_000 covers a multi-minute PM-side bulk transaction with interleaved
+#: traffic at usa-wa's observed churn (~37k seqs total over months). A skip larger than
+#: the trail is caught by the anchored-cohort reconcile, the standing residual backstop.
+#: 0 is legal (no trail — replay reads only seqs beyond the watermark). Env-tunable via
+#: ``SidecarSettings.replay_retain``.
+DEFAULT_REPLAY_RETAIN = 1_000
+
+#: Default per-pass enumeration budget (usa-wa#211): the maximum changes-feed *items* one
+#: replay pass processes before it stops and carries over (each item costs up to one
+#: detail GET — a 304 or 404 still spends a rate-limit token, which is why conditional
+#: GET alone could not fix the #211 saturation). Steady-state passes stay far under it
+#: (the retained trail holds a few hundred items); it binds on the margin bootstrap, on
+#: re-enabling replay after a long hold, and on a PM-side bulk event — turning each into
+#: a series of bounded passes (~≤17 min at the 0.5s pacing floor) instead of one
+#: saturated crawl. Carry-over is lossless: the stopping seq is persisted as the
+#: verified watermark, so the next pass resumes there. Env-tunable via
+#: ``SidecarSettings.replay_max_items``.
+DEFAULT_REPLAY_MAX_ITEMS = 2_000
 
 #: How long an entry may sit deferred (PENDING, ``attempts == 0``) before each
 #: subsequent deferral escalates to a distinct WARNING (#15). A deps-not-ready
@@ -172,6 +198,8 @@ class EngineContext:
         sweep_batch_size: int,
         nonconvergence_threshold: int,
         replay_margin: int,
+        replay_retain: int,
+        replay_max_items: int,
         conditional_get_enabled: bool,
         sleep: Callable[[float], Awaitable[None]],
     ) -> None:
@@ -188,6 +216,16 @@ class EngineContext:
             # skipping the very skip-window it exists to re-cover (usa-wa#159). 0 is
             # legal — it re-reads nothing below high_water (replay effectively off).
             raise ValueError("replay_margin must be >= 0")
+        if replay_retain < 0:
+            # Same shape (usa-wa#211): a negative trail would floor the steady-state
+            # pass above the verified watermark, skipping unverified seqs. 0 is legal —
+            # no in-flight trail, only seqs beyond the watermark are read.
+            raise ValueError("replay_retain must be >= 0")
+        if replay_max_items < 1:
+            # The budget check runs after each processed page, so 0 could never stop a
+            # pass before its first page anyway — a "no budget" intent is a large value,
+            # not zero (usa-wa#211).
+            raise ValueError("replay_max_items must be >= 1")
         self.by_type = {d.entity_type: d for d in descriptors}
         #: Drain priority per entity type = its index in the (dependency-first)
         #: descriptor registry order. Lower drains first, so a dependency **root**
@@ -205,6 +243,8 @@ class EngineContext:
         self.sweep_batch_size = sweep_batch_size
         self.nonconvergence_threshold = nonconvergence_threshold
         self.replay_margin = replay_margin
+        self.replay_retain = replay_retain
+        self.replay_max_items = replay_max_items
         self.conditional_get_enabled = conditional_get_enabled
         # Injectable for the transient-read retry tests (usa-wa#85); production sleeps.
         self.sleep = sleep

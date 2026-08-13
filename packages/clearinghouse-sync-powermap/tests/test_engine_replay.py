@@ -472,6 +472,185 @@ async def test_replay_kill_switch_uses_unconditional_fetch(db_session, fake_desc
     assert engine.conditional_get_stats == (0, 0)
 
 
+# --- usa-wa#211: floor advancement, verified watermark, per-pass budget ----------
+#
+# The #159 flat window re-read the same ~10k-seq trail forever (floor pinned at
+# ``high_water − margin``), saturating PM's rate limit continuously. The fix: persist
+# the seq each completed pass verified (REPLAY_STREAM.cursor, now load-bearing), start
+# the next pass from ``verified − retain`` (a small in-flight-write trail), and bound
+# each pass's enumeration with a max-items budget that carries over via the watermark.
+
+
+@pytest.mark.parametrize(
+    ("high_water", "margin", "verified", "retain", "expected"),
+    [
+        (50_000, 10_000, 49_500, 1_000, 48_500),  # advanced: verified − retain
+        (50_000, 10_000, 500, 1_000, 0),  # clamp at 0, never negative
+        (50_000, 10_000, None, 1_000, 40_000),  # no watermark → margin bootstrap
+        (50_000, 10_000, 0, 1_000, 40_000),  # "0" watermark = no history → bootstrap
+    ],
+)
+def test_replay_floor_advances_from_verified_watermark(
+    high_water, margin, verified, retain, expected
+):
+    assert _replay_floor(high_water, margin, verified=verified, retain=retain) == expected
+
+
+def test_engine_rejects_negative_replay_retain(fake_descriptor):
+    with pytest.raises(ValueError, match="replay_retain must be >= 0"):
+        SyncEngine([fake_descriptor], FakeClient(), replay_retain=-1)
+
+
+def test_engine_rejects_non_positive_replay_max_items(fake_descriptor):
+    with pytest.raises(ValueError, match="replay_max_items must be >= 1"):
+        SyncEngine([fake_descriptor], FakeClient(), replay_max_items=0)
+
+
+async def test_replay_persists_verified_watermark_at_pass_end(db_session, fake_descriptor):
+    """#211: a completed pass records the seq it caught up to in REPLAY_STREAM.cursor —
+    the verified watermark the next pass derives its floor from (no longer informational)."""
+    pm_id = ULID()
+    await _add_anchored(db_session, source_id="1", name="Stale", pm_id=pm_id)
+    await _bootstrap_high_water(db_session)
+
+    client = ReplayClient(
+        pages_by_after=_replay_page(pm_id),  # 40000 → items, next_after 45000 (the tail)
+        entities={pm_id: _record("1", "Healed", pm_id=pm_id, updated_at="2099-01-01T00:00:00Z")},
+    )
+    engine = SyncEngine([fake_descriptor], client)
+
+    await engine.replay_from_floor(db_session, now=NOW)
+
+    state = (
+        await db_session.execute(select(SyncState).where(SyncState.stream == REPLAY_STREAM))
+    ).scalar_one()
+    assert state.cursor == "45000"
+
+
+async def test_replay_second_pass_starts_from_verified_minus_retain(db_session, fake_descriptor):
+    """#211 headline: with a verified watermark, the floor is ``verified − retain`` — the
+    window narrows to the retained in-flight trail instead of re-reading a flat
+    ``high_water − margin`` window forever (the pinned-floor saturation)."""
+    db_session.add(SyncState(stream=CHANGES_STREAM, cursor="50000"))
+    db_session.add(SyncState(stream=REPLAY_STREAM, cursor="49500"))
+    await db_session.flush()
+
+    client = ReplayClient(pages_by_after={})  # every page empty/non-advancing
+    engine = SyncEngine([fake_descriptor], client, replay_retain=1_000)
+
+    result = await engine.replay_from_floor(db_session, now=NOW)
+
+    assert result.floor == 48_500  # verified − retain, NOT high_water − margin (40_000)
+    assert client.replay_afters == [48_500]
+
+
+async def test_replay_empty_tail_never_regresses_the_watermark(db_session, fake_descriptor):
+    """A non-advancing tail page leaves ``after`` at the floor — persisting that would
+    walk the watermark (and the next floor) backwards. The stored watermark is
+    monotonic: ``max(after, verified)``."""
+    db_session.add(SyncState(stream=CHANGES_STREAM, cursor="50000"))
+    db_session.add(SyncState(stream=REPLAY_STREAM, cursor="49500"))
+    await db_session.flush()
+
+    client = ReplayClient(pages_by_after={})  # tail immediately: after stays at the floor
+    engine = SyncEngine([fake_descriptor], client, replay_retain=1_000)
+
+    await engine.replay_from_floor(db_session, now=NOW)
+
+    state = (
+        await db_session.execute(select(SyncState).where(SyncState.stream == REPLAY_STREAM))
+    ).scalar_one()
+    assert state.cursor == "49500"  # unchanged, not regressed to 48500
+
+
+async def test_replay_garbage_watermark_falls_back_to_margin_bootstrap(db_session, fake_descriptor):
+    """A non-integer REPLAY_STREAM cursor (pre-#211 timestamp leftovers, corruption) is
+    not a verified watermark — bootstrap from ``high_water − margin`` and repair the
+    stored value at pass end."""
+    db_session.add(SyncState(stream=CHANGES_STREAM, cursor="50000"))
+    db_session.add(SyncState(stream=REPLAY_STREAM, cursor="2026-05-01T00:00:00Z"))
+    await db_session.flush()
+
+    client = ReplayClient(pages_by_after={})
+    engine = SyncEngine([fake_descriptor], client, replay_retain=1_000)
+
+    result = await engine.replay_from_floor(db_session, now=NOW)
+
+    assert result.floor == 40_000  # margin bootstrap, not garbage − retain
+    state = (
+        await db_session.execute(select(SyncState).where(SyncState.stream == REPLAY_STREAM))
+    ).scalar_one()
+    assert state.cursor == "40000"  # repaired to an integer watermark
+
+
+async def test_replay_budget_caps_pass_and_carries_over(db_session, fake_descriptor, caplog):
+    """#211: a pass enumerates at most ``replay_max_items`` feed items (each costs up to
+    one detail GET), stops loudly, and persists its stopping point as the watermark so
+    the next pass resumes there — bounded passes, no lost coverage."""
+    pm_a, pm_b = ULID(), ULID()
+    await _add_anchored(db_session, source_id="1", name="StaleA", pm_id=pm_a)
+    await _add_anchored(db_session, source_id="2", name="StaleB", pm_id=pm_b)
+    await _bootstrap_high_water(db_session)
+
+    def _item(pm_id):
+        return ChangeItem(
+            entity_type="fake", entity_id=pm_id, changed_at=NOW, change_kind="updated"
+        )
+
+    entities = {
+        pm_a: _record("1", "HealedA", pm_id=pm_a, updated_at="2099-01-01T00:00:00Z"),
+        pm_b: _record("2", "HealedB", pm_id=pm_b, updated_at="2099-01-01T00:00:00Z"),
+    }
+    pages = {
+        40000: ChangePage(items=[_item(pm_a)], next_after=41000),
+        41000: ChangePage(items=[_item(pm_b)], next_after=None),
+    }
+    client = ReplayClient(pages_by_after=pages, entities=dict(entities))
+    engine = SyncEngine([fake_descriptor], client, replay_max_items=1, replay_retain=0)
+
+    with caplog.at_level(logging.INFO):
+        result = await engine.replay_from_floor(db_session, now=NOW)
+
+    assert result.budget_exhausted is True
+    assert result.items == 1
+    assert [f[1] for f in client.fetched] == [pm_a]  # pm_b's page never read
+    assert "powermap_replay_budget_exhausted" in caplog.text
+    state = (
+        await db_session.execute(select(SyncState).where(SyncState.stream == REPLAY_STREAM))
+    ).scalar_one()
+    assert state.cursor == "41000"  # the stopping point, so the next pass carries on
+
+    # Second pass resumes from the watermark (retain 0 → floor 41000) and finishes.
+    client2 = ReplayClient(pages_by_after=dict(pages), entities=dict(entities))
+    engine2 = SyncEngine([fake_descriptor], client2, replay_max_items=1, replay_retain=0)
+    result2 = await engine2.replay_from_floor(db_session, now=NOW)
+
+    assert result2.floor == 41_000
+    assert result2.budget_exhausted is False
+    assert [f[1] for f in client2.fetched] == [pm_b]
+    rows = {r.name for r in (await db_session.execute(select(FakeEntity))).scalars()}
+    assert rows == {"HealedA", "HealedB"}
+
+
+async def test_replay_result_reports_enumerated_items(db_session, fake_descriptor):
+    """``ReplayResult.items`` is the pass's enumeration count — the request-budget
+    observable (each item costs at most one detail GET, 304s and 404s included)."""
+    pm_id = ULID()
+    await _add_anchored(db_session, source_id="1", name="Stale", pm_id=pm_id)
+    await _bootstrap_high_water(db_session)
+
+    client = ReplayClient(
+        pages_by_after=_replay_page(pm_id),
+        entities={pm_id: _record("1", "Healed", pm_id=pm_id, updated_at="2099-01-01T00:00:00Z")},
+    )
+    engine = SyncEngine([fake_descriptor], client)
+
+    result = await engine.replay_from_floor(db_session, now=NOW)
+
+    assert result.items == 1
+    assert result.budget_exhausted is False
+
+
 async def test_live_feed_fetch_stays_unconditional(db_session, fake_descriptor):
     """The gating decision, pinned: the live changes feed does NOT go conditional. A feed
     item means PM changed the entity, so a conditional GET there is a guaranteed 200 plus a
