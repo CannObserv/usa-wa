@@ -6,11 +6,15 @@ Currently small — grows as more sibling-reusable test infra needs a home.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import os
+import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import asyncpg
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -244,6 +248,178 @@ def declared_schemas() -> set[str]:
     return {t.schema for t in Base.metadata.tables.values() if t.schema}
 
 
+# --- Test-database session lock (#208) ---------------------------------------
+
+_DEFAULT_LOCK_TIMEOUT_SECONDS = 600.0
+
+
+def _lock_timeout_seconds() -> float:
+    """How long a queued session waits, from ``TEST_DATABASE_LOCK_TIMEOUT`` (seconds).
+
+    The default is generous — a full suite queuing behind another (~a few minutes)
+    must not spuriously fail — but finite, so a wedged holder surfaces as a clear
+    error rather than a silent hang.
+    """
+    return float(os.environ.get("TEST_DATABASE_LOCK_TIMEOUT", _DEFAULT_LOCK_TIMEOUT_SECONDS))
+
+
+def advisory_lock_key(database_url: str) -> int:
+    """Stable signed-bigint advisory-lock key for ``database_url``'s database.
+
+    Derived from the database *name* alone: every worktree pointing its
+    ``TEST_DATABASE_URL`` at the same database must land on the same key,
+    whatever role or host spelling its DSN uses. (Postgres advisory locks are
+    already database-local, so the hash is about stability, not isolation.)
+    """
+    name = make_url(database_url).database or ""
+    digest = hashlib.sha256(f"clearinghouse-test-db:{name}".encode()).digest()
+    return int.from_bytes(digest[:8], byteorder="big", signed=True)
+
+
+def _busy_message(timeout_seconds: float) -> str:
+    return (
+        "another pytest session holds the test database: gave up waiting for the "
+        f"session advisory lock after {timeout_seconds:g}s. A concurrent pytest run "
+        "(another worktree?) is using TEST_DATABASE_URL — wait for it to finish, or "
+        "raise TEST_DATABASE_LOCK_TIMEOUT (seconds)."
+    )
+
+
+async def _acquire_advisory_lock(database_url: str, key: int, timeout_seconds: float) -> Any:
+    """Connect raw asyncpg and block on ``pg_advisory_lock`` under ``lock_timeout``.
+
+    ``lock_timeout`` applies to advisory-lock waits too, so the queueing is fair
+    (no try/sleep polling) and the expiry is server-enforced. asyncpg autocommits,
+    so the holder connection never sits idle-in-transaction for the whole session.
+    """
+    dsn = make_url(database_url).set(drivername="postgresql").render_as_string(hide_password=False)
+    conn = await asyncpg.connect(dsn)
+    try:
+        millis = max(int(timeout_seconds * 1000), 1)
+        await conn.execute("SELECT set_config('lock_timeout', $1, false)", str(millis))
+        await conn.execute("SELECT pg_advisory_lock($1)", key)
+    except asyncpg.exceptions.LockNotAvailableError as exc:
+        await conn.close()
+        raise RuntimeError(_busy_message(timeout_seconds)) from exc
+    except BaseException:
+        await conn.close()
+        raise
+    return conn
+
+
+class DbSessionLock:
+    """A Postgres session-level advisory lock held for a whole pytest session (#208).
+
+    Serializes concurrent pytest sessions (two worktrees, say) against the shared
+    test database: the session fixtures and :func:`reset_migration_schemas` DROP +
+    recreate every declared schema at session boundaries, which silently corrupts a
+    sibling session mid-run.
+
+    Connection lifetime is the crux. A session-level advisory lock belongs to the
+    *connection* that took it: ``async with engine.begin()`` returns the connection
+    at block exit, and even ``conn.close()`` on a pooled SQLAlchemy connection only
+    checks it back into the pool. So the lock lives on a dedicated raw asyncpg
+    connection — owned by a private event loop on a daemon thread, because no pytest
+    event loop lives long enough to own it: the integration callers reach
+    :func:`reset_migration_schemas` from throwaway ``asyncio.run`` loops, and a
+    connection bound to a dead loop can be neither used nor cleanly closed.
+
+    The public API is synchronous and safe to call from inside a running event loop
+    (the work happens on the holder thread); the deliberate block *is* the
+    serialization. Should release never run, both backstops are structural: the
+    thread is a daemon, and Postgres frees session advisory locks on disconnect.
+    """
+
+    def __init__(self) -> None:
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._conn: Any = None
+        self._key: int | None = None
+
+    @property
+    def held(self) -> bool:
+        """Whether this process currently holds the lock through this instance."""
+        return self._conn is not None
+
+    def acquire(self, database_url: str, timeout_seconds: float | None = None) -> None:
+        """Take the lock, waiting up to ``timeout_seconds`` (default: env, then 600s).
+
+        Reentrant per *process*, by flag: session advisory locks are
+        connection-scoped, so a second ``pg_advisory_lock`` on a fresh connection
+        while our holder connection has the key would queue behind ourselves until
+        timeout — a self-deadlock. One test database per process: a call naming a
+        different database while held is a hard error, never a silent unlocked run.
+
+        Raises :class:`RuntimeError` with an "another pytest session holds the test
+        database" message when the wait expires.
+        """
+        if timeout_seconds is None:
+            timeout_seconds = _lock_timeout_seconds()
+        key = advisory_lock_key(database_url)
+        if self.held:
+            if key != self._key:
+                raise RuntimeError(
+                    "the test-database session lock is already held for a different "
+                    f"database; one test database per process ({database_url!r})"
+                )
+            return
+        assert_test_url_safety(database_url)
+        loop = asyncio.new_event_loop()
+        thread = threading.Thread(target=loop.run_forever, name="test-db-lock", daemon=True)
+        thread.start()
+        future = asyncio.run_coroutine_threadsafe(
+            _acquire_advisory_lock(database_url, key, timeout_seconds), loop
+        )
+        try:
+            # The server-side lock_timeout is the real limit; the margin only covers
+            # a connect that hangs before the lock wait even starts.
+            conn = future.result(timeout=timeout_seconds + 60.0)
+        except TimeoutError as exc:
+            future.cancel()
+            self._stop_thread(loop, thread)
+            raise RuntimeError(_busy_message(timeout_seconds)) from exc
+        except BaseException:
+            self._stop_thread(loop, thread)
+            raise
+        self._loop, self._thread, self._conn, self._key = loop, thread, conn, key
+
+    def release(self) -> None:
+        """Close the holder connection (disconnect frees the lock) and its thread.
+
+        No-op when not held, so the session-end hook can call it unconditionally.
+        """
+        if self._conn is None or self._loop is None or self._thread is None:
+            return
+        future = asyncio.run_coroutine_threadsafe(self._conn.close(), self._loop)
+        future.result(timeout=30.0)
+        self._stop_thread(self._loop, self._thread)
+        self._loop = self._thread = self._conn = self._key = None
+
+    @staticmethod
+    def _stop_thread(loop: asyncio.AbstractEventLoop, thread: threading.Thread) -> None:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=5.0)
+        if not thread.is_alive():
+            loop.close()
+
+
+_SESSION_DB_LOCK = DbSessionLock()
+"""The one holder per process. Both drop-everything routes — the ``test_engine``
+fixture and :func:`reset_migration_schemas` — acquire through this, so whichever
+runs first takes the lock and the other sees it held."""
+
+
+def acquire_test_db_lock(database_url: str, timeout_seconds: float | None = None) -> None:
+    """Acquire the process-wide test-database session lock (see :class:`DbSessionLock`)."""
+    _SESSION_DB_LOCK.acquire(database_url, timeout_seconds)
+
+
+def release_test_db_lock() -> None:
+    """Release the process-wide lock; the root ``conftest_db`` calls this at
+    ``pytest_sessionfinish`` (``trylast`` — after fixture teardown's final drops)."""
+    _SESSION_DB_LOCK.release()
+
+
 async def reset_migration_schemas(database_url: str) -> None:
     """Drop ``alembic_version`` + every declared schema CASCADE — no recreate.
 
@@ -253,8 +429,21 @@ async def reset_migration_schemas(database_url: str) -> None:
     declared schema in place makes the from-base replay collide on its tables
     (issue #26). Reasserts the URL-safety guard before issuing DDL because this
     opens its own engine, bypassing the savepointed ``db_session`` fixture.
+
+    Concurrency (#208): takes the process-wide session lock before dropping. Two
+    deliberate cases. (a) This process already holds it — the ``test_engine``
+    fixture acquired at session start — and the acquire is a flag-check no-op,
+    *not* a second ``pg_advisory_lock`` on a fresh connection, which would queue
+    behind our own holder until timeout. (b) An integration-only session that
+    never resolved ``test_engine`` acquires here and keeps holding until
+    ``pytest_sessionfinish`` — session-length on purpose, not drop-length: the
+    caller's from-base migration replay right after this is exactly what a
+    concurrent session's schema drop would corrupt. The acquire is a blocking
+    call inside a coroutine, also on purpose — the wait is the serialization,
+    and the holder does its work on its own thread.
     """
     assert_test_url_safety(database_url)
+    acquire_test_db_lock(database_url)
     engine = create_async_engine(database_url)
     try:
         async with engine.begin() as conn:
