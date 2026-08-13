@@ -69,6 +69,15 @@ filterwarnings = [
 # Gating costs the tier its speed — instrumentation takes it from ~11s to ~27s — so
 # `--no-cov` stays documented for the inner loop. It is the *gate* that had to stop
 # needing a flag, not the loop.
+#
+# The integration tier (#216) gets the opposite call — an exemption, not a second
+# floor. Its e2e test drives the refresh via subprocess.run, so the child's lines are
+# invisible to coverage: a 3-test tier scored ~33% against the 80% floor and a fully
+# green run exited 1. conftest_coverage.py zeroes the floor whenever a marker-only run
+# selects nothing but integration-marked items (`-m integration`, or a narrowing of
+# it); the report still prints, and an explicit --cov/--cov-fail-under on the command
+# line still wins. The asymmetry with #198 is deliberate: the unit tier runs
+# in-process, so its number means something; this tier's does not.
 unit_cov_include = ["packages/*/src/**"]
 unit_cov_fail_under = "64"
 

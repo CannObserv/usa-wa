@@ -26,6 +26,21 @@ and to ``-m 'not db'`` silently re-selecting the integration tier (``-m`` is las
 against ``addopts``). A path-arg or ``-k`` run is a *slice* — it cannot clear a
 whole-tree floor either, so it is left alone and keeps ``--no-cov``.
 
+The **integration tier** (#216) gets the opposite treatment — an exemption, not a
+second floor. Its e2e test drives the daily refresh through ``subprocess.run``, so the
+child process's lines are never measured: a line-coverage number for this tier gates
+nothing real, and measuring nothing is more honest than gating on the wrong thing
+(the asymmetry with #198: the unit tier runs in-process, so its number means
+something). Detection mirrors the unit tier's — by *selection*, not the text of
+``-m``: a run is the integration tier when it collected the full testpaths, filtered
+only by a marker expression, and **every** selected item carries ``integration``.
+True for ``-m integration`` and narrowings like ``-m 'integration and not slow'``;
+never for a mixed selection such as ``-m 'not db'`` (last-wins against addopts, it
+re-includes the integration tests *beside* the unit ones), which keeps the whole-tree
+floor. The waive zeroes ``cov_fail_under`` — the report still prints, the gate is
+gone — and an explicit ``--cov``/``--cov-fail-under`` on the command line still wins,
+exactly as for the unit profile.
+
 Retuning happens at ``pytest_collection_finish``: after deselection, before
 pytest-cov reads ``cov_fail_under`` at the end of ``pytest_runtestloop``.
 """
@@ -51,6 +66,9 @@ COV_PLUGIN_NAME = "_cov"
 #: Selecting one of these means the run is not the DB-free tier.
 NON_UNIT_MARKERS = ("db", "integration")
 
+#: The marker whose tier is exempt from the coverage floor (#216).
+INTEGRATION_MARKER = "integration"
+
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     """Both knobs live in ``pyproject.toml``, beside the coverage config they qualify."""
@@ -67,15 +85,36 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
-def selects_only_unit_tests(config: Any, items: Sequence[Any]) -> bool:
-    """Is this run the unit tier — the whole workspace, minus everything needing a DB?"""
+def marker_only_run(config: Any, items: Sequence[Any]) -> bool:
+    """A non-empty selection of the full testpaths, filtered only by a marker expression.
+
+    A path-arg or ``-k`` run is a *slice*; a bare run has no marker expression; an empty
+    selection is nothing at all. None of those is a tier.
+    """
     if not items:
         return False
     if config.args_source is not pytest.Config.ArgsSource.TESTPATHS:
         return False
-    if not config.option.markexpr or config.option.keyword:
+    return bool(config.option.markexpr) and not config.option.keyword
+
+
+def selects_only_unit_tests(config: Any, items: Sequence[Any]) -> bool:
+    """Is this run the unit tier — the whole workspace, minus everything needing a DB?"""
+    if not marker_only_run(config, items):
         return False
     return not any(item.get_closest_marker(marker) for item in items for marker in NON_UNIT_MARKERS)
+
+
+def selects_only_integration_tests(config: Any, items: Sequence[Any]) -> bool:
+    """Is this run the integration tier — nothing but ``integration``-marked items?
+
+    Decided on the selected items, like the unit tier: ``-m integration`` and any
+    narrowing of it qualify; a mixed selection (``-m 'not db'`` re-includes integration
+    tests beside unit ones) does not, and keeps the whole-tree floor.
+    """
+    if not marker_only_run(config, items):
+        return False
+    return all(item.get_closest_marker(INTEGRATION_MARKER) for item in items)
 
 
 def live_coverage(cov_controller: Any) -> list[coverage.Coverage]:
@@ -166,11 +205,49 @@ def retune_coverage(config: pytest.Config) -> str | None:
     )
 
 
+def waive_coverage_floor(config: pytest.Config) -> str | None:
+    """Zero the coverage floor for the integration tier (#216).
+
+    The tier's headline test exercises the refresh via ``subprocess.run``, so its lines
+    are invisible to coverage — no floor over this run gates anything real. The report
+    still prints (zeroing ``cov_fail_under`` removes the gate, not the measurement);
+    suppressing measurement outright would mean reaching deeper into pytest-cov than the
+    ``options.cov_fail_under`` seam #198 already leans on.
+
+    Returns the line to announce, or ``None`` when there is nothing to say — a
+    ``--no-cov`` run, or no floor standing in the first place.
+    """
+    plugin = config.pluginmanager.get_plugin(COV_PLUGIN_NAME)
+    if plugin is None or getattr(plugin, "cov_controller", None) is None:
+        return None
+    if plugin.options.no_cov:
+        return None
+
+    # Same rule as the unit profile (#198 CR-16): an operator who set the coverage gate
+    # by hand on this run gets exactly the gate they asked about.
+    manual = cli_named(config, "--cov-fail-under", "--cov")
+    if manual is not None:
+        return f"integration tier: coverage floor NOT waived — {manual} given on the command line"
+
+    # The *effective* floor. No CLI flag reached this line, so it is the configured one.
+    floor = plugin.options.cov_fail_under
+    plugin.options.cov_fail_under = 0
+    if not floor:
+        return None
+    return (
+        f"integration tier: coverage floor waived (whole-tree >={floor:g}% does not apply) — "
+        "this tier drives child processes whose lines coverage cannot see (#216)"
+    )
+
+
 def pytest_collection_finish(session: pytest.Session) -> None:
     """Swap profiles once the selection is final."""
-    if not selects_only_unit_tests(session.config, session.items):
+    if selects_only_unit_tests(session.config, session.items):
+        announcement = retune_coverage(session.config)
+    elif selects_only_integration_tests(session.config, session.items):
+        announcement = waive_coverage_floor(session.config)
+    else:
         return
-    announcement = retune_coverage(session.config)
     if announcement is None:
         return
     reporter = session.config.pluginmanager.get_plugin("terminalreporter")

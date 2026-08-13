@@ -124,7 +124,8 @@ uv run pytest -m 'not db and not integration'
 # A subset — --no-cov: neither gate measures a slice
 uv run pytest --no-cov packages/usa-wa-api/tests/test_health.py
 
-# Run integration tests (requires PostgreSQL)
+# Run integration tests (requires PostgreSQL; hits live services). Exempt from the
+# coverage floor (#216) — green exits 0, red exits non-zero, no flags needed
 uv run pytest -m integration
 
 # Run linter
