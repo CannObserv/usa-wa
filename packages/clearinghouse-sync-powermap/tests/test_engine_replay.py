@@ -23,7 +23,7 @@ from clearinghouse_sync_powermap.engine import (
     _replay_floor,
 )
 from clearinghouse_sync_powermap.models import ConditionalGetState, SyncState
-from clearinghouse_sync_powermap.testing import FakeClient, FakeEntity
+from clearinghouse_sync_powermap.testing import FakeClient, FakeDescriptor, FakeEntity
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
 
@@ -317,9 +317,12 @@ async def test_replay_stores_etag_for_a_newly_inserted_row(db_session, fake_desc
     assert stored == '"fresh-1"'
 
 
-async def test_replay_404_still_skips_the_item(db_session, fake_descriptor):
-    """A conditional 404 (PM record gone) must behave exactly as the unconditional one did:
-    the item is skipped, the local row untouched, and nothing is stored."""
+async def test_replay_404_routes_to_dead_anchor_heal(db_session, fake_descriptor, caplog):
+    """usa-wa#213: a 404 on a replayed item's detail fetch is a dead anchor and must route
+    through ``_heal_dead_anchor`` exactly like the reconcile backstop's re-fetch 404 —
+    not be silently skipped forever. For a descriptor that can't re-match (person/role/
+    assignment) the heal is the warn-once-and-leave arm: row untouched, nothing stored,
+    and the item counts as neither applied nor healed."""
     pm_id = ULID()
     row = await _add_anchored(db_session, source_id="1", name="Local", pm_id=pm_id)
     await _bootstrap_high_water(db_session)
@@ -327,13 +330,98 @@ async def test_replay_404_still_skips_the_item(db_session, fake_descriptor):
     client = ReplayClient(pages_by_after=_replay_page(pm_id))  # no entity → record None
     engine = SyncEngine([fake_descriptor], client)
 
-    result = await engine.replay_from_floor(db_session, now=NOW)
+    with caplog.at_level(logging.WARNING):
+        result = await engine.replay_from_floor(db_session, now=NOW)
 
     assert result.applied == 0 and result.healed == 0
     await db_session.refresh(row)
     assert row.name == "Local"
+    assert row.deleted_at is None  # never wrongly retired without a winner signal
     assert (await db_session.execute(select(ConditionalGetState))).first() is None
     assert engine.conditional_get_stats == (0, 0)  # neither skipped nor fetched
+    assert any(r.msg == "dead_anchor_unhealed" for r in caplog.records)  # the heal ran
+
+
+class RematchReplayDescriptor(FakeDescriptor):
+    """A rematch-capable descriptor (org-shaped) for the feed/replay 404 heal path."""
+
+    supports_rematch = True
+
+
+async def test_replay_404_reanchors_rematch_capable_row(db_session):
+    """usa-wa#213: the payoff of routing the feed/replay 404 through the heal — an org
+    whose anchor died mid-window re-matches by identifier and re-anchors to the winner
+    (previously ``supports_rematch`` re-match never ran on this path, so the same dead
+    ids were re-fetched every pass forever: 419 fetches of 2 ids over 19h)."""
+    loser, winner = ULID(), ULID()
+    row = await _add_anchored(db_session, source_id="1", name="Stale", pm_id=loser)
+    await _bootstrap_high_water(db_session)
+
+    descriptor = RematchReplayDescriptor()
+    descriptor.rematch_result = winner
+    client = ReplayClient(
+        pages_by_after=_replay_page(loser),  # loser 404s (not in entities)
+        entities={winner: _record("1", "Winner", pm_id=winner, updated_at="2099-01-01T00:00:00Z")},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.replay_from_floor(db_session, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.pm_fake_id == winner  # re-anchored to the surviving winner
+    assert row.name == "Winner"  # winner's canonical fields adopted
+    assert row.deleted_at is None
+
+
+async def test_replay_dead_id_fetched_once_per_pass(db_session, fake_descriptor, caplog):
+    """usa-wa#213 throttle: a trailing window holding many stale items for the same gone
+    entity costs ONE detail fetch per pass, not one per item — the pass-level dead-id set
+    spans pages (one dead org accounted for ~20 fetches per pass before)."""
+    pm_id = ULID()
+    await _add_anchored(db_session, source_id="1", name="Local", pm_id=pm_id)
+    await _bootstrap_high_water(db_session)
+
+    def _item():
+        return ChangeItem(
+            entity_type="fake", entity_id=pm_id, changed_at=NOW, change_kind="updated"
+        )
+
+    client = ReplayClient(
+        pages_by_after={
+            40000: ChangePage(items=[_item(), _item()], next_after=45000),
+            45000: ChangePage(items=[_item()], next_after=None),
+        },
+    )  # no entity → every fetch would 404
+    engine = SyncEngine([fake_descriptor], client)
+
+    with caplog.at_level(logging.WARNING):
+        result = await engine.replay_from_floor(db_session, now=NOW)
+
+    assert result.applied == 0 and result.healed == 0
+    fetches_of_dead_id = [f for f in client.fetched if f[1] == pm_id]
+    assert len(fetches_of_dead_id) == 1  # healed once, then skipped across both pages
+    assert sum(r.msg == "dead_anchor_unhealed" for r in caplog.records) == 1
+
+
+async def test_replay_deleted_event_suppresses_later_upsert_fetch(db_session, fake_descriptor):
+    """A ``deleted`` event already proves the id is dead — a later stale upsert item for
+    the same id inside the pass must not buy a guaranteed-404 fetch (usa-wa#213)."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="1", name="Local", pm_id=pm_id)
+    await _bootstrap_high_water(db_session)
+
+    deleted = ChangeItem(entity_type="fake", entity_id=pm_id, changed_at=NOW, change_kind="deleted")
+    upsert = ChangeItem(entity_type="fake", entity_id=pm_id, changed_at=NOW, change_kind="updated")
+    client = ReplayClient(
+        pages_by_after={40000: ChangePage(items=[deleted, upsert], next_after=None)},
+    )
+    engine = SyncEngine([fake_descriptor], client)
+
+    await engine.replay_from_floor(db_session, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.deleted_at == NOW  # bare delete, non-rematch type → genuine delete (#37)
+    assert client.fetched == []  # the stale upsert item never re-fetched the dead id
 
 
 async def test_replay_deleted_item_never_reaches_the_conditional_fetch(db_session, fake_descriptor):

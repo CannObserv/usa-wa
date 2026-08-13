@@ -14,8 +14,9 @@ façade. That direction is forced: the read path decides when a write is owed, t
 path never decides when to read.
 
 **Why the dead-anchor heal lives here and not in ``anchors``.** The issue's sketch filed it
-under anchors, but both of its triggers are read-path events — a ``deleted`` changes-feed
-item (:meth:`Reconciler.process_feed`) and a 404 on the cohort re-fetch
+under anchors, but all of its triggers are read-path events — a ``deleted`` changes-feed
+item (:meth:`Reconciler.process_feed`), a 404 on a feed/replay item's detail fetch
+(:meth:`Reconciler._apply_feed_page`, usa-wa#213), and a 404 on the cohort re-fetch
 (:meth:`Reconciler._reconcile_anchored_cohort`) — and its body calls
 :meth:`Reconciler.apply_record` to adopt the winner's canonical fields. Filing it under
 anchors would put ``anchors → read`` alongside the unavoidable ``read → anchors``, i.e. a
@@ -42,9 +43,10 @@ enqueue an UPDATE), so the clock comparison lives in exactly one place:
   (usa-wa#35).
 
 DEAD-ANCHOR self-heal (usa-wa#31/#36/#37) — a PM-side merge deletes the loser and keeps the
-winner, orphaning our anchor. Both read paths detect it and route to
+winner, orphaning our anchor. Every read path detects it and routes to
 :meth:`Reconciler._heal_dead_anchor`: ``process_feed`` on a ``deleted`` event (the timely
-signal) and ``_reconcile_anchored_cohort`` on a re-fetch 404 (the backstop). The winner is
+signal), the shared feed/replay apply on a detail-fetch 404 (usa-wa#213), and
+``_reconcile_anchored_cohort`` on a re-fetch 404 (the backstop). The winner is
 resolved from one of two signals, in order of trust:
 
   - PM's explicit ``merged_into`` on the ``deleted`` event (power-map#235, consumed in
@@ -685,7 +687,9 @@ class Reconciler:
         before upsert. A ``deleted`` event is the timely merge-orphan signal: if it
         names a row we anchored, route it to :meth:`_heal_dead_anchor` (re-anchor to
         the merge-winner, or retire on a genuine delete, #31); a delete for an entity
-        we never produced is still skipped. ``now`` stamps any retirement (threaded
+        we never produced is still skipped. A 404 on the detail fetch of an anchored
+        row routes to the same heal (usa-wa#213 — previously a silent skip that left
+        the dead anchor unhealed forever). ``now`` stamps any retirement (threaded
         from the sidecar tick; falls back to wall clock for ad-hoc callers).
 
         Read-path scope note: a permanent client error here (the typed
@@ -719,17 +723,29 @@ class Reconciler:
         return applied
 
     async def _apply_feed_page(
-        self, session: AsyncSession, page: ChangePage, *, now: datetime, conditional: bool = False
+        self,
+        session: AsyncSession,
+        page: ChangePage,
+        *,
+        now: datetime,
+        conditional: bool = False,
+        dead_ids: set | None = None,
     ) -> tuple[int, int]:
         """Apply every item in one changes-feed page; return ``(processed, healed)``.
 
         The shared body of the live feed (:meth:`process_feed`) and the trailing replay
         backstop (:meth:`replay_from_floor`, usa-wa#159), factored out so the two paths
         can never diverge — a replayed event heals exactly the way a live one would
-        (merge/delete routing included), and re-applying an already-current item is an
-        idempotent LWW no-op. Does NOT touch any feed cursor; the caller owns cursor
-        advancement (the live feed advances ``changes_feed``, replay stamps
-        ``changes_replay``).
+        (merge/delete routing *and* the detail-fetch-404 routing included, usa-wa#213),
+        and re-applying an already-current item is an idempotent LWW no-op. Does NOT
+        touch any feed cursor; the caller owns cursor advancement (the live feed
+        advances ``changes_feed``, replay stamps ``changes_replay``).
+
+        ``dead_ids`` (usa-wa#213) is the per-pass memory of PM ids already found dead —
+        via a ``deleted`` event or a detail-fetch 404 — so a window holding many stale
+        items for the same gone entity costs one fetch, not one per item (one dead org
+        accounted for ~20 fetches per replay pass). The replay caller threads one set
+        across its whole multi-page pass; ``None`` scopes the throttle to this page.
 
         ``processed`` counts items run through the LWW arbiter (the historical
         ``process_feed`` return); ``healed`` is the subset whose LWW outcome actually
@@ -751,11 +767,16 @@ class Reconciler:
         """
         processed = 0
         healed = 0
+        if dead_ids is None:
+            dead_ids = set()
         for item in page.items:
             descriptor = self._ctx.descriptor_for(item.entity_type)
             if descriptor is None or descriptor.read_source == "none":
                 continue
             if item.change_kind == "deleted":
+                # The id is dead in PM either way — remember it so a later upsert item
+                # for it in this pass doesn't buy a guaranteed 404 (#213).
+                dead_ids.add(item.entity_id)
                 row = await self._anchors.row_by_anchor(session, descriptor, item.entity_id)
                 if row is None or descriptor.is_deleted(row):
                     continue
@@ -787,6 +808,10 @@ class Reconciler:
                     # No tombstone column: defer to the heal routine's warn-and-leave.
                     await self._heal_dead_anchor(session, descriptor, row, now=now)
                 continue
+            if item.entity_id in dead_ids:
+                # Already found dead earlier in this pass (a deleted event or a 404) —
+                # skip the re-fetch; the heal already ran once for this id (#213).
+                continue
             use_conditional = conditional and self._ctx.conditional_get_enabled
             new_etag = None
             if use_conditional:
@@ -817,7 +842,15 @@ class Reconciler:
             else:
                 record = await descriptor.fetch_record(self._ctx.client, item.entity_id)
             if record is None:
-                # PM record gone (404) — unchanged from the unconditional path: skip.
+                # PM record gone (404): a dead anchor surfaced by a live/replayed upsert
+                # item. Route it through the same heal the reconcile backstop's re-fetch
+                # 404 uses — re-anchor via merged-into/identifier re-match, retire, or
+                # warn-once — so feed and backstop behave identically (usa-wa#213; the
+                # silent skip here left dead anchors re-fetched forever, never healed).
+                dead_ids.add(item.entity_id)
+                row = await self._anchors.row_by_anchor(session, descriptor, item.entity_id)
+                if row is not None and not descriptor.is_deleted(row):
+                    await self._heal_dead_anchor(session, descriptor, row, now=now)
                 continue
             outcome = await self.apply_record(session, descriptor, record)
             processed += 1
@@ -869,6 +902,10 @@ class Reconciler:
         healed = 0
         fell_off = False
         pages = 0
+        # Pass-level dead-id memory (usa-wa#213): the trailing window often holds many
+        # stale items for one gone entity — heal it once, then skip its re-fetches for
+        # the rest of this pass (across pages, hence threaded here, not per page).
+        dead_ids: set = set()
         while True:
             pages += 1
             if pages > MAX_RECONCILE_PAGES:
@@ -892,7 +929,7 @@ class Reconciler:
             # Conditional (usa-wa#160): this window is re-read every pass, so most items
             # are ones we already applied — the case a stored ETag turns into a 304.
             page_processed, page_healed = await self._apply_feed_page(
-                session, page, now=now, conditional=True
+                session, page, now=now, conditional=True, dead_ids=dead_ids
             )
             applied += page_processed
             healed += page_healed

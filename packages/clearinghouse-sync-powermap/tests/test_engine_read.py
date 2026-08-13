@@ -1235,6 +1235,45 @@ async def test_process_feed_deleted_heals_our_anchored_row(db_session):
     assert row.pm_fake_id == winner
 
 
+async def test_process_feed_404_heals_dead_anchor(db_session):
+    """usa-wa#213: a 404 on a live feed item's detail fetch (the entity vanished between
+    the event and our read — a merge/delete whose ``deleted`` event we haven't seen or
+    lost) routes through the same ``_heal_dead_anchor`` as the reconcile backstop's
+    re-fetch 404, instead of being silently skipped: a rematch-capable row re-anchors
+    to its identifier winner."""
+    loser, winner = ULID(), ULID()
+    row = await _add_anchored(db_session, source_id="x", name="Stale", pm_id=loser, updated_at=NOW)
+    descriptor = RematchCohortDescriptor()
+    descriptor.rematch_result = winner
+    item = ChangeItem(entity_type="fake", entity_id=loser, changed_at=NOW, change_kind="updated")
+    client = FakeClient(
+        changes_pages=[ChangePage(items=[item], next_after=9)],
+        entities={winner: _record("x", "Winner", pm_id=winner, updated_at=_PM_NEWER)},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    applied = await engine.process_feed(db_session, now=NOW)
+    await db_session.refresh(row)
+
+    assert applied == 0  # heal-routed items count as neither processed nor healed
+    assert row.pm_fake_id == winner  # re-anchored via the heal, not skipped
+    assert row.name == "Winner"
+    assert row.deleted_at is None
+
+
+async def test_process_feed_404_for_unanchored_entity_still_skips(db_session, fake_descriptor):
+    """A 404 for an entity we hold no row for (subscribed but gone before we ever
+    mirrored it) has nothing to heal — still a plain skip, no crash, no row minted."""
+    item = ChangeItem(entity_type="fake", entity_id=ULID(), changed_at=NOW, change_kind="updated")
+    client = FakeClient(changes_pages=[ChangePage(items=[item], next_after=9)])  # 404s
+    engine = SyncEngine([fake_descriptor], client)
+
+    applied = await engine.process_feed(db_session, now=NOW)
+
+    assert applied == 0
+    assert (await db_session.execute(select(FakeEntity))).first() is None
+
+
 async def test_process_feed_deleted_ignores_unproduced_entity(db_session):
     """A `deleted` event for an entity we never anchored is a no-op (not ours)."""
     descriptor = RematchCohortDescriptor()
