@@ -497,7 +497,15 @@ class Sidecar:
             async with self._session_factory() as session:
                 if not await self._replay_due(session, now):
                     return True
+                started = self._clock()
                 result = await self._engine.replay_from_floor(session, now=now)
+                # End-stamp the cadence (usa-wa#211): the engine stamped the cycle-start
+                # ``now``, but a pass approaching the cadence would then be due again
+                # almost immediately — the silent duty-cycle stacking that held PM at
+                # its rate limit for 19h. Re-stamping with the pass END guarantees a
+                # full cadence of idle PM time between passes, whatever a pass costs.
+                ended = self._clock()
+                await self._stamp_replay_completed(session, ended)
                 if result.fell_off:
                     # The replay floor fell off PM's retention window: a pruned slice
                     # can't be replayed, so force the anchored-cohort scan due now rather
@@ -511,6 +519,19 @@ class Sidecar:
             # reports None rather than the previous pass's stale numbers as if fresh.
             self._replay_ran_this_cycle = True
             self._last_replay_result = result
+            duration = (ended - started).total_seconds()
+            if ended - started >= self._replay_cadence:
+                # The loud half of the #211 duty-cycle rule: end-stamping makes
+                # back-to-back stacking structurally impossible, and a pass that ran a
+                # whole cadence is an operator-visible anomaly, not a silent steady state.
+                logger.warning(
+                    "sidecar_replay_overrun",
+                    extra={
+                        "duration_seconds": duration,
+                        "cadence_seconds": self._replay_cadence.total_seconds(),
+                        "items": result.items,
+                    },
+                )
             logger.info(
                 "sidecar_replay",
                 extra={
@@ -519,6 +540,12 @@ class Sidecar:
                     "fell_off": result.fell_off,
                     "floor": result.floor,
                     "high_water": result.high_water,
+                    # usa-wa#211: the per-pass request budget, observable — items is the
+                    # enumeration count (≤ one detail GET each; 304s/404s still spend a
+                    # rate-limit token), budget_exhausted marks a carried-over pass.
+                    "items": result.items,
+                    "budget_exhausted": result.budget_exhausted,
+                    "duration_seconds": duration,
                 },
             )
             return True
@@ -526,6 +553,24 @@ class Sidecar:
             logger.exception("sidecar_replay_failed")
             self._cycle_errors.append(f"replay: {exc!r}")
             return False
+
+    async def _stamp_replay_completed(self, session: AsyncSession, ended: datetime) -> None:
+        """Overwrite ``REPLAY_STREAM.last_reconcile_at`` with the pass END time (#211).
+
+        The engine stamps the caller's ``now`` (the cycle start) for determinism; the
+        deployment's cadence policy is that the interval runs from pass *completion*,
+        so a pass can never make itself immediately due again however long it ran —
+        the duty cycle is bounded at ``duration / (duration + cadence)`` < 100% by
+        construction. Mirrors :meth:`_mark_subscription_synced`.
+        """
+        state = (
+            await session.execute(select(SyncState).where(SyncState.stream == REPLAY_STREAM))
+        ).scalar_one_or_none()
+        if state is None:
+            state = SyncState(stream=REPLAY_STREAM)
+            session.add(state)
+        state.last_reconcile_at = ended
+        await session.flush()
 
     async def _force_anchored_rescan(self, session: AsyncSession) -> None:
         """Clear the anchored-cohort reconcile stamps so the full scan runs next cycle (#159).

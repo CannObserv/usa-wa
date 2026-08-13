@@ -1153,11 +1153,12 @@ class _ScalarResult:
 
 class _ReplaySession:
     """Fake session for _replay_due/_run_replay: returns a preset SyncState row and
-    records commits. Ignores the concrete statement (the #85 _FakeSession style)."""
+    records commits + adds. Ignores the concrete statement (the #85 _FakeSession style)."""
 
     def __init__(self, replay_state=None) -> None:
         self._replay_state = replay_state
         self.committed = False
+        self.added: list = []
 
     async def __aenter__(self) -> "_ReplaySession":
         return self
@@ -1167,6 +1168,12 @@ class _ReplaySession:
 
     async def execute(self, _stmt):
         return _ScalarResult(self._replay_state)
+
+    def add(self, obj) -> None:
+        self.added.append(obj)
+
+    async def flush(self) -> None:
+        return None
 
     async def commit(self) -> None:
         self.committed = True
@@ -1243,6 +1250,85 @@ async def test_run_replay_failure_is_isolated(caplog):
     # #159 CR-4: a raising pass must NOT mark the cycle as having run, else the summary
     # would surface a prior pass's stale numbers as if they were this cycle's.
     assert sidecar._replay_ran_this_cycle is False
+
+
+async def test_run_replay_stamps_completion_time(caplog):
+    """usa-wa#211: the cadence measures from pass END, not start. A long pass used to
+    stamp its start time, so a pass approaching the cadence made itself due again almost
+    immediately — the silent duty-cycle stacking. End-stamping guarantees a full cadence
+    of idle time between passes regardless of pass duration."""
+    started = NOW + timedelta(minutes=1)
+    ended = NOW + timedelta(minutes=40)
+    times = iter([started, ended])
+    engine = _StubReplayEngine(_RESULT)
+    session = _ReplaySession()  # no REPLAY_STREAM row → due, and the stamp creates one
+    sidecar = Sidecar(
+        engine,  # type: ignore[arg-type]
+        descriptors=[],
+        session_factory=lambda: session,
+        replay_enabled=True,
+        replay_cadence=timedelta(hours=1),
+        clock=lambda: next(times),
+    )
+
+    ok = await sidecar._run_replay(NOW)
+
+    assert ok is True and session.committed
+    stamped = [o for o in session.added if isinstance(o, SyncState)]
+    assert len(stamped) == 1 and stamped[0].stream == REPLAY_STREAM
+    assert stamped[0].last_reconcile_at == ended  # pass END, not the cycle-start NOW
+
+
+async def test_run_replay_warns_on_cadence_overrun(caplog):
+    """usa-wa#211: a pass that ran at least as long as the cadence is loud — the
+    impossible-or-loud half of the duty-cycle rule (end-stamping makes back-to-back
+    stacking impossible; the overrun warning makes a saturating pass visible)."""
+    times = iter([NOW, NOW + timedelta(minutes=90)])  # pass duration 90m ≥ 1h cadence
+    sidecar = Sidecar(
+        _StubReplayEngine(_RESULT),  # type: ignore[arg-type]
+        descriptors=[],
+        session_factory=lambda: _ReplaySession(),
+        replay_enabled=True,
+        replay_cadence=timedelta(hours=1),
+        clock=lambda: next(times),
+    )
+
+    with caplog.at_level("WARNING"):
+        ok = await sidecar._run_replay(NOW)
+
+    assert ok is True
+    rec = next(r for r in caplog.records if r.message == "sidecar_replay_overrun")
+    assert rec.duration_seconds == 5400.0
+
+
+async def test_sidecar_replay_log_carries_budget_fields(caplog):
+    """usa-wa#211: the per-pass request budget is observable — the sidecar_replay line
+    carries the enumeration count, the budget verdict, and the pass duration."""
+    result = ReplayResult(
+        applied=3,
+        healed=1,
+        fell_off=False,
+        floor=40000,
+        high_water=50000,
+        items=42,
+        budget_exhausted=True,
+    )
+    times = iter([NOW, NOW + timedelta(minutes=5)])
+    sidecar = Sidecar(
+        _StubReplayEngine(result),  # type: ignore[arg-type]
+        descriptors=[],
+        session_factory=lambda: _ReplaySession(),
+        replay_enabled=True,
+        replay_cadence=timedelta(hours=1),
+        clock=lambda: next(times),
+    )
+
+    with caplog.at_level("INFO"):
+        await sidecar._run_replay(NOW)
+
+    rec = next(r for r in caplog.records if r.message == "sidecar_replay")
+    assert rec.items == 42 and rec.budget_exhausted is True
+    assert rec.duration_seconds == 300.0
 
 
 async def test_cycle_summary_surfaces_replay_delta(db_session, caplog):
