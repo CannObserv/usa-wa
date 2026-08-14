@@ -316,6 +316,15 @@ class Sidecar:
                 "replay_healed": replay.healed if replay else None,
                 "replay_applied": replay.applied if replay else None,
                 "replay_fell_off": replay.fell_off if replay else None,
+                # Per-pass request budget (usa-wa#211) on the *standing* surface, not
+                # only the per-pass line: a sustained ``replay_budget_exhausted`` is the
+                # "replay is falling behind the feed" signal. Terminal lag does alert on
+                # its own (the floor eventually drops below PM's retained ``min_seq`` and
+                # latches ``fell_off``), but PM retains 90 days, so without this a
+                # degraded backstop can run a quarter with nothing in the standing log —
+                # the #84 shape the summary exists to prevent.
+                "replay_items": replay.items if replay else None,
+                "replay_budget_exhausted": replay.budget_exhausted if replay else None,
                 # Conditional GET on the reconcile (usa-wa#160): rows 304-skipped vs.
                 # re-fetched full this cycle. A high skipped share = the bandwidth/DB win.
                 "conditional_get_skipped": self._last_conditional_get[0],
@@ -606,7 +615,14 @@ class Sidecar:
 
         Due immediately on first run (no stamp), then every ``replay_cadence``. Mirrors
         :meth:`_subscription_backstop_due`, keyed on ``REPLAY_STREAM``'s
-        ``last_reconcile_at`` (stamped by :meth:`SyncEngine.replay_from_floor`).
+        ``last_reconcile_at``.
+
+        The authority on that stamp is :meth:`_stamp_replay_completed`, which overwrites
+        the engine's cycle-start value with the pass **end** time — so the cadence runs
+        end-to-start, not start-to-start. That is the whole of usa-wa#211's duty-cycle
+        fix: measured from the start, a pass approaching the cadence became due again
+        almost immediately and passes stacked back-to-back. Do not "simplify" the
+        re-stamp away as redundant with the engine's.
         """
         state = (
             await session.execute(select(SyncState).where(SyncState.stream == REPLAY_STREAM))

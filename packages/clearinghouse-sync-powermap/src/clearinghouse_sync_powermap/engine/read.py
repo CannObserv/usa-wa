@@ -995,7 +995,11 @@ class Reconciler:
                     },
                 )
                 break
-        # Stamp the replay stream so the cadence gate waits a full interval; persist the
+        # Stamp the replay stream so the cadence gate waits a full interval — note the
+        # deployment overwrites this with the pass END time (``Sidecar
+        # ._stamp_replay_completed``, usa-wa#211), which is what actually bounds the duty
+        # cycle; this cycle-start value is the deterministic fallback for a direct or
+        # ad-hoc caller of this method. Also persist the
         # verified watermark (usa-wa#211) — the seq this pass caught up to (or stopped at
         # on budget exhaustion), which the next pass floors from. Monotonic via max():
         # an immediate-tail pass leaves ``after`` at the floor and must not walk the

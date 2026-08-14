@@ -1344,6 +1344,31 @@ async def test_cycle_summary_surfaces_replay_delta(db_session, caplog):
     assert rec.replay_healed == 1 and rec.replay_applied == 3 and rec.replay_fell_off is False
 
 
+async def test_cycle_summary_surfaces_replay_budget(db_session, caplog):
+    """CR #218/6: the per-pass request budget rides the *standing* summary too, not only
+    the per-pass sidecar_replay line. A sustained ``replay_budget_exhausted`` is the
+    "replay is falling behind the feed" signal; terminal lag latches ``fell_off`` on its
+    own, but only once the floor drops below PM's 90-day retention — a quarter of silence
+    without this field."""
+    sidecar = _summary_sidecar()
+    sidecar._last_replay_result = ReplayResult(
+        applied=3,
+        healed=1,
+        fell_off=False,
+        floor=40000,
+        high_water=50000,
+        items=2000,
+        budget_exhausted=True,
+    )
+    sidecar._replay_ran_this_cycle = True
+
+    with caplog.at_level("INFO"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    rec = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
+    assert rec.replay_items == 2000 and rec.replay_budget_exhausted is True
+
+
 async def test_cycle_summary_omits_replay_fields_on_non_run_cycle(db_session, caplog):
     """Replay is hourly but the summary is ~per-minute: on a cycle where no replay pass
     ran, the replay_* fields report None (last-pass values must not repeat, #159 CR-3)."""
@@ -1356,6 +1381,7 @@ async def test_cycle_summary_omits_replay_fields_on_non_run_cycle(db_session, ca
 
     rec = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
     assert rec.replay_healed is None and rec.replay_applied is None and rec.replay_fell_off is None
+    assert rec.replay_items is None and rec.replay_budget_exhausted is None
 
 
 async def test_replay_fall_off_alerts_once_and_rearms(db_session):
