@@ -52,17 +52,28 @@ class SidecarSettings(BaseSettings):
     #: the primary path — so a twice-daily sweep of a low-churn dataset is ample and
     #: cuts the steady-state ``people`` read volume the feed already covers in real time.
     reconcile_cadence: timedelta = timedelta(hours=12)
-    #: Changes-feed replay backstop (usa-wa#159). ``replay_enabled`` is the kill switch
-    #: for the trailing re-read that re-covers PM's at-least-once concurrent-commit skip
-    #: (power-map#387); ``replay_margin`` is how many outbox-seq below the live cursor it
-    #: re-reads each pass (must exceed PM's worst-case in-flight-write span — see
-    #: :data:`~clearinghouse_sync_powermap.engine.DEFAULT_REPLAY_MARGIN`); ``replay_cadence``
-    #: is how often it runs. Hourly + cheap (subscription-filtered, low churn), so it
-    #: catches a skip promptly while the widened anchored-cohort scan covers only the
-    #: no-emit residual PM's triggers cannot feed (hard-delete/bulk/telemetry).
+    #: Changes-feed replay backstop (usa-wa#159, re-costed in usa-wa#211). ``replay_enabled``
+    #: is the kill switch for the trailing re-read that re-covers PM's at-least-once
+    #: concurrent-commit skip (power-map#387). Each pass floors at the persisted verified
+    #: watermark minus ``replay_retain`` — a small trail sized against PM's worst-case
+    #: in-flight-write span (see :data:`~clearinghouse_sync_powermap.engine
+    #: .DEFAULT_REPLAY_RETAIN`) — so the window narrows as the stream converges;
+    #: ``replay_margin`` is only the one-off bootstrap depth for a stream with no
+    #: watermark. ``replay_max_items`` bounds one pass's enumeration (≤ one detail GET
+    #: per item — a 304 still spends a rate-limit token) with lossless carry-over via
+    #: the watermark; ``replay_cadence`` runs from pass *end* (the sidecar end-stamps),
+    #: so a full cadence of idle PM time separates passes whatever a pass costs.
+    #: Steady-state cost is the retained trail plus feed novelty — a few hundred detail
+    #: GETs per pass, minutes of paced traffic per hour. Before #211 the floor was
+    #: pinned at ``high_water − margin`` and the same ~10k-seq window re-read every
+    #: pass forever: 117,932 requests in 19h at 1.73–1.97 req/s against the 2 req/s
+    #: ceiling, ending in a PM 503 — the docstring's old "hourly + cheap" claim was
+    #: measured false, which is what #211 fixed.
     replay_enabled: bool = True
     replay_margin: int = 10_000
     replay_cadence: timedelta = timedelta(hours=1)
+    replay_retain: int = 1_000
+    replay_max_items: int = 2_000
     #: Conditional GET on the two backstop read paths — the anchored-cohort reconcile and
     #: the trailing changes-feed replay (usa-wa#160): send PM's stored ETag as If-None-Match
     #: and skip a full re-fetch + re-apply on a 304 (power-map#385). The *live* feed stays

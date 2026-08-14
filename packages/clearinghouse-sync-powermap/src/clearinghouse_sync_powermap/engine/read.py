@@ -90,12 +90,16 @@ CHANGES_STREAM = "changes_feed"
 
 #: SyncState stream key for the trailing changes-feed *replay* backstop (usa-wa#159).
 #: Distinct from ``CHANGES_STREAM``: the live feed advances its cursor to the newest
-#: seq consumed, while replay re-reads a trailing window (``high_water − margin``) each
-#: cycle to re-cover PM's at-least-once concurrent-commit skip (power-map#387). Its
-#: ``last_reconcile_at`` gates the replay cadence; its ``cursor`` records the high-water
-#: the last pass reached (informational only — each pass re-derives its floor from the
-#: live ``changes_feed`` cursor and never reads this back, so a crash mid-pass simply
-#: re-reads from the floor next cycle rather than resuming).
+#: seq consumed, while replay re-reads a trailing window each cycle to re-cover PM's
+#: at-least-once concurrent-commit skip (power-map#387). Its ``last_reconcile_at``
+#: gates the replay cadence; its ``cursor`` is the **verified watermark** (usa-wa#211,
+#: load-bearing since then): the seq the last pass caught up to, read back at the start
+#: of every pass to derive the floor (``verified − retain``) — this is what lets the
+#: window narrow as it converges instead of re-reading a flat ``high_water − margin``
+#: trail forever (the #211 rate-limit saturation). Only written at pass end, so a crash
+#: mid-pass re-reads from the previous watermark next cycle — at-least-once, never a
+#: gap. Persisting it also re-costs a restart: the first post-restart pass resumes from
+#: the watermark instead of re-crawling the full margin.
 REPLAY_STREAM = "changes_replay"
 
 #: Safety ceiling on the legacy ``full_list`` reconcile pagination loop (#6). The
@@ -150,6 +154,13 @@ class ReplayResult:
     pruned from the 90-day window, so replay could not cover it and the caller must fall
     back to a full cohort scan for that gap. ``floor``/``high_water`` are surfaced for
     the cycle-summary log.
+
+    ``items`` (usa-wa#211) is the pass's total feed-item enumeration — the
+    request-budget observable: each item costs at most one detail GET (a ``304`` or
+    ``404`` still spends a rate-limit token), so this bounds the pass's PM detail
+    traffic where ``applied`` (which excludes 304-skips and delete-routed items) does
+    not. ``budget_exhausted`` is True when the pass stopped at ``replay_max_items``
+    and carried the remainder over via the verified watermark.
     """
 
     applied: int
@@ -157,6 +168,8 @@ class ReplayResult:
     fell_off: bool
     floor: int
     high_water: int
+    items: int = 0
+    budget_exhausted: bool = False
 
 
 class Reconciler:
@@ -873,10 +886,28 @@ class Reconciler:
         *primary* safety net. PM's changes feed is monotonic but **at-least-once, not
         gapless** (power-map#387): a concurrent-commit skip — a lower seq that commits
         *after* the live consumer advanced past it — is never re-delivered incrementally.
-        So this re-reads from ``high_water − replay_margin`` (:func:`_replay_floor`) each
-        pass and re-applies every item through the shared :meth:`_apply_feed_page`. A
-        skipped seq inside the window is recovered; an already-current row is an idempotent
-        LWW no-op. O(items in the window), not O(cohort) — the feed is subscription-filtered.
+        So this re-reads a trailing window each pass and re-applies every item through
+        the shared :meth:`_apply_feed_page`. A skipped seq inside the window is
+        recovered; an already-current row is an idempotent LWW no-op. O(items in the
+        window), not O(cohort) — the feed is subscription-filtered.
+
+        **The window narrows as it converges (usa-wa#211).** The floor is derived by
+        :func:`_replay_floor` from the persisted **verified watermark** (this stream's
+        ``cursor``: the seq the last completed pass caught up to): steady-state passes
+        read from ``verified − replay_retain`` — a small trail sized against PM's
+        worst-case in-flight-write span — while only a stream with no watermark
+        bootstraps from ``high_water − replay_margin``. Safety argument: every seq is
+        first replay-read in the pass that catches up past it, then re-read while it
+        stays inside the retained trail; a write whose commit straggles behind its seq
+        by more than ``retain`` seqs is the (excluded-by-sizing) residual the anchored
+        cohort scan covers. The pre-#211 flat window re-read the same ~10k seqs every
+        hour forever and saturated PM's rate limit (117,932 requests / 19h).
+
+        **Bounded passes (usa-wa#211).** A pass stops after ``replay_max_items`` feed
+        items (each costs at most one detail GET — a 304 still spends a rate-limit
+        token) and persists its stopping seq as the watermark, so the remainder carries
+        over losslessly to the next pass. The watermark is monotonic
+        (``max(after, verified)``) so an empty tail page can never regress the floor.
 
         ``high_water`` is read from the *live* ``changes_feed`` cursor (this trails it; it
         never advances it). Horizon fall-off: if the floor sits below PM's oldest-retained
@@ -899,10 +930,18 @@ class Reconciler:
             await session.flush()
             logger.info("powermap_replay_skipped_unbootstrapped", extra={"high_water": high_water})
             return ReplayResult(applied=0, healed=0, fell_off=False, floor=0, high_water=0)
-        floor = _replay_floor(high_water, self._ctx.replay_margin)
+        # The verified watermark (usa-wa#211): the seq the last completed pass caught up
+        # to. A garbage cursor parses to 0 (warned by _parse_after) and, like an absent
+        # one, falls back to the margin bootstrap — 0 verified history either way.
+        verified = _parse_after(await self._read_cursor(session, REPLAY_STREAM)) or 0
+        floor = _replay_floor(
+            high_water, self._ctx.replay_margin, verified=verified, retain=self._ctx.replay_retain
+        )
         after = floor
         applied = 0
         healed = 0
+        items = 0
+        budget_exhausted = False
         fell_off = False
         pages = 0
         # Pass-level dead-id memory (usa-wa#213): the trailing window often holds many
@@ -936,19 +975,48 @@ class Reconciler:
             )
             applied += page_processed
             healed += page_healed
+            items += len(page.items)
             nxt = page.next_after
             if nxt is None or nxt <= after:
                 break  # caught up: an empty / non-advancing page is the tail
             after = nxt
-        # Stamp the replay stream so the cadence gate waits a full interval; the cursor
-        # records the high-water this pass reached (informational — a fresh pass re-derives
-        # the floor from the live cursor, so a crash mid-pass just re-reads next cycle).
+            if items >= self._ctx.replay_max_items:
+                # Per-pass request budget (usa-wa#211): stop loudly and carry over —
+                # ``after`` (persisted below as the watermark) marks the resume point,
+                # so the un-read remainder is covered by the next pass, not lost.
+                budget_exhausted = True
+                logger.info(
+                    "powermap_replay_budget_exhausted",
+                    extra={
+                        "items": items,
+                        "max_items": self._ctx.replay_max_items,
+                        "after": after,
+                        "high_water": high_water,
+                    },
+                )
+                break
+        # Stamp the replay stream so the cadence gate waits a full interval — note the
+        # deployment overwrites this with the pass END time (``Sidecar
+        # ._stamp_replay_completed``, usa-wa#211), which is what actually bounds the duty
+        # cycle; this cycle-start value is the deterministic fallback for a direct or
+        # ad-hoc caller of this method. Also persist the
+        # verified watermark (usa-wa#211) — the seq this pass caught up to (or stopped at
+        # on budget exhaustion), which the next pass floors from. Monotonic via max():
+        # an immediate-tail pass leaves ``after`` at the floor and must not walk the
+        # watermark backwards. Only written here at pass end, so a crash mid-pass
+        # re-reads from the previous watermark (at-least-once, never a gap).
         state = await self._get_or_create_state(session, REPLAY_STREAM)
         state.last_reconcile_at = now
-        state.cursor = str(after)
+        state.cursor = str(max(after, verified))
         await session.flush()
         return ReplayResult(
-            applied=applied, healed=healed, fell_off=fell_off, floor=floor, high_water=high_water
+            applied=applied,
+            healed=healed,
+            fell_off=fell_off,
+            floor=floor,
+            high_water=high_water,
+            items=items,
+            budget_exhausted=budget_exhausted,
         )
 
     # --- sync-state helpers ---------------------------------------------------
@@ -975,15 +1043,26 @@ def _reconcile_stream(descriptor: EntityDescriptor) -> str:
     return f"reconcile:{descriptor.entity_type}"
 
 
-def _replay_floor(high_water: int | None, margin: int) -> int:
-    """The seq the replay backstop re-reads *after* (usa-wa#159): ``high_water − margin``,
-    clamped at 0.
+def _replay_floor(
+    high_water: int | None, margin: int, *, verified: int | None = None, retain: int = 0
+) -> int:
+    """The seq the replay backstop re-reads *after* (usa-wa#159/#211), clamped at 0.
+
+    With a **verified watermark** (usa-wa#211: the seq the last completed pass caught up
+    to, persisted on ``REPLAY_STREAM.cursor``) the floor is ``verified − retain`` — the
+    steady state, where the window is the small in-flight-write trail plus whatever the
+    live feed consumed since the last pass, narrowing as the stream converges. Without
+    one (``None`` or 0 — a stream that has never completed a pass) it bootstraps at
+    ``high_water − margin``, covering the pre-replay history once.
 
     ``high_water`` is the live feed's persisted cursor (the newest seq the incremental
     consumer has advanced past); ``None`` (a fresh stream that has never run the live
     feed) floors at 0 — replay the whole retained window. The clamp keeps the floor a
-    valid ``after`` (never negative); ``margin`` ≥ high_water also floors at 0.
+    valid ``after`` (never negative); ``margin`` ≥ high_water (or ``retain`` ≥ verified)
+    also floors at 0.
     """
+    if verified:
+        return max(0, verified - retain)
     return max(0, (high_water or 0) - margin)
 
 
