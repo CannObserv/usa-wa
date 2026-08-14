@@ -69,9 +69,10 @@ Contents (column-aware parse of the district section, prototype run 2026-08-14):
 | Placement | New **source subpackage** `roster_pdf/` inside `usa-wa-adapter-legislature` — same jurisdiction+target, second source. The SOS `filings` + `results` split is the worked precedent (ARCHITECTURE.md); the package already splits on the archive axis (#183). |
 | Source slug | `usa_wa_legislature_roster`, archival retention, its own `Source` row + `coverage.py` claims (`member_roster` **verified** 1889–2025). |
 | Archive key | `legroster:<revision-date>` (e.g. `legroster:2025-06-05`) — the in-document revision date is the natural version key; sha256 stamped on the `FetchEvent` for change detection. |
+| Citation granularity | **One archive key per revision** — a 1943 row cites `legroster:2025-06-05`. No synthetic per-(district, year) target. The citation names the *wire that attested the fact*, and one revision of one document is exactly that wire; a synthetic per-row target would assert a provenance granularity the source does not have. (Settled 2026-08-14.) |
 | Extraction | **`pdfplumber`** as a real `uv` dependency — *not* shelling out to poppler's `pdftotext`. Units run `uv run --frozen --no-sync`, so a system binary is invisible to `uv.lock` and would break silently on a fresh VM. Word bounding boxes are required (see below), which rules out `pypdf` text-only extraction. |
 | Phase split | Phase A archives the 5.7MB bytes; Phase B parses **offline** from `RawPayload`. The parser will need revision; re-running it must never re-fetch. |
-| Cadence | **Quarterly**, never in the daily refresh. Not a systemd timer initially — a documented backfill CLI plus a change-detection probe. |
+| Cadence | **Quarterly**, never in the daily refresh. **No systemd timer at all** — a documented backfill CLI plus a change-detection probe, run ad-hoc. Closed history does not drift, so a timer would burn cycles re-deriving a constant. (Settled 2026-08-14.) |
 | Authority | **Closed biennia below the WSL floor only.** Operator events + WSL/SOS win for the current biennium, always. |
 
 ### Why the y-coordinate join is non-negotiable
@@ -124,6 +125,10 @@ Before 1965 WA House seats were **fungible at-large**: no Position existed. The 
 
 **power-map#302 (at-large seat modeling) is open and blocks the pre-1965 House seat entirely.** Until it lands: harvest and archive pre-1965 House rows, emit Persons and party spans from them, emit **no House seat assignment**. The 1965 floor is a hard gate in the builder, not a convention.
 
+**Party spans are *not* blocked by #302 — verified 2026-08-14, not assumed.** A party role is non-districted: live `canonical.roles` holds 2 `party_member` rows with **0 jurisdiction_id and 0 qualifier**, so party identity is keyed on `(organization_id, name)` via the `uq_roles_org_name` partial index (`jurisdiction_id IS NULL`). Seat shape — Position, at-large, and everything #302 governs — lives entirely in the disjoint `uq_roles_seat` index (`jurisdiction_id IS NOT NULL`). The two cannot interact. Pre-1965 party emission therefore proceeds in Phase 3 with the House seat withheld.
+
+**But the party vocabulary must be extended first.** [`canonicalize_party`](../../packages/usa-wa-common/src/usa_wa_common/parties.py) folds only R/D and returns `None` for everything else — and `None` means *no party Assignment*. The historical minor parties (P.P. 53, Pop. 50, Prog. 46, Silver Rep. 11, F.L. 7, Cit. 1 = **168 member-year records**) would therefore be **silently dropped**, which is precisely the failure mode the never-silently-drop rule exists to prevent. Phase 3 must add the historical tokens and mint their party Organizations (today only 2 exist), or explicitly decline them with a tally — never fold them to `None` by default.
+
 ## Phasing
 
 Ascending write-risk. Each phase ships independently and is separately valuable.
@@ -132,7 +137,7 @@ Ascending write-risk. Each phase ships independently and is separately valuable.
 
 **Phase 2 — operator-event backfill.** Emit dated `seated`/`vacated`/`departed` events into the #107 store from the 922 dated annotations. #119's sub-biennium collapse then resolves through machinery that already exists. **Note the #119 synthesize guard**: an out-of-biennium `seated` with no built span is skipped by design (`operator_seated_no_span_out_of_biennium`), so this requires the unrestricted backfill run, exactly as documented in `operator_overlay.py`. **Acceptance oracle:** LD2 Position 1 — Alexander/Hunt/Barkis land on their four real dates. Run sidecar-paused; PM keys on `(person, role, start_date)`, so a start-date move is a PM re-anchor.
 
-**Phase 3 — pre-1991 backfill.** Persons + party + chamber spans, 1889–1990, plus House Positions 1965+ under the (b) guardrails and no House seat pre-1965. Biggest payoff (roughly a 5× increase in member-year coverage), biggest identity risk. Gate on Phase 1's reported match rate.
+**Phase 3 — pre-1991 backfill.** Persons + party + chamber spans, 1889–1990, plus House Positions 1965+ under the (b) guardrails and no House seat pre-1965. Biggest payoff (roughly a 5× increase in member-year coverage), biggest identity risk. Gate on Phase 1's reported match rate. **Prerequisite:** extend `canonicalize_party` to the historical minor parties and mint their Organizations, else 168 member-year records fold to `None` and vanish (see above).
 
 **Phase 4 (deferred) — leadership.** Officers sections + 158 `(Speaker)` annotations → the first `role_type = leadership` rows. Deferred because it needs a PM role-shape decision, not because it is hard.
 
@@ -159,9 +164,14 @@ Contrast the daily timers (06:45/07:00/07:05/07:15 UTC): those exist because the
 | PM anchor churn on start-date moves (#80) | Phases 2 and 3 run sidecar-paused, in the same window as the migrate, before anything drains |
 | URL rot | Discovery step + 404-means-rediscover |
 | Bold-year (redistricting) signal lost in extraction | Font-attribute extraction or cross-reference p168; do not infer |
+| 168 historical minor-party records silently folded to `None` by `canonicalize_party` | Phase 3 prerequisite: extend the vocabulary + mint the party Organizations, or decline with a tally — never drop by default |
 
-## Open questions
+## Settled questions
 
-1. Should Phase 1's oracle run as a **timer** (weekly, report-only) or stay ad-hoc? Leaning ad-hoc — closed history does not drift, so a timer would burn cycles to re-derive a constant.
-2. Citation granularity: one archive key per revision means a 1943 row cites `legroster:2025-06-05`. Acceptable, or does the citation need a synthetic per-(district, year) target?
-3. Does the pre-1965 party-span emission need power-map#302 too, or only the seat? Reading is: party is a `party_member` role, orthogonal to seat shape, so it is unblocked. Confirm before Phase 3.
+All three resolved 2026-08-14. Recorded here rather than deleted — the reasoning is the durable part.
+
+1. **Phase 1's oracle stays ad-hoc — no timer.** Closed history does not drift, so a weekly report-only timer would spend cycles re-deriving a constant, and a green check that can never go red trains operators to ignore it. Run it on demand: after a revision lands, before a backfill phase, or when auditing a succession conflict. Folded into the design-decisions table.
+2. **One archive key per revision.** A 1943 row cites `legroster:2025-06-05`, and that is correct rather than merely acceptable: the citation names the wire that attested the fact, and one revision of one document *is* that wire. A synthetic per-(district, year) target would manufacture a provenance granularity the source does not possess.
+3. **Pre-1965 party spans are unblocked by power-map#302** — party is a `party_member` role, orthogonal to seat shape. Verified against the live schema rather than left as a reading: party roles carry no `jurisdiction_id` and no `qualifier`, so they are keyed by the `uq_roles_org_name` partial index, disjoint from the `uq_roles_seat` index where all seat shape (Position, at-large) lives. **This surfaced a genuine Phase 3 prerequisite** — `canonicalize_party` handles only R/D and silently returns `None` otherwise, so 168 historical minor-party member-year records would disappear without a vocabulary extension. See the pre-1965 section.
+
+No open questions remain. Phase 1 is ready to start.
