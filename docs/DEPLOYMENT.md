@@ -32,6 +32,38 @@ Every timer row above is pinned against the unit's own `OnCalendar=` by
 no row here — or a row whose cadence has drifted from the unit — fails the suite.
 The same guard pins README's fresh-host provisioning block.
 
+## Scheduled work outside systemd (#221)
+
+One scheduled job does **not** run on this VM and so appears in neither table
+above: `.github/workflows/context-cadence.yml`, a GitHub Actions workflow on
+`11 18 * * 3` (Wed 18:11 UTC). It measures the agent-context surface —
+`AGENTS.md` against its 6,000-token budget, plus the doc tree and cross-reference
+seams — and appends **one** `baseline:scheduled` row to
+`.skills/context-metrics.jsonl`, refreshing `.skills/context-token-ratio` and
+`.skills/context-token-counts` in the same commit. It does not curate; curation
+needs judgement and stays agent-triggered, prompted by what the rows show.
+Installed and verified by the `curating-context` skill's `install-cadence.sh` —
+re-run that rather than hand-editing the workflow.
+
+Two consequences for anyone working on the VM:
+
+- **`main` has a second author.** The job pushes as `github-actions[bot]`, so the
+  prod checkout at `/home/exedev/usa-wa` falls behind `origin/main` roughly
+  weekly. Nothing auto-pulls, and `assert-main-checkout.sh` asserts the branch
+  *name*, not sync with origin — so nothing breaks, but **pull before you push**
+  or a commit made on the VM's `main` hits a non-fast-forward.
+- **Red means the mechanism broke, never that the surface grew.** Budget and seam
+  drift are reported as `::warning::` and never fail the job. A failing run means
+  the measurement did not happen — most likely the `ANTHROPIC_API_KEY` org secret
+  stopped resolving, which the workflow preflights first precisely because the
+  alternative failure is silence.
+
+`.gitattributes` carries `.skills/context-metrics.jsonl merge=union` for this
+job: the ledger is append-only, so a scheduled append racing a human commit lands
+on the same last line and cannot auto-merge. The two calibration files it also
+commits have no such driver — avoid landing a `curate context` commit inside the
+Wed 18:11 UTC window.
+
 ## Failure alerting (#49)
 
 The unattended oneshots fail silently on a headless box — a `failed` state in the
