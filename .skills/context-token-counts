@@ -1,0 +1,29 @@
+# <bytes> <tokens> <path> — per-file token calibration (#145)
+# Written by measure-context.sh --exact; regenerate rather than hand-edit.
+# The offline estimators prefer a file's own last exact measurement to the
+# repo-wide figure in .skills/context-token-ratio, falling back to it for a
+# file never counted exactly or since drifted far from the size recorded here.
+13728 5886 AGENTS.md
+8997 3541 docs/API.md
+16459 6252 docs/ARCHITECTURE.md
+2631 1070 docs/CODE-EXPLORATION.md
+21698 8736 docs/COMMANDS-BACKFILL.md
+10208 4193 docs/COMMANDS-SEATS.md
+14732 5649 docs/COMMANDS-SUCCESSION.md
+16588 6806 docs/COMMANDS-SYNC.md
+17951 7790 docs/COMMANDS.md
+20087 8591 docs/DEPLOYMENT.md
+9458 3860 docs/ENVIRONMENT.md
+10493 3911 docs/LWW-NOOP-GATE.md
+5927 2273 docs/MODULES-COMMON.md
+8361 3311 docs/MODULES-FACTS-SEATS.md
+18239 7189 docs/MODULES-FRAMEWORK.md
+18537 7131 docs/MODULES-LEGISLATURE-SPANS.md
+17904 7057 docs/MODULES-LEGISLATURE.md
+13215 5216 docs/MODULES-PDC.md
+20982 8328 docs/MODULES-SOS.md
+22332 8627 docs/MODULES-SYNC-ENGINE.md
+11263 4484 docs/MODULES-SYNC-PRODUCERS.md
+13718 5385 docs/MODULES-SYNC.md
+22463 8426 docs/ONTOLOGY.md
+9484 3682 docs/SKILLS.md
