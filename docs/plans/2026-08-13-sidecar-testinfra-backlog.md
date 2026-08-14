@@ -108,6 +108,24 @@ against post-A main. Line refs in #208/#213 already drifted once (`:96`→`:120`
   recorded in #216; needs #208 landed first anyway).
 - #117 write-path non-convergence — explicitly distinct from #212 (read path).
 
+## Execution outcome (2026-08-14)
+
+All five issues shipped and closed. Batch A merged at `92bd3cc`, Batch B at `8f85c13`; two CR
+rounds, 8 findings, zero bugs. Full results and the first-pass production numbers are on
+[#218](https://github.com/CannObserv/usa-wa/issues/218).
+
+Ops tail executed: `REPLAY_ENABLED=false` removed (backup `/etc/usa-wa/.env.bak-20260814-pre211`),
+both units restarted, replay running unswitched. First pass: `healed=0` (the value #212 argued was
+structurally unreachable), 913 items against a 2,000 budget, 465s per 1h cadence ≈ 11% duty vs
+>100%, and 10 PM requests in the following 10 minutes — the 1/min feed poll alone.
+
+**Plan defect worth carrying forward.** The batch-branch shape in this doc had the orchestrator
+check `batch/<X>` out in the prod checkout. This repo's `assert-main-checkout.sh` guard (#87) then
+failed **nine** timer-fired one-shots for the duration of both batches; all recovered `outcome=ok`.
+Where the checkout *is* the deployment, create the batch branch without checking it out and
+integrate in a worktree — and put `systemctl list-units --failed` in the ops tail, since the batch
+merged green and the test gate was clean while scheduled work sat wedged.
+
 ## Out of scope
 
 - Any PM-side change (power-map#387 rate limiting, bulk feed endpoints) — #211's fix must
