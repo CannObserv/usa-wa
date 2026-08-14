@@ -112,6 +112,14 @@ uv sync
 uv run pre-commit install
 ```
 
+**In a fresh worktree, `uv sync --locked` before the first commit.** Feature work
+happens in a worktree (`docs/DEPLOYMENT.md` § Main-only checkout), and a new one
+has no `.venv`. The `import-linter` hook is `always_run: true` and invokes
+`uv run --frozen --no-sync`, which — correctly, per the never-sync-in-a-unit rule
+(issue #30) — creates an empty venv and installs nothing, so the first commit
+fails with `error: Failed to spawn: lint-imports`. That message names neither the
+cause nor the fix; this is it.
+
 ## Environment
 
 Production secrets in `/etc/usa-wa/.env`, dev/agent secrets in `./.env` — both git-ignored, both loaded by the systemd units. Shell sessions load them manually:
