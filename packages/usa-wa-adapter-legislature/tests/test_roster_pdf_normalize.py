@@ -1,6 +1,6 @@
 """The roster-PDF parser (#225) — pure, over extracted word geometry.
 
-The fixture is real word geometry from the source's District 2 pages (PDF pages 23-24,
+The fixture is the source's own District 2 pages (PDF pages 23-25,
 revision 2025-06-05), which between them exercise every parser hazard the spec names:
 a two-column body, a year gutter that is a *separate* text block from the name block,
 Senate four-year terms (skipped years), wrapped annotations, a minor-party token, and a
@@ -9,31 +9,21 @@ mid-biennium succession chain whose ordering encodes seat lineage.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
-from usa_wa_adapter_legislature.roster_pdf.normalize import (
-    PageWords,
-    Word,
-    parse_district_pages,
-)
+from usa_wa_adapter_legislature.roster_pdf.cohort import extract_pages
+from usa_wa_adapter_legislature.roster_pdf.normalize import PageWords, parse_district_pages
 
-FIXTURE = Path(__file__).parent / "fixtures" / "roster_pdf_d2_words.json"
+FIXTURE = Path(__file__).parent / "fixtures" / "roster_pdf_d2.pdf"
 
 
 @pytest.fixture(scope="module")
 def d2_pages() -> list[PageWords]:
-    raw = json.loads(FIXTURE.read_text())
-    return [
-        PageWords(
-            page_number=p["page_number"],
-            width=p["width"],
-            words=[Word(text=w["text"], x0=w["x0"], x1=w["x1"], top=w["top"]) for w in p["words"]],
-        )
-        for p in raw
-    ]
+    """Real word geometry from the source's District 2 pages (PDF pp.23-25, revision
+    2025-06-05), font-subset for size. One fixture, extracted the way production does."""
+    return extract_pages(FIXTURE.read_bytes())
 
 
 @pytest.fixture(scope="module")

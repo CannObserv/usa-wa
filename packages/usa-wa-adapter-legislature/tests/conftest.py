@@ -49,3 +49,13 @@ def wsl_vcr() -> vcr.VCR:
         match_on=["method", "scheme", "host", "port", "path"],
         decode_compressed_response=True,
     )
+
+
+@pytest.fixture(scope="session")
+def roster_pdf_bytes() -> bytes:
+    """The roster-PDF fixture (#225): the source's District 2 pages, font-subset for size.
+
+    A real excerpt rather than a synthetic document — the parser exists to survive this
+    publisher's actual layout quirks, so a hand-built PDF would test the wrong thing.
+    """
+    return (Path(__file__).parent / "fixtures" / "roster_pdf_d2.pdf").read_bytes()
