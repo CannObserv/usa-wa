@@ -29,7 +29,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
-from usa_wa_adapter_legislature.roster_pdf.adapter import RosterPdfAdapter, roster_resource_id
+from usa_wa_adapter_legislature.roster_pdf.adapter import (
+    RosterPdfAdapter,
+    RosterRevisionMismatch,
+    roster_resource_id,
+)
 from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
 from usa_wa_adapter_legislature.roster_pdf.transport import RosterUnavailable
 from usa_wa_common.jurisdiction import resolve_jurisdiction
@@ -45,12 +49,19 @@ DEFAULT_REVISION = "2025-06-05"
 
 @dataclass(frozen=True)
 class RosterHarvestSummary:
-    """What one harvest did. ``archived`` is 0 on a cache hit *and* on an unavailable source —
-    ``unavailable`` is what separates "nothing to do" from "we could not find the document"."""
+    """What one harvest did.
+
+    ``archived`` is 0 on a cache hit, on an unavailable source, **and** on a revision mismatch;
+    ``unavailable`` and ``mismatch`` are what separate "nothing to do" from "we could not find
+    the document" and "we found a *different* edition".
+    """
 
     revision: str
     archived: int
     unavailable: bool = False
+    #: Set when the fetched document stamps a different edition than the key requested — a new
+    #: edition is published and the operator must re-run with it (CR finding 1).
+    mismatch: str | None = None
 
 
 async def harvest_roster(
@@ -60,7 +71,12 @@ async def harvest_roster(
     dry_run: bool = False,
     force: bool = False,
 ) -> RosterHarvestSummary:
-    """Archive one roster edition. Idempotent: a second run is a cache hit."""
+    """Archive one roster edition. Idempotent: a second run is a cache hit.
+
+    Operates in the **caller's** transaction — the CLI commits, or the job harness rolls back on
+    ``dry_run`` (:mod:`clearinghouse_core.job`). Rolling back here as well would give one
+    transaction two owners and silently discard a caller's uncommitted work (CR finding 3).
+    """
     jurisdiction = await resolve_jurisdiction(session)
     source = await get_or_create_roster_source(session, jurisdiction)
     adapter = RosterPdfAdapter(revision=revision)
@@ -71,8 +87,12 @@ async def harvest_roster(
     except RosterUnavailable:
         logger.warning("roster_harvest_unavailable", extra={"revision": revision})
         return RosterHarvestSummary(revision=revision, archived=0, unavailable=True)
-    if dry_run:
-        await session.rollback()
+    except RosterRevisionMismatch as exc:
+        logger.warning(
+            "roster_harvest_revision_mismatch",
+            extra={"revision": revision, "detail": str(exc)},
+        )
+        return RosterHarvestSummary(revision=revision, archived=0, mismatch=str(exc))
     logger.info(
         "roster_harvest_complete",
         extra={"revision": revision, "archived": int(fetched), "dry_run": dry_run},
@@ -90,14 +110,15 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 
 
 async def _harvest_job(ctx: JobContext) -> JobResult:
-    """Archive the roster edition; a source we cannot locate is ``degraded``."""
+    """Archive the roster edition; a source we cannot locate — or a newer edition than the one
+    requested — is ``degraded``, since both need an operator rather than a retry."""
     summary = await harvest_roster(
         ctx.require_session(),
         revision=ctx.args.revision,
         dry_run=ctx.dry_run,
         force=ctx.args.force,
     )
-    if summary.unavailable:
+    if summary.unavailable or summary.mismatch:
         return JobResult.degraded(summary)
     return JobResult.ok(summary)
 
@@ -106,7 +127,8 @@ def main(argv: list[str] | None = None) -> int:
     """Archive the roster PDF.
 
     Exit ``0`` clean · ``1`` failed · ``2`` config · ``4``
-    (:data:`~clearinghouse_core.job.EXIT_DEGRADED`) the document could not be located.
+    (:data:`~clearinghouse_core.job.EXIT_DEGRADED`) the document could not be located, **or** a
+    new edition is published and ``--revision`` names the old one.
     """
     return run_job(
         JOB_SLUG,

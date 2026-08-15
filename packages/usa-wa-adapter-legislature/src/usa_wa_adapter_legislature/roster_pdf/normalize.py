@@ -64,9 +64,16 @@ _PROSE = re.compile(
     re.IGNORECASE,
 )
 
-#: Header/footer band: running heads and the page footer carry no member rows.
-_HEADER_BAND = 80.0
-_FOOTER_BAND = 720.0
+#: Header/footer bands as a **fraction of page height**, not absolute points. The column split
+#: is already width-relative, so absolute bands were the one geometry constant that would break
+#: silently on a future edition typeset at a different page size — dropping rows rather than
+#: failing (CR finding 7).
+_HEADER_FRACTION = 0.101
+_FOOTER_FRACTION = 0.909
+
+#: The page height these fractions were derived from (US Letter, 792pt), used when a caller
+#: supplies no height.
+_DEFAULT_PAGE_HEIGHT = 792.0
 
 #: Rows within this many points of each other vertically are the same physical line.
 _LINE_TOLERANCE = 3.0
@@ -89,10 +96,15 @@ class Word:
 
 @dataclass(frozen=True)
 class PageWords:
-    """One page's extracted words plus the page width (the column split is width-relative)."""
+    """One page's extracted words plus its size.
+
+    Both band and column geometry are expressed relative to these, so an edition typeset at a
+    different page size degrades visibly rather than silently dropping rows.
+    """
 
     page_number: int
     width: float
+    height: float = _DEFAULT_PAGE_HEIGHT
     words: Sequence[Word] = field(default_factory=tuple)
 
 
@@ -193,7 +205,9 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
             chamber = None
             year = None
 
-        head = " ".join(_text(line) for top, line in lines if top < _HEADER_BAND)
+        header_band = page.height * _HEADER_FRACTION
+        footer_band = page.height * _FOOTER_FRACTION
+        head = " ".join(_text(line) for top, line in lines if top < header_band)
         page_chamber = None
         if re.search(r"House of Representatives", head, re.IGNORECASE):
             page_chamber = "house"
@@ -210,7 +224,7 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
             column = [
                 (top, [w for w in line if lo <= w.x0 < hi])
                 for top, line in lines
-                if _HEADER_BAND <= top < _FOOTER_BAND
+                if header_band <= top < footer_band
             ]
             column = [(top, line) for top, line in column if line]
             # Year state threads through columns and pages: the right column continues the left

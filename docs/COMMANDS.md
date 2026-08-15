@@ -45,6 +45,7 @@ Full options, exit codes and rationale: [COMMANDS-SEATS.md](COMMANDS-SEATS.md).
 | `python -m usa_wa_facts_seats.pdc.build_pdc_spans` | Era-matched `person_wa_pdc` identifier links, Phase B (#79; identifier-only since #101) |
 | `python -m usa_wa_facts_seats.pdc.migrate_pdc_spans` | Retire pre-#79 per-biennium PDC House rows onto spans (#79) |
 | `python -m usa_wa_adapter_sos.results.harvest` | Archive WA SOS **results** cohorts (the House Position source, `usa_wa_sos_results`) — Phase A (#101) |
+| `python -m usa_wa_adapter_legislature.roster_pdf.harvest` | Archive the WA Legislature roster PDF (1889–2025, `usa_wa_legislature_roster`) — Phase A (#225); one edition, not a sweep; exit 4 = document unlocatable or a newer edition published |
 | `python -m usa_wa_facts_seats.house.build` | WSL+SOS House Position seat spans (2008→present) incl. #103 elimination inference, Phase B (#101) |
 | `python -m usa_wa_facts_seats.house.migrate` | Superseded-collapse (#103) + re-source usa_wa_pdc House rows → usa_wa_legislature (owner role, #101) |
 

@@ -21,11 +21,24 @@ from collections.abc import AsyncIterable
 from datetime import UTC, datetime
 
 from clearinghouse_core.adapter import BaseAdapter, FetchedPayload, NormalizedBatch, ResourceRef
+from clearinghouse_core.logging import get_logger
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
+from usa_wa_adapter_legislature.roster_pdf.extraction import extract_revision_date
 from usa_wa_adapter_legislature.roster_pdf.transport import RosterPdfClient
+
+logger = get_logger(__name__)
 
 #: ``fetch_one`` resource-id prefix for a roster edition.
 ROSTER_RESOURCE_PREFIX = "legroster:"
+
+
+class RosterRevisionMismatch(ValueError):
+    """The fetched document stamps a different ``Revision Date`` than the key it would archive to.
+
+    Not an outage and not a retry: a **new edition has been published**. Archiving it under the
+    requested key would mislabel the bytes, and every citation minted from them would name an
+    edition that never attested the fact. Re-run with the new ``--revision``.
+    """
 
 
 def roster_resource_id(revision: str) -> str:
@@ -58,10 +71,28 @@ class RosterPdfAdapter(BaseAdapter):
     async def fetch_one(self, resource_id: str) -> FetchedPayload:
         """Fetch the roster PDF, archiving the pristine bytes (#54).
 
+        The revision is taken from ``resource_id`` rather than from instance state, and the
+        fetched document's **own** ``Revision Date`` is verified against it: the archive key
+        claims to name an edition, so the bytes must actually be that edition (CR findings 1
+        and 8). A stamp we cannot read is a warning, not a refusal — only a *disagreement*
+        raises :class:`RosterRevisionMismatch`.
+
         The resolved URL is stamped onto ``FetchEvent.url`` — after any 404 re-discovery, so the
         archive records where the bytes actually came from rather than where we first looked.
         """
+        revision = revision_from_resource_id(resource_id)
         fetched = await self._client.fetch_roster()
+        stamped = extract_revision_date(fetched.wire)
+        if stamped is None:
+            logger.warning(
+                "roster_revision_unreadable",
+                extra={"expected": revision, "url": fetched.url},
+            )
+        elif stamped != revision:
+            raise RosterRevisionMismatch(
+                f"document stamps Revision Date {stamped}, not {revision} — a new edition is "
+                f"published; re-run with --revision {stamped}"
+            )
         return FetchedPayload(
             url=fetched.url,
             fetched_at=datetime.now(UTC),

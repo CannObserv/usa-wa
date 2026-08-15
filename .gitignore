@@ -32,3 +32,6 @@ coverage.xml
 
 # Brainstorming companion session artifacts
 .superpowers/
+
+# Per-worktree port allocation (using-git-worktrees); never repo content
+.port

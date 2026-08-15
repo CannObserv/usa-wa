@@ -14,6 +14,14 @@ issue's acceptance oracle.
 Unattested does **not** mean false. Below the roster's own floor, or in a district the edition
 renumbered, absence is silence rather than denial — which is why this module reports and never
 deletes. The :attr:`RosterAudit.match_rate` it returns is the number #228 is gated on.
+
+**The match rate is deliberately conservative — read it as a floor on disagreement, not a
+precision score** (CR finding 6). A roster row covers the whole term it opens, so a member who
+left mid-term still reads as attested for the remainder even where the roster names their
+successor in the same year group. Narrowing the window to "until the next row for this seat" is
+not sound: the House runs two seats per district, so consecutive rows in one district-chamber-year
+are *different seats*, not a succession. Tightening this needs the Position discriminator, which
+arrives with #229 — until then the oracle under-reports disagreement rather than inventing it.
 """
 
 from __future__ import annotations
@@ -77,7 +85,15 @@ def audit_roster(*, records: Sequence[RosterRecord], claims: Iterable[Claim]) ->
     unattested: list[Claim] = []
     for claim in claims:
         name, district, chamber, year = claim
-        term = TERM_YEARS.get(chamber, 2)
+        if chamber not in TERM_YEARS:
+            # Silently defaulting an unrecognised chamber to a two-year window would produce a
+            # quietly wrong match rate, and that number gates #228 — a wrong number is worse
+            # than a loud failure (CR finding 5).
+            raise ValueError(
+                f"unknown chamber {chamber!r} in claim {claim!r}; expected one of "
+                f"{sorted(TERM_YEARS)}"
+            )
+        term = TERM_YEARS[chamber]
         surname = _surname(name)
         candidates = [
             c for c in index.get((district, chamber), ()) if c.year <= year < c.year + term

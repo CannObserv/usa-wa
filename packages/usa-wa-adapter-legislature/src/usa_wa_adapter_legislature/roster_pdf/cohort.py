@@ -13,9 +13,6 @@ re-records a payload-less ``FetchEvent`` when the bytes are byte-identical, so o
 
 from __future__ import annotations
 
-import io
-
-import pdfplumber
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID as _ULID
@@ -27,34 +24,14 @@ from usa_wa_adapter_legislature.roster_pdf.adapter import (
     ROSTER_RESOURCE_PREFIX,
     revision_from_resource_id,
 )
+from usa_wa_adapter_legislature.roster_pdf.extraction import extract_pages
 from usa_wa_adapter_legislature.roster_pdf.normalize import (
-    PageWords,
     ParseReport,
     RosterRecord,
-    Word,
     parse_district_pages_reporting,
 )
 
 logger = get_logger(__name__)
-
-
-def extract_pages(wire: bytes) -> list[PageWords]:
-    """Extract every page's word geometry from the archived PDF bytes.
-
-    The whole document is handed to the parser; it bounds the *by district* section itself from
-    the district banners. A hard-coded page range would silently truncate the tail — the
-    districts run 1-60 historically, and the section sits at PDF pages 20-154 in the 2025
-    revision, which is not where the printed page numbers say it is.
-    """
-    pages: list[PageWords] = []
-    with pdfplumber.open(io.BytesIO(wire)) as pdf:
-        for index, page in enumerate(pdf.pages):
-            words = [
-                Word(text=w["text"], x0=w["x0"], x1=w["x1"], top=w["top"])
-                for w in page.extract_words()
-            ]
-            pages.append(PageWords(page_number=index + 1, width=page.width, words=words))
-    return pages
 
 
 class RosterCohortProvider:

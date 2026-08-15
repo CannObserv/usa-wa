@@ -177,3 +177,11 @@ class TestTermCoverage:
         )
         assert audit.attested == (("Roger Bush", 2, "house", 2003),)
         assert audit.unattested == (("Roger Bush", 2, "house", 2005),)
+
+
+class TestUnknownChamber:
+    def test_an_unrecognised_chamber_raises(self) -> None:
+        """The match rate gates #228, so a typo'd chamber must fail loudly rather than silently
+        default to a two-year window and yield a quietly wrong number (CR finding 5)."""
+        with pytest.raises(ValueError, match="unknown chamber"):
+            audit_roster(records=[_record()], claims=[("John Wynne", 39, "hosue", 1991)])

@@ -12,6 +12,7 @@ from clearinghouse_core.source_coverage import CoverageStatus
 from usa_wa_adapter_legislature.roster_pdf.adapter import (
     ROSTER_RESOURCE_PREFIX,
     RosterPdfAdapter,
+    RosterRevisionMismatch,
     revision_from_resource_id,
     roster_resource_id,
 )
@@ -20,12 +21,24 @@ from usa_wa_adapter_legislature.roster_pdf.coverage import (
     ROSTER_COVERAGE,
     ROSTER_SOURCE_SLUG,
 )
+from usa_wa_adapter_legislature.roster_pdf.extraction import extract_revision_date
 from usa_wa_adapter_legislature.roster_pdf.transport import (
     DEFAULT_ROSTER_URL,
     RosterPdfClient,
     RosterUnavailable,
     roster_href,
 )
+
+
+def _blank_pdf() -> bytes:
+    """A minimal one-page PDF with no front matter — the "cannot read the stamp" case."""
+    return (
+        b"%PDF-1.4\n"
+        b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+        b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj\n"
+        b"trailer<</Root 1 0 R>>\n"
+    )
 
 
 class TestCoverageClaim:
@@ -136,3 +149,47 @@ class TestAdapterShape:
         adapter = RosterPdfAdapter(revision="2025-06-05")
         refs = [ref async for ref in adapter.discover(None)]
         assert [r.resource_id for r in refs] == [roster_resource_id("2025-06-05")]
+
+
+class TestRevisionVerification:
+    """The archive key names an edition, so the bytes must be that edition (CR finding 1)."""
+
+    def test_reads_the_editions_own_revision_date(self, roster_pdf_bytes) -> None:
+        assert extract_revision_date(roster_pdf_bytes) == "2025-06-05"
+
+    def test_an_unstamped_document_is_none_not_an_error(self) -> None:
+        """Unreadable means *unknown*, not *mismatched* — the adapter warns and proceeds."""
+        assert extract_revision_date(_blank_pdf()) is None
+
+    @respx.mock
+    async def test_a_newer_edition_refuses_the_old_key(self, roster_pdf_bytes) -> None:
+        """The bug this closes: fetching a newly published edition under a stale ``--revision``
+        would archive it as the old one, and every citation minted from it would name an edition
+        that never attested the fact."""
+        respx.get(DEFAULT_ROSTER_URL).mock(
+            return_value=httpx.Response(200, content=roster_pdf_bytes)
+        )
+        adapter = RosterPdfAdapter(revision="2019-01-01")
+        with pytest.raises(RosterRevisionMismatch, match="2025-06-05"):
+            await adapter.fetch_one(roster_resource_id("2019-01-01"))
+
+    @respx.mock
+    async def test_the_matching_edition_is_archived(self, roster_pdf_bytes) -> None:
+        respx.get(DEFAULT_ROSTER_URL).mock(
+            return_value=httpx.Response(200, content=roster_pdf_bytes)
+        )
+        adapter = RosterPdfAdapter(revision="2025-06-05")
+        payload = await adapter.fetch_one(roster_resource_id("2025-06-05"))
+        assert payload.body == roster_pdf_bytes
+
+    @respx.mock
+    async def test_the_revision_comes_from_the_resource_id_not_instance_state(
+        self, roster_pdf_bytes
+    ) -> None:
+        """``fetch_one`` must honour the id it was handed rather than its own field (finding 8)."""
+        respx.get(DEFAULT_ROSTER_URL).mock(
+            return_value=httpx.Response(200, content=roster_pdf_bytes)
+        )
+        adapter = RosterPdfAdapter(revision="2025-06-05")
+        with pytest.raises(RosterRevisionMismatch):
+            await adapter.fetch_one(roster_resource_id("2019-01-01"))
