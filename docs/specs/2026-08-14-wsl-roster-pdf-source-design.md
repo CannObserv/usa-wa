@@ -45,9 +45,9 @@ Contents (column-aware parse of the district section, prototype run 2026-08-14):
 
 | | |
 |---|---|
-| member-year records | **8,485** — House 5,725 / Senate 2,760 |
-| span | 1889 – 2025, 103 session years, 49 current LDs (53 distinct district numbers historically) |
-| party vocabulary | R 4,550 · D 3,769 · **P.P. 52 · Pop. 48 · Prog. 47 · Silver Rep. 11 · F.L. 7 · Cit. 1 · S 1** (167 minor-party records, 7 parties) |
+| member-year records | **8,517** — House 5,738 / Senate 2,779 (production parser, #225) |
+| span | 1889 – 2025, 103 session years, 49 current LDs plus the historical 50–59 (53 distinct district numbers) |
+| party vocabulary | R 4,554 · D 3,797 · **P.P. 50 · Pop. 49 · Prog. 47 · Silver Rep. 11 · F.L. 7 · Cit. 1 · S 1** (166 minor-party records, 7 parties) |
 | dated annotations | Appointed 461 · unexpired 337 · Resigned 325 · Elected 265 · **Speaker 158** · Deceased 136 · **Changed party 22** · Redistricted 16 · Expelled 1 |
 | other sections | session dates (p1) · party division per session (p6) · Senate officers (p149) · House officers (p159) · redistricting history (p168) · maps (p173, images) · name index (p197) |
 | name index | `Name* … H-39` / `S-34, H-34` — chamber+district only, **no years**; 260 entries carry multiple seats (chamber/LD moves) |
@@ -77,7 +77,7 @@ Contents (column-aware parse of the district section, prototype run 2026-08-14):
 
 ### Why the y-coordinate join is non-negotiable
 
-The year gutter is a **separate text block** from the member-name block, and each district page is **two columns**. `pdftotext -layout` interleaves the columns into single lines and drops the year association — a naive line parse recovers 464 of 8,485 records (5%). Rows must be reassembled by y-coordinate within an x-bounded column. This is why the extractor needs bboxes, and it is the single largest implementation cost in the spec.
+The year gutter is a **separate text block** from the member-name block, and each district page is **two columns**. `pdftotext -layout` interleaves the columns into single lines and drops the year association — a naive line parse recovers 464 of 8,517 records (5%). Rows must be reassembled by y-coordinate within an x-bounded column. This is why the extractor needs bboxes, and it is the single largest implementation cost in the spec.
 
 Two further extraction hazards:
 
@@ -127,12 +127,12 @@ Before 1965 WA House seats were **fungible at-large**: no Position existed. The 
 
 **Party spans are *not* blocked by #302 — verified 2026-08-14, not assumed.** A party role is non-districted: live `canonical.roles` holds 2 `party_member` rows with **0 jurisdiction_id and 0 qualifier**, so party identity is keyed on `(organization_id, name)` via the `uq_roles_org_name` partial index (`jurisdiction_id IS NULL`). Seat shape — Position, at-large, and everything #302 governs — lives entirely in the disjoint `uq_roles_seat` index (`jurisdiction_id IS NOT NULL`). The two cannot interact. Pre-1965 party emission therefore proceeds in Phase 3 with the House seat withheld.
 
-**But the party vocabulary must be extended first.** [`canonicalize_party`](../../packages/usa-wa-common/src/usa_wa_common/parties.py) folds only R/D and returns `None` for everything else — and `None` means *no party Assignment*. **Seven** historical parties totalling **167 member-year records** would therefore be **silently dropped**, which is precisely the failure mode the never-silently-drop rule exists to prevent:
+**But the party vocabulary must be extended first.** [`canonicalize_party`](../../packages/usa-wa-common/src/usa_wa_common/parties.py) folds only R/D and returns `None` for everything else — and `None` means *no party Assignment*. **Seven** historical parties totalling **166 member-year records** would therefore be **silently dropped**, which is precisely the failure mode the never-silently-drop rule exists to prevent:
 
 | Token | Expansion | Records | Years | Chambers |
 |---|---|---|---|---|
-| `P.P.` | People's Party | 52 | 1891–1899 | both |
-| `Pop.` | Populist | 48 | 1897 | both |
+| `P.P.` | People's Party | 50 | 1891–1899 | both |
+| `Pop.` | Populist | 49 | 1897 | both |
 | `Prog.` | Progressive | 47 | 1913–1927 | both |
 | `Silver Rep.` | Silver Republican | 11 | 1897 | Senate |
 | `F.L.` | Farmer-Labor | 7 | 1921–1923 | both |
@@ -151,7 +151,7 @@ Ascending write-risk. Each phase ships independently and is separately valuable.
 
 **Phase 2 — operator-event backfill.** Emit dated `seated`/`vacated`/`departed` events into the #107 store from the 922 dated annotations. #119's sub-biennium collapse then resolves through machinery that already exists. **Note the #119 synthesize guard**: an out-of-biennium `seated` with no built span is skipped by design (`operator_seated_no_span_out_of_biennium`), so this requires the unrestricted backfill run, exactly as documented in `operator_overlay.py`. **Acceptance oracle:** LD2 Position 1 — Alexander/Hunt/Barkis land on their four real dates. Run sidecar-paused; PM keys on `(person, role, start_date)`, so a start-date move is a PM re-anchor.
 
-**Phase 3 — pre-1991 backfill.** Persons + party + chamber spans, 1889–1990, plus House Positions 1965+ under the (b) guardrails and no House seat pre-1965. Biggest payoff (roughly a 5× increase in member-year coverage), biggest identity risk. Gate on Phase 1's reported match rate. **Prerequisite:** #227 — extend `canonicalize_party` to the seven historical parties and mint their Organizations (gated on power-map#442), else 167 member-year records fold to `None` and vanish (see above).
+**Phase 3 — pre-1991 backfill.** Persons + party + chamber spans, 1889–1990, plus House Positions 1965+ under the (b) guardrails and no House seat pre-1965. Biggest payoff (roughly a 5× increase in member-year coverage), biggest identity risk. Gate on Phase 1's reported match rate. **Prerequisite:** #227 — extend `canonicalize_party` to the seven historical parties and mint their Organizations (gated on power-map#442), else 166 member-year records fold to `None` and vanish (see above).
 
 **Phase 4 (deferred) — leadership.** Officers sections + 158 `(Speaker)` annotations → the first `role_type = leadership` rows. Deferred because it needs a PM role-shape decision, not because it is hard.
 
@@ -178,7 +178,33 @@ Contrast the daily timers (06:45/07:00/07:05/07:15 UTC): those exist because the
 | PM anchor churn on start-date moves (#80) | Phases 2 and 3 run sidecar-paused, in the same window as the migrate, before anything drains |
 | URL rot | Discovery step + 404-means-rediscover |
 | Bold-year (redistricting) signal lost in extraction | Font-attribute extraction or cross-reference p168; do not infer |
-| 167 historical minor-party records (7 parties) silently folded to `None` by `canonicalize_party` | Phase 3 prerequisite: extend the vocabulary + mint the party Organizations, or decline with a tally — never drop by default |
+| 166 historical minor-party records (7 parties) silently folded to `None` by `canonicalize_party` | Phase 3 prerequisite: extend the vocabulary + mint the party Organizations, or decline with a tally — never drop by default |
+
+## Phase 1 outcome (#225, shipped)
+
+The source, the parser and the read-only oracle are built. Measured against the full document
+and the live database:
+
+| | |
+|---|---|
+| records parsed | **8,517**, 1889–2025, 53 districts, 1,100 annotated |
+| unparsed | **2** (0.02%) — both annotations wrapping across a page break, reported not dropped |
+| claims audited | **2,064** |
+| **match rate** | **98.0%** — the number #228 (Phase 3b) is gated on |
+| #144 Wynne | **flagged unattested** from the source alone, no hand-curation |
+| #144 Braun | **confirmed**, LD20 Senate 2017, dated to a five-day substitution |
+
+Two corrections the real data forced, recorded because both would have silently degraded a
+later phase:
+
+1. **A roster row covers the term it opens.** The roster lists a member only in the year their
+   term *begins*, so matching a claim on exact year equality marked ~half of all Senate claims
+   unattested by construction (Kline's rows are 1995/1999/2003; he sat 1997 and 2001 too).
+   That buried the real artifacts and would have handed #228 a meaningless gate. Match rate
+   75.9% → 98.0%.
+2. **The minor-party count is 166, not 167**, and the P.P./Pop. split is 50/49 rather than
+   52/48. The prototype counted party-change *annotation* lines ("Changed party affiliation
+   1897 … Pop.") as member rows; the production parser correctly attaches them to the row above.
 
 ## Settled questions
 
@@ -186,6 +212,6 @@ All three resolved 2026-08-14. Recorded here rather than deleted — the reasoni
 
 1. **Phase 1's oracle stays ad-hoc — no timer.** Closed history does not drift, so a weekly report-only timer would spend cycles re-deriving a constant, and a green check that can never go red trains operators to ignore it. Run it on demand: after a revision lands, before a backfill phase, or when auditing a succession conflict. Folded into the design-decisions table.
 2. **One archive key per revision.** A 1943 row cites `legroster:2025-06-05`, and that is correct rather than merely acceptable: the citation names the wire that attested the fact, and one revision of one document *is* that wire. A synthetic per-(district, year) target would manufacture a provenance granularity the source does not possess.
-3. **Pre-1965 party spans are unblocked by power-map#302** — party is a `party_member` role, orthogonal to seat shape. Verified against the live schema rather than left as a reading: party roles carry no `jurisdiction_id` and no `qualifier`, so they are keyed by the `uq_roles_org_name` partial index, disjoint from the `uq_roles_seat` index where all seat shape (Position, at-large) lives. **This surfaced a genuine Phase 3 prerequisite** — `canonicalize_party` handles only R/D and silently returns `None` otherwise, so 167 historical minor-party member-year records across 7 parties would disappear without a vocabulary extension. Filed as power-map#442 (naming/lifecycle) + #227 (local vocabulary). See the pre-1965 section.
+3. **Pre-1965 party spans are unblocked by power-map#302** — party is a `party_member` role, orthogonal to seat shape. Verified against the live schema rather than left as a reading: party roles carry no `jurisdiction_id` and no `qualifier`, so they are keyed by the `uq_roles_org_name` partial index, disjoint from the `uq_roles_seat` index where all seat shape (Position, at-large) lives. **This surfaced a genuine Phase 3 prerequisite** — `canonicalize_party` handles only R/D and silently returns `None` otherwise, so 166 historical minor-party member-year records across 7 parties would disappear without a vocabulary extension. Filed as power-map#442 (naming/lifecycle) + #227 (local vocabulary). See the pre-1965 section.
 
 No open questions remain. Phase 1 is ready to start.

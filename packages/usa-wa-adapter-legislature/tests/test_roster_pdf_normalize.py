@@ -1,0 +1,121 @@
+"""The roster-PDF parser (#225) — pure, over extracted word geometry.
+
+The fixture is the source's own District 2 pages (PDF pages 23-25,
+revision 2025-06-05), which between them exercise every parser hazard the spec names:
+a two-column body, a year gutter that is a *separate* text block from the name block,
+Senate four-year terms (skipped years), wrapped annotations, a minor-party token, and a
+mid-biennium succession chain whose ordering encodes seat lineage.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from usa_wa_adapter_legislature.roster_pdf.cohort import extract_pages
+from usa_wa_adapter_legislature.roster_pdf.normalize import PageWords, parse_district_pages
+
+FIXTURE = Path(__file__).parent / "fixtures" / "roster_pdf_d2.pdf"
+
+
+@pytest.fixture(scope="module")
+def d2_pages() -> list[PageWords]:
+    """Real word geometry from the source's District 2 pages (PDF pp.23-25, revision
+    2025-06-05), font-subset for size. One fixture, extracted the way production does."""
+    return extract_pages(FIXTURE.read_bytes())
+
+
+@pytest.fixture(scope="module")
+def records(d2_pages: list[PageWords]):
+    return parse_district_pages(d2_pages)
+
+
+def test_parses_both_chambers_of_district_2(records) -> None:
+    assert {r.district for r in records} == {2}
+    assert {r.chamber for r in records} == {"senate", "house"}
+
+
+def test_year_gutter_is_joined_to_the_name_block(records) -> None:
+    """The regression that matters: the year is a separate text block from the name, so a
+    line-oriented parse recovers ~5% of rows. Every record must carry a year."""
+    assert records, "no records parsed"
+    assert all(r.year is not None for r in records)
+    assert all(1889 <= r.year <= 2025 for r in records)
+
+
+def test_recovers_both_columns(records) -> None:
+    """A single-column parse would drop the right column entirely, roughly halving the count
+    and truncating the year range at mid-century."""
+    house = [r for r in records if r.chamber == "house"]
+    assert max(r.year for r in house) >= 2025
+    assert min(r.year for r in house) <= 1901
+
+
+def test_ld2_house_position_1_lineage_in_order(records) -> None:
+    """Row order within a district-year is seat-lineage order: the Position 1 lineage
+    (Bush -> McCune -> Alexander/Hunt -> Barkis) sorts before the Position 2 lineage
+    (Campbell -> Wilcox -> Marshall). Verified against SOS-derived truth for these years."""
+    by_year = {}
+    for r in records:
+        if r.chamber == "house":
+            by_year.setdefault(r.year, []).append(r)
+    for year in (2003, 2005, 2011, 2025):
+        rows = sorted(by_year[year], key=lambda r: r.order)
+        assert len(rows) >= 2, f"{year}: {rows}"
+    assert sorted(by_year[2003], key=lambda r: r.order)[0].name == "Roger Bush"
+    assert sorted(by_year[2003], key=lambda r: r.order)[-1].name == "Tom Campbell"
+    # 2005 proves the order is lineage, not alphabetical: McCune sorts before Campbell.
+    assert sorted(by_year[2005], key=lambda r: r.order)[0].name == "Jim McCune"
+    assert sorted(by_year[2005], key=lambda r: r.order)[-1].name == "Tom Campbell"
+    assert sorted(by_year[2025], key=lambda r: r.order)[0].name == "Andrew Barkis"
+    assert sorted(by_year[2025], key=lambda r: r.order)[-1].name == "Matt Marshall"
+
+
+def test_succession_annotations_carry_their_dates(records) -> None:
+    """The accuracy payload: 461 appointments / 325 resignations / 136 deaths are dated
+    inline. LD2 2013-2015 is the worked case from the spec."""
+    hunt = [r for r in records if r.name == "Graham Hunt"]
+    assert hunt, "Graham Hunt not parsed"
+    appointed = next(r for r in hunt if r.year == 2013)
+    assert appointed.annotation is not None
+    assert "January 17, 2014" in appointed.annotation
+    alexander = next(r for r in records if r.name == "Gary C. Alexander" and r.year == 2013)
+    assert alexander.annotation is not None
+    assert "Dec. 31, 2013" in alexander.annotation
+
+
+def test_wrapped_annotation_never_becomes_a_member_row(records) -> None:
+    """An annotation wraps across lines and a continuation can itself end in dots + a party
+    letter, so it parses as a spurious member. No record's name may look like prose."""
+    for r in records:
+        assert not r.name.endswith(")"), r
+        assert not r.name[0].islower(), r
+        assert "unexpired" not in r.name, r
+        assert not r.name.startswith("to serve"), r
+
+
+def test_minor_party_token_survives_verbatim(records) -> None:
+    """Party tokens are carried through as the source writes them — canonicalisation is a
+    separate concern (#227), and folding an unknown token to None here is the silent-drop bug."""
+    field = next(r for r in records if r.name == "Willard B. Field")
+    assert field.party_token == "P.P."
+    assert {r.party_token for r in records} >= {"R", "D", "P.P."}
+
+
+def test_senate_terms_skip_years(records) -> None:
+    """Senate seats run four-year terms, so its year sequence skips sessions the House's covers.
+
+    LD2's House rows begin at 1899 (the district gained House representation later), so the
+    contrast is drawn on 1901 -- a session the House lists and the Senate, mid-term, does not.
+    """
+    senate_years = sorted({r.year for r in records if r.chamber == "senate"})
+    house_years = sorted({r.year for r in records if r.chamber == "house"})
+    assert 1901 in house_years
+    assert 1901 not in senate_years
+    assert len(house_years) > len(senate_years)
+
+
+def test_parser_is_pure(d2_pages: list[PageWords]) -> None:
+    """Two runs over the same input give equal output — the builder re-drives on every run."""
+    assert parse_district_pages(d2_pages) == parse_district_pages(d2_pages)
