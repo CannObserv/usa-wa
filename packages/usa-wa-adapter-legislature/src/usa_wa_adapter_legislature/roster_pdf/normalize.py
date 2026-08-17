@@ -71,6 +71,20 @@ _PROSE = re.compile(
     re.IGNORECASE,
 )
 
+#: What makes a parenthetical an *annotation* rather than part of the name — tested against the
+#: parenthetical's **content**, never against the bracket itself.
+#:
+#: The source writes marital and nickname forms inline (``Margaret (Mrs. Joseph E.) Hurley``,
+#: ``Judith (Judy) Warnick``). Treating every parenthetical as prose stranded the surname in the
+#: annotation and left the name a bare given name — 39 records across 7 members in the 2025
+#: edition, which would mint Persons called "Margaret" and make them unmatchable to any wire.
+_ANNOTATION_CUE = re.compile(
+    r"^(?:Appointed|Resigned|Deceased|Died|Elected|Sworn|Served|Named|Changed|Redistricted|"
+    r"Holdover|Speaker|President|Election|Vacan|Position|Contested|Removed|Expelled|Term|"
+    r"Died|To serve|Unseated|Seated|Succeeded|Replaced|Withdrew|Died)\b|unexpired",
+    re.IGNORECASE,
+)
+
 #: Header/footer bands as a **fraction of page height**, not absolute points. The column split
 #: is already width-relative, so absolute bands were the one geometry constant that would break
 #: silently on a future edition typeset at a different page size — dropping rows rather than
@@ -167,19 +181,39 @@ def _text(line: Sequence[Word]) -> str:
 def _split_annotation(raw: str) -> tuple[str, str | None]:
     """Split ``"Name (Resigned May 11, 1981)"`` into its name and annotation halves.
 
-    Splits on the **first** ``(`` so an interior parenthetical nickname stays with the name
-    (``Judith (Judy) Warnick`` must not become name ``Judith`` -- that misparse is what made the
-    prototype's ordering check read as a mismatch).
+    A parenthetical is an annotation only when its **own content** reads as prose
+    (:data:`_ANNOTATION_CUE`). A marital or nickname form — ``Margaret (Mrs. Joseph E.) Hurley``,
+    ``Judith (Judy) Warnick`` — stays part of the name, surname included; splitting on the
+    bracket alone left those members as bare given names.
+
+    The cue is tested against the **balanced** parenthetical, not the rest of the string: a
+    member carrying both forms (``Gladys (Mrs. Douglas G.) Kirk (Appointed …)``) would otherwise
+    match the later annotation's cue while splitting at the earlier nickname.
+    """
+    for i, ch in enumerate(raw):
+        if ch != "(":
+            continue
+        inner = _balanced(raw, i)
+        if _ANNOTATION_CUE.search(inner.lstrip()):
+            return raw[:i].strip(), raw[i + 1 :].strip().rstrip(")").strip()
+    return raw.strip(), None
+
+
+def _balanced(raw: str, start: int) -> str:
+    """The content of the parenthetical opening at ``start``, to its match or the string end.
+
+    Unclosed is normal here: the source contains genuinely unbalanced parentheses, and a
+    wrapped annotation may be truncated at a page break.
     """
     depth = 0
-    for i, ch in enumerate(raw):
-        if ch == "(":
+    for j in range(start, len(raw)):
+        if raw[j] == "(":
             depth += 1
-            if depth == 1 and _PROSE.search(raw[i:]):
-                return raw[:i].strip(), raw[i:].strip().strip("()").strip()
-        elif ch == ")":
+        elif raw[j] == ")":
             depth -= 1
-    return raw.strip(), None
+            if depth == 0:
+                return raw[start + 1 : j]
+    return raw[start + 1 :]
 
 
 def parse_district_pages(pages: Sequence[PageWords]) -> tuple[RosterRecord, ...]:
