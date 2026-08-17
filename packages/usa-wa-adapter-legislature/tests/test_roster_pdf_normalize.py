@@ -14,7 +14,11 @@ from pathlib import Path
 import pytest
 
 from usa_wa_adapter_legislature.roster_pdf.cohort import extract_pages
-from usa_wa_adapter_legislature.roster_pdf.normalize import PageWords, parse_district_pages
+from usa_wa_adapter_legislature.roster_pdf.normalize import (
+    PageWords,
+    _split_annotation,
+    parse_district_pages,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "roster_pdf_d2.pdf"
 
@@ -160,3 +164,55 @@ class TestChamberIsAYDivider:
         assert halteman[0].chamber == "house"
         # A row from the Senate block above the divider keeps its chamber.
         assert min(r.year for r in senate_31) < 1913
+
+
+class TestParentheticalNamesSurviveTheSplit:
+    """A parenthetical is only an annotation when its *content* is prose.
+
+    The source writes marital and nickname forms inline — ``Margaret (Mrs. Joseph E.) Hurley``,
+    ``Judith (Judy) Warnick``. Splitting on the bare parenthesis strands the surname in the
+    annotation and leaves the name a bare given name, which destroys identity for those members
+    (39 records / 7 members in the 2025 edition) and would mint Persons called "Margaret".
+    """
+
+    @pytest.mark.parametrize(
+        ("raw", "name", "annotation"),
+        [
+            # Marital and nickname forms — verbatim from the 2025 edition. The surname sits
+            # AFTER the parenthetical, so splitting on the bracket loses it entirely.
+            ("Margaret (Mrs. Joseph E.) Hurley", "Margaret (Mrs. Joseph E.) Hurley", None),
+            ("Judith (Judy) Warnick", "Judith (Judy) Warnick", None),
+            ("Agnes (Mrs. Thomas E.) Kehoe", "Agnes (Mrs. Thomas E.) Kehoe", None),
+            ("Belle (Mrs. Frank) Reeves", "Belle (Mrs. Frank) Reeves", None),
+            # Prose parentheticals still split out.
+            ("Wayne Ehlers (Speaker)", "Wayne Ehlers", "Speaker"),
+            (
+                "Gary C. Alexander (Resigned Dec. 31, 2013)",
+                "Gary C. Alexander",
+                "Resigned Dec. 31, 2013",
+            ),
+            # Both at once: the nickname stays, the prose splits.
+            (
+                "Judith (Judy) Warnick (Resigned May 1, 2013)",
+                "Judith (Judy) Warnick",
+                "Resigned May 1, 2013",
+            ),
+        ],
+    )
+    def test_split_keeps_name_parentheticals_and_splits_prose(
+        self, raw: str, name: str, annotation: str | None
+    ) -> None:
+        assert _split_annotation(raw) == (name, annotation)
+
+    def test_a_nickname_stays_in_the_name(self, records) -> None:
+        assert not any(r.name == "Judith" for r in records)
+
+    def test_no_record_name_is_a_bare_given_name(self, records) -> None:
+        """Every surviving name must carry more than one token once nicknames are folded in."""
+        for r in records:
+            assert " " in r.name, r
+
+    def test_a_prose_parenthetical_is_still_an_annotation(self, records) -> None:
+        speaker = [r for r in records if r.annotation and "Speaker" in r.annotation]
+        assert speaker, "prose parentheticals must still split out"
+        assert all("Speaker" not in r.name for r in speaker)
