@@ -16,6 +16,7 @@ from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 from usa_wa_adapter_legislature.roster_pdf.resolve import (
     UNRESOLVED_AMBIGUOUS_MEMBER,
     UNRESOLVED_AMBIGUOUS_POSITION,
+    UNRESOLVED_GIVEN_NAME_MISMATCH,
     UNRESOLVED_NO_MEMBER,
     UNRESOLVED_NO_POSITION,
     PositionTenure,
@@ -302,3 +303,153 @@ class TestEventIdentity:
         assert resolved.reason == proposal.reason
         assert resolved.effective_date == proposal.effective_date
         assert resolved.effective_date == date(year, *((6, 15) if kind == "departed" else (1, 17)))
+
+
+class TestGivenNameGuard:
+    """#240: the ambiguity check cannot fire when the roster row's true subject is **absent**
+    from the sponsor index — the single surviving surname match is then a *false* match, not an
+    ambiguous one.
+
+    The live case: LD16 House 2009 carries `William A. Grant — Deceased January 4, 2009` and his
+    successor `Laura Grant-Herriot — Appointed Feb. 20, 2009`. WSL records *her* LastName as
+    `Grant`, and *he* is absent from the 2009-10 sponsor roster because he died before the
+    snapshot. His death was attributed to her, closing every one of her spans 18 days before she
+    was appointed — and silently disabling a correct operator attestation, since the overlay only
+    applies a seat event whose date falls inside the span window.
+    """
+
+    GRANT_HERRIOT = Seating(
+        member_id="14874",
+        chamber="house",
+        district=16,
+        year=2009,
+        surname="Grant",
+        given_name="Laura",
+    )
+
+    def test_a_dead_predecessor_is_not_resolved_to_his_successor(self) -> None:
+        proposal = _proposal(
+            "Deceased January 4, 2009",
+            chamber="house",
+            district=16,
+            year=2009,
+            name="William A. Grant",
+        )
+        resolver = SuccessionResolver(seatings=[self.GRANT_HERRIOT], positions=[])
+        resolved = resolver.resolve(proposal)
+        assert isinstance(resolved, Unresolved)
+        assert resolved.reason == UNRESOLVED_GIVEN_NAME_MISMATCH
+
+    def test_the_successor_still_resolves_on_her_own_row(self) -> None:
+        """The guard must not cost the match that is actually correct."""
+        proposal = _proposal(
+            "Appointed Feb. 20, 2009",
+            chamber="house",
+            district=16,
+            year=2009,
+            name="Laura Grant-Herriot",
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="14874",
+                    chamber="house",
+                    district=16,
+                    year=2009,
+                    surname="Grant-Herriot",
+                    given_name="Laura",
+                )
+            ],
+            positions=[
+                PositionTenure(
+                    member_id="14874", district=16, position="2", first_year=2009, last_year=2010
+                )
+            ],
+        )
+        assert isinstance(resolver.resolve(proposal), ResolvedEvent)
+
+    @pytest.mark.parametrize(
+        ("roster_name", "given_name"),
+        [
+            # Every benign variant the live corpus contains. A nickname, a formal name, an
+            # initial and a middle-name-first row all share the given-name initial; two
+            # different people do not.
+            ("Mike Padden", "Michael"),
+            ("Art Wang", "Arthur"),
+            ("Jim Springer", "James"),
+            ("Zachary Hall", "Zach"),
+            ("Edward B. Murray", "Ed"),
+            ("J. Bruce Holland", "Jeffrey"),
+            ("Louise Miller", "C Louise"),
+            ("Mike Riley", "Moyne"),
+            ("Sidney R. Snyder", "Sid"),
+            ("Alvin C. Williams", "Al"),
+        ],
+    )
+    def test_benign_name_variants_still_match(self, roster_name: str, given_name: str) -> None:
+        """19 of the 20 flagged rows were variants like these; refusing them would throw away
+        real corrections to buy nothing."""
+        proposal = _proposal(
+            "Deceased June 15, 1979", chamber="senate", year=1979, name=roster_name
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="99",
+                    chamber="senate",
+                    district=2,
+                    year=1979,
+                    surname=roster_name.split()[-1],
+                    given_name=given_name,
+                )
+            ],
+            positions=[],
+        )
+        assert isinstance(resolver.resolve(proposal), ResolvedEvent), roster_name
+
+    def test_a_missing_given_name_does_not_refuse(self) -> None:
+        """Absence of the signal is not evidence against the match — the sponsor roster does
+        not always carry a first name, and refusing on that would be a silent coverage loss."""
+        proposal = _proposal("Deceased June 15, 1979", chamber="senate", year=1979, name="Al Henry")
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="99",
+                    chamber="senate",
+                    district=2,
+                    year=1979,
+                    surname="Henry",
+                    given_name="",
+                )
+            ],
+            positions=[],
+        )
+        assert isinstance(resolver.resolve(proposal), ResolvedEvent)
+
+    def test_a_compatible_match_wins_over_an_incompatible_one(self) -> None:
+        """When the index holds both the real subject and a same-surname lookalike, the guard
+        selects rather than refuses."""
+        proposal = _proposal(
+            "Deceased January 4, 2009",
+            chamber="house",
+            district=16,
+            year=2009,
+            name="William A. Grant",
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                self.GRANT_HERRIOT,
+                Seating(
+                    member_id="8000",
+                    chamber="house",
+                    district=16,
+                    year=2009,
+                    surname="Grant",
+                    given_name="William",
+                ),
+            ],
+            positions=[],
+        )
+        resolved = resolver.resolve(proposal)
+        assert isinstance(resolved, ResolvedEvent)
+        assert resolved.member_id == "8000"

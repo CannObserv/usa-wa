@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from usa_wa_adapter_legislature.roster_pdf.succession import EventProposal
-from usa_wa_common.names import fold_token, surname_match_set
+from usa_wa_common.names import fold_token, folded_tokens, surname_match_set
 
 #: Refusal reasons — why a dated boundary is still not writable. Report-don't-drop, as
 #: everywhere else in this source: an unresolved proposal is reported, never dropped.
@@ -47,6 +47,7 @@ UNRESOLVED_NO_MEMBER = "no_member"
 UNRESOLVED_AMBIGUOUS_MEMBER = "ambiguous_member"
 UNRESOLVED_NO_POSITION = "no_position"
 UNRESOLVED_AMBIGUOUS_POSITION = "ambiguous_position"
+UNRESOLVED_GIVEN_NAME_MISMATCH = "given_name_mismatch"
 
 #: The span ``kind`` a House Position seat is keyed under.
 KIND_HOUSE = "chamber-house"
@@ -65,6 +66,9 @@ class Seating:
     district: int
     year: int
     surname: str
+    #: The member's WSL ``FirstName``, when the roster carries one. Empty is common enough
+    #: that its absence must never be read as evidence against a match (#240).
+    given_name: str = ""
 
 
 #: How many years before a Position span a seating may fall and still belong to it.
@@ -157,16 +161,52 @@ class SuccessionResolver:
         for position in positions:
             self._positions[position.member_id].append(position)
 
-    def _member_ids(self, proposal: EventProposal) -> set[str]:
-        """Every member id the roster row could name, across both candidate years."""
+    def _surname_matches(self, proposal: EventProposal) -> list[Seating]:
+        """Every seating whose surname matches the roster row, across both candidate years."""
         keys = surname_match_set(proposal.member_name)
         years = {proposal.session_year, proposal.effective_date.year}
-        return {
-            seating.member_id
+        return [
+            seating
             for year in years
             for seating in self._seatings.get((proposal.chamber, proposal.district, year), ())
             if fold_token(seating.surname) in keys
-        }
+        ]
+
+    def _member_ids(self, proposal: EventProposal) -> tuple[set[str], set[str]]:
+        """``(compatible, rejected)`` member ids for the roster row.
+
+        A surname match alone is not identity. The ambiguity check below cannot save us when
+        the row's true subject is **absent from the index**: the single surviving match is then
+        a *false* match, not an ambiguous one, and it resolves silently. That is #240 — William
+        A. Grant died 2009-01-04, before the 2009-10 sponsor snapshot, so the only ``grant`` in
+        LD16 House was his successor Laura Grant-Herriot, whom WSL records under ``LastName``
+        ``Grant``. His death closed every one of her spans 18 days before she was appointed.
+
+        The discriminator is the **given-name initial**: it must appear among the roster row's
+        own tokens. Every benign variant the corpus contains keeps it — nicknames
+        (``Mike``/``Michael``), formal names (``Moyne``/``Mike``), initials
+        (``J. Bruce``/``Jeffrey``), middle-name-first rows (``C Louise``/``Louise``) — while two
+        different people generally do not (``William`` vs ``Laura``).
+
+        A heuristic, not a proof: a same-initial collision (a ``John Smith`` succeeded by a
+        ``Jane Smith``) would still pass. It covers the observed defect class and every case in
+        the measured corpus, and rejections are reported rather than folded into ``no_member``
+        so the residue stays visible.
+        """
+        tokens = {t[0] for t in folded_tokens(proposal.member_name) if t}
+        compatible: set[str] = set()
+        rejected: set[str] = set()
+        for seating in self._surname_matches(proposal):
+            # A given name can itself be several tokens — WSL carries "C Louise" for the
+            # member the roster prints as "Louise Miller" — so *any* of its initials
+            # matching is agreement. Folding it to one token would refuse a real member.
+            initials = {t[0] for t in folded_tokens(seating.given_name) if t}
+            # No given name on the WSL side is no signal — never evidence against the match.
+            if not initials or initials & tokens:
+                compatible.add(seating.member_id)
+            else:
+                rejected.add(seating.member_id)
+        return compatible, rejected
 
     def _position(self, member_id: str, proposal: EventProposal) -> set[str]:
         """The Position discriminators covering this member's LD at the boundary's year."""
@@ -179,9 +219,12 @@ class SuccessionResolver:
 
     def resolve(self, proposal: EventProposal) -> ResolvedEvent | Unresolved:
         """Resolve one proposal, or refuse with a reason."""
-        member_ids = self._member_ids(proposal)
+        member_ids, rejected = self._member_ids(proposal)
         if not member_ids:
-            return Unresolved(proposal=proposal, reason=UNRESOLVED_NO_MEMBER)
+            # Distinguish "nobody by that surname sat here" from "somebody did, but they are a
+            # different person" — the second is the #240 shape and worth seeing separately.
+            reason = UNRESOLVED_GIVEN_NAME_MISMATCH if rejected else UNRESOLVED_NO_MEMBER
+            return Unresolved(proposal=proposal, reason=reason)
         if len(member_ids) > 1:
             return Unresolved(proposal=proposal, reason=UNRESOLVED_AMBIGUOUS_MEMBER)
         member_id = member_ids.pop()
