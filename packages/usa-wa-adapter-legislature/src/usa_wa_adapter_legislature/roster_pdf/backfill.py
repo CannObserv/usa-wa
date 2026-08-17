@@ -6,21 +6,32 @@ the survivors as :class:`~clearinghouse_domain_legislative.operator_events.Opera
 the one mechanism that can move a biennium-quantized span boundary to the day it really
 happened.
 
-    python -m usa_wa_adapter_legislature.roster_pdf.backfill [--dry-run] [--limit N]
+    python -m usa_wa_adapter_legislature.roster_pdf.backfill \\
+        [--dry-run] [--limit N] [--supersede-conflicts]
 
 **Deference to the operator, everywhere the two overlap.** The store already holds 124
-hand-entered attestations, and the roster independently reproduces 81 of them to the day —
-strong corroboration, and also the hazard. Two rules follow, and both are refusals:
+attestations, and the roster independently reproduces 81 of them to the day — strong
+corroboration, and also the hazard. Two rules follow:
 
-* An **already-attested** boundary is skipped. :func:`record_operator_event` is idempotent on
-  the natural key but still refreshes ``reason``/``evidence_url``/``entered_by``, so writing
-  one would replace a human's attestation with the machine's in a store whose premise is that
-  provenance is never mutated (#54).
-* A boundary that **disagrees** with an attestation on the same tenure is skipped and
-  *reported*. Those 17 disagreements run from 1 to 41 days; writing them would leave the same
-  seat carrying two live, non-superseded boundaries, and the overlay would apply whichever it
-  saw last. The roster is authoritative about a great deal, but it does not get to silently
-  overrule a human here — an operator adjudicates, and supersedes deliberately.
+* An **already-attested** boundary is skipped, always. :func:`record_operator_event` is
+  idempotent on the natural key but still refreshes ``reason``/``evidence_url``/``entered_by``,
+  so writing one would replace the existing attestation's provenance with the machine's, in a
+  store whose premise is that provenance is never mutated (#54). There is nothing to correct
+  and something to lose.
+* A boundary that **disagrees** with an attestation on the same tenure is reported, and by
+  default skipped. Writing it alongside would leave one seat carrying two live, non-superseded
+  boundaries for the overlay to pick between.
+
+``--supersede-conflicts`` opts into resolving that second case in the roster's favour — but
+only against a **machine-entered** attestation (:data:`MACHINE_ENTERED_BY`). It is off by
+default because the safe reading of a disagreement is that someone knew something the roster
+does not, and that reading should be overridden deliberately rather than assumed. It was
+overridden once, on evidence: all 17 live conflicts were agent-entered rows citing
+Wikipedia/Ballotpedia, and **5 of the 9 conflicting departures had been dated to the
+successor's seating date** — collapsing "incumbent departed" and "successor seated" into one
+date and asserting a zero-day vacancy where 1-29 days actually elapsed (Scott Barr's row cited
+his successor Bob Morton's page). Superseding *appends* the correction and stamps the prior
+row's ``superseded_by_id``, so the retracted attestation stays auditable.
 
 Conflict scope is the **tenure**, not the seat: same member, same kind, same seat, same
 biennium. A gap-and-return member really does hold one seat twice, and a chamber mover really
@@ -59,6 +70,7 @@ from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
+    supersede_event,
 )
 from usa_wa_adapter_legislature.provisioning import get_or_create_source as get_or_create_wsl
 from usa_wa_adapter_legislature.roster_pdf.cohort import RosterCohortProvider
@@ -89,6 +101,19 @@ BACKFILL_ENTERED_BY = "roster-pdf-backfill"
 #: Why a resolved event was not written. Both are deference to an existing attestation.
 SKIP_ALREADY_ATTESTED = "already_attested"
 SKIP_CONFLICTS_WITH_ATTESTATION = "conflicts_with_attestation"
+
+#: ``entered_by`` values ``--supersede-conflicts`` is allowed to overrule — the machine-entered
+#: ones. This allowlist **is** the safety property of that flag.
+#:
+#: The rule the backfill defaults to (never overrule an attestation) was written for a human's
+#: judgement. The live conflicts were not that: all 17 were agent-entered rows citing
+#: Wikipedia/Ballotpedia, and 5 of the 9 conflicting departures had been dated to the
+#: **successor's seating date** — collapsing "incumbent departed" and "successor seated" into a
+#: single date and asserting a zero-day vacancy where 1-29 days actually elapsed (Barr's row
+#: even cited his successor Bob Morton's page). Against the Legislature's own publication that
+#: is a defect. A *named operator's* attestation is still never the backfill's to overrule, and
+#: the only thing keeping that true is this set — so add to it deliberately.
+MACHINE_ENTERED_BY = frozenset({"exedev", BACKFILL_ENTERED_BY})
 
 #: The House Position span discriminator, as the corpus writes it.
 _POSITION = re.compile(r"^ld-(?P<district>\d+)-position-(?P<position>\d+)$")
@@ -130,9 +155,15 @@ class AttestationConflict:
 
 @dataclass(frozen=True)
 class WriteSummary:
-    """What one write pass did."""
+    """What one write pass did.
+
+    ``written`` and ``superseded`` are disjoint: a boundary either had no prior attestation on
+    its tenure or replaced one. ``conflicts`` lists every disagreement found, whether or not it
+    was acted on — so a default run and a superseding run report the same adjudication set.
+    """
 
     written: int = 0
+    superseded: int = 0
     skipped: Counter[str] = field(default_factory=Counter)
     conflicts: tuple[AttestationConflict, ...] = ()
 
@@ -145,6 +176,7 @@ class BackfillSummary:
     proposed: dict[str, int]
     resolution: dict[str, int]
     written: int
+    superseded: int
     skipped: dict[str, int]
     conflicts: tuple[AttestationConflict, ...]
 
@@ -162,6 +194,7 @@ class BackfillSummary:
             "proposed": self.proposed,
             "resolution": self.resolution,
             "written": self.written,
+            "superseded": self.superseded,
             "skipped": self.skipped,
             "conflicts": len(self.conflicts),
         }
@@ -174,10 +207,16 @@ Scope = tuple[str, str, str | None, str | None]
 
 @dataclass(frozen=True)
 class _Attested:
-    """The two facts a conflict report needs from a prior attestation."""
+    """A prior attestation, as much of it as the conflict path needs.
+
+    ``row`` is the ORM object when the attestation came from the database, and ``None`` for one
+    this batch just wrote — an in-batch collision is reported, never superseded, because the
+    roster does not get to overrule itself silently.
+    """
 
     effective_date: date
     entered_by: str | None
+    row: OperatorEvent | None = None
 
 
 def _scope(event: ResolvedEvent | OperatorEvent) -> Scope:
@@ -205,7 +244,7 @@ async def _live_attestations(
     by_scope: dict[Scope, list[_Attested]] = {}
     for row in rows:
         by_scope.setdefault(_scope(row), []).append(
-            _Attested(effective_date=row.effective_date, entered_by=row.entered_by)
+            _Attested(effective_date=row.effective_date, entered_by=row.entered_by, row=row)
         )
     return {r.source_id for r in rows if r.source == OPERATOR_SOURCE_SLUG}, by_scope
 
@@ -216,14 +255,23 @@ async def write_events(
     events: Iterable[ResolvedEvent],
     *,
     entered_by: str = BACKFILL_ENTERED_BY,
+    supersede_conflicts: bool = False,
 ) -> WriteSummary:
     """Record resolved events, deferring to every existing attestation. Idempotent.
+
+    ``supersede_conflicts`` opts into letting the roster **replace** a disagreeing attestation
+    — but only a machine-entered one (:data:`MACHINE_ENTERED_BY`). It is off by default because
+    the safe reading of a disagreement is that someone knew something the roster does not, and
+    that reading has to be actively overridden rather than assumed. Superseding *appends* the
+    correction and stamps the prior row's ``superseded_by_id``; nothing is mutated (#54), so the
+    retracted attestation stays on record pointing at what replaced it.
 
     Operates in the **caller's** transaction — the CLI commits, or the job harness rolls back on
     ``dry_run``. Rolling back here as well would give one transaction two owners.
     """
     keys, by_scope = await _live_attestations(session)
     written = 0
+    superseded = 0
     skipped: Counter[str] = Counter()
     conflicts: list[AttestationConflict] = []
 
@@ -245,7 +293,6 @@ async def write_events(
             if biennium_for_date(row.effective_date) == biennium
         ]
         if prior:
-            skipped[SKIP_CONFLICTS_WITH_ATTESTATION] += 1
             conflicts.append(
                 AttestationConflict(
                     member_id=event.member_id,
@@ -259,6 +306,30 @@ async def write_events(
                     evidence=event.evidence,
                 )
             )
+            replaceable = (
+                supersede_conflicts
+                and prior[0].row is not None
+                and prior[0].entered_by in MACHINE_ENTERED_BY
+            )
+            if not replaceable:
+                skipped[SKIP_CONFLICTS_WITH_ATTESTATION] += 1
+                continue
+            await supersede_event(
+                session,
+                source,
+                prior[0].row,
+                reason=event.reason,
+                effective_date=event.effective_date,
+                evidence_url=roster_evidence_url(event.proposal.page_number),
+                entered_by=entered_by,
+            )
+            keys.add(source_id)
+            # The tenure's live attestation is now ours; a further roster boundary on it in
+            # this same batch must collide with that, not with the row we just retracted.
+            by_scope[_scope(event)] = [
+                a for a in by_scope.get(_scope(event), ()) if a is not prior[0]
+            ] + [_Attested(effective_date=event.effective_date, entered_by=entered_by)]
+            superseded += 1
             continue
         await record_operator_event(
             session,
@@ -280,7 +351,12 @@ async def write_events(
         )
         written += 1
 
-    return WriteSummary(written=written, skipped=skipped, conflicts=tuple(conflicts))
+    return WriteSummary(
+        written=written,
+        superseded=superseded,
+        skipped=skipped,
+        conflicts=tuple(conflicts),
+    )
 
 
 async def load_seatings(session: AsyncSession, *, source_id: _ULID) -> list[Seating]:
@@ -402,7 +478,11 @@ async def resolve_roster_events(
 
 
 async def backfill_succession(
-    session: AsyncSession, *, dry_run: bool = False, limit: int | None = None
+    session: AsyncSession,
+    *,
+    dry_run: bool = False,
+    limit: int | None = None,
+    supersede_conflicts: bool = False,
 ) -> BackfillSummary:
     """Parse → resolve → write. Idempotent; defers to every existing attestation."""
     records, proposed, outcome = await resolve_roster_events(session)
@@ -410,7 +490,7 @@ async def backfill_succession(
     if limit is not None:
         resolved = resolved[:limit]
     source = await get_or_create_operator_source(session, await resolve_jurisdiction(session))
-    write = await write_events(session, source, resolved)
+    write = await write_events(session, source, resolved, supersede_conflicts=supersede_conflicts)
     _log_conflicts(write.conflicts)
     logger.info(
         "roster_backfill_complete",
@@ -419,6 +499,7 @@ async def backfill_succession(
             "resolved": len(outcome.resolved),
             "unresolved": len(outcome.unresolved),
             "written": write.written,
+            "superseded": write.superseded,
             "conflicts": len(write.conflicts),
             "dry_run": dry_run,
         },
@@ -428,6 +509,7 @@ async def backfill_succession(
         proposed=proposed,
         resolution=resolution_summary(outcome),
         written=write.written,
+        superseded=write.superseded,
         skipped=dict(write.skipped),
         conflicts=write.conflicts,
     )
@@ -437,6 +519,14 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--limit", type=int, default=None, help="Write at most N events (a staged first run)."
     )
+    parser.add_argument(
+        "--supersede-conflicts",
+        action="store_true",
+        help=(
+            "Let the roster replace a disagreeing attestation, but only a machine-entered "
+            "one. A named operator's attestation is never superseded."
+        ),
+    )
 
 
 async def _backfill_job(ctx: JobContext) -> JobResult:
@@ -444,7 +534,10 @@ async def _backfill_job(ctx: JobContext) -> JobResult:
     always states boundaries, so an empty resolution means the archive or the sponsor index is
     missing rather than that there was no work."""
     summary = await backfill_succession(
-        ctx.require_session(), dry_run=ctx.dry_run, limit=ctx.args.limit
+        ctx.require_session(),
+        dry_run=ctx.dry_run,
+        limit=ctx.args.limit,
+        supersede_conflicts=ctx.args.supersede_conflicts,
     )
     if not summary.resolution:
         return JobResult.degraded(summary.counters)

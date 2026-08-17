@@ -271,3 +271,110 @@ class TestAttestationSafety:
             db_session, source, [_resolved("Deceased June 15, 1979", chamber="senate")]
         )
         assert summary.written == 1
+
+
+class TestSupersedingConflicts:
+    """`--supersede-conflicts` (#226 adjudication): the roster wins, deliberately and only
+    over a *machine*-entered attestation.
+
+    All 17 live conflicts turned out to be agent-entered rows citing Wikipedia/Ballotpedia,
+    and 5 of the 9 conflicting departures were dated to the **successor's seating date** —
+    collapsing "incumbent departed" and "successor seated" into one date and asserting a
+    zero-day vacancy where 1–29 days actually elapsed. Against the Legislature's own roster
+    that is a defect, not a difference of opinion.
+    """
+
+    async def _prior(self, session, source, *, entered_by: str):
+        return await record_operator_event(
+            session,
+            source,
+            member_id="18517",
+            kind="departed",
+            reason="resigned",
+            effective_date=date(1979, 7, 20),
+            evidence_url="https://en.wikipedia.org/wiki/Someone_Else",
+            entered_by=entered_by,
+        )
+
+    async def test_supersedes_a_machine_entered_conflict(self, db_session, usa_wa) -> None:
+        source = await _source(db_session)
+        prior = await self._prior(db_session, source, entered_by="exedev")
+        summary = await write_events(
+            db_session,
+            source,
+            [_resolved("Deceased June 15, 1979", chamber="senate")],
+            supersede_conflicts=True,
+        )
+        assert summary.superseded == 1
+        assert summary.written == 0
+        assert prior.superseded_by_id is not None
+        rows = (await db_session.execute(select(OperatorEvent))).scalars().all()
+        live = [r for r in rows if r.superseded_by_id is None]
+        assert len(live) == 1
+        assert live[0].effective_date == date(1979, 6, 15)
+        assert live[0].entered_by == BACKFILL_ENTERED_BY
+
+    async def test_the_superseded_row_survives_for_audit(self, db_session, usa_wa) -> None:
+        """Provenance is appended, never mutated (#54): the retracted attestation stays on
+        record pointing at what replaced it."""
+        source = await _source(db_session)
+        prior = await self._prior(db_session, source, entered_by="exedev")
+        await write_events(
+            db_session,
+            source,
+            [_resolved("Deceased June 15, 1979", chamber="senate")],
+            supersede_conflicts=True,
+        )
+        assert prior.effective_date == date(1979, 7, 20)
+        assert prior.entered_by == "exedev"
+        assert prior.evidence_url == "https://en.wikipedia.org/wiki/Someone_Else"
+
+    async def test_a_human_attestation_is_never_superseded(self, db_session, usa_wa) -> None:
+        """The allowlist is the whole safety property. A named operator's judgement is not
+        the backfill's to overrule, however authoritative the roster is."""
+        source = await _source(db_session)
+        prior = await self._prior(db_session, source, entered_by="gregoryfoster")
+        summary = await write_events(
+            db_session,
+            source,
+            [_resolved("Deceased June 15, 1979", chamber="senate")],
+            supersede_conflicts=True,
+        )
+        assert summary.superseded == 0
+        assert summary.skipped[SKIP_CONFLICTS_WITH_ATTESTATION] == 1
+        assert prior.superseded_by_id is None
+
+    async def test_superseding_is_off_by_default(self, db_session, usa_wa) -> None:
+        source = await _source(db_session)
+        prior = await self._prior(db_session, source, entered_by="exedev")
+        summary = await write_events(
+            db_session, source, [_resolved("Deceased June 15, 1979", chamber="senate")]
+        )
+        assert summary.superseded == 0
+        assert summary.skipped[SKIP_CONFLICTS_WITH_ATTESTATION] == 1
+        assert prior.superseded_by_id is None
+
+    async def test_an_identical_date_is_still_a_no_op(self, db_session, usa_wa) -> None:
+        """An already-attested boundary has nothing to correct — superseding it would append
+        a row identical to the one it retracts and strip a human's name off the live copy."""
+        source = await _source(db_session)
+        await record_operator_event(
+            db_session,
+            source,
+            member_id="18517",
+            kind="departed",
+            reason="died",
+            effective_date=date(1979, 6, 15),
+            evidence_url="https://example.gov/obituary",
+            entered_by="gregoryfoster",
+        )
+        summary = await write_events(
+            db_session,
+            source,
+            [_resolved("Deceased June 15, 1979", chamber="senate")],
+            supersede_conflicts=True,
+        )
+        assert (summary.superseded, summary.written) == (0, 0)
+        assert summary.skipped[SKIP_ALREADY_ATTESTED] == 1
+        row = (await db_session.execute(select(OperatorEvent))).scalar_one()
+        assert row.entered_by == "gregoryfoster"
