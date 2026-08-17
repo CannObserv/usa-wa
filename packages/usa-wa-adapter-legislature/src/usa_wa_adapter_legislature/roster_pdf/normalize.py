@@ -224,12 +224,12 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
             chamber = page_chamber
             year = None  # a new chamber restarts the year sequence at the district's floor
         # Banner dividers below the running header: everything under one belongs to its chamber.
+        # ``SENATE`` -> "senate", ``HOUSE OF REPRESENTATIVES`` -> "house".
         dividers = [
             (top, match.group(1).lower().split()[0])
             for top, line in lines
             if top >= header_band and (match := _CHAMBER_BANNER.match(_text(line)))
         ]
-        dividers = [(top, "house" if name == "house" else "senate") for top, name in dividers]
         if chamber is None and not dividers:
             continue
 
@@ -282,7 +282,9 @@ def _parse_column(
     """
     buffer = ""
     carried = 0
-    buffer_top = 0.0
+    # None until a buffer opens. 0.0 would silently mean "top of page", which resolves to the
+    # first divider — a plausible-looking answer to a question that was never asked.
+    buffer_top: float | None = None
     row_chamber = chamber
 
     def chamber_at(top: float) -> str | None:
@@ -297,7 +299,7 @@ def _parse_column(
         if not buffer:
             buffer_top = line_top
         buffer = f"{buffer} {text}".strip() if buffer else text
-        at = chamber_at(buffer_top)
+        at = chamber_at(buffer_top) if buffer_top is not None else row_chamber
         if at is not None and at != row_chamber:
             # Crossing the divider starts a new block, which restarts the year sequence at the
             # district's floor rather than continuing the previous chamber's.
@@ -355,11 +357,13 @@ def _parse_column(
             buffer = ""
             continue
 
-        order += 1
         if row_chamber is None:
+            # Discard BEFORE incrementing: ``order`` is the seat-lineage signal #229 infers
+            # Positions from, so a consumed-but-unused slot shifts every later row in the group.
             unparsed.append(buffer)
             buffer = ""
             continue
+        order += 1
         out.append(
             RosterRecord(
                 district=district,

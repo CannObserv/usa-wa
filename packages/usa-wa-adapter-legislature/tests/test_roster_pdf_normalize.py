@@ -145,9 +145,18 @@ class TestChamberIsAYDivider:
         assert kingery[0].chamber == "house"
 
     def test_a_row_above_the_divider_stays_senate(self, full_pages) -> None:
+        """The other half of the rule: the fix must not sweep the whole page into the House.
+
+        District 31's Senate block sits above the y=499 divider on this page, and Halteman's
+        1895 row is below it — so the two together pin both directions of the divider.
+        """
         from usa_wa_adapter_legislature.roster_pdf.normalize import parse_district_pages
 
         records = parse_district_pages(full_pages)
         senate_31 = [r for r in records if r.district == 31 and r.chamber == "senate"]
         assert senate_31, "district 31 lost its Senate block entirely"
-        assert all(r.year <= 2025 for r in senate_31)
+        halteman = [r for r in records if "Halteman" in r.name]
+        assert halteman, "Halteman not parsed"
+        assert halteman[0].chamber == "house"
+        # A row from the Senate block above the divider keeps its chamber.
+        assert min(r.year for r in senate_31) < 1913
