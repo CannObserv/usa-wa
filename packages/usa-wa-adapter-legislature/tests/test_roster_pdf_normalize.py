@@ -119,3 +119,44 @@ def test_senate_terms_skip_years(records) -> None:
 def test_parser_is_pure(d2_pages: list[PageWords]) -> None:
     """Two runs over the same input give equal output — the builder re-drives on every run."""
     assert parse_district_pages(d2_pages) == parse_district_pages(d2_pages)
+
+
+class TestChamberIsAYDivider:
+    """A district's Senate and House blocks can share one page, so the chamber is a full-width
+    divider at a y-position — not a page-level property read from the running header.
+
+    Verified on page 104 of the 2025-06-05 edition: the running header says "Senate", the
+    ``SENATE`` banner sits at y=109, ``HOUSE OF REPRESENTATIVES`` at y=499, and W. H. Kingery's
+    row at y=631 is plainly below the divider. Reading the chamber once per page put him in the
+    Senate. 35 of the 166 district pages carry both banners, so this is systematic.
+
+    Brazier's *History of the Washington Legislature 1854-1963* is the independent check: the
+    1913 Socialist sat in the **House**; the 1913 Senate's lone third-party member was an
+    Independent. Attributing the Socialist to the Senate both invents an assignment and
+    discards a real one, since ``Ind`` folds to no party (#233).
+    """
+
+    def test_a_row_below_the_house_banner_is_house(self, full_pages) -> None:
+        from usa_wa_adapter_legislature.roster_pdf.normalize import parse_district_pages
+
+        records = parse_district_pages(full_pages)
+        kingery = [r for r in records if "Kingery" in r.name and r.year == 1913]
+        assert kingery, "Kingery not parsed"
+        assert kingery[0].chamber == "house"
+
+    def test_a_row_above_the_divider_stays_senate(self, full_pages) -> None:
+        """The other half of the rule: the fix must not sweep the whole page into the House.
+
+        District 31's Senate block sits above the y=499 divider on this page, and Halteman's
+        1895 row is below it — so the two together pin both directions of the divider.
+        """
+        from usa_wa_adapter_legislature.roster_pdf.normalize import parse_district_pages
+
+        records = parse_district_pages(full_pages)
+        senate_31 = [r for r in records if r.district == 31 and r.chamber == "senate"]
+        assert senate_31, "district 31 lost its Senate block entirely"
+        halteman = [r for r in records if "Halteman" in r.name]
+        assert halteman, "Halteman not parsed"
+        assert halteman[0].chamber == "house"
+        # A row from the Senate block above the divider keeps its chamber.
+        assert min(r.year for r in senate_31) < 1913
