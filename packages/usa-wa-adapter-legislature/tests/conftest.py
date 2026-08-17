@@ -62,3 +62,18 @@ def roster_pdf_bytes() -> bytes:
     key against (CR finding 1); without it that path could only be tested against a mock.
     """
     return (Path(__file__).parent / "fixtures" / "roster_pdf_d2.pdf").read_bytes()
+
+
+@pytest.fixture(scope="session")
+def roster_page_104_bytes() -> bytes:
+    """Page 104 of the 2025-06-05 edition: District 31, whose Senate and House blocks share one
+    page. The chamber divider case (#233) — a page-level chamber read puts the House rows in the
+    Senate."""
+    return (Path(__file__).parent / "fixtures" / "roster_pdf_d31_split.pdf").read_bytes()
+
+
+@pytest.fixture(scope="session")
+def full_pages(roster_page_104_bytes: bytes):
+    from usa_wa_adapter_legislature.roster_pdf.extraction import extract_pages
+
+    return extract_pages(roster_page_104_bytes)

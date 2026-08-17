@@ -57,6 +57,13 @@ _LEADING_YEAR = re.compile(r"^(?P<year>1[89]\d{2}|20\d{2})\s+(?P<rest>.*)$")
 #: ``DISTRICT NO. 12`` (banner) or ``District No. 12`` (running header).
 _DISTRICT = re.compile(r"DISTRICT NO\.\s*(\d+)", re.IGNORECASE)
 
+#: The centred chamber banners that open a district's Senate and House blocks. A district's two
+#: blocks routinely share one page (35 of 166 district pages in the 2025 edition), so the chamber
+#: is a **full-width divider at a y-position**, not a page-level property. Reading it once from
+#: the running header put every House row on such a page into the Senate — which is how the 1913
+#: Socialist ended up as a senator (#233).
+_CHAMBER_BANNER = re.compile(r"^\s*(SENATE|HOUSE OF REPRESENTATIVES)\s*$", re.IGNORECASE)
+
 #: Prose that must never be mistaken for a member name once a wrapped annotation is joined.
 _PROSE = re.compile(
     r"unexpired|^to serve|^Sworn in|^Elected \w+\.? \d|^Appointed|^Served |^Named |"
@@ -216,7 +223,14 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
         if page_chamber is not None and page_chamber != chamber:
             chamber = page_chamber
             year = None  # a new chamber restarts the year sequence at the district's floor
-        if chamber is None:
+        # Banner dividers below the running header: everything under one belongs to its chamber.
+        dividers = [
+            (top, match.group(1).lower().split()[0])
+            for top, line in lines
+            if top >= header_band and (match := _CHAMBER_BANNER.match(_text(line)))
+        ]
+        dividers = [(top, "house" if name == "house" else "senate") for top, name in dividers]
+        if chamber is None and not dividers:
             continue
 
         mid = page.width / 2
@@ -231,7 +245,15 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
             # column's year sequence, and a year group can span a page break. Resetting per
             # column strands those rows with no year (Jesse Wineberry, LD43).
             year, order = _parse_column(
-                column, district, chamber, page.page_number, unparsed, year, order, records
+                column,
+                district,
+                chamber,
+                page.page_number,
+                unparsed,
+                year,
+                order,
+                records,
+                dividers,
             )
 
     return ParseReport(records=tuple(records), unparsed=tuple(unparsed))
@@ -246,6 +268,7 @@ def _parse_column(
     current_year: int | None,
     order: int,
     out: list[RosterRecord],
+    dividers: list[tuple[float, str]],
 ) -> tuple[int | None, int]:
     """Parse one column top-to-bottom, joining wrapped annotations before classifying rows.
 
@@ -259,12 +282,28 @@ def _parse_column(
     """
     buffer = ""
     carried = 0
+    buffer_top = 0.0
+    row_chamber = chamber
 
-    for _, line in column:
+    def chamber_at(top: float) -> str | None:
+        """The chamber whose banner most recently precedes ``top``; the page's otherwise."""
+        applicable = [name for divider_top, name in dividers if divider_top <= top]
+        return applicable[-1] if applicable else chamber
+
+    for line_top, line in column:
         text = _text(line)
         if not text:
             continue
+        if not buffer:
+            buffer_top = line_top
         buffer = f"{buffer} {text}".strip() if buffer else text
+        at = chamber_at(buffer_top)
+        if at is not None and at != row_chamber:
+            # Crossing the divider starts a new block, which restarts the year sequence at the
+            # district's floor rather than continuing the previous chamber's.
+            row_chamber = at
+            current_year = None
+            order = 0
         # The party token at the right margin terminates a row -- check it BEFORE the paren
         # balance. The source contains unclosed parentheses (e.g. LD25 2021 Chris Gildon,
         # "...to serve unexpired term" with no closing paren); balancing alone would swallow the
@@ -317,10 +356,14 @@ def _parse_column(
             continue
 
         order += 1
+        if row_chamber is None:
+            unparsed.append(buffer)
+            buffer = ""
+            continue
         out.append(
             RosterRecord(
                 district=district,
-                chamber=chamber,
+                chamber=row_chamber,
                 year=current_year,
                 order=order,
                 name=name,
