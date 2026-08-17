@@ -15,7 +15,9 @@ from usa_wa_adapter_legislature.roster_pdf.succession import (
     DEFER_HOUSE_SEAT_UNRESOLVED,
     DEFER_NO_DAY_PRECISION,
     parse_annotation,
+    proposals_for_seat,
     propose_events,
+    summarize,
 )
 
 
@@ -191,3 +193,126 @@ class TestDeferrals:
         ]
         report = propose_events(records)
         assert len(report.proposals) + len(report.deferred) == len(records)
+
+
+class TestMultipleBoundaries:
+    """An annotation routinely states both ends of a tenure; emitting only one loses the other.
+
+    Every string here is verbatim from the 2025-06-05 edition.
+    """
+
+    def test_a_seating_and_a_departure_both_emit(self) -> None:
+        """Jesernig, LD8 Senate: sworn in 1990, resigned 1993. Taking only the seating left the
+        span open for three years; taking only the departure lost his real start."""
+        report = propose_events(
+            [
+                _record(
+                    "Elected Nov. 6, 1990; Sworn in Nov. 30, 1990 to serve unexpired term; "
+                    "Resigned Nov. 9, 1993; Appointed Director, Dptmnt. of Ag.",
+                    chamber="senate",
+                    district=8,
+                    year=1991,
+                )
+            ]
+        )
+        assert {(p.kind, p.reason, p.effective_date) for p in report.proposals} == {
+            ("seated", "sworn_in", date(1990, 11, 30)),
+            ("departed", "resigned", date(1993, 11, 9)),
+        }
+
+    def test_a_dateless_external_appointment_does_not_swallow_the_departure(self) -> None:
+        """CR finding 10: ``Appointed <external office>`` carries no date, and capturing the
+        seating branch discarded the dated resignation entirely — 30 departures across the
+        corpus."""
+        report = propose_events(
+            [
+                _record(
+                    "Resigned August 24, 1949; Appointed Employment Security Commissioner",
+                    chamber="senate",
+                    district=8,
+                    year=1949,
+                )
+            ]
+        )
+        assert [(p.kind, p.reason, p.effective_date) for p in report.proposals] == [
+            ("departed", "resigned", date(1949, 8, 24))
+        ]
+
+    def test_a_temporary_appointment_emits_both_ends(self) -> None:
+        """Braun, LD20 Senate — the five-day military substitution. A ``seated`` with no end
+        asserts he held the seat indefinitely, which is worse than the biennium floor it
+        replaces and is the ghost-open span #107/#119 exist to prevent."""
+        report = propose_events(
+            [
+                _record(
+                    "Appointed to temporarily serve from July 18, 2017 until July 23, 2017",
+                    chamber="senate",
+                    district=20,
+                    year=2017,
+                )
+            ]
+        )
+        assert {(p.kind, p.effective_date) for p in report.proposals} == {
+            ("seated", date(2017, 7, 18)),
+            ("departed", date(2017, 7, 23)),
+        }
+
+    def test_a_swearing_in_still_collapses_with_its_appointment(self) -> None:
+        """Two dates for the SAME boundary must stay one event — emitting both would put two
+        starts on one seat. Sharon Brown: appointed Jan 28, sworn Feb 4."""
+        report = propose_events(
+            [
+                _record(
+                    "Appointed January 28, 2013; Sworn in February 4. 2013; "
+                    "Elected Nov. 5, 2013 to serve unexpired term",
+                    chamber="senate",
+                    district=8,
+                    year=2011,
+                )
+            ]
+        )
+        seatings = [p for p in report.proposals if p.kind == "seated"]
+        assert len(seatings) == 1
+        assert seatings[0].effective_date == date(2013, 2, 4)
+
+
+class TestProvenance:
+    def test_proposals_and_deferrals_carry_the_source_page(self) -> None:
+        """CR finding 14: an operator adjudicating 631 deferrals needs a way back into a
+        233-page document."""
+        report = propose_events(
+            [
+                _record("Deceased June 15, 1979", chamber="senate", page_number=42),
+                _record("Speaker", chamber="senate", page_number=43),
+            ]
+        )
+        assert report.proposals[0].page_number == 42
+        assert report.deferred[0].page_number == 43
+
+
+class TestReportHelpers:
+    """CR finding 13 — both are how a human judges the backfill, so both are pinned."""
+
+    def test_summarize_counts_by_kind_and_reason(self) -> None:
+        report = propose_events(
+            [
+                _record("Deceased June 15, 1979", chamber="senate"),
+                _record("Deceased July 6, 1950", chamber="senate"),
+                _record("Speaker", chamber="senate"),
+            ]
+        )
+        assert summarize(report) == {
+            "departed:died": 2,
+            "deferred:no_succession_verb": 1,
+        }
+
+    def test_proposals_for_seat_filters_and_orders_oldest_first(self) -> None:
+        report = propose_events(
+            [
+                _record("Resigned Dec. 31, 2013", chamber="senate", district=2),
+                _record("Deceased June 15, 1979", chamber="senate", district=2),
+                _record("Resigned Jan. 13, 1993", chamber="senate", district=9),
+            ]
+        )
+        seat = proposals_for_seat(report, district=2, chamber="senate")
+        assert [p.effective_date for p in seat] == [date(1979, 6, 15), date(2013, 12, 31)]

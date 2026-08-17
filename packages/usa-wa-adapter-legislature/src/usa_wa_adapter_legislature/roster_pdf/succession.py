@@ -34,11 +34,14 @@ from datetime import date
 
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 
+#: Clause verbs that assert a tenure boundary — as opposed to Speaker/Redistricted/Holdover/
+#: party-change, which are real annotations but not succession events.
+_SUCCESSION_VERBS = frozenset({"deceased", "sworn_in", "appointed", "resigned"})
+
 #: Deferral reasons — why an annotation yielded no proposal. Report-don't-drop.
 DEFER_NO_DAY_PRECISION = "no_day_precision"
 DEFER_HOUSE_SEAT_UNRESOLVED = "house_seat_unresolved"
 DEFER_NO_SUCCESSION_VERB = "no_succession_verb"
-DEFER_AMBIGUOUS = "ambiguous"
 
 #: Clause verbs the corpus uses, mapped from their leading text.
 _VERBS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -89,6 +92,11 @@ _MONTH_NUMBER = {
     "dec": 12,
 }
 
+#: ``Appointed to temporarily serve from July 18, 2017 until July 23, 2017`` — a single clause
+#: stating BOTH ends of a tenure. Taking only the start asserts the member held the seat
+#: indefinitely, which for a five-day substitution is worse than the biennium floor it replaces.
+_UNTIL = re.compile(r"\buntil\b(?P<tail>.*)$", re.I)
+
 #: A clause naming the *other* chamber marks a move rather than a departure.
 _MOVE = re.compile(
     r"appointed\s+to\s+the\s+(senate|house)|elected\s+to\s+the\s+(senate|house)", re.I
@@ -128,6 +136,8 @@ class EventProposal:
     seat_kind: str | None
     seat_discriminator: str | None
     evidence: str
+    #: The source page, so an operator can get back into a 233-page document.
+    page_number: int
 
 
 @dataclass(frozen=True)
@@ -140,6 +150,7 @@ class Deferred:
     session_year: int
     reason: str
     evidence: str
+    page_number: int
 
 
 @dataclass(frozen=True)
@@ -181,7 +192,13 @@ def _parse_date(text: str) -> ParsedDate:
 
 
 def parse_annotation(annotation: str) -> tuple[Clause, ...]:
-    """Split an annotation into clauses, each with its verb and the date it actually states."""
+    """Split an annotation into clauses, each with its verb and the date it actually states.
+
+    Clauses are separated by a semicolon, or by a closing parenthesis immediately followed by
+    more text — the source nests whole annotations in brackets (``(Resigned …) (Appointed …)``).
+    The rule is deliberately broader than "semicolon only"; no corpus case currently splits
+    mid-sentence, but a parenthetical aside followed by prose would (CR finding 15).
+    """
     clauses: list[Clause] = []
     for raw in re.split(r"[;)]\s*(?=[A-Za-z(])|;", annotation):
         text = raw.strip().strip("()").strip()
@@ -190,26 +207,6 @@ def parse_annotation(annotation: str) -> tuple[Clause, ...]:
         verb = next((name for name, pattern in _VERBS if pattern.search(text)), None)
         clauses.append(Clause(verb=verb, parsed=_parse_date(text), text=text))
     return tuple(clauses)
-
-
-class _Missing:
-    """Sentinel: the clause is absent, as distinct from present-but-undated."""
-
-
-_MISSING = _Missing()
-
-
-def _day_value(clauses: Sequence[Clause], verb: str) -> date | None | _Missing:
-    """The day-precision date of the first ``verb`` clause.
-
-    Three outcomes, and the caller must tell them apart: :data:`_MISSING` (no such clause, try
-    the next rule), ``None`` (the clause exists but states no day, so defer rather than round),
-    or the date.
-    """
-    clause = next((c for c in clauses if c.verb == verb), None)
-    if clause is None:
-        return _MISSING
-    return clause.parsed.value if clause.parsed.precision == "day" else None
 
 
 def _seat(record: RosterRecord) -> tuple[str, str] | None:
@@ -223,6 +220,7 @@ def _seat(record: RosterRecord) -> tuple[str, str] | None:
 def _proposal(
     record: RosterRecord, kind: str, reason: str, effective: date, evidence: str
 ) -> EventProposal | Deferred:
+    """Build a proposal, or defer when a seat-scoped kind cannot name its seat."""
     seat_kind = seat_discriminator = None
     if kind in ("seated", "vacated"):
         seat = _seat(record)
@@ -234,6 +232,7 @@ def _proposal(
                 session_year=record.year,
                 reason=DEFER_HOUSE_SEAT_UNRESOLVED,
                 evidence=evidence,
+                page_number=record.page_number,
             )
         seat_kind, seat_discriminator = seat
     return EventProposal(
@@ -247,55 +246,123 @@ def _proposal(
         seat_kind=seat_kind,
         seat_discriminator=seat_discriminator,
         evidence=evidence,
+        page_number=record.page_number,
     )
 
 
-def _propose_one(record: RosterRecord) -> EventProposal | Deferred:
+def _dated(clauses: Sequence[Clause], verb: str) -> date | None:
+    """The day-precision date of the first ``verb`` clause that actually states one.
+
+    A clause present but undated is **skipped, not fatal** (CR finding 10): ``Resigned August
+    24, 1949; Appointed Employment Security Commissioner`` carries a dateless external
+    appointment, and treating that as the seating discarded the dated resignation entirely —
+    30 departures across the corpus.
+    """
+    for clause in clauses:
+        if clause.verb == verb and clause.parsed.precision == "day":
+            return clause.parsed.value
+    return None
+
+
+def _start_boundary(clauses: Sequence[Clause]) -> tuple[str, date] | None:
+    """The single tenure **start**, or ``None``.
+
+    An appointment and its swearing-in are two dates for *one* boundary, so they collapse rather
+    than putting two starts on one seat. The swearing-in wins: service begins when sworn, and
+    the appointment — or worse, the ballot — date would open the span early.
+    """
+    for verb, reason in (("sworn_in", "sworn_in"), ("appointed", "appointed")):
+        value = _dated(clauses, verb)
+        if value is not None:
+            return reason, value
+    return None
+
+
+def _end_boundary(clauses: Sequence[Clause], *, moved: bool) -> tuple[str, str, date] | None:
+    """The single tenure **end** as ``(kind, reason, date)``, or ``None``.
+
+    A move keeps the member serving, so it vacates one seat rather than closing every span —
+    closing everything would wrongly end their party tenure too.
+    """
+    value = _dated(clauses, "deceased")
+    if value is not None:
+        return "departed", "died", value
+    value = _dated(clauses, "resigned")
+    if value is not None:
+        return ("vacated", "moved", value) if moved else ("departed", "resigned", value)
+    return None
+
+
+def _temporary_end(clauses: Sequence[Clause]) -> date | None:
+    """The end date of a ``from … until …`` temporary appointment, if stated.
+
+    Person-scoped ``departed``: a substitute's service stops entirely when the incumbent
+    returns, so every span closes — and person-scoped needs no seat, keeping the House
+    unblocked for this shape.
+    """
+    for clause in clauses:
+        match = _UNTIL.search(clause.text)
+        if match is None:
+            continue
+        parsed = _parse_date(match.group("tail"))
+        if parsed.precision == "day":
+            return parsed.value
+    return None
+
+
+def _propose_one(record: RosterRecord) -> tuple[list[EventProposal], list[Deferred]]:
+    """Derive every dated boundary the annotation states — at most one start and one end.
+
+    Returning a single outcome truncated real tenures: 19 annotations state two or more
+    distinct dated boundaries (CR finding 11).
+    """
     annotation = record.annotation or ""
     clauses = parse_annotation(annotation)
     moved = bool(_MOVE.search(annotation))
-    # ``Appointed to the Senate`` names a move *destination*, not a dated seating. Left in the
-    # seating candidates it wins the branch and then defers for having no date, silently losing
-    # the resignation clause that actually carries one.
+    # ``Appointed to the Senate`` names a move *destination*, not a dated seating.
     seating_clauses = [c for c in clauses if not _MOVE.search(c.text)]
 
-    def defer(reason: str) -> Deferred:
-        return Deferred(
-            member_name=record.name,
-            district=record.district,
-            chamber=record.chamber,
-            session_year=record.year,
-            reason=reason,
-            evidence=annotation,
+    proposals: list[EventProposal] = []
+    deferred: list[Deferred] = []
+
+    def add(kind: str, reason: str, effective: date) -> None:
+        outcome = _proposal(record, kind, reason, effective, annotation)
+        if isinstance(outcome, EventProposal):
+            proposals.append(outcome)
+        else:
+            deferred.append(outcome)
+
+    start = _start_boundary(seating_clauses)
+    if start is not None:
+        add("seated", start[0], start[1])
+
+    end = _end_boundary(clauses, moved=moved)
+    if end is not None:
+        add(end[0], end[1], end[2])
+    elif start is not None:
+        temporary = _temporary_end(clauses)
+        if temporary is not None:
+            add("departed", "resigned", temporary)
+
+    if not proposals and not deferred:
+        # Distinguish "the source states no succession" from "it states one we refuse to date".
+        reason = (
+            DEFER_NO_DAY_PRECISION
+            if any(c.verb in _SUCCESSION_VERBS for c in clauses)
+            else DEFER_NO_SUCCESSION_VERB
         )
-
-    # Seating: prefer the swearing-in over the election — service starts when sworn, and using
-    # the ballot date would open the span weeks early.
-    for verb, reason in (("sworn_in", "sworn_in"), ("appointed", "appointed")):
-        effective = _day_value(seating_clauses, verb)
-        if effective is _MISSING:
-            continue
-        if effective is None:
-            return defer(DEFER_NO_DAY_PRECISION)
-        return _proposal(record, "seated", reason, effective, annotation)
-
-    effective = _day_value(clauses, "deceased")
-    if effective is not _MISSING:
-        if effective is None:
-            return defer(DEFER_NO_DAY_PRECISION)
-        return _proposal(record, "departed", "died", effective, annotation)
-
-    effective = _day_value(clauses, "resigned")
-    if effective is not _MISSING:
-        if effective is None:
-            return defer(DEFER_NO_DAY_PRECISION)
-        # A move keeps the member serving, so closing every span would wrongly end their party
-        # tenure too — one seat vacates instead.
-        if moved:
-            return _proposal(record, "vacated", "moved", effective, annotation)
-        return _proposal(record, "departed", "resigned", effective, annotation)
-
-    return defer(DEFER_NO_SUCCESSION_VERB)
+        deferred.append(
+            Deferred(
+                member_name=record.name,
+                district=record.district,
+                chamber=record.chamber,
+                session_year=record.year,
+                reason=reason,
+                evidence=annotation,
+                page_number=record.page_number,
+            )
+        )
+    return proposals, deferred
 
 
 def propose_events(records: Iterable[RosterRecord]) -> SuccessionReport:
@@ -305,11 +372,9 @@ def propose_events(records: Iterable[RosterRecord]) -> SuccessionReport:
     for record in records:
         if not record.annotation:
             continue
-        outcome = _propose_one(record)
-        if isinstance(outcome, EventProposal):
-            proposals.append(outcome)
-        else:
-            deferred.append(outcome)
+        record_proposals, record_deferred = _propose_one(record)
+        proposals.extend(record_proposals)
+        deferred.extend(record_deferred)
     return SuccessionReport(proposals=tuple(proposals), deferred=tuple(deferred))
 
 

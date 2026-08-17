@@ -165,6 +165,7 @@ class TestChamberIsAYDivider:
         # A row from the Senate block above the divider keeps its chamber.
         assert min(r.year for r in senate_31) < 1913
 
+
 class TestParentheticalNamesSurviveTheSplit:
     """A parenthetical is only an annotation when its *content* is prose.
 
