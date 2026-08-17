@@ -394,6 +394,7 @@ async def load_seatings(session: AsyncSession, *, source_id: _ULID) -> list[Seat
                         district=district,
                         year=year,
                         surname=member.get("LastName") or "",
+                        given_name=member.get("FirstName") or "",
                     )
                 )
     return seatings

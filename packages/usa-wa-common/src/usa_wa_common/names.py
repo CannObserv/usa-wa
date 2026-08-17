@@ -34,14 +34,19 @@ def fold_token(token: str) -> str:
     return _NON_ALNUM.sub("", _unaccent(token.casefold()))
 
 
-def _folded_sequence(full_name: str) -> list[str]:
+def folded_tokens(full_name: str) -> list[str]:
     """The ordered folded tokens of a free-form upstream name.
 
     Split only on whitespace and grouping punctuation (parens / commas), then fold each
     token — so intra-surname apostrophes and hyphens stay *inside* the token and are
     stripped by :func:`fold_token`, matching the WSL side. A whole-name split on every
     non-alnum would shred ``"Ortiz-Self"`` into ``ortiz`` + ``self`` and never match the
-    WSL surname ``ortizself``."""
+    WSL surname ``ortizself``.
+
+    Public because the split rule has a second consumer: the roster resolver's given-name
+    guard (#240) needs the *atomic* tokens, not :func:`surname_match_set`'s concatenations.
+    Re-deriving the split there would fork the folding rule, which this module exists to
+    prevent — a divergence mismatches people silently rather than erroring."""
     return [folded for raw in re.split(r"[\s(),]+", full_name) if (folded := fold_token(raw))]
 
 
@@ -57,7 +62,7 @@ def surname_match_set(full_name: str) -> set[str]:
     makes the joined WSL surname testable by membership without a fragile substring match.
     The WSL member's folded ``LastName`` is tested against this set to confirm a within-LD
     match."""
-    tokens = _folded_sequence(full_name)
+    tokens = folded_tokens(full_name)
     keys = set(tokens)
     for start in range(len(tokens)):
         joined = ""
