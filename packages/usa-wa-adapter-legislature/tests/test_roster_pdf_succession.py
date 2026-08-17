@@ -12,7 +12,6 @@ import pytest
 
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 from usa_wa_adapter_legislature.roster_pdf.succession import (
-    DEFER_HOUSE_SEAT_UNRESOLVED,
     DEFER_NO_DAY_PRECISION,
     parse_annotation,
     proposals_for_seat,
@@ -162,15 +161,24 @@ class TestProposals:
 
 
 class TestDeferrals:
-    def test_a_house_seat_event_defers_on_the_missing_position(self) -> None:
+    def test_a_house_seat_event_is_unseated_not_deferred(self) -> None:
         """A House seat is ``ld-{n}-position-{p}`` and the roster carries no Position, so a
-        seat-scoped House event cannot name its seat until #229 supplies the discriminator.
-        Deferring is the only honest option — guessing a position would assert a false seat."""
+        seat-scoped House event cannot name its seat *from the roster alone*. That is a
+        missing discriminator, not a missing boundary — the date is perfectly good — so it
+        lands in ``unseated`` with the boundary intact, where the write half can supply the
+        Position from the existing span corpus. Folding it into ``deferred`` discarded the
+        kind, reason and date, which is what made these 224 records unrecoverable."""
         report = propose_events(
             [_record("Appointed January 17, 2014 to serve unexpired term", chamber="house")]
         )
         assert report.proposals == ()
-        assert report.deferred[0].reason == DEFER_HOUSE_SEAT_UNRESOLVED
+        assert report.deferred == ()
+        (unseated,) = report.unseated
+        assert unseated.kind == "seated"
+        assert unseated.reason == "appointed"
+        assert unseated.effective_date == date(2014, 1, 17)
+        assert unseated.seat_kind == "chamber-house"
+        assert unseated.seat_discriminator is None
 
     def test_a_house_death_still_proposes(self) -> None:
         """Person-scoped events need no seat, so the House is not blocked for those."""
@@ -184,15 +192,17 @@ class TestDeferrals:
         assert report.deferred[0].reason == DEFER_NO_DAY_PRECISION
 
     def test_every_annotation_is_accounted_for(self) -> None:
-        """Report-don't-drop: an annotation yields a proposal or a deferral, never silence."""
+        """Report-don't-drop: an annotation yields a proposal, an unseated proposal or a
+        deferral, never silence."""
         records = [
             _record("Deceased June 15, 1979", chamber="senate"),
             _record("Redistricted out of district", chamber="senate"),
             _record("Resigned February 1944", chamber="senate"),
             _record("Speaker", chamber="senate"),
+            _record("Appointed January 17, 2014", chamber="house"),
         ]
         report = propose_events(records)
-        assert len(report.proposals) + len(report.deferred) == len(records)
+        assert len(report.proposals) + len(report.unseated) + len(report.deferred) == len(records)
 
 
 class TestMultipleBoundaries:
@@ -303,6 +313,17 @@ class TestReportHelpers:
         )
         assert summarize(report) == {
             "departed:died": 2,
+            "deferred:no_succession_verb": 1,
+        }
+
+    def test_summarize_counts_unseated_separately(self) -> None:
+        """An unseated House boundary is not a refusal — counting it as one understates what
+        the backfill can write once the Position is resolved."""
+        report = propose_events(
+            [_record("Appointed January 17, 2014", chamber="house"), _record("Speaker")]
+        )
+        assert summarize(report) == {
+            "unseated:seated:appointed": 1,
             "deferred:no_succession_verb": 1,
         }
 

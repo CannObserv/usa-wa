@@ -19,10 +19,12 @@ Three rules the corpus forces, each of which is a refusal rather than a guess:
 * **A session reference is not a date.** ``Appointed to serve 1951 2nd Ex. S.`` and ``Holdover
   from District 21, 1901 Session`` name legislative sessions. Reading those years as dates would
   attach an event to the wrong thing entirely.
-* **A House seat cannot be named yet.** Seat-scoped events key on ``ld-{n}-position-{p}`` and the
-  roster carries no Position (#229 supplies it). Person-scoped ``departed`` needs no seat, so
-  deaths and full resignations are proposable in both chambers today; House ``seated``/``vacated``
-  defer.
+* **A House seat cannot be named from the roster.** Seat-scoped events key on
+  ``ld-{n}-position-{p}`` and the roster carries no Position. That is a missing *discriminator*,
+  not a missing boundary, so those land in :attr:`SuccessionReport.unseated` with the date
+  intact — the write half positions them against the existing House Position span corpus
+  (2003→present), and #229 supplies the rest. Person-scoped ``departed`` needs no seat, so
+  deaths and full resignations are proposable in both chambers today.
 """
 
 from __future__ import annotations
@@ -39,8 +41,9 @@ from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 _SUCCESSION_VERBS = frozenset({"deceased", "sworn_in", "appointed", "resigned"})
 
 #: Deferral reasons — why an annotation yielded no proposal. Report-don't-drop.
+#: A House seat is *not* among them: an unpositioned House boundary is a real proposal with a
+#: missing discriminator, and lands in :attr:`SuccessionReport.unseated`.
 DEFER_NO_DAY_PRECISION = "no_day_precision"
-DEFER_HOUSE_SEAT_UNRESOLVED = "house_seat_unresolved"
 DEFER_NO_SUCCESSION_VERB = "no_succession_verb"
 
 #: Clause verbs the corpus uses, mapped from their leading text.
@@ -124,7 +127,13 @@ class Clause:
 
 @dataclass(frozen=True)
 class EventProposal:
-    """What an operator event *would* be. Carries no member id — resolution is the write half."""
+    """What an operator event *would* be. Carries no member id — resolution is the write half.
+
+    ``seat_discriminator`` is ``None`` on exactly one shape: a House seat-scoped boundary,
+    which the roster dates but cannot position. Those live in :attr:`SuccessionReport.unseated`
+    rather than :attr:`~SuccessionReport.proposals`, so "ready to write" stays a property the
+    type can be trusted for.
+    """
 
     member_name: str
     district: int
@@ -155,10 +164,20 @@ class Deferred:
 
 @dataclass(frozen=True)
 class SuccessionReport:
-    """Proposals plus deferrals. Every annotation lands in exactly one of the two."""
+    """Proposals, unseated proposals and deferrals. Every annotation lands in at least one.
+
+    The three are graded by *what is missing*, not by whether the roster spoke:
+
+    * ``proposals`` — a dated boundary that can name everything it needs to. Only a member id
+      is outstanding, and that is a lookup the write half always has to do.
+    * ``unseated`` — a dated House seat boundary with no Position. The roster stated the fact;
+      the discriminator has to come from the span corpus (2003→present) or from #229.
+    * ``deferred`` — the roster stated no boundary we are willing to date. A genuine refusal.
+    """
 
     proposals: tuple[EventProposal, ...]
     deferred: tuple[Deferred, ...]
+    unseated: tuple[EventProposal, ...] = ()
 
 
 def _month_number(token: str) -> int | None:
@@ -209,32 +228,25 @@ def parse_annotation(annotation: str) -> tuple[Clause, ...]:
     return tuple(clauses)
 
 
-def _seat(record: RosterRecord) -> tuple[str, str] | None:
-    """The ``(seat_kind, seat_discriminator)`` for a seat-scoped event, or ``None`` when the
-    roster cannot name it — the House Position case, which #229 resolves."""
+def _seat(record: RosterRecord) -> tuple[str, str | None]:
+    """The ``(seat_kind, seat_discriminator)`` for a seat-scoped event.
+
+    The Senate keys on its LD, which the roster states outright. The House keys on
+    ``ld-{n}-position-{p}`` and the roster carries no Position, so the discriminator comes back
+    ``None`` — known seat kind, unknown seat."""
     if record.chamber == "senate":
         return "chamber-senate", str(record.district)
-    return None
+    return "chamber-house", None
 
 
 def _proposal(
     record: RosterRecord, kind: str, reason: str, effective: date, evidence: str
-) -> EventProposal | Deferred:
-    """Build a proposal, or defer when a seat-scoped kind cannot name its seat."""
+) -> EventProposal:
+    """Build a proposal. A seat-scoped House kind comes back with a ``None`` discriminator —
+    :func:`_propose_one` routes it to ``unseated`` rather than ``proposals``."""
     seat_kind = seat_discriminator = None
     if kind in ("seated", "vacated"):
-        seat = _seat(record)
-        if seat is None:
-            return Deferred(
-                member_name=record.name,
-                district=record.district,
-                chamber=record.chamber,
-                session_year=record.year,
-                reason=DEFER_HOUSE_SEAT_UNRESOLVED,
-                evidence=evidence,
-                page_number=record.page_number,
-            )
-        seat_kind, seat_discriminator = seat
+        seat_kind, seat_discriminator = _seat(record)
     return EventProposal(
         member_name=record.name,
         district=record.district,
@@ -310,7 +322,9 @@ def _temporary_end(clauses: Sequence[Clause]) -> date | None:
     return None
 
 
-def _propose_one(record: RosterRecord) -> tuple[list[EventProposal], list[Deferred]]:
+def _propose_one(
+    record: RosterRecord,
+) -> tuple[list[EventProposal], list[EventProposal], list[Deferred]]:
     """Derive every dated boundary the annotation states — at most one start and one end.
 
     Returning a single outcome truncated real tenures: 19 annotations state two or more
@@ -323,14 +337,17 @@ def _propose_one(record: RosterRecord) -> tuple[list[EventProposal], list[Deferr
     seating_clauses = [c for c in clauses if not _MOVE.search(c.text)]
 
     proposals: list[EventProposal] = []
+    unseated: list[EventProposal] = []
     deferred: list[Deferred] = []
 
     def add(kind: str, reason: str, effective: date) -> None:
-        outcome = _proposal(record, kind, reason, effective, annotation)
-        if isinstance(outcome, EventProposal):
-            proposals.append(outcome)
-        else:
-            deferred.append(outcome)
+        proposal = _proposal(record, kind, reason, effective, annotation)
+        target = (
+            unseated
+            if proposal.seat_kind is not None and proposal.seat_discriminator is None
+            else proposals
+        )
+        target.append(proposal)
 
     start = _start_boundary(seating_clauses)
     if start is not None:
@@ -344,7 +361,7 @@ def _propose_one(record: RosterRecord) -> tuple[list[EventProposal], list[Deferr
         if temporary is not None:
             add("departed", "resigned", temporary)
 
-    if not proposals and not deferred:
+    if not proposals and not unseated and not deferred:
         # Distinguish "the source states no succession" from "it states one we refuse to date".
         reason = (
             DEFER_NO_DAY_PRECISION
@@ -362,29 +379,40 @@ def _propose_one(record: RosterRecord) -> tuple[list[EventProposal], list[Deferr
                 page_number=record.page_number,
             )
         )
-    return proposals, deferred
+    return proposals, unseated, deferred
 
 
 def propose_events(records: Iterable[RosterRecord]) -> SuccessionReport:
     """Derive event proposals from annotated roster records. Pure; every input is accounted for."""
     proposals: list[EventProposal] = []
+    unseated: list[EventProposal] = []
     deferred: list[Deferred] = []
     for record in records:
         if not record.annotation:
             continue
-        record_proposals, record_deferred = _propose_one(record)
+        record_proposals, record_unseated, record_deferred = _propose_one(record)
         proposals.extend(record_proposals)
+        unseated.extend(record_unseated)
         deferred.extend(record_deferred)
-    return SuccessionReport(proposals=tuple(proposals), deferred=tuple(deferred))
+    return SuccessionReport(
+        proposals=tuple(proposals), deferred=tuple(deferred), unseated=tuple(unseated)
+    )
 
 
 def summarize(report: SuccessionReport) -> dict[str, int]:
-    """Counts by proposal kind and deferral reason — the shape the CLI prints."""
+    """Counts by proposal kind and deferral reason — the shape the CLI prints.
+
+    ``unseated`` is counted under its own prefix rather than folded into either neighbour: it
+    is neither writable today nor refused, and reporting it as a deferral is what hid 224
+    dated boundaries behind a single "house_seat_unresolved" tally."""
     counts: dict[str, int] = {}
     for proposal in report.proposals:
         counts[f"{proposal.kind}:{proposal.reason}"] = (
             counts.get(f"{proposal.kind}:{proposal.reason}", 0) + 1
         )
+    for proposal in report.unseated:
+        key = f"unseated:{proposal.kind}:{proposal.reason}"
+        counts[key] = counts.get(key, 0) + 1
     for item in report.deferred:
         counts[f"deferred:{item.reason}"] = counts.get(f"deferred:{item.reason}", 0) + 1
     return counts

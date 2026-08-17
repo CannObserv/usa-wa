@@ -49,6 +49,7 @@ Per-package module reference — what each file is for and why it exists:
 - [`docs/MODULES-SYNC-ENGINE.md`](docs/MODULES-SYNC-ENGINE.md) — the portable PM sync engine + the generated PM client
 - [`docs/MODULES-COMMON.md`](docs/MODULES-COMMON.md) — Layer 2b `usa-wa-common`: WA vocabulary (calendar, seats, names, parties, ballot) and the cohort seam
 - [`docs/MODULES-LEGISLATURE.md`](docs/MODULES-LEGISLATURE.md) — WSL adapter: transport, normalizers, daily refresh, cohort providers, probes
+- [`docs/MODULES-LEGISLATURE-ROSTER.md`](docs/MODULES-LEGISLATURE-ROSTER.md) — the roster-PDF source: parser, audit oracle, succession → resolve → backfill
 - [`docs/MODULES-LEGISLATURE-SPANS.md`](docs/MODULES-LEGISLATURE-SPANS.md) — tenure-span engine, operator succession, roster hygiene, span migrations
 - [`docs/MODULES-PDC.md`](docs/MODULES-PDC.md) — PDC SODA adapter (identifier-only)
 - [`docs/MODULES-SOS.md`](docs/MODULES-SOS.md) — SOS filings + results sources

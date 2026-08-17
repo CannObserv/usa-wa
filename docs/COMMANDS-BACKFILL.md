@@ -59,6 +59,31 @@ does not drift, and the edition lags the current biennium by design, so it is ne
 there. Phase B parses **offline** from the archive: revise the parser and re-run without
 re-fetching 5.7MB.
 
+```bash
+# Succession backfill (#226) — the roster's mid-term dates → operator events.
+# Reads the archive offline; the only network cost is the sponsor binding's one-time WSDL load.
+uv run python -m usa_wa_adapter_legislature.roster_pdf.backfill --dry-run
+```
+
+**Run it sidecar-paused.** Every event written moves a span boundary on the next builder
+re-drive, which re-anchors the corresponding PM Assignment — the same sequencing the #101
+House builder documents: pause the sidecar, run this, re-drive the span builders, resume.
+Do not merge and let the timer run.
+
+`--limit N` stages a first run; `--dry-run` rolls back (the harness owns the rollback, so the
+counters are exactly what a live run would do). Exit `0` clean · `1` failed · `2` config ·
+**`4` degraded** — nothing resolved at all, meaning the roster archive or the sponsor index is
+missing rather than that there was no work.
+
+It **defers to the operator on every overlap**. The store holds hand-entered attestations and
+the roster reproduces most of them to the day; an already-attested boundary is skipped (writing
+it would replace a human's `entered_by`/evidence URL with the machine's), and one that
+*disagrees* on the same tenure is skipped and logged as
+`roster_backfill_attestation_conflict` with both dates and `delta_days`, for an operator to
+adjudicate and supersede deliberately. Measured on the 2025-06-05 edition: **155 written, 81
+already attested, 17 conflicts** — the conflicts running from ±1 day (the roster dating a
+seating to the swearing-in where the operator used the appointment) to 41 days.
+
 ## Historical backfill (epic #76 / sub-project 3 / #100)
 
 Sweep a source to its floor. Data-source-respecting: each closed window — a
