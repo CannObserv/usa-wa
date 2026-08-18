@@ -62,6 +62,7 @@ from usa_wa_adapter_legislature.cohorts import (
     committee_member_provider,
     sponsor_roster_provider,
 )
+from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.membership.cohort import (
     CommitteeMemberCohortProvider,
     MemberClient,
@@ -101,7 +102,11 @@ logger = get_logger(__name__)
 #: Stable ledger identity (#178) — a module path can move without orphaning run history.
 JOB_SLUG = "house-position-span-build"
 
-_HOUSE_ASSIGNMENT_SOURCE = "usa_wa_legislature"
+#: The `source` these Assignments are written under. Shared with the adapter that owns the
+#: slug so the writer and every reader (e.g. `roster_pdf.load_positions`, which matches on
+#: it to find a member's Position) cannot drift — a rename would otherwise make the reader
+#: match nothing and silently degrade every House event to `no_position` (CR-5 finding 33).
+_HOUSE_ASSIGNMENT_SOURCE = WSL_SOURCE_SLUG
 
 HousePositionsByLd = dict[int, list[HousePosition]]
 
