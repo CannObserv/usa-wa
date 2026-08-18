@@ -922,8 +922,17 @@ async def test_anchored_cohort_304_still_reenriches_on_carry_drift(db_session):
     descriptor = CohortEnrichDescriptor()
     await _seed_fingerprint(db_session, descriptor, row)  # stamp at name "Old"
     row.name = "New"  # local carry payload drifts; PM unchanged → 304
+    await db_session.flush()
     db_session.add(
-        ConditionalGetState(entity_type=descriptor.entity_type, local_id=row.id, detail_etag='"e1"')
+        # Watermark taken *after* the edit, so this exercises the pure carry-drift 304 — a
+        # newly-added carry field reaching a cohort whose rows never moved — rather than the
+        # #247 local-change bypass, which the drift-only hatch does not subsume.
+        ConditionalGetState(
+            entity_type=descriptor.entity_type,
+            local_id=row.id,
+            detail_etag='"e1"',
+            row_updated_at=row.updated_at,
+        )
     )
     await db_session.flush()
     client = FakeClient(
@@ -951,7 +960,12 @@ async def test_anchored_cohort_304_no_enrich_when_fingerprint_current(db_session
     descriptor = CohortEnrichDescriptor()
     await _seed_fingerprint(db_session, descriptor, row)  # current — no drift
     db_session.add(
-        ConditionalGetState(entity_type=descriptor.entity_type, local_id=row.id, detail_etag='"e1"')
+        ConditionalGetState(
+            entity_type=descriptor.entity_type,
+            local_id=row.id,
+            detail_etag='"e1"',
+            row_updated_at=NOW,  # watermark current — the #247 bypass stays out of the way
+        )
     )
     await db_session.flush()
     client = FakeClient(
@@ -2011,7 +2025,11 @@ async def test_anchored_cohort_304_skips_apply_and_stores_nothing(db_session):
     pm_id = ULID()
     row = await _add_anchored(db_session, source_id="x", name="Local", pm_id=pm_id, updated_at=NOW)
     db_session.add(
-        ConditionalGetState(entity_type="fake", local_id=row.id, detail_etag='"stored-1"')
+        # Watermark current: nothing changed locally since the validator was taken, so the
+        # #247 bypass stays out of the way and the row takes the 304.
+        ConditionalGetState(
+            entity_type="fake", local_id=row.id, detail_etag='"stored-1"', row_updated_at=NOW
+        )
     )
     await db_session.flush()
     descriptor = CohortDescriptor()

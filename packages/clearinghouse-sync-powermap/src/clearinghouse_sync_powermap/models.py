@@ -269,6 +269,16 @@ class ConditionalGetState(Base, TimestampMixin):
     is the *old* anchor's; it self-corrects on the next pass (the new entity's ETag differs
     → ``200`` → restamp). On a genuine delete the row is left orphaned (harmless). Neither
     is cleared here — the cost is one ``200``, never a correctness gap.
+
+    ``row_updated_at`` is the **local** row's LWW clock as of the fetch that stored the
+    validator (usa-wa#247). A validator answers "has PM changed?", which is the wrong
+    question for the *other* direction: a local-only edit to an already-anchored row leaves
+    PM untouched, so PM answers ``304``, the reconcile short-circuits before ``apply_record``,
+    and the LWW local-newer branch that would push the edit up never runs. The row's clock
+    advancing past this watermark is the purely-local signal that it must, so the reconcile
+    withholds the validator for exactly those rows and takes the full body. Nullable — a
+    validator stored before #247 has no watermark, and unknown reads as advanced (verify
+    rather than trust), which costs one full fetch per row, once.
     """
 
     __tablename__ = "powermap_conditional_get_state"
@@ -281,3 +291,4 @@ class ConditionalGetState(Base, TimestampMixin):
     entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
     local_id: Mapped[_ULID] = mapped_column(ULID(), nullable=False)
     detail_etag: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    row_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

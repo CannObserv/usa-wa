@@ -163,6 +163,8 @@ class Sidecar:
         # the engine after _run_reconciles for the cycle summary — a high skipped:fetched
         # ratio is the win (most anchored rows 304 instead of a full re-fetch).
         self._last_conditional_get: tuple[int, int] = (0, 0)
+        #: Rows the last cycle's reconciles found holding a local-only change (usa-wa#247).
+        self._last_local_newer_forced: int = 0
         self._clock = clock
 
     async def tick(
@@ -241,6 +243,7 @@ class Sidecar:
         # conditional too, and capturing before it would report its 304s a cycle late.
         if self._engine is not None:
             self._last_conditional_get = self._engine.conditional_get_stats
+            self._last_local_newer_forced = self._engine.local_newer_forced
         async with self._session_factory() as session:
             try:
                 # The drain commits incrementally via this hook (#8); the trailing
@@ -329,6 +332,13 @@ class Sidecar:
                 # re-fetched full this cycle. A high skipped share = the bandwidth/DB win.
                 "conditional_get_skipped": self._last_conditional_get[0],
                 "conditional_get_fetched": self._last_conditional_get[1],
+                # Local→PM pressure (usa-wa#247): anchored rows the reconcile found with a
+                # change PM has not seen, and forced a full fetch on so the LWW local-newer
+                # branch could enqueue the push. Every other field on this line counts work
+                # already in flight, so a cohort that has stopped propagating scores zero
+                # across all of them — which is exactly how #247 hid. A large one-off (a
+                # backfill) is healthy; the same number every cycle means the push is wedged.
+                "local_newer_forced": self._last_local_newer_forced,
             },
         )
         if backlog.rejected > self._last_rejected_count:
