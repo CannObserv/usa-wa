@@ -378,3 +378,93 @@ class TestSupersedingConflicts:
         assert summary.skipped[SKIP_ALREADY_ATTESTED] == 1
         row = (await db_session.execute(select(OperatorEvent))).scalar_one()
         assert row.entered_by == "gregoryfoster"
+
+
+class TestMultiplePriorAttestations:
+    """CR-4 finding 24: only `prior[0]` was examined, so a tenure holding two live
+    attestations kept the others — the "one seat, two live boundaries" state this module
+    exists to prevent. No such rows exist in prod today; this pins the latent case.
+    """
+
+    async def _attest(self, session, source, *, day: int, entered_by: str):
+        return await record_operator_event(
+            session,
+            source,
+            member_id="18517",
+            kind="departed",
+            reason="resigned",
+            effective_date=date(1979, 7, day),
+            evidence_url=f"https://example.gov/{day}",
+            entered_by=entered_by,
+        )
+
+    async def test_every_disagreeing_row_is_reported(self, db_session, usa_wa) -> None:
+        """An operator adjudicating needs to see each disagreeing row, not just the first."""
+        source = await _source(db_session)
+        await self._attest(db_session, source, day=20, entered_by="exedev")
+        await self._attest(db_session, source, day=25, entered_by="exedev")
+        summary = await write_events(
+            db_session, source, [_resolved("Deceased June 15, 1979", chamber="senate")]
+        )
+        assert summary.written == 0
+        assert {c.attested_date for c in summary.conflicts} == {
+            date(1979, 7, 20),
+            date(1979, 7, 25),
+        }
+
+    async def test_all_machine_rows_are_superseded_not_just_the_first(
+        self, db_session, usa_wa
+    ) -> None:
+        source = await _source(db_session)
+        first = await self._attest(db_session, source, day=20, entered_by="exedev")
+        second = await self._attest(db_session, source, day=25, entered_by="exedev")
+        summary = await write_events(
+            db_session,
+            source,
+            [_resolved("Deceased June 15, 1979", chamber="senate")],
+            supersede_conflicts=True,
+        )
+        assert summary.superseded == 1
+        assert first.superseded_by_id is not None
+        assert second.superseded_by_id is not None
+        live = [
+            r
+            for r in (await db_session.execute(select(OperatorEvent))).scalars().all()
+            if r.superseded_by_id is None
+        ]
+        assert len(live) == 1
+        assert live[0].effective_date == date(1979, 6, 15)
+
+    async def test_one_human_row_blocks_the_whole_tenure(self, db_session, usa_wa) -> None:
+        """Half-correcting a tenure is worse than not correcting it: superseding the machine
+        row while leaving the human's would still leave two live boundaries, and would have
+        silently discarded the machine row's evidence for nothing."""
+        source = await _source(db_session)
+        machine = await self._attest(db_session, source, day=20, entered_by="exedev")
+        human = await self._attest(db_session, source, day=25, entered_by="gregoryfoster")
+        summary = await write_events(
+            db_session,
+            source,
+            [_resolved("Deceased June 15, 1979", chamber="senate")],
+            supersede_conflicts=True,
+        )
+        assert summary.superseded == 0
+        assert summary.skipped[SKIP_CONFLICTS_WITH_ATTESTATION] == 1
+        assert machine.superseded_by_id is None
+        assert human.superseded_by_id is None
+
+
+class TestEvidenceUrlDerivation:
+    """CR-4 finding 28: the citation must name the URL the bytes actually came from."""
+
+    def test_the_page_anchor_rides_the_supplied_base(self) -> None:
+        """`s4gf4suc` is a CMS-minted media key the transport already expects to rotate; a
+        citation hardcoded to the old URL is dead the moment it does, while the archived
+        bytes remain fine."""
+        assert (
+            roster_evidence_url(104, base_url="https://leg.wa.gov/media/newkey/members.pdf")
+            == "https://leg.wa.gov/media/newkey/members.pdf#page=104"
+        )
+
+    def test_it_still_defaults_to_the_known_url(self) -> None:
+        assert roster_evidence_url(104).endswith("#page=104")

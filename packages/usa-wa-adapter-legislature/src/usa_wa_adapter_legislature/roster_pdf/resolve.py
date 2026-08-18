@@ -34,10 +34,11 @@ Nothing here writes. :mod:`usa_wa_adapter_legislature.roster_pdf.backfill` is th
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 
+from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 from usa_wa_adapter_legislature.roster_pdf.succession import EventProposal
 from usa_wa_common.names import fold_token, folded_tokens, surname_match_set
 
@@ -48,9 +49,6 @@ UNRESOLVED_AMBIGUOUS_MEMBER = "ambiguous_member"
 UNRESOLVED_NO_POSITION = "no_position"
 UNRESOLVED_AMBIGUOUS_POSITION = "ambiguous_position"
 UNRESOLVED_GIVEN_NAME_MISMATCH = "given_name_mismatch"
-
-#: The span ``kind`` a House Position seat is keyed under.
-KIND_HOUSE = "chamber-house"
 
 
 @dataclass(frozen=True)
@@ -271,18 +269,3 @@ def resolution_summary(outcome: ResolutionOutcome) -> dict[str, int]:
         key = f"unresolved:{item.reason}"
         counts[key] = counts.get(key, 0) + 1
     return counts
-
-
-def events_for_seat(
-    outcome: ResolutionOutcome, *, district: int, chamber: str
-) -> Sequence[ResolvedEvent]:
-    """Every resolved event touching one district's chamber, oldest first — the acceptance
-    view the LD2 oracle is read through."""
-    return sorted(
-        (
-            e
-            for e in outcome.resolved
-            if e.proposal.district == district and e.proposal.chamber == chamber
-        ),
-        key=lambda e: e.effective_date,
-    )
