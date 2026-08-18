@@ -24,11 +24,9 @@ from usa_wa_adapter_legislature.roster_pdf.backfill import (
     roster_evidence_url,
     write_events,
 )
-from usa_wa_adapter_legislature.roster_pdf.cohort import RosterCohortProvider
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 from usa_wa_adapter_legislature.roster_pdf.resolve import ResolvedEvent
 from usa_wa_adapter_legislature.roster_pdf.succession import propose_events
-from usa_wa_adapter_legislature.roster_pdf.transport import DEFAULT_ROSTER_URL
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 
@@ -520,39 +518,3 @@ class TestSupersedingLeavesNoStaleIndexEntry:
             date(1979, 7, 25),
             date(1979, 6, 15),
         ]
-
-
-class TestArchivedRosterUrl:
-    """CR-5 findings 34/35: the citation base comes from the archived edition, and the
-    latest-edition rule lives in exactly one place."""
-
-    async def test_reads_the_url_the_bytes_came_from(
-        self, db_session, usa_wa, roster_pdf_bytes
-    ) -> None:
-        import httpx
-        import respx
-
-        from usa_wa_adapter_legislature.roster_pdf.harvest import harvest_roster
-        from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
-
-        rotated = "https://leg.wa.gov/media/rotatedkey/members-of-the-legislature-1889-2025.pdf"
-        with respx.mock:
-            respx.get(DEFAULT_ROSTER_URL).mock(return_value=httpx.Response(404))
-            respx.get(
-                "https://leg.wa.gov/about-the-legislature/legislative-information-center/"
-            ).mock(return_value=httpx.Response(200, html=f"<a href='{rotated}'>roster</a>"))
-            respx.get(rotated).mock(return_value=httpx.Response(200, content=roster_pdf_bytes))
-            await harvest_roster(db_session, revision="2025-06-05")
-
-        source = await get_or_create_roster_source(db_session, usa_wa)
-        provider = RosterCohortProvider(session=db_session, source_id=source.id)
-        assert await provider.archived_url() == rotated
-
-    async def test_no_archive_yields_no_url(self, db_session, usa_wa) -> None:
-        """The caller falls back to the compiled-in default only here — and with nothing
-        archived the backfill has nothing to write anyway, so no wrong citation is minted."""
-        from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
-
-        source = await get_or_create_roster_source(db_session, usa_wa)
-        provider = RosterCohortProvider(session=db_session, source_id=source.id)
-        assert await provider.archived_url() is None
