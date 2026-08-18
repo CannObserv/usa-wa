@@ -23,6 +23,11 @@ from clearinghouse_core.source_coverage import seed_source_coverage
 from usa_wa_adapter_legislature.coverage import WSL_COVERAGE
 from usa_wa_adapter_legislature.transport import WSL_BASE_URL
 
+#: The WSL SOAP source's slug — also the ``source`` every span Assignment this
+#: package derives is written under. A second literal copy silently reads *nothing*
+#: rather than erroring if either side is renamed (CR-4 finding 27).
+SOURCE_SLUG = "usa_wa_legislature"
+
 
 async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction) -> Source:
     """Get-or-create the ``usa_wa_legislature`` SOAP :class:`Source` (idempotent).
@@ -43,7 +48,7 @@ async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction
     row = Source(
         jurisdiction_id=jurisdiction.id,
         name="WA State Legislature SOAP",
-        slug="usa_wa_legislature",
+        slug=SOURCE_SLUG,
         kind="soap",
         base_url=WSL_BASE_URL,
         reliability=1.0,

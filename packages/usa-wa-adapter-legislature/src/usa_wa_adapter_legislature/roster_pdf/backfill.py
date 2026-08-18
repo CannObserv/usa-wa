@@ -50,7 +50,7 @@ import re
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,13 +58,14 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
+from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person
 from clearinghouse_domain_legislative.operator_events import (
     OPERATOR_SOURCE_SLUG,
     OperatorEvent,
     event_source_id,
 )
+from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.operators.store import (
@@ -72,7 +73,9 @@ from usa_wa_adapter_legislature.operators.store import (
     record_operator_event,
     supersede_event,
 )
+from usa_wa_adapter_legislature.provisioning import SOURCE_SLUG as WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.provisioning import get_or_create_source as get_or_create_wsl
+from usa_wa_adapter_legislature.roster_pdf.adapter import ROSTER_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.roster_pdf.cohort import RosterCohortProvider
 from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
 from usa_wa_adapter_legislature.roster_pdf.resolve import (
@@ -118,15 +121,38 @@ MACHINE_ENTERED_BY = frozenset({"exedev", BACKFILL_ENTERED_BY})
 #: The House Position span discriminator, as the corpus writes it.
 _POSITION = re.compile(r"^ld-(?P<district>\d+)-position-(?P<position>\d+)$")
 
-#: The span key's ``kind`` field sits in position 2 of ``{member}:{kind}:{disc}:{biennium}``.
-_HOUSE_SPAN_KIND = "chamber-house"
 
-
-def roster_evidence_url(page_number: int) -> str:
+def roster_evidence_url(page_number: int, *, base_url: str = DEFAULT_ROSTER_URL) -> str:
     """A citation an operator can actually follow: the roster, opened at the source page.
 
-    The document is 233 pages, so a bare document URL is not a citation."""
-    return f"{DEFAULT_ROSTER_URL}#page={page_number}"
+    The document is 233 pages, so a bare document URL is not a citation.
+
+    ``base_url`` comes from the **archived** ``FetchEvent`` rather than the module default
+    (CR-4 finding 28): ``s4gf4suc`` is a CMS-minted media key the transport already expects to
+    rotate — it re-discovers the href on a 404 — so a citation pinned to the compiled-in URL is
+    dead the moment that happens, while the archived bytes remain perfectly good."""
+    return f"{base_url}#page={page_number}"
+
+
+async def archived_roster_url(session: AsyncSession, *, source_id: _ULID) -> str:
+    """The URL the latest archived roster edition was actually fetched from.
+
+    Falls back to the module default when nothing is archived — the backfill has nothing to
+    write in that case anyway, so this never silently mints a wrong citation."""
+    url = (
+        await session.execute(
+            select(FetchEvent.url)
+            .join(RawPayload, RawPayload.fetch_event_id == FetchEvent.id)
+            .where(
+                FetchEvent.source_id == source_id,
+                FetchEvent.resource_id.like(f"{ROSTER_RESOURCE_PREFIX}%"),
+                FetchEvent.status == FetchStatus.ok,
+            )
+            .order_by(FetchEvent.fetched_at.desc(), FetchEvent.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return url or DEFAULT_ROSTER_URL
 
 
 @dataclass(frozen=True)
@@ -157,9 +183,12 @@ class AttestationConflict:
 class WriteSummary:
     """What one write pass did.
 
-    ``written`` and ``superseded`` are disjoint: a boundary either had no prior attestation on
-    its tenure or replaced one. ``conflicts`` lists every disagreement found, whether or not it
-    was acted on — so a default run and a superseding run report the same adjudication set.
+    ``written`` and ``superseded`` are disjoint per boundary: it either had no prior
+    attestation on its tenure or replaced every one there was (a single supersession may
+    therefore retract more than one row).
+
+    ``conflicts`` carries the per-row detail and lists every disagreement found, whether or not
+    it was acted on — so a default run and a superseding run report the same adjudication set.
     """
 
     written: int = 0
@@ -256,6 +285,7 @@ async def write_events(
     *,
     entered_by: str = BACKFILL_ENTERED_BY,
     supersede_conflicts: bool = False,
+    evidence_base: str = DEFAULT_ROSTER_URL,
 ) -> WriteSummary:
     """Record resolved events, deferring to every existing attestation. Idempotent.
 
@@ -293,7 +323,10 @@ async def write_events(
             if biennium_for_date(row.effective_date) == biennium
         ]
         if prior:
-            conflicts.append(
+            # One conflict per disagreeing *row*, not per event: a tenure can hold more than
+            # one live attestation, and an operator adjudicating needs to see each of them
+            # (CR-4 finding 24).
+            conflicts.extend(
                 AttestationConflict(
                     member_id=event.member_id,
                     member_name=event.proposal.member_name,
@@ -301,28 +334,34 @@ async def write_events(
                     seat_kind=event.seat_kind,
                     seat_discriminator=event.seat_discriminator,
                     roster_date=event.effective_date,
-                    attested_date=prior[0].effective_date,
-                    attested_by=prior[0].entered_by,
+                    attested_date=attested.effective_date,
+                    attested_by=attested.entered_by,
                     evidence=event.evidence,
                 )
+                for attested in prior
             )
-            replaceable = (
-                supersede_conflicts
-                and prior[0].row is not None
-                and prior[0].entered_by in MACHINE_ENTERED_BY
+            # **All or nothing.** Superseding the machine rows while leaving a human's would
+            # still leave the tenure carrying two live boundaries — the state this refusal
+            # exists to prevent — having discarded the machine rows' evidence for nothing.
+            replaceable = supersede_conflicts and all(
+                attested.row is not None and attested.entered_by in MACHINE_ENTERED_BY
+                for attested in prior
             )
             if not replaceable:
                 skipped[SKIP_CONFLICTS_WITH_ATTESTATION] += 1
                 continue
-            await supersede_event(
-                session,
-                source,
-                prior[0].row,
-                reason=event.reason,
-                effective_date=event.effective_date,
-                evidence_url=roster_evidence_url(event.proposal.page_number),
-                entered_by=entered_by,
-            )
+            for attested in prior:
+                await supersede_event(
+                    session,
+                    source,
+                    attested.row,
+                    reason=event.reason,
+                    effective_date=event.effective_date,
+                    evidence_url=roster_evidence_url(
+                        event.proposal.page_number, base_url=evidence_base
+                    ),
+                    entered_by=entered_by,
+                )
             keys.add(source_id)
             # The tenure's live attestation is now ours; a further roster boundary on it in
             # this same batch must collide with that, not with the row we just retracted.
@@ -338,7 +377,7 @@ async def write_events(
             kind=event.kind,
             reason=event.reason,
             effective_date=event.effective_date,
-            evidence_url=roster_evidence_url(event.proposal.page_number),
+            evidence_url=roster_evidence_url(event.proposal.page_number, base_url=evidence_base),
             seat_kind=event.seat_kind,
             seat_discriminator=event.seat_discriminator,
             entered_by=entered_by,
@@ -411,13 +450,14 @@ async def load_positions(session: AsyncSession) -> list[PositionTenure]:
                 Assignment.valid_to,
             )
             .join(Person, Person.id == Assignment.person_id)
-            .where(Assignment.source == "usa_wa_legislature")
+            .where(Assignment.source == WSL_SOURCE_SLUG)
         )
     ).all()
     positions: list[PositionTenure] = []
     for member_id, span_key, valid_from, valid_to in rows:
         parts = span_key.split(":")
-        if len(parts) < 3 or parts[1] != _HOUSE_SPAN_KIND:
+        # The span key's ``kind`` sits in position 2 of ``{member}:{kind}:{disc}:{biennium}``.
+        if len(parts) < 3 or parts[1] != KIND_HOUSE:
             continue
         match = _POSITION.match(parts[2])
         if match is None:
@@ -428,8 +468,11 @@ async def load_positions(session: AsyncSession) -> list[PositionTenure]:
                 district=int(match.group("district")),
                 position=match.group("position"),
                 first_year=valid_from.year,
-                # An open span reaches the present; its last year is today's.
-                last_year=(valid_to or date.today()).year,
+                # An open span reaches the present; its last year is today's — read in
+                # **UTC**, since `date.today()` is local wall-clock and would report the
+                # prior year for the first hours of Jan 1 on a host behind UTC, silently
+                # failing to position a January boundary (CR-4 finding 23).
+                last_year=(valid_to or datetime.now(UTC).date()).year,
             )
         )
     return positions

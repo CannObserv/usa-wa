@@ -34,6 +34,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
 
+from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE, KIND_SENATE
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 
 #: Clause verbs that assert a tenure boundary — as opposed to Speaker/Redistricted/Holdover/
@@ -235,8 +236,8 @@ def _seat(record: RosterRecord) -> tuple[str, str | None]:
     ``ld-{n}-position-{p}`` and the roster carries no Position, so the discriminator comes back
     ``None`` — known seat kind, unknown seat."""
     if record.chamber == "senate":
-        return "chamber-senate", str(record.district)
-    return "chamber-house", None
+        return KIND_SENATE, str(record.district)
+    return KIND_HOUSE, None
 
 
 def _proposal(
