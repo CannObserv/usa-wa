@@ -42,6 +42,7 @@ class RosterCohortProvider:
         self._source_id = source_id
         self._report: ParseReport | None = None
         self._event: CitationTarget | None = None
+        self._url: str | None = None
 
     async def citation_event(self) -> CitationTarget | None:
         """``(fetch_event_id, fetched_at, resource_id)`` for the latest payload-bearing roster
@@ -51,7 +52,12 @@ class RosterCohortProvider:
             return self._event
         row = (
             await self._session.execute(
-                select(FetchEvent.id, FetchEvent.fetched_at, FetchEvent.resource_id)
+                select(
+                    FetchEvent.id,
+                    FetchEvent.fetched_at,
+                    FetchEvent.resource_id,
+                    FetchEvent.url,
+                )
                 .join(RawPayload, RawPayload.fetch_event_id == FetchEvent.id)
                 .where(
                     FetchEvent.source_id == self._source_id,
@@ -65,7 +71,20 @@ class RosterCohortProvider:
         if row is None:
             return None
         self._event = (row.id, row.fetched_at, row.resource_id)
+        self._url = row.url
         return self._event
+
+    async def archived_url(self) -> str | None:
+        """The URL the latest archived edition was actually fetched from, or ``None``.
+
+        Rides :meth:`citation_event` rather than re-querying: the latest-payload-bearing rule
+        (the ``RawPayload`` join plus the ULID tie-break, #82) is load-bearing and must have
+        exactly one implementation — a second copy that drifted would cite a *different*
+        edition than the one parsed (CR-5 finding 34). Callers need this because ``s4gf4suc``
+        is a CMS media key the transport expects to rotate, so a citation pinned to the
+        compiled-in URL dies while the archived bytes stay good."""
+        await self.citation_event()
+        return self._url
 
     async def report(self) -> ParseReport:
         """The parsed roster plus its unparsed tally. Memoized; empty when nothing is archived."""

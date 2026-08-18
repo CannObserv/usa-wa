@@ -24,9 +24,11 @@ from usa_wa_adapter_legislature.roster_pdf.backfill import (
     roster_evidence_url,
     write_events,
 )
+from usa_wa_adapter_legislature.roster_pdf.cohort import RosterCohortProvider
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 from usa_wa_adapter_legislature.roster_pdf.resolve import ResolvedEvent
 from usa_wa_adapter_legislature.roster_pdf.succession import propose_events
+from usa_wa_adapter_legislature.roster_pdf.transport import DEFAULT_ROSTER_URL
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 
@@ -468,3 +470,89 @@ class TestEvidenceUrlDerivation:
 
     def test_it_still_defaults_to_the_known_url(self) -> None:
         assert roster_evidence_url(104).endswith("#page=104")
+
+
+class TestSupersedingLeavesNoStaleIndexEntry:
+    """CR-5 finding 31: the post-supersede bookkeeping filtered only `prior[0]`, so with more
+    than one prior the other retracted rows survived in the scope index as though live. The
+    round-4 tests missed it because each passed a single event; it takes a *second* boundary on
+    the same tenure in the same batch to observe.
+    """
+
+    async def test_a_second_boundary_does_not_see_a_retracted_row_as_live(
+        self, db_session, usa_wa
+    ) -> None:
+        source = await _source(db_session)
+        for day in (20, 25):
+            await record_operator_event(
+                db_session,
+                source,
+                member_id="18517",
+                kind="departed",
+                reason="resigned",
+                effective_date=date(1979, 7, day),
+                evidence_url=f"https://example.gov/{day}",
+                entered_by="exedev",
+            )
+        # Two roster boundaries on the same tenure+biennium. The first supersedes both priors;
+        # the second must collide with what the first wrote, not with a row already retracted.
+        summary = await write_events(
+            db_session,
+            source,
+            [
+                _resolved("Deceased June 15, 1979", chamber="senate"),
+                _resolved("Resigned June 20, 1979", chamber="senate"),
+            ],
+            supersede_conflicts=True,
+        )
+        assert summary.superseded == 1
+        rows = (await db_session.execute(select(OperatorEvent))).scalars().all()
+        live = [r for r in rows if r.superseded_by_id is None]
+        # Exactly one live boundary on the tenure — the whole point of the conflict machinery.
+        assert len(live) == 1, [(r.effective_date, r.entered_by) for r in live]
+        assert live[0].effective_date == date(1979, 6, 15)
+        # The observable symptom of the stale entry is a *phantom conflict*: the second
+        # boundary reported against a row the first boundary had already retracted. Expect
+        # exactly three — both priors for the first event, then only the live row for the
+        # second.
+        assert [c.attested_date for c in summary.conflicts] == [
+            date(1979, 7, 20),
+            date(1979, 7, 25),
+            date(1979, 6, 15),
+        ]
+
+
+class TestArchivedRosterUrl:
+    """CR-5 findings 34/35: the citation base comes from the archived edition, and the
+    latest-edition rule lives in exactly one place."""
+
+    async def test_reads_the_url_the_bytes_came_from(
+        self, db_session, usa_wa, roster_pdf_bytes
+    ) -> None:
+        import httpx
+        import respx
+
+        from usa_wa_adapter_legislature.roster_pdf.harvest import harvest_roster
+        from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
+
+        rotated = "https://leg.wa.gov/media/rotatedkey/members-of-the-legislature-1889-2025.pdf"
+        with respx.mock:
+            respx.get(DEFAULT_ROSTER_URL).mock(return_value=httpx.Response(404))
+            respx.get(
+                "https://leg.wa.gov/about-the-legislature/legislative-information-center/"
+            ).mock(return_value=httpx.Response(200, html=f"<a href='{rotated}'>roster</a>"))
+            respx.get(rotated).mock(return_value=httpx.Response(200, content=roster_pdf_bytes))
+            await harvest_roster(db_session, revision="2025-06-05")
+
+        source = await get_or_create_roster_source(db_session, usa_wa)
+        provider = RosterCohortProvider(session=db_session, source_id=source.id)
+        assert await provider.archived_url() == rotated
+
+    async def test_no_archive_yields_no_url(self, db_session, usa_wa) -> None:
+        """The caller falls back to the compiled-in default only here — and with nothing
+        archived the backfill has nothing to write anyway, so no wrong citation is minted."""
+        from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
+
+        source = await get_or_create_roster_source(db_session, usa_wa)
+        provider = RosterCohortProvider(session=db_session, source_id=source.id)
+        assert await provider.archived_url() is None

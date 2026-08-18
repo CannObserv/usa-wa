@@ -58,7 +58,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
+from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person
 from clearinghouse_domain_legislative.operator_events import (
     OPERATOR_SOURCE_SLUG,
@@ -68,14 +68,13 @@ from clearinghouse_domain_legislative.operator_events import (
 from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
+from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
     supersede_event,
 )
-from usa_wa_adapter_legislature.provisioning import SOURCE_SLUG as WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.provisioning import get_or_create_source as get_or_create_wsl
-from usa_wa_adapter_legislature.roster_pdf.adapter import ROSTER_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.roster_pdf.cohort import RosterCohortProvider
 from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
 from usa_wa_adapter_legislature.roster_pdf.resolve import (
@@ -132,27 +131,6 @@ def roster_evidence_url(page_number: int, *, base_url: str = DEFAULT_ROSTER_URL)
     rotate — it re-discovers the href on a 404 — so a citation pinned to the compiled-in URL is
     dead the moment that happens, while the archived bytes remain perfectly good."""
     return f"{base_url}#page={page_number}"
-
-
-async def archived_roster_url(session: AsyncSession, *, source_id: _ULID) -> str:
-    """The URL the latest archived roster edition was actually fetched from.
-
-    Falls back to the module default when nothing is archived — the backfill has nothing to
-    write in that case anyway, so this never silently mints a wrong citation."""
-    url = (
-        await session.execute(
-            select(FetchEvent.url)
-            .join(RawPayload, RawPayload.fetch_event_id == FetchEvent.id)
-            .where(
-                FetchEvent.source_id == source_id,
-                FetchEvent.resource_id.like(f"{ROSTER_RESOURCE_PREFIX}%"),
-                FetchEvent.status == FetchStatus.ok,
-            )
-            .order_by(FetchEvent.fetched_at.desc(), FetchEvent.id.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    return url or DEFAULT_ROSTER_URL
 
 
 @dataclass(frozen=True)
@@ -364,9 +342,12 @@ async def write_events(
                 )
             keys.add(source_id)
             # The tenure's live attestation is now ours; a further roster boundary on it in
-            # this same batch must collide with that, not with the row we just retracted.
+            # this same batch must collide with that, not with a row we just retracted. Every
+            # prior is dropped, not just the first — leaving the rest produced a phantom
+            # conflict against an already-superseded row (CR-5 finding 31).
+            retracted = {id(a) for a in prior}
             by_scope[_scope(event)] = [
-                a for a in by_scope.get(_scope(event), ()) if a is not prior[0]
+                a for a in by_scope.get(_scope(event), ()) if id(a) not in retracted
             ] + [_Attested(effective_date=event.effective_date, entered_by=entered_by)]
             superseded += 1
             continue
@@ -504,12 +485,19 @@ def _log_conflicts(conflicts: Iterable[AttestationConflict]) -> None:
 
 async def resolve_roster_events(
     session: AsyncSession,
-) -> tuple[int, dict[str, int], ResolutionOutcome]:
-    """Parse the archived roster, propose boundaries, and resolve them. No writes."""
+) -> tuple[int, dict[str, int], ResolutionOutcome, str]:
+    """Parse the archived roster, propose boundaries, and resolve them. No writes.
+
+    Returns the citation base URL alongside the outcome so the caller neither re-derives the
+    latest-edition rule nor get-or-creates the roster ``Source`` a second time (CR-5 34/36).
+    """
     jurisdiction = await resolve_jurisdiction(session)
     roster_source = await get_or_create_roster_source(session, jurisdiction)
     wsl_source = await get_or_create_wsl(session, jurisdiction)
-    records = await RosterCohortProvider(session=session, source_id=roster_source.id).records()
+    provider = RosterCohortProvider(session=session, source_id=roster_source.id)
+    records = await provider.records()
+    # `None` only when nothing is archived — in which case there is nothing to cite either.
+    evidence_base = await provider.archived_url() or DEFAULT_ROSTER_URL
     report = propose_events(records)
     resolver = SuccessionResolver(
         seatings=await load_seatings(session, source_id=wsl_source.id),
@@ -518,7 +506,7 @@ async def resolve_roster_events(
     # ``unseated`` proposals are dated House boundaries awaiting a Position — exactly what the
     # resolver exists to supply, so they enter resolution alongside the ready ones.
     outcome = resolver.resolve_all(report.proposals + report.unseated)
-    return len(records), summarize(report), outcome
+    return len(records), summarize(report), outcome, evidence_base
 
 
 async def backfill_succession(
@@ -529,7 +517,7 @@ async def backfill_succession(
     supersede_conflicts: bool = False,
 ) -> BackfillSummary:
     """Parse → resolve → write. Idempotent; defers to every existing attestation."""
-    records, proposed, outcome = await resolve_roster_events(session)
+    records, proposed, outcome, evidence_base = await resolve_roster_events(session)
     resolved: Sequence[ResolvedEvent] = outcome.resolved
     if limit is not None:
         resolved = resolved[:limit]
