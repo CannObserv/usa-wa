@@ -232,7 +232,7 @@ class Sidecar:
         # Per-cycle conditional-GET tally (#160). Guarded for the engine=None test doubles;
         # production always has an engine.
         if self._engine is not None:
-            self._engine.reset_conditional_get_stats()
+            self._engine.reset_cycle_stats()
         ok = await self._run_catalog_sync(now)
         ok = await self._run_backstop(now) and ok
         ok = await self._run_reconciles(now) and ok
@@ -332,12 +332,15 @@ class Sidecar:
                 # re-fetched full this cycle. A high skipped share = the bandwidth/DB win.
                 "conditional_get_skipped": self._last_conditional_get[0],
                 "conditional_get_fetched": self._last_conditional_get[1],
-                # Local→PM pressure (usa-wa#247): anchored rows the reconcile found with a
-                # change PM has not seen, and forced a full fetch on so the LWW local-newer
-                # branch could enqueue the push. Every other field on this line counts work
-                # already in flight, so a cohort that has stopped propagating scores zero
-                # across all of them — which is exactly how #247 hid. A large one-off (a
-                # backfill) is healthy; the same number every cycle means the push is wedged.
+                # Local→PM pressure (usa-wa#247): anchored rows whose local clock had
+                # passed their stored watermark — a change PM has not seen — which the
+                # reconcile forced a full fetch on so the LWW local-newer branch could
+                # enqueue the push. Every other field on this line counts work already in
+                # flight, so a cohort that has stopped propagating scores zero across all of
+                # them — exactly how #247 hid. A large one-off (a backfill) is healthy; the
+                # same number every cycle means the push is wedged. Rows re-fetched merely
+                # because their validator predates the watermark are excluded, so the first
+                # post-migration cycle does not read as a cohort-wide backlog.
                 "local_newer_forced": self._last_local_newer_forced,
             },
         )

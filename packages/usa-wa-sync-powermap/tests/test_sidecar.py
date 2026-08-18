@@ -1490,7 +1490,7 @@ async def test_run_cycle_resets_and_captures_local_newer_forced():
         def __init__(self):
             self.reset_called = False
 
-        def reset_conditional_get_stats(self):
+        def reset_cycle_stats(self):
             self.reset_called = True
 
         @property
@@ -1525,7 +1525,7 @@ async def test_run_cycle_captures_conditional_get_stats_after_replay():
         def __init__(self):
             self.stats = (0, 0)
 
-        def reset_conditional_get_stats(self):
+        def reset_cycle_stats(self):
             self.stats = (0, 0)
 
         @property
@@ -1556,14 +1556,14 @@ async def test_run_cycle_captures_conditional_get_stats_after_replay():
 
 
 async def test_run_cycle_resets_and_captures_conditional_get_stats():
-    """run_cycle zeroes the engine's conditional-GET tally at the start and captures it
-    after the reconciles for the summary (#160)."""
+    """run_cycle zeroes the engine's per-cycle read-path stats at the start and captures
+    the conditional-GET tally after the reconciles for the summary (#160)."""
 
     class _StubEngine:
         def __init__(self):
             self.reset_called = False
 
-        def reset_conditional_get_stats(self):
+        def reset_cycle_stats(self):
             self.reset_called = True
 
         @property

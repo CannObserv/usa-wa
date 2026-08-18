@@ -293,6 +293,35 @@ async def test_replay_200_applies_and_stores_fresh_etag(db_session, fake_descrip
     assert engine.conditional_get_stats == (0, 1)
 
 
+async def test_replay_stamps_row_watermark_with_the_fresh_etag(db_session, fake_descriptor):
+    """usa-wa#247 (CR #44): the replay stores validators too, so it must stamp the local
+    clock beside them. Post-apply, so an adopted PM clock is what lands.
+
+    Without the stamp every row inside the replay window would carry an unknown watermark,
+    and the anchored-cohort reconcile — which reads unknown as "verify" — would force a full
+    fetch on all of them every pass, silently undoing #160 across the feed window."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="1", name="Stale", pm_id=pm_id)
+    await _bootstrap_high_water(db_session)
+
+    client = ReplayClient(
+        pages_by_after=_replay_page(pm_id),
+        entities={pm_id: _record("1", "Healed", pm_id=pm_id, updated_at="2040-01-01T00:00:00Z")},
+        entity_etags={pm_id: '"fresh-9"'},
+    )
+    engine = SyncEngine([fake_descriptor], client)
+
+    await engine.replay_from_floor(db_session, now=NOW)
+
+    state = (
+        await db_session.execute(
+            select(ConditionalGetState).where(ConditionalGetState.local_id == row.id)
+        )
+    ).scalar_one()
+    await db_session.refresh(row)
+    assert state.row_updated_at == row.updated_at == datetime(2040, 1, 1, tzinfo=UTC)
+
+
 async def test_replay_stores_etag_for_a_newly_inserted_row(db_session, fake_descriptor):
     """An item we hold no anchor for yet (a first sighting inside the window) has no local
     id to key the store on *before* the fetch — resolve it after the insert so the row does

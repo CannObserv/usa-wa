@@ -128,6 +128,12 @@ APPLY_KEPT_LOCAL = "kept_local"
 #: record it has never produced (``upsert_from_pm`` returned None) — not an insert.
 APPLY_SKIPPED = "skipped"
 
+#: Why the anchored-cohort reconcile withheld a row's stored validator (usa-wa#247).
+#: Only ``FORCE_LOCAL_ADVANCED`` is pending local→PM work; ``FORCE_WATERMARK_UNKNOWN`` is
+#: the one-off cost of a validator stored before the watermark existed.
+FORCE_LOCAL_ADVANCED = "local_advanced"
+FORCE_WATERMARK_UNKNOWN = "watermark_unknown"
+
 
 @dataclass
 class ReplayResult:
@@ -190,16 +196,22 @@ class Reconciler:
         #: shared engine); the sidecar reads them for the cycle summary and resets per cycle.
         self._conditional_get_skipped = 0
         self._conditional_get_fetched = 0
-        #: Rows this cycle whose stored validator was deliberately withheld because the
-        #: local clock had advanced past its watermark (usa-wa#247) — i.e. rows carrying a
-        #: local-only change PM has not seen. Reported on the cycle summary: the pending
-        #: local→PM work no other health signal counts.
+        #: Rows this cycle whose local clock had advanced past its stored watermark
+        #: (usa-wa#247) — i.e. rows carrying a local-only change PM has not seen. Reported on
+        #: the cycle summary: the pending local→PM work no other health signal counts. A
+        #: validator with no watermark is re-fetched but NOT counted (see the property).
         self._local_newer_forced = 0
 
     @property
     def local_newer_forced(self) -> int:
-        """Rows the anchored-cohort reconcile forced a full fetch on because local had
-        advanced past the stored watermark (usa-wa#247), since the last reset.
+        """Rows the anchored-cohort reconcile found with a local clock past their stored
+        watermark (usa-wa#247), since the last reset — i.e. rows carrying a local-only change
+        PM has not seen.
+
+        Counts *known* advances only. A row whose validator predates the watermark (or that
+        has no store entry at all) is re-fetched too, but is not counted: it is unknown, not
+        pending, and counting it would have made the first post-migration cycle report the
+        whole anchored cohort as a backlog.
 
         The observable #247 lacked. Every existing signal — pending outbox depth, rejected,
         non-converging, re-anchors — counts work the engine has *already noticed*; a cohort
@@ -221,10 +233,14 @@ class Reconciler:
         unconditional by design (see :meth:`_apply_feed_page`)."""
         return (self._conditional_get_skipped, self._conditional_get_fetched)
 
-    def reset_conditional_get_stats(self) -> None:
-        """Zero the conditional-GET tallies — and the #247 forced-fetch counter, which is
-        the same per-cycle observable read off the same reconcile pass (the sidecar calls
-        this at each cycle start)."""
+    def reset_cycle_stats(self) -> None:
+        """Zero every per-cycle read-path observable — the #160 conditional-GET tallies and
+        the #247 forced-fetch counter (the sidecar calls this at each cycle start).
+
+        Named for the cycle rather than for conditional GET (CR #45): it resets more than
+        the #160 pair, and a caller reaching for a narrower-sounding name would have
+        silently cleared the #247 counter too.
+        """
         self._conditional_get_skipped = 0
         self._conditional_get_fetched = 0
         self._local_newer_forced = 0
@@ -582,14 +598,24 @@ class Reconciler:
                         session, descriptor.entity_type, row.id
                     )
                     stored = state_row.detail_etag if state_row is not None else None
-                    if stored is not None and _local_advanced(descriptor, row, state_row):
-                        # usa-wa#247: this row carries a local-only change, so PM would 304
-                        # it and the short-circuit below would skip apply_record — where the
-                        # LWW local-newer branch that pushes the change up lives. Withhold
-                        # the validator and take the full body. Self-limiting: the fetch
-                        # re-stamps the watermark, so one forced fetch per local change.
+                    force = (
+                        _force_full_fetch(descriptor, row, state_row)
+                        if stored is not None
+                        else None
+                    )
+                    if force is not None:
+                        # usa-wa#247: sending the validator here would earn a 304, and the
+                        # short-circuit below would skip apply_record — where the LWW
+                        # local-newer branch that pushes a local change up lives. Withhold it
+                        # and take the full body. Self-limiting: the fetch re-stamps the
+                        # watermark, so one forced fetch per local change.
                         stored = None
-                        self._local_newer_forced += 1
+                        if force == FORCE_LOCAL_ADVANCED:
+                            # Only a *known* advance is pending work. An unknown watermark
+                            # forces the same fetch but must not inflate the health signal —
+                            # otherwise the first post-migration cycle reports the whole
+                            # cohort as a backlog (CR #42).
+                            self._local_newer_forced += 1
                     fetch = await self._ctx.fetch_record_conditional_with_retry(
                         descriptor, pm_id, stored
                     )
@@ -624,6 +650,13 @@ class Reconciler:
                         # row's clock as of *after* the apply (usa-wa#247): the PM-wins branch
                         # adopts PM's clock, so stamping before it would leave every converged
                         # row reading as locally advanced and force a full fetch every pass.
+                        #
+                        # Watermark and validator are stamped together, so a PM that stops
+                        # sending ETags leaves both stale and the row is re-forced every cycle
+                        # (CR #46). Bounded and benign — it degrades to the pre-#160
+                        # unconditional read, and outbox dedup prevents duplicate enqueues —
+                        # but the "one forced fetch per local change" property is conditional
+                        # on PM sending a validator.
                         await self._store_detail_etag(
                             session,
                             descriptor.entity_type,
@@ -688,10 +721,16 @@ class Reconciler:
         local_id: Any,
         etag: str,
         *,
-        row_updated_at: datetime | None = None,
+        row_updated_at: datetime | None,
     ) -> None:
         """Upsert the PM detail ETag for one anchored row (usa-wa#160), and with it the
-        local row's clock as of this fetch (usa-wa#247)."""
+        local row's clock as of this fetch (usa-wa#247).
+
+        ``row_updated_at`` is required rather than defaulted: passing ``None`` writes an
+        unknown watermark, and the next thing that happens to such a row is a forced full
+        fetch every cycle until something stamps it. A caller must decide that deliberately,
+        not inherit it (CR #43).
+        """
         state = await self._load_detail_state(session, entity_type, local_id)
         if state is None:
             state = ConditionalGetState(entity_type=entity_type, local_id=local_id)
@@ -1108,21 +1147,33 @@ class Reconciler:
         return state
 
 
-def _local_advanced(descriptor: EntityDescriptor, row: Any, state: ConditionalGetState) -> bool:
-    """Whether ``row`` has been changed locally since its stored validator was taken (#247).
+def _force_full_fetch(
+    descriptor: EntityDescriptor, row: Any, state: ConditionalGetState
+) -> str | None:
+    """Why this row's stored validator must be withheld, or ``None`` to send it (#247).
 
-    Both sides are readings of the *same* clock — the row's own ``updated_at``, then and now
-    — so no cross-system skew enters the comparison. (Comparing the row's clock against the
-    store row's own ``updated_at`` would have been free but wrong: those are PM's clock and
-    ours, and a PM server running a few seconds ahead would force a full fetch on every row
-    forever, silently undoing #160.)
+    Two situations force the full body, and they are **deliberately distinguished** because
+    only one of them is pending work:
 
-    A missing watermark means the validator predates #247: unknown, so verify.
+    - ``FORCE_LOCAL_ADVANCED`` — the row's clock has passed the watermark, so a local-only
+      change is waiting to go up. This is what ``local_newer_forced`` counts.
+    - ``FORCE_WATERMARK_UNKNOWN`` — the validator predates #247 and carries no watermark, so
+      whether the row moved is unknowable: verify rather than trust. Epistemically identical
+      to a row with no store entry at all (which reads unconditionally and is likewise not
+      counted), and it clears itself the first time the row is stamped.
+
+    Both readings of the clock are the row's own ``updated_at``, then and now, so no
+    cross-system skew enters the comparison. (Comparing it against the store row's own
+    ``updated_at`` would have been free but wrong: those are PM's clock and ours, and a PM
+    server running a few seconds ahead would force a full fetch on every row forever,
+    silently undoing #160.)
     """
     if state.row_updated_at is None:
-        return True
+        return FORCE_WATERMARK_UNKNOWN
     local = descriptor.last_updated(row)
-    return local is not None and local > state.row_updated_at
+    if local is not None and local > state.row_updated_at:
+        return FORCE_LOCAL_ADVANCED
+    return None
 
 
 def _reconcile_stream(descriptor: EntityDescriptor) -> str:

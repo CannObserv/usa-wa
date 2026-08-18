@@ -8,10 +8,13 @@ lets ``apply_record``'s local-newer branch run and enqueue the push. Without it 
 locally-edited anchored row 304s forever and never reaches PM.
 
 Nullable with no backfill, deliberately: a validator stored before #247 has no
-watermark, and the reconcile reads unknown as advanced. So the first pass after this
+watermark, and the reconcile verifies rather than trusts. So the first pass after this
 migration re-fetches the whole anchored cohort once, stamping as it goes — the cost
-is one full GET per row, once, and it is also what pushes the changes stranded up to
-now (the #226 roster-succession corrections).
+is one full GET per row, once (request count is unchanged; a 304 already spends a
+round-trip), and it is also what pushes the changes stranded up to now (the #226
+roster-succession corrections). Those unknown-watermark fetches are excluded from the
+``local_newer_forced`` signal, so the first cycle after this reports the pending pushes
+rather than the whole cohort.
 
 Revision ID: 27c8373439a4
 Revises: 0598c2e839ef

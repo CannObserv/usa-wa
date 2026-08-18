@@ -304,10 +304,10 @@ class SyncEngine:
         (usa-wa#247) — the pending local→PM work no other health signal counts."""
         return self._reader.local_newer_forced
 
-    def reset_conditional_get_stats(self) -> None:
-        """Zero the conditional-GET tallies and the #247 forced-fetch counter (the sidecar
-        calls this at each cycle start)."""
-        self._reader.reset_conditional_get_stats()
+    def reset_cycle_stats(self) -> None:
+        """Zero every per-cycle read-path observable — the #160 conditional-GET tallies and
+        the #247 forced-fetch counter (the sidecar calls this at each cycle start)."""
+        self._reader.reset_cycle_stats()
 
     async def apply_record(
         self, session: AsyncSession, descriptor: EntityDescriptor, record: dict

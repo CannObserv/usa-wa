@@ -218,7 +218,10 @@ withholds the validator when the row's clock has advanced past it. The forced fu
 `local_newer_forced` on the sidecar cycle summary is the observable this lacked: the count
 of rows found holding a change PM has not seen. A large one-off after a backfill is healthy;
 **the same number every cycle means the push is wedged** — the sustained-nonzero reading is
-the alert, not the spike.
+the alert, not the spike. It counts *known* advances only: a row re-fetched merely because
+its validator predates the watermark is not pending work, and counting it would have made
+the first post-migration cycle report the entire anchored cohort as a backlog — miscalibrating
+the operator against the one number added to make a stall legible.
 
 The carry-drift hatch (`maybe_enqueue_enrich_drift_only`, which already fired on the `304`
 path) is *not* subsumed by this: a newly-added carry field drifts the enrich payload without

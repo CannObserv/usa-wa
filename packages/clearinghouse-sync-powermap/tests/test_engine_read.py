@@ -1044,7 +1044,12 @@ async def test_anchored_cohort_sends_validator_when_watermark_current(db_session
 async def test_anchored_cohort_forces_full_fetch_when_watermark_unknown(db_session):
     """A validator stored before #247 carries no watermark, so whether the local row has
     advanced since is unknowable — verify rather than trust. Self-limiting: the pass stamps
-    the watermark, so an un-watermarked cohort costs one full fetch per row, once."""
+    the watermark, so an un-watermarked cohort costs one full fetch per row, once.
+
+    The fetch is forced but **not counted** (CR #42): unknown is not pending work, and
+    counting it would make the first post-migration cycle report the entire anchored cohort
+    as a local→PM backlog — miscalibrating the operator against the one signal added to make
+    a wedged push legible. Same treatment as a row with no store entry at all."""
     pm_id = ULID()
     row = await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
     db_session.add(ConditionalGetState(entity_type="fake", local_id=row.id, detail_etag='"e1"'))
@@ -1056,7 +1061,7 @@ async def test_anchored_cohort_forces_full_fetch_when_watermark_unknown(db_sessi
     await engine.reconcile(db_session, descriptor, now=NOW)
 
     assert client.conditional_fetched == [("/api/v1/fakes", pm_id, None)]
-    assert engine.local_newer_forced == 1
+    assert engine.local_newer_forced == 0
 
 
 async def test_anchored_cohort_stamps_row_watermark_with_etag(db_session):
@@ -1104,7 +1109,7 @@ async def test_local_newer_forced_resets_per_cycle(db_session):
     await engine.reconcile(db_session, descriptor, now=NOW)
     assert engine.local_newer_forced == 1
 
-    engine.reset_conditional_get_stats()
+    engine.reset_cycle_stats()
     assert engine.local_newer_forced == 0
 
 
