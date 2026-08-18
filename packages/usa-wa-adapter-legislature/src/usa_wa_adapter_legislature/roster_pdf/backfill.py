@@ -345,9 +345,8 @@ async def write_events(
             # this same batch must collide with that, not with a row we just retracted. Every
             # prior is dropped, not just the first — leaving the rest produced a phantom
             # conflict against an already-superseded row (CR-5 finding 31).
-            retracted = {id(a) for a in prior}
             by_scope[_scope(event)] = [
-                a for a in by_scope.get(_scope(event), ()) if id(a) not in retracted
+                a for a in by_scope.get(_scope(event), ()) if a not in prior
             ] + [_Attested(effective_date=event.effective_date, entered_by=entered_by)]
             superseded += 1
             continue

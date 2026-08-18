@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import httpx
+import respx
 from sqlalchemy import select
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
@@ -11,7 +13,9 @@ from clearinghouse_core.source_coverage import SourceCoverage
 from usa_wa_adapter_legislature.roster_pdf.adapter import roster_resource_id
 from usa_wa_adapter_legislature.roster_pdf.cohort import RosterCohortProvider
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
+from usa_wa_adapter_legislature.roster_pdf.harvest import harvest_roster
 from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
+from usa_wa_adapter_legislature.roster_pdf.transport import DEFAULT_ROSTER_URL
 
 # The ``db`` marker is derived from the fixture closure (root conftest), not declared here.
 
@@ -111,3 +115,33 @@ class TestCohortProvider:
         await _archive(db_session, source, "2025-06-05", roster_pdf_bytes)
         provider = RosterCohortProvider(session=db_session, source_id=source.id)
         assert await provider.report() is await provider.report()
+
+
+class TestArchivedRosterUrl:
+    """CR-5 findings 34/35: the citation base comes from the archived edition, and the
+    latest-edition rule lives in exactly one place — this provider. Lives here rather than
+    beside the backfill (CR-6 finding 38) because that is where the code under test is.
+    """
+
+    async def test_reads_the_url_the_bytes_came_from(
+        self, db_session, usa_wa, roster_pdf_bytes
+    ) -> None:
+        rotated = "https://leg.wa.gov/media/rotatedkey/members-of-the-legislature-1889-2025.pdf"
+        with respx.mock:
+            respx.get(DEFAULT_ROSTER_URL).mock(return_value=httpx.Response(404))
+            respx.get(
+                "https://leg.wa.gov/about-the-legislature/legislative-information-center/"
+            ).mock(return_value=httpx.Response(200, html=f"<a href='{rotated}'>roster</a>"))
+            respx.get(rotated).mock(return_value=httpx.Response(200, content=roster_pdf_bytes))
+            await harvest_roster(db_session, revision="2025-06-05")
+
+        source = await get_or_create_roster_source(db_session, usa_wa)
+        provider = RosterCohortProvider(session=db_session, source_id=source.id)
+        assert await provider.archived_url() == rotated
+
+    async def test_no_archive_yields_no_url(self, db_session, usa_wa) -> None:
+        """The caller falls back to the compiled-in default only here — and with nothing
+        archived the backfill has nothing to write anyway, so no wrong citation is minted."""
+        source = await get_or_create_roster_source(db_session, usa_wa)
+        provider = RosterCohortProvider(session=db_session, source_id=source.id)
+        assert await provider.archived_url() is None

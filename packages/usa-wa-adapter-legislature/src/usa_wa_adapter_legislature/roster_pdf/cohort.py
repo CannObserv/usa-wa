@@ -43,12 +43,19 @@ class RosterCohortProvider:
         self._report: ParseReport | None = None
         self._event: CitationTarget | None = None
         self._url: str | None = None
+        #: Whether the citation query has run — distinguishes 'no archive' from 'not asked'.
+        self._resolved = False
 
     async def citation_event(self) -> CitationTarget | None:
         """``(fetch_event_id, fetched_at, resource_id)`` for the latest payload-bearing roster
         edition, or ``None`` when nothing is archived. One key per revision — the citation
-        granularity settled on #219."""
-        if self._event is not None:
+        granularity settled on #219.
+
+        Also stashes that edition's ``url`` for :meth:`archived_url`, so the two never issue
+        separate queries and cannot disagree about which edition is latest. ``_resolved`` (not
+        ``_event is not None``) is the memo flag, so the **empty** archive is remembered too —
+        otherwise every caller re-queries a table that is going to stay empty."""
+        if self._resolved:
             return self._event
         row = (
             await self._session.execute(
@@ -68,6 +75,7 @@ class RosterCohortProvider:
                 .limit(1)
             )
         ).first()
+        self._resolved = True
         if row is None:
             return None
         self._event = (row.id, row.fetched_at, row.resource_id)
