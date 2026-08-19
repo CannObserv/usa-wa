@@ -50,6 +50,36 @@ _PARTY_ALT = "|".join(re.escape(t) for t in PARTY_TOKENS)
 #: trailing ``D`` would match inside a name like ``Ted``.
 _ROW_PARTY = re.compile(rf"[\s.]\s*(?P<party>{_PARTY_ALT})$")
 
+#: ``PARTY_TOKENS`` folded for the drop-detector below.
+_PARTY_TOKENS_FOLDED = {t.lower() for t in PARTY_TOKENS}
+
+#: A member row's *shape* — a dot leader, then a short trailing token — used only to decide
+#: whether a line ``_ROW_PARTY`` rejected still looks like a member row (#227 CR #50).
+#:
+#: ``_ROW_PARTY`` is a closed alternation over ``PARTY_TOKENS``, so a row whose party
+#: abbreviation the source has newly introduced fails that match, fails ``_PROSE``, and was
+#: **dropped silently as furniture**. That is the never-silently-drop rule broken one layer
+#: above the vocabulary that was written to enforce it: ``resolve_party_token``'s
+#: ``unknown_token`` branch could never fire from this path, so the #227 party oracle could
+#: report a clean run over exactly the records that survived the parse. Detecting the shape
+#: here routes such a row to ``unparsed`` instead, where the report-don't-drop contract sees it.
+#:
+#: One optional interior space, so a two-word abbreviation (the source already has
+#: ``Silver Rep.``) qualifies; no dot runs inside the tail, so a row that merely repeats its
+#: leader — ``"… ) ....D ....... D"`` — resolves to its real trailing token rather than
+#: swallowing the gap. Measured against the archived edition: **0 lines**, so this adds no
+#: noise and fires only on a genuinely new token.
+_LEADER_TAIL = re.compile(r"\.{3,}\s*(?P<tail>[A-Za-z][A-Za-z.]*(?: [A-Za-z][A-Za-z.]*)?)\s*$")
+
+
+def _has_undeclared_party_tail(body: str) -> bool:
+    """Whether ``body`` has member-row shape but ends in a token ``PARTY_TOKENS`` lacks (#227)."""
+    match = _LEADER_TAIL.search(body)
+    if match is None:
+        return False
+    return " ".join(match.group("tail").split()).lower() not in _PARTY_TOKENS_FOLDED
+
+
 #: An optional leading session year: the year sits in a gutter but is part of the same physical
 #: line, so it is the row's first token rather than a separate block.
 _LEADING_YEAR = re.compile(r"^(?P<year>1[89]\d{2}|20\d{2})\s+(?P<rest>.*)$")
@@ -361,9 +391,15 @@ def _parse_column(
 
         if party_match is None:
             # No party token: either non-member furniture (district composition lines, banners)
-            # or an annotation tail. Attach prose to the row above; drop furniture silently.
+            # or an annotation tail. Attach prose to the row above; drop furniture silently --
+            # EXCEPT a line with member-row shape whose trailing token PARTY_TOKENS does not
+            # declare, which is a new source abbreviation and must be reported, not dropped
+            # (#227 CR #50). Without this the closed alternation makes the party vocabulary's
+            # own unknown-token guardrail unreachable.
             if out and _PROSE.match(body):
                 out[-1] = _with_annotation(out[-1], body)
+            elif _has_undeclared_party_tail(body):
+                unparsed.append(buffer)
             buffer = ""
             continue
 

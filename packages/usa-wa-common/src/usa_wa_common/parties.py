@@ -121,8 +121,29 @@ class PartyResolution:
     disposition: str
     reason: str | None = None
 
+    def __post_init__(self) -> None:
+        """Enforce the slug/disposition invariant the docstring states (CR #51).
+
+        Not decoration: ``tally_party_tokens`` indexes ``resolved`` by ``slug``, so a
+        resolution claiming success with no slug would put a ``None`` key into a
+        ``Counter[str]`` — corrupting the census that is supposed to be the arithmetic proof
+        that nothing was dropped.
+        """
+        resolved = self.disposition == PARTY_RESOLVED
+        if resolved and self.slug is None:
+            raise ValueError("a resolved PartyResolution must carry a slug")
+        if not resolved and self.slug is not None:
+            raise ValueError(f"a {self.disposition} PartyResolution must not carry a slug")
+        if resolved and self.slug not in PARTY_SLUGS:
+            raise ValueError(f"slug {self.slug!r} is not in the declared vocabulary")
+
 
 #: Roster abbreviations that map to a party Org regardless of session year.
+#:
+#: ``s`` and ``soc.`` are the **same** party — the roster spells the Socialist Party of
+#: Washington both ways, and both address the one Org (CR #49). The parser declares both
+#: (``PARTY_TOKENS``), so leaving ``Soc.`` out here would have put a token its own upstream
+#: recognises into the "nobody has adjudicated this" bucket.
 _ROSTER_PARTY_CANON = {
     "r": "republican",
     "d": "democratic",
@@ -131,6 +152,7 @@ _ROSTER_PARTY_CANON = {
     "silver rep.": "silver-republican",
     "f.l.": "farmer-labor",
     "s": "socialist",
+    "soc.": "socialist",
 }
 
 #: Roster abbreviations that are recognised and yield no party Assignment, with the reason.
@@ -138,10 +160,12 @@ _ROSTER_PARTY_CANON = {
 #: the Citizen's Party ticket "identified as a Republican and the other as a Democrat" once
 #: seated — municipal archives show the label as a hyper-local ballot line, not a state party.
 #: A ballot label is not an organisation, so there is no Org for a slug to point at.
+#: ``ind`` is the dotless spelling the parser also declares (CR #49) — same decision.
 _ROSTER_PARTY_DECLINED = {
     "cit.": "ballot_label",
     "independent": "unaffiliated",
     "ind.": "unaffiliated",
+    "ind": "unaffiliated",
 }
 
 #: Tokens whose Org existed only across a bounded run of session years — ``token: (slug,
@@ -161,18 +185,32 @@ _ROSTER_PARTY_WINDOWS = {"prog.": ("progressive", 1913, 1917)}
 def resolve_party_token(raw: str | None, *, year: int | None) -> PartyResolution:
     """Fold one roster PDF party abbreviation to a party slug, or say why it does not (#227).
 
-    ``year`` is the record's **session year** and is keyword-only and required — not defaulted
-    — so a caller cannot omit it by accident on a token whose meaning depends on it. Passing
-    ``None`` is an explicit statement of ignorance and surfaces as
-    :data:`PARTY_UNRECOGNIZED` / ``year_required`` rather than as a plausible-looking ``None``.
+    ``year`` is keyword-only and required — not defaulted — so a caller cannot omit it by
+    accident on a token whose meaning depends on it. Passing ``None`` is an explicit statement
+    of ignorance and surfaces as :data:`PARTY_UNRECOGNIZED` / ``year_required`` rather than as a
+    plausible-looking ``None``.
 
-    Matching folds case and surrounding whitespace but not interior punctuation: the roster is
-    OCR-adjacent text, and ``P.P.`` and ``Pop.`` are distinguished by exactly that punctuation.
+    **Which year (CR #56).** It is the roster's ``RosterRecord.year`` — the session year a
+    member's *term begins*, not every session they sit in. The roster lists a senator only at
+    term start (see ``roster_pdf.audit``), so a Progressive senator seated in 1915 serves through
+    the 1919 session on one record dated 1915. Two consequences a span builder must not
+    discover later: the window is compared against a term-start, so passing a *sitting* year
+    gives different answers at the boundary; and a span opened from a 1915 term-start runs past
+    the Org's 1917 lifespan, which is #228's to resolve, not this function's.
+
+    Matching folds case and **all** whitespace — surrounding and interior — but not interior
+    punctuation: the roster is OCR-adjacent text, so ``Silver  Rep.`` with a doubled or
+    non-breaking space must not fall to ``unknown_token`` (CR #54, and AGENTS.md's rule against
+    keying a parser on an exact upstream string), while ``P.P.`` and ``Pop.`` are distinguished
+    by exactly that punctuation.
+
+    ``token`` on the returned resolution is always the stripped form, on every path (CR #55).
     """
-    token = raw.strip() if raw else None
+    token = " ".join(raw.split()) if raw else None
     if not token:
+        token = None  # whitespace-only collapses to nothing, same as blank (CR #55)
         return PartyResolution(
-            token=raw, slug=None, disposition=PARTY_DECLINED, reason="unaffiliated"
+            token=token, slug=None, disposition=PARTY_DECLINED, reason="unaffiliated"
         )
     key = token.lower()
 
@@ -208,14 +246,18 @@ def resolve_party_token(raw: str | None, *, year: int | None) -> PartyResolution
     )
 
 
-@dataclass(frozen=True)
+@dataclass
 class PartyTally:
     """The disposition census over a set of ``(token, year)`` pairs (#227).
 
     The shape the never-silently-drop rule needs: three counters that must add up to the input
     size, so "we emitted fewer spans than there were records" is arithmetic rather than
-    inference. ``unrecognized`` is keyed by the **verbatim token** so a non-clean tally names
+    inference. ``unrecognized`` is keyed by the **stripped token** so a non-clean tally names
     what to go classify; the other two are keyed by slug and reason.
+
+    Deliberately **not** ``frozen`` (CR #52): the counters are mutated in place while tallying,
+    and ``frozen=True`` blocks only attribute rebinding — it would have advertised an
+    immutability this type does not have.
     """
 
     resolved: Counter[str] = field(default_factory=Counter)
@@ -248,10 +290,14 @@ def tally_party_tokens(pairs: Iterable[tuple[str | None, int | None]]) -> PartyT
     tally = PartyTally()
     for token, year in pairs:
         result = resolve_party_token(token, year=year)
-        if result.disposition == PARTY_RESOLVED:
-            tally.resolved[result.slug] += 1  # type: ignore[index]
+        if result.disposition == PARTY_RESOLVED and result.slug is not None:
+            # ``__post_init__`` makes the slug guard unreachable (CR #51); it is written as a
+            # condition rather than an ``assert`` because ruff's bandit rules run here and an
+            # assert would vanish under ``-O``. Were it ever false the pair would fall through
+            # to the unrecognized branch — counted, which is the safe direction.
+            tally.resolved[result.slug] += 1
         elif result.disposition == PARTY_DECLINED:
             tally.declined[result.reason or "unspecified"] += 1
         else:
-            tally.unrecognized[result.token or ""] += 1
+            tally.unrecognized[result.token or ""] += 1  # blank never reaches here
     return tally

@@ -13,6 +13,7 @@ from usa_wa_common.parties import (
     PARTY_RESOLVED,
     PARTY_SLUGS,
     PARTY_UNRECOGNIZED,
+    PartyResolution,
     canonicalize_party,
     resolve_party_token,
     sos_party_slug,
@@ -100,14 +101,52 @@ def test_citizen_is_declined_as_a_ballot_label():
     assert result.reason == "ballot_label"
 
 
-@pytest.mark.parametrize("token", ["Independent", "Ind.", None, "", "   "])
+@pytest.mark.parametrize("token", ["Independent", "Ind.", "Ind", None, "", "   "])
 def test_unaffiliated_is_declined_not_unrecognized(token):
     """Independence is the *absence* of affiliation, not a party (power-map#270) — a decision,
-    so it declines rather than reading as an unknown token needing investigation."""
+    so it declines rather than reading as an unknown token needing investigation. ``Ind`` is the
+    dotless spelling the parser also declares (CR #49)."""
     result = resolve_party_token(token, year=1899)
     assert result.slug is None
     assert result.disposition == PARTY_DECLINED
     assert result.reason == "unaffiliated"
+
+
+def test_socialist_has_two_spellings_and_one_org():
+    """CR #49: the roster spells the Socialist Party of Washington ``S`` and ``Soc.``, and the
+    parser declares both. One party, one Org, one slug — leaving ``Soc.`` unmapped put a token
+    its own upstream recognises into the unclassified bucket."""
+    assert resolve_party_token("Soc.", year=1913).slug == "socialist"
+    assert resolve_party_token("S", year=1913).slug == "socialist"
+
+
+@pytest.mark.parametrize("token", ["Silver  Rep.", "Silver\tRep.", " Silver Rep. "])
+def test_interior_whitespace_folds_on_the_only_multi_word_token(token):
+    """CR #54: ``Silver Rep.`` is the one multi-word abbreviation, and the source is
+    OCR-adjacent — a doubled or tab-separated space must not drop 11 records into
+    ``unknown_token``. AGENTS.md: never key a parser on an exact upstream string."""
+    assert resolve_party_token(token, year=1897).slug == "silver-republican"
+
+
+@pytest.mark.parametrize("raw", [None, "", "   "])
+def test_blank_declines_with_a_stripped_token(raw):
+    """CR #55: ``token`` is the stripped form on *every* path. It was the raw value here and
+    the stripped value everywhere else, which matters because it is the field an unrecognized
+    tally keys on."""
+    assert resolve_party_token(raw, year=1899).token is None
+
+
+def test_party_resolution_enforces_its_slug_invariant():
+    """CR #51: the docstring's "slug is non-None exactly when resolved" is now enforced, because
+    ``tally_party_tokens`` indexes ``resolved`` by slug — a resolved-without-slug value would
+    put a ``None`` key into a ``Counter[str]`` and corrupt the census that is meant to be the
+    arithmetic proof nothing was dropped."""
+    with pytest.raises(ValueError, match="must carry a slug"):
+        PartyResolution(token="X", slug=None, disposition=PARTY_RESOLVED)
+    with pytest.raises(ValueError, match="must not carry a slug"):
+        PartyResolution(token="X", slug="republican", disposition=PARTY_DECLINED, reason="x")
+    with pytest.raises(ValueError, match="not in the declared vocabulary"):
+        PartyResolution(token="X", slug="whig", disposition=PARTY_RESOLVED)
 
 
 def test_unknown_token_is_unrecognized_with_the_token_preserved():
@@ -142,25 +181,42 @@ def test_canonicalize_party_keeps_its_wire_domain():
 
 # --- the acceptance oracle: zero silent drops (#227) -------------------------
 
-#: The full party-token census of the archived roster (rev. 2025-06-05), measured from #225's
+#: The party-token census of the archived roster (rev. 2025-06-05), measured from #225's
 #: production parser: 8,517 member-year records, 166 of them minor-party. Held here as data so
 #: the oracle is a fast deterministic test rather than one needing the production archive.
+#:
+#: **Totals across all years, not per-year counts** (CR #53). Only ``Prog.`` is year-sensitive,
+#: so only ``Prog.`` is split by year; every other token resolves identically whatever year it
+#: is paired with. The earlier ``(token, year)`` keying read as a per-year distribution —
+#: ``("R", 1897): 4554`` invited "4554 Republicans in 1897", which is false.
 ROSTER_CENSUS = {
-    ("R", 1897): 4554,
-    ("D", 1897): 3797,
-    ("P.P.", 1895): 50,
-    ("Pop.", 1897): 49,
+    "R": 4554,
+    "D": 3797,
+    "P.P.": 50,
+    "Pop.": 49,
+    "Silver Rep.": 11,
+    "F.L.": 7,
+    "Cit.": 1,
+    "S": 1,
+}
+
+#: The year-sensitive slice, kept apart because here the year IS the datum: 46 ``Prog.`` records
+#: fall inside the Bull Moose Org's 1913-1917 lifespan and one (Knute Hill) does not.
+ROSTER_CENSUS_BY_YEAR = {
     ("Prog.", 1913): 46,
     ("Prog.", 1927): 1,
-    ("Silver Rep.", 1897): 11,
-    ("F.L.", 1921): 7,
-    ("Cit.", 1899): 1,
-    ("S", 1913): 1,
 }
+
+#: An arbitrary year for the year-insensitive tokens — they resolve the same whatever it is,
+#: which is exactly why they are not keyed by one.
+_ANY_YEAR = 1897
 
 
 def _census_pairs():
-    for (token, year), n in ROSTER_CENSUS.items():
+    for token, n in ROSTER_CENSUS.items():
+        for _ in range(n):
+            yield (token, _ANY_YEAR)
+    for (token, year), n in ROSTER_CENSUS_BY_YEAR.items():
         for _ in range(n):
             yield (token, year)
 

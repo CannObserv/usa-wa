@@ -9,16 +9,21 @@ mid-biennium succession chain whose ordering encodes seat lineage.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from usa_wa_adapter_legislature.roster_pdf.cohort import extract_pages
 from usa_wa_adapter_legislature.roster_pdf.normalize import (
+    PARTY_TOKENS,
     PageWords,
+    _has_undeclared_party_tail,
     _split_annotation,
     parse_district_pages,
+    parse_district_pages_reporting,
 )
+from usa_wa_common.parties import PARTY_UNRECOGNIZED, resolve_party_token
 
 FIXTURE = Path(__file__).parent / "fixtures" / "roster_pdf_d2.pdf"
 
@@ -216,3 +221,86 @@ class TestParentheticalNamesSurviveTheSplit:
         speaker = [r for r in records if r.annotation and "Speaker" in r.annotation]
         assert speaker, "prose parentheticals must still split out"
         assert all("Speaker" not in r.name for r in speaker)
+
+
+# --- the undeclared-token drop detector (#227 CR #50) ------------------------
+
+
+def _retoken(pages: list[PageWords], old: str, new: str) -> list[PageWords]:
+    """The real fixture with the first party token ``old`` rewritten to ``new``.
+
+    Mutating real word geometry rather than synthesising it: the parser's band and column
+    rules are geometric, so a hand-built page exercises the regexes without exercising the
+    path that actually reaches them.
+    """
+    done = False
+    out: list[PageWords] = []
+    for page in pages:
+        words = []
+        for word in page.words:
+            if not done and word.text == old:
+                words.append(replace(word, text=new))
+                done = True
+            else:
+                words.append(word)
+        out.append(replace(page, words=tuple(words)))
+    assert done, f"fixture has no {old!r} token to rewrite"
+    return out
+
+
+def test_undeclared_party_token_is_reported_not_dropped(d2_pages) -> None:
+    """CR #50 — the defect this closes. ``_ROW_PARTY`` is a **closed alternation** over
+    ``PARTY_TOKENS``, so a row whose party abbreviation the source newly introduces fails that
+    match, fails ``_PROSE``, and was dropped by the silent-furniture branch. It never reached
+    ``unparsed``, so ``usa_wa_common.parties``' ``unknown_token`` guardrail could not fire from
+    this path at all, and #227's party oracle could report a clean run over only the survivors.
+    """
+    baseline = parse_district_pages_reporting(d2_pages)
+    mutated = parse_district_pages_reporting(_retoken(d2_pages, "D", "Whig"))
+
+    assert len(mutated.records) == len(baseline.records) - 1  # the row did not parse
+    assert len(mutated.unparsed) == len(baseline.unparsed) + 1  # and was reported
+    assert any("Whig" in line for line in mutated.unparsed), mutated.unparsed
+
+
+def test_declared_party_token_leaves_the_report_untouched(d2_pages) -> None:
+    """The detector must not perturb the happy path: swapping one declared token for another
+    keeps every row parsing and adds nothing to ``unparsed``."""
+    baseline = parse_district_pages_reporting(d2_pages)
+    mutated = parse_district_pages_reporting(_retoken(d2_pages, "D", "Pop."))
+
+    assert len(mutated.records) == len(baseline.records)
+    assert mutated.unparsed == baseline.unparsed
+
+
+def test_repeated_dot_leader_resolves_to_its_real_trailing_token() -> None:
+    """Regression on the detector's own first draft. A greedy tail match read
+    ``"…) ....D ....... D"`` as the two-word tail ``"D ....... D"``, which flagged two real
+    rows in the live edition as undeclared. The tail admits one interior space (the source
+    already has ``Silver Rep.``) but no dot runs, so it resolves to the final ``D``."""
+    assert not _has_undeclared_party_tail(
+        "R. L. Nye (Port Orchard Housing Authority) ........D ........... D"
+    )
+    assert not _has_undeclared_party_tail("Amos P. Whitfield ......................... Silver Rep.")
+    assert _has_undeclared_party_tail("Amos P. Whitfield ......................... Whig")
+    assert _has_undeclared_party_tail("Amos P. Whitfield ......................... Free Soil")
+
+
+def test_every_declared_party_token_is_classified() -> None:
+    """CR #49: the parser's ``PARTY_TOKENS`` and the vocabulary's resolver are two halves of
+    one contract, and they had drifted — ``Soc.`` and the dotless ``Ind`` fell to
+    ``unrecognized``/``unknown_token``, the "nobody has adjudicated this" bucket, despite the
+    parser declaring both. Neither appears in the current edition, so the #227 oracle passed
+    anyway; a different revision would have tallied them as unknown.
+
+    This is the test that keeps the two lists honest. It belongs here, not in
+    ``usa-wa-common``: Layer 2b may not import an adapter, and the adapter is the side that
+    owns the source vocabulary."""
+    unclassified = {
+        token
+        for token in PARTY_TOKENS
+        if resolve_party_token(token, year=1915).disposition == PARTY_UNRECOGNIZED
+    }
+    assert not unclassified, (
+        f"parser declares tokens the vocabulary cannot classify: {unclassified}"
+    )
