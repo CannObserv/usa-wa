@@ -69,7 +69,17 @@ _PARTY_TOKENS_FOLDED = {t.lower() for t in PARTY_TOKENS}
 #: leader — ``"… ) ....D ....... D"`` — resolves to its real trailing token rather than
 #: swallowing the gap. Measured against the archived edition: **0 lines**, so this adds no
 #: noise and fires only on a genuinely new token.
-_LEADER_TAIL = re.compile(r"\.{3,}\s*(?P<tail>[A-Za-z][A-Za-z.]*(?: [A-Za-z][A-Za-z.]*)?)\s*$")
+#:
+#: **The leader threshold is two dots, and the coverage is not total** (#227 CR #59). The
+#: leader is *optional* in this source — a long annotation can consume it entirely — so a
+#: detector keyed on it cannot see every member row. Measured: **13 of 4,601** lines ending in
+#: a declared token (0.3%) carry no leader of two or more dots, e.g.
+#: ``"… (Resigned, Appntd to the Senate) ..D"`` (caught at two, missed at three) and
+#: ``"… Appointed U.S. Marshal, Western District of WA.) D"`` (missed at either). Two dots was
+#: chosen over three because it measured identically clean — 0 false positives — while
+#: shrinking that residual. A genuinely new token landing on one of the remaining leaderless
+#: rows is still dropped; closing that needs a signal other than the leader.
+_LEADER_TAIL = re.compile(r"\.{2,}\s*(?P<tail>[A-Za-z][A-Za-z.]*(?: [A-Za-z][A-Za-z.]*)?)\s*$")
 
 
 def _has_undeclared_party_tail(body: str) -> bool:

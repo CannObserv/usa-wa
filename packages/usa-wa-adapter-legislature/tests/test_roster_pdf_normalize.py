@@ -286,6 +286,20 @@ def test_repeated_dot_leader_resolves_to_its_real_trailing_token() -> None:
     assert _has_undeclared_party_tail("Amos P. Whitfield ......................... Free Soil")
 
 
+def test_two_dot_leader_is_within_reach_and_leaderless_is_not() -> None:
+    """CR #59: the leader is *optional* in this source, so a detector keyed on it cannot see
+    every member row. Two dots was chosen over three because it measured identically clean
+    (0 false positives on the live edition) while shrinking the residual — the source really
+    does typeset ``"… (Resigned, Appntd to the Senate) ..D"``.
+
+    The second assertion pins the **known** blind spot rather than papering over it: 13 of
+    4,601 lines ending in a declared token carry no leader at all, and a genuinely new token
+    landing on one of those is still dropped. Closing that needs a signal other than the leader.
+    """
+    assert _has_undeclared_party_tail("Victoria Hunt (Resigned, Appntd to the Senate) ..Whig")
+    assert not _has_undeclared_party_tail("Appointed U.S. Marshal, Western District of WA.) Whig")
+
+
 def test_every_declared_party_token_is_classified() -> None:
     """CR #49: the parser's ``PARTY_TOKENS`` and the vocabulary's resolver are two halves of
     one contract, and they had drifted — ``Soc.`` and the dotless ``Ind`` fell to

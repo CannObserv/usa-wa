@@ -23,6 +23,13 @@ put the historical ``S`` → socialist mapping in the shared table and a stray `
 a ballot string starts resolving to the Socialist Party. The hazard is one-directional, so the
 vocabularies are too.
 
+**On holding a source's abbreviations in a source-free package (#227 CR #63).** AGENTS.md
+describes this layer as "WA facts, source-free", and the ``_ROSTER_PARTY_*`` tables are one
+publisher's abbreviations rather than a jurisdiction fact. They live here anyway, following the
+precedent ``_BALLOT_PARTY_SYNONYMS`` set: the *parse* is the source's, the *vocabulary* the
+parse folds into is Washington's, and splitting the fold across two layers would put the party
+Org contract in two places. This module is the agreed exception, and it is the only one.
+
 **Why a disposition instead of ``str | None`` (#227).** The R/D canonicaliser answers with a
 slug or ``None``, and ``None`` is overloaded three ways: *deliberately unaffiliated*,
 *not a party at all*, and *nobody has classified this token yet*. Collapsing the third into the
@@ -299,5 +306,5 @@ def tally_party_tokens(pairs: Iterable[tuple[str | None, int | None]]) -> PartyT
         elif result.disposition == PARTY_DECLINED:
             tally.declined[result.reason or "unspecified"] += 1
         else:
-            tally.unrecognized[result.token or ""] += 1  # blank never reaches here
+            tally.unrecognized[result.token] += 1
     return tally

@@ -1,7 +1,12 @@
-"""Integration — the party slug vocabulary against Power Map's live Orgs (#227 CR #58).
+"""Cross-package conformance — the party slug vocabulary against Power Map's live Orgs.
+
+Filed beside the other cross-package fitness functions rather than inside a package (#227 CR
+#60): it exercises a Layer-2b vocabulary against an external contract and imports nothing from
+any one package, so `usa-wa-common/tests` (which speaks no wire) and `usa-wa-sync-powermap/tests`
+(which it does not use) are both the wrong home. `test_cohort_seam.py` is the precedent.
 
 Run with ``uv run pytest -m integration``. Excluded from the default tier so the offline
-suite stays hermetic.
+suite stays hermetic (#227 CR #58).
 
 ``PARTY_SLUGS`` claims each slug is the ``org_wa_party`` identifier value of a real Org
 (power-map#270/#442/#443) — that is what lets a party be addressed by identifier rather than
@@ -26,7 +31,9 @@ from usa_wa_common.parties import PARTY_SLUGS
 #: Also marked ``db`` although this test touches no database: ``scripts/tests/test_unit_tier.py``
 #: pins that every ``integration`` test carries ``db`` too, because the bare ``-m 'not db'``
 #: form would otherwise silently re-enable the integration tier. The overlap is load-bearing
-#: for the marker algebra, not a claim about what this test needs.
+#: for the marker algebra, not a claim about what this test needs — the marker now covers two
+#: disjoint populations, which is **usa-wa#250**. Free at runtime: the #208 advisory lock is
+#: taken by the ``test_engine`` fixture, which this test never requests.
 pytestmark = [pytest.mark.integration, pytest.mark.db]
 
 PM_BASE = "https://power-map.exe.xyz"
