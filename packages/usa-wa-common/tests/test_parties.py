@@ -16,6 +16,7 @@ from usa_wa_common.parties import (
     canonicalize_party,
     resolve_party_token,
     sos_party_slug,
+    tally_party_tokens,
 )
 
 
@@ -137,3 +138,60 @@ def test_canonicalize_party_keeps_its_wire_domain():
     assert canonicalize_party("Pop.") is None
     assert canonicalize_party("R") == "republican"
     assert sos_party_slug("(Prefers S Party)") is None
+
+
+# --- the acceptance oracle: zero silent drops (#227) -------------------------
+
+#: The full party-token census of the archived roster (rev. 2025-06-05), measured from #225's
+#: production parser: 8,517 member-year records, 166 of them minor-party. Held here as data so
+#: the oracle is a fast deterministic test rather than one needing the production archive.
+ROSTER_CENSUS = {
+    ("R", 1897): 4554,
+    ("D", 1897): 3797,
+    ("P.P.", 1895): 50,
+    ("Pop.", 1897): 49,
+    ("Prog.", 1913): 46,
+    ("Prog.", 1927): 1,
+    ("Silver Rep.", 1897): 11,
+    ("F.L.", 1921): 7,
+    ("Cit.", 1899): 1,
+    ("S", 1913): 1,
+}
+
+
+def _census_pairs():
+    for (token, year), n in ROSTER_CENSUS.items():
+        for _ in range(n):
+            yield (token, year)
+
+
+def test_oracle_every_roster_record_resolves_or_is_counted():
+    """#227's acceptance oracle. Every one of the roster's 8,517 member-year records must
+    resolve to a party Org or be explicitly declined and counted — zero silent drops. An
+    unrecognized token here means a future edition introduced an abbreviation nobody has
+    classified, which must fail the build rather than quietly emit 166 fewer spans."""
+    tally = tally_party_tokens(_census_pairs())
+
+    assert tally.total == 8517
+    assert tally.clean, f"unclassified roster party tokens: {dict(tally.unrecognized)}"
+    assert not tally.unrecognized
+
+
+def test_oracle_accounts_for_all_166_minor_party_records():
+    """The split the oracle is really about: 164 of the 166 minor-party records reach an Org,
+    and the 2 that do not are the two power-map#442 adjudicated away — Knute Hill's 1927
+    ``Prog.`` row and the 1899 ``Cit.`` ballot label. Both are counted, neither is dropped."""
+    tally = tally_party_tokens(_census_pairs())
+
+    assert tally.resolved["peoples"] == 50
+    assert tally.resolved["populist"] == 49
+    assert tally.resolved["progressive"] == 46
+    assert tally.resolved["silver-republican"] == 11
+    assert tally.resolved["farmer-labor"] == 7
+    assert tally.resolved["socialist"] == 1
+    minor = sum(tally.resolved[s] for s in PARTY_SLUGS if s not in {"republican", "democratic"})
+    assert minor == 164
+
+    assert tally.declined["outside_org_lifespan"] == 1  # Knute Hill, 1927
+    assert tally.declined["ballot_label"] == 1  # the 1899 Citizen row
+    assert minor + sum(tally.declined.values()) == 166
