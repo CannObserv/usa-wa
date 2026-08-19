@@ -1467,6 +1467,55 @@ async def test_cycle_summary_surfaces_conditional_get_tally(db_session, caplog):
     assert rec.conditional_get_skipped == 12 and rec.conditional_get_fetched == 3
 
 
+async def test_report_cycle_summary_includes_local_newer_forced(db_session, caplog):
+    """usa-wa#247: the summary carries the count of rows the reconcile found holding a
+    local-only change PM has not seen. Every other signal on this line counts work the
+    engine already noticed; a cohort that has silently stopped propagating reads zero on
+    all of them, which is how #247 stayed invisible for a fortnight."""
+    sidecar = _summary_sidecar()
+    sidecar._last_local_newer_forced = 397
+
+    with caplog.at_level("INFO"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    rec = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
+    assert rec.local_newer_forced == 397
+
+
+async def test_run_cycle_resets_and_captures_local_newer_forced():
+    """The #247 counter is per-cycle like the #160 tallies: zeroed at the top of the cycle,
+    read back after the reconciles that accumulate it."""
+
+    class _StubEngine:
+        def __init__(self):
+            self.reset_called = False
+
+        def reset_cycle_stats(self):
+            self.reset_called = True
+
+        @property
+        def conditional_get_stats(self):
+            return (3, 7)
+
+        @property
+        def local_newer_forced(self):
+            return 12
+
+    engine = _StubEngine()
+    sidecar = Sidecar(
+        engine=engine,  # type: ignore[arg-type]
+        descriptors=[],
+        session_factory=lambda: _FakeSession(),
+        replay_enabled=False,
+    )
+    sidecar.tick = lambda s, *, now, commit: _noop()
+
+    await sidecar.run_cycle()
+
+    assert engine.reset_called is True
+    assert sidecar._last_local_newer_forced == 12
+
+
 async def test_run_cycle_captures_conditional_get_stats_after_replay():
     """#160 residual: the replay backstop is conditional too, so the tally must be read
     *after* ``_run_replay`` — capturing between the reconciles and the replay reported the
@@ -1476,12 +1525,16 @@ async def test_run_cycle_captures_conditional_get_stats_after_replay():
         def __init__(self):
             self.stats = (0, 0)
 
-        def reset_conditional_get_stats(self):
+        def reset_cycle_stats(self):
             self.stats = (0, 0)
 
         @property
         def conditional_get_stats(self):
             return self.stats
+
+        @property
+        def local_newer_forced(self):
+            return 0
 
         async def replay_from_floor(self, session, *, now):
             self.stats = (5, 1)  # the replay's own 304-skipped/fetched contribution
@@ -1503,19 +1556,23 @@ async def test_run_cycle_captures_conditional_get_stats_after_replay():
 
 
 async def test_run_cycle_resets_and_captures_conditional_get_stats():
-    """run_cycle zeroes the engine's conditional-GET tally at the start and captures it
-    after the reconciles for the summary (#160)."""
+    """run_cycle zeroes the engine's per-cycle read-path stats at the start and captures
+    the conditional-GET tally after the reconciles for the summary (#160)."""
 
     class _StubEngine:
         def __init__(self):
             self.reset_called = False
 
-        def reset_conditional_get_stats(self):
+        def reset_cycle_stats(self):
             self.reset_called = True
 
         @property
         def conditional_get_stats(self):
             return (3, 7)
+
+        @property
+        def local_newer_forced(self):
+            return 0
 
     engine = _StubEngine()
     sidecar = Sidecar(

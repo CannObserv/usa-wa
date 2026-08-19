@@ -298,9 +298,16 @@ class SyncEngine:
         (usa-wa#160): rows the reconcile skipped on a ``304`` vs. re-fetched full."""
         return self._reader.conditional_get_stats
 
-    def reset_conditional_get_stats(self) -> None:
-        """Zero the conditional-GET tallies (the sidecar calls this at each cycle start)."""
-        self._reader.reset_conditional_get_stats()
+    @property
+    def local_newer_forced(self) -> int:
+        """Rows the reconcile forced a full fetch on because a local-only change was waiting
+        (usa-wa#247) — the pending local→PM work no other health signal counts."""
+        return self._reader.local_newer_forced
+
+    def reset_cycle_stats(self) -> None:
+        """Zero every per-cycle read-path observable — the #160 conditional-GET tallies and
+        the #247 forced-fetch counter (the sidecar calls this at each cycle start)."""
+        self._reader.reset_cycle_stats()
 
     async def apply_record(
         self, session: AsyncSession, descriptor: EntityDescriptor, record: dict

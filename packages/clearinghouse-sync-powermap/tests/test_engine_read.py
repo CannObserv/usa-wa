@@ -31,6 +31,7 @@ from clearinghouse_sync_powermap.models import (
     OP_UPDATE,
     STATUS_PENDING,
     STATUS_REJECTED,
+    ConditionalGetState,
     EnrichFingerprint,
     OutboxEntry,
     SyncState,
@@ -38,6 +39,8 @@ from clearinghouse_sync_powermap.models import (
 from clearinghouse_sync_powermap.testing import FakeClient, FakeDescriptor, FakeEntity
 
 NOW = datetime(2026, 6, 4, 12, 0, 0, tzinfo=UTC)
+#: A clock strictly after ``NOW``, for a row edited locally since its last PM read (#247).
+LATER = datetime(2026, 6, 5, 12, 0, 0, tzinfo=UTC)
 #: Far-future clock for drain calls, so an outbox entry (whose next_attempt_at
 #: server-defaults to the real wall clock at insert) is always past-due.
 FUTURE = datetime(2099, 1, 1, tzinfo=UTC)
@@ -919,8 +922,17 @@ async def test_anchored_cohort_304_still_reenriches_on_carry_drift(db_session):
     descriptor = CohortEnrichDescriptor()
     await _seed_fingerprint(db_session, descriptor, row)  # stamp at name "Old"
     row.name = "New"  # local carry payload drifts; PM unchanged → 304
+    await db_session.flush()
     db_session.add(
-        ConditionalGetState(entity_type=descriptor.entity_type, local_id=row.id, detail_etag='"e1"')
+        # Watermark taken *after* the edit, so this exercises the pure carry-drift 304 — a
+        # newly-added carry field reaching a cohort whose rows never moved — rather than the
+        # #247 local-change bypass, which the drift-only hatch does not subsume.
+        ConditionalGetState(
+            entity_type=descriptor.entity_type,
+            local_id=row.id,
+            detail_etag='"e1"',
+            row_updated_at=row.updated_at,
+        )
     )
     await db_session.flush()
     client = FakeClient(
@@ -948,7 +960,12 @@ async def test_anchored_cohort_304_no_enrich_when_fingerprint_current(db_session
     descriptor = CohortEnrichDescriptor()
     await _seed_fingerprint(db_session, descriptor, row)  # current — no drift
     db_session.add(
-        ConditionalGetState(entity_type=descriptor.entity_type, local_id=row.id, detail_etag='"e1"')
+        ConditionalGetState(
+            entity_type=descriptor.entity_type,
+            local_id=row.id,
+            detail_etag='"e1"',
+            row_updated_at=NOW,  # watermark current — the #247 bypass stays out of the way
+        )
     )
     await db_session.flush()
     client = FakeClient(
@@ -961,6 +978,139 @@ async def test_anchored_cohort_304_no_enrich_when_fingerprint_current(db_session
 
     assert (await db_session.execute(select(OutboxEntry))).scalars().all() == []
     assert engine.conditional_get_stats == (1, 0)
+
+
+# --- local-newer watermark: a 304 must not strand a local-only change (#247) --
+
+
+async def test_anchored_cohort_forces_full_fetch_when_local_advanced(db_session):
+    """#247: a local-only edit to an already-anchored row leaves PM untouched, so PM 304s
+    the row and ``apply_record`` — where the LWW local-newer branch lives — never runs, and
+    the change never reaches PM. The reconcile withholds the stored validator when the local
+    clock has advanced past the watermark stamped at the last full fetch, so the branch fires
+    and the UPDATE is enqueued."""
+    pm_id = ULID()
+    row = await _add_anchored(
+        db_session, source_id="x", name="Local", pm_id=pm_id, updated_at=LATER
+    )
+    db_session.add(
+        ConditionalGetState(
+            entity_type="fake", local_id=row.id, detail_etag='"e1"', row_updated_at=NOW
+        )
+    )
+    await db_session.flush()
+    descriptor = CohortDescriptor()
+    client = FakeClient(
+        entities={pm_id: _record("x", "Stale", pm_id=pm_id, updated_at="2026-06-04T12:00:00Z")},
+        not_modified_ids={pm_id},  # PM would 304 any validator we sent
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    # The validator was withheld, so PM answered 200 despite the preset 304.
+    assert client.conditional_fetched == [("/api/v1/fakes", pm_id, None)]
+    entry = (await db_session.execute(select(OutboxEntry))).scalar_one()
+    assert entry.op == OP_UPDATE
+    await db_session.refresh(row)
+    assert row.name == "Local"  # LWW kept local; PM's stale value did not overwrite it
+    assert engine.local_newer_forced == 1
+
+
+async def test_anchored_cohort_sends_validator_when_watermark_current(db_session):
+    """The converged steady state: nothing changed locally since the last full fetch, so the
+    validator is sent and the row costs a 304. #247's fix must not defeat #160's saving on
+    the (overwhelmingly common) quiet cohort."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    db_session.add(
+        ConditionalGetState(
+            entity_type="fake", local_id=row.id, detail_etag='"e1"', row_updated_at=NOW
+        )
+    )
+    await db_session.flush()
+    descriptor = CohortDescriptor()
+    client = FakeClient(entities={pm_id: _record("x", "X", pm_id=pm_id)}, not_modified_ids={pm_id})
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert client.conditional_fetched == [("/api/v1/fakes", pm_id, '"e1"')]
+    assert engine.conditional_get_stats == (1, 0)  # skipped, as before
+    assert engine.local_newer_forced == 0
+    assert (await db_session.execute(select(OutboxEntry))).scalars().all() == []
+
+
+async def test_anchored_cohort_forces_full_fetch_when_watermark_unknown(db_session):
+    """A validator stored before #247 carries no watermark, so whether the local row has
+    advanced since is unknowable — verify rather than trust. Self-limiting: the pass stamps
+    the watermark, so an un-watermarked cohort costs one full fetch per row, once.
+
+    The fetch is forced but **not counted** (CR #42): unknown is not pending work, and
+    counting it would make the first post-migration cycle report the entire anchored cohort
+    as a local→PM backlog — miscalibrating the operator against the one signal added to make
+    a wedged push legible. Same treatment as a row with no store entry at all."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    db_session.add(ConditionalGetState(entity_type="fake", local_id=row.id, detail_etag='"e1"'))
+    await db_session.flush()
+    descriptor = CohortDescriptor()
+    client = FakeClient(entities={pm_id: _record("x", "X", pm_id=pm_id)}, not_modified_ids={pm_id})
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    assert client.conditional_fetched == [("/api/v1/fakes", pm_id, None)]
+    assert engine.local_newer_forced == 0
+
+
+async def test_anchored_cohort_stamps_row_watermark_with_etag(db_session):
+    """The full-fetch path stamps the row's clock alongside the validator, so the next pass
+    can tell a local edit from a quiet row. Stamped *after* the apply, so an adopted PM clock
+    (the PM-wins branch) is what lands — otherwise every converged row would read as advanced."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortDescriptor()
+    client = FakeClient(
+        entities={pm_id: _record("x", "X", pm_id=pm_id, updated_at="2040-01-01T00:00:00Z")},
+        entity_etags={pm_id: '"e2"'},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+
+    state = (await db_session.execute(select(ConditionalGetState))).scalar_one()
+    assert state.detail_etag == '"e2"'
+    await db_session.refresh(row)
+    assert state.row_updated_at == row.updated_at == datetime(2040, 1, 1, tzinfo=UTC)
+
+
+async def test_local_newer_forced_resets_per_cycle(db_session):
+    """The #247 counter is a per-cycle observable like the #160 tallies — the sidecar resets
+    it at the top of each cycle and reports it on the summary line. A cohort that has quietly
+    stopped propagating reads as a sustained non-zero here; the absence of exactly this signal
+    is what let #247 hide behind zero-pending/zero-rejected/zero-non-converging."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="L", pm_id=pm_id, updated_at=LATER)
+    db_session.add(
+        ConditionalGetState(
+            entity_type="fake", local_id=row.id, detail_etag='"e1"', row_updated_at=NOW
+        )
+    )
+    await db_session.flush()
+    descriptor = CohortDescriptor()
+    engine = SyncEngine(
+        [descriptor],
+        FakeClient(
+            entities={pm_id: _record("x", "S", pm_id=pm_id, updated_at="2026-06-04T12:00:00Z")}
+        ),
+    )
+
+    await engine.reconcile(db_session, descriptor, now=NOW)
+    assert engine.local_newer_forced == 1
+
+    engine.reset_cycle_stats()
+    assert engine.local_newer_forced == 0
 
 
 async def test_anchored_cohort_upgrades_blocking_update_to_enrich(db_session):
@@ -1880,7 +2030,11 @@ async def test_anchored_cohort_304_skips_apply_and_stores_nothing(db_session):
     pm_id = ULID()
     row = await _add_anchored(db_session, source_id="x", name="Local", pm_id=pm_id, updated_at=NOW)
     db_session.add(
-        ConditionalGetState(entity_type="fake", local_id=row.id, detail_etag='"stored-1"')
+        # Watermark current: nothing changed locally since the validator was taken, so the
+        # #247 bypass stays out of the way and the row takes the 304.
+        ConditionalGetState(
+            entity_type="fake", local_id=row.id, detail_etag='"stored-1"', row_updated_at=NOW
+        )
     )
     await db_session.flush()
     descriptor = CohortDescriptor()

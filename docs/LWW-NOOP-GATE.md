@@ -179,6 +179,54 @@ A false no-op **erases** a pending change; a false replay-skip merely defers one
 which is why the guard demands hash-exact identity while the gate demands a
 descriptor-authored comparator.
 
+## The inverse: the branch that never fires (#247)
+
+Everything above suppresses an *over-eager* local-newer branch. #247 is the same branch
+failing to run at all, and it is the more dangerous shape because its signature is
+silence rather than volume.
+
+The `anchored_cohort` reconcile is the **only** path that pushes a local change on an
+already-anchored row: `sweep_unanchored` enqueues only rows whose anchor is NULL, and the
+changes feed carries what PM changed, never what we did. Since #160 that reconcile sends a
+stored `ETag` and short-circuits the row on a `304` — before `apply_record`, and therefore
+before the local-newer branch. A `304` answers "has PM changed?", which is the right
+question for PM→local (nothing to heal) and the wrong one for local→PM: a local-only edit
+leaves PM untouched, so PM `304`s precisely the rows that most need pushing.
+
+This degrades **as the ETag cache warms**, not on deploy. Outbound assignment UPDATEs were
+still flowing a fortnight after #160 shipped; once coverage approached 100% the push half
+stopped. And it is invisible to every health signal the engine has — zero pending, zero
+rejected, zero non-converging, zero re-anchors, `replay_healed` 0 — because all of them
+count work already noticed. **A cohort that has stopped propagating and one fully converged
+score identically on all of them.** 397 corrected assignment spans (the #226 roster
+succession dates) sat locally for six clean-looking cycles.
+
+The fix keeps the `304` and changes what is sent: `ConditionalGetState.row_updated_at`
+records the local row's clock as of the fetch that stored the validator, and the reconcile
+withholds the validator when the row's clock has advanced past it. The forced full body puts
+`apply_record` back on the path with every guard above intact. Two properties matter:
+
+- **Same-clock comparison.** Both readings are the row's own `updated_at`, never PM's.
+  Comparing across the two clocks (e.g. against the store row's own `updated_at`) would
+  have been free, and a PM server running seconds ahead would then force a full fetch on
+  every row forever — silently undoing #160 in the other direction.
+- **Self-limiting.** The forced fetch re-stamps the watermark, so a local change costs one
+  full GET, not one per cycle until it drains. A NULL watermark (a validator stored before
+  #247) reads as advanced — verify rather than trust — which costs the cohort one full pass,
+  once.
+
+`local_newer_forced` on the sidecar cycle summary is the observable this lacked: the count
+of rows found holding a change PM has not seen. A large one-off after a backfill is healthy;
+**the same number every cycle means the push is wedged** — the sustained-nonzero reading is
+the alert, not the spike. It counts *known* advances only: a row re-fetched merely because
+its validator predates the watermark is not pending work, and counting it would have made
+the first post-migration cycle report the entire anchored cohort as a backlog — miscalibrating
+the operator against the one number added to make a stall legible.
+
+The carry-drift hatch (`maybe_enqueue_enrich_drift_only`, which already fired on the `304`
+path) is *not* subsumed by this: a newly-added carry field drifts the enrich payload without
+touching any row's clock, so those rows still `304` and still need it.
+
 ## Related
 
 #65 (clock preservation on import — the root cause, plus `heal_committee_curation`),
@@ -186,4 +234,6 @@ descriptor-authored comparator.
 #85 (`POWERMAP_MIN_REQUEST_INTERVAL` — the backstop that keeps churn from 429ing PM),
 #112 (the non-convergence backstop — the *detection* counterpart: what the gates cannot
 catch, because it is a real diff PM refuses rather than a clock skew),
-#132 (the rejected-UPDATE replay guard — see the Sibling section above).
+#132 (the rejected-UPDATE replay guard — see the Sibling section above),
+#160 (conditional GET — whose `304` short-circuit is what #247 fell through),
+#247 (the local-newer branch failing to fire — see the Inverse section above).

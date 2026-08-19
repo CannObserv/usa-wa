@@ -178,6 +178,16 @@ Ad-hoc `alembic` commands work too, but only when `DATABASE_URL_OWNER` is in the
 environment (the standard `export $(cat /etc/usa-wa/.env .env | xargs)` loads it;
 `alembic/env.py` prefers it over `DATABASE_URL`):
 
+> **`DATABASE_URL=… uv run alembic …` does not retarget the database.** `env.py`'s
+> precedence is `DATABASE_URL_OWNER` → `DATABASE_URL` → `alembic.ini`, and the standard
+> env load always sets the first — so a per-command `DATABASE_URL` override is silently
+> ignored and the migration runs against **production**. This is how #247's revision
+> reached the live schema from a feature branch: the intended scratch database had failed
+> to be created (`permission denied to create database` — the owner role has no `CREATEDB`),
+> and the ignored override sent the `upgrade` to prod instead. To target another database,
+> override `DATABASE_URL_OWNER` itself, and check the `CREATE DATABASE` actually succeeded
+> before chaining the `upgrade` onto it.
+
 ```bash
 # Apply pending migrations
 uv run alembic upgrade head
