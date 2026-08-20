@@ -270,3 +270,44 @@ Following #227's shape — arithmetic, not inference:
 - **`Shirley Galloway`** serves LD49 House 1979–83 and LD17 Senate 1993 but appears nowhere in the
   WSL sponsor index despite 1993 being covered. Either a WSL coverage gap or a roster error;
   unresolved.
+
+## Addendum (2026-08-20): the #252 parse corrections re-measure this document
+
+Implementation began with a survey of the six wide-span names in §1 and immediately falsified
+one of them: `cwredbeck`'s 1899 row carried a **1974 appointment annotation** — a parser
+defect, not a second person. Three defect classes were fixed under
+[#252](https://github.com/CannObserv/usa-wa/issues/252) (per-chamber year state at column
+boundaries; rows wrapping before their dotted leader; a footer band that cut the bottom line
+of every full page). The corrected corpus:
+
+| | was | is |
+|---|---|---|
+| records | 8,517 | **8,584** |
+| unparsed | 2 | **0** |
+| pre-1991 records | 6,162 | **6,217** |
+| distinct pre-1991 folded names | 2,632 | **2,640** |
+| …single session year | 1,332 | **1,330** |
+| crossing names | 109 | **109** (unchanged) |
+
+What changes in this design:
+
+- **§1's wide-span table**: `cwredbeck` (1899–1975) is **one person** — C. W. "Red" Beck,
+  House 1961–73, Senate 1974–78; his "1899" row was a mis-yeared 1974 appointment. The
+  splitter's worked examples reduce to `elmerejohnston` (1899 P.P. vs 1947–65 R, stands as
+  printed) and the two unresolved. The *rule* (positive contradiction, never span width) is
+  unchanged — the falsified case only strengthens it, since a span heuristic would have split
+  a real person on an artifact.
+- **The 1,330/1,332 footnote resolves**: the corrected parse measures **1,330** under the
+  `usa-wa-common` fold — the issue body's figure. The two-name gap *was* the parse artifacts.
+- **Seven printed members were invisible** to the measured corpus, five as whole-person
+  losses (Newschwander's 1969 Senate term; Frances Swayze, whose resignation was pinned on
+  Pat Comfort; W. L. McCormick; Betty Sue Morris and Tom Mielke in the WSL era) plus ~60
+  footer-cut rows. §2's join and §3's residue were re-measured after the fix: 109 crossing
+  names, unchanged outcomes.
+- **§5's gap table improves**: the two `other` Senate gaps were both dropped rows, now
+  recovered; the Senate listing sequence has no anomalous gaps. The House residual is one
+  cluster-merged 1987 row (LD43) and the three genuine 1931–1959 redistricting dormancies
+  (LD47/48/49).
+- **The #226 re-run gains urgency**: the old parse attributed at least one succession
+  annotation to the wrong member (Comfort vs Swayze), so re-deriving events after #228 also
+  corrects subjects, not just coverage.

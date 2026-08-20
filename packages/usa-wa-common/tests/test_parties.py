@@ -182,7 +182,8 @@ def test_canonicalize_party_keeps_its_wire_domain():
 # --- the acceptance oracle: zero silent drops (#227) -------------------------
 
 #: The party-token census of the archived roster (rev. 2025-06-05), measured from #225's
-#: production parser: 8,517 member-year records, 166 of them minor-party. Held here as data so
+#: production parser after the #252 parse corrections: 8,584 member-year records, 170 of them
+#: minor-party (the recovered rows include two ``P.P.`` and two ``Pop.``). Held here as data so
 #: the oracle is a fast deterministic test rather than one needing the production archive.
 #:
 #: **Totals across all years, not per-year counts** (CR #53). Only ``Prog.`` is year-sensitive,
@@ -190,10 +191,10 @@ def test_canonicalize_party_keeps_its_wire_domain():
 #: is paired with. The earlier ``(token, year)`` keying read as a per-year distribution —
 #: ``("R", 1897): 4554`` invited "4554 Republicans in 1897", which is false.
 ROSTER_CENSUS = {
-    "R": 4554,
-    "D": 3797,
-    "P.P.": 50,
-    "Pop.": 49,
+    "R": 4592,
+    "D": 3822,
+    "P.P.": 52,
+    "Pop.": 51,
     "Silver Rep.": 11,
     "F.L.": 7,
     "Cit.": 1,
@@ -222,32 +223,32 @@ def _census_pairs():
 
 
 def test_oracle_every_roster_record_resolves_or_is_counted():
-    """#227's acceptance oracle. Every one of the roster's 8,517 member-year records must
+    """#227's acceptance oracle. Every one of the roster's 8,584 member-year records must
     resolve to a party Org or be explicitly declined and counted — zero silent drops. An
     unrecognized token here means a future edition introduced an abbreviation nobody has
-    classified, which must fail the build rather than quietly emit 166 fewer spans."""
+    classified, which must fail the build rather than quietly emit 170 fewer spans."""
     tally = tally_party_tokens(_census_pairs())
 
-    assert tally.total == 8517
+    assert tally.total == 8584
     assert tally.clean, f"unclassified roster party tokens: {dict(tally.unrecognized)}"
     assert not tally.unrecognized
 
 
-def test_oracle_accounts_for_all_166_minor_party_records():
-    """The split the oracle is really about: 164 of the 166 minor-party records reach an Org,
+def test_oracle_accounts_for_all_170_minor_party_records():
+    """The split the oracle is really about: 168 of the 170 minor-party records reach an Org,
     and the 2 that do not are the two power-map#442 adjudicated away — Knute Hill's 1927
     ``Prog.`` row and the 1899 ``Cit.`` ballot label. Both are counted, neither is dropped."""
     tally = tally_party_tokens(_census_pairs())
 
-    assert tally.resolved["peoples"] == 50
-    assert tally.resolved["populist"] == 49
+    assert tally.resolved["peoples"] == 52
+    assert tally.resolved["populist"] == 51
     assert tally.resolved["progressive"] == 46
     assert tally.resolved["silver-republican"] == 11
     assert tally.resolved["farmer-labor"] == 7
     assert tally.resolved["socialist"] == 1
     minor = sum(tally.resolved[s] for s in PARTY_SLUGS if s not in {"republican", "democratic"})
-    assert minor == 164
+    assert minor == 168
 
     assert tally.declined["outside_org_lifespan"] == 1  # Knute Hill, 1927
     assert tally.declined["ballot_label"] == 1  # the 1899 Citizen row
-    assert minor + sum(tally.declined.values()) == 166
+    assert minor + sum(tally.declined.values()) == 170
