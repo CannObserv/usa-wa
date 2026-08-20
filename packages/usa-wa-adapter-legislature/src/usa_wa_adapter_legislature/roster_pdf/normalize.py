@@ -153,7 +153,12 @@ _ANNOTATION_CUE = re.compile(
 #: silently on a future edition typeset at a different page size — dropping rows rather than
 #: failing (CR finding 7).
 _HEADER_FRACTION = 0.101
-_FOOTER_FRACTION = 0.909
+#: Measured across every district page of the 2025-06-05 edition: member-table content reaches
+#: 0.9205 of page height (an annotation tail, PDF page 50) and the printed footer starts at
+#: 0.9646 (the centred page number). 0.94 splits the empty band between them. The prior 0.909
+#: cut real rows on full pages — the bottom line of D10's House block (Windust 1897, Long 1905)
+#: sat at 0.917 and silently vanished (#252).
+_FOOTER_FRACTION = 0.94
 
 #: The page height these fractions were derived from (US Letter, 792pt), used when a caller
 #: supplies no height.
