@@ -1,0 +1,106 @@
+"""Roster Person minting (#228 Phase B) — the write side of identity resolution.
+
+Only **minted** identities create Persons — a WSL-joined identity's Person already exists
+in the WSL source space, and creating a roster twin would be the §2 fork. The natural key
+is ``(usa_wa_legislature_roster, <identity key>)``, so a re-run upserts idempotently and a
+rebuild from the archive plus the adjudication tables reproduces the same rows.
+"""
+
+from __future__ import annotations
+
+from sqlalchemy import select
+
+from clearinghouse_domain_legislative.identity import Person
+from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
+from usa_wa_adapter_legislature.roster_pdf.identity import (
+    IDENTITY_MINTED,
+    IDENTITY_WSL,
+    RosterIdentity,
+)
+from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
+from usa_wa_adapter_legislature.roster_pdf.persons import mint_roster_persons
+
+
+def _rec(name: str, year: int, **kw) -> RosterRecord:
+    defaults = dict(district=1, chamber="house", order=1, party_token="D", annotation=None)
+    defaults.update(kw)
+    return RosterRecord(year=year, name=name, page_number=1, **defaults)
+
+
+def _minted(key: str, *records: RosterRecord) -> RosterIdentity:
+    return RosterIdentity(
+        disposition=IDENTITY_MINTED,
+        fold=key.split(":")[0],
+        key=key,
+        wsl_member_id=None,
+        records=records,
+    )
+
+
+async def test_mints_a_person_per_minted_identity(db_session) -> None:
+    identities = [
+        _minted("abcarver:1899", _rec("A. B. Carver", 1899), _rec("A. B. Carver", 1901)),
+    ]
+    result = await mint_roster_persons(db_session, identities)
+    assert result == {"created": 1, "existing": 0}
+    person = (
+        await db_session.execute(
+            select(Person).where(
+                Person.source == ROSTER_SOURCE_SLUG, Person.source_id == "abcarver:1899"
+            )
+        )
+    ).scalar_one()
+    assert person.name_full == "A. B. Carver"
+
+
+async def test_display_name_is_the_most_recent_listing_suffix_stripped(db_session) -> None:
+    """Margaret Hurley's shape: the modern form wins over the marital form; Basich's
+    shape: the position suffix is seat metadata, never part of a name."""
+    identities = [
+        _minted(
+            "margarethurley:1953",
+            _rec("Margaret (Mrs. Joseph E.) Hurley", 1953),
+            _rec("Margaret Hurley", 1973),
+        ),
+        _minted("bobbasich:1985", _rec("Bob Basich – 19B", 1985, district=19)),
+    ]
+    await mint_roster_persons(db_session, identities)
+    rows = (
+        (await db_session.execute(select(Person).where(Person.source == ROSTER_SOURCE_SLUG)))
+        .scalars()
+        .all()
+    )
+    names = {p.source_id: p.name_full for p in rows}
+    assert names["margarethurley:1953"] == "Margaret Hurley"
+    assert names["bobbasich:1985"] == "Bob Basich"
+
+
+async def test_joined_identities_mint_nothing(db_session) -> None:
+    joined = RosterIdentity(
+        disposition=IDENTITY_WSL,
+        fold="x",
+        key=None,
+        wsl_member_id="42",
+        records=(_rec("Jane Doe", 1985),),
+    )
+    result = await mint_roster_persons(db_session, [joined])
+    assert result == {"created": 0, "existing": 0}
+    rows = (
+        (await db_session.execute(select(Person).where(Person.source == ROSTER_SOURCE_SLUG)))
+        .scalars()
+        .all()
+    )
+    assert rows == []
+
+
+async def test_minting_is_idempotent(db_session) -> None:
+    identities = [_minted("abcarver:1899", _rec("A. B. Carver", 1899))]
+    await mint_roster_persons(db_session, identities)
+    result = await mint_roster_persons(db_session, identities)
+    assert result == {"created": 0, "existing": 1}
+    rows = (
+        (await db_session.execute(select(Person).where(Person.source == ROSTER_SOURCE_SLUG)))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
