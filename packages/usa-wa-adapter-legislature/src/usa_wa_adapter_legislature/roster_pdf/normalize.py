@@ -97,6 +97,29 @@ _LEADING_YEAR = re.compile(r"^(?P<year>1[89]\d{2}|20\d{2})\s+(?P<rest>.*)$")
 #: ``DISTRICT NO. 12`` (banner) or ``District No. 12`` (running header).
 _DISTRICT = re.compile(r"DISTRICT NO\.\s*(\d+)", re.IGNORECASE)
 
+
+def _row_awaiting_leader(buffer: str) -> bool:
+    """A year-led, name-shaped line with no party token yet — a row whose dotted leader and
+    party wrapped onto a following line (#252).
+
+    The source sometimes breaks a member row *before* the leader: the name line then carries
+    neither a party token nor an opening parenthesis, so without this test it reads as
+    furniture, the row vanishes (LD28's 1969 Senate listing), and the wrapped ``...... R``
+    fragment glues onto whatever record was emitted last. Such a buffer is kept accumulating —
+    the same machinery as a wrapped annotation — until its party token arrives.
+
+    Name-shaped means every token after the year opens with an uppercase letter, a quote (the
+    source's nickname form) or a parenthesis: the era-block furniture that also leads with a
+    year fails it (``1889 No district`` on the lowercase ``district``, ``1891 - Lewis`` on the
+    dash), so furniture is still dropped rather than swallowing its neighbours.
+    """
+    match = _LEADING_YEAR.match(buffer)
+    if match is None:
+        return False
+    tokens = match.group("rest").split()
+    return bool(tokens) and all(t[0].isupper() or t[0] in "“”\"'(" for t in tokens)
+
+
 #: The centred chamber banners that open a district's Senate and House blocks. A district's two
 #: blocks routinely share one page (35 of 166 district pages in the 2025 edition), so the chamber
 #: is a **full-width divider at a y-position**, not a page-level property. Reading it once from
@@ -399,9 +422,10 @@ def _parse_column(
         # "...to serve unexpired term" with no closing paren); balancing alone would swallow the
         # remainder of the column into one runaway row.
         if _ROW_PARTY.search(buffer) is None:
-            if buffer.count("(") > buffer.count(")") and carried < _MAX_CONTINUATION_LINES:
+            incomplete = buffer.count("(") > buffer.count(")") or _row_awaiting_leader(buffer)
+            if incomplete and carried < _MAX_CONTINUATION_LINES:
                 carried += 1
-                continue  # a wrapped annotation -- keep accumulating
+                continue  # a wrapped annotation or a leader-less row -- keep accumulating
             if carried >= _MAX_CONTINUATION_LINES:
                 unparsed.append(buffer)
                 buffer = ""
