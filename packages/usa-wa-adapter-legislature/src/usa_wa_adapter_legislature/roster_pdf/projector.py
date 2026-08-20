@@ -157,8 +157,9 @@ def _covered_years(
     Returns ``(years, empty_reason)``: an empty coverage is legitimate more often than not —
     a member who died between election and swearing-in never sat the term; a 1989-listed
     successor appointed in 1991 belongs to the WSL era — but it must be *reported*, so the
-    reason distinguishes those shapes from a defect (CR #74; the measured corpus has 10,
-    one of them the #252 LD43 residual).
+    reason distinguishes those shapes from a defect (CR #74; the measured corpus has 9 —
+    it was 10 until the CR #75 year bound un-emptied Wilmer's typo-dated row — and the one
+    ``empty_horizon`` is exactly the #252 LD43 residual).
     """
     term = TERM_YEARS[record.chamber]
     seat_years = listings.get((record.chamber, record.district), [])
@@ -180,6 +181,9 @@ def _covered_years(
     years = [y for y in range(start_year, end, 2)]
     if years:
         return years, None
+    # Jan 1 approximates the mid-January session start: a death in the first days of the
+    # term year would read as ``empty_horizon`` instead. All measured cases fall in the
+    # prior year, and the coverage arithmetic is identical either way (CR #83).
     if ended is not None and ended < date(record.year, 1, 1):
         return [], "ended_before_term"
     if start_year >= ROSTER_IDENTITY_FLOOR:
@@ -198,8 +202,10 @@ def _party_slug(
     if resolution.slug is not None:
         return resolution.slug
     if resolution.disposition == "declined":
+        # A declined resolution always carries a reason (#227's PartyResolution invariant);
+        # coercing a None here would mask that invariant breaking.
         declined.append(
-            DeclinedParty(member=member, year=year, token=token, reason=resolution.reason or "")
+            DeclinedParty(member=member, year=year, token=token, reason=resolution.reason)
         )
     else:
         unrecognized[token] += 1
