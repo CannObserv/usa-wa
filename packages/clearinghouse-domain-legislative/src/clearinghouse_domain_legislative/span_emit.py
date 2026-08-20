@@ -380,6 +380,10 @@ async def _ensure_citations(
         fetch_event_id, fetched_at, resource_id = target
         if resource_id in already_cited:
             continue  # already cited for this biennium's roster (append-only — no rewrite)
+        # Track within-run too: several bienniums can share one attesting resource (#228's
+        # single-edition roster fallback), and re-reading the DB set once at entry would
+        # let each of them insert a duplicate row in the same call.
+        already_cited.add(resource_id)
         session.add(
             Citation(
                 entity_type=ASSIGNMENT_CITATION_TYPE,

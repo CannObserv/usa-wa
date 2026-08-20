@@ -52,13 +52,16 @@ async def emit_sponsor_spans(
     reliability: float,
     fetch_events: dict[str, tuple[_ULID, datetime]],
     skip_citation_ids: Collection[str] = (),
+    fallback_citation: CitationTarget | None = None,
 ) -> int:
     """Upsert an :class:`Assignment` per party/Senate-seat span; return the count.
 
     ``fetch_events`` maps ``biennium → (fetch_event_id, fetched_at)`` (from the cohort
     provider) — each biennium's ``sponsors:<biennium>`` roster attests the span.
     ``skip_citation_ids`` forwards to :func:`emit_spans` — the source_ids of operator-synthesized
-    spans whose biennium roster must not be cited (#107)."""
+    spans whose biennium roster must not be cited (#107). ``fallback_citation`` attests any
+    biennium ``fetch_events`` lacks — the roster edition for #228's deepened pre-1991
+    coverage; ``None`` keeps the prior behaviour (no citation for an unattested biennium)."""
 
     async def _resolve_role(session: AsyncSession, span: TenureSpan) -> Role | None:
         return await resolve_span_role(session, span, anchors)
@@ -66,7 +69,7 @@ async def emit_sponsor_spans(
     def _citation_target(_span: TenureSpan, biennium: str) -> CitationTarget | None:
         event = fetch_events.get(biennium)
         if event is None:
-            return None
+            return fallback_citation
         fetch_event_id, fetched_at = event
         return (fetch_event_id, fetched_at, f"{SPONSORS_RESOURCE_PREFIX}{biennium}")
 
