@@ -12,8 +12,15 @@ the archived edition `legroster:2025-06-05` on 2026-08-19/20.
 |---|---|
 | Records | 8,517 (pre-1991 **6,162** / 1991+ 2,355) |
 | Distinct folded names, pre-1991 | 2,632 |
-| …appearing in one session year only | 1,332 |
+| …appearing in one session year only | 1,332 [^fold] |
 | Persons we hold today | 641, all WSL-sourced, floored at 1991 |
+
+[^fold]: #228's issue body reports 1,330 for this quantity. Both are measured; the folds differ.
+    This figure folds each name to the concatenation of its `folded_tokens` (the `usa-wa-common`
+    fold), which is the fold §1's key uses — so it is the number the identity scheme actually
+    operates on. The two-name gap is not reconciled; it is small enough not to change any
+    decision here, and naming the fold is what stops a future reader treating one of them as
+    stale.
 
 **One edition is archived.** Every claim below about stability across revisions is therefore
 *unmeasurable* from our data — the document is republished roughly twice a decade and we have
@@ -26,8 +33,17 @@ source     = usa_wa_legislature_roster
 source_id  = <folded-name>:<first-session-year>       e.g. johnlobrien:1939
 ```
 
-Derived from the archive alone, so a rebuild from `RawPayload` reproduces the same ids — the
-property an opaque surrogate would have forfeited, and the one PM anchors depend on.
+**The key is computed per resolved identity, after splitting — never per folded name.** Where a
+name splits into two people, each takes its *own* group's earliest session year, so
+`cwredbeck` becomes `cwredbeck:1899` and `cwredbeck:19xx`. Computing it from the whole
+name-group's minimum would return both halves to one id and silently undo the split.
+
+Derived from the archive **plus the adjudication table** (§3), so a rebuild from `RawPayload`
+reproduces the same ids — the property an opaque surrogate would have forfeited, and the one PM
+anchors depend on. The qualifier is not a footnote: adjudicated identities are resolved by a
+decision that is *not* in the archive, so **the adjudication table is checked in as versioned
+data** beside the code. Without that, reproducibility holds only for the un-adjudicated
+majority, and the argument that defeated the surrogate option would apply here too.
 
 Resolution follows #227's disposition shape rather than returning a bare match:
 
@@ -94,18 +110,34 @@ safe here**: a rejected join mints a roster Person for someone who already has a
 which is the fork §2 exists to prevent. The failure mode inverts between the two issues.
 
 **Fallback rule.** Where the initial guard fails, accept a seat-scoped surname match when the
-same WSL member id is corroborated across strictly more distinct session years than any rival.
-This separates the #240 trap decisively:
-
-```
-LD16 House, roster 'William A. Grant'
-  member 157   (Bill Grant)    corroborated 9 years  [1991…2007]   <- accepted
-  member 14874 (Laura Grant)   corroborated 1 year   [2009]
-```
+same WSL member id is corroborated across **at least two** distinct session years *and* strictly
+more than any rival. The floor is load-bearing: without it the rule accepts `1 > 0`, which is
+exactly the #240 shape — one candidate, seen once, and possibly the wrong person.
 
 Ordering: **guard passes → accept; guard fails → corroboration; neither → refuse + tally.**
-Everything is derived from evidence; no curated nickname table. The residue after this rule is
-two names (`Shirley Galloway`, one contested), adjudicated explicitly and recorded.
+
+**What that actually resolves, measured.** Corroboration decides the *contested* case and only
+that case:
+
+```
+'William A. Grant'  {157: 9 yrs, 14874: 1 yr}  -> 157 accepted (contested, decisive)
+'Bill Day, Jr'      {103: 1 yr}                -> REFUSED by the floor (uncontested, single)
+'Bob Basich – 19B'  {23:  1 yr}                -> REFUSED by the floor (uncontested, single)
+'Shirley Galloway'  {}                         -> REFUSED (no candidate at all)
+```
+
+So the rule is not a general solution to the nickname problem — it is a *tie-breaker*, and the
+uncontested-but-guard-failed cases still need adjudication. The residue is **three** names, not
+one. Their adjudications, from §2's evidence:
+
+| roster name | WSL member | basis |
+|---|---|---|
+| `Bill Day, Jr` | 103 (William Day) | LD3 House, sole `day` on that seat 1991–92 |
+| `Bob Basich – 19B` | 23 (Robert Basich) | LD19 House, sole `basich` on that seat 1991–96 |
+| `Shirley Galloway` | *none* | absent from the WSL sponsor index entirely; mint a roster Person |
+
+`Frank "Tub" Hansen` ties `{168: 1, 169: 1}` under corroboration, but **passes the initial
+guard** and therefore never reaches the fallback — he is not part of this residue.
 
 ## 4. Party spans — annotations are part of the data
 
@@ -117,9 +149,15 @@ member's **term-start** row, not by re-listing them:
 1915 senate LD32  Prog.  Daniel Landon  '(Changed party affiliation, 1917) R'
 ```
 
-**All 19 pre-1991 changes are Senate**, and that is structural rather than coincidental: a
-four-year term is listed once, so a change *must* be annotated, while a House member's change
-simply appears as a different token two years later.
+**All 19 pre-1991 changes are Senate.** That is structural for the pre-1991 era: a four-year
+term is listed once, so a change mid-term has nowhere to appear except an annotation, whereas a
+House member's change shows up as a different token on their next biennial row.
+
+**The claim does not generalise, and the same dataset says so.** All **three** post-1991
+change annotations are *House* rows (`pre-1991 senate: 19`, `1991+ house: 3`). They annotate to
+record an exact date — `January 31, 1995` — which a biennial re-listing cannot express. So House
+annotations exist and must be parsed; what is Senate-specific is the *necessity*, not the
+practice.
 
 Emit split spans — close the term-start party at the change, open the new one. Landon yields
 `republican 1911–12`, `progressive 1913–16`, `republican 1917–18`.
@@ -151,8 +189,15 @@ A flat four-year expansion overruns the next occupant **145 times**, and Senate 
 LD — two people holding one seat. So:
 
 ```
-span_end = min(term_start + TERM_YEARS, next_listing_on_this_seat) - 1
+span_end_year = min(term_start + TERM_YEARS, next_listing_on_this_seat) - 1
 ```
+
+**That yields a year; spans carry dates and the engine quantizes to bienniums.** The conversion
+is where an off-by-one becomes a span opening in the wrong biennium — the class of defect #226
+spent three review rounds on. This spec does **not** invent a convention: the year is handed to
+the existing biennium quantizer, which already owns the mapping from a session year to its
+biennium bounds. Any date finer than that (a dated resignation, say) arrives from #226's
+succession events, not from here.
 
 `audit.py` records that next-listing termination is **unsound for the House** (consecutive rows
 in one district-year are different seats, not a succession). The House is out of #228's scope
@@ -207,7 +252,10 @@ Following #227's shape — arithmetic, not inference:
 
 1. Every pre-1991 record resolves to a Person, or is **refused with a tally**. Zero silent drops.
 2. Every refusal names its reason and its subject, so the residue is actionable rather than a count.
-3. No Person carries two simultaneous Senate seats.
+3. No Person carries two simultaneous Senate seats **and** no Senate seat carries two
+   simultaneous Persons. Both are needed: §5's truncation rule enforces the seat side, so the
+   person side is the one nothing else checks — a member listed under two LDs across a
+   redistricting boundary trips it.
 4. The 109 crossing names produce **zero** new Persons for identities that already exist in the
    WSL space.
 5. Party spans for the 22 annotated members reflect the annotation, not the row token alone.
