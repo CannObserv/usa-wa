@@ -23,7 +23,7 @@ async def anchors(db_session, usa_wa) -> BootstrapAnchors:
 async def test_bootstrap_writes_one_legislature_two_chambers(db_session, anchors):
     """Legislature + 2 chambers + 2 party orgs = 5 Organizations after one call."""
     orgs = (await db_session.execute(select(Organization))).scalars().all()
-    assert len(orgs) == 5
+    assert len(orgs) == 11  # legislature + 2 chambers + 8 parties (#228)
     by_type = {o.org_type: o for o in orgs} | {
         ("chamber", o.short_name): o for o in orgs if o.org_type == "chamber"
     }
@@ -44,7 +44,7 @@ async def test_bootstrap_writes_two_party_orgs(db_session, anchors):
         .scalars()
         .all()
     )
-    assert len(parties) == 2
+    assert len(parties) == 8  # the declared vocabulary, PARTY_SLUGS (#228)
     by_source_id = {p.source_id: p for p in parties}
     assert set(by_source_id) == {"party-republican", "party-democratic"}
     assert by_source_id["party-republican"].name == "Washington State Republican Party"
@@ -88,7 +88,7 @@ async def test_bootstrap_is_idempotent(db_session, usa_wa):
     assert first == second
     org_count = len((await db_session.execute(select(Organization))).scalars().all())
     sess_count = len((await db_session.execute(select(LegislativeSession))).scalars().all())
-    assert org_count == 5
+    assert org_count == 11
     assert sess_count == 3
 
 
