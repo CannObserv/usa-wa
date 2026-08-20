@@ -187,13 +187,21 @@ def _month_number(token: str) -> int | None:
     )
 
 
+#: Years a roster annotation can plausibly state: statehood to a generous margin past the
+#: newest edition. Outside this window the "date" is a typo — the corpus contains one, LD9
+#: 1921's "special election January 7, 2921" — and a millennium-off day-precision date would
+#: silently shape #226 boundaries and #228 coverage (CR #75). Out-of-window falls through to
+#: coarser precision, where the year-only shape carries no value and is reported as undated.
+_YEAR_FLOOR, _YEAR_CEILING = 1889, 2049
+
+
 def _parse_date(text: str) -> ParsedDate:
     """Extract the most precise date the clause actually states. Session references stripped."""
     cleaned = _SESSION_NOISE.sub(" ", text)
     match = _DAY_DATE.search(cleaned)
     if match:
         month = _month_number(match.group(1))
-        if month:
+        if month and _YEAR_FLOOR <= int(match.group(3)) <= _YEAR_CEILING:
             try:
                 return ParsedDate(
                     date(int(match.group(3)), month, int(match.group(2))), "day", match.group(0)

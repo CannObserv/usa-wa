@@ -318,3 +318,115 @@ def test_every_declared_party_token_is_classified() -> None:
     assert not unclassified, (
         f"parser declares tokens the vocabulary cannot classify: {unclassified}"
     )
+
+
+# ---------------------------------------------------------------------------
+# #252 — year state must not thread across chamber blocks at column boundaries
+
+
+FIXTURE_D26 = Path(__file__).parent / "fixtures" / "roster_pdf_d26_interleaved.pdf"
+
+
+@pytest.fixture(scope="module")
+def d26_records():
+    """PDF page 89 (revision 2025-06-05): District 26, whose Senate block spills into the
+    right column's top while the House block starts at the left column's bottom. The #252
+    page — a year-less successor row at the top of the right column continues a year group
+    from the *other column's* Senate block, across the intervening House rows."""
+    return parse_district_pages_reporting(extract_pages(FIXTURE_D26.read_bytes())).records
+
+
+def test_column_boundary_successor_resumes_its_own_chamber_year(d26_records) -> None:
+    """Beck's year-less appointment row continues Gardner's 1971 Senate group (#252).
+
+    The left column exits in the House block at 1899; without per-chamber year state the
+    right column's first row inherits that year and emits ``1899 senate ord3`` — a
+    seventy-five-year mis-attribution that corrupts #228 identity keys and puts two
+    simultaneous holders on LD26's Senate seat in 1899.
+    """
+    beck = [r for r in d26_records if "Beck" in r.name]
+    assert [(r.year, r.chamber, r.order) for r in beck] == [
+        (1971, "senate", 2),  # appointed Feb. 11, 1974 — successor row in Gardner's group
+        (1975, "senate", 1),  # his own elected term
+    ]
+    assert "Appointed Feb. 11, 1974" in (beck[0].annotation or "")
+
+
+def test_column_boundary_leaves_neighbouring_groups_intact(d26_records) -> None:
+    """The fix must not disturb the rows around the boundary: the 1899 groups of *both*
+    chambers keep their own occupants, and the House block resumes its sequence when the
+    right column crosses back below the divider."""
+    senate_1899 = [r for r in d26_records if r.chamber == "senate" and r.year == 1899]
+    assert [(r.name, r.order) for r in senate_1899] == [("Harold Preston", 1)]
+    house_1899 = [r for r in d26_records if r.chamber == "house" and r.year == 1899]
+    assert [(r.name, r.order) for r in house_1899] == [("E. P. Kingsbury", 1), ("George McCoy", 2)]
+    house_1901 = [r for r in d26_records if r.chamber == "house" and r.year == 1901]
+    assert [(r.name, r.order) for r in house_1901] == [("George McCoy", 1), ("H. M. Ingraham", 2)]
+
+
+# ---------------------------------------------------------------------------
+# #252 — a row whose leader+party wrap onto the next line must not vanish
+
+
+FIXTURE_D28 = Path(__file__).parent / "fixtures" / "roster_pdf_d28_wrapped.pdf"
+
+
+@pytest.fixture(scope="module")
+def d28_records():
+    """PDF page 95 (revision 2025-06-05): District 28. Charles E. Newschwander's 1969 Senate
+    row wraps — the name line carries no dotted leader, the ``...... R`` fragment and the
+    ``(Elected Nov 5, 1968 …)`` annotation follow on later lines — so the name line reads as
+    furniture, the row vanishes, and its debris glues onto the last emitted record (E. L.
+    Minard's 1899 House row, a different member in a different chamber and era)."""
+    return parse_district_pages_reporting(extract_pages(FIXTURE_D28.read_bytes())).records
+
+
+def test_wrapped_row_with_detached_leader_is_emitted(d28_records) -> None:
+    """The 1969 Senate listing exists: Newschwander, party from the wrapped fragment (#252)."""
+    nw = [r for r in d28_records if "Newschwander" in r.name]
+    assert [(r.year, r.chamber, r.order, r.party_token) for r in nw] == [
+        (1969, "senate", 1, "R"),
+        (1973, "senate", 1, "R"),
+        (1977, "senate", 1, "R"),
+    ]
+    assert "Elected Nov 5, 1968" in (nw[0].annotation or "")
+
+
+def test_wrapped_row_debris_does_not_pollute_the_previous_record(d28_records) -> None:
+    """Minard's 1899 House row keeps its own (absent) annotation — the 1968 election
+    annotation belongs to Newschwander's Senate row, not to a member seated 69 years
+    earlier (#252)."""
+    minard = [r for r in d28_records if "Minard" in r.name]
+    assert [(r.year, r.chamber, r.annotation) for r in minard] == [(1899, "house", None)]
+
+
+# ---------------------------------------------------------------------------
+# #252 — the footer band must not swallow the last member rows of a full page
+
+
+FIXTURE_D10 = Path(__file__).parent / "fixtures" / "roster_pdf_d10_footer.pdf"
+
+
+@pytest.fixture(scope="module")
+def d10_records():
+    """PDF page 45 (revision 2025-06-05): District 10, a full page whose House block's last
+    line of member rows sits at 91.7% of page height — above the printed footer (96.5%) but
+    below the 0.909 footer band, so George Windust's 1897 row and W. O. Long's 1905 row
+    were silently cut. Fourteen of the fifteen residual house listing gaps are this shape."""
+    return parse_district_pages_reporting(extract_pages(FIXTURE_D10.read_bytes())).records
+
+
+def test_footer_band_keeps_the_last_member_rows(d10_records) -> None:
+    """The bottom line of the page's House block parses in both columns (#252)."""
+    house = {(r.year, r.name) for r in d10_records if r.chamber == "house"}
+    assert (1897, "George Windust") in house
+    assert (1905, "W. O. Long") in house
+
+
+def test_footer_band_still_excludes_the_printed_footer(d10_records) -> None:
+    """No page-footer furniture leaks into records or annotations (#252): the page number,
+    the edition line, and the bold-years legend stay outside the member table."""
+    for r in d10_records:
+        for fragment in ("Members of the Legislature, 2025", "Bold years", "- 39 -"):
+            assert fragment not in r.name
+            assert fragment not in (r.annotation or "")

@@ -97,6 +97,33 @@ _LEADING_YEAR = re.compile(r"^(?P<year>1[89]\d{2}|20\d{2})\s+(?P<rest>.*)$")
 #: ``DISTRICT NO. 12`` (banner) or ``District No. 12`` (running header).
 _DISTRICT = re.compile(r"DISTRICT NO\.\s*(\d+)", re.IGNORECASE)
 
+
+def _row_awaiting_leader(buffer: str) -> bool:
+    """A year-led, name-shaped line with no party token yet — a row whose dotted leader and
+    party wrapped onto a following line (#252).
+
+    The source sometimes breaks a member row *before* the leader: the name line then carries
+    neither a party token nor an opening parenthesis, so without this test it reads as
+    furniture, the row vanishes (LD28's 1969 Senate listing), and the wrapped ``...... R``
+    fragment glues onto whatever record was emitted last. Such a buffer is kept accumulating —
+    the same machinery as a wrapped annotation — until its party token arrives.
+
+    Name-shaped means every token after the year opens with an uppercase letter, a quote (the
+    source's nickname form) or a parenthesis: the era-block furniture that also leads with a
+    year fails it (``1889 No district`` on the lowercase ``district``, ``1891 - Lewis`` on the
+    dash), so furniture is still dropped rather than swallowing its neighbours. The same test
+    fails a lowercase name particle (``Dick van Dyke``), so a wrapped row with one degrades to
+    the old silent drop — the corpus's one particle name carries its leader inline and never
+    reaches this path, and the seat-gap sweep is the detector if a future edition changes that
+    (CR #79).
+    """
+    match = _LEADING_YEAR.match(buffer)
+    if match is None:
+        return False
+    tokens = match.group("rest").split()
+    return bool(tokens) and all(t[0].isupper() or t[0] in "“”\"'(" for t in tokens)
+
+
 #: The centred chamber banners that open a district's Senate and House blocks. A district's two
 #: blocks routinely share one page (35 of 166 district pages in the 2025 edition), so the chamber
 #: is a **full-width divider at a y-position**, not a page-level property. Reading it once from
@@ -130,7 +157,12 @@ _ANNOTATION_CUE = re.compile(
 #: silently on a future edition typeset at a different page size — dropping rows rather than
 #: failing (CR finding 7).
 _HEADER_FRACTION = 0.101
-_FOOTER_FRACTION = 0.909
+#: Measured across every district page of the 2025-06-05 edition: member-table content reaches
+#: 0.9205 of page height (an annotation tail, PDF page 50) and the printed footer starts at
+#: 0.9646 (the centred page number). 0.94 splits the empty band between them. The prior 0.909
+#: cut real rows on full pages — the bottom line of D10's House block (Windust 1897, Long 1905)
+#: sat at 0.917 and silently vanished (#252).
+_FOOTER_FRACTION = 0.94
 
 #: The page height these fractions were derived from (US Letter, 792pt), used when a caller
 #: supplies no height.
@@ -267,8 +299,14 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
     unparsed: list[str] = []
     district: int | None = None
     chamber: str | None = None
-    year: int | None = None
-    order = 0
+    # Year/order state per chamber block of the CURRENT district (#252). A single scalar pair
+    # threads the wrong block's state across a column boundary: on a page whose Senate block
+    # spills into the right column's top while the House block opens at the left column's
+    # bottom, the left column exits carrying House state, and the right column's first
+    # (year-less) Senate row would inherit it -- C. W. Beck's 1974 appointment emitted as an
+    # 1899 senator. Keying the state by chamber lets each block resume its own sequence
+    # wherever it is interrupted, and a chamber first seen in a district starts at the floor.
+    state: dict[str, tuple[int | None, int]] = {}
 
     for page in pages:
         lines = _lines(page.words)
@@ -284,7 +322,7 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
         if int(found.group(1)) != district:
             district = int(found.group(1))
             chamber = None
-            year = None
+            state = {}
 
         header_band = page.height * _HEADER_FRACTION
         footer_band = page.height * _FOOTER_FRACTION
@@ -294,9 +332,8 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
             page_chamber = "house"
         elif re.search(r"\bSenate\b", head, re.IGNORECASE):
             page_chamber = "senate"
-        if page_chamber is not None and page_chamber != chamber:
+        if page_chamber is not None:
             chamber = page_chamber
-            year = None  # a new chamber restarts the year sequence at the district's floor
         # Banner dividers below the running header: everything under one belongs to its chamber.
         # ``SENATE`` -> "senate", ``HOUSE OF REPRESENTATIVES`` -> "house".
         dividers = [
@@ -317,15 +354,15 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
             column = [(top, line) for top, line in column if line]
             # Year state threads through columns and pages: the right column continues the left
             # column's year sequence, and a year group can span a page break. Resetting per
-            # column strands those rows with no year (Jesse Wineberry, LD43).
-            year, order = _parse_column(
+            # column strands those rows with no year (Jesse Wineberry, LD43). The state dict is
+            # mutated in place, per chamber (#252).
+            _parse_column(
                 column,
                 district,
                 chamber,
                 page.page_number,
                 unparsed,
-                year,
-                order,
+                state,
                 records,
                 dividers,
             )
@@ -336,15 +373,19 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
 def _parse_column(
     column: list[tuple[float, list[Word]]],
     district: int,
-    chamber: str,
+    chamber: str | None,
     page_number: int,
     unparsed: list[str],
-    current_year: int | None,
-    order: int,
+    state: dict[str, tuple[int | None, int]],
     out: list[RosterRecord],
     dividers: list[tuple[float, str]],
-) -> tuple[int | None, int]:
+) -> None:
     """Parse one column top-to-bottom, joining wrapped annotations before classifying rows.
+
+    ``state`` carries each chamber block's ``(year, order)`` and is mutated in place: crossing
+    a divider saves the departing block's state and resumes the entered block's, so a block
+    interrupted by a column or page boundary continues its own sequence (#252) rather than
+    inheriting the neighbouring block's.
 
     Three line shapes occur, and only the first is a record on its own:
 
@@ -360,6 +401,7 @@ def _parse_column(
     # first divider — a plausible-looking answer to a question that was never asked.
     buffer_top: float | None = None
     row_chamber = chamber
+    current_year, order = state.get(row_chamber, (None, 0)) if row_chamber else (None, 0)
 
     def chamber_at(top: float) -> str | None:
         """The chamber whose banner most recently precedes ``top``; the page's otherwise."""
@@ -375,19 +417,24 @@ def _parse_column(
         buffer = f"{buffer} {text}".strip() if buffer else text
         at = chamber_at(buffer_top) if buffer_top is not None else row_chamber
         if at is not None and at != row_chamber:
-            # Crossing the divider starts a new block, which restarts the year sequence at the
-            # district's floor rather than continuing the previous chamber's.
+            # Crossing the divider enters the other chamber's block: save the departing
+            # block's year state and resume the entered block's own (#252). A chamber first
+            # seen in this district starts at the floor, which is the old reset behaviour;
+            # a block re-entered across a column or page boundary continues its sequence
+            # instead of stealing the neighbouring block's.
+            if row_chamber is not None:
+                state[row_chamber] = (current_year, order)
             row_chamber = at
-            current_year = None
-            order = 0
+            current_year, order = state.get(at, (None, 0))
         # The party token at the right margin terminates a row -- check it BEFORE the paren
         # balance. The source contains unclosed parentheses (e.g. LD25 2021 Chris Gildon,
         # "...to serve unexpired term" with no closing paren); balancing alone would swallow the
         # remainder of the column into one runaway row.
         if _ROW_PARTY.search(buffer) is None:
-            if buffer.count("(") > buffer.count(")") and carried < _MAX_CONTINUATION_LINES:
+            incomplete = buffer.count("(") > buffer.count(")") or _row_awaiting_leader(buffer)
+            if incomplete and carried < _MAX_CONTINUATION_LINES:
                 carried += 1
-                continue  # a wrapped annotation -- keep accumulating
+                continue  # a wrapped annotation or a leader-less row -- keep accumulating
             if carried >= _MAX_CONTINUATION_LINES:
                 unparsed.append(buffer)
                 buffer = ""
@@ -460,7 +507,8 @@ def _parse_column(
 
     if buffer:
         unparsed.append(buffer)
-    return current_year, order
+    if row_chamber is not None:
+        state[row_chamber] = (current_year, order)
 
 
 def _with_annotation(record: RosterRecord, extra: str) -> RosterRecord:

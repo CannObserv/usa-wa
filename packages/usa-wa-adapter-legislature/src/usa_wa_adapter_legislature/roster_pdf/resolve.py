@@ -9,7 +9,7 @@ module supplies both from corpora already on disk, and refuses when they cannot.
 **Two lookups, two corpora, two different floors.**
 
 * *Which member* comes from the archived WSL sponsor roster, which reaches back to **1991**.
-  Before that no ``Person`` exists at all, so the great majority of the roster's 8,517 records
+  Before that no ``Person`` exists at all, so the great majority of the roster's 8,584 records
   resolve to nobody — that is a coverage floor, not a parser failure, and it lifts only when
   historical Persons are minted.
 * *Which House Position* comes from the existing House Position span corpus, which reaches back

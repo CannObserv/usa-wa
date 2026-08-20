@@ -29,11 +29,11 @@ ROSTER_COVERAGE: tuple[CoverageClaim, ...] = (
         range_start="1889",
         range_end="2025",
         status=CoverageStatus.verified,
-        audited_at=date(2026, 8, 15),
+        audited_at=date(2026, 8, 20),
         notes=(
-            "Parsed live 2026-08-15 from the 2025-06-05 revision: 8,517 member-year records "
-            "across 1889-2025, 53 districts (all 49 current plus the historical 50-59), 2 rows "
-            "unparsed (0.02%, both wrapping across a page break) — reported, never dropped. "
+            "Parsed live 2026-08-20 from the 2025-06-05 revision after the #252 corrections: "
+            "8,584 member-year records across 1889-2025, 53 districts (all 49 current plus "
+            "the historical 50-59), 0 rows unparsed. "
             "CLOSED ceiling on purpose: the document is a revision snapshot stamped June 2025 "
             "and lags the current biennium, so it is never authority there. Revisions run "
             "~biennially (18 since 1962), which is why this source is re-checked quarterly and "
