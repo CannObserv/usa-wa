@@ -46,6 +46,7 @@ from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
 )
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
+from usa_wa_adapter_legislature.roster_pdf.deepening import joined_pre1991_observations
 from usa_wa_adapter_legislature.sponsors.artifacts import with_artifact_exclusions
 from usa_wa_adapter_legislature.sponsors.cohort import SponsorRosterCohortProvider
 from usa_wa_adapter_legislature.sponsors.emit import emit_sponsor_spans
@@ -80,6 +81,7 @@ async def build_spans(
     stale_min_coverage: float = STALE_MIN_COVERAGE_DEFAULT,
     extra_observations: Sequence[Observation] = (),
     fallback_citation: CitationTarget | None = None,
+    include_roster: bool = True,
 ) -> SpanBuildResult:
     """Build + emit merged-span Assignments from the local sponsor archive; return the result.
 
@@ -144,12 +146,21 @@ async def build_spans(
     # member did not serve (Wynne LD39 Senate 2001-02) — unioned in *after* the operator-exemption
     # subtraction so it is a hard exclusion nothing can remove. See :mod:`sponsors.artifacts`.
     exclusions = with_artifact_exclusions(exclusions)
-    # Deepening (#228): observations from another cohort — the roster PDF's pre-1991
-    # tenure for WSL-joined members — merge before the span build, so a crossing member's
+    # Deepening (#228): observations from the roster PDF's pre-1991 cohort — WSL-joined
+    # members' roster-era tenure — merge before the span build, so a crossing member's
     # tenure emits as ONE span keyed at its true start (the #97 deepening shape) instead
-    # of abutting a roster-sourced twin at the 1991 floor. The daily restricted path
-    # passes none; bienniums no sponsor wire attests cite ``fallback_citation``.
-    observations = build_sponsor_observations(roster, exclusions) + list(extra_observations)
+    # of abutting a roster-sourced twin at the 1991 floor. This is a STANDING input to
+    # every unrestricted build: omitting it would re-assert the shallow 1991-start keys
+    # and recreate the stranded rows the collapse retires. The restricted daily path
+    # never derives (its cohort is all post-1991); an explicit ``extra_observations`` set
+    # wins (the roster Phase B passes its own, already computed). Bienniums no sponsor
+    # wire attests cite ``fallback_citation``.
+    extras = list(extra_observations)
+    if not extras and include_roster and restrict_to_biennium is None:
+        extras, derived_citation = await joined_pre1991_observations(session)
+        if fallback_citation is None:
+            fallback_citation = derived_citation
+    observations = build_sponsor_observations(roster, exclusions) + extras
     if restrict_to_biennium is not None:
         scoped = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
         observations = [o for o in observations if o.member_id in scoped]

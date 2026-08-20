@@ -72,5 +72,9 @@ async def mint_roster_persons(
         )
         created += 1
     await session.flush()
-    logger.info("roster_persons_minted", extra={"created": created, "existing": existing})
+    # ``created`` is a reserved LogRecord attribute — prefix the extras.
+    logger.info(
+        "roster_persons_minted",
+        extra={"persons_created": created, "persons_existing": existing},
+    )
     return {"created": created, "existing": existing}
