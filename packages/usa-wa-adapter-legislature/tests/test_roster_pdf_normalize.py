@@ -398,3 +398,35 @@ def test_wrapped_row_debris_does_not_pollute_the_previous_record(d28_records) ->
     earlier (#252)."""
     minard = [r for r in d28_records if "Minard" in r.name]
     assert [(r.year, r.chamber, r.annotation) for r in minard] == [(1899, "house", None)]
+
+
+# ---------------------------------------------------------------------------
+# #252 — the footer band must not swallow the last member rows of a full page
+
+
+FIXTURE_D10 = Path(__file__).parent / "fixtures" / "roster_pdf_d10_footer.pdf"
+
+
+@pytest.fixture(scope="module")
+def d10_records():
+    """PDF page 45 (revision 2025-06-05): District 10, a full page whose House block's last
+    line of member rows sits at 91.7% of page height — above the printed footer (96.5%) but
+    below the 0.909 footer band, so George Windust's 1897 row and W. O. Long's 1905 row
+    were silently cut. Fourteen of the fifteen residual house listing gaps are this shape."""
+    return parse_district_pages_reporting(extract_pages(FIXTURE_D10.read_bytes())).records
+
+
+def test_footer_band_keeps_the_last_member_rows(d10_records) -> None:
+    """The bottom line of the page's House block parses in both columns (#252)."""
+    house = {(r.year, r.name) for r in d10_records if r.chamber == "house"}
+    assert (1897, "George Windust") in house
+    assert (1905, "W. O. Long") in house
+
+
+def test_footer_band_still_excludes_the_printed_footer(d10_records) -> None:
+    """No page-footer furniture leaks into records or annotations (#252): the page number,
+    the edition line, and the bold-years legend stay outside the member table."""
+    for r in d10_records:
+        for fragment in ("Members of the Legislature, 2025", "Bold years", "- 39 -"):
+            assert fragment not in r.name
+            assert fragment not in (r.annotation or "")
