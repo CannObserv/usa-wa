@@ -61,7 +61,7 @@ async def emit_sponsor_spans(
     spans whose biennium roster must not be cited (#107)."""
 
     async def _resolve_role(session: AsyncSession, span: TenureSpan) -> Role | None:
-        return await _resolve_sponsor_role(session, span, anchors)
+        return await resolve_span_role(session, span, anchors)
 
     def _citation_target(_span: TenureSpan, biennium: str) -> CitationTarget | None:
         event = fetch_events.get(biennium)
@@ -80,11 +80,13 @@ async def emit_sponsor_spans(
     )
 
 
-async def _resolve_sponsor_role(
+async def resolve_span_role(
     session: AsyncSession, span: TenureSpan, anchors: BootstrapAnchors
 ) -> Role | None:
-    """The Role a span binds to: a party ``member`` Role, or a ``(Senate, state_senator, LD)``
-    seat Role. Returns ``None`` when the party has no Org anchor or the LD isn't synced."""
+    """The Role a party/Senate-seat span binds to: a party ``member`` Role, or a
+    ``(Senate, state_senator, LD)`` seat Role. Returns ``None`` when the party has no Org
+    anchor or the LD isn't synced. Public since #228 — the roster Phase B binds the same
+    two kinds for minted pre-1991 members, and one resolver keeps the Role keys single-sourced."""
     if span.kind == KIND_PARTY:
         slug = span.discriminator
         if slug not in anchors.party_ids:
