@@ -362,3 +362,39 @@ def test_column_boundary_leaves_neighbouring_groups_intact(d26_records) -> None:
     assert [(r.name, r.order) for r in house_1899] == [("E. P. Kingsbury", 1), ("George McCoy", 2)]
     house_1901 = [r for r in d26_records if r.chamber == "house" and r.year == 1901]
     assert [(r.name, r.order) for r in house_1901] == [("George McCoy", 1), ("H. M. Ingraham", 2)]
+
+
+# ---------------------------------------------------------------------------
+# #252 — a row whose leader+party wrap onto the next line must not vanish
+
+
+FIXTURE_D28 = Path(__file__).parent / "fixtures" / "roster_pdf_d28_wrapped.pdf"
+
+
+@pytest.fixture(scope="module")
+def d28_records():
+    """PDF page 95 (revision 2025-06-05): District 28. Charles E. Newschwander's 1969 Senate
+    row wraps — the name line carries no dotted leader, the ``...... R`` fragment and the
+    ``(Elected Nov 5, 1968 …)`` annotation follow on later lines — so the name line reads as
+    furniture, the row vanishes, and its debris glues onto the last emitted record (E. L.
+    Minard's 1899 House row, a different member in a different chamber and era)."""
+    return parse_district_pages_reporting(extract_pages(FIXTURE_D28.read_bytes())).records
+
+
+def test_wrapped_row_with_detached_leader_is_emitted(d28_records) -> None:
+    """The 1969 Senate listing exists: Newschwander, party from the wrapped fragment (#252)."""
+    nw = [r for r in d28_records if "Newschwander" in r.name]
+    assert [(r.year, r.chamber, r.order, r.party_token) for r in nw] == [
+        (1969, "senate", 1, "R"),
+        (1973, "senate", 1, "R"),
+        (1977, "senate", 1, "R"),
+    ]
+    assert "Elected Nov 5, 1968" in (nw[0].annotation or "")
+
+
+def test_wrapped_row_debris_does_not_pollute_the_previous_record(d28_records) -> None:
+    """Minard's 1899 House row keeps its own (absent) annotation — the 1968 election
+    annotation belongs to Newschwander's Senate row, not to a member seated 69 years
+    earlier (#252)."""
+    minard = [r for r in d28_records if "Minard" in r.name]
+    assert [(r.year, r.chamber, r.annotation) for r in minard] == [(1899, "house", None)]

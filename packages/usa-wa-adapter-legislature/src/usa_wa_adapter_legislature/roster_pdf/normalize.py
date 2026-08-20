@@ -267,8 +267,14 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
     unparsed: list[str] = []
     district: int | None = None
     chamber: str | None = None
-    year: int | None = None
-    order = 0
+    # Year/order state per chamber block of the CURRENT district (#252). A single scalar pair
+    # threads the wrong block's state across a column boundary: on a page whose Senate block
+    # spills into the right column's top while the House block opens at the left column's
+    # bottom, the left column exits carrying House state, and the right column's first
+    # (year-less) Senate row would inherit it -- C. W. Beck's 1974 appointment emitted as an
+    # 1899 senator. Keying the state by chamber lets each block resume its own sequence
+    # wherever it is interrupted, and a chamber first seen in a district starts at the floor.
+    state: dict[str, tuple[int | None, int]] = {}
 
     for page in pages:
         lines = _lines(page.words)
@@ -284,7 +290,7 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
         if int(found.group(1)) != district:
             district = int(found.group(1))
             chamber = None
-            year = None
+            state = {}
 
         header_band = page.height * _HEADER_FRACTION
         footer_band = page.height * _FOOTER_FRACTION
@@ -294,9 +300,8 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
             page_chamber = "house"
         elif re.search(r"\bSenate\b", head, re.IGNORECASE):
             page_chamber = "senate"
-        if page_chamber is not None and page_chamber != chamber:
+        if page_chamber is not None:
             chamber = page_chamber
-            year = None  # a new chamber restarts the year sequence at the district's floor
         # Banner dividers below the running header: everything under one belongs to its chamber.
         # ``SENATE`` -> "senate", ``HOUSE OF REPRESENTATIVES`` -> "house".
         dividers = [
@@ -317,15 +322,15 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
             column = [(top, line) for top, line in column if line]
             # Year state threads through columns and pages: the right column continues the left
             # column's year sequence, and a year group can span a page break. Resetting per
-            # column strands those rows with no year (Jesse Wineberry, LD43).
-            year, order = _parse_column(
+            # column strands those rows with no year (Jesse Wineberry, LD43). The state dict is
+            # mutated in place, per chamber (#252).
+            _parse_column(
                 column,
                 district,
                 chamber,
                 page.page_number,
                 unparsed,
-                year,
-                order,
+                state,
                 records,
                 dividers,
             )
@@ -336,15 +341,19 @@ def parse_district_pages_reporting(pages: Sequence[PageWords]) -> ParseReport:
 def _parse_column(
     column: list[tuple[float, list[Word]]],
     district: int,
-    chamber: str,
+    chamber: str | None,
     page_number: int,
     unparsed: list[str],
-    current_year: int | None,
-    order: int,
+    state: dict[str, tuple[int | None, int]],
     out: list[RosterRecord],
     dividers: list[tuple[float, str]],
-) -> tuple[int | None, int]:
+) -> None:
     """Parse one column top-to-bottom, joining wrapped annotations before classifying rows.
+
+    ``state`` carries each chamber block's ``(year, order)`` and is mutated in place: crossing
+    a divider saves the departing block's state and resumes the entered block's, so a block
+    interrupted by a column or page boundary continues its own sequence (#252) rather than
+    inheriting the neighbouring block's.
 
     Three line shapes occur, and only the first is a record on its own:
 
@@ -360,6 +369,7 @@ def _parse_column(
     # first divider — a plausible-looking answer to a question that was never asked.
     buffer_top: float | None = None
     row_chamber = chamber
+    current_year, order = state.get(row_chamber, (None, 0)) if row_chamber else (None, 0)
 
     def chamber_at(top: float) -> str | None:
         """The chamber whose banner most recently precedes ``top``; the page's otherwise."""
@@ -375,11 +385,15 @@ def _parse_column(
         buffer = f"{buffer} {text}".strip() if buffer else text
         at = chamber_at(buffer_top) if buffer_top is not None else row_chamber
         if at is not None and at != row_chamber:
-            # Crossing the divider starts a new block, which restarts the year sequence at the
-            # district's floor rather than continuing the previous chamber's.
+            # Crossing the divider enters the other chamber's block: save the departing
+            # block's year state and resume the entered block's own (#252). A chamber first
+            # seen in this district starts at the floor, which is the old reset behaviour;
+            # a block re-entered across a column or page boundary continues its sequence
+            # instead of stealing the neighbouring block's.
+            if row_chamber is not None:
+                state[row_chamber] = (current_year, order)
             row_chamber = at
-            current_year = None
-            order = 0
+            current_year, order = state.get(at, (None, 0))
         # The party token at the right margin terminates a row -- check it BEFORE the paren
         # balance. The source contains unclosed parentheses (e.g. LD25 2021 Chris Gildon,
         # "...to serve unexpired term" with no closing paren); balancing alone would swallow the
@@ -460,7 +474,8 @@ def _parse_column(
 
     if buffer:
         unparsed.append(buffer)
-    return current_year, order
+    if row_chamber is not None:
+        state[row_chamber] = (current_year, order)
 
 
 def _with_annotation(record: RosterRecord, extra: str) -> RosterRecord:
