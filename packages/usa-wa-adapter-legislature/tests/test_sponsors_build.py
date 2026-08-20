@@ -734,3 +734,60 @@ async def test_extra_observations_default_empty_changes_nothing(db_session, usa_
         db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium="2025-26"
     )
     assert result.emitted == 2
+
+
+async def test_unrestricted_build_self_includes_the_roster_cohort(
+    db_session, usa_wa, wsl_source, monkeypatch
+):
+    """The deepening is a standing property of the unrestricted build (#228): without it,
+    any full rebuild — including migrate_spans' internal one — would re-assert the shallow
+    1991-start keys and recreate the stranded rows the collapse just retired. Explicit
+    extras win; the restricted daily path never derives."""
+    from clearinghouse_domain_legislative.span_kinds import KIND_SENATE
+    from clearinghouse_domain_legislative.tenure_spans import Observation
+    from usa_wa_adapter_legislature.sponsors import build as sb
+
+    calls = []
+
+    async def fake_joined(session):
+        calls.append("derived")
+        return (
+            [Observation("100", KIND_SENATE, "5", "2019-20")],
+            None,
+        )
+
+    monkeypatch.setattr(sb, "joined_pre1991_observations", fake_joined)
+    await _add_ld(db_session, usa_wa, 5)
+    db_session.add(Person(source="usa_wa_legislature", source_id="100", name_full="Ann Rivers"))
+    await db_session.flush()
+    await _archive(db_session, wsl_source, "2025-26", b"<r25/>")
+
+    # unrestricted, no explicit extras -> derives and deepens
+    await build_spans(
+        db_session, sponsor_client=_FakeSponsorClient([_member(100)]), current_biennium="2025-26"
+    )
+    assert calls == ["derived"]
+    deepened = (
+        await db_session.execute(
+            select(Assignment).where(Assignment.source_id == "100:chamber-senate:5:2019-20")
+        )
+    ).scalar_one_or_none()
+    assert deepened is not None
+
+    # restricted -> never derives
+    await build_spans(
+        db_session,
+        sponsor_client=_FakeSponsorClient([_member(100)]),
+        current_biennium="2025-26",
+        restrict_to_biennium="2025-26",
+    )
+    assert calls == ["derived"]
+
+    # explicit extras -> the caller's set wins, no derivation
+    await build_spans(
+        db_session,
+        sponsor_client=_FakeSponsorClient([_member(100)]),
+        current_biennium="2025-26",
+        extra_observations=[Observation("100", KIND_SENATE, "5", "2021-22")],
+    )
+    assert calls == ["derived"]
