@@ -337,3 +337,13 @@ class TestReportHelpers:
         )
         seat = proposals_for_seat(report, district=2, chamber="senate")
         assert [p.effective_date for p in seat] == [date(1979, 6, 15), date(2013, 12, 31)]
+
+
+def test_millennium_off_year_is_not_a_day_precision_date() -> None:
+    """LD9 1921 prints 'special election January 7, 2921' — a source typo. A year outside
+    the plausible window must not become a day-precision date that silently shapes #226
+    boundaries and #228 coverage; it degrades to coarser precision (CR #75)."""
+    clauses = parse_annotation(
+        "Elected in special election January 7, 2921 to serve unexpired term"
+    )
+    assert all(c.parsed.precision != "day" for c in clauses)

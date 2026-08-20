@@ -19,6 +19,8 @@ biennium)`` — so either builder shape can consume them:
 
 from __future__ import annotations
 
+import pytest
+
 from clearinghouse_domain_legislative.span_kinds import KIND_PARTY, KIND_SENATE
 from usa_wa_adapter_legislature.roster_pdf.identity import (
     IDENTITY_MINTED,
@@ -226,13 +228,17 @@ def test_dated_change_without_token_takes_the_next_listing_party() -> None:
     assert ("republican", "1981-82") in party
 
 
-def test_declined_party_withholds_the_observation_and_tallies() -> None:
+def test_declined_party_withholds_the_observation_and_names_its_member() -> None:
     """Welty's 1899 ``Cit.`` (§6): the seat span builds; the party assignment is withheld
-    and the reason counted."""
+    with its member attributed, so the residue is actionable rather than a bare count
+    (CR #77)."""
     rows = [_rec("G. Welty", 1899, chamber="house", district=1, party="Cit.")]
     projection = build_pre1991_observations([_minted("gwelty:1899", rows[0])], rows)
     assert not any(o.kind == KIND_PARTY for o in projection.observations)
-    assert projection.declined_parties["ballot_label"] == 1
+    (decline,) = projection.declined_parties
+    assert decline.member == "gwelty:1899"
+    assert decline.reason == "ballot_label"
+    assert decline.token == "Cit."
 
 
 def test_wsl_joined_identity_uses_the_member_id() -> None:
@@ -256,3 +262,42 @@ def test_unparseable_change_is_tallied() -> None:
     ]
     projection = build_pre1991_observations([_minted("xodd:1955", rows[0])], rows)
     assert projection.unresolved_changes
+
+
+def test_zero_coverage_rows_are_reported_with_a_reason() -> None:
+    """A member who died between election and swearing-in never sat the term — zero
+    coverage is the *right* answer, but it must be visible (CR #74)."""
+    rows = [
+        _rec("J. Brain", 1951, chamber="house", district=13, annotation="Deceased Dec. 18, 1950"),
+    ]
+    projection = build_pre1991_observations([_minted("jbrain:1951", rows[0])], rows)
+    assert projection.observations == ()
+    (uncovered,) = projection.uncovered_rows
+    assert uncovered.member == "jbrain:1951"
+    assert uncovered.reason == "ended_before_term"
+
+
+def test_post_floor_start_is_reported_as_floor_scoped() -> None:
+    """A 1989-listed successor appointed in 1991 belongs to the WSL sponsor era; the row is
+    reported rather than silently skipped (CR #74)."""
+    rows = [
+        _rec("S. Sumner", 1989, district=28, order=2, annotation="Appointed February 12, 1992"),
+    ]
+    projection = build_pre1991_observations([_minted("ssumner:1989", rows[0])], rows)
+    assert projection.observations == ()
+    (uncovered,) = projection.uncovered_rows
+    assert uncovered.reason == "starts_at_floor"
+
+
+def test_identity_without_member_or_key_raises() -> None:
+    """Both id fields empty is invalid by construction — fail loudly, never key a span on
+    a bare fold (CR #78)."""
+    broken = RosterIdentity(
+        disposition=IDENTITY_MINTED,
+        fold="x",
+        key=None,
+        wsl_member_id=None,
+        records=(_rec("X", 1901),),
+    )
+    with pytest.raises(ValueError, match="neither"):
+        build_pre1991_observations([broken], [])

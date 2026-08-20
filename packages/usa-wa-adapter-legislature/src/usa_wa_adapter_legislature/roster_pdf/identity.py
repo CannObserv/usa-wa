@@ -275,6 +275,11 @@ def resolve_identities(
             continue  # entirely WSL-era; nothing for the roster to identify
 
         if fold in splits:
+            # A split group never reaches the 1991 join: both parts mint. Correct for the one
+            # shipped entry (neither Johnston crosses the floor); a future split on a
+            # *crossing* fold would need join handling per part first, or its post-floor rows
+            # silently anchor to nothing and the minted half duplicates a WSL identity — the
+            # §2 fork (CR #80).
             boundary = splits[fold]
             for part in (
                 [r for r in pre if r.year < boundary],

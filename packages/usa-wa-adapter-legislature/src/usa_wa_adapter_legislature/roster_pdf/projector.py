@@ -39,6 +39,7 @@ from datetime import date
 
 from clearinghouse_domain_legislative.span_kinds import KIND_PARTY, KIND_SENATE
 from clearinghouse_domain_legislative.tenure_spans import Observation
+from clearinghouse_domain_legislative.terms import biennium_for_date, biennium_start_year
 from usa_wa_adapter_legislature.roster_pdf.audit import TERM_YEARS
 from usa_wa_adapter_legislature.roster_pdf.identity import (
     ROSTER_IDENTITY_FLOOR,
@@ -55,9 +56,9 @@ from usa_wa_common.parties import resolve_party_token
 
 
 def _biennium(year: int) -> str:
-    """The ``YYYY-YY`` biennium covering ``year`` — bienniums begin on odd years."""
-    start = year if year % 2 == 1 else year - 1
-    return f"{start}-{(start + 1) % 100:02d}"
+    """The ``YYYY-YY`` biennium covering ``year`` — the term calendar's quantizer, which
+    owns the odd-year floor (spec §5: this module must not invent a date convention)."""
+    return biennium_for_date(date(year, 1, 1))
 
 
 def _start_date(annotation: str | None) -> date | None:
@@ -90,6 +91,25 @@ def _end_date(annotation: str | None) -> date | None:
 
 
 @dataclass(frozen=True)
+class DeclinedParty:
+    """One withheld party assignment (§6), attributed so the residue is actionable."""
+
+    member: str
+    year: int
+    token: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class UncoveredRow:
+    """A record whose refined coverage is empty — reported, never silently dropped."""
+
+    member: str
+    record: RosterRecord
+    reason: str
+
+
+@dataclass(frozen=True)
 class UnresolvedChange:
     """A change annotation that could not shape a split — tallied, never guessed at."""
 
@@ -113,23 +133,32 @@ class RosterProjection:
     """Observations plus every withheld or unresolved input — report-don't-drop."""
 
     observations: tuple[Observation, ...]
-    #: ``resolve_party_token`` decline reasons, counted (§6 — Welty and Hill).
-    declined_parties: Counter
+    #: Withheld party assignments with their member and reason (§6 — Welty and Hill).
+    declined_parties: tuple[DeclinedParty, ...]
     #: Unrecognized row tokens, counted by token — must stay empty on the archived edition.
     unrecognized_parties: Counter
     unresolved_changes: tuple[UnresolvedChange, ...]
     seat_overlaps: tuple[SeatOverlap, ...]
+    #: Records contributing zero bienniums, with why (CR #74).
+    uncovered_rows: tuple[UncoveredRow, ...]
 
 
 def _covered_years(
     record: RosterRecord,
     listings: dict[tuple[str, int], list[int]],
-) -> list[int]:
+) -> tuple[list[int], str | None]:
     """The session years ``record``'s listing covers, per the §5 rule.
 
     ``span_end_year = min(term_start + TERM_YEARS, next_listing_on_this_seat) - 1``,
     clamped below the identity floor; a dated start pushes the first covered year to the
-    boundary's, a dated departure drops the years after its own.
+    boundary's biennium, a dated departure drops the years after its own. All year→biennium
+    quantization defers to the term calendar.
+
+    Returns ``(years, empty_reason)``: an empty coverage is legitimate more often than not —
+    a member who died between election and swearing-in never sat the term; a 1989-listed
+    successor appointed in 1991 belongs to the WSL era — but it must be *reported*, so the
+    reason distinguishes those shapes from a defect (CR #74; the measured corpus has 10,
+    one of them the #252 LD43 residual).
     """
     term = TERM_YEARS[record.chamber]
     seat_years = listings.get((record.chamber, record.district), [])
@@ -142,28 +171,36 @@ def _covered_years(
     start_year = record.year
     started = _start_date(record.annotation)
     if started is not None and started.year > start_year:
-        # Quantize: service opening mid-biennium covers that biennium.
-        start_year = started.year if started.year % 2 == 1 else started.year - 1
+        # Service opening mid-biennium covers that biennium.
+        start_year = biennium_start_year(biennium_for_date(started))
     ended = _end_date(record.annotation)
     if ended is not None:
-        last_biennium_start = ended.year if ended.year % 2 == 1 else ended.year - 1
-        end = min(end, last_biennium_start + 2)
+        end = min(end, biennium_start_year(biennium_for_date(ended)) + 2)
 
-    return [y for y in range(start_year, end, 2)]
+    years = [y for y in range(start_year, end, 2)]
+    if years:
+        return years, None
+    if ended is not None and ended < date(record.year, 1, 1):
+        return [], "ended_before_term"
+    if start_year >= ROSTER_IDENTITY_FLOOR:
+        return [], "starts_at_floor"
+    return [], "empty_horizon"
 
 
 def _party_slug(
     token: str,
     year: int,
     member: str,
-    declined: Counter,
+    declined: list[DeclinedParty],
     unrecognized: Counter,
 ) -> str | None:
     resolution = resolve_party_token(token, year=year)
     if resolution.slug is not None:
         return resolution.slug
     if resolution.disposition == "declined":
-        declined[resolution.reason] += 1
+        declined.append(
+            DeclinedParty(member=member, year=year, token=token, reason=resolution.reason or "")
+        )
     else:
         unrecognized[token] += 1
     return None
@@ -188,16 +225,21 @@ def build_pre1991_observations(
         years.sort()
 
     observations: list[Observation] = []
-    declined: Counter = Counter()
+    declined: list[DeclinedParty] = []
     unrecognized: Counter = Counter()
     unresolved: list[UnresolvedChange] = []
+    uncovered: list[UncoveredRow] = []
     senate_cover: dict[tuple[int, str], set[str]] = defaultdict(set)
 
     for identity in identities:
-        member = identity.wsl_member_id or identity.key or identity.fold
+        member = identity.wsl_member_id or identity.key
+        if member is None:
+            raise ValueError(f"identity {identity.fold!r} has neither WSL member id nor key")
         ordered = sorted(identity.records, key=lambda r: (r.year, r.order))
         for index, record in enumerate(ordered):
-            years = _covered_years(record, listings)
+            years, empty_reason = _covered_years(record, listings)
+            if empty_reason is not None:
+                uncovered.append(UncoveredRow(member=member, record=record, reason=empty_reason))
             if record.chamber == "senate":
                 for year in years:
                     biennium = _biennium(year)
@@ -256,8 +298,9 @@ def build_pre1991_observations(
     )
     return RosterProjection(
         observations=tuple(observations),
-        declined_parties=declined,
+        declined_parties=tuple(declined),
         unrecognized_parties=unrecognized,
         unresolved_changes=tuple(unresolved),
         seat_overlaps=overlaps,
+        uncovered_rows=tuple(uncovered),
     )

@@ -111,7 +111,11 @@ def _row_awaiting_leader(buffer: str) -> bool:
     Name-shaped means every token after the year opens with an uppercase letter, a quote (the
     source's nickname form) or a parenthesis: the era-block furniture that also leads with a
     year fails it (``1889 No district`` on the lowercase ``district``, ``1891 - Lewis`` on the
-    dash), so furniture is still dropped rather than swallowing its neighbours.
+    dash), so furniture is still dropped rather than swallowing its neighbours. The same test
+    fails a lowercase name particle (``Dick van Dyke``), so a wrapped row with one degrades to
+    the old silent drop — the corpus's one particle name carries its leader inline and never
+    reaches this path, and the seat-gap sweep is the detector if a future edition changes that
+    (CR #79).
     """
     match = _LEADING_YEAR.match(buffer)
     if match is None:
