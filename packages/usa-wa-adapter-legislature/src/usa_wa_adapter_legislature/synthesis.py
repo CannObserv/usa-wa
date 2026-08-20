@@ -41,9 +41,18 @@ _SOURCE = "usa_wa_legislature"
 #: ``party-<slug>``; the descriptor derives the ``org_wa_party`` identifier value by
 #: stripping that prefix. **No Independent party** — independent = the *absence* of a
 #: party Assignment (power-map#270), so it is not an Org.
+#: Names mirror PM's own display names (power-map#270 for the majors, #442/#443 for the
+#: six historical minors; fetched live 2026-08-20), so the identifier auto-attach carries
+#: no divergent name evidence. Conformance to ``PARTY_SLUGS`` is pinned by test.
 PARTY_ORG_NAMES: dict[str, str] = {
     "republican": "Washington State Republican Party",
     "democratic": "Washington State Democratic Party",
+    "peoples": "Washington State People's Party",
+    "populist": "Washington State Populist Party",
+    "progressive": "Washington State Progressive Party",
+    "silver-republican": "Washington State Silver Republican Party",
+    "farmer-labor": "Washington State Farmer-Labor Party",
+    "socialist": "Socialist Party of Washington",
 }
 
 
@@ -85,13 +94,13 @@ def chamber_orgs(legislature_id: _ULID, jurisdiction_id: _ULID) -> list[dict[str
 
 
 def party_orgs(jurisdiction_id: _ULID) -> list[dict[str, Any]]:
-    """The two WA major-party Organization rows (``org_type='party'``).
+    """One Organization row per declared party slug (``org_type='party'``, #228).
 
     Parented to nothing (a party is not part of the legislative org tree; it is a
     jurisdiction-scoped political Org), keyed ``source_id='party-<slug>'``. PM already
-    holds these two orgs backfilled with the ``org_wa_party`` identifier (power-map#270),
-    so the org descriptor's identifier match auto-attaches ours. No Independent party
-    (independent = absence of a party Assignment)."""
+    holds all eight orgs under the ``org_wa_party`` identifier (power-map#270 majors,
+    #442/#443 historical minors), so the org descriptor's identifier match auto-attaches
+    ours. No Independent party (independent = absence of a party Assignment)."""
     return [
         {
             "source": _SOURCE,
