@@ -318,3 +318,47 @@ def test_every_declared_party_token_is_classified() -> None:
     assert not unclassified, (
         f"parser declares tokens the vocabulary cannot classify: {unclassified}"
     )
+
+
+# ---------------------------------------------------------------------------
+# #252 — year state must not thread across chamber blocks at column boundaries
+
+
+FIXTURE_D26 = Path(__file__).parent / "fixtures" / "roster_pdf_d26_interleaved.pdf"
+
+
+@pytest.fixture(scope="module")
+def d26_records():
+    """PDF page 89 (revision 2025-06-05): District 26, whose Senate block spills into the
+    right column's top while the House block starts at the left column's bottom. The #252
+    page — a year-less successor row at the top of the right column continues a year group
+    from the *other column's* Senate block, across the intervening House rows."""
+    return parse_district_pages_reporting(extract_pages(FIXTURE_D26.read_bytes())).records
+
+
+def test_column_boundary_successor_resumes_its_own_chamber_year(d26_records) -> None:
+    """Beck's year-less appointment row continues Gardner's 1971 Senate group (#252).
+
+    The left column exits in the House block at 1899; without per-chamber year state the
+    right column's first row inherits that year and emits ``1899 senate ord3`` — a
+    seventy-five-year mis-attribution that corrupts #228 identity keys and puts two
+    simultaneous holders on LD26's Senate seat in 1899.
+    """
+    beck = [r for r in d26_records if "Beck" in r.name]
+    assert [(r.year, r.chamber, r.order) for r in beck] == [
+        (1971, "senate", 2),  # appointed Feb. 11, 1974 — successor row in Gardner's group
+        (1975, "senate", 1),  # his own elected term
+    ]
+    assert "Appointed Feb. 11, 1974" in (beck[0].annotation or "")
+
+
+def test_column_boundary_leaves_neighbouring_groups_intact(d26_records) -> None:
+    """The fix must not disturb the rows around the boundary: the 1899 groups of *both*
+    chambers keep their own occupants, and the House block resumes its sequence when the
+    right column crosses back below the divider."""
+    senate_1899 = [r for r in d26_records if r.chamber == "senate" and r.year == 1899]
+    assert [(r.name, r.order) for r in senate_1899] == [("Harold Preston", 1)]
+    house_1899 = [r for r in d26_records if r.chamber == "house" and r.year == 1899]
+    assert [(r.name, r.order) for r in house_1899] == [("E. P. Kingsbury", 1), ("George McCoy", 2)]
+    house_1901 = [r for r in d26_records if r.chamber == "house" and r.year == 1901]
+    assert [(r.name, r.order) for r in house_1901] == [("George McCoy", 1), ("H. M. Ingraham", 2)]
