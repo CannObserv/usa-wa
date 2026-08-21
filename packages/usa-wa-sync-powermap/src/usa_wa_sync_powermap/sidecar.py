@@ -300,6 +300,11 @@ class Sidecar:
                 "unavailable": backlog.unavailable,
                 "oldest_pending_age_seconds": backlog.oldest_pending_age_seconds,
                 "rejected_reasons": reasons,
+                # Identifier types PM refuses as unknown (usa-wa#257): every delivery
+                # carrying one defers, so the cohort is cheap — and named here so it is
+                # also visible. Without it a stalled cohort reads as a growing `pending`
+                # with no cause, the #247 shape.
+                "blocked_identifier_types": sorted(self._engine.blocked_identifier_types),
                 # Last drain's PM verdicts + orphan-mint count (usa-wa#108): a plain dict
                 # so it renders in the structured log; ``reanchors`` > 0 = orphaned PM ids
                 # this cycle (each recorded in ``powermap_anchor_reanchor``).
