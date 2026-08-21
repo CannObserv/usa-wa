@@ -181,7 +181,7 @@ async def test_summary_reports_the_deepening_sweep_and_the_full_residue(
         "seat_overlaps",
     ):
         assert key in summary.counters, key
-    # refusal reasons are data, not a fixed vocabulary — each one gets its own counter
-    assert summary.refusals
+    # refusal reasons are data, not a fixed vocabulary — each one gets its own counter.
+    # Guarded (CR #99): whether this fixture refuses anything is not this test's subject.
     for reason, count in summary.refusals.items():
         assert summary.counters[f"refusals_{reason}"] == count

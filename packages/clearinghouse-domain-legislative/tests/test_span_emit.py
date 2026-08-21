@@ -576,14 +576,16 @@ async def test_retire_unasserted_spans_skips_an_empty_assertion(db_session, usa_
     assert row.deleted_at is None
 
 
-async def test_retire_unasserted_spans_warns_when_the_stranded_row_carries_an_anchor(
-    db_session, usa_wa
-):
-    """An anchored stranded row is the #97 collapse's business (transfer, then retire), not
-    this sweep's — it is counted separately so a build can report it rather than silently
-    orphaning a PM assignment."""
+async def test_retire_unasserted_spans_leaves_an_anchored_row_for_the_collapse(db_session, usa_wa):
+    """CR #95: an anchored stranded row must SURVIVE the sweep. Both recovery paths for its
+    PM anchor filter on ``deleted_at IS NULL`` — the #97 collapse (which would transfer it
+    to the successor span) and the retraction producer (which would retire it upstream) —
+    so soft-deleting it strands the PM assignment with no local row and no way back. It is
+    counted instead, for the caller to act on; the collapse runs, and the next build retires
+    the row once it is no longer anchored."""
     stranded = await _closed_assignment(db_session, usa_wa, "abcarver:party:republican:1899-00")
     stranded.pm_assignment_id = _ULID()
+    unanchored = await _closed_assignment(db_session, usa_wa, "abcarver:party:republican:1893-94")
     await _closed_assignment(db_session, usa_wa, "abcarver:party:republican:1897-98")
     await db_session.flush()
 
@@ -594,5 +596,7 @@ async def test_retire_unasserted_spans_warns_when_the_stranded_row_carries_an_an
         asserted_source_ids={"abcarver:party:republican:1897-98"},
     )
 
-    assert result.retired == 1
     assert result.anchored == 1
+    assert stranded.deleted_at is None  # left for the collapse
+    assert result.retired == 1  # the unanchored one still goes
+    assert unanchored.deleted_at is not None
