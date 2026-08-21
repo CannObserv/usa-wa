@@ -234,7 +234,7 @@ class SyncEngine:
         return self._writer.last_drain_stats
 
     @property
-    def blocked_identifier_types(self) -> set[str]:
+    def blocked_identifier_types(self) -> frozenset[str]:
         """Identifier types PM refused as unknown (usa-wa#257); deliveries carrying one
         defer instead of being spent on a rejection the type guarantees."""
         return self._writer.blocked_identifier_types

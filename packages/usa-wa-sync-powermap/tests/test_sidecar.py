@@ -1095,7 +1095,12 @@ async def test_summary_alert_send_failures_are_swallowed(db_session, caplog):
     async def _boom(subject: str, body: str) -> None:
         raise RuntimeError("gateway down")
 
-    sidecar = Sidecar(engine=None, descriptors=[], session_factory=lambda: None, alert=_boom)
+    sidecar = Sidecar(
+        engine=_BlockedTypesEngine(),
+        descriptors=[],
+        session_factory=lambda: None,
+        alert=_boom,
+    )
     await _add_rejected(db_session, reason="identifier_conflict")
     await _add_nonconverging(db_session, count=3)
 

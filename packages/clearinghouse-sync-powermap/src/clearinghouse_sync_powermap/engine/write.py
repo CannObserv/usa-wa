@@ -93,12 +93,12 @@ logger = get_logger(__name__)
 #: a redrive would collide with the fresh PENDING on ``uq_powermap_outbox_open``).
 #: REJECTED is intentionally excluded: it signals a data fix, after which the next
 #: sweep should re-enqueue and re-attempt the corrected row.
+_REENQUEUE_BLOCKING_STATUSES = (STATUS_PENDING, STATUS_UNAVAILABLE)
+
 #: PM's rejection reason when the observation names an ``identifier_type`` it has never
 #: registered (usa-wa#257). A verdict on the TYPE, not the row: every sibling carrying it
 #: will be refused identically, so the first one is a probe and the rest can wait.
 _UNKNOWN_IDENTIFIER_TYPE = re.compile(r"unknown_identifier_type:\s*'([^']+)'")
-
-_REENQUEUE_BLOCKING_STATUSES = (STATUS_PENDING, STATUS_UNAVAILABLE)
 
 
 @dataclass(frozen=True)
@@ -182,9 +182,13 @@ class OutboxWriter:
         self._probed_identifier_types: set[str] = set()
 
     @property
-    def blocked_identifier_types(self) -> set[str]:
-        """Identifier types PM refused as unknown; deliveries carrying one are deferred."""
-        return self._blocked_identifier_types
+    def blocked_identifier_types(self) -> frozenset[str]:
+        """Identifier types PM refused as unknown; deliveries carrying one are deferred.
+
+        An immutable view — the breaker's state is the writer's to manage, and a set handed
+        out live is one an observer can silently disarm.
+        """
+        return frozenset(self._blocked_identifier_types)
 
     @property
     def last_drain_stats(self) -> DrainStats:
@@ -753,13 +757,14 @@ class OutboxWriter:
             entry.last_error = None
             # PM accepted this type, so any standing block on it is stale (usa-wa#257) —
             # the registration self-heals the cohort with no operator step.
-            if delivered_type := payload.get("identifier_type"):
-                if delivered_type in self._blocked_identifier_types:
-                    self._blocked_identifier_types.discard(delivered_type)
-                    logger.info(
-                        "powermap_identifier_type_unblocked",
-                        extra={"identifier_type": delivered_type},
-                    )
+            if (delivered_type := payload.get("identifier_type")) in (
+                self._blocked_identifier_types
+            ):
+                self._blocked_identifier_types.discard(delivered_type)
+                logger.info(
+                    "powermap_identifier_type_unblocked",
+                    extra={"identifier_type": delivered_type},
+                )
             await self._stamp_enrich_fingerprint(session, entry)
             if await self._anchors.track_convergence(
                 session, descriptor, row, entry, result, old_anchor, payload
