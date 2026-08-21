@@ -12,7 +12,10 @@ from clearinghouse_sync_powermap.engine import APPLY_KEPT_LOCAL, SyncEngine
 from clearinghouse_sync_powermap.models import OP_UPDATE, STATUS_PENDING, OutboxEntry
 from clearinghouse_sync_powermap.testing import FakeClient
 from usa_wa_sync_powermap.descriptors import PersonDescriptor
-from usa_wa_sync_powermap.descriptors.person import identifier_type_for
+from usa_wa_sync_powermap.descriptors.person import (
+    PERSON_MINTING_SOURCES,
+    identifier_type_for,
+)
 
 
 @pytest.fixture
@@ -32,7 +35,27 @@ async def _add_person(
 def test_identifier_type_for_maps_source():
     assert identifier_type_for("usa_wa_legislature") == "person_wa_legislature_member_id"
     assert identifier_type_for("usa_wa_pdc") == "person_wa_pdc"
+    assert identifier_type_for("usa_wa_legislature_roster") == "person_wa_legislature_roster"
     assert identifier_type_for("other") is None
+
+
+def test_every_person_minting_source_has_an_identifier_type():
+    """PM requires ``identifier_type`` as a non-null string, so a source that mints Persons
+    without a mapping here is a guaranteed 422 at produce time — which is exactly how #228's
+    2,494 roster Persons failed. Every source this deployment mints under must map."""
+    for source in PERSON_MINTING_SOURCES:
+        assert identifier_type_for(source) is not None, source
+
+
+async def test_observation_for_a_roster_person_carries_the_roster_identifier(
+    db_session, descriptor
+):
+    row = await _add_person(
+        db_session, source="usa_wa_legislature_roster", source_id="aeolson:1923"
+    )
+    obs = await descriptor.to_observation(db_session, row)
+    assert obs["identifier_type"] == "person_wa_legislature_roster"
+    assert obs["identifier_value"] == "aeolson:1923"
 
 
 async def test_pm_match_identifier_hit(db_session, descriptor):
