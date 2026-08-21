@@ -22,6 +22,8 @@ calibrated:
 
 from __future__ import annotations
 
+import pytest
+
 from usa_wa_adapter_legislature.roster_pdf.identity import (
     CORROBORATION_FLOOR,
     IDENTITY_ALIASES,
@@ -457,3 +459,33 @@ def test_the_boundary_probe_respects_the_given_name_initial_guard() -> None:
     (identity,) = report.identities
     assert identity.disposition == IDENTITY_MINTED
     assert identity.key == "alicesmith:1989"
+
+
+def test_an_ambiguous_boundary_probe_refuses_rather_than_mints() -> None:
+    """CR #108: "no candidate" means the senator retired — mint. "Two compatible
+    candidates" means we do not know which, and minting records a decision we have not
+    earned: the §2 fork, silently. The crossing path already refuses on ambiguity; the
+    boundary path must agree."""
+    report = resolve_identities(
+        [_rec("J. Smith", 1989, chamber="senate", district=6)],
+        seatings=[
+            _wsl("601", 1991, "Smith", "John", district=6, chamber="senate"),
+            _wsl("602", 1991, "Smith", "Jane", district=6, chamber="senate"),
+        ],
+    )
+
+    assert report.identities == []
+    (refusal,) = report.refused
+    assert refusal.reason == REFUSED_JOIN_AMBIGUOUS
+    assert refusal.fold == "jsmith"
+
+
+def test_an_unknown_chamber_at_the_boundary_raises() -> None:
+    """CR #107: a silent zero-length term never probes and mints a duplicate. The audit
+    oracle already refuses to default an unrecognised chamber (its own CR finding 5); a
+    silent fork is a worse outcome than a loud failure, not a better one."""
+    with pytest.raises(KeyError):
+        resolve_identities(
+            [_rec("Odd Chamber", 1989, chamber="tribunal", district=1)],
+            seatings=[],
+        )

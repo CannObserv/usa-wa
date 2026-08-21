@@ -151,14 +151,49 @@ async def test_a_person_the_derivation_no_longer_asserts_is_retired(db_session) 
 
 
 async def test_retirement_leaves_asserted_persons_and_is_idempotent(db_session) -> None:
+    """A single unasserted row is under the mass-retire floor, so it retires normally."""
     await mint_roster_persons(db_session, [_minted("abcarver:1899", _rec("A. B. Carver", 1899))])
 
     first = await retire_unasserted_roster_persons(db_session, asserted_keys={"abcarver:1899"})
     assert first["retired"] == 0
-    second = await retire_unasserted_roster_persons(db_session, asserted_keys=set())
+    second = await retire_unasserted_roster_persons(db_session, asserted_keys={"someone:1901"})
     assert second["retired"] == 1
-    third = await retire_unasserted_roster_persons(db_session, asserted_keys=set())
+    third = await retire_unasserted_roster_persons(db_session, asserted_keys={"someone:1901"})
     assert third["retired"] == 0  # already tombstoned; not re-counted
+
+
+async def test_an_empty_assertion_skips_the_retirement_sweep(db_session) -> None:
+    """CR #106: ``asserted_keys`` is built from the run's identities, so an empty set means
+    the derivation produced nothing — a parse regression that drops the pre-1991 rows passes
+    the oracle trivially (0 == 0) and would reach here. Retiring on it wipes the whole
+    corpus. The span sweep already refuses this; the Person sweep must too."""
+    await mint_roster_persons(db_session, [_minted("abcarver:1899", _rec("A. B. Carver", 1899))])
+
+    result = await retire_unasserted_roster_persons(db_session, asserted_keys=set())
+
+    assert result == {"retired": 0, "anchored": 0, "aborted": False}
+    person = (
+        await db_session.execute(select(Person).where(Person.source_id == "abcarver:1899"))
+    ).scalar_one()
+    assert person.deleted_at is None
+
+
+async def test_a_mass_retirement_aborts_and_changes_nothing(db_session) -> None:
+    """Past the floor, retiring more than the fraction is a truncated derivation, not a
+    cohort that legitimately vanished — abort and leave every row alive."""
+    identities = [_minted(f"member{i}:1899", _rec(f"Member {i}", 1899)) for i in range(10)]
+    await mint_roster_persons(db_session, identities)
+
+    result = await retire_unasserted_roster_persons(db_session, asserted_keys={"member0:1899"})
+
+    assert result["aborted"] is True
+    assert result["retired"] == 0
+    rows = (
+        (await db_session.execute(select(Person).where(Person.source == ROSTER_SOURCE_SLUG)))
+        .scalars()
+        .all()
+    )
+    assert all(r.deleted_at is None for r in rows)
 
 
 async def test_retirement_refuses_to_tombstone_an_anchored_person(db_session) -> None:
@@ -174,5 +209,5 @@ async def test_retirement_refuses_to_tombstone_an_anchored_person(db_session) ->
 
     result = await retire_unasserted_roster_persons(db_session, asserted_keys=set())
 
-    assert result == {"retired": 0, "anchored": 1}
+    assert result == {"retired": 0, "anchored": 1, "aborted": False}
     assert person.deleted_at is None
