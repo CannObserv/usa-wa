@@ -31,7 +31,7 @@ from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID as _ULID
 
@@ -61,6 +61,21 @@ class StaleSweepOutcome:
 
     closed: int = 0
     tombstoned: int = 0
+    aborted: bool = False
+
+
+@dataclass(frozen=True)
+class RetireSweepOutcome:
+    """What :func:`retire_unasserted_spans` did (#228 CR #86).
+
+    ``retired`` counts the soft-deleted rows. ``anchored`` counts the stranded rows the
+    sweep **left in place** because they carry a PM anchor (CR #95) — the caller must run
+    the #97 collapse to transfer those anchors, after which the next sweep retires the rows;
+    a non-zero ``anchored`` is unfinished business, not a completed action. ``aborted`` is
+    the mass-retire guard, same shape as :class:`StaleSweepOutcome`."""
+
+    retired: int = 0
+    anchored: int = 0
     aborted: bool = False
 
 
@@ -350,6 +365,101 @@ async def add_field_citation(
     return True
 
 
+async def retire_unasserted_spans(
+    session: AsyncSession,
+    *,
+    assignment_source: str,
+    kinds: Collection[str],
+    asserted_source_ids: Collection[str],
+    max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
+    close_fraction_floor: int = 5,
+) -> RetireSweepOutcome:
+    """Soft-delete span Assignments of ``assignment_source`` this rebuild no longer asserts.
+
+    The **closed-row** counterpart to :func:`close_stale_spans` (#228 CR #86), for a builder
+    whose spans are historical: every pre-1991 roster span is emitted already closed, so the
+    #83 sweep — which reads ``is_active`` rows — can never see one go stale. What strands
+    such a row is a *re-derivation*, not a departure: a new identity alias merges two folds,
+    or a parser fix moves a group's first session year, and the 4-part ``source_id`` changes
+    underneath a live row. Left alone it keeps its old shape in every read and keeps syncing.
+
+    Retirement is ``deleted_at`` rather than a close: the row is not a tenure that ended, it
+    is an assertion the source never made. Rows already soft-deleted, non-4-part legacy
+    source_ids, other sources and other ``kinds`` are untouched.
+
+    **Guards**, mirroring :func:`close_stale_spans`: an empty asserted set skips the sweep
+    entirely (a build that derived nothing must not wipe the corpus), and past
+    ``close_fraction_floor`` candidates, retiring more than ``max_close_fraction`` of the
+    in-scope rows aborts and changes nothing — a truncated re-parse reads as mass strandings.
+    A wrongly-aborted sweep self-heals on the next complete run.
+
+    A stranded row carrying a ``pm_assignment_id`` is **skipped**, counted in ``anchored``
+    and warned (CR #95). Retiring it would strand the PM assignment for good: both recovery
+    paths filter ``deleted_at IS NULL`` — the #97 collapse, which would transfer the anchor
+    onto the successor span, and the retraction producer, which treats a tombstone as
+    already gone. So the row stays until the collapse has moved its anchor, and the next
+    sweep retires it. Callers should treat ``anchored > 0`` as "run the collapse"."""
+    if not asserted_source_ids:
+        logger.warning(
+            "span_retire_sweep_skipped_empty_assertion",
+            extra={"assignment_source": assignment_source, "kinds": sorted(kinds)},
+        )
+        return RetireSweepOutcome()
+    asserted = set(asserted_source_ids)
+    kind_set = set(kinds)
+    rows = (
+        (
+            await session.execute(
+                select(Assignment).where(
+                    Assignment.source == assignment_source,
+                    Assignment.deleted_at.is_(None),
+                    # Narrow in SQL (CR #98) — the kind is the source_id's second segment.
+                    # A prefilter only: the 4-part exactness check below stays authoritative,
+                    # since a LIKE also matches a legacy id that merely contains the token.
+                    or_(*(Assignment.source_id.like(f"%:{kind}:%") for kind in kind_set)),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    in_scope = [
+        row for row in rows if len(parts := row.source_id.split(":")) == 4 and parts[1] in kind_set
+    ]
+    stranded = [row for row in in_scope if row.source_id not in asserted]
+    if len(stranded) > close_fraction_floor and len(stranded) > max_close_fraction * len(in_scope):
+        logger.warning(
+            "span_retire_sweep_aborted_mass_retire",
+            extra={
+                "assignment_source": assignment_source,
+                "kinds": sorted(kind_set),
+                "stranded": len(stranded),
+                "in_scope": len(in_scope),
+                "max_close_fraction": max_close_fraction,
+            },
+        )
+        return RetireSweepOutcome(aborted=True)
+    now = datetime.now(UTC)
+    retired = anchored = 0
+    for row in stranded:
+        if row.pm_assignment_id is not None:
+            anchored += 1
+            logger.warning(
+                "span_retire_skipped_pm_anchor",
+                extra={
+                    "source_id": row.source_id,
+                    "pm_assignment_id": str(row.pm_assignment_id),
+                },
+            )
+            continue
+        row.deleted_at = now
+        retired += 1
+        logger.info("span_retired_unasserted", extra={"source_id": row.source_id})
+    if retired:
+        await session.flush()
+    return RetireSweepOutcome(retired=retired, anchored=anchored)
+
+
 async def _ensure_citations(
     session: AsyncSession,
     assignment: Assignment,
@@ -380,6 +490,10 @@ async def _ensure_citations(
         fetch_event_id, fetched_at, resource_id = target
         if resource_id in already_cited:
             continue  # already cited for this biennium's roster (append-only — no rewrite)
+        # Track within-run too: several bienniums can share one attesting resource (#228's
+        # single-edition roster fallback), and re-reading the DB set once at entry would
+        # let each of them insert a duplicate row in the same call.
+        already_cited.add(resource_id)
         session.add(
             Citation(
                 entity_type=ASSIGNMENT_CITATION_TYPE,

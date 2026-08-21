@@ -35,6 +35,7 @@ from usa_wa_adapter_legislature.roster_pdf.identity import (
     WIDE_GAP_YEARS,
     identity_fold,
     resolve_identities,
+    strip_position_suffix,
 )
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 from usa_wa_adapter_legislature.roster_pdf.resolve import Seating
@@ -67,6 +68,14 @@ def _rec(
 
 def test_fold_strips_position_suffix() -> None:
     assert identity_fold("Bob Basich – 19B") == identity_fold("Bob Basich")
+
+
+def test_strip_position_suffix_is_public() -> None:
+    """The suffix stripper is the display-name minter's too (CR #88) — one public
+    helper, so ``persons.py`` never reaches for a private regex."""
+    assert strip_position_suffix("Bob Basich – 19B") == "Bob Basich"
+    assert strip_position_suffix("Bob Basich") == "Bob Basich"
+    assert strip_position_suffix("Margaret Hurley") == "Margaret Hurley"
 
 
 def test_fold_strips_parenthetical_segments() -> None:

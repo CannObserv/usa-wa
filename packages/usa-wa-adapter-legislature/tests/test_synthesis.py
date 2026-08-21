@@ -9,19 +9,27 @@ from usa_wa_adapter_legislature.synthesis import (
     party_orgs,
     regular_sessions,
 )
+from usa_wa_common.parties import PARTY_SLUGS
 
 
-def test_party_orgs_emits_two_major_parties():
-    """Republican + Democratic party orgs, keyed party-<slug>, no Independent."""
+def test_party_orgs_covers_the_whole_declared_vocabulary():
+    """One Org row per ``PARTY_SLUGS`` entry (#228): the two majors plus the six
+    historical minors PM seeded under ``org_wa_party`` (power-map#442/#443) — the org
+    descriptor auto-attaches each by bare-slug identifier, so a missing local row is a
+    party span with no Role anchor. Still no Independent (absence of an Assignment)."""
     jur = _ulid()
     rows = party_orgs(jur)
-    assert {r["source_id"] for r in rows} == {"party-republican", "party-democratic"}
+    assert {r["source_id"] for r in rows} == {f"party-{slug}" for slug in PARTY_SLUGS}
     assert all(r["org_type"] == "party" for r in rows)
     assert all(r["parent_organization_id"] is None for r in rows)
     assert all(r["jurisdiction_id"] == jur for r in rows)
     by_id = {r["source_id"]: r for r in rows}
     assert by_id["party-republican"]["name"] == "Washington State Republican Party"
     assert by_id["party-democratic"]["name"] == "Washington State Democratic Party"
+    # PM's own display names (fetched live 2026-08-20), so identifier auto-attach
+    # carries no divergent name evidence.
+    assert by_id["party-peoples"]["name"] == "Washington State People's Party"
+    assert by_id["party-socialist"]["name"] == "Socialist Party of Washington"
 
 
 def _ulid() -> _ULID:

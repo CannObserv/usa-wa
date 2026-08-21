@@ -9,6 +9,7 @@ from usa_wa_adapter_legislature.bootstrap import (
     BootstrapAnchors,
     bootstrap_synthetic_anchors,
 )
+from usa_wa_common.parties import PARTY_SLUGS
 
 
 @pytest.fixture
@@ -23,7 +24,7 @@ async def anchors(db_session, usa_wa) -> BootstrapAnchors:
 async def test_bootstrap_writes_one_legislature_two_chambers(db_session, anchors):
     """Legislature + 2 chambers + 2 party orgs = 5 Organizations after one call."""
     orgs = (await db_session.execute(select(Organization))).scalars().all()
-    assert len(orgs) == 5
+    assert len(orgs) == 11  # legislature + 2 chambers + 8 parties (#228)
     by_type = {o.org_type: o for o in orgs} | {
         ("chamber", o.short_name): o for o in orgs if o.org_type == "chamber"
     }
@@ -37,16 +38,16 @@ async def test_bootstrap_writes_one_legislature_two_chambers(db_session, anchors
     assert by_type[("chamber", "Senate")].id == anchors.senate_id
 
 
-async def test_bootstrap_writes_two_party_orgs(db_session, anchors):
-    """Two ``org_type='party'`` orgs — Republican + Democratic — parented to nothing."""
+async def test_bootstrap_writes_the_party_vocabulary(db_session, anchors):
+    """One ``org_type='party'`` org per declared slug (#228), parented to nothing."""
     parties = (
         (await db_session.execute(select(Organization).where(Organization.org_type == "party")))
         .scalars()
         .all()
     )
-    assert len(parties) == 2
+    assert len(parties) == 8  # the declared vocabulary, PARTY_SLUGS (#228)
     by_source_id = {p.source_id: p for p in parties}
-    assert set(by_source_id) == {"party-republican", "party-democratic"}
+    assert set(by_source_id) == {f"party-{slug}" for slug in PARTY_SLUGS}
     assert by_source_id["party-republican"].name == "Washington State Republican Party"
     assert by_source_id["party-democratic"].name == "Washington State Democratic Party"
     assert all(p.parent_organization_id is None for p in parties)
@@ -54,6 +55,7 @@ async def test_bootstrap_writes_two_party_orgs(db_session, anchors):
     # anchors expose the party ids keyed by canonical slug
     assert anchors.party_ids["republican"] == by_source_id["party-republican"].id
     assert anchors.party_ids["democratic"] == by_source_id["party-democratic"].id
+    assert anchors.party_ids["silver-republican"] == by_source_id["party-silver-republican"].id
     # No Independent party (independent = absence of a party Assignment).
     assert "independent" not in anchors.party_ids
 
@@ -88,7 +90,7 @@ async def test_bootstrap_is_idempotent(db_session, usa_wa):
     assert first == second
     org_count = len((await db_session.execute(select(Organization))).scalars().all())
     sess_count = len((await db_session.execute(select(LegislativeSession))).scalars().all())
-    assert org_count == 5
+    assert org_count == 11
     assert sess_count == 3
 
 

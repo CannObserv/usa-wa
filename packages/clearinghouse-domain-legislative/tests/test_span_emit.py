@@ -14,6 +14,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy import select
+from ulid import ULID as _ULID
 
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
@@ -22,6 +23,7 @@ from clearinghouse_domain_legislative.span_emit import (
     close_stale_spans,
     emit_spans,
     resolve_person,
+    retire_unasserted_spans,
 )
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 
@@ -465,3 +467,136 @@ def test_close_fraction_validator_accepts_the_valid_range():
             close_fraction(bad)
     with pytest.raises(ValueError):  # non-numeric still fails loudly (argparse generic path)
         close_fraction("abc")
+
+
+# --- retire_unasserted_spans (#228 CR #86) -----------------------------------------------
+
+
+async def _closed_assignment(session, usa_wa, source_id, *, source="usa_wa_legislature_roster"):
+    """A CLOSED historical span row, as a prior roster build left it — every pre-1991 span
+    is closed, which is exactly why ``close_stale_spans`` (open rows only) cannot see them.
+
+    The Person is get-or-create: one member legitimately owns several span rows, which is
+    the whole shape a stranded-key re-derivation produces."""
+    member = source_id.split(":")[0]
+    person = (
+        await session.execute(
+            select(Person).where(Person.source == "usa_wa_legislature", Person.source_id == member)
+        )
+    ).scalar_one_or_none()
+    if person is None:
+        person = Person(source="usa_wa_legislature", source_id=member, name_full="M")
+        session.add(person)
+        await session.flush()
+    role = (
+        await session.execute(select(Role).where(Role.source_id == "seat:house:ld-5:position-1"))
+    ).scalar_one_or_none() or await _add_role(session, usa_wa)
+    row = Assignment(
+        source=source,
+        source_id=source_id,
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(1889, 1, 1),
+        valid_to=date(1990, 12, 31),
+        is_active=False,
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def test_retire_unasserted_spans_tombstones_a_stranded_closed_row(db_session, usa_wa):
+    """A re-derivation that moves an identity key (a new alias, a parse fix that changes the
+    first session year) orphans the old row. It is closed, so the #83 sweep never sees it —
+    this sweep soft-deletes it so it drops out of live reads and sync."""
+    stranded = await _closed_assignment(db_session, usa_wa, "abcarver:party:republican:1899-00")
+    keeper = await _closed_assignment(db_session, usa_wa, "abcarver:party:republican:1897-98")
+
+    result = await retire_unasserted_spans(
+        db_session,
+        assignment_source="usa_wa_legislature_roster",
+        kinds={"party", "chamber-senate"},
+        asserted_source_ids={"abcarver:party:republican:1897-98"},
+    )
+
+    assert result.retired == 1
+    assert stranded.deleted_at is not None
+    assert keeper.deleted_at is None
+
+
+async def test_retire_unasserted_spans_leaves_other_sources_and_kinds(db_session, usa_wa):
+    other_source = await _closed_assignment(
+        db_session, usa_wa, "100:party:democratic:1985-86", source="usa_wa_legislature"
+    )
+    other_kind = await _closed_assignment(db_session, usa_wa, "100:chamber-house:ld-5:1985-86")
+
+    result = await retire_unasserted_spans(
+        db_session,
+        assignment_source="usa_wa_legislature_roster",
+        kinds={"party", "chamber-senate"},
+        asserted_source_ids={"999:party:republican:1899-00"},
+    )
+
+    assert result.retired == 0
+    assert other_source.deleted_at is None
+    assert other_kind.deleted_at is None
+
+
+async def test_retire_unasserted_spans_aborts_on_a_mass_retire(db_session, usa_wa):
+    """The #83/#44 guard shape: an empty or truncated re-derivation must not wipe the
+    corpus. Past the floor, retiring more than the fraction aborts and changes nothing."""
+    rows = [
+        await _closed_assignment(db_session, usa_wa, f"m{i}:party:republican:1899-00")
+        for i in range(10)
+    ]
+
+    result = await retire_unasserted_spans(
+        db_session,
+        assignment_source="usa_wa_legislature_roster",
+        kinds={"party", "chamber-senate"},
+        asserted_source_ids={"m0:party:republican:1899-00"},
+    )
+
+    assert result.aborted is True
+    assert result.retired == 0
+    assert all(row.deleted_at is None for row in rows)
+
+
+async def test_retire_unasserted_spans_skips_an_empty_assertion(db_session, usa_wa):
+    row = await _closed_assignment(db_session, usa_wa, "abcarver:party:republican:1899-00")
+
+    result = await retire_unasserted_spans(
+        db_session,
+        assignment_source="usa_wa_legislature_roster",
+        kinds={"party"},
+        asserted_source_ids=set(),
+    )
+
+    assert result.retired == 0
+    assert row.deleted_at is None
+
+
+async def test_retire_unasserted_spans_leaves_an_anchored_row_for_the_collapse(db_session, usa_wa):
+    """CR #95: an anchored stranded row must SURVIVE the sweep. Both recovery paths for its
+    PM anchor filter on ``deleted_at IS NULL`` — the #97 collapse (which would transfer it
+    to the successor span) and the retraction producer (which would retire it upstream) —
+    so soft-deleting it strands the PM assignment with no local row and no way back. It is
+    counted instead, for the caller to act on; the collapse runs, and the next build retires
+    the row once it is no longer anchored."""
+    stranded = await _closed_assignment(db_session, usa_wa, "abcarver:party:republican:1899-00")
+    stranded.pm_assignment_id = _ULID()
+    unanchored = await _closed_assignment(db_session, usa_wa, "abcarver:party:republican:1893-94")
+    await _closed_assignment(db_session, usa_wa, "abcarver:party:republican:1897-98")
+    await db_session.flush()
+
+    result = await retire_unasserted_spans(
+        db_session,
+        assignment_source="usa_wa_legislature_roster",
+        kinds={"party"},
+        asserted_source_ids={"abcarver:party:republican:1897-98"},
+    )
+
+    assert result.anchored == 1
+    assert stranded.deleted_at is None  # left for the collapse
+    assert result.retired == 1  # the unanchored one still goes
+    assert unanchored.deleted_at is not None

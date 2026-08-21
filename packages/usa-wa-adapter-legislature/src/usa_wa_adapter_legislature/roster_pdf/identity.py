@@ -66,7 +66,11 @@ CORROBORATION_FLOOR = 2
 IDENTITY_MINTED = "minted"
 IDENTITY_WSL = "wsl"
 
-# Refusal reasons — report-don't-drop, as everywhere in this source.
+# Refusal reasons — report-don't-drop, as everywhere in this source. A reason also becomes a
+# *ledger and log key* downstream (``refusals_<reason>`` in the Phase B build's counters,
+# passed as logging ``extra``), so keep them snake_case and short; the prefix is what keeps a
+# new reason from colliding with a reserved LogRecord attribute (CR #97 — ``created`` is the
+# precedent that made this a rule).
 REFUSED_WIDE_GAP = "wide_gap"
 REFUSED_JOIN_UNRESOLVED = "join_unresolved"
 REFUSED_JOIN_AMBIGUOUS = "join_ambiguous"
@@ -116,10 +120,16 @@ _QUOTED = re.compile(r"[“\"][^”\"]*[”\"]")
 _HONORIFICS = frozenset({"mr", "mrs", "dr", "rev", "hon"})
 
 
+def strip_position_suffix(name: str) -> str:
+    """``"Bob Basich – 19B"`` → ``"Bob Basich"``. Public so the display-name minter
+    (:mod:`persons`) shares one definition of what counts as seat metadata (CR #88)."""
+    return _POSITION_SUFFIX.sub("", name)
+
+
 def identity_fold(name: str) -> str:
     """The identity key's name half: the shared fold over the cleaned name."""
     cleaned = _QUOTED.sub(" ", _PARENTHETICAL.sub(" ", name))
-    cleaned = _POSITION_SUFFIX.sub("", cleaned)
+    cleaned = strip_position_suffix(cleaned)
     tokens = [t for t in folded_tokens(cleaned) if t and t not in _HONORIFICS]
     return "".join(tokens)
 
