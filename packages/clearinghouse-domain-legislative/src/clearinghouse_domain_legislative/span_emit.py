@@ -113,6 +113,19 @@ RoleResolver = Callable[[AsyncSession, TenureSpan], Awaitable[Role | None]]
 CitationLocator = Callable[[TenureSpan, str], CitationTarget | None]
 
 
+#: A span Assignment's ``source_id`` is ``{member}:{kind}:{discriminator}:{start_biennium}``.
+#: Split from the **right** (#259): the trailing three segments are fixed, but the member id
+#: is not guaranteed colon-free — #228's roster identities are ``<fold>:<year>``, so their
+#: spans carry five segments and a left-to-right four-part check never matched one, silently
+#: excluding the entire source from both sweeps. Yields ``None`` for a legacy/non-span id.
+def span_key_parts(source_id: str) -> tuple[str, str, str, str] | None:
+    """``(member, kind, discriminator, start_biennium)``, or ``None`` if not a span key."""
+    parts = source_id.rsplit(":", 3)
+    if len(parts) != 4:
+        return None
+    return (parts[0], parts[1], parts[2], parts[3])
+
+
 async def emit_spans(
     session: AsyncSession,
     spans: list[TenureSpan],
@@ -183,7 +196,8 @@ async def close_stale_spans(
     ``valid_from``); rather than emit a degenerate ``valid_from == valid_to`` one-day window,
     such a span is **tombstoned** (``deleted_at``, #107) — see ``StaleSweepOutcome.tombstoned``.
     ``current_biennium`` must be the biennium the asserted span set was built against — a
-    mismatched pair would close everything outside the wrong cohort.
+    mismatched pair would close everything outside the wrong cohort. The key is parsed by
+    :func:`span_key_parts` (right-split), so a member id containing a colon is in scope.
 
     The valid_to derivation rests on the daily cadence: a member's last rebuilt biennium is
     ``current - 1``. If the re-drive skipped a boundary, the close date lands late — the next
@@ -224,7 +238,7 @@ async def close_stale_spans(
     in_scope = [
         row
         for row in open_rows
-        if len(parts := row.source_id.split(":")) == 4 and parts[1] in kind_set
+        if (parts := span_key_parts(row.source_id)) is not None and parts[1] in kind_set
     ]
     stale = [row for row in in_scope if row.source_id not in asserted]
     if len(stale) > close_fraction_floor and len(stale) > max_close_fraction * len(in_scope):
@@ -424,7 +438,9 @@ async def retire_unasserted_spans(
         .all()
     )
     in_scope = [
-        row for row in rows if len(parts := row.source_id.split(":")) == 4 and parts[1] in kind_set
+        row
+        for row in rows
+        if (parts := span_key_parts(row.source_id)) is not None and parts[1] in kind_set
     ]
     stranded = [row for row in in_scope if row.source_id not in asserted]
     if len(stranded) > close_fraction_floor and len(stranded) > max_close_fraction * len(in_scope):
