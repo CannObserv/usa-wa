@@ -42,8 +42,9 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from usa_wa_adapter_legislature.roster_pdf.audit import TERM_YEARS
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 from usa_wa_adapter_legislature.roster_pdf.resolve import Seating
 from usa_wa_common.names import fold_token, folded_tokens, surname_match_set
@@ -243,6 +244,31 @@ class _Join:
         return "candidates " + ", ".join(parts)
 
 
+def _boundary_probes(pre: list[RosterRecord], floor: int) -> list[RosterRecord]:
+    """Rows to ask the join about when a fold has no listing at or above ``floor`` (#259).
+
+    The floor is a *listing-year* floor, but tenure crosses it. The roster indexes a row by
+    the year the term **begins**, so a member whose final term started below the floor and
+    ran past it has no listing there at all — while WSL, which covers the biennium, holds
+    them. Keying the join on "has a post-floor listing" therefore misses them and mints a
+    duplicate of an identity WSL already has: the §2 fork.
+
+    A term at ``year`` covers ``[year, year + TERM_YEARS[chamber])``, so it reaches the floor
+    iff ``year + TERM_YEARS > floor``. With the 1991 floor that admits exactly the 1989
+    Senate terms (1989 + 4 = 1993 > 1991) and excludes 1989 House terms (1989 + 2 = 1991,
+    ending the year the floor begins) and 1987 Senate terms (1987 + 4 = 1991, likewise) —
+    all 14 measured cases are 1989 senators, and the rule is the term length rather than a
+    hardcoded year.
+
+    Each surviving row is projected onto the floor year, on its own seat, so
+    :meth:`_Join.resolve` can index it against the WSL seatings there. The projection is a
+    *probe*, never an identity record: it carries no party and is discarded after the join.
+    """
+    return [
+        replace(row, year=floor) for row in pre if row.year + TERM_YEARS.get(row.chamber, 0) > floor
+    ]
+
+
 def resolve_identities(
     records: Iterable[RosterRecord],
     *,
@@ -315,7 +341,23 @@ def resolve_identities(
             continue
 
         if not post:
-            mint(fold, pre)
+            # No post-floor listing — but a term that began below the floor may still have
+            # run past it (#259). Probe WSL with those rows projected onto the floor year;
+            # anything else is a genuine pre-floor-only identity.
+            probes = _boundary_probes(pre, floor)
+            member_id = join.resolve(probes)[0] if probes else None
+            if member_id is None:
+                mint(fold, pre)
+            else:
+                identities.append(
+                    RosterIdentity(
+                        disposition=IDENTITY_WSL,
+                        fold=fold,
+                        key=None,
+                        wsl_member_id=member_id,
+                        records=tuple(pre),
+                    )
+                )
             continue
 
         # A crossing fold: the pre-floor rows belong to an identity WSL may already hold.
