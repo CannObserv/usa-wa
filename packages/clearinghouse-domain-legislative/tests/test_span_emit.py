@@ -600,3 +600,41 @@ async def test_retire_unasserted_spans_leaves_an_anchored_row_for_the_collapse(d
     assert stranded.deleted_at is None  # left for the collapse
     assert result.retired == 1  # the unanchored one still goes
     assert unanchored.deleted_at is not None
+
+
+async def test_retire_sweep_sees_a_member_id_containing_a_colon(db_session, usa_wa):
+    """#259: the span key is ``{member}:{kind}:{disc}:{start}``, but a member id is not
+    guaranteed colon-free — #228's roster identities are ``<fold>:<year>``, so their spans
+    have FIVE segments and a left-to-right 4-part check never matched one. The sweep built
+    for exactly that source was inert against it: 3,627 rows, none in scope."""
+    stranded = await _closed_assignment(
+        db_session, usa_wa, "pattymurray:1989:chamber-senate:1:1989-90"
+    )
+    keeper = await _closed_assignment(db_session, usa_wa, "abcarver:1899:party:republican:1899-00")
+
+    result = await retire_unasserted_spans(
+        db_session,
+        assignment_source="usa_wa_legislature_roster",
+        kinds={"party", "chamber-senate"},
+        asserted_source_ids={"abcarver:1899:party:republican:1899-00"},
+    )
+
+    assert result.retired == 1
+    assert stranded.deleted_at is not None
+    assert keeper.deleted_at is None
+
+
+async def test_close_stale_sweep_sees_a_member_id_containing_a_colon(db_session, usa_wa):
+    """Same parse, same blind spot, on the #83 open-row sweep."""
+    row = await _open_assignment(db_session, usa_wa, "aeolson:1923:party:republican:1923-24")
+
+    result = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"party", "chamber-senate"},
+        asserted_source_ids={"other:1901:party:democratic:1901-02"},
+        current_biennium="2027-28",
+    )
+
+    assert result.closed == 1
+    assert row.is_active is False
