@@ -160,6 +160,9 @@ async def build_spans(
         extras, derived_citation = await joined_pre1991_observations(session)
         if fallback_citation is None:
             fallback_citation = derived_citation
+    # The fallback attests exactly the bienniums the extras contributed (CR #85) — never a
+    # biennium the sponsor archive merely happens to lack.
+    fallback_bienniums = {o.biennium for o in extras}
     observations = build_sponsor_observations(roster, exclusions) + extras
     if restrict_to_biennium is not None:
         scoped = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
@@ -181,6 +184,7 @@ async def build_spans(
         fetch_events=fetch_events,
         skip_citation_ids=synthesized_ids,
         fallback_citation=fallback_citation,
+        fallback_bienniums=fallback_bienniums,
     )
     operator_cites = 0
     if event_rows:

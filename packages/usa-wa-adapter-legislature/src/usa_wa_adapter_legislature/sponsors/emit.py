@@ -53,23 +53,33 @@ async def emit_sponsor_spans(
     fetch_events: dict[str, tuple[_ULID, datetime]],
     skip_citation_ids: Collection[str] = (),
     fallback_citation: CitationTarget | None = None,
+    fallback_bienniums: Collection[str] = (),
 ) -> int:
     """Upsert an :class:`Assignment` per party/Senate-seat span; return the count.
 
     ``fetch_events`` maps ``biennium → (fetch_event_id, fetched_at)`` (from the cohort
     provider) — each biennium's ``sponsors:<biennium>`` roster attests the span.
     ``skip_citation_ids`` forwards to :func:`emit_spans` — the source_ids of operator-synthesized
-    spans whose biennium roster must not be cited (#107). ``fallback_citation`` attests any
-    biennium ``fetch_events`` lacks — the roster edition for #228's deepened pre-1991
-    coverage; ``None`` keeps the prior behaviour (no citation for an unattested biennium)."""
+    spans whose biennium roster must not be cited (#107). ``fallback_citation`` attests the
+    bienniums in ``fallback_bienniums`` that ``fetch_events`` lacks — #228's deepened
+    pre-1991 coverage, where the roster edition is the evidence and no sponsor wire exists.
+
+    The scope is **explicit** (CR #85): returning the fallback for every biennium missing
+    from ``fetch_events`` would let an unrelated archive gap borrow the edition as evidence.
+    That is unreachable today only because a span cannot cross a gap — the missing biennium
+    has no observation, so ``build_tenure_spans`` splits the tenure there — which is a
+    non-local property of the projector, not a property of this function. ``None`` (or an
+    empty scope) keeps the prior behaviour: no citation for an unattested biennium."""
 
     async def _resolve_role(session: AsyncSession, span: TenureSpan) -> Role | None:
         return await resolve_span_role(session, span, anchors)
 
+    attested_by_fallback = frozenset(fallback_bienniums)
+
     def _citation_target(_span: TenureSpan, biennium: str) -> CitationTarget | None:
         event = fetch_events.get(biennium)
         if event is None:
-            return fallback_citation
+            return fallback_citation if biennium in attested_by_fallback else None
         fetch_event_id, fetched_at = event
         return (fetch_event_id, fetched_at, f"{SPONSORS_RESOURCE_PREFIX}{biennium}")
 
