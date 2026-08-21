@@ -1493,3 +1493,85 @@ async def test_clean_attach_records_no_unapplied(db_session, caplog):
 
     assert not any(r.msg == "observation_deltas_unapplied" for r in caplog.records)
     assert engine.last_drain_stats.unapplied == 0
+
+
+# ---------------------------------------------------------------------------
+# usa-wa#257 — circuit-break a cohort PM cannot accept
+
+
+class _IdentifiedDescriptor(FakeDescriptor):
+    """A descriptor whose observation carries a PM ``identifier_type``, like the real ones."""
+
+    async def to_observation(self, session, row):
+        return {"identifier_type": "x_type", "identifier_value": row.source_id}
+
+
+def _unknown_type_rejection(payload):
+    return ObservationResult(
+        disposition=DISPOSITION_REJECTED,
+        pm_id=None,
+        raw={"disposition": "rejected", "reason": "unknown_identifier_type: 'x_type'"},
+    )
+
+
+async def test_an_unknown_identifier_type_defers_the_rest_of_the_cohort(db_session):
+    """usa-wa#257: PM refusing an identifier type is a property of the TYPE, not the row —
+    every other row carrying it will be refused identically. Learn from the first rejection
+    and defer the rest, instead of spending one PM request per row to earn 2,494 rejections
+    (which is what #228's roster cohort did, twice)."""
+    descriptor = _IdentifiedDescriptor()
+    for i in range(5):
+        await _add_entity(db_session, source_id=str(i))
+    client = FakeClient(observation_result=_unknown_type_rejection)
+    engine = SyncEngine([descriptor], client)
+    await engine.sweep_unanchored(db_session, descriptor)
+
+    await engine.drain_outbox(db_session, now=NOW)
+
+    assert len(client.posted) == 1  # one probe, not five
+    statuses = sorted(
+        e.status for e in (await db_session.execute(select(OutboxEntry))).scalars().all()
+    )
+    assert statuses == [STATUS_PENDING] * 4 + [STATUS_REJECTED]
+
+
+async def test_a_successful_delivery_clears_the_blocked_identifier_type(db_session):
+    """The breaker must self-heal: once PM registers the type, the next accepted delivery
+    re-arms the cohort with no operator step."""
+    descriptor = _IdentifiedDescriptor()
+    await _add_entity(db_session, source_id="1")
+    engine = SyncEngine([descriptor], FakeClient(observation_result=_unknown_type_rejection))
+    await engine.sweep_unanchored(db_session, descriptor)
+    await engine.drain_outbox(db_session, now=NOW)
+    assert engine.blocked_identifier_types == {"x_type"}
+
+    engine._ctx.client = FakeClient()  # PM now knows the type
+    await _add_entity(db_session, source_id="2")
+    await engine.sweep_unanchored(db_session, descriptor)
+    await engine.drain_outbox(db_session, now=NOW)
+
+    assert engine.blocked_identifier_types == set()
+
+
+async def test_a_rejection_for_another_reason_does_not_block_the_type(db_session):
+    """Only ``unknown_identifier_type`` is a type-wide verdict. A per-row rejection (a bad
+    value, a conflict) must not stall every sibling row."""
+    descriptor = _IdentifiedDescriptor()
+    for i in range(3):
+        await _add_entity(db_session, source_id=str(i))
+
+    def _row_rejection(payload):
+        return ObservationResult(
+            disposition=DISPOSITION_REJECTED,
+            pm_id=None,
+            raw={"disposition": "rejected", "reason": "identifier_conflict"},
+        )
+
+    client = FakeClient(observation_result=_row_rejection)
+    engine = SyncEngine([descriptor], client)
+    await engine.sweep_unanchored(db_session, descriptor)
+
+    await engine.drain_outbox(db_session, now=NOW)
+
+    assert len(client.posted) == 3  # every row still attempted
+    assert engine.blocked_identifier_types == set()
