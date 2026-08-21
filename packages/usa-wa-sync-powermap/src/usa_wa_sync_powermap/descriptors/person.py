@@ -41,13 +41,33 @@ SEARCH_PATH = "/api/v1/people/search"
 _SEARCH_LIMIT = 20
 
 
+#: Local Person ``source`` → PM ``identifier_type`` slug (design D1).
+#:
+#: **Every source this deployment mints Persons under must appear here.** PM requires
+#: ``identifier_type`` as a non-null string on a person observation, so a missing entry is
+#: not a soft degradation — it is a guaranteed 422 for every row of that source, discovered
+#: in the outbox rather than in CI (#255: #228's 2,494 roster Persons). The companion
+#: ``PERSON_MINTING_SOURCES`` pins that correspondence by test.
+SOURCE_TO_IDENTIFIER_TYPE: dict[str, str] = {
+    "usa_wa_legislature": "person_wa_legislature_member_id",
+    "usa_wa_pdc": "person_wa_pdc",
+    # #228: pre-1991 roster identities, keyed ``<name fold>:<first session year>``. Minted
+    # locally because no WSL member record exists that far back; PM registers the type so the
+    # key survives a re-derivation as a stable anchor (power-map#456).
+    "usa_wa_legislature_roster": "person_wa_legislature_roster",
+}
+
+#: The sources this deployment actually mints Persons under — the domain of the map above.
+#: Kept explicit (not derived) so adding a minting source is a deliberate two-line change
+#: with a test that fails until PM has the identifier type registered.
+PERSON_MINTING_SOURCES: frozenset[str] = frozenset(
+    {"usa_wa_legislature", "usa_wa_pdc", "usa_wa_legislature_roster"}
+)
+
+
 def identifier_type_for(source: str) -> str | None:
     """Map a local person's ``source`` to its PM ``identifier_type`` slug (design D1)."""
-    if source == "usa_wa_legislature":
-        return "person_wa_legislature_member_id"
-    if source == "usa_wa_pdc":
-        return "person_wa_pdc"
-    return None
+    return SOURCE_TO_IDENTIFIER_TYPE.get(source)
 
 
 #: Local ``PersonIdentifier.scheme`` → PM ``identifier_type`` slug. Maps the child
@@ -131,9 +151,11 @@ class PersonDescriptor(EntityDescriptor):
     async def to_observation(self, session: Any, row: Any) -> dict:
         id_type = identifier_type_for(row.source)
         if id_type is None:
-            # Unknown source → no PM identifier_type; PM will reject. Surface it
-            # (the outbox would otherwise read as a silent failure).
-            logger.warning("person_identifier_type_unresolved", extra={"source": row.source})
+            # Unknown source → no PM identifier_type, and PM requires a non-null string, so
+            # this row WILL be rejected 422. Surface it loudly (the outbox would otherwise
+            # read as a silent failure) — and add the source to SOURCE_TO_IDENTIFIER_TYPE
+            # rather than letting a whole cohort discover this one row at a time (#255).
+            logger.error("person_identifier_type_unresolved", extra={"source": row.source})
         obs: dict[str, Any] = {
             "identifier_type": id_type,
             "identifier_value": row.source_id,
