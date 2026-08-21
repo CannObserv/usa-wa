@@ -93,9 +93,9 @@ acceptance oracle → mint → emit → retire → deepen, in one gated pass. Ve
 production (rolled back) 2026-08-21: 6,217 pre-1991 records → **2,494 Persons minted, 3,627
 roster-sourced Assignments, 933 spans through the deepened sponsor build**; refusals
 `wide_gap: 14`, declines 2 (the power-map#442 adjudications), uncovered rows 9, seat
-overlaps 122, `spans_retired: 0` and `spans_closed: 0` on a first run (nothing to strand
-yet, and every shallow row the deepening supersedes is already closed — measured: zero open
-duplicate `(person, role)` pairs before or after). Every tally lands in `counters`, so the
+overlaps 122, `spans_retired: 0` / `spans_retired_anchored: 0` / `spans_closed: 0` on a
+first run (nothing to strand yet, and every shallow row the deepening supersedes is already
+closed — measured: zero open duplicate `(person, role)` pairs before or after). Every tally lands in `counters`, so the
 #178 job ledger holds the residue, not just the completion log.
 
 ```bash
@@ -128,9 +128,13 @@ before step 2, or the collapse runs against rows the sweep never touched.
 Re-runs are idempotent — Persons and Assignments upsert on natural keys, a display name
 that changed since the last run is refreshed (`persons_renamed`), and a span under a key
 this derivation no longer produces (an identity alias merged two folds, a parser fix moved
-a group's first session year) is soft-deleted (`spans_retired`). A stranded row carrying a
-PM anchor is counted separately (`spans_retired_anchored`) and warned — that anchor belongs
-on its successor via step 2's collapse, so run this build again after it.
+a group's first session year) is soft-deleted (`spans_retired`).
+
+A stranded row **carrying a PM anchor is left alive**, counted as `spans_retired_anchored`,
+and degrades the exit: retiring it would orphan the PM assignment for good, since both
+`sponsors.migrate_spans` and `retract_assignments` filter `deleted_at IS NULL`. The sequence
+is therefore build → step 2's collapse (which transfers the anchor onto the successor span)
+→ **build again** (which retires the now-unanchored row and exits `0`).
 
 `--supersede-conflicts` is off by default: the safe reading of a disagreement is that someone
 knew something the roster does not. It was overridden once, on evidence — all 17 live conflicts
