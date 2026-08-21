@@ -36,12 +36,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
+from clearinghouse_domain_legislative.span_emit import retire_unasserted_spans
+from clearinghouse_domain_legislative.span_kinds import KIND_PARTY, KIND_SENATE
 from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.provisioning import get_or_create_source as get_or_create_wsl
 from usa_wa_adapter_legislature.roster_pdf.backfill import load_seatings
 from usa_wa_adapter_legislature.roster_pdf.cohort import RosterCohortProvider
+from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.emit import emit_roster_spans
 from usa_wa_adapter_legislature.roster_pdf.identity import (
     IDENTITY_WSL,
@@ -76,8 +79,17 @@ class Pre1991BuildSummary:
     refusals: dict[str, int]
     persons_created: int
     persons_existing: int
+    persons_renamed: int
     assignments_emitted: int
+    spans_retired: int
+    spans_retired_anchored: int
+    retire_aborted: bool
     deepened_emitted: int
+    #: The deepening build's #83 stale sweep — deepening re-keys a joined member's span to
+    #: its roster-era start, so the shipped 1991-start row goes stale here. ``sweep_aborted``
+    #: means the mass-close guard tripped and those rows are still open (CR #84).
+    spans_closed: int
+    sweep_aborted: bool
     declined_parties: int
     uncovered_rows: int
     seat_overlaps: int
@@ -151,8 +163,14 @@ async def build_pre1991(
             refusals={},
             persons_created=0,
             persons_existing=0,
+            persons_renamed=0,
             assignments_emitted=0,
+            spans_retired=0,
+            spans_retired_anchored=0,
+            retire_aborted=False,
             deepened_emitted=0,
+            spans_closed=0,
+            sweep_aborted=False,
             declined_parties=0,
             uncovered_rows=0,
             seat_overlaps=0,
@@ -202,7 +220,20 @@ async def build_pre1991(
         citation=citation,
     )
 
+    # Retire roster spans this derivation no longer asserts (CR #86): the pre-1991 rows are
+    # emitted closed, so the #83 open-row sweep can never see one go stale — what strands
+    # them is a re-derivation moving an identity key, and the row must leave live reads and
+    # sync rather than linger under its old shape.
+    retire = await retire_unasserted_spans(
+        session,
+        assignment_source=ROSTER_SOURCE_SLUG,
+        kinds={KIND_PARTY, KIND_SENATE},
+        asserted_source_ids={span.source_id for span in minted_spans},
+    )
+
     deepened = 0
+    spans_closed = 0
+    sweep_aborted = False
     if joined_obs:
         result = await build_spans(
             session,
@@ -211,48 +242,63 @@ async def build_pre1991(
             fallback_citation=citation,
         )
         deepened = result.emitted
+        spans_closed = result.closed_stale
+        sweep_aborted = result.sweep_aborted
 
+    refusals = _refusal_counts(report)
     summary = Pre1991BuildSummary(
         records_pre1991=len(pre),
         identities_minted=sum(1 for i in report.identities if i.disposition != IDENTITY_WSL),
         identities_joined=len(joined_members),
-        refusals=_refusal_counts(report),
+        refusals=refusals,
         persons_created=minted["created"],
         persons_existing=minted["existing"],
+        persons_renamed=minted["renamed"],
         assignments_emitted=emitted,
+        spans_retired=retire.retired,
+        spans_retired_anchored=retire.anchored,
+        retire_aborted=retire.aborted,
         deepened_emitted=deepened,
+        spans_closed=spans_closed,
+        sweep_aborted=sweep_aborted,
         declined_parties=len(projection.declined_parties),
         uncovered_rows=len(projection.uncovered_rows),
         seat_overlaps=len(projection.seat_overlaps),
+        # Every tally the run produced — ``counters`` is what the #178 ledger persists, so a
+        # residue that lives only in the completion log is a residue nobody can trend (CR #87).
         counters={
             "records_pre1991": len(pre),
+            "identities_minted": sum(1 for i in report.identities if i.disposition != IDENTITY_WSL),
+            "identities_joined": len(joined_members),
             "persons_created": minted["created"],
+            "persons_existing": minted["existing"],
+            "persons_renamed": minted["renamed"],
             "assignments_emitted": emitted,
+            "spans_retired": retire.retired,
+            "spans_retired_anchored": retire.anchored,
+            "retire_aborted": int(retire.aborted),
             "deepened_emitted": deepened,
+            "spans_closed": spans_closed,
+            "sweep_aborted": int(sweep_aborted),
+            "declined_parties": len(projection.declined_parties),
+            "uncovered_rows": len(projection.uncovered_rows),
+            "seat_overlaps": len(projection.seat_overlaps),
+            **{f"refusals_{reason}": count for reason, count in refusals.items()},
         },
     )
-    logger.info(
-        "pre1991_build_complete",
-        extra={
-            "records_pre1991": summary.records_pre1991,
-            "minted": summary.identities_minted,
-            "joined": summary.identities_joined,
-            "refusals": summary.refusals,
-            "persons_created": summary.persons_created,
-            "assignments_emitted": summary.assignments_emitted,
-            "deepened_emitted": summary.deepened_emitted,
-            "declined_parties": summary.declined_parties,
-            "uncovered_rows": summary.uncovered_rows,
-            "seat_overlaps": summary.seat_overlaps,
-        },
-    )
+    logger.info("pre1991_build_complete", extra=dict(summary.counters))
     return summary
 
 
 async def _build_job(ctx: JobContext) -> JobResult:
-    """Run the gated build. Zero pre-1991 records is degraded — the archive is missing."""
+    """Run the gated build. Degraded on a missing archive **or a guard that tripped**.
+
+    A mass-close/mass-retire abort leaves the stranded rows in place; the build still wrote
+    everything else, so it is not a failure — but it must not read as a clean run either,
+    or the operator moves on to the #97 collapse with rows the sweep never touched (CR #84).
+    """
     summary = await build_pre1991(ctx.require_session())
-    if summary.records_pre1991 == 0:
+    if summary.records_pre1991 == 0 or summary.sweep_aborted or summary.retire_aborted:
         return JobResult.degraded(summary.counters)
     return JobResult.ok(summary.counters)
 

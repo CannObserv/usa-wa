@@ -179,6 +179,9 @@ async def test_summary_reports_the_deepening_sweep_and_the_full_residue(
         "declined_parties",
         "uncovered_rows",
         "seat_overlaps",
-        "refusals_wide_gap",
     ):
         assert key in summary.counters, key
+    # refusal reasons are data, not a fixed vocabulary — each one gets its own counter
+    assert summary.refusals
+    for reason, count in summary.refusals.items():
+        assert summary.counters[f"refusals_{reason}"] == count
