@@ -9,6 +9,7 @@ rebuild from the archive plus the adjudication tables reproduces the same rows.
 from __future__ import annotations
 
 from sqlalchemy import select
+from ulid import ULID as _ULID
 
 from clearinghouse_domain_legislative.identity import Person
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
@@ -18,7 +19,10 @@ from usa_wa_adapter_legislature.roster_pdf.identity import (
     RosterIdentity,
 )
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
-from usa_wa_adapter_legislature.roster_pdf.persons import mint_roster_persons
+from usa_wa_adapter_legislature.roster_pdf.persons import (
+    mint_roster_persons,
+    retire_unasserted_roster_persons,
+)
 
 
 def _rec(name: str, year: int, **kw) -> RosterRecord:
@@ -123,3 +127,52 @@ async def test_rerun_refreshes_a_changed_display_name(db_session) -> None:
         )
     ).scalar_one()
     assert person.name_full == "A. B. Carver"
+
+
+async def test_a_person_the_derivation_no_longer_asserts_is_retired(db_session) -> None:
+    """CR/#259: a re-derivation that *joins* a fold it previously minted (the boundary
+    probe) leaves the old roster Person behind. Nothing else retires it — minting only
+    creates and updates — so it would still be produced to PM as the very duplicate the
+    join now prevents. The build must retire it."""
+    await mint_roster_persons(db_session, [_minted("pattymurray:1989", _rec("Patty Murray", 1989))])
+
+    # the re-derivation joins her to WSL instead: no minted identity carries her key
+    result = await retire_unasserted_roster_persons(db_session, asserted_keys={"other:1901"})
+
+    assert result["retired"] == 1
+    person = (
+        await db_session.execute(
+            select(Person).where(
+                Person.source == ROSTER_SOURCE_SLUG, Person.source_id == "pattymurray:1989"
+            )
+        )
+    ).scalar_one()
+    assert person.deleted_at is not None
+
+
+async def test_retirement_leaves_asserted_persons_and_is_idempotent(db_session) -> None:
+    await mint_roster_persons(db_session, [_minted("abcarver:1899", _rec("A. B. Carver", 1899))])
+
+    first = await retire_unasserted_roster_persons(db_session, asserted_keys={"abcarver:1899"})
+    assert first["retired"] == 0
+    second = await retire_unasserted_roster_persons(db_session, asserted_keys=set())
+    assert second["retired"] == 1
+    third = await retire_unasserted_roster_persons(db_session, asserted_keys=set())
+    assert third["retired"] == 0  # already tombstoned; not re-counted
+
+
+async def test_retirement_refuses_to_tombstone_an_anchored_person(db_session) -> None:
+    """The #95 lesson, applied to Persons: a PM-anchored row must not be soft-deleted —
+    every recovery path filters ``deleted_at IS NULL``, so the anchor would be orphaned
+    with no way back. Count it, leave it, let the caller act."""
+    await mint_roster_persons(db_session, [_minted("anchored:1899", _rec("An Chored", 1899))])
+    person = (
+        await db_session.execute(select(Person).where(Person.source_id == "anchored:1899"))
+    ).scalar_one()
+    person.pm_person_id = _ULID()
+    await db_session.flush()
+
+    result = await retire_unasserted_roster_persons(db_session, asserted_keys=set())
+
+    assert result == {"retired": 0, "anchored": 1}
+    assert person.deleted_at is None
