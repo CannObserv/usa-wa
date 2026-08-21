@@ -50,6 +50,7 @@ immediately on a permanent auth/scope block), and park to REJECTED on a permanen
 refusal — a poison entry parks itself rather than rolling back the whole cycle.
 """
 
+import re
 from collections import Counter
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
@@ -92,6 +93,11 @@ logger = get_logger(__name__)
 #: a redrive would collide with the fresh PENDING on ``uq_powermap_outbox_open``).
 #: REJECTED is intentionally excluded: it signals a data fix, after which the next
 #: sweep should re-enqueue and re-attempt the corrected row.
+#: PM's rejection reason when the observation names an ``identifier_type`` it has never
+#: registered (usa-wa#257). A verdict on the TYPE, not the row: every sibling carrying it
+#: will be refused identically, so the first one is a probe and the rest can wait.
+_UNKNOWN_IDENTIFIER_TYPE = re.compile(r"unknown_identifier_type:\s*'([^']+)'")
+
 _REENQUEUE_BLOCKING_STATUSES = (STATUS_PENDING, STATUS_UNAVAILABLE)
 
 
@@ -163,6 +169,22 @@ class OutboxWriter:
         #: read by the sidecar's cycle summary. Defaults so a caller that reads it before
         #: any drain gets an empty, safe value.
         self._last_drain_stats = DrainStats()
+        #: Identifier types PM has told us it does not know (usa-wa#257). Populated from a
+        #: rejection reason, consulted before every delivery, and discarded the moment PM
+        #: accepts one — so a registration self-heals with no operator step. Process-local
+        #: by design: a restart re-probes with a single request, which is the correct cost
+        #: of not knowing.
+        self._blocked_identifier_types: set[str] = set()
+        #: Blocked types already re-probed in the current drain. The block is **one probe
+        #: per drain**, not a hard stop: a hard stop would latch forever, because the only
+        #: thing that can clear it is a delivery it forbids. One request per cycle is the
+        #: standing cost of a missing registration, against 2,494 without the breaker.
+        self._probed_identifier_types: set[str] = set()
+
+    @property
+    def blocked_identifier_types(self) -> set[str]:
+        """Identifier types PM refused as unknown; deliveries carrying one are deferred."""
+        return self._blocked_identifier_types
 
     @property
     def last_drain_stats(self) -> DrainStats:
@@ -575,6 +597,7 @@ class OutboxWriter:
         if chunk_size < 1:
             raise ValueError("chunk_size must be >= 1")
         self._last_drain_stats = DrainStats()  # per-drain tallies (usa-wa#108)
+        self._probed_identifier_types = set()  # one re-probe per blocked type per drain
         touched: list[OutboxEntry] = []
         since_commit = 0
         for entry in await self._due_entries(session, now):
@@ -646,6 +669,23 @@ class OutboxWriter:
             payload = await descriptor.to_enrich_observation(session, row)
         else:
             payload = await descriptor.to_observation(session, row)
+
+        id_type = payload.get("identifier_type")
+        if id_type in self._blocked_identifier_types:
+            if id_type in self._probed_identifier_types:
+                # Already re-probed this drain and PM still refuses the type (usa-wa#257).
+                # The verdict is on the type, so this row cannot succeed either — defer
+                # rather than spend a request to be told the same thing. Deferral keeps it
+                # PENDING, so the cohort flushes by itself once the type is registered.
+                entry.next_attempt_at = next_attempt_at(now, entry.attempts)
+                entry.last_error = f"identifier_type not registered in PM: {id_type}"
+                self._log_deferral(entry, now)
+                return True
+            # First row of a blocked type this drain: let it through as the re-probe. A
+            # hard block would latch forever — the only thing that can clear it is a
+            # delivery it forbids — so the breaker costs one request per cycle, not none.
+            self._probed_identifier_types.add(id_type)
+
         try:
             result = await self._ctx.client.post_observation(descriptor.observe_path, payload)
         except TRANSIENT_EXCEPTIONS as exc:  # back off and retry; bugs propagate
@@ -711,6 +751,15 @@ class OutboxWriter:
             self._anchors.stamp_anchor(descriptor, row, result.pm_id)
             entry.status = STATUS_DELIVERED
             entry.last_error = None
+            # PM accepted this type, so any standing block on it is stale (usa-wa#257) —
+            # the registration self-heals the cohort with no operator step.
+            if delivered_type := payload.get("identifier_type"):
+                if delivered_type in self._blocked_identifier_types:
+                    self._blocked_identifier_types.discard(delivered_type)
+                    logger.info(
+                        "powermap_identifier_type_unblocked",
+                        extra={"identifier_type": delivered_type},
+                    )
             await self._stamp_enrich_fingerprint(session, entry)
             if await self._anchors.track_convergence(
                 session, descriptor, row, entry, result, old_anchor, payload
@@ -753,6 +802,20 @@ class OutboxWriter:
         """
         entry.status = STATUS_REJECTED
         entry.last_error = error
+        reason = raw.get("reason") if isinstance(raw, dict) else None
+        if isinstance(reason, str) and (match := _UNKNOWN_IDENTIFIER_TYPE.search(reason)):
+            # Arm the breaker (usa-wa#257): every sibling carrying this type would be
+            # refused identically, so the rest of the cohort defers instead of being spent.
+            slug = match.group(1)
+            # The rejection we just took IS this drain's probe of the type, so no further
+            # row need re-probe it until the next drain.
+            self._probed_identifier_types.add(slug)
+            if slug not in self._blocked_identifier_types:
+                self._blocked_identifier_types.add(slug)
+                logger.error(
+                    "powermap_identifier_type_unknown_blocking_cohort",
+                    extra={"identifier_type": slug, "entity_type": entry.entity_type},
+                )
         if payload is not None and entry.op != OP_ENRICH:
             entry.payload_hash = enrich_fingerprint(payload)
         await self._stamp_enrich_fingerprint(session, entry)

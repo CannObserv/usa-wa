@@ -1537,7 +1537,9 @@ async def test_an_unknown_identifier_type_defers_the_rest_of_the_cohort(db_sessi
 
 async def test_a_successful_delivery_clears_the_blocked_identifier_type(db_session):
     """The breaker must self-heal: once PM registers the type, the next accepted delivery
-    re-arms the cohort with no operator step."""
+    re-arms the cohort with no operator step. That is why the block is one probe per drain
+    rather than a hard stop — a hard stop latches forever, since the only thing that can
+    clear it is the delivery it forbids."""
     descriptor = _IdentifiedDescriptor()
     await _add_entity(db_session, source_id="1")
     engine = SyncEngine([descriptor], FakeClient(observation_result=_unknown_type_rejection))
