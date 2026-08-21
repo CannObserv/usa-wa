@@ -22,7 +22,8 @@ stale string in place.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +44,57 @@ def display_name(identity: RosterIdentity) -> str:
     """The most recent listing's name, seat suffix stripped, whitespace collapsed."""
     latest = max(identity.records, key=lambda r: (r.year, r.order))
     return " ".join(strip_position_suffix(latest.name).split())
+
+
+async def retire_unasserted_roster_persons(
+    session: AsyncSession, *, asserted_keys: Collection[str]
+) -> dict[str, int]:
+    """Soft-delete roster Persons this derivation no longer mints; ``{retired, anchored}``.
+
+    The counterpart to minting, for the case minting cannot cover: a re-derivation that
+    *joins* a fold it previously minted (#259's boundary probe moved 16 of them) leaves the
+    old Person behind, and nothing else would ever retire it — it would go on to PM as
+    exactly the duplicate the join now prevents.
+
+    An **anchored** Person is counted and left alive, the #95 lesson applied to Persons:
+    every recovery path filters ``deleted_at IS NULL``, so tombstoning an anchored row
+    orphans its PM person with no way back. A non-zero ``anchored`` is work for an operator
+    (merge in PM, then re-run), not something to resolve here.
+    """
+    rows = (
+        (
+            await session.execute(
+                select(Person).where(
+                    Person.source == ROSTER_SOURCE_SLUG, Person.deleted_at.is_(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    asserted = set(asserted_keys)
+    now = datetime.now(UTC)
+    retired = anchored = 0
+    for person in rows:
+        if person.source_id in asserted:
+            continue
+        if person.pm_person_id is not None:
+            anchored += 1
+            logger.warning(
+                "roster_person_retire_skipped_pm_anchor",
+                extra={"source_id": person.source_id, "pm_person_id": str(person.pm_person_id)},
+            )
+            continue
+        person.deleted_at = now
+        retired += 1
+        logger.info("roster_person_retired", extra={"source_id": person.source_id})
+    if retired:
+        await session.flush()
+    logger.info(
+        "roster_persons_retired",
+        extra={"persons_retired": retired, "persons_retire_anchored": anchored},
+    )
+    return {"retired": retired, "anchored": anchored}
 
 
 async def mint_roster_persons(

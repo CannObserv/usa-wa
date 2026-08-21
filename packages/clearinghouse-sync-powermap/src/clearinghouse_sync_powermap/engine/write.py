@@ -610,6 +610,30 @@ class OutboxWriter:
             await session.delete(entry)
             return False
 
+        if (
+            entry.op == OP_CREATE
+            and descriptor.is_deleted(row)
+            and getattr(row, descriptor.anchor_column) is None
+        ):
+            # Retired after its CREATE was queued (usa-wa#259): a producer re-derivation
+            # stopped asserting the row. Unanchored means PM never saw it, so there is
+            # nothing to retract and delivering would mint exactly the record the producer
+            # just decided should not exist. Same verdict as the vanished-row branch — drop
+            # the entry, do not mark it DELIVERED. The sweep already refuses to *enqueue* a
+            # deleted row; this closes the hole for one already in flight. An ANCHORED
+            # tombstone is left alone: PM holds it, so retraction is the descriptors'
+            # business (#31), not a silent drop.
+            logger.info(
+                "outbox_create_dropped_row_retired",
+                extra={
+                    "entity_type": descriptor.entity_type,
+                    "local_id": str(entry.local_id),
+                    "source_id": getattr(row, "source_id", None),
+                },
+            )
+            await session.delete(entry)
+            return False
+
         if not await descriptor.dependencies_ready(session, row):
             # A PM prerequisite (parent org / person / role) is not anchored yet.
             # Defer without counting a failure: keep PENDING, re-check next cycle.
