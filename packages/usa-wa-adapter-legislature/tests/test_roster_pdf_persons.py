@@ -42,7 +42,7 @@ async def test_mints_a_person_per_minted_identity(db_session) -> None:
         _minted("abcarver:1899", _rec("A. B. Carver", 1899), _rec("A. B. Carver", 1901)),
     ]
     result = await mint_roster_persons(db_session, identities)
-    assert result == {"created": 1, "existing": 0}
+    assert result == {"created": 1, "existing": 0, "renamed": 0}
     person = (
         await db_session.execute(
             select(Person).where(
@@ -84,7 +84,7 @@ async def test_joined_identities_mint_nothing(db_session) -> None:
         records=(_rec("Jane Doe", 1985),),
     )
     result = await mint_roster_persons(db_session, [joined])
-    assert result == {"created": 0, "existing": 0}
+    assert result == {"created": 0, "existing": 0, "renamed": 0}
     rows = (
         (await db_session.execute(select(Person).where(Person.source == ROSTER_SOURCE_SLUG)))
         .scalars()
@@ -97,10 +97,29 @@ async def test_minting_is_idempotent(db_session) -> None:
     identities = [_minted("abcarver:1899", _rec("A. B. Carver", 1899))]
     await mint_roster_persons(db_session, identities)
     result = await mint_roster_persons(db_session, identities)
-    assert result == {"created": 0, "existing": 1}
+    assert result == {"created": 0, "existing": 1, "renamed": 0}
     rows = (
         (await db_session.execute(select(Person).where(Person.source == ROSTER_SOURCE_SLUG)))
         .scalars()
         .all()
     )
     assert len(rows) == 1
+
+
+async def test_rerun_refreshes_a_changed_display_name(db_session) -> None:
+    """CR #89: re-derivability is a property of rows, not just keys. A parse fix that
+    corrects a printed form must land on the existing Person — otherwise the archive plus
+    the adjudication tables no longer reproduce what is in the database."""
+    await mint_roster_persons(db_session, [_minted("abcarver:1899", _rec("A. B. Carvcr", 1899))])
+    result = await mint_roster_persons(
+        db_session, [_minted("abcarver:1899", _rec("A. B. Carver", 1899))]
+    )
+    assert result == {"created": 0, "existing": 1, "renamed": 1}
+    person = (
+        await db_session.execute(
+            select(Person).where(
+                Person.source == ROSTER_SOURCE_SLUG, Person.source_id == "abcarver:1899"
+            )
+        )
+    ).scalar_one()
+    assert person.name_full == "A. B. Carver"
