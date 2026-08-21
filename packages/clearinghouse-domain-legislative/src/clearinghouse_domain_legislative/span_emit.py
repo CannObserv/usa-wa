@@ -65,6 +65,18 @@ class StaleSweepOutcome:
 
 
 @dataclass(frozen=True)
+class RetireSweepOutcome:
+    """What :func:`retire_unasserted_spans` did (#228 CR #86). ``retired`` counts the
+    soft-deleted rows; ``anchored`` is the subset that carried a PM anchor — reported so a
+    build can hand them to the #97 collapse instead of orphaning them silently; ``aborted``
+    is the mass-retire guard, same shape as :class:`StaleSweepOutcome`."""
+
+    retired: int = 0
+    anchored: int = 0
+    aborted: bool = False
+
+
+@dataclass(frozen=True)
 class SpanBuildResult:
     """A span builder's run summary — emitted spans plus the stale-sweep outcome, so the
     CLIs can print what the sweep did (#83 CR round 3) and the refresh can count spans."""
@@ -348,6 +360,91 @@ async def add_field_citation(
     )
     await session.flush()
     return True
+
+
+async def retire_unasserted_spans(
+    session: AsyncSession,
+    *,
+    assignment_source: str,
+    kinds: Collection[str],
+    asserted_source_ids: Collection[str],
+    max_close_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
+    close_fraction_floor: int = 5,
+) -> RetireSweepOutcome:
+    """Soft-delete span Assignments of ``assignment_source`` this rebuild no longer asserts.
+
+    The **closed-row** counterpart to :func:`close_stale_spans` (#228 CR #86), for a builder
+    whose spans are historical: every pre-1991 roster span is emitted already closed, so the
+    #83 sweep — which reads ``is_active`` rows — can never see one go stale. What strands
+    such a row is a *re-derivation*, not a departure: a new identity alias merges two folds,
+    or a parser fix moves a group's first session year, and the 4-part ``source_id`` changes
+    underneath a live row. Left alone it keeps its old shape in every read and keeps syncing.
+
+    Retirement is ``deleted_at`` rather than a close: the row is not a tenure that ended, it
+    is an assertion the source never made. Rows already soft-deleted, non-4-part legacy
+    source_ids, other sources and other ``kinds`` are untouched.
+
+    **Guards**, mirroring :func:`close_stale_spans`: an empty asserted set skips the sweep
+    entirely (a build that derived nothing must not wipe the corpus), and past
+    ``close_fraction_floor`` candidates, retiring more than ``max_close_fraction`` of the
+    in-scope rows aborts and changes nothing — a truncated re-parse reads as mass strandings.
+    A wrongly-aborted sweep self-heals on the next complete run.
+
+    A stranded row carrying a ``pm_assignment_id`` is counted in ``anchored`` and warned: the
+    anchor belongs on its successor span, which is the #97 collapse's job — run that first."""
+    if not asserted_source_ids:
+        logger.warning(
+            "span_retire_sweep_skipped_empty_assertion",
+            extra={"assignment_source": assignment_source, "kinds": sorted(kinds)},
+        )
+        return RetireSweepOutcome()
+    asserted = set(asserted_source_ids)
+    kind_set = set(kinds)
+    rows = (
+        (
+            await session.execute(
+                select(Assignment).where(
+                    Assignment.source == assignment_source, Assignment.deleted_at.is_(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    in_scope = [
+        row for row in rows if len(parts := row.source_id.split(":")) == 4 and parts[1] in kind_set
+    ]
+    stranded = [row for row in in_scope if row.source_id not in asserted]
+    if len(stranded) > close_fraction_floor and len(stranded) > max_close_fraction * len(in_scope):
+        logger.warning(
+            "span_retire_sweep_aborted_mass_retire",
+            extra={
+                "assignment_source": assignment_source,
+                "kinds": sorted(kind_set),
+                "stranded": len(stranded),
+                "in_scope": len(in_scope),
+                "max_close_fraction": max_close_fraction,
+            },
+        )
+        return RetireSweepOutcome(aborted=True)
+    now = datetime.now(UTC)
+    anchored = 0
+    for row in stranded:
+        row.deleted_at = now
+        if row.pm_assignment_id is not None:
+            anchored += 1
+            logger.warning(
+                "span_retired_with_pm_anchor",
+                extra={
+                    "source_id": row.source_id,
+                    "pm_assignment_id": str(row.pm_assignment_id),
+                },
+            )
+        else:
+            logger.info("span_retired_unasserted", extra={"source_id": row.source_id})
+    if stranded:
+        await session.flush()
+    return RetireSweepOutcome(retired=len(stranded), anchored=anchored)
 
 
 async def _ensure_citations(

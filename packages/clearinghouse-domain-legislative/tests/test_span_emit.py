@@ -474,10 +474,33 @@ def test_close_fraction_validator_accepts_the_valid_range():
 
 async def _closed_assignment(session, usa_wa, source_id, *, source="usa_wa_legislature_roster"):
     """A CLOSED historical span row, as a prior roster build left it — every pre-1991 span
-    is closed, which is exactly why ``close_stale_spans`` (open rows only) cannot see them."""
-    row = await _open_assignment(session, usa_wa, source_id, source=source)
-    row.is_active = False
-    row.valid_to = date(1990, 12, 31)
+    is closed, which is exactly why ``close_stale_spans`` (open rows only) cannot see them.
+
+    The Person is get-or-create: one member legitimately owns several span rows, which is
+    the whole shape a stranded-key re-derivation produces."""
+    member = source_id.split(":")[0]
+    person = (
+        await session.execute(
+            select(Person).where(Person.source == "usa_wa_legislature", Person.source_id == member)
+        )
+    ).scalar_one_or_none()
+    if person is None:
+        person = Person(source="usa_wa_legislature", source_id=member, name_full="M")
+        session.add(person)
+        await session.flush()
+    role = (
+        await session.execute(select(Role).where(Role.source_id == "seat:house:ld-5:position-1"))
+    ).scalar_one_or_none() or await _add_role(session, usa_wa)
+    row = Assignment(
+        source=source,
+        source_id=source_id,
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(1889, 1, 1),
+        valid_to=date(1990, 12, 31),
+        is_active=False,
+    )
+    session.add(row)
     await session.flush()
     return row
 

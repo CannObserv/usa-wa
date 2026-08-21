@@ -9,7 +9,7 @@ refusal is a tallied outcome, never an abort.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy import func, select
@@ -117,3 +117,68 @@ def test_oracle_rejects_person_side_senate_simultaneity() -> None:
     )
     with pytest.raises(OracleViolation, match="xdouble"):
         verify_pre1991([identity], [r for r in identity.records])
+
+
+async def test_build_retires_a_span_a_rederivation_no_longer_asserts(
+    db_session, usa_wa, archived_roster
+) -> None:
+    """CR #86 at the build seam: a roster Assignment left over from an earlier derivation
+    (here, a hand-planted row under a key no identity produces) is soft-deleted, and the
+    count is reported. Idempotent — a second run finds nothing left to retire."""
+    await build_pre1991(db_session, current_biennium=CURRENT)
+    live = (
+        (
+            await db_session.execute(
+                select(Assignment).where(
+                    Assignment.source == ROSTER_SOURCE_SLUG, Assignment.deleted_at.is_(None)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    stranded = Assignment(
+        source=ROSTER_SOURCE_SLUG,
+        source_id="ghostmember:party:republican:1899-00",
+        person_id=live[0].person_id,
+        role_id=live[0].role_id,
+        valid_from=date(1899, 1, 1),
+        valid_to=date(1900, 12, 31),
+        is_active=False,
+    )
+    db_session.add(stranded)
+    await db_session.flush()
+
+    summary = await build_pre1991(db_session, current_biennium=CURRENT)
+
+    assert summary.spans_retired == 1
+    assert stranded.deleted_at is not None
+    again = await build_pre1991(db_session, current_biennium=CURRENT)
+    assert again.spans_retired == 0
+
+
+async def test_summary_reports_the_deepening_sweep_and_the_full_residue(
+    db_session, usa_wa, archived_roster
+) -> None:
+    """CR #84/#87: the deepening build's stale-sweep outcome reaches the summary (an
+    aborted #83 guard must not exit 0 silently), and every tallied residue reaches
+    ``counters`` — the durable #178 ledger record, not just a log line."""
+    summary = await build_pre1991(db_session, current_biennium=CURRENT)
+
+    assert summary.spans_closed == 0
+    assert summary.sweep_aborted is False
+    for key in (
+        "records_pre1991",
+        "persons_created",
+        "persons_existing",
+        "persons_renamed",
+        "assignments_emitted",
+        "deepened_emitted",
+        "spans_closed",
+        "spans_retired",
+        "declined_parties",
+        "uncovered_rows",
+        "seat_overlaps",
+        "refusals_wide_gap",
+    ):
+        assert key in summary.counters, key
