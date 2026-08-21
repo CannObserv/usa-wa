@@ -116,10 +116,16 @@ _QUOTED = re.compile(r"[“\"][^”\"]*[”\"]")
 _HONORIFICS = frozenset({"mr", "mrs", "dr", "rev", "hon"})
 
 
+def strip_position_suffix(name: str) -> str:
+    """``"Bob Basich – 19B"`` → ``"Bob Basich"``. Public so the display-name minter
+    (:mod:`persons`) shares one definition of what counts as seat metadata (CR #88)."""
+    return _POSITION_SUFFIX.sub("", name)
+
+
 def identity_fold(name: str) -> str:
     """The identity key's name half: the shared fold over the cleaned name."""
     cleaned = _QUOTED.sub(" ", _PARENTHETICAL.sub(" ", name))
-    cleaned = _POSITION_SUFFIX.sub("", cleaned)
+    cleaned = strip_position_suffix(cleaned)
     tokens = [t for t in folded_tokens(cleaned) if t and t not in _HONORIFICS]
     return "".join(tokens)
 
