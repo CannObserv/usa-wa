@@ -939,13 +939,22 @@ async def _add_rejected(session, *, reason: str) -> None:
     await session.flush()
 
 
-def _summary_sidecar(alerts: list[tuple[str, str]] | None = None) -> Sidecar:
+class _BlockedTypesEngine:
+    """Just enough engine for the summary: the breaker's read surface (usa-wa#257)."""
+
+    def __init__(self, blocked: set[str] | None = None) -> None:
+        self.blocked_identifier_types = frozenset(blocked or ())
+
+
+def _summary_sidecar(
+    alerts: list[tuple[str, str]] | None = None, *, blocked: set[str] | None = None
+) -> Sidecar:
     async def _alert(subject: str, body: str) -> None:
         if alerts is not None:
             alerts.append((subject, body))
 
     return Sidecar(
-        engine=None,
+        engine=_BlockedTypesEngine(blocked),
         descriptors=[],
         session_factory=lambda: None,
         alert=_alert if alerts is not None else None,
@@ -1587,3 +1596,27 @@ async def test_run_cycle_resets_and_captures_conditional_get_stats():
 
     assert engine.reset_called is True
     assert sidecar._last_conditional_get == (3, 7)
+
+
+async def test_cycle_summary_surfaces_blocked_identifier_types(db_session, caplog):
+    """usa-wa#257 CR: the breaker makes a stalled cohort cheap; the summary makes it
+    visible. Without this the cohort shows only as a growing ``pending`` with no named
+    cause — the usa-wa#247 shape, where a wedged push reads exactly like a converged one
+    because every other field counts work in flight."""
+    sidecar = _summary_sidecar(blocked={"person_wa_legislature_roster"})
+
+    with caplog.at_level("INFO"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    record = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
+    assert record.blocked_identifier_types == ["person_wa_legislature_roster"]
+
+
+async def test_cycle_summary_blocked_identifier_types_is_empty_when_clear(db_session, caplog):
+    sidecar = _summary_sidecar()
+
+    with caplog.at_level("INFO"):
+        await sidecar.report_cycle_summary(db_session, now=NOW)
+
+    record = next(r for r in caplog.records if r.message == "sidecar_cycle_summary")
+    assert record.blocked_identifier_types == []
