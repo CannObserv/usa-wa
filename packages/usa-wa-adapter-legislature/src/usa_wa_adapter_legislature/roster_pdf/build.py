@@ -9,7 +9,9 @@ Archive → identities → Persons + spans, in one gated pass:
 3. **Run the acceptance oracle** (:func:`verify_pre1991`) *before any write*: the partition
    must be exact (every pre-1991 record in exactly one identity or refusal), the party
    vocabulary must recognize every token, and no member may cover two Senate seats in one
-   biennium (the person-side simultaneity nothing downstream checks — spec oracle item 3).
+   **session year** (the person-side simultaneity nothing downstream checks — spec oracle
+   item 3; the roster indexes rows by term-start year, so the year is the granularity the
+   check has evidence for).
    A violation aborts; refusals and declines are tallied outcomes, never aborts.
 4. Mint roster Persons for the minted identities (:mod:`persons`).
 5. Emit the minted identities' spans in the roster source space (:mod:`emit`).

@@ -10,6 +10,12 @@ stranded rows the #97 collapse retires. The sponsor builder calls this itself
 (``include_roster``); the daily restricted path never does (its cohort is the current
 biennium's members, all post-1991). Returns ``([], None)`` when no roster archive exists —
 a fresh database deepens nothing.
+
+**Cost** (CR #94): each call re-parses the whole archived edition and re-resolves the
+~6,200-record corpus — a few seconds, paid again by ``migrate_spans``' own internal build in
+the same maintenance window. No timer pays it: every scheduled caller is restricted. Left
+uncached deliberately — a memo keyed on the archive would have to invalidate on the
+adjudication tables too, and the operator-only callers do not justify that.
 """
 
 from __future__ import annotations

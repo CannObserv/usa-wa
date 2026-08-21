@@ -791,3 +791,12 @@ async def test_unrestricted_build_self_includes_the_roster_cohort(
         extra_observations=[Observation("100", KIND_SENATE, "5", "2021-22")],
     )
     assert calls == ["derived"]
+
+    # include_roster=False -> the opt-out actually opts out (CR #90)
+    await build_spans(
+        db_session,
+        sponsor_client=_FakeSponsorClient([_member(100)]),
+        current_biennium="2025-26",
+        include_roster=False,
+    )
+    assert calls == ["derived"]

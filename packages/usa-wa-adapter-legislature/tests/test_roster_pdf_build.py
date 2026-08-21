@@ -103,8 +103,8 @@ def _rec(name: str, year: int, **kw) -> RosterRecord:
 
 
 def test_oracle_rejects_person_side_senate_simultaneity() -> None:
-    """Oracle item 3, the person side: one member covering two Senate seats in one
-    biennium is corrupt data, and nothing downstream checks it — abort, with subjects."""
+    """Oracle item 3, the person side: one member covering two Senate seats in one session
+    year is corrupt data, and nothing downstream checks it — abort, with subjects."""
     identity = RosterIdentity(
         disposition=IDENTITY_MINTED,
         fold="xdouble",
