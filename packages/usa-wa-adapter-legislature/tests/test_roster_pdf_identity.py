@@ -379,3 +379,81 @@ def test_summary_counts_dispositions_and_reasons() -> None:
     counts = report.summary()
     assert counts[IDENTITY_MINTED] == 1
     assert counts[f"refused:{REFUSED_WIDE_GAP}"] == 1
+
+
+# ---------------------------------------------------------------------------
+# #259 — the floor is a *listing-year* floor, but a Senate term crosses it
+
+
+def test_senate_term_starting_two_years_below_the_floor_joins_the_wsl_member() -> None:
+    """Patty Murray's shape, measured: elected 1988, seated 1989, served through 1992.
+
+    The roster indexes rows by **term-start year**, so her only listing is 1989 — yet a
+    four-year Senate term reaches the 1991-92 biennium, where WSL holds her. Keying the
+    join on "has a 1991+ listing" misses her and mints a duplicate of a Person we already
+    hold: the §2 fork. 14 real members resolved this way before the fix.
+    """
+    report = resolve_identities(
+        [_rec("Patty Murray", 1989, chamber="senate", district=1)],
+        seatings=[_wsl("299", 1991, "Murray", "Patty", district=1, chamber="senate")],
+    )
+
+    (identity,) = report.identities
+    assert identity.disposition == IDENTITY_WSL
+    assert identity.wsl_member_id == "299"
+    assert identity.key is None
+    assert [r.year for r in identity.records] == [1989]
+
+
+def test_a_house_term_starting_two_years_below_the_floor_still_mints() -> None:
+    """The rule is the term length, not the year. A House term starting 1989 ends in 1990
+    — it never reaches the floor, so a same-surname senator seated in 1991 is a different
+    person and joining them would be the merge #228 forbids."""
+    report = resolve_identities(
+        [_rec("Patty Murray", 1989, chamber="house", district=1)],
+        seatings=[_wsl("299", 1991, "Murray", "Patty", district=1, chamber="house")],
+    )
+
+    (identity,) = report.identities
+    assert identity.disposition == IDENTITY_MINTED
+    assert identity.key == "pattymurray:1989"
+
+
+def test_a_senate_term_ending_before_the_floor_still_mints() -> None:
+    """A 1987 Senate term covers 1987-1990 and stops short of the floor — a genuine
+    retirement, not a crosser. Only terms whose span reaches the floor probe WSL."""
+    report = resolve_identities(
+        [_rec("Sam Early", 1987, chamber="senate", district=1)],
+        seatings=[_wsl("500", 1991, "Early", "Sam", district=1, chamber="senate")],
+    )
+
+    (identity,) = report.identities
+    assert identity.disposition == IDENTITY_MINTED
+    assert identity.key == "samearly:1987"
+
+
+def test_a_boundary_senator_with_no_wsl_seat_mints() -> None:
+    """A 1989 senator whose seat has nobody of that surname in 1991 genuinely departed
+    (resignation, death, appointment out) — mint, don't refuse."""
+    report = resolve_identities(
+        [_rec("Gone Bysummer", 1989, chamber="senate", district=7)],
+        seatings=[_wsl("501", 1991, "Other", "Person", district=7, chamber="senate")],
+    )
+
+    (identity,) = report.identities
+    assert identity.disposition == IDENTITY_MINTED
+    assert identity.key == "gonebysummer:1989"
+
+
+def test_the_boundary_probe_respects_the_given_name_initial_guard() -> None:
+    """The #240 guard is not bypassed at the boundary: a surname match whose initials
+    share nothing is a different person, and a lone 1989 listing offers no corroborating
+    years to overturn it."""
+    report = resolve_identities(
+        [_rec("Alice Smith", 1989, chamber="senate", district=4)],
+        seatings=[_wsl("502", 1991, "Smith", "Robert", district=4, chamber="senate")],
+    )
+
+    (identity,) = report.identities
+    assert identity.disposition == IDENTITY_MINTED
+    assert identity.key == "alicesmith:1989"
