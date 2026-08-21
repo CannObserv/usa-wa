@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -142,6 +142,24 @@ def _refusal_counts(report: IdentityReport) -> dict[str, int]:
     for refusal in report.refused:
         counts[refusal.reason] += 1
     return dict(counts)
+
+
+def _counters(summary: Pre1991BuildSummary) -> dict[str, int]:
+    """Every scalar tally on the summary, plus one counter per refusal reason.
+
+    **Derived, never mirrored** (CR #96): ``counters`` is what the #178 ledger persists, so
+    a hand-written dict beside the dataclass would eventually fall behind it — a field added
+    to one and forgotten in the other is a residue nobody can trend. Bools flatten to 0/1.
+
+    Refusal reasons become *log keys* (the completion log passes this dict as ``extra``), so
+    a new reason must not collide with a reserved ``LogRecord`` attribute — hence the
+    ``refusals_`` prefix (CR #97; the ``created`` collision is the precedent).
+    """
+    out = {
+        name: int(value) for name, value in asdict(summary).items() if isinstance(value, int | bool)
+    }
+    out.update({f"refusals_{reason}": count for reason, count in summary.refusals.items()})
+    return out
 
 
 async def build_pre1991(
@@ -266,28 +284,8 @@ async def build_pre1991(
         declined_parties=len(projection.declined_parties),
         uncovered_rows=len(projection.uncovered_rows),
         seat_overlaps=len(projection.seat_overlaps),
-        # Every tally the run produced — ``counters`` is what the #178 ledger persists, so a
-        # residue that lives only in the completion log is a residue nobody can trend (CR #87).
-        counters={
-            "records_pre1991": len(pre),
-            "identities_minted": sum(1 for i in report.identities if i.disposition != IDENTITY_WSL),
-            "identities_joined": len(joined_members),
-            "persons_created": minted["created"],
-            "persons_existing": minted["existing"],
-            "persons_renamed": minted["renamed"],
-            "assignments_emitted": emitted,
-            "spans_retired": retire.retired,
-            "spans_retired_anchored": retire.anchored,
-            "retire_aborted": int(retire.aborted),
-            "deepened_emitted": deepened,
-            "spans_closed": spans_closed,
-            "sweep_aborted": int(sweep_aborted),
-            "declined_parties": len(projection.declined_parties),
-            "uncovered_rows": len(projection.uncovered_rows),
-            "seat_overlaps": len(projection.seat_overlaps),
-            **{f"refusals_{reason}": count for reason, count in refusals.items()},
-        },
     )
+    summary = replace(summary, counters=_counters(summary))
     logger.info("pre1991_build_complete", extra=dict(summary.counters))
     return summary
 
@@ -298,9 +296,19 @@ async def _build_job(ctx: JobContext) -> JobResult:
     A mass-close/mass-retire abort leaves the stranded rows in place; the build still wrote
     everything else, so it is not a failure — but it must not read as a clean run either,
     or the operator moves on to the #97 collapse with rows the sweep never touched (CR #84).
+
+    ``spans_retired_anchored`` degrades for the same reason from the other direction (CR
+    #95): those rows are stranded, still anchored, and deliberately left alive so the
+    collapse can move their anchors. The work is unfinished until it has, and a second build
+    after it retires them.
     """
     summary = await build_pre1991(ctx.require_session())
-    if summary.records_pre1991 == 0 or summary.sweep_aborted or summary.retire_aborted:
+    if (
+        summary.records_pre1991 == 0
+        or summary.sweep_aborted
+        or summary.retire_aborted
+        or summary.spans_retired_anchored
+    ):
         return JobResult.degraded(summary.counters)
     return JobResult.ok(summary.counters)
 

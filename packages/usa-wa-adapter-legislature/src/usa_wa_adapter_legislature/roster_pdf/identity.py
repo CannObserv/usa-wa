@@ -66,7 +66,11 @@ CORROBORATION_FLOOR = 2
 IDENTITY_MINTED = "minted"
 IDENTITY_WSL = "wsl"
 
-# Refusal reasons — report-don't-drop, as everywhere in this source.
+# Refusal reasons — report-don't-drop, as everywhere in this source. A reason also becomes a
+# *ledger and log key* downstream (``refusals_<reason>`` in the Phase B build's counters,
+# passed as logging ``extra``), so keep them snake_case and short; the prefix is what keeps a
+# new reason from colliding with a reserved LogRecord attribute (CR #97 — ``created`` is the
+# precedent that made this a rule).
 REFUSED_WIDE_GAP = "wide_gap"
 REFUSED_JOIN_UNRESOLVED = "join_unresolved"
 REFUSED_JOIN_AMBIGUOUS = "join_ambiguous"

@@ -31,7 +31,7 @@ from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ulid import ULID as _ULID
 
@@ -66,10 +66,13 @@ class StaleSweepOutcome:
 
 @dataclass(frozen=True)
 class RetireSweepOutcome:
-    """What :func:`retire_unasserted_spans` did (#228 CR #86). ``retired`` counts the
-    soft-deleted rows; ``anchored`` is the subset that carried a PM anchor — reported so a
-    build can hand them to the #97 collapse instead of orphaning them silently; ``aborted``
-    is the mass-retire guard, same shape as :class:`StaleSweepOutcome`."""
+    """What :func:`retire_unasserted_spans` did (#228 CR #86).
+
+    ``retired`` counts the soft-deleted rows. ``anchored`` counts the stranded rows the
+    sweep **left in place** because they carry a PM anchor (CR #95) — the caller must run
+    the #97 collapse to transfer those anchors, after which the next sweep retires the rows;
+    a non-zero ``anchored`` is unfinished business, not a completed action. ``aborted`` is
+    the mass-retire guard, same shape as :class:`StaleSweepOutcome`."""
 
     retired: int = 0
     anchored: int = 0
@@ -390,8 +393,12 @@ async def retire_unasserted_spans(
     in-scope rows aborts and changes nothing — a truncated re-parse reads as mass strandings.
     A wrongly-aborted sweep self-heals on the next complete run.
 
-    A stranded row carrying a ``pm_assignment_id`` is counted in ``anchored`` and warned: the
-    anchor belongs on its successor span, which is the #97 collapse's job — run that first."""
+    A stranded row carrying a ``pm_assignment_id`` is **skipped**, counted in ``anchored``
+    and warned (CR #95). Retiring it would strand the PM assignment for good: both recovery
+    paths filter ``deleted_at IS NULL`` — the #97 collapse, which would transfer the anchor
+    onto the successor span, and the retraction producer, which treats a tombstone as
+    already gone. So the row stays until the collapse has moved its anchor, and the next
+    sweep retires it. Callers should treat ``anchored > 0`` as "run the collapse"."""
     if not asserted_source_ids:
         logger.warning(
             "span_retire_sweep_skipped_empty_assertion",
@@ -404,7 +411,12 @@ async def retire_unasserted_spans(
         (
             await session.execute(
                 select(Assignment).where(
-                    Assignment.source == assignment_source, Assignment.deleted_at.is_(None)
+                    Assignment.source == assignment_source,
+                    Assignment.deleted_at.is_(None),
+                    # Narrow in SQL (CR #98) — the kind is the source_id's second segment.
+                    # A prefilter only: the 4-part exactness check below stays authoritative,
+                    # since a LIKE also matches a legacy id that merely contains the token.
+                    or_(*(Assignment.source_id.like(f"%:{kind}:%") for kind in kind_set)),
                 )
             )
         )
@@ -428,23 +440,24 @@ async def retire_unasserted_spans(
         )
         return RetireSweepOutcome(aborted=True)
     now = datetime.now(UTC)
-    anchored = 0
+    retired = anchored = 0
     for row in stranded:
-        row.deleted_at = now
         if row.pm_assignment_id is not None:
             anchored += 1
             logger.warning(
-                "span_retired_with_pm_anchor",
+                "span_retire_skipped_pm_anchor",
                 extra={
                     "source_id": row.source_id,
                     "pm_assignment_id": str(row.pm_assignment_id),
                 },
             )
-        else:
-            logger.info("span_retired_unasserted", extra={"source_id": row.source_id})
-    if stranded:
+            continue
+        row.deleted_at = now
+        retired += 1
+        logger.info("span_retired_unasserted", extra={"source_id": row.source_id})
+    if retired:
         await session.flush()
-    return RetireSweepOutcome(retired=len(stranded), anchored=anchored)
+    return RetireSweepOutcome(retired=retired, anchored=anchored)
 
 
 async def _ensure_citations(
