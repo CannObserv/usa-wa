@@ -98,6 +98,18 @@ first run (nothing to strand yet, and every shallow row the deepening supersedes
 closed — measured: zero open duplicate `(person, role)` pairs before or after). Every tally lands in `counters`, so the
 #178 job ledger holds the residue, not just the completion log.
 
+**PM prerequisite — do this first.** The roster mints Persons under a *new* source
+(`usa_wa_legislature_roster`), and PM requires a registered `identifier_type` for every
+person observation. `person_wa_legislature_roster` must exist in PM
+(`/admin/settings/identifier-types/`, power-map#456) **before** the sidecar produces, or the
+whole cohort 422s — which is exactly what happened on the first run here (294 rejected before
+the sidecar was stopped). Since #255 an unmapped source *defers* instead of rejecting, so the
+failure mode is now a stalled queue rather than a rejection pile — but the type still has to
+exist before anything reaches PM.
+
+**The general rule:** a new Person-minting source has a PM dependency. Register its
+identifier type, add it to `SOURCE_TO_IDENTIFIER_TYPE`, *then* produce.
+
 ```bash
 # The whole sequence runs SIDECAR-PAUSED (deepening re-keys spans; migrate moves PM anchors):
 sudo systemctl stop usa-wa-sync-powermap
@@ -113,6 +125,7 @@ uv run python -m usa_wa_adapter_legislature.roster_pdf.build
 DATABASE_URL="$DATABASE_URL_OWNER" uv run python -m usa_wa_adapter_legislature.sponsors.migrate_spans
 
 # 3. Resume; the outbox drains the new Persons + Assignments to PM, paced (#85).
+#    Requires the PM prerequisite above; without it the person entries defer indefinitely.
 sudo systemctl start usa-wa-sync-powermap
 ```
 

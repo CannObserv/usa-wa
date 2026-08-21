@@ -41,13 +41,32 @@ SEARCH_PATH = "/api/v1/people/search"
 _SEARCH_LIMIT = 20
 
 
+#: Local Person ``source`` → PM ``identifier_type`` slug (design D1).
+#:
+#: **Every source this deployment mints Persons under must appear here.** PM requires
+#: ``identifier_type`` as a non-null string on a person observation, so a missing entry is
+#: not a soft degradation — it is a guaranteed 422 for every row of that source, discovered
+#: in the outbox rather than in CI (#255: #228's 2,494 roster Persons).
+#:
+#: Two things keep that from recurring. ``test_person_minting_sources.py`` walks the AST of
+#: every ``Person(source=…)`` construction in the workspace and requires an entry here, so a
+#: new minting site fails CI (an earlier attempt enumerated the sources in a literal beside
+#: this map, which only restated it). And :meth:`PersonDescriptor.dependencies_ready` defers
+#: an unmapped row rather than producing a payload PM must reject, so even a source the scan
+#: cannot see waits for its mapping instead of piling up rejections.
+SOURCE_TO_IDENTIFIER_TYPE: dict[str, str] = {
+    "usa_wa_legislature": "person_wa_legislature_member_id",
+    "usa_wa_pdc": "person_wa_pdc",
+    # #228: pre-1991 roster identities, keyed ``<name fold>:<first session year>``. Minted
+    # locally because no WSL member record exists that far back; PM registers the type so the
+    # key survives a re-derivation as a stable anchor (power-map#456).
+    "usa_wa_legislature_roster": "person_wa_legislature_roster",
+}
+
+
 def identifier_type_for(source: str) -> str | None:
     """Map a local person's ``source`` to its PM ``identifier_type`` slug (design D1)."""
-    if source == "usa_wa_legislature":
-        return "person_wa_legislature_member_id"
-    if source == "usa_wa_pdc":
-        return "person_wa_pdc"
-    return None
+    return SOURCE_TO_IDENTIFIER_TYPE.get(source)
 
 
 #: Local ``PersonIdentifier.scheme`` → PM ``identifier_type`` slug. Maps the child
@@ -131,9 +150,10 @@ class PersonDescriptor(EntityDescriptor):
     async def to_observation(self, session: Any, row: Any) -> dict:
         id_type = identifier_type_for(row.source)
         if id_type is None:
-            # Unknown source → no PM identifier_type; PM will reject. Surface it
-            # (the outbox would otherwise read as a silent failure).
-            logger.warning("person_identifier_type_unresolved", extra={"source": row.source})
+            # The drain never gets here — ``dependencies_ready`` defers an unmapped source
+            # (#255). Direct callers (reconcile fingerprints, tests) still can, so the payload
+            # stays well-formed-shaped and the condition stays loud rather than silent.
+            logger.error("person_identifier_type_unresolved", extra={"source": row.source})
         obs: dict[str, Any] = {
             "identifier_type": id_type,
             "identifier_value": row.source_id,
@@ -203,8 +223,30 @@ class PersonDescriptor(EntityDescriptor):
                 return False
         return True
 
-    # ``local_newer_is_noop`` is the base template (#109). Person has no PM dependencies
-    # (``dependencies_ready`` defaults True), so the template's guard is a free pass here.
+    # ``local_newer_is_noop`` is the base template (#109). Person's only PM prerequisite is
+    # its own identifier type — see ``dependencies_ready`` below.
+
+    async def dependencies_ready(self, session: Any, row: Any) -> bool:
+        """Whether this Person can be expressed as a PM observation at all (#255).
+
+        PM requires ``identifier_type`` as a non-null string, so a row whose ``source`` has
+        no entry in :data:`SOURCE_TO_IDENTIFIER_TYPE` has an unmet *prerequisite*, not a
+        payload worth sending. Returning ``False`` routes it through the engine's deferral
+        path — the entry stays PENDING and retries on a later cycle — so the cohort flushes
+        by itself once the mapping (and PM's registration of the type) lands.
+
+        The alternative is what #228 did: produce it, spend a PM request per row to earn a
+        422, and pile up rejections until the operator is emailed. The prerequisite here is
+        local rather than an anchor on another row, but it is the same contract — a delivery
+        that cannot succeed yet, deferred rather than burned.
+        """
+        if identifier_type_for(row.source) is None:
+            logger.error(
+                "person_identifier_type_unresolved",
+                extra={"source": row.source, "source_id": row.source_id},
+            )
+            return False
+        return True
 
     async def local_match(self, session: Any, record: dict) -> Any | None:
         """Map a PM person to its local row by **anchor** (``pm_person_id``).

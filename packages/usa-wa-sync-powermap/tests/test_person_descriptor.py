@@ -32,7 +32,19 @@ async def _add_person(
 def test_identifier_type_for_maps_source():
     assert identifier_type_for("usa_wa_legislature") == "person_wa_legislature_member_id"
     assert identifier_type_for("usa_wa_pdc") == "person_wa_pdc"
+    assert identifier_type_for("usa_wa_legislature_roster") == "person_wa_legislature_roster"
     assert identifier_type_for("other") is None
+
+
+async def test_observation_for_a_roster_person_carries_the_roster_identifier(
+    db_session, descriptor
+):
+    row = await _add_person(
+        db_session, source="usa_wa_legislature_roster", source_id="aeolson:1923"
+    )
+    obs = await descriptor.to_observation(db_session, row)
+    assert obs["identifier_type"] == "person_wa_legislature_roster"
+    assert obs["identifier_value"] == "aeolson:1923"
 
 
 async def test_pm_match_identifier_hit(db_session, descriptor):
@@ -374,3 +386,18 @@ async def test_to_enrich_observation_rekeys_to_pm_person_id(db_session, descript
         {"identifier_type_slug": "person_wa_legislature_member_id", "identifier_value": "M-1"}
     ]
     assert obs["names"] == [{"name": "Jay Inslee", "name_type": "legal"}]
+
+
+async def test_an_unmapped_source_defers_instead_of_producing_a_doomed_payload(
+    db_session, descriptor
+):
+    """CR #102: PM requires a non-null ``identifier_type``, so a row whose source has no
+    mapping cannot be delivered — that is a *dependency* that is not ready, not a payload
+    worth sending. Deferring leaves it PENDING for a later cycle (the engine's own contract
+    for ``dependencies_ready``); producing it spends a PM request to earn a 422 and a
+    rejection-pile alert, which is what #228's 2,394 roster Persons did."""
+    unmapped = await _add_person(db_session, source="usa_wa_some_new_adapter", source_id="x:1")
+    assert await descriptor.dependencies_ready(db_session, unmapped) is False
+
+    mapped = await _add_person(db_session, source="usa_wa_legislature", source_id="M-42")
+    assert await descriptor.dependencies_ready(db_session, mapped) is True
