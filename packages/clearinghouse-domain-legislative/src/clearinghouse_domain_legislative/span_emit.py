@@ -113,17 +113,22 @@ RoleResolver = Callable[[AsyncSession, TenureSpan], Awaitable[Role | None]]
 CitationLocator = Callable[[TenureSpan, str], CitationTarget | None]
 
 
-#: A span Assignment's ``source_id`` is ``{member}:{kind}:{discriminator}:{start_biennium}``.
-#: Split from the **right** (#259): the trailing three segments are fixed, but the member id
-#: is not guaranteed colon-free — #228's roster identities are ``<fold>:<year>``, so their
-#: spans carry five segments and a left-to-right four-part check never matched one, silently
-#: excluding the entire source from both sweeps. Yields ``None`` for a legacy/non-span id.
 def span_key_parts(source_id: str) -> tuple[str, str, str, str] | None:
-    """``(member, kind, discriminator, start_biennium)``, or ``None`` if not a span key."""
+    """``(member, kind, discriminator, start_biennium)``, or ``None`` if not a span key.
+
+    A span Assignment's ``source_id`` is
+    ``{member}:{kind}:{discriminator}:{start_biennium}``, split from the **right**
+    (#259): the trailing three segments are fixed, but the member id is not guaranteed
+    colon-free — #228's roster identities are ``<fold>:<year>``, so their spans carry five
+    segments and a left-to-right four-part check never matched one, silently excluding that
+    entire source from both sweeps (3,627 rows reporting "nothing in scope" as though it
+    meant "nothing stranded"). Legacy and non-span ids still yield ``None``.
+    """
     parts = source_id.rsplit(":", 3)
     if len(parts) != 4:
         return None
-    return (parts[0], parts[1], parts[2], parts[3])
+    member, kind, discriminator, start = parts
+    return member, kind, discriminator, start
 
 
 async def emit_spans(

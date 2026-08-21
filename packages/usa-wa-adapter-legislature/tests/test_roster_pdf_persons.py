@@ -207,7 +207,7 @@ async def test_retirement_refuses_to_tombstone_an_anchored_person(db_session) ->
     person.pm_person_id = _ULID()
     await db_session.flush()
 
-    result = await retire_unasserted_roster_persons(db_session, asserted_keys=set())
+    result = await retire_unasserted_roster_persons(db_session, asserted_keys={"someone-else:1901"})
 
     assert result == {"retired": 0, "anchored": 1, "aborted": False}
     assert person.deleted_at is None

@@ -87,6 +87,7 @@ class Pre1991BuildSummary:
     persons_renamed: int
     persons_retired: int
     persons_retired_anchored: int
+    persons_retire_aborted: bool
     assignments_emitted: int
     spans_retired: int
     spans_retired_anchored: int
@@ -191,6 +192,7 @@ async def build_pre1991(
             persons_renamed=0,
             persons_retired=0,
             persons_retired_anchored=0,
+            persons_retire_aborted=False,
             assignments_emitted=0,
             spans_retired=0,
             spans_retired_anchored=0,
@@ -290,6 +292,7 @@ async def build_pre1991(
         persons_renamed=minted["renamed"],
         persons_retired=retired_persons["retired"],
         persons_retired_anchored=retired_persons["anchored"],
+        persons_retire_aborted=retired_persons["aborted"],
         assignments_emitted=emitted,
         spans_retired=retire.retired,
         spans_retired_anchored=retire.anchored,
@@ -326,6 +329,7 @@ async def _build_job(ctx: JobContext) -> JobResult:
         or summary.retire_aborted
         or summary.spans_retired_anchored
         or summary.persons_retired_anchored
+        or summary.persons_retire_aborted
     ):
         return JobResult.degraded(summary.counters)
     return JobResult.ok(summary.counters)

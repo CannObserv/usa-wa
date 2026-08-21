@@ -474,7 +474,7 @@ def test_an_ambiguous_boundary_probe_refuses_rather_than_mints() -> None:
         ],
     )
 
-    assert report.identities == []
+    assert not report.identities
     (refusal,) = report.refused
     assert refusal.reason == REFUSED_JOIN_AMBIGUOUS
     assert refusal.fold == "jsmith"
@@ -489,3 +489,30 @@ def test_an_unknown_chamber_at_the_boundary_raises() -> None:
             [_rec("Odd Chamber", 1989, chamber="tribunal", district=1)],
             seatings=[],
         )
+
+
+def test_the_initial_guard_ignores_annotation_text_in_the_name() -> None:
+    """Measured on the real corpus: LD22 Senate 1991 holds BOTH Kreidlers — Mike, and Lela,
+    appointed to cover his military leave. The roster row carries that annotation inside the
+    name, and the #240 guard took its initials from the raw string, so "**l**eave" put `l`
+    in the set and made **L**ela compatible. Two compatible candidates where the evidence
+    names one. The guard must read the same cleaned name the fold does."""
+    report = resolve_identities(
+        [
+            _rec(
+                'Myron "Mike" Kreidler (On leave of absence for military duty)',
+                1989,
+                chamber="senate",
+                district=22,
+            )
+        ],
+        seatings=[
+            _wsl("232", 1991, "Kreidler", "Lela", district=22, chamber="senate"),
+            _wsl("233", 1991, "Kreidler", "Mike", district=22, chamber="senate"),
+        ],
+    )
+
+    assert not report.refused
+    (identity,) = report.identities
+    assert identity.disposition == IDENTITY_WSL
+    assert identity.wsl_member_id == "233"

@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Person
+from clearinghouse_domain_legislative.span_emit import MAX_CLOSE_FRACTION_DEFAULT
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.identity import (
     IDENTITY_MINTED,
@@ -47,7 +48,11 @@ def display_name(identity: RosterIdentity) -> str:
 
 
 async def retire_unasserted_roster_persons(
-    session: AsyncSession, *, asserted_keys: Collection[str]
+    session: AsyncSession,
+    *,
+    asserted_keys: Collection[str],
+    max_retire_fraction: float = MAX_CLOSE_FRACTION_DEFAULT,
+    retire_floor: int = 5,
 ) -> dict[str, int]:
     """Soft-delete roster Persons this derivation no longer mints; ``{retired, anchored}``.
 
@@ -60,7 +65,19 @@ async def retire_unasserted_roster_persons(
     every recovery path filters ``deleted_at IS NULL``, so tombstoning an anchored row
     orphans its PM person with no way back. A non-zero ``anchored`` is work for an operator
     (merge in PM, then re-run), not something to resolve here.
+
+    **Guards, mirroring the span sweep** (CR #106). ``asserted_keys`` is derived from the
+    run's identities, so an **empty** set means the derivation produced nothing — reachable
+    without an oracle violation, since a parse regression that drops the pre-1991 rows passes
+    the partition check trivially (0 == 0) — and retiring on it would tombstone the whole
+    corpus. Past ``retire_floor`` candidates, retiring more than ``max_retire_fraction`` of
+    the live rows aborts and changes nothing: a truncated derivation is not a cohort that
+    legitimately vanished. Both are recoverable — the next complete run retires what is
+    genuinely stale.
     """
+    if not asserted_keys:
+        logger.warning("roster_person_retire_skipped_empty_assertion")
+        return {"retired": 0, "anchored": 0, "aborted": False}
     rows = (
         (
             await session.execute(
@@ -73,11 +90,20 @@ async def retire_unasserted_roster_persons(
         .all()
     )
     asserted = set(asserted_keys)
+    unasserted = [p for p in rows if p.source_id not in asserted]
+    if len(unasserted) > retire_floor and len(unasserted) > max_retire_fraction * len(rows):
+        logger.warning(
+            "roster_person_retire_aborted_mass_retire",
+            extra={
+                "unasserted": len(unasserted),
+                "live": len(rows),
+                "max_retire_fraction": max_retire_fraction,
+            },
+        )
+        return {"retired": 0, "anchored": 0, "aborted": True}
     now = datetime.now(UTC)
     retired = anchored = 0
-    for person in rows:
-        if person.source_id in asserted:
-            continue
+    for person in unasserted:
         if person.pm_person_id is not None:
             anchored += 1
             logger.warning(
@@ -92,9 +118,9 @@ async def retire_unasserted_roster_persons(
         await session.flush()
     logger.info(
         "roster_persons_retired",
-        extra={"persons_retired": retired, "persons_retire_anchored": anchored},
+        extra={"persons_retired": retired, "persons_retired_anchored": anchored},
     )
-    return {"retired": retired, "anchored": anchored}
+    return {"retired": retired, "anchored": anchored, "aborted": False}
 
 
 async def mint_roster_persons(

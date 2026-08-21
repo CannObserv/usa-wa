@@ -127,11 +127,22 @@ def strip_position_suffix(name: str) -> str:
     return _POSITION_SUFFIX.sub("", name)
 
 
+def clean_name(name: str) -> str:
+    """The printed name with everything that is not a name removed.
+
+    Quoted nicknames, parentheticals and the position suffix. Public because the #240
+    given-name-initial guard must read the *same* string the fold does: a roster row can
+    carry its annotation inside the name — ``Myron "Mike" Kreidler (On leave of absence for
+    military duty …)`` — and taking initials from the raw string put ``l`` (from "leave") in
+    the set, making **L**ela Kreidler a compatible candidate alongside **M**ike on the same
+    1991 seat. Two compatible candidates where the evidence names exactly one.
+    """
+    return strip_position_suffix(_QUOTED.sub(" ", _PARENTHETICAL.sub(" ", name)))
+
+
 def identity_fold(name: str) -> str:
     """The identity key's name half: the shared fold over the cleaned name."""
-    cleaned = _QUOTED.sub(" ", _PARENTHETICAL.sub(" ", name))
-    cleaned = strip_position_suffix(cleaned)
-    tokens = [t for t in folded_tokens(cleaned) if t and t not in _HONORIFICS]
+    tokens = [t for t in folded_tokens(clean_name(name)) if t and t not in _HONORIFICS]
     return "".join(tokens)
 
 
@@ -208,7 +219,9 @@ class _Join:
         rejected_years: dict[str, set[int]] = defaultdict(set)
         for row in post_rows:
             keys = surname_match_set(row.name)
-            tokens = {t[0] for t in folded_tokens(row.name) if t}
+            # The CLEANED name (#259 CR): an annotation embedded in the printed name would
+            # otherwise contribute initials and admit a wrong same-surname candidate.
+            tokens = {t[0] for t in folded_tokens(clean_name(row.name)) if t}
             for seating in self._by_seat.get((row.chamber, row.district, row.year), ()):
                 if fold_token(seating.surname) not in keys:
                     continue
@@ -260,13 +273,15 @@ def _boundary_probes(pre: list[RosterRecord], floor: int) -> list[RosterRecord]:
     all 14 measured cases are 1989 senators, and the rule is the term length rather than a
     hardcoded year.
 
+    An unrecognised chamber raises rather than defaulting to a zero-length term (CR #107):
+    the audit oracle already refuses to default one when the consequence is only a wrong
+    match rate, and here the quiet consequence is a silently minted duplicate.
+
     Each surviving row is projected onto the floor year, on its own seat, so
     :meth:`_Join.resolve` can index it against the WSL seatings there. The projection is a
     *probe*, never an identity record: it carries no party and is discarded after the join.
     """
-    return [
-        replace(row, year=floor) for row in pre if row.year + TERM_YEARS.get(row.chamber, 0) > floor
-    ]
+    return [replace(row, year=floor) for row in pre if row.year + TERM_YEARS[row.chamber] > floor]
 
 
 def resolve_identities(
@@ -345,8 +360,22 @@ def resolve_identities(
             # run past it (#259). Probe WSL with those rows projected onto the floor year;
             # anything else is a genuine pre-floor-only identity.
             probes = _boundary_probes(pre, floor)
-            member_id = join.resolve(probes)[0] if probes else None
-            if member_id is None:
+            member_id, reason = join.resolve(probes) if probes else (None, None)
+            if reason == REFUSED_JOIN_AMBIGUOUS:
+                # Two compatible WSL candidates on the seat. "No candidate" is a retirement
+                # and mints; this is a guess, and the guess is the §2 fork (CR #108).
+                refused.append(
+                    RefusedIdentity(
+                        reason=REFUSED_JOIN_AMBIGUOUS,
+                        fold=fold,
+                        records=tuple(pre),
+                        detail=(
+                            f"boundary probe at {floor}: {join.describe(probes)} "
+                            "— no basis to choose"
+                        ),
+                    )
+                )
+            elif member_id is None:
                 mint(fold, pre)
             else:
                 identities.append(
