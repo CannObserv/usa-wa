@@ -22,6 +22,8 @@ calibrated:
 
 from __future__ import annotations
 
+import pytest
+
 from usa_wa_adapter_legislature.roster_pdf.identity import (
     CORROBORATION_FLOOR,
     IDENTITY_ALIASES,
@@ -379,3 +381,138 @@ def test_summary_counts_dispositions_and_reasons() -> None:
     counts = report.summary()
     assert counts[IDENTITY_MINTED] == 1
     assert counts[f"refused:{REFUSED_WIDE_GAP}"] == 1
+
+
+# ---------------------------------------------------------------------------
+# #259 — the floor is a *listing-year* floor, but a Senate term crosses it
+
+
+def test_senate_term_starting_two_years_below_the_floor_joins_the_wsl_member() -> None:
+    """Patty Murray's shape, measured: elected 1988, seated 1989, served through 1992.
+
+    The roster indexes rows by **term-start year**, so her only listing is 1989 — yet a
+    four-year Senate term reaches the 1991-92 biennium, where WSL holds her. Keying the
+    join on "has a 1991+ listing" misses her and mints a duplicate of a Person we already
+    hold: the §2 fork. 14 real members resolved this way before the fix.
+    """
+    report = resolve_identities(
+        [_rec("Patty Murray", 1989, chamber="senate", district=1)],
+        seatings=[_wsl("299", 1991, "Murray", "Patty", district=1, chamber="senate")],
+    )
+
+    (identity,) = report.identities
+    assert identity.disposition == IDENTITY_WSL
+    assert identity.wsl_member_id == "299"
+    assert identity.key is None
+    assert [r.year for r in identity.records] == [1989]
+
+
+def test_a_house_term_starting_two_years_below_the_floor_still_mints() -> None:
+    """The rule is the term length, not the year. A House term starting 1989 ends in 1990
+    — it never reaches the floor, so a same-surname senator seated in 1991 is a different
+    person and joining them would be the merge #228 forbids."""
+    report = resolve_identities(
+        [_rec("Patty Murray", 1989, chamber="house", district=1)],
+        seatings=[_wsl("299", 1991, "Murray", "Patty", district=1, chamber="house")],
+    )
+
+    (identity,) = report.identities
+    assert identity.disposition == IDENTITY_MINTED
+    assert identity.key == "pattymurray:1989"
+
+
+def test_a_senate_term_ending_before_the_floor_still_mints() -> None:
+    """A 1987 Senate term covers 1987-1990 and stops short of the floor — a genuine
+    retirement, not a crosser. Only terms whose span reaches the floor probe WSL."""
+    report = resolve_identities(
+        [_rec("Sam Early", 1987, chamber="senate", district=1)],
+        seatings=[_wsl("500", 1991, "Early", "Sam", district=1, chamber="senate")],
+    )
+
+    (identity,) = report.identities
+    assert identity.disposition == IDENTITY_MINTED
+    assert identity.key == "samearly:1987"
+
+
+def test_a_boundary_senator_with_no_wsl_seat_mints() -> None:
+    """A 1989 senator whose seat has nobody of that surname in 1991 genuinely departed
+    (resignation, death, appointment out) — mint, don't refuse."""
+    report = resolve_identities(
+        [_rec("Gone Bysummer", 1989, chamber="senate", district=7)],
+        seatings=[_wsl("501", 1991, "Other", "Person", district=7, chamber="senate")],
+    )
+
+    (identity,) = report.identities
+    assert identity.disposition == IDENTITY_MINTED
+    assert identity.key == "gonebysummer:1989"
+
+
+def test_the_boundary_probe_respects_the_given_name_initial_guard() -> None:
+    """The #240 guard is not bypassed at the boundary: a surname match whose initials
+    share nothing is a different person, and a lone 1989 listing offers no corroborating
+    years to overturn it."""
+    report = resolve_identities(
+        [_rec("Alice Smith", 1989, chamber="senate", district=4)],
+        seatings=[_wsl("502", 1991, "Smith", "Robert", district=4, chamber="senate")],
+    )
+
+    (identity,) = report.identities
+    assert identity.disposition == IDENTITY_MINTED
+    assert identity.key == "alicesmith:1989"
+
+
+def test_an_ambiguous_boundary_probe_refuses_rather_than_mints() -> None:
+    """CR #108: "no candidate" means the senator retired — mint. "Two compatible
+    candidates" means we do not know which, and minting records a decision we have not
+    earned: the §2 fork, silently. The crossing path already refuses on ambiguity; the
+    boundary path must agree."""
+    report = resolve_identities(
+        [_rec("J. Smith", 1989, chamber="senate", district=6)],
+        seatings=[
+            _wsl("601", 1991, "Smith", "John", district=6, chamber="senate"),
+            _wsl("602", 1991, "Smith", "Jane", district=6, chamber="senate"),
+        ],
+    )
+
+    assert not report.identities
+    (refusal,) = report.refused
+    assert refusal.reason == REFUSED_JOIN_AMBIGUOUS
+    assert refusal.fold == "jsmith"
+
+
+def test_an_unknown_chamber_at_the_boundary_raises() -> None:
+    """CR #107: a silent zero-length term never probes and mints a duplicate. The audit
+    oracle already refuses to default an unrecognised chamber (its own CR finding 5); a
+    silent fork is a worse outcome than a loud failure, not a better one."""
+    with pytest.raises(KeyError):
+        resolve_identities(
+            [_rec("Odd Chamber", 1989, chamber="tribunal", district=1)],
+            seatings=[],
+        )
+
+
+def test_the_initial_guard_ignores_annotation_text_in_the_name() -> None:
+    """Measured on the real corpus: LD22 Senate 1991 holds BOTH Kreidlers — Mike, and Lela,
+    appointed to cover his military leave. The roster row carries that annotation inside the
+    name, and the #240 guard took its initials from the raw string, so "**l**eave" put `l`
+    in the set and made **L**ela compatible. Two compatible candidates where the evidence
+    names one. The guard must read the same cleaned name the fold does."""
+    report = resolve_identities(
+        [
+            _rec(
+                'Myron "Mike" Kreidler (On leave of absence for military duty)',
+                1989,
+                chamber="senate",
+                district=22,
+            )
+        ],
+        seatings=[
+            _wsl("232", 1991, "Kreidler", "Lela", district=22, chamber="senate"),
+            _wsl("233", 1991, "Kreidler", "Mike", district=22, chamber="senate"),
+        ],
+    )
+
+    assert not report.refused
+    (identity,) = report.identities
+    assert identity.disposition == IDENTITY_WSL
+    assert identity.wsl_member_id == "233"

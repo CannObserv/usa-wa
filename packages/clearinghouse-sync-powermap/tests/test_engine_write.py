@@ -996,6 +996,43 @@ async def test_drain_drops_entry_when_source_missing(db_session, fake_descriptor
     assert (await db_session.execute(select(OutboxEntry))).first() is None  # and removed
 
 
+async def test_drain_drops_a_create_for_a_retired_unanchored_row(db_session, fake_descriptor):
+    """A queued CREATE whose local row was tombstoned before delivery is dropped.
+
+    usa-wa#259: a producer can retire a row *after* its CREATE is queued — a re-derivation
+    stopped asserting it. The row is unanchored, so PM has never seen it and there is
+    nothing to retract; delivering anyway would mint in PM precisely the record the producer
+    just decided should not exist. The sweep already refuses to *enqueue* a deleted row
+    (``deleted_column`` filter); this closes the same hole for an entry already in flight.
+    """
+    row = await _add_entity(db_session, source_id="1")
+    engine = SyncEngine([fake_descriptor], client := FakeClient())
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+    row.deleted_at = NOW
+    await db_session.flush()
+
+    touched = await engine.drain_outbox(db_session, now=NOW)
+
+    assert touched == []
+    assert (await db_session.execute(select(OutboxEntry))).first() is None
+    assert client.posted == []  # nothing was sent to PM
+
+
+async def test_drain_still_delivers_for_an_anchored_deleted_row(db_session, fake_descriptor):
+    """An *anchored* tombstone is a different case — PM holds the record, so retraction is
+    the descriptors' business (#31), not a silent drop here."""
+    row = await _add_entity(db_session, source_id="1")
+    engine = SyncEngine([fake_descriptor], FakeClient())
+    await engine.sweep_unanchored(db_session, fake_descriptor)
+    row.deleted_at = NOW
+    row.pm_fake_id = ULID()
+    await db_session.flush()
+
+    touched = await engine.drain_outbox(db_session, now=NOW)
+
+    assert len(touched) == 1  # not dropped
+
+
 async def test_drain_propagates_non_transient_error(db_session, fake_descriptor):
     """A non-transport error escapes (not masked as a retryable blip)."""
 

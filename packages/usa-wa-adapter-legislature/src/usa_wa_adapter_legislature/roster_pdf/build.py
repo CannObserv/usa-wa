@@ -55,7 +55,10 @@ from usa_wa_adapter_legislature.roster_pdf.identity import (
     resolve_identities,
 )
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
-from usa_wa_adapter_legislature.roster_pdf.persons import mint_roster_persons
+from usa_wa_adapter_legislature.roster_pdf.persons import (
+    mint_roster_persons,
+    retire_unasserted_roster_persons,
+)
 from usa_wa_adapter_legislature.roster_pdf.projector import build_pre1991_observations
 from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
 from usa_wa_adapter_legislature.sponsors.build import build_spans
@@ -82,6 +85,9 @@ class Pre1991BuildSummary:
     persons_created: int
     persons_existing: int
     persons_renamed: int
+    persons_retired: int
+    persons_retired_anchored: int
+    persons_retire_aborted: bool
     assignments_emitted: int
     spans_retired: int
     spans_retired_anchored: int
@@ -184,6 +190,9 @@ async def build_pre1991(
             persons_created=0,
             persons_existing=0,
             persons_renamed=0,
+            persons_retired=0,
+            persons_retired_anchored=0,
+            persons_retire_aborted=False,
             assignments_emitted=0,
             spans_retired=0,
             spans_retired_anchored=0,
@@ -223,6 +232,13 @@ async def build_pre1991(
         )
 
     minted = await mint_roster_persons(session, report.identities)
+    # Retire roster Persons this derivation no longer mints (#259). A fold the boundary
+    # probe now JOINS was minted by an earlier run, and minting alone never revisits it —
+    # the stale row would go to PM as the duplicate the join exists to prevent.
+    retired_persons = await retire_unasserted_roster_persons(
+        session,
+        asserted_keys={i.key for i in report.identities if i.key is not None},
+    )
     anchors = await bootstrap_synthetic_anchors(
         session, biennium=current, jurisdiction_id=jurisdiction.id
     )
@@ -274,6 +290,9 @@ async def build_pre1991(
         persons_created=minted["created"],
         persons_existing=minted["existing"],
         persons_renamed=minted["renamed"],
+        persons_retired=retired_persons["retired"],
+        persons_retired_anchored=retired_persons["anchored"],
+        persons_retire_aborted=retired_persons["aborted"],
         assignments_emitted=emitted,
         spans_retired=retire.retired,
         spans_retired_anchored=retire.anchored,
@@ -300,7 +319,8 @@ async def _build_job(ctx: JobContext) -> JobResult:
     ``spans_retired_anchored`` degrades for the same reason from the other direction (CR
     #95): those rows are stranded, still anchored, and deliberately left alive so the
     collapse can move their anchors. The work is unfinished until it has, and a second build
-    after it retires them.
+    after it retires them. ``persons_retired_anchored`` is the Person analog (#259) — an
+    anchored Person the derivation stopped asserting needs a PM-side merge, not a tombstone.
     """
     summary = await build_pre1991(ctx.require_session())
     if (
@@ -308,6 +328,8 @@ async def _build_job(ctx: JobContext) -> JobResult:
         or summary.sweep_aborted
         or summary.retire_aborted
         or summary.spans_retired_anchored
+        or summary.persons_retired_anchored
+        or summary.persons_retire_aborted
     ):
         return JobResult.degraded(summary.counters)
     return JobResult.ok(summary.counters)
