@@ -222,3 +222,43 @@ async def test_citations_are_append_only_across_a_fresh_fetch_event(db_session, 
         )
     ).scalar_one()
     assert await _count(db_session, Citation, entity_id=seat.id) == 1  # one per biennium, not two
+
+
+async def test_fallback_citation_is_scoped_to_the_bienniums_it_attests(db_session, usa_wa, anchors):
+    """CR #85: ``fallback_citation`` exists for #228's deepened pre-1991 bienniums — the
+    ones the roster edition genuinely attests. Returning it for *any* biennium missing from
+    ``fetch_events`` would let an unrelated gap borrow the edition as evidence. Scoping is
+    explicit here rather than resting on "every observed biennium is archived", which is a
+    non-local argument about the projector."""
+    await _add_ld(db_session, usa_wa, 5)
+    await _add_person(db_session, 100, "Ann Rivers")
+    fetch_events = await _fetch_events(db_session, usa_wa, ["2023-24"])
+    roster_source = (
+        await db_session.execute(select(Source).where(Source.slug == "usa_wa_legislature"))
+    ).scalar_one()
+    roster_event = FetchEvent(
+        source_id=roster_source.id,
+        resource_id="legroster:2025-06-05",
+        url="https://x/roster.pdf",
+        fetched_at=datetime.now(UTC),
+        http_status=200,
+        content_hash=b"\x07" * 32,
+        status=FetchStatus.ok,
+    )
+    db_session.add(roster_event)
+    await db_session.flush()
+    obs = build_sponsor_observations({"2023-24": [_member(100)], "2025-26": [_member(100)]})
+    spans = build_tenure_spans(obs, current_biennium=CURRENT)
+
+    await emit_sponsor_spans(
+        db_session,
+        spans,
+        anchors=anchors,
+        reliability=1.0,
+        fetch_events=fetch_events,
+        fallback_citation=(roster_event.id, roster_event.fetched_at, "legroster:2025-06-05"),
+        fallback_bienniums={"1989-90"},  # disjoint from anything these spans cover
+    )
+
+    # 2025-26 has no fetch event and is not in the fallback's scope → no citation at all
+    assert await _count(db_session, Citation, fetch_event_id=roster_event.id) == 0
