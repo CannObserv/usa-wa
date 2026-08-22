@@ -472,3 +472,55 @@ async def test_a_person_with_no_surname_tokens_skips_the_name_probe(db_session, 
 
     assert await descriptor.pm_match(client, db_session, row) is None
     assert len(client.searched) == 1  # identifier probe only
+
+
+async def test_pm_match_probes_past_a_generational_suffix(db_session, descriptor):
+    """``jr``/``sr`` are deliberately not honorifics — they distinguish two real people, so
+    they stay in the name. They are not the *surname* either: 25 of the 2,494 roster Persons
+    end in one, and probing the last token sends ``q="jr"``, which searches every PM name
+    carrying that token (6 people, measured live) instead of the surname's cohort."""
+    pm_id = ULID()
+    row = await _add_person(db_session, source_id="R-5", name="Kemper Freeman, Jr.")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),
+            EntityPage(
+                records=[{"id": str(pm_id), "display_name": "Kemper Freeman Jr."}], cursor=None
+            ),
+        ]
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) == pm_id
+    assert client.searched[1]["q"] == "freeman"
+
+
+async def test_pm_match_probes_past_an_honorific(db_session, descriptor):
+    """49 roster Persons carry a bare honorific (``Dr. A. C. Wingrove``, ``Mrs. Eva
+    Anderson``). It is not part of the name on either side, so it must survive neither the
+    probe nor the confirm target — otherwise ``dr a c wingrove`` never equals PM's curated
+    ``A. C. Wingrove`` and the row mints a duplicate."""
+    pm_id = ULID()
+    row = await _add_person(db_session, source_id="R-6", name="Dr. A. C. Wingrove")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),
+            EntityPage(records=[{"id": str(pm_id), "display_name": "A. C. Wingrove"}], cursor=None),
+        ]
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) == pm_id
+    assert client.searched[1]["q"] == "wingrove"
+
+
+async def test_a_generational_suffix_still_separates_two_people(db_session, descriptor):
+    """The suffix is dropped from the *probe* only. It stays in the confirm target, because
+    Bill Day and Bill Day Jr are two members of the same legislature (usa-wa#228)."""
+    row = await _add_person(db_session, source_id="R-7", name="Bill Day")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),
+            EntityPage(records=[{"id": str(ULID()), "display_name": "Bill Day Jr."}], cursor=None),
+        ]
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) is None
