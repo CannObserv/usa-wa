@@ -180,6 +180,19 @@ python -m usa_wa_sync_powermap.prune_subscriptions   # re-run until dry-run show
 # archived, so a completed re-run isn't mis-reported not_found). Transient 429/5xx retries on a
 # bounded backoff. App-role local write; read-only-shaped PM mutation via observation.
 # Exit 0 clean / idempotent · 1 a target left unsettled (not-found / unanchored / PM-refused) · 2 auth
+### Retire superseded outbox rejections (#258)
+
+`REJECTED` is the operator's to-do list and the sidecar alerts on its **rise**, so rejections that a
+later re-enqueue already replaced hold the count static and hide the next real one. Run after a
+rejection wave has been fixed in code and the cohort re-enqueued.
+
+```bash
+python -m usa_wa_sync_powermap.supersede_rejections --dry-run   # count, write nothing
+python -m usa_wa_sync_powermap.supersede_rejections
+```
+
+Idempotent, local-only (app role, no PM traffic). Rows move to `SUPERSEDED` — kept, not deleted.
+
 # · 3 a persistent transient PM outage past the backoff budget (idempotent — re-run once PM recovers).
 python -m usa_wa_sync_powermap.retract_assignments --dry-run \
     --source-id 481:chamber-senate:39:2001-02 --source-id 481:party:republican:2001-02
