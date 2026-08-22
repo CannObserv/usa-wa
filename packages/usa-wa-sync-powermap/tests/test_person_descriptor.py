@@ -76,7 +76,11 @@ async def test_name_search_uses_configured_match_cap(db_session):
 
 async def test_pm_match_name_fallback_confirms_normalized(db_session, descriptor):
     """PM's q filters by name server-side; the match is confirmed by exact
-    normalized equality (so a loose q hit on a different person is rejected)."""
+    normalized equality (so a loose q hit on a different person is rejected).
+
+    The probe is the folded **surname** since #256 — a full-name q ANDs every token and
+    matched almost nothing — so the confirm is doing more work than it used to: it is the
+    only thing standing between a shared surname and a wrong anchor."""
     pm_id = ULID()
     row = await _add_person(db_session, source_id="M-8", name="Jay Inslee")
     client = FakeClient(
@@ -93,7 +97,7 @@ async def test_pm_match_name_fallback_confirms_normalized(db_session, descriptor
     )
 
     assert await descriptor.pm_match(client, db_session, row) == pm_id
-    assert client.searched[1]["q"] == "Jay Inslee"
+    assert client.searched[1]["q"] == "inslee"  # the surname, not the raw name
 
 
 async def test_pm_match_confirms_accent_variant(db_session, descriptor):

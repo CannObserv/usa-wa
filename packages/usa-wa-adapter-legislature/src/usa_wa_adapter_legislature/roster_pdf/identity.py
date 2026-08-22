@@ -47,7 +47,12 @@ from dataclasses import dataclass, replace
 from usa_wa_adapter_legislature.roster_pdf.audit import TERM_YEARS
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 from usa_wa_adapter_legislature.roster_pdf.resolve import Seating
-from usa_wa_common.names import fold_token, folded_tokens, surname_match_set
+from usa_wa_common.names import (
+    fold_token,
+    folded_tokens,
+    strip_non_name_parts,
+    surname_match_set,
+)
 
 #: First session year of the WSL sponsor archive — the identity floor. Records from this
 #: year on already have WSL-sourced Persons; the roster mints identities only below it.
@@ -137,7 +142,7 @@ def clean_name(name: str) -> str:
     the set, making **L**ela Kreidler a compatible candidate alongside **M**ike on the same
     1991 seat. Two compatible candidates where the evidence names exactly one.
     """
-    return strip_position_suffix(_QUOTED.sub(" ", _PARENTHETICAL.sub(" ", name)))
+    return strip_position_suffix(strip_non_name_parts(name))
 
 
 def identity_fold(name: str) -> str:

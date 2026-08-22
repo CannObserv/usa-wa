@@ -34,6 +34,32 @@ def fold_token(token: str) -> str:
     return _NON_ALNUM.sub("", _unaccent(token.casefold()))
 
 
+#: Parenthetical segments — marital forms, printed nicknames, the odd leaked annotation.
+_PARENTHETICAL = re.compile(r"\([^)]*\)")
+
+#: Quoted nicknames: ``“Red”``, ``"Slim"``. The same person carries them in some listings
+#: and not others, so they cannot participate in matching.
+_QUOTED = re.compile(r"[“\"][^”\"]*[”\"]")
+
+#: Honorifics carry no identity. Generational suffixes (``jr``/``sr``) are NOT here — they
+#: distinguish two real people (usa-wa#228's Bill Day / Bill Day Jr).
+_HONORIFICS = frozenset({"mr", "mrs", "ms", "dr", "rev", "hon"})
+
+
+def strip_non_name_parts(full_name: str) -> str:
+    """An upstream name with everything that is not a name removed.
+
+    Quoted nicknames, parentheticals and honorific tokens. Shared (usa-wa#256) because two
+    consumers must agree on what counts as a name: the roster identity fold, and the PM
+    person match — where a raw ``Belle (Mrs. Frank) Reeves`` matched nothing, since PM's FTS
+    ANDs every token and no PM name carries ``mrs`` or ``frank``. Divergence there mismatches
+    people silently rather than erroring, which is the failure this module exists to prevent.
+    """
+    cleaned = _QUOTED.sub(" ", _PARENTHETICAL.sub(" ", full_name))
+    kept = [word for word in cleaned.split() if fold_token(word) not in _HONORIFICS]
+    return " ".join(kept)
+
+
 def folded_tokens(full_name: str) -> list[str]:
     """The ordered folded tokens of a free-form upstream name.
 

@@ -30,6 +30,7 @@ from clearinghouse_sync_powermap.descriptors import (
     normalize_name,
     parse_pm_timestamp,
 )
+from usa_wa_common.names import folded_tokens, strip_non_name_parts
 from usa_wa_sync_powermap.descriptors.events import sync_entity_events
 
 logger = get_logger(__name__)
@@ -37,8 +38,12 @@ logger = get_logger(__name__)
 #: PM search surface for people.
 SEARCH_PATH = "/api/v1/people/search"
 #: FTS candidate limit — and the **recall ceiling**: the exact match must rank within
-#: it. Ample for a full name (FTS ANDs the name tokens → a small ranked set).
-_SEARCH_LIMIT = 20
+#: it. The probe is a **surname** (#256), not a full name, so the candidate set is no longer
+#: "a small ranked set": every PM person sharing the surname competes for the window, and a
+#: common one (Brown, Smith) can overflow it — a recall ceiling, not a correctness risk,
+#: since the confirm is exact. Raised from 20 with the query change; the operator override
+#: (``SidecarSettings``) is the knob if a surname ever needs more.
+_SEARCH_LIMIT = 50
 
 
 #: Local Person ``source`` → PM ``identifier_type`` slug (design D1).
@@ -127,13 +132,33 @@ class PersonDescriptor(EntityDescriptor):
                 )
                 return as_ulid(rec["id"])
 
-        # 2. Name — PM's q filters people server-side (FTS); confirm by exact normalized
-        # match (see _SEARCH_LIMIT for the recall-ceiling note).
-        target = normalize_name(row.name_full)
-        page = await client.search_entities(
-            SEARCH_PATH, q=row.name_full, limit=self.search_match_cap
-        )
-        named = [c for c in page.records if normalize_name(c.get("display_name") or "") == target]
+        # 2. Name — probe by the folded SURNAME, confirm on the cleaned full name (#256).
+        #
+        # PM's ``q`` renders as ``'tok1' & 'tok2' & … & 'lastTok':*``: only the final token
+        # gets the prefix wildcard, every earlier one must match a lexeme exactly, and they
+        # are AND-ed. Sending the raw display string therefore makes each honorific, initial
+        # and printed nickname a mandatory term no PM name carries — measured against live
+        # PM, ``q="Belle (Mrs. Frank) Reeves"`` returns 0 where ``q="Reeves"`` returns 2.
+        # The surname is the only form with real recall.
+        #
+        # Recall is widened; the **accept rule is not**. The confirm is still exact equality
+        # of the normalized name — applied to the *cleaned* form on both sides, because
+        # ``normalize_name`` collapses punctuation to spaces and would never equate a raw
+        # parenthetical with PM's curated name. A shared surname is not a match: 47 of the
+        # 96 Persons this cohort minted share one with somebody already in PM.
+        cleaned = strip_non_name_parts(row.name_full)
+        tokens = folded_tokens(cleaned)
+        if not tokens:
+            # Nothing to probe with — an empty ``q`` would match on PM's ranking alone.
+            logger.warning("person_pm_match_no_surname", extra={"entity_name": row.name_full})
+            return None
+        target = normalize_name(cleaned)
+        page = await client.search_entities(SEARCH_PATH, q=tokens[-1], limit=self.search_match_cap)
+        named = [
+            c
+            for c in page.records
+            if normalize_name(strip_non_name_parts(c.get("display_name") or "")) == target
+        ]
         if len(named) == 1:
             logger.info(
                 "person_pm_match_name",
