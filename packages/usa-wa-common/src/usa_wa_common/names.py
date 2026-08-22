@@ -34,6 +34,32 @@ def fold_token(token: str) -> str:
     return _NON_ALNUM.sub("", _unaccent(token.casefold()))
 
 
+#: Parenthetical segments — marital forms, printed nicknames, the odd leaked annotation.
+_PARENTHETICAL = re.compile(r"\([^)]*\)")
+
+#: Quoted nicknames: ``“Red”``, ``"Slim"``. The same person carries them in some listings
+#: and not others, so they cannot participate in matching.
+_QUOTED = re.compile(r"[“\"][^”\"]*[”\"]")
+
+#: Honorifics carry no identity. Generational suffixes (``jr``/``sr``) are NOT here — they
+#: distinguish two real people (usa-wa#228's Bill Day / Bill Day Jr).
+_HONORIFICS = frozenset({"mr", "mrs", "ms", "dr", "rev", "hon"})
+
+
+def strip_non_name_parts(full_name: str) -> str:
+    """An upstream name with everything that is not a name removed.
+
+    Quoted nicknames, parentheticals and honorific tokens. Shared (usa-wa#256) because two
+    consumers must agree on what counts as a name: the roster identity fold, and the PM
+    person match — where a raw ``Belle (Mrs. Frank) Reeves`` matched nothing, since PM's FTS
+    ANDs every token and no PM name carries ``mrs`` or ``frank``. Divergence there mismatches
+    people silently rather than erroring, which is the failure this module exists to prevent.
+    """
+    cleaned = _QUOTED.sub(" ", _PARENTHETICAL.sub(" ", full_name))
+    kept = [word for word in cleaned.split() if fold_token(word) not in _HONORIFICS]
+    return " ".join(kept)
+
+
 def folded_tokens(full_name: str) -> list[str]:
     """The ordered folded tokens of a free-form upstream name.
 
@@ -48,6 +74,31 @@ def folded_tokens(full_name: str) -> list[str]:
     Re-deriving the split there would fork the folding rule, which this module exists to
     prevent — a divergence mismatches people silently rather than erroring."""
     return [folded for raw in re.split(r"[\s(),]+", full_name) if (folded := fold_token(raw))]
+
+
+#: Generational suffixes. Emphatically NOT honorifics — ``Jr`` is what distinguishes two
+#: real people (usa-wa#228's Bill Day / Bill Day Jr), so it stays in the name and in every
+#: identity comparison. It is simply never the *surname*. A bare roman ``v`` is deliberately
+#: absent: it is far more often a middle initial than a fifth of a line.
+_GENERATIONAL = frozenset({"jr", "sr", "ii", "iii", "iv"})
+
+
+def probe_surname(full_name: str) -> str | None:
+    """The folded token to *search* an upstream name by — its surname — or ``None``.
+
+    Trailing generational suffixes are dropped, because the last token of
+    ``Kemper Freeman, Jr.`` is ``jr``: a query that returns every PM name carrying that
+    suffix (6 people, measured live) rather than the six Freemans. 25 of the roster's 2,494
+    pre-1991 Persons end in one. Dropped from the *probe* only — the caller still confirms
+    on the full cleaned name, where the suffix is load-bearing.
+
+    ``None`` when nothing survives folding: the caller must not send an empty query, which
+    would match on the search backend's ranking alone.
+    """
+    tokens = folded_tokens(strip_non_name_parts(full_name))
+    while tokens and tokens[-1] in _GENERATIONAL:
+        tokens.pop()
+    return tokens[-1] if tokens else None
 
 
 def surname_match_set(full_name: str) -> set[str]:

@@ -8,7 +8,12 @@ from __future__ import annotations
 
 import pytest
 
-from usa_wa_common.names import fold_token, surname_match_set
+from usa_wa_common.names import (
+    fold_token,
+    probe_surname,
+    strip_non_name_parts,
+    surname_match_set,
+)
 
 
 @pytest.mark.parametrize(
@@ -49,3 +54,55 @@ def test_surname_match_set_excludes_non_matching_surname() -> None:
     # A concatenation must be *consecutive* — non-adjacent tokens don't join.
     assert fold_token("Peterstrom") not in surname_match_set("Strom Peterson")  # reversed order
     assert fold_token("Barkis") not in surname_match_set("Strom Peterson")
+
+
+# ---------------------------------------------------------------------------
+# usa-wa#256 — the shared "what counts as a name" rule and the search probe
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # Parentheticals: marital forms and leaked roster annotations alike.
+        ("Belle (Mrs. Frank) Reeves", "Belle Reeves"),
+        ("Margaret (Mrs. Joseph E.) Hurley", "Margaret Hurley"),
+        # Quoted nicknames, straight and curly.
+        ('Frank "Buster" Brouillet', "Frank Brouillet"),
+        ("W. H. “Bill” Garson", "W. H. Garson"),
+        # Bare honorific tokens — the branch no other test exercises, and the one that
+        # decides whether ``Dr. A. C. Wingrove`` can ever confirm against PM's curated
+        # ``A. C. Wingrove``.
+        ("Dr. A. C. Wingrove", "A. C. Wingrove"),
+        ("Mrs. Eva Anderson", "Eva Anderson"),
+        ("Rev. John Doe", "John Doe"),
+        ("Hon. Jane Roe", "Jane Roe"),
+        # Generational suffixes are NOT honorifics: they distinguish two real people
+        # (usa-wa#228's Bill Day / Bill Day Jr), so they survive intact.
+        ("Kemper Freeman, Jr.", "Kemper Freeman, Jr."),
+        ("Charles D. Ulmer, Sr", "Charles D. Ulmer, Sr"),
+    ],
+)
+def test_strip_non_name_parts(raw, expected) -> None:
+    assert strip_non_name_parts(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Jay Inslee", "inslee"),
+        ("Belle (Mrs. Frank) Reeves", "reeves"),  # the parenthetical is not the surname
+        ("Dr. A. C. Wingrove", "wingrove"),  # nor is the honorific
+        # The suffix is part of the person but never the search key: probing ``jr``
+        # searches every PM name carrying that token instead of the surname's cohort.
+        ("Kemper Freeman, Jr.", "freeman"),
+        ("Charles D. Ulmer, Sr", "ulmer"),
+        ("Albert C. Thompson, Jr.", "thompson"),
+        ("Homer T. Bone III", "bone"),
+        # Nothing to probe with — an empty ``q`` would match on PM's ranking alone.
+        ("???", None),
+        ("Jr.", None),
+        ("", None),
+    ],
+)
+def test_probe_surname(raw, expected) -> None:
+    assert probe_surname(raw) == expected

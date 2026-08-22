@@ -33,11 +33,13 @@ def test_no_descriptor_runs_full_list_reconcile():
 
 
 def test_search_match_cap_defaults_preserve_current_behavior():
-    # #12: the cap is configurable but defaults to today's effective values so the
-    # change is non-breaking (orgs 50, people 20 — the prior _SEARCH_LIMIT constants).
+    # #12: the cap is configurable and defaults to the descriptors' own _SEARCH_LIMIT.
+    # People moved 20 -> 50 with #256: the probe is now a SURNAME, so the candidate set is
+    # every PM person sharing it rather than "a small ranked set" a full-name AND produced.
+    # A too-small window is a recall ceiling, not a correctness risk — the confirm is exact.
     by_type = {d.entity_type: d for d in build_descriptors()}
     assert by_type["organization"].search_match_cap == 50
-    assert by_type["person"].search_match_cap == 20
+    assert by_type["person"].search_match_cap == 50
 
 
 def test_build_descriptors_plumbs_configured_search_cap():

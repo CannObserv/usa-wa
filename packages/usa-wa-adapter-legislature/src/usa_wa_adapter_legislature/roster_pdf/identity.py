@@ -47,7 +47,12 @@ from dataclasses import dataclass, replace
 from usa_wa_adapter_legislature.roster_pdf.audit import TERM_YEARS
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 from usa_wa_adapter_legislature.roster_pdf.resolve import Seating
-from usa_wa_common.names import fold_token, folded_tokens, surname_match_set
+from usa_wa_common.names import (
+    fold_token,
+    folded_tokens,
+    strip_non_name_parts,
+    surname_match_set,
+)
 
 #: First session year of the WSL sponsor archive — the identity floor. Records from this
 #: year on already have WSL-sourced Persons; the roster mints identities only below it.
@@ -110,16 +115,6 @@ JOIN_ADJUDICATIONS: dict[str, str | None] = {
 #: ``Bob Basich – 19B``. The suffix is #229's Position signal, not part of the name.
 _POSITION_SUFFIX = re.compile(r"\s*[–—-]\s*\d{1,2}\s*[AB]?\s*$")
 
-#: Parenthetical segments — marital forms, printed nicknames, the odd leaked annotation.
-_PARENTHETICAL = re.compile(r"\([^)]*\)")
-
-#: Quoted nicknames: ``“Red”``, ``"Slim"``. The same person carries them in some listings
-#: and not others, so they cannot participate in identity.
-_QUOTED = re.compile(r"[“\"][^”\"]*[”\"]")
-
-#: Honorifics carry no identity. Generational suffixes (``jr``/``sr``) are NOT here.
-_HONORIFICS = frozenset({"mr", "mrs", "dr", "rev", "hon"})
-
 
 def strip_position_suffix(name: str) -> str:
     """``"Bob Basich – 19B"`` → ``"Bob Basich"``. Public so the display-name minter
@@ -130,20 +125,30 @@ def strip_position_suffix(name: str) -> str:
 def clean_name(name: str) -> str:
     """The printed name with everything that is not a name removed.
 
-    Quoted nicknames, parentheticals and the position suffix. Public because the #240
+    The position suffix, plus everything :func:`~usa_wa_common.names.strip_non_name_parts`
+    removes — quoted nicknames, parentheticals and honorific tokens. Public because the #240
     given-name-initial guard must read the *same* string the fold does: a roster row can
     carry its annotation inside the name — ``Myron "Mike" Kreidler (On leave of absence for
     military duty …)`` — and taking initials from the raw string put ``l`` (from "leave") in
     the set, making **L**ela Kreidler a compatible candidate alongside **M**ike on the same
     1991 seat. Two compatible candidates where the evidence names exactly one.
+
+    The honorific half arrived with the move onto the shared helper (#256 CR): the guard's
+    initial set changes for the 38 corpus names carrying one — ``Dr. A. C. Wingrove`` yields
+    ``{a, c}`` rather than ``{d, a, c}`` — which is the same defect as the annotation above,
+    a token that is not a given name admitting a wrong same-surname candidate. Every one of
+    the 38 is pre-floor, so no join outcome moved; the fold is unchanged corpus-wide.
     """
-    return strip_position_suffix(_QUOTED.sub(" ", _PARENTHETICAL.sub(" ", name)))
+    return strip_position_suffix(strip_non_name_parts(name))
 
 
 def identity_fold(name: str) -> str:
-    """The identity key's name half: the shared fold over the cleaned name."""
-    tokens = [t for t in folded_tokens(clean_name(name)) if t and t not in _HONORIFICS]
-    return "".join(tokens)
+    """The identity key's name half: the shared fold over the cleaned name.
+
+    No honorific filter of its own — :func:`clean_name` already drops them, and a second
+    local copy of the set is the fork ``usa_wa_common.names`` exists to prevent (#256 CR).
+    Verified equal to the two-stage form over all 2,494 minted roster names."""
+    return "".join(folded_tokens(clean_name(name)))
 
 
 @dataclass(frozen=True)

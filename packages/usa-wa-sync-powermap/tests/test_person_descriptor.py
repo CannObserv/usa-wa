@@ -76,7 +76,11 @@ async def test_name_search_uses_configured_match_cap(db_session):
 
 async def test_pm_match_name_fallback_confirms_normalized(db_session, descriptor):
     """PM's q filters by name server-side; the match is confirmed by exact
-    normalized equality (so a loose q hit on a different person is rejected)."""
+    normalized equality (so a loose q hit on a different person is rejected).
+
+    The probe is the folded **surname** since #256 — a full-name q ANDs every token and
+    matched almost nothing — so the confirm is doing more work than it used to: it is the
+    only thing standing between a shared surname and a wrong anchor."""
     pm_id = ULID()
     row = await _add_person(db_session, source_id="M-8", name="Jay Inslee")
     client = FakeClient(
@@ -93,7 +97,7 @@ async def test_pm_match_name_fallback_confirms_normalized(db_session, descriptor
     )
 
     assert await descriptor.pm_match(client, db_session, row) == pm_id
-    assert client.searched[1]["q"] == "Jay Inslee"
+    assert client.searched[1]["q"] == "inslee"  # the surname, not the raw name
 
 
 async def test_pm_match_confirms_accent_variant(db_session, descriptor):
@@ -401,3 +405,122 @@ async def test_an_unmapped_source_defers_instead_of_producing_a_doomed_payload(
 
     mapped = await _add_person(db_session, source="usa_wa_legislature", source_id="M-42")
     assert await descriptor.dependencies_ready(db_session, mapped) is True
+
+
+# ---------------------------------------------------------------------------
+# usa-wa#256 — the name probe had near-zero recall on real roster names
+
+
+async def test_pm_match_probes_by_folded_surname(db_session, descriptor):
+    """PM's ``q`` renders as ``'tok1' & 'tok2' & … & 'lastTok':*`` — every token but the
+    last must match a lexeme EXACTLY, and they are AND-ed. Measured against live PM:
+    ``q="Belle (Mrs. Frank) Reeves"`` returns **0**, ``q="Reeves"`` returns 2. Sending the
+    raw display string makes every honorific, initial and nickname a mandatory AND-term no
+    PM name carries, so this cohort matched nothing and minted duplicates instead."""
+    pm_id = ULID()
+    row = await _add_person(db_session, source_id="R-1", name="Belle (Mrs. Frank) Reeves")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),  # identifier miss
+            EntityPage(records=[{"id": str(pm_id), "display_name": "Belle Reeves"}], cursor=None),
+        ]
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) == pm_id
+    assert client.searched[1]["q"] == "reeves"
+
+
+async def test_pm_match_confirms_on_the_cleaned_name(db_session, descriptor):
+    """Recall without a matching confirm is still a miss: ``normalize_name`` collapses
+    punctuation to spaces, so the raw parenthetical would never equal PM's curated name.
+    Both sides are cleaned before the exact-equality confirm — same strictness, comparable
+    strings."""
+    pm_id = ULID()
+    row = await _add_person(db_session, source_id="R-2", name='Frank "Buster" Brouillet')
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),
+            EntityPage(
+                records=[{"id": str(pm_id), "display_name": "Frank Brouillet"}], cursor=None
+            ),
+        ]
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) == pm_id
+
+
+async def test_a_surname_probe_still_rejects_a_different_given_name(db_session, descriptor):
+    """The surname widens *recall*, never the accept rule. Paul Holmes and Pete Holmes are
+    two people, and this cohort is full of that shape — 47 of the 96 Persons that landed
+    share a surname with someone already in PM."""
+    row = await _add_person(db_session, source_id="R-3", name="Paul Holmes")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),
+            EntityPage(records=[{"id": str(ULID()), "display_name": "Pete Holmes"}], cursor=None),
+        ]
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) is None
+
+
+async def test_a_person_with_no_surname_tokens_skips_the_name_probe(db_session, descriptor):
+    """A name that folds to nothing has no surname to probe with — don't send an empty
+    ``q`` and match against whatever PM ranks first."""
+    row = await _add_person(db_session, source_id="R-4", name="???")
+    client = FakeClient(search_pages=[EntityPage(records=[], cursor=None)])
+
+    assert await descriptor.pm_match(client, db_session, row) is None
+    assert len(client.searched) == 1  # identifier probe only
+
+
+async def test_pm_match_probes_past_a_generational_suffix(db_session, descriptor):
+    """``jr``/``sr`` are deliberately not honorifics — they distinguish two real people, so
+    they stay in the name. They are not the *surname* either: 25 of the 2,494 roster Persons
+    end in one, and probing the last token sends ``q="jr"``, which searches every PM name
+    carrying that token (6 people, measured live) instead of the surname's cohort."""
+    pm_id = ULID()
+    row = await _add_person(db_session, source_id="R-5", name="Kemper Freeman, Jr.")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),
+            EntityPage(
+                records=[{"id": str(pm_id), "display_name": "Kemper Freeman Jr."}], cursor=None
+            ),
+        ]
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) == pm_id
+    assert client.searched[1]["q"] == "freeman"
+
+
+async def test_pm_match_probes_past_an_honorific(db_session, descriptor):
+    """49 roster Persons carry a bare honorific (``Dr. A. C. Wingrove``, ``Mrs. Eva
+    Anderson``). It is not part of the name on either side, so it must survive neither the
+    probe nor the confirm target — otherwise ``dr a c wingrove`` never equals PM's curated
+    ``A. C. Wingrove`` and the row mints a duplicate."""
+    pm_id = ULID()
+    row = await _add_person(db_session, source_id="R-6", name="Dr. A. C. Wingrove")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),
+            EntityPage(records=[{"id": str(pm_id), "display_name": "A. C. Wingrove"}], cursor=None),
+        ]
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) == pm_id
+    assert client.searched[1]["q"] == "wingrove"
+
+
+async def test_a_generational_suffix_still_separates_two_people(db_session, descriptor):
+    """The suffix is dropped from the *probe* only. It stays in the confirm target, because
+    Bill Day and Bill Day Jr are two members of the same legislature (usa-wa#228)."""
+    row = await _add_person(db_session, source_id="R-7", name="Bill Day")
+    client = FakeClient(
+        search_pages=[
+            EntityPage(records=[], cursor=None),
+            EntityPage(records=[{"id": str(ULID()), "display_name": "Bill Day Jr."}], cursor=None),
+        ]
+    )
+
+    assert await descriptor.pm_match(client, db_session, row) is None
