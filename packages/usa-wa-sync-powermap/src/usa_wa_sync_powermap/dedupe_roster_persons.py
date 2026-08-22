@@ -40,6 +40,16 @@ DISPOSITION_AMBIGUOUS = "ambiguous"
 #: Nothing in PM's candidate window is this person. Mint as normal.
 DISPOSITION_NEW = "new"
 
+#: PM identifier types that mean "a local Person in a cohort we already produce owns this
+#: record". A roster Person exists precisely BECAUSE the #251 join found no WSL member for
+#: it, so a WSL-anchored PM Person cannot also be it — and a roster-keyed one belongs to a
+#: different local roster Person. Measured: 54 of 160 guarded verdicts pointed at one of
+#: these, including local ``William S. Day`` onto PM's ``William Day``, whose only
+#: assignment starts in 1991 — Bill Day Jr, i.e. the son (#228).
+OWNED_IDENTIFIER_SLUGS = frozenset(
+    {"person_wa_legislature_member_id", "person_wa_legislature_roster"}
+)
+
 
 @dataclass(frozen=True)
 class Candidate:
@@ -47,6 +57,8 @@ class Candidate:
 
     pm_id: str
     display_name: str
+    #: PM identifier type slugs already on the record, from the person detail read.
+    identifier_slugs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -59,6 +71,9 @@ class Adjudication:
     pm_id: str | None = None
     #: Display names behind an ambiguous verdict, so the report is actionable.
     candidates: tuple[str, ...] = field(default_factory=tuple)
+    #: Display names dropped for being owned by a cohort we already produce. Reported rather
+    #: than discarded — a name-plausible record we refused to touch is a finding, not noise.
+    excluded: tuple[str, ...] = field(default_factory=tuple)
 
 
 def _given_initials(cleaned: str) -> set[str]:
@@ -93,13 +108,17 @@ def adjudicate(name_full: str, candidates: list[Candidate]) -> Adjudication:
         # an empty target would match any candidate that also cleans to nothing.
         return Adjudication(DISPOSITION_NEW)
 
+    owned = [c for c in candidates if OWNED_IDENTIFIER_SLUGS.intersection(c.identifier_slugs)]
+    excluded = tuple(c.display_name for c in owned)
+    candidates = [c for c in candidates if c not in owned]
+
     cleaned = strip_non_name_parts(name_full)
     target = normalize_name(cleaned)
     exact = [
         c for c in candidates if normalize_name(strip_non_name_parts(c.display_name)) == target
     ]
     if len(exact) == 1:
-        return Adjudication(DISPOSITION_EXACT, pm_id=exact[0].pm_id)
+        return Adjudication(DISPOSITION_EXACT, pm_id=exact[0].pm_id, excluded=excluded)
     if exact:
         return Adjudication(DISPOSITION_AMBIGUOUS, candidates=tuple(c.display_name for c in exact))
 
@@ -122,9 +141,11 @@ def adjudicate(name_full: str, candidates: list[Candidate]) -> Adjudication:
         if theirs & ours:
             compatible.append(candidate)
     if len(compatible) == 1:
-        return Adjudication(DISPOSITION_GUARDED, pm_id=compatible[0].pm_id)
+        return Adjudication(DISPOSITION_GUARDED, pm_id=compatible[0].pm_id, excluded=excluded)
     if compatible:
         return Adjudication(
-            DISPOSITION_AMBIGUOUS, candidates=tuple(c.display_name for c in compatible)
+            DISPOSITION_AMBIGUOUS,
+            candidates=tuple(c.display_name for c in compatible),
+            excluded=excluded,
         )
-    return Adjudication(DISPOSITION_NEW)
+    return Adjudication(DISPOSITION_NEW, excluded=excluded)

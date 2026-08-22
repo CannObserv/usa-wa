@@ -20,8 +20,8 @@ from usa_wa_sync_powermap.dedupe_roster_persons import (
 )
 
 
-def _c(pm_id: str, display_name: str) -> Candidate:
-    return Candidate(pm_id=pm_id, display_name=display_name)
+def _c(pm_id: str, display_name: str, identifier_slugs: tuple[str, ...] = ()) -> Candidate:
+    return Candidate(pm_id=pm_id, display_name=display_name, identifier_slugs=identifier_slugs)
 
 
 def test_an_exact_cleaned_name_is_the_only_automatic_match() -> None:
@@ -111,3 +111,59 @@ def test_an_empty_candidate_window_is_new() -> None:
 def test_a_name_with_no_surname_never_adjudicates(name) -> None:
     """No surname means no probe was possible; there is nothing to compare against."""
     assert adjudicate(name, [_c("P1", "Belle Reeves")]).disposition == DISPOSITION_NEW
+
+
+def test_a_candidate_already_anchored_to_our_own_cohort_is_not_a_target() -> None:
+    """A PM Person carrying ``person_wa_legislature_member_id`` is one of the 641 we already
+    produce and already hold locally. A roster Person exists precisely BECAUSE the #251 join
+    found no WSL member for it — so if the two were one human, the join would have joined
+    them and this roster row would never have been minted.
+
+    Measured: 54 of 160 guarded verdicts pointed at a WSL-anchored PM Person. The harm is
+    concrete — local ``William S. Day`` matched PM's ``William Day``, whose only assignment
+    starts in 1991. That is Bill Day Jr (#228's pair), and attaching would have merged the
+    father onto the son.
+    """
+    result = adjudicate(
+        "William S. Day",
+        [_c("P1", "William Day", identifier_slugs=("person_wa_legislature_member_id",))],
+    )
+    assert result.disposition == DISPOSITION_NEW
+    assert result.excluded == ("William Day",)
+
+
+def test_the_exclusion_applies_to_an_exact_name_match_too() -> None:
+    """The stage does not matter — an exact name is not licence to merge across cohorts."""
+    result = adjudicate(
+        "William Day",
+        [_c("P1", "William Day", identifier_slugs=("person_wa_legislature_member_id",))],
+    )
+    assert result.disposition == DISPOSITION_NEW
+
+
+def test_a_candidate_holding_another_roster_key_is_not_a_target() -> None:
+    """Same argument one cohort over: a PM Person already carrying a roster key belongs to a
+    DIFFERENT local roster Person. Attaching would fork one human across two keys and then
+    fail on PM's one-value-per-type-per-entity rule."""
+    result = adjudicate(
+        "Charles P. Moriarty",
+        [_c("P1", "Charles Moriarty", identifier_slugs=("person_wa_legislature_roster",))],
+    )
+    assert result.disposition == DISPOSITION_NEW
+
+
+def test_an_unanchored_candidate_is_still_adjudicated() -> None:
+    """The 77 candidates carrying NO identifier at all are the genuine #256 surface —
+    admin-curated records and imports that no local cohort owns."""
+    result = adjudicate("Charles P. Moriarty", [_c("P1", "Charles Moriarty")])
+    assert result.disposition == DISPOSITION_GUARDED
+
+
+def test_a_pdc_only_candidate_is_still_adjudicated() -> None:
+    """A PDC filer/lobbyist key is not one of ours — it is exactly the later-life record
+    #256 was filed about."""
+    result = adjudicate(
+        "Charles P. Moriarty",
+        [_c("P1", "Charles Moriarty", identifier_slugs=("person_wa_pdc_filer",))],
+    )
+    assert result.disposition == DISPOSITION_GUARDED
