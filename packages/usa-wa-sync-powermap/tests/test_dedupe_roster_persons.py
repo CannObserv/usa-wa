@@ -75,11 +75,25 @@ def test_two_compatible_candidates_are_ambiguous() -> None:
     assert sorted(result.candidates) == ["Charles Moriarty", "Clara Moriarty"]
 
 
-def test_a_candidate_with_no_given_name_is_never_evidence_against() -> None:
-    """Mirrors #240: a missing given name on the other side is no signal, so it stays a
-    candidate rather than being rejected."""
+def test_a_bare_surname_candidate_is_a_stub_not_a_match() -> None:
+    """#240's "a missing given name is no signal" rule does NOT survive contact with PM.
+
+    PM holds bare-surname stub records — a Person whose whole display name is ``Morgan`` —
+    and treating "no given name" as "never evidence against" makes one stub compatible with
+    every local person sharing that surname. Measured on the live sweep: 70 of 165 guarded
+    verdicts pointed at a PM id claimed by 2-6 different local Persons, one ``Morgan`` stub
+    absorbing six. A record with no given name cannot corroborate one that has them.
+    """
     result = adjudicate("Charles Moriarty", [_c("P1", "Moriarty")])
+    assert result.disposition == DISPOSITION_NEW
+
+
+def test_a_stub_does_not_drown_out_a_real_candidate() -> None:
+    """The stub is excluded, not counted — so it cannot turn a lone real candidate into a
+    two-way ambiguity and suppress a finding."""
+    result = adjudicate("Charles P. Moriarty", [_c("P1", "Moriarty"), _c("P2", "Charles Moriarty")])
     assert result.disposition == DISPOSITION_GUARDED
+    assert result.pm_id == "P2"
 
 
 def test_a_different_surname_in_the_candidate_window_is_ignored() -> None:

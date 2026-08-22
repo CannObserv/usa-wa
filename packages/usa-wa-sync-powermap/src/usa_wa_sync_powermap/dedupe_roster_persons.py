@@ -110,8 +110,16 @@ def adjudicate(name_full: str, candidates: list[Candidate]) -> Adjudication:
         if surname not in surname_match_set(their_name):
             continue  # an FTS prefix neighbour (``bone`` → ``Bonebrake``), not a candidate
         theirs = _given_initials(their_name)
-        # No given name on the other side is no signal — never evidence against (#240).
-        if not theirs or not ours or theirs & ours:
+        if not theirs or not ours:
+            # A bare-surname record — PM holds Persons whose whole display name is
+            # ``Morgan`` — is a stub, not a corroboration. #240's "a missing given name is
+            # never evidence against" belongs to a context where the other side was a WSL
+            # member row; here it made one stub compatible with every local person sharing
+            # the surname (70 of 165 guarded verdicts pointed at a PM id claimed by 2-6
+            # locals, one ``Morgan`` absorbing six). Excluded, not counted: a stub must not
+            # manufacture an ambiguity that suppresses a real lone candidate either.
+            continue
+        if theirs & ours:
             compatible.append(candidate)
     if len(compatible) == 1:
         return Adjudication(DISPOSITION_GUARDED, pm_id=compatible[0].pm_id)
