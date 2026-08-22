@@ -76,6 +76,31 @@ def folded_tokens(full_name: str) -> list[str]:
     return [folded for raw in re.split(r"[\s(),]+", full_name) if (folded := fold_token(raw))]
 
 
+#: Generational suffixes. Emphatically NOT honorifics — ``Jr`` is what distinguishes two
+#: real people (usa-wa#228's Bill Day / Bill Day Jr), so it stays in the name and in every
+#: identity comparison. It is simply never the *surname*. A bare roman ``v`` is deliberately
+#: absent: it is far more often a middle initial than a fifth of a line.
+_GENERATIONAL = frozenset({"jr", "sr", "ii", "iii", "iv"})
+
+
+def probe_surname(full_name: str) -> str | None:
+    """The folded token to *search* an upstream name by — its surname — or ``None``.
+
+    Trailing generational suffixes are dropped, because the last token of
+    ``Kemper Freeman, Jr.`` is ``jr``: a query that returns every PM name carrying that
+    suffix (6 people, measured live) rather than the six Freemans. 25 of the roster's 2,494
+    pre-1991 Persons end in one. Dropped from the *probe* only — the caller still confirms
+    on the full cleaned name, where the suffix is load-bearing.
+
+    ``None`` when nothing survives folding: the caller must not send an empty query, which
+    would match on the search backend's ranking alone.
+    """
+    tokens = folded_tokens(strip_non_name_parts(full_name))
+    while tokens and tokens[-1] in _GENERATIONAL:
+        tokens.pop()
+    return tokens[-1] if tokens else None
+
+
 def surname_match_set(full_name: str) -> set[str]:
     """The set of folded name keys an upstream name matches on — atomic folded tokens
     (single words; single-letter initials survive but won't false-match a surname) **plus

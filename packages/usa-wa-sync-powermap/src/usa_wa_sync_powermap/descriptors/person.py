@@ -30,7 +30,7 @@ from clearinghouse_sync_powermap.descriptors import (
     normalize_name,
     parse_pm_timestamp,
 )
-from usa_wa_common.names import folded_tokens, strip_non_name_parts
+from usa_wa_common.names import probe_surname, strip_non_name_parts
 from usa_wa_sync_powermap.descriptors.events import sync_entity_events
 
 logger = get_logger(__name__)
@@ -107,7 +107,7 @@ class PersonDescriptor(EntityDescriptor):
 
     def __init__(self, *, search_match_cap: int | None = None) -> None:
         """``search_match_cap`` (#12): the name-match candidate window passed as the
-        search ``limit``. ``None`` keeps the historical default (:data:`_SEARCH_LIMIT`);
+        search ``limit``. ``None`` takes the per-entity default (:data:`_SEARCH_LIMIT`);
         the registry plumbs an operator override from ``SidecarSettings``."""
         self.search_match_cap = _SEARCH_LIMIT if search_match_cap is None else search_match_cap
 
@@ -141,19 +141,24 @@ class PersonDescriptor(EntityDescriptor):
         # PM, ``q="Belle (Mrs. Frank) Reeves"`` returns 0 where ``q="Reeves"`` returns 2.
         # The surname is the only form with real recall.
         #
+        # The probe is the surname specifically, not the last token (CR round 3): a
+        # generational suffix is not an honorific — ``Jr`` is what separates two real people,
+        # so it stays in the name — but it is not the surname either, and 25 of the 2,494
+        # roster Persons end in one. ``q="jr"`` returns the 6 PM people carrying that token,
+        # never the surname's cohort. :func:`probe_surname` drops it from the query only.
+        #
         # Recall is widened; the **accept rule is not**. The confirm is still exact equality
         # of the normalized name — applied to the *cleaned* form on both sides, because
         # ``normalize_name`` collapses punctuation to spaces and would never equate a raw
         # parenthetical with PM's curated name. A shared surname is not a match: 47 of the
         # 96 Persons this cohort minted share one with somebody already in PM.
-        cleaned = strip_non_name_parts(row.name_full)
-        tokens = folded_tokens(cleaned)
-        if not tokens:
+        surname = probe_surname(row.name_full)
+        if surname is None:
             # Nothing to probe with — an empty ``q`` would match on PM's ranking alone.
             logger.warning("person_pm_match_no_surname", extra={"entity_name": row.name_full})
             return None
-        target = normalize_name(cleaned)
-        page = await client.search_entities(SEARCH_PATH, q=tokens[-1], limit=self.search_match_cap)
+        target = normalize_name(strip_non_name_parts(row.name_full))
+        page = await client.search_entities(SEARCH_PATH, q=surname, limit=self.search_match_cap)
         named = [
             c
             for c in page.records
