@@ -67,7 +67,21 @@ STATUS_REJECTED = "REJECTED"
 #: re-drivable once PM recovers or the credential is fixed. Distinct from REJECTED
 #: so the backlog separates "data bug" from "PM was down / key was wrong".
 STATUS_UNAVAILABLE = "UNAVAILABLE"
-_STATUSES = (STATUS_PENDING, STATUS_DELIVERED, STATUS_REJECTED, STATUS_UNAVAILABLE)
+#: A terminal entry that a later open ``PENDING`` entry for the same
+#: ``(entity_type, local_id)`` has replaced — the defect was fixed in code and the row
+#: re-enqueued, so the old rejection is history, not a to-do. Retained rather than deleted
+#: so the incident stays legible, but out of the ``REJECTED`` backlog: that count exists to
+#: mean "rows an operator must still fix", and a permanent pile of settled ones holds it
+#: static, which is precisely what the sidecar's rise-alert reads as "nothing new"
+#: (usa-wa#258 — 1,788 such rows across the #255 and #257 waves).
+STATUS_SUPERSEDED = "SUPERSEDED"
+_STATUSES = (
+    STATUS_PENDING,
+    STATUS_DELIVERED,
+    STATUS_REJECTED,
+    STATUS_UNAVAILABLE,
+    STATUS_SUPERSEDED,
+)
 
 #: PM observation dispositions — values match PM's deployed ``Disposition`` StrEnum
 #: (``src/core/observation.py``): lowercase, hyphenated. Verified 2026-06-06.
