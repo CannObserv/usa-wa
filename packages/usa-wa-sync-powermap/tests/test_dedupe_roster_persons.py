@@ -64,8 +64,9 @@ def test_the_guard_rejects_a_different_given_name() -> None:
 def test_the_guard_compares_given_names_only() -> None:
     """The surname's own initial is on both sides by construction — the probe matched on it.
     Counting it would make every same-surname candidate 'compatible' and the guard inert."""
-    # Both fold to a shared 'h' on the surname alone; only the given names decide.
-    assert adjudicate("Harold Hansen", [_c("P1", "Helen Hansen")]).disposition == DISPOSITION_NEW
+    # Counting the surname's 'h' would make {h} & {n, h} non-empty and admit Nils; only
+    # the given names decide, and Harold vs Nils share nothing.
+    assert adjudicate("Harold Hansen", [_c("P1", "Nils Hansen")]).disposition == DISPOSITION_NEW
 
 
 def test_two_compatible_candidates_are_ambiguous() -> None:
