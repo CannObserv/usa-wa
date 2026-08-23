@@ -35,7 +35,10 @@ from usa_wa_adapter_legislature.roster_pdf.identity import (
     REFUSED_JOIN_UNRESOLVED,
     REFUSED_WIDE_GAP,
     WIDE_GAP_YEARS,
+    IdentityReport,
+    RefusedIdentity,
     identity_fold,
+    identity_seatings,
     resolve_identities,
     strip_position_suffix,
 )
@@ -516,3 +519,81 @@ def test_the_initial_guard_ignores_annotation_text_in_the_name() -> None:
     (identity,) = report.identities
     assert identity.disposition == IDENTITY_WSL
     assert identity.wsl_member_id == "233"
+
+
+# ---------------------------------------------------------------------------
+# usa-wa#226 — the resolved identities ARE the pre-1991 seating index
+
+
+def test_identity_seatings_key_each_record_to_its_resolved_identity() -> None:
+    """The #226 resolver matches a dated boundary against a seating index built only from
+    WSL sponsor archives, which floor at 1991 — so every pre-1991 boundary resolves
+    ``no_member`` by construction, 363 of them in the live corpus. That is not a name-match
+    failure: there was nothing to match against.
+
+    #228 changed the ground. Every pre-floor record now belongs to a resolved identity with
+    a real Person behind it, so the identities themselves are the missing index. Deriving it
+    here rather than from canonical rows keeps the member ids identical to the ones the mint
+    used — a re-derivation could drift, and a drifted member id writes an operator event
+    against a Person that does not exist.
+    """
+    rows = [
+        _rec("Belle (Mrs. Frank) Reeves", 1923, chamber="house", district=13),
+        _rec("Belle (Mrs. Frank) Reeves", 1925, chamber="house", district=13),
+    ]
+    report = resolve_identities(rows, seatings=())
+    (identity,) = report.identities
+
+    seatings = identity_seatings(report)
+
+    assert {(s.member_id, s.year, s.chamber, s.district) for s in seatings} == {
+        (identity.key, 1923, "house", 13),
+        (identity.key, 1925, "house", 13),
+    }
+    # Surname and given name mirror WSL's LastName/FirstName so the resolver's #240
+    # given-name-initial guard reads the same shape from either index.
+    assert {s.surname for s in seatings} == {"reeves"}
+    assert {s.given_name for s in seatings} == {"belle"}
+
+
+def test_a_joined_identity_is_keyed_by_its_WSL_member_id() -> None:
+    """A crosser already has a WSL Person; the roster asserts no new key for it. Keying its
+    pre-1991 records by the roster fold would mint an operator event against an identity
+    that was never minted."""
+    rows = [
+        _rec("Jay Inslee", 1989, chamber="house", district=13),
+        _rec("Jay Inslee", 1991, chamber="house", district=13),
+    ]
+    seatings = (
+        Seating(
+            member_id="M-1",
+            chamber="house",
+            district=13,
+            year=1991,
+            surname="Inslee",
+            given_name="Jay",
+        ),
+    )
+    report = resolve_identities(rows, seatings=seatings)
+
+    derived = identity_seatings(report)
+
+    assert {s.member_id for s in derived} == {"M-1"}
+    # Only the pre-floor record is carried: 1991+ rows belong to the WSL index already.
+    assert {s.year for s in derived} == {1989}
+
+
+def test_a_refused_identity_contributes_no_seatings() -> None:
+    """#228's rule holds: an unresolved identity is surfaced, never guessed. A seating for
+    it would resolve a boundary onto a Person we declined to mint."""
+    rows = [_rec("Ambiguous Person", 1923, chamber="house", district=13)]
+    report = IdentityReport(
+        identities=(),
+        refused=(
+            RefusedIdentity(
+                reason="whatever", fold="ambiguousperson", records=tuple(rows), detail="-"
+            ),
+        ),
+    )
+
+    assert identity_seatings(report) == []
