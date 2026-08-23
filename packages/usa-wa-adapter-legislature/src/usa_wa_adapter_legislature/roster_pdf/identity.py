@@ -50,6 +50,7 @@ from usa_wa_adapter_legislature.roster_pdf.resolve import Seating
 from usa_wa_common.names import (
     fold_token,
     folded_tokens,
+    probe_surname,
     strip_non_name_parts,
     surname_match_set,
 )
@@ -192,6 +193,51 @@ class IdentityReport:
             key = f"refused:{refusal.reason}"
             counts[key] = counts.get(key, 0) + 1
         return counts
+
+
+def identity_seatings(report: IdentityReport) -> list[Seating]:
+    """The pre-1991 seating index, derived from the identities themselves (#226).
+
+    The succession resolver matches a dated boundary against seatings built from archived
+    WSL sponsor rosters, which floor at 1991 — so every pre-floor boundary resolves
+    ``no_member`` by construction, whatever Persons exist locally. It never reads Persons.
+
+    Each identity contributes one seating per record it owns, keyed by the member id that
+    identity actually resolved to: :attr:`~RosterIdentity.wsl_member_id` for a crosser whose
+    Person already existed, the minted :attr:`~RosterIdentity.key` otherwise. Taken from the
+    report rather than re-read from canonical rows deliberately — these ids must be
+    byte-identical to the ones the mint wrote, and a re-derivation that drifted would resolve
+    a boundary onto a Person that does not exist.
+
+    Refusals contribute nothing. #228 surfaces an unresolved group rather than guessing it,
+    and a seating for one would seat a boundary on an identity we declined to mint.
+
+    ``surname``/``given_name`` mirror WSL's ``LastName``/``FirstName`` so the resolver's #240
+    given-name-initial guard reads the same shape from either index.
+    """
+    seatings: list[Seating] = []
+    for identity in report.identities:
+        member_id = identity.wsl_member_id or identity.key
+        if member_id is None:  # defensive: an identity is one or the other, never neither
+            continue
+        for record in identity.records:
+            cleaned = clean_name(record.name)
+            surname = probe_surname(cleaned)
+            if surname is None:
+                continue
+            tokens = folded_tokens(cleaned)
+            last = len(tokens) - 1 - tokens[::-1].index(surname)
+            seatings.append(
+                Seating(
+                    member_id=member_id,
+                    chamber=record.chamber,
+                    district=record.district,
+                    year=record.year,
+                    surname=surname,
+                    given_name=" ".join(tokens[:last]),
+                )
+            )
+    return seatings
 
 
 def _wide_gap(years: list[int]) -> tuple[int, int] | None:

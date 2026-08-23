@@ -76,6 +76,10 @@ from usa_wa_adapter_legislature.operators.store import (
 )
 from usa_wa_adapter_legislature.provisioning import get_or_create_source as get_or_create_wsl
 from usa_wa_adapter_legislature.roster_pdf.cohort import RosterCohortProvider
+from usa_wa_adapter_legislature.roster_pdf.identity import (
+    identity_seatings,
+    resolve_identities,
+)
 from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
 from usa_wa_adapter_legislature.roster_pdf.resolve import (
     PositionTenure,
@@ -498,8 +502,16 @@ async def resolve_roster_events(
     # `None` only when nothing is archived — in which case there is nothing to cite either.
     evidence_base = await provider.archived_url() or DEFAULT_ROSTER_URL
     report = propose_events(records)
+    # The WSL index floors at 1991, so on its own it resolves every pre-floor boundary
+    # ``no_member`` — 363 of them — however many Persons exist locally. #228's identity
+    # resolution supplies the missing half: the same records, keyed by the identity each one
+    # was minted or joined under. The WSL seatings go in first and are also the join evidence
+    # the identity resolution runs on, so a crosser is keyed by its WSL member id in both
+    # halves rather than appearing twice under two ids (#226).
+    wsl_seatings = await load_seatings(session, source_id=wsl_source.id)
+    identities = resolve_identities(records, seatings=wsl_seatings)
     resolver = SuccessionResolver(
-        seatings=await load_seatings(session, source_id=wsl_source.id),
+        seatings=[*wsl_seatings, *identity_seatings(identities)],
         positions=await load_positions(session),
     )
     # ``unseated`` proposals are dated House boundaries awaiting a Position — exactly what the
