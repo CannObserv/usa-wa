@@ -48,7 +48,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.job import EXIT_CONFIG, JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
-from clearinghouse_domain_legislative.terms import biennium_for_date
+from clearinghouse_domain_legislative.span_emit import span_key_parts
+from clearinghouse_domain_legislative.terms import biennium_for_date, parse_biennium
 from usa_wa_adapter_legislature.coverage import SPONSOR_ROSTER_COVERAGE
 
 logger = get_logger(__name__)
@@ -79,6 +80,8 @@ class InvariantResult:
     expected_house: int = HOUSE_SEATS
     duplicate_seats: list[tuple[str, int]] = field(default_factory=list)  # (role_id, occupants)
     duplicate_members: list[tuple[str, str, int]] = field(default_factory=list)  # (person, type, n)
+    #: Spans whose ``valid_from`` starts after their own key biennium (usa-wa#272).
+    misdated: list[MisdatedTenure] = field(default_factory=list)
 
     @property
     def count_ok(self) -> bool:
@@ -86,7 +89,22 @@ class InvariantResult:
 
     @property
     def ok(self) -> bool:
-        return self.count_ok and not self.duplicate_seats and not self.duplicate_members
+        return (
+            self.count_ok
+            and not self.duplicate_seats
+            and not self.duplicate_members
+            and not self.misdated
+        )
+
+
+@dataclass(frozen=True)
+class MisdatedTenure:
+    """A span whose ``valid_from`` starts **after** its own key biennium (usa-wa#272)."""
+
+    source_id: str
+    start_biennium: str
+    valid_from: date
+    member: str  # Person.name_full
 
 
 @dataclass(frozen=True)
@@ -205,7 +223,57 @@ async def check_invariants(
         )
     ).all()
     result.duplicate_members = [(str(pid), rtype, n) for pid, rtype, n in dup_members]
+
+    # A tenure dated outside its own key biennium (#272) — a silent single-occupant corruption
+    # the duplicate checks structurally cannot see. Probed once, not per as-of: a span key is
+    # point-in-time-invariant.
+    result.misdated = await misdated_tenures(session)
     return result
+
+
+async def misdated_tenures(session: AsyncSession) -> list[MisdatedTenure]:
+    """Every span whose ``valid_from`` starts after its own key biennium — read-only (#272).
+
+    A span ``source_id`` ends in the **tenure start biennium**, so the start date belongs in it.
+    A span keyed ``2003-04`` that begins in 2016 is recording a thirteen-year tenure as six
+    weeks, and nothing else here can see it: the seat checks look for *duplicate* occupancy, and
+    a single occupant whose dates are wrong is not a duplicate.
+
+    Two live rows had exactly this shape before #274 — Hans Dunshee's LD44 House tenure
+    (`seated 2016-02-29` mis-resolved onto a tenure that began in 2003) and Mike Kreidler's LD22
+    Senate tenure, the outbox entry that sat UNAVAILABLE and unexplained for weeks. Both were
+    silent for months.
+
+    A start *inside* the key biennium is the normal mid-biennium appointee and is not drift; only
+    a start past the biennium's final year is reported.
+    """
+    rows = (
+        await session.execute(
+            select(Assignment.source_id, Assignment.valid_from, Person.name_full)
+            .join(Person, Person.id == Assignment.person_id)
+            .where(Assignment.deleted_at.is_(None), Assignment.archived_at.is_(None))
+        )
+    ).all()
+    out: list[MisdatedTenure] = []
+    for source_id, valid_from, member in rows:
+        parts = span_key_parts(source_id)
+        if parts is None:
+            continue
+        start_biennium = parts[3]
+        try:
+            _first, last = parse_biennium(start_biennium)
+        except ValueError:
+            continue  # not a biennium — a legacy or non-span key
+        if valid_from.year > last:
+            out.append(
+                MisdatedTenure(
+                    source_id=source_id,
+                    start_biennium=start_biennium,
+                    valid_from=valid_from,
+                    member=member,
+                )
+            )
+    return sorted(out, key=lambda m: m.source_id)
 
 
 async def duplicate_occupancy_detail(session: AsyncSession, *, as_of: date) -> list[SeatConflict]:
@@ -286,6 +354,14 @@ def _log(result: InvariantResult) -> None:
             "expected_house": result.expected_house,
             "duplicate_seats": result.duplicate_seats,
             "duplicate_members": result.duplicate_members,
+            "misdated_tenures": [
+                {
+                    "source_id": m.source_id,
+                    "member": m.member,
+                    "valid_from": m.valid_from.isoformat(),
+                }
+                for m in result.misdated
+            ],
         },
     )
 
@@ -429,6 +505,7 @@ async def _invariants_job(ctx: JobContext) -> JobResult:
         "expected_house": result.expected_house,
         "duplicate_seats": len(result.duplicate_seats),
         "duplicate_members": len(result.duplicate_members),
+        "misdated_tenures": len(result.misdated),
     }
     return JobResult.ok(counters) if result.ok else JobResult.failed(counters)
 
