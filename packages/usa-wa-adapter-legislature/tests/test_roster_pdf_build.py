@@ -14,9 +14,9 @@ from datetime import UTC, date, datetime
 import pytest
 from sqlalchemy import func, select
 
-from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
+from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload
 from clearinghouse_domain_legislative.identity import Assignment, Person
-from clearinghouse_domain_legislative.span_emit import span_key_parts
+from clearinghouse_domain_legislative.span_emit import ASSIGNMENT_CITATION_TYPE, span_key_parts
 from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
@@ -198,24 +198,40 @@ async def test_an_operator_event_dates_a_roster_span(db_session, usa_wa, archive
     overlay — and every pre-1991 span belongs to *this* builder. Without this step the
     boundaries are correct, provenanced, and inert: a `vacated` on a 1923 Senate seat leaves
     the span ending at its biennium floor exactly as before.
+
+    Both halves are asserted (CR 30): the boundary moving, and the **field-level citation**
+    that makes the moved boundary auditable under #54. Asserting only the date left the
+    citation call site untested — deleting it outright kept the suite green.
     """
     first = await build_pre1991(db_session, current_biennium=CURRENT)
     assert first.assignments_emitted > 0
+    assert first.operator_cites == 0, "no events on record yet, so nothing to cite"
 
-    span = (
-        await db_session.execute(
-            select(Assignment)
-            .join(Person, Person.id == Assignment.person_id)
-            .where(Assignment.source == ROSTER_SOURCE_SLUG)
-            .order_by(Assignment.source_id)
-            .limit(1)
+    # Deterministic subject (CR 31): the earliest-keyed span whose window is wide enough to
+    # hold a boundary strictly inside it. Taking whichever span sorts first and assuming a
+    # fixed mid-year date lands in its window couples the test to the fixture's ordering — a
+    # late-starting single-year tenure would clamp in ``_close`` and fail for a reason that
+    # has nothing to do with the overlay.
+    spans = (
+        (
+            await db_session.execute(
+                select(Assignment)
+                .join(Person, Person.id == Assignment.person_id)
+                .where(Assignment.source == ROSTER_SOURCE_SLUG)
+                .order_by(Assignment.source_id)
+            )
         )
-    ).scalar_one()
+        .scalars()
+        .all()
+    )
+    span = next(
+        s for s in spans if s.valid_to is not None and (s.valid_to - s.valid_from).days > 365
+    )
     member_id, kind, discriminator, _biennium = span_key_parts(span.source_id)
-    original_end = span.valid_to
     # A resignation partway through the tenure — the fact the roster states and the biennium
-    # floor cannot express.
-    mid = date(original_end.year, 6, 15)
+    # floor cannot express. Derived from the span's own window, so it is inside by construction.
+    mid = span.valid_from + (span.valid_to - span.valid_from) / 2
+    assert span.valid_from < mid < span.valid_to
     source = await get_or_create_operator_source(db_session, usa_wa)
     await record_operator_event(
         db_session,
@@ -235,4 +251,20 @@ async def test_an_operator_event_dates_a_roster_span(db_session, usa_wa, archive
 
     await db_session.refresh(span)
     assert span.valid_to == mid, "the operator boundary must beat the biennium floor"
-    assert second.operator_events_applied >= 1
+    assert second.operator_events_loaded >= 1
+    # The applied signal (CR 29): ``operator_events_loaded`` only proves the event was read.
+    assert second.operator_cites >= 1
+    cited = (
+        (
+            await db_session.execute(
+                select(Citation).where(
+                    Citation.entity_type == ASSIGNMENT_CITATION_TYPE,
+                    Citation.entity_id == span.id,
+                    Citation.field_path == "valid_to",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(cited) == 1, "the moved end date must cite the operator attestation that set it"
