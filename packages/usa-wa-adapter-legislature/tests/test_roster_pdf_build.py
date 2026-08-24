@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload
 from clearinghouse_domain_legislative.identity import Assignment, Person
 from clearinghouse_domain_legislative.span_emit import ASSIGNMENT_CITATION_TYPE, span_key_parts
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
@@ -25,6 +26,7 @@ from usa_wa_adapter_legislature.roster_pdf.adapter import ROSTER_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.roster_pdf.build import (
     OracleViolation,
     build_pre1991,
+    unattested_spans,
     verify_pre1991,
 )
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
@@ -268,3 +270,37 @@ async def test_an_operator_event_dates_a_roster_span(db_session, usa_wa, archive
         .all()
     )
     assert len(cited) == 1, "the moved end date must cite the operator attestation that set it"
+
+
+def _span(member, kind, disc, start="1957-58"):
+    return TenureSpan(
+        member_id=member,
+        kind=kind,
+        discriminator=disc,
+        start_biennium=start,
+        end_biennium=start,
+        valid_from=date(1957, 1, 1),
+        valid_to=date(1972, 12, 31),
+        is_active=False,
+    )
+
+
+def test_a_split_tail_is_not_an_unattested_span() -> None:
+    """usa-wa#267. The CR-34 guard compared whole `source_id` sets, so the first real split —
+    an added span — read as a synthesized seat and aborted the production build.
+
+    A split tail is citable where a synthesized span is not: it is the same member's same
+    tenure after a gap, and the edition lists them in those biennia. The seat, not the count,
+    is what separates them.
+    """
+    built = [_span("huntley", "party", "republican")]
+    tail = _span("huntley", "party", "republican", start="1967-68")
+    assert unattested_spans([*built, tail], built) == []
+
+
+def test_a_synthesized_seat_is_still_refused() -> None:
+    """The guard must keep its teeth: a seat the wire built nothing for would cite an edition
+    that never listed the member there, and this builder has no citation skip list."""
+    built = [_span("huntley", "party", "republican")]
+    synthesized = _span("huntley", "chamber-senate", "9", start="2025-26")
+    assert unattested_spans([*built, synthesized], built) == [synthesized]
