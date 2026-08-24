@@ -14,8 +14,12 @@ Archive → identities → Persons + spans, in one gated pass:
    check has evidence for).
    A violation aborts; refusals and declines are tallied outcomes, never aborts.
 4. Mint roster Persons for the minted identities (:mod:`persons`).
-5. Emit the minted identities' spans in the roster source space (:mod:`emit`).
-6. **Deepen** the WSL-joined identities' spans through the sponsor builder
+5. **Apply the operator overlay** (:mod:`operator_overlay`, #226): every pre-1991 span is
+   *this* builder's, so the roster's own dated mid-term boundaries take effect here or
+   nowhere — without this step they are correct, provenanced and inert.
+6. Emit the minted identities' spans in the roster source space (:mod:`emit`), then cite
+   each moved boundary to the operator attestation that dated it (#54).
+7. **Deepen** the WSL-joined identities' spans through the sponsor builder
    (``build_spans(extra_observations=…)``): a crossing member's tenure emits as one span
    keyed at its roster-era start, pre-archive bienniums citing the roster edition. Skipped
    with a warning when no sponsor archive exists (a fresh database).
@@ -38,11 +42,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
+from clearinghouse_domain_legislative.operator_overlay import apply_operator_events, from_rows
 from clearinghouse_domain_legislative.span_emit import retire_unasserted_spans
 from clearinghouse_domain_legislative.span_kinds import KIND_PARTY, KIND_SENATE
 from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
+from usa_wa_adapter_legislature.operators.store import (
+    cite_operator_events,
+    current_events,
+    get_or_create_operator_source,
+)
 from usa_wa_adapter_legislature.provisioning import get_or_create_source as get_or_create_wsl
 from usa_wa_adapter_legislature.roster_pdf.backfill import load_seatings
 from usa_wa_adapter_legislature.roster_pdf.cohort import RosterCohortProvider
@@ -89,6 +99,14 @@ class Pre1991BuildSummary:
     persons_retired_anchored: int
     persons_retire_aborted: bool
     assignments_emitted: int
+    #: Operator events **loaded** for this build's members (#226) — deliberately not a
+    #: count of what applied: the overlay silently skips a seat-scoped event whose kind
+    #: this builder does not own, and no-ops a ``departed`` with no open span or an
+    #: inverted date. ``operator_cites`` is the applied signal, since a citation is
+    #: written only where a boundary really moved (CR 29).
+    operator_events_loaded: int
+    #: Field-level citations written for the boundaries the overlay actually moved.
+    operator_cites: int
     spans_retired: int
     spans_retired_anchored: int
     retire_aborted: bool
@@ -194,6 +212,8 @@ async def build_pre1991(
             persons_retired_anchored=0,
             persons_retire_aborted=False,
             assignments_emitted=0,
+            operator_events_loaded=0,
+            operator_cites=0,
             spans_retired=0,
             spans_retired_anchored=0,
             retire_aborted=False,
@@ -247,7 +267,36 @@ async def build_pre1991(
     minted_obs = [o for o in projection.observations if o.member_id not in joined_members]
     joined_obs = [o for o in projection.observations if o.member_id in joined_members]
 
-    minted_spans = build_tenure_spans(minted_obs, current_biennium=current)
+    built_spans = build_tenure_spans(minted_obs, current_biennium=current)
+    # Operator-succession overlay (#226): the roster states 922 dated mid-term boundaries and
+    # #265 made the pre-1991 ones resolvable, but the overlay had only ever been applied by
+    # the sponsor / SOS-house / committee builders — and every pre-1991 span is *this*
+    # builder's. Without this step those boundaries are correct, provenanced and inert: a
+    # resignation dated June 1930 leaves the span ending at its biennium floor regardless.
+    #
+    # Scoped to this build's own members, not the whole store: the WSL-era events belong to
+    # the sponsor builder's cohort and matching is by ``member_id`` anyway, so an unscoped
+    # load would read thousands of rows to apply none of them.
+    event_rows = list(await current_events(session, member_ids={o.member_id for o in minted_obs}))
+    minted_spans = apply_operator_events(
+        built_spans,
+        from_rows(event_rows),
+        current_biennium=current,
+        owned_kinds={KIND_PARTY, KIND_SENATE},
+    )
+    # The overlay can *synthesize* a span — a current-biennium ``seated`` the wire missed, or
+    # a #105-excluded mover's closed House tenure — and a synthesized span must not cite the
+    # roster edition, which is why the sponsor builder passes ``skip_citation_ids``. Neither
+    # path reaches this builder: the cohort is entirely pre-1991 so no ``seated`` can land
+    # inside ``current_biennium``, and ``movers_by_biennium`` (the closed-synth gate) is
+    # deliberately not passed. That is an invariant the emission depends on, so assert it
+    # rather than leave it implicit (CR 34) — an emitter with no skip list would otherwise
+    # cite a roster edition that never listed the member.
+    if {s.source_id for s in minted_spans} != {s.source_id for s in built_spans}:
+        raise OracleViolation(
+            "the operator overlay synthesized a span in the pre-1991 builder, which has no "
+            "citation skip list — it would emit citing an edition that never listed the member"
+        )
     emitted = await emit_roster_spans(
         session,
         minted_spans,
@@ -255,6 +304,20 @@ async def build_pre1991(
         reliability=roster_source.reliability,
         citation=citation,
     )
+    # Field-level citations for the boundaries the overlay moved (#54): the roster edition
+    # citation ``emit_roster_spans`` already wrote attests the *tenure*; this attests the
+    # *date*, which came from a specific annotated page.
+    operator_cites = 0
+    if event_rows:
+        operator_source = await get_or_create_operator_source(session, jurisdiction)
+        operator_cites = await cite_operator_events(
+            session,
+            event_rows,
+            minted_spans,
+            owned_kinds={KIND_PARTY, KIND_SENATE},
+            assignment_source=ROSTER_SOURCE_SLUG,
+            confidence=operator_source.reliability,
+        )
 
     # Retire roster spans this derivation no longer asserts (CR #86): the pre-1991 rows are
     # emitted closed, so the #83 open-row sweep can never see one go stale — what strands
@@ -294,6 +357,8 @@ async def build_pre1991(
         persons_retired_anchored=retired_persons["anchored"],
         persons_retire_aborted=retired_persons["aborted"],
         assignments_emitted=emitted,
+        operator_events_loaded=len(event_rows),
+        operator_cites=operator_cites,
         spans_retired=retire.retired,
         spans_retired_anchored=retire.anchored,
         retire_aborted=retire.aborted,

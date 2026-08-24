@@ -70,6 +70,32 @@ re-drive, which re-anchors the corresponding PM Assignment — the same sequenci
 House builder documents: pause the sidecar, run this, re-drive the span builders, resume.
 Do not merge and let the timer run.
 
+**Re-drive means four builders, and the pre-1991 one is the point.** Until #226 the overlay
+was applied only by `sponsors.build`, the SOS House builder and the committee builder — none
+of which owns a span below the 1991 floor. The roster's own boundaries are *all* pre-1991, so
+re-driving those three leaves every one of them correct, provenanced and **inert**. The
+pre-1991 builder applies the overlay since #226 and must be in the sequence:
+
+```bash
+uv run python -m usa_wa_adapter_legislature.roster_pdf.build      # pre-1991 — the roster's own era
+uv run python -m usa_wa_adapter_legislature.sponsors.build        # 1991+ and the deepened joins
+uv run python -m usa_wa_adapter_legislature.operators.invariants --sweep-biennia --strict
+```
+
+Two things to read off the run rather than assume:
+
+* `operator_cites`, not `operator_events_loaded`, is the **applied** count. The loaded figure
+  counts what was read for this cohort; the overlay silently skips a seat-scoped event whose
+  kind the builder does not own (a House `vacated` is #229's) and no-ops a `departed` with no
+  open span. A citation is written only where a boundary really moved.
+* A `departed` closes **every** covering span of the member, and `build_tenure_spans` merges
+  contiguous biennia into one. A member who resigned and was returned two years later has a
+  single merged span, and the event truncates the whole thing — dropping real later service.
+  `departed:resigned` is the roster's largest class (205 proposals) and pre-1991 is where
+  resign-and-return is both most common and least correctable from the wire, so after the
+  re-drive confirm that no span the overlay closed has a roster observation in a biennium
+  after its new `valid_to`.
+
 `--limit N` stages a first run; `--dry-run` rolls back (the harness owns the rollback, so the
 counters are exactly what a live run would do). Exit `0` clean · `1` failed · `2` config ·
 **`4` degraded** — nothing resolved at all, meaning the roster archive or the sponsor index is
