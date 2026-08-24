@@ -38,11 +38,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
+from clearinghouse_domain_legislative.operator_overlay import apply_operator_events, from_rows
 from clearinghouse_domain_legislative.span_emit import retire_unasserted_spans
 from clearinghouse_domain_legislative.span_kinds import KIND_PARTY, KIND_SENATE
 from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
+from usa_wa_adapter_legislature.operators.store import (
+    cite_operator_events,
+    current_events,
+    get_or_create_operator_source,
+)
 from usa_wa_adapter_legislature.provisioning import get_or_create_source as get_or_create_wsl
 from usa_wa_adapter_legislature.roster_pdf.backfill import load_seatings
 from usa_wa_adapter_legislature.roster_pdf.cohort import RosterCohortProvider
@@ -89,6 +95,10 @@ class Pre1991BuildSummary:
     persons_retired_anchored: int
     persons_retire_aborted: bool
     assignments_emitted: int
+    #: Operator boundaries the overlay applied to this build's spans (#226).
+    operator_events_applied: int
+    #: Field-level citations written for those boundaries.
+    operator_cites: int
     spans_retired: int
     spans_retired_anchored: int
     retire_aborted: bool
@@ -194,6 +204,8 @@ async def build_pre1991(
             persons_retired_anchored=0,
             persons_retire_aborted=False,
             assignments_emitted=0,
+            operator_events_applied=0,
+            operator_cites=0,
             spans_retired=0,
             spans_retired_anchored=0,
             retire_aborted=False,
@@ -247,7 +259,23 @@ async def build_pre1991(
     minted_obs = [o for o in projection.observations if o.member_id not in joined_members]
     joined_obs = [o for o in projection.observations if o.member_id in joined_members]
 
-    minted_spans = build_tenure_spans(minted_obs, current_biennium=current)
+    built_spans = build_tenure_spans(minted_obs, current_biennium=current)
+    # Operator-succession overlay (#226): the roster states 922 dated mid-term boundaries and
+    # #265 made the pre-1991 ones resolvable, but the overlay had only ever been applied by
+    # the sponsor / SOS-house / committee builders — and every pre-1991 span is *this*
+    # builder's. Without this step those boundaries are correct, provenanced and inert: a
+    # resignation dated June 1930 leaves the span ending at its biennium floor regardless.
+    #
+    # Scoped to this build's own members, not the whole store: the WSL-era events belong to
+    # the sponsor builder's cohort and matching is by ``member_id`` anyway, so an unscoped
+    # load would read thousands of rows to apply none of them.
+    event_rows = list(await current_events(session, member_ids={o.member_id for o in minted_obs}))
+    minted_spans = apply_operator_events(
+        built_spans,
+        from_rows(event_rows),
+        current_biennium=current,
+        owned_kinds={KIND_PARTY, KIND_SENATE},
+    )
     emitted = await emit_roster_spans(
         session,
         minted_spans,
@@ -255,6 +283,20 @@ async def build_pre1991(
         reliability=roster_source.reliability,
         citation=citation,
     )
+    # Field-level citations for the boundaries the overlay moved (#54): the roster edition
+    # citation ``emit_roster_spans`` already wrote attests the *tenure*; this attests the
+    # *date*, which came from a specific annotated page.
+    operator_cites = 0
+    if event_rows:
+        operator_source = await get_or_create_operator_source(session, jurisdiction)
+        operator_cites = await cite_operator_events(
+            session,
+            event_rows,
+            minted_spans,
+            owned_kinds={KIND_PARTY, KIND_SENATE},
+            assignment_source=ROSTER_SOURCE_SLUG,
+            confidence=operator_source.reliability,
+        )
 
     # Retire roster spans this derivation no longer asserts (CR #86): the pre-1991 rows are
     # emitted closed, so the #83 open-row sweep can never see one go stale — what strands
@@ -294,6 +336,8 @@ async def build_pre1991(
         persons_retired_anchored=retired_persons["anchored"],
         persons_retire_aborted=retired_persons["aborted"],
         assignments_emitted=emitted,
+        operator_events_applied=len(event_rows),
+        operator_cites=operator_cites,
         spans_retired=retire.retired,
         spans_retired_anchored=retire.anchored,
         retire_aborted=retire.aborted,
