@@ -16,6 +16,11 @@ from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
 from clearinghouse_domain_legislative.identity import Assignment, Person
+from clearinghouse_domain_legislative.span_emit import span_key_parts
+from usa_wa_adapter_legislature.operators.store import (
+    get_or_create_operator_source,
+    record_operator_event,
+)
 from usa_wa_adapter_legislature.roster_pdf.adapter import ROSTER_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.roster_pdf.build import (
     OracleViolation,
@@ -185,3 +190,49 @@ async def test_summary_reports_the_deepening_sweep_and_the_full_residue(
     # Guarded (CR #99): whether this fixture refuses anything is not this test's subject.
     for reason, count in summary.refusals.items():
         assert summary.counters[f"refusals_{reason}"] == count
+
+
+async def test_an_operator_event_dates_a_roster_span(db_session, usa_wa, archived_roster) -> None:
+    """#226's other half. The backfill resolves 238 dated boundaries and writes them to the
+    operator store, but only the sponsor/SOS-house/committee builders ever applied the
+    overlay — and every pre-1991 span belongs to *this* builder. Without this step the
+    boundaries are correct, provenanced, and inert: a `vacated` on a 1923 Senate seat leaves
+    the span ending at its biennium floor exactly as before.
+    """
+    first = await build_pre1991(db_session, current_biennium=CURRENT)
+    assert first.assignments_emitted > 0
+
+    span = (
+        await db_session.execute(
+            select(Assignment)
+            .join(Person, Person.id == Assignment.person_id)
+            .where(Assignment.source == ROSTER_SOURCE_SLUG)
+            .order_by(Assignment.source_id)
+            .limit(1)
+        )
+    ).scalar_one()
+    member_id, kind, discriminator, _biennium = span_key_parts(span.source_id)
+    original_end = span.valid_to
+    # A resignation partway through the tenure — the fact the roster states and the biennium
+    # floor cannot express.
+    mid = date(original_end.year, 6, 15)
+    source = await get_or_create_operator_source(db_session, usa_wa)
+    await record_operator_event(
+        db_session,
+        source,
+        member_id=member_id,
+        kind="vacated",
+        reason="resigned",
+        effective_date=mid,
+        evidence_url="https://x/roster.pdf#page=7",
+        seat_kind=kind,
+        seat_discriminator=discriminator,
+        entered_by="test",
+    )
+    await db_session.flush()
+
+    second = await build_pre1991(db_session, current_biennium=CURRENT)
+
+    await db_session.refresh(span)
+    assert span.valid_to == mid, "the operator boundary must beat the biennium floor"
+    assert second.operator_events_applied >= 1
