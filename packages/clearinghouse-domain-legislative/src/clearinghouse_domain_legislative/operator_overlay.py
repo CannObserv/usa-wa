@@ -206,7 +206,13 @@ def apply_operator_events(
     # ``valid_from`` — which a ``seated`` event may still be about to correct from a biennium
     # floor to the real swearing-in. Ordering by phase rather than by input makes the split
     # read settled starts: Huntley's party tenure reopens 1967-04-24, not 1967-01-01.
-    ordered = sorted(events, key=lambda e: e.kind == KIND_DEPARTED)
+    ordered = sorted(events, key=lambda e: (e.kind == KIND_DEPARTED, e.effective_date))
+    # A member is seated ONCE per tenure. A second `seated` matching a span it has already
+    # dated is a re-seating that belongs to a different tenure, or — as the #226 backfill
+    # produced for Christine Rolfes — a successor's seating mis-resolved onto the incumbent.
+    # Applying it would re-date a twelve-year tenure to its last day. Per SPAN, not per seat:
+    # a gap-and-return member holds one seat twice and each tenure takes its own seating.
+    seated_spans: set[tuple[str, str, str, str]] = set()
     for event in ordered:
         _warn_if_predates(result, event)
         if event.kind == KIND_DEPARTED:
@@ -299,6 +305,20 @@ def apply_operator_events(
             hit = False
             for i, span in enumerate(result):
                 if _matches_seat(span, event):
+                    key = (span.member_id, span.kind, span.discriminator, span.start_biennium)
+                    if key in seated_spans:
+                        logger.info(
+                            "operator_seated_tenure_already_dated",
+                            extra={
+                                "member_id": event.member_id,
+                                "seat": event.seat_discriminator,
+                                "effective_date": event.effective_date.isoformat(),
+                                "span_valid_from": span.valid_from.isoformat(),
+                            },
+                        )
+                        hit = True
+                        continue
+                    seated_spans.add(key)
                     result[i] = replace(span, valid_from=event.effective_date)
                     hit = True
             if not hit:
