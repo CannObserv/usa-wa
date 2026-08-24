@@ -4,7 +4,10 @@ The authoritative layer that runs **after** ``build_tenure_spans`` and **before*
 ``emit_spans`` in each span builder, applying the operator's :class:`OperatorEvent`
 facts as precise sub-biennium boundaries the wire can't supply:
 
-- ``departed`` (person-scoped) — close **every** open span of the member at the date.
+- ``departed`` (person-scoped) — close every open span of the member at the date, **except one
+  the member re-enters** (usa-wa#267): ``build_tenure_spans`` merges contiguous biennia into a
+  single span, so for a member who left and later returned that one span covers both tenures
+  and truncating it discards the second. Skipped-and-logged, never silent.
 - ``vacated`` (seat-scoped) — close the member's **one** named seat span at the date.
 - ``seated`` (seat-scoped) — open the member's named seat span at the date (adjust the
   built span's ``valid_from``, or **synthesize** the span if the wire built none — but only
@@ -198,6 +201,27 @@ def apply_operator_events(
                 if span.member_id == event.member_id and _is_open_through(
                     span, event.effective_date
                 ):
+                    # A span the member re-enters is the merged row of two tenures, and
+                    # closing it at the departure discards the second (usa-wa#267: Huntley
+                    # resigned 1965 and was appointed to the Senate in 1967, leaving him
+                    # holding a seat with no party span under it for five years). Leave it
+                    # whole and say so — the residue is a real fact the span algebra cannot
+                    # express, not something to drop quietly.
+                    re_entry = _re_entry_after(result, span, event.effective_date)
+                    if re_entry is not None:
+                        logger.info(
+                            "operator_departed_span_covers_return",
+                            extra={
+                                "member_id": event.member_id,
+                                "effective_date": event.effective_date.isoformat(),
+                                "span_kind": span.kind,
+                                "span_discriminator": span.discriminator,
+                                "returns_at": re_entry.valid_from.isoformat(),
+                                "returns_kind": re_entry.kind,
+                            },
+                        )
+                        hit = True
+                        continue
                     result[i] = _close(span, event.effective_date)
                     hit = True
             if not hit:
@@ -301,6 +325,30 @@ def _warn_if_predates(spans: list[TenureSpan], event: SuccessionEvent) -> None:
                 },
             )
             return
+
+
+def _re_entry_after(
+    spans: list[TenureSpan], span: TenureSpan, effective_date: date
+) -> TenureSpan | None:
+    """A span of the same member that **starts after** ``effective_date`` and inside ``span``\'s
+    window — the member came back, and ``span`` is the merged row covering both tenures.
+
+    The condition is deliberately narrow (usa-wa#267). A span already running at the date is
+    *not* a re-entry: that is precisely what a death or a resignation ends, so the ordinary
+    ``departed`` case (Ramos, #107) is untouched. Only a span whose start post-dates the
+    departure is evidence the member returned.
+    """
+    key = (span.kind, span.discriminator, span.start_biennium)
+    for other in spans:
+        if other.member_id != span.member_id:
+            continue
+        if (other.kind, other.discriminator, other.start_biennium) == key:
+            continue  # itself
+        if effective_date < other.valid_from and (
+            span.valid_to is None or other.valid_from <= span.valid_to
+        ):
+            return other
+    return None
 
 
 def _is_open_through(span: TenureSpan, effective_date: date) -> bool:
