@@ -129,6 +129,29 @@ def _matches_seat(span: TenureSpan, event: SuccessionEvent) -> bool:
     )
 
 
+def _seating_starts_tenure(span: TenureSpan, effective_date: date) -> bool:
+    """A seating dates the tenure it **starts**, not any tenure it merely falls inside
+    (usa-wa#272).
+
+    :func:`_matches_seat` attaches a seat-scoped event to any span whose *window* contains the
+    date, and ``build_tenure_spans`` merges contiguous biennia — so a thirteen-year tenure's
+    window contains almost any date in it. A ``seated`` belonging to a successor then lands on
+    the incumbent's span and re-dates its start, recording the whole tenure as its own final
+    weeks (member 630: a House tenure keyed ``2003-04`` re-dated to six weeks in 2016).
+
+    The bound is "at or after the event's biennium" rather than equality, because a span
+    starting one biennium late is precisely the defect the overlay exists to correct: a
+    mid-biennium appointee is absent from the sponsor roster of the biennium they were
+    appointed into, so their first span opens at the *following* one (Graham Hunt, appointed
+    2014-01-17, has only ``ld-2-position-1:2015-16``). Requiring containment would refuse
+    exactly the events worth applying — the same asymmetry ``POSITION_LOOKBACK_YEARS`` encodes
+    on the resolve side."""
+    return (
+        parse_biennium(span.start_biennium)[0]
+        >= parse_biennium(biennium_for_date(effective_date))[0]
+    )
+
+
 def _close(span: TenureSpan, effective_date: date) -> TenureSpan:
     """Close a span at ``effective_date`` (clamped ≥ its own start), marking it inactive."""
     return replace(span, valid_to=max(effective_date, span.valid_from), is_active=False)
@@ -305,6 +328,23 @@ def apply_operator_events(
             hit = False
             for i, span in enumerate(result):
                 if _matches_seat(span, event):
+                    if not _seating_starts_tenure(span, event.effective_date):
+                        # The event sits inside this tenure's window but years after it began,
+                        # so it is a successor's seating (or a later tenure's) mis-resolved onto
+                        # it (#272). Applying it would record the whole tenure as its final
+                        # weeks. Not a match: a current-biennium appointee still falls through
+                        # to synthesis below, which is the correct home for a seating the wire
+                        # built no tenure for.
+                        logger.info(
+                            "operator_seated_does_not_start_tenure",
+                            extra={
+                                "member_id": event.member_id,
+                                "seat": event.seat_discriminator,
+                                "effective_date": event.effective_date.isoformat(),
+                                "span_start_biennium": span.start_biennium,
+                            },
+                        )
+                        continue
                     key = (span.member_id, span.kind, span.discriminator, span.start_biennium)
                     if key in seated_spans:
                         logger.info(
