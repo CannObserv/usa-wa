@@ -540,3 +540,78 @@ def test_departed_does_not_split_within_one_biennium():
     parties = [s for s in out if s.kind == "party"]
     assert len(parties) == 1
     assert parties[0].valid_to == date(2014, 12, 31), "left whole, not truncated"
+
+
+def test_only_the_earliest_seating_dates_a_tenure():
+    """usa-wa#267 — a member is seated ONCE per tenure, so a second `seated` matching the same
+    span must not move its start again.
+
+    Christine Rolfes was appointed to Senate LD23 on 2011-07-26 and resigned 2023-08-15. The
+    #226 backfill resolved a *second* `seated` (2023-08-23 — her successor's) onto her seat, and
+    with seat-scoped events applying before person-scoped ones the later seating overwrote the
+    earlier: her twelve-year tenure re-dated to 2023-08-23, and the `departed` then no longer
+    matched it at all. The old event order hid this by accident — the `departed` closed the
+    window before the spurious seating could match it — which is protection, not a rule.
+    """
+    span = _span(
+        "11998",
+        "chamber-senate",
+        "23",
+        start="2011-12",
+        frm=date(2011, 1, 1),
+        to=date(2024, 12, 31),
+        active=False,
+    )
+    events = [
+        SuccessionEvent("11998", "seated", date(2011, 7, 26), "chamber-senate", "23"),
+        SuccessionEvent("11998", "departed", date(2023, 8, 15)),
+        SuccessionEvent("11998", "seated", date(2023, 8, 23), "chamber-senate", "23"),
+    ]
+    out = [
+        s
+        for s in apply_operator_events(
+            [span],
+            events,
+            current_biennium=CURRENT,
+            owned_kinds={"party", "chamber-senate"},
+        )
+        if s.kind == "chamber-senate"
+    ]
+    assert len(out) == 1
+    assert out[0].valid_from == date(2011, 7, 26), "the first seating dates the tenure"
+    assert out[0].valid_to == date(2023, 8, 15), "and the departure still closes it"
+
+
+def test_a_second_seating_still_dates_a_separate_tenure():
+    """The rule is per-SPAN, not per-seat: a gap-and-return member holds the same seat twice,
+    and each tenure takes its own seating. Collapsing to one seating per seat would leave the
+    second tenure sitting at its biennium floor."""
+    first = _span(
+        "x",
+        "chamber-senate",
+        "5",
+        start="2011-12",
+        frm=date(2011, 1, 1),
+        to=date(2012, 12, 31),
+        active=False,
+    )
+    second = _span(
+        "x",
+        "chamber-senate",
+        "5",
+        start="2017-18",
+        frm=date(2017, 1, 1),
+        to=date(2018, 12, 31),
+        active=False,
+    )
+    events = [
+        SuccessionEvent("x", "seated", date(2011, 3, 4), "chamber-senate", "5"),
+        SuccessionEvent("x", "seated", date(2017, 5, 6), "chamber-senate", "5"),
+    ]
+    out = sorted(
+        apply_operator_events(
+            [first, second], events, current_biennium=CURRENT, owned_kinds={"chamber-senate"}
+        ),
+        key=lambda s: s.valid_from,
+    )
+    assert [s.valid_from for s in out] == [date(2011, 3, 4), date(2017, 5, 6)]
