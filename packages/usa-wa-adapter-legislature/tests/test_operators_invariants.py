@@ -17,6 +17,7 @@ from usa_wa_adapter_legislature.operators.invariants import (
     check_invariants,
     duplicate_occupancy_detail,
     member_duplicate_detail,
+    misdated_tenures,
     sweep_years,
 )
 
@@ -408,3 +409,63 @@ def test_main_audit_mode_honours_the_strict_exit_code(monkeypatch):
     with patch.object(inv_module, "_run_audit", _audit):
         assert inv_module.main(["--as-of", "2025-01-01"]) == 0
         assert inv_module.main(["--as-of", "2025-01-01", "--strict"]) == 1
+
+
+async def test_misdated_tenures_flags_a_span_starting_after_its_own_biennium(
+    db_session, usa_wa
+) -> None:
+    """usa-wa#272 — a span's `valid_from` must sit in its own key biennium.
+
+    The key IS the tenure start, so a span keyed 2003-04 that begins in 2016 records a
+    thirteen-year tenure as six weeks. Two live rows had this shape and nothing detected it:
+    Hans Dunshee's LD44 House tenure and Mike Kreidler's LD22 Senate tenure — the latter the
+    outbox entry that sat UNAVAILABLE and unexplained for weeks.
+
+    Cheap, needs no external oracle, and catches a class the seat checks structurally cannot
+    see: a *single* occupant whose dates are wrong is not a duplicate.
+    """
+    house = await _org(db_session, usa_wa, "House")
+    seat = await _seat(db_session, house, "seat:house:ld-44-1", "state_representative")
+    person = await _person(db_session, "630")
+
+    def _row(source_id, frm):
+        return Assignment(
+            source="usa_wa_legislature",
+            source_id=source_id,
+            person_id=person.id,
+            role_id=seat.id,
+            valid_from=frm,
+            valid_to=date(2016, 4, 18),
+            is_active=False,
+        )
+
+    # The healthy tenure and the misdated one, distinguished only by their start date.
+    db_session.add_all(
+        [
+            _row("630:chamber-house:ld-44-position-2:2003-04", date(2003, 1, 1)),
+            _row("630:chamber-house:ld-44-position-1:2003-04", date(2016, 2, 29)),
+        ]
+    )
+    await db_session.flush()
+
+    found = await misdated_tenures(db_session)
+
+    assert [f.source_id for f in found] == ["630:chamber-house:ld-44-position-1:2003-04"]
+    assert found[0].start_biennium == "2003-04"
+    assert found[0].valid_from == date(2016, 2, 29)
+    assert found[0].member == person.name_full
+
+
+async def test_misdated_tenures_allows_a_start_inside_its_biennium(db_session, usa_wa) -> None:
+    """A mid-biennium appointee dated by a `seated` event is the normal case, not drift: the
+    start moves off the biennium floor but stays inside the biennium the key names."""
+    senate = await _org(db_session, usa_wa, "Senate")
+    seat = await _seat(db_session, senate, "seat:senate:ld-1", "state_senator")
+    person = await _person(db_session, "299")
+    row = await _span(
+        db_session, person, seat, frm=date(1989, 4, 24), to=date(1992, 12, 31), active=False
+    )
+    row.source_id = "299:chamber-senate:1:1989-90"
+    await db_session.flush()
+
+    assert await misdated_tenures(db_session) == []
