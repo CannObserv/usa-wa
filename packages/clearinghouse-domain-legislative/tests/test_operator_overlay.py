@@ -357,3 +357,186 @@ def test_departed_still_closes_when_the_member_never_returns():
     )
     assert out[("smith", "party", "democratic")].valid_to == date(1942, 11, 17)
     assert out[("smith", "chamber-senate", "12")].valid_to == date(1942, 11, 17)
+
+
+# ---------------------------------------------------------------------------
+# usa-wa#267 — the split. The guard in #268 kept a re-entered span whole, which is the
+# pre-#226 shape and not a regression, but it asserts party membership across a gap the
+# member did not serve. Splitting is the faithful model: close at the departure, reopen at
+# the return, keyed on the return biennium so the new `source_id` is stable across re-drives.
+
+
+def test_departed_splits_a_re_entered_span():
+    """Huntley: resigned 1965-03-26, appointed to Senate LD9 1967-04-24, served to 1972."""
+    party = _span(
+        "huntley",
+        "party",
+        "republican",
+        start="1957-58",
+        frm=date(1957, 1, 1),
+        to=date(1972, 12, 31),
+        active=False,
+    )
+    senate = _span(
+        "huntley",
+        "chamber-senate",
+        "9",
+        start="1967-68",
+        frm=date(1967, 4, 24),
+        to=date(1972, 12, 31),
+        active=False,
+    )
+    out = apply_operator_events(
+        [party, senate],
+        [SuccessionEvent("huntley", "departed", date(1965, 3, 26))],
+        current_biennium=CURRENT,
+        owned_kinds={"party", "chamber-senate"},
+    )
+    parties = sorted((s for s in out if s.kind == "party"), key=lambda s: s.valid_from)
+    assert len(parties) == 2, "the tenure either side of the gap is two spans, not one"
+    first, second = parties
+    assert (first.valid_from, first.valid_to) == (date(1957, 1, 1), date(1965, 3, 26))
+    assert first.is_active is False
+    assert (second.valid_from, second.valid_to) == (date(1967, 4, 24), date(1972, 12, 31))
+    # Keyed on the return biennium, so the second tenure has its own stable source_id.
+    assert second.start_biennium == "1967-68"
+    assert second.source_id != first.source_id
+
+
+def test_departed_split_reopens_an_open_span():
+    """Chapman: a sitting senator who moved House->Senate. The second half must stay OPEN —
+    closing it would retire a serving member's party affiliation."""
+    party = _span(
+        "26176",
+        "party",
+        "democratic",
+        start="2017-18",
+        frm=date(2017, 1, 1),
+        to=None,
+        active=True,
+    )
+    senate = _span(
+        "26176",
+        "chamber-senate",
+        "24",
+        start="2025-26",
+        frm=date(2025, 1, 1),
+        to=None,
+        active=True,
+    )
+    out = apply_operator_events(
+        [party, senate],
+        [SuccessionEvent("26176", "departed", date(2024, 12, 5))],
+        current_biennium=CURRENT,
+        owned_kinds={"party", "chamber-senate"},
+    )
+    parties = sorted((s for s in out if s.kind == "party"), key=lambda s: s.valid_from)
+    assert len(parties) == 2
+    assert parties[0].valid_to == date(2024, 12, 5) and parties[0].is_active is False
+    assert parties[1].valid_from == date(2025, 1, 1)
+    assert parties[1].valid_to is None and parties[1].is_active is True
+
+
+def test_departed_split_sees_a_return_another_builder_owns():
+    """Pike: returned to a HOUSE seat, which `usa_wa_facts_seats.house.build` owns — invisible
+    to the sponsor builder's own span list (#268's structural limit). ``context_spans`` supplies
+    it read-only: it informs the split and never appears in the output."""
+    party = _span(
+        "17158",
+        "party",
+        "republican",
+        start="2011-12",
+        frm=date(2011, 1, 1),
+        to=date(2018, 12, 31),
+        active=False,
+    )
+    house = _span(
+        "17158",
+        "chamber-house",
+        "ld-18-position-2",
+        start="2013-14",
+        frm=date(2013, 1, 1),
+        to=date(2018, 12, 31),
+        active=False,
+    )
+    out = apply_operator_events(
+        [party],
+        [SuccessionEvent("17158", "departed", date(2012, 12, 7))],
+        current_biennium=CURRENT,
+        owned_kinds={"party"},
+        context_spans=[house],
+    )
+    assert all(s.kind == "party" for s in out), "context spans must not be emitted"
+    parties = sorted(out, key=lambda s: s.valid_from)
+    assert len(parties) == 2
+    assert parties[0].valid_to == date(2012, 12, 7)
+    assert (parties[1].valid_from, parties[1].start_biennium) == (date(2013, 1, 1), "2013-14")
+
+
+def test_departed_split_uses_the_seated_date_not_the_biennium_floor():
+    """Seat-scoped events apply BEFORE person-scoped ones, so the return date is the precise
+    `seated` date rather than the span's biennium floor. Ordering the other way reopens the
+    party tenure months before the member was actually sworn in."""
+    party = _span(
+        "huntley",
+        "party",
+        "republican",
+        start="1957-58",
+        frm=date(1957, 1, 1),
+        to=date(1972, 12, 31),
+        active=False,
+    )
+    senate = _span(  # wire-built at the biennium floor; the seated event dates it
+        "huntley",
+        "chamber-senate",
+        "9",
+        start="1967-68",
+        frm=date(1967, 1, 1),
+        to=date(1972, 12, 31),
+        active=False,
+    )
+    events = [  # departed first in the list — the phase split, not the input order, decides
+        SuccessionEvent("huntley", "departed", date(1965, 3, 26)),
+        SuccessionEvent("huntley", "seated", date(1967, 4, 24), "chamber-senate", "9"),
+    ]
+    out = apply_operator_events(
+        [party, senate],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"party", "chamber-senate"},
+    )
+    second = max((s for s in out if s.kind == "party"), key=lambda s: s.valid_from)
+    assert second.valid_from == date(1967, 4, 24)
+
+
+def test_departed_does_not_split_within_one_biennium():
+    """A return inside the departure's own biennium would key the new span to the SAME
+    biennium — a duplicate `source_id`. Leave the span whole and log instead of emitting a
+    key collision the emitter would silently upsert over."""
+    party = _span(
+        "x",
+        "party",
+        "democratic",
+        start="2013-14",
+        frm=date(2013, 1, 1),
+        to=date(2014, 12, 31),
+        active=False,
+    )
+    senate = _span(
+        "x",
+        "chamber-senate",
+        "5",
+        start="2013-14",
+        frm=date(2013, 9, 1),
+        to=date(2014, 12, 31),
+        active=False,
+    )
+    out = apply_operator_events(
+        [party, senate],
+        [SuccessionEvent("x", "departed", date(2013, 3, 1))],
+        current_biennium=CURRENT,
+        owned_kinds={"party", "chamber-senate"},
+    )
+    parties = [s for s in out if s.kind == "party"]
+    assert len(parties) == 1
+    assert parties[0].valid_to == date(2014, 12, 31), "left whole, not truncated"
