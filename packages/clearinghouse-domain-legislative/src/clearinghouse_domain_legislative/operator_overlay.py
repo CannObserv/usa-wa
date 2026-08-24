@@ -178,12 +178,19 @@ def apply_operator_events(
     current_biennium: str,
     owned_kinds: Iterable[str],
     movers_by_biennium: dict[str, set[str]] | None = None,
+    context_spans: Iterable[TenureSpan] = (),
 ) -> list[TenureSpan]:
     """Return ``spans`` with the operator events applied (a new list; inputs untouched).
 
     ``owned_kinds`` scopes the seat-scoped events to the kinds this builder produces — a
     seated/vacated for a foreign seat kind is ignored (another builder owns it). ``departed``
     closes every open span already present in ``spans`` (all this builder's owned kinds).
+
+    ``context_spans`` (usa-wa#267) are the member's spans that **another builder owns** —
+    read-only: they inform the ``departed`` split's search for a return and are never modified,
+    closed or returned. Without them the split is blind across the builder seam, which is how
+    Liz Pike kept a 2,190-day party gap: her party span is the sponsor builder's and the House
+    seat she returned to is ``usa_wa_facts_seats.house.build``'s.
 
     ``movers_by_biennium`` (#145) maps a biennium to the member ids the #105 mover-exclusion
     dropped from that biennium's House roster. A ``vacated`` event matching no built span
@@ -192,8 +199,15 @@ def apply_operator_events(
     them in the roster (which perturbs the #103 elimination). Senate/committee builders omit it."""
     owned = set(owned_kinds)
     movers = movers_by_biennium or {}
+    context = list(context_spans)
     result = list(spans)
-    for event in events:
+    # Seat-scoped events apply BEFORE person-scoped ones (usa-wa#267). ``departed`` splits a
+    # re-entered span at the member's return, and the return date it reads is a span's
+    # ``valid_from`` — which a ``seated`` event may still be about to correct from a biennium
+    # floor to the real swearing-in. Ordering by phase rather than by input makes the split
+    # read settled starts: Huntley's party tenure reopens 1967-04-24, not 1967-01-01.
+    ordered = sorted(events, key=lambda e: e.kind == KIND_DEPARTED)
+    for event in ordered:
         _warn_if_predates(result, event)
         if event.kind == KIND_DEPARTED:
             hit = False
@@ -201,29 +215,45 @@ def apply_operator_events(
                 if span.member_id == event.member_id and _is_open_through(
                     span, event.effective_date
                 ):
-                    # A span the member re-enters is the merged row of two tenures, and
+                    # A span the member re-enters is the merged row of TWO tenures, so
                     # closing it at the departure discards the second (usa-wa#267: Huntley
                     # resigned 1965 and was appointed to the Senate in 1967, leaving him
-                    # holding a seat with no party span under it for five years). Leave it
-                    # whole and say so — the residue is a real fact the span algebra cannot
-                    # express, not something to drop quietly.
-                    re_entry = _re_entry_after(result, span, event.effective_date)
-                    if re_entry is not None:
+                    # holding a seat with no party span under it for five years). Split it:
+                    # close the first tenure, reopen at the return.
+                    re_entry = _re_entry_after([*result, *context], span, event.effective_date)
+                    result[i] = _close(span, event.effective_date)
+                    hit = True
+                    if re_entry is None:
+                        continue
+                    tail = _split_tail(span, re_entry.valid_from)
+                    if tail is None:
+                        # The return lands inside the departure's own biennium, so the tail
+                        # would key to the same ``source_id`` and the emitter would upsert one
+                        # over the other. Leave the tenure whole rather than emit a collision.
+                        result[i] = span
                         logger.info(
-                            "operator_departed_span_covers_return",
+                            "operator_departed_split_same_biennium",
                             extra={
                                 "member_id": event.member_id,
                                 "effective_date": event.effective_date.isoformat(),
                                 "span_kind": span.kind,
-                                "span_discriminator": span.discriminator,
                                 "returns_at": re_entry.valid_from.isoformat(),
-                                "returns_kind": re_entry.kind,
                             },
                         )
-                        hit = True
                         continue
-                    result[i] = _close(span, event.effective_date)
-                    hit = True
+                    result.append(tail)
+                    logger.info(
+                        "operator_departed_span_split_at_return",
+                        extra={
+                            "member_id": event.member_id,
+                            "effective_date": event.effective_date.isoformat(),
+                            "span_kind": span.kind,
+                            "span_discriminator": span.discriminator,
+                            "returns_at": re_entry.valid_from.isoformat(),
+                            "returns_kind": re_entry.kind,
+                            "tail_biennium": tail.start_biennium,
+                        },
+                    )
             if not hit:
                 # No open span to close in this builder — a bad member id, an inverted date,
                 # or the member is already fully closed here. Never silent (CR finding 10).
@@ -325,6 +355,21 @@ def _warn_if_predates(spans: list[TenureSpan], event: SuccessionEvent) -> None:
                 },
             )
             return
+
+
+def _split_tail(span: TenureSpan, return_date: date) -> TenureSpan | None:
+    """The **second** tenure of a re-entered span: ``[return_date → the original end]``, keyed
+    on the return's own biennium so its ``source_id`` is stable across re-drives (the shape
+    :attr:`TenureSpan.source_id` already documents — "a post-gap tenure gets a new one").
+
+    ``None`` when the return falls inside the closing span's own start biennium: the tail would
+    key to the same ``source_id`` and the emitter would upsert one row over the other, so the
+    caller leaves the tenure whole instead. Openness carries over — a member still serving keeps
+    an open second tenure, which is what makes the sitting-senator case (Chapman) correct."""
+    biennium = biennium_for_date(return_date)
+    if biennium == span.start_biennium:
+        return None
+    return replace(span, start_biennium=biennium, valid_from=return_date)
 
 
 def _re_entry_after(

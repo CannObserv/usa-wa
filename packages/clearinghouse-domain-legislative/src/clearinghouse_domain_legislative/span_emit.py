@@ -384,6 +384,63 @@ async def add_field_citation(
     return True
 
 
+async def load_context_spans(
+    session: AsyncSession,
+    *,
+    member_ids: Collection[str],
+    exclude_kinds: Collection[str],
+) -> list[TenureSpan]:
+    """The members' spans that **another builder owns** — the ``departed`` split's read-only
+    view across the builder seam (usa-wa#267).
+
+    Each span builder only ever sees the spans it produces, so a member who departs one
+    builder's cohort and returns into another's looks, from inside the first, as though they
+    never came back: Liz Pike's party span is the sponsor builder's while the House seat she
+    returned to in 2013 belongs to ``usa_wa_facts_seats.house.build``, and her party tenure lost
+    2,190 days to a split that could not see the return. This loads the missing half from what
+    the other builders have already emitted.
+
+    Scoped to ``member_ids`` — in practice only the members carrying a ``departed`` event, since
+    nothing else consults it — and to kinds this builder does not own. ``end_biennium`` is not
+    stored on the Assignment, so it mirrors ``start_biennium``: these spans are **never emitted,
+    closed or returned**, and only their member/kind/discriminator and validity bounds are read.
+    """
+    if not member_ids:
+        return []
+    members, excluded = set(member_ids), set(exclude_kinds)
+    rows = (
+        await session.execute(
+            select(
+                Assignment.source_id,
+                Assignment.valid_from,
+                Assignment.valid_to,
+                Assignment.is_active,
+            ).where(Assignment.deleted_at.is_(None), Assignment.archived_at.is_(None))
+        )
+    ).all()
+    out: list[TenureSpan] = []
+    for source_id, valid_from, valid_to, is_active in rows:
+        parts = span_key_parts(source_id)
+        if parts is None:
+            continue
+        member, kind, discriminator, start_biennium = parts
+        if member not in members or kind in excluded:
+            continue
+        out.append(
+            TenureSpan(
+                member_id=member,
+                kind=kind,
+                discriminator=discriminator,
+                start_biennium=start_biennium,
+                end_biennium=start_biennium,
+                valid_from=valid_from,
+                valid_to=valid_to,
+                is_active=is_active,
+            )
+        )
+    return out
+
+
 async def retire_unasserted_spans(
     session: AsyncSession,
     *,

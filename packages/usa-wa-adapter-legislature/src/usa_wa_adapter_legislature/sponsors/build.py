@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, run_job
 from clearinghouse_core.logging import get_logger
+from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED
 from clearinghouse_domain_legislative.operator_overlay import (
     apply_operator_events,
     from_rows,
@@ -35,6 +36,7 @@ from clearinghouse_domain_legislative.span_emit import (
     SpanBuildResult,
     close_fraction,
     close_stale_spans,
+    load_context_spans,
 )
 from clearinghouse_domain_legislative.tenure_spans import Observation, build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
@@ -168,8 +170,21 @@ async def build_spans(
         scoped = {o.member_id for o in observations if o.biennium == restrict_to_biennium}
         observations = [o for o in observations if o.member_id in scoped]
     built_spans = build_tenure_spans(observations, current_biennium=current)
+    # The `departed` split reads the member's return date off a span — but only the spans this
+    # builder owns (usa-wa#267). A member who returns into ANOTHER builder's cohort (Pike came
+    # back to a House seat) is invisible here, so load their other-builder spans read-only.
+    # Scoped to members carrying a `departed`: nothing else consults it.
+    context = await load_context_spans(
+        session,
+        member_ids={e.member_id for e in events if e.kind == KIND_DEPARTED},
+        exclude_kinds={KIND_PARTY, KIND_SENATE},
+    )
     spans = apply_operator_events(
-        built_spans, events, current_biennium=current, owned_kinds={KIND_PARTY, KIND_SENATE}
+        built_spans,
+        events,
+        current_biennium=current,
+        owned_kinds={KIND_PARTY, KIND_SENATE},
+        context_spans=context,
     )
     # Operator-synthesized spans (an appointee the wire hasn't listed) — their biennium roster
     # doesn't name them, so skip the entity-level roster citation (#107 CR finding 9); the

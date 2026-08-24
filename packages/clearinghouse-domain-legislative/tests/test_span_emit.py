@@ -22,6 +22,7 @@ from clearinghouse_domain_legislative.span_emit import (
     close_fraction,
     close_stale_spans,
     emit_spans,
+    load_context_spans,
     resolve_person,
     retire_unasserted_spans,
 )
@@ -638,3 +639,54 @@ async def test_close_stale_sweep_sees_a_member_id_containing_a_colon(db_session,
 
     assert result.closed == 1
     assert row.is_active is False
+
+
+async def test_load_context_spans_crosses_the_builder_seam(db_session, usa_wa, wsl_source):
+    """usa-wa#267 — the `departed` split's read-only view of what OTHER builders emitted.
+
+    A span builder only ever sees its own spans, so a member who departs one builder's cohort
+    and returns into another's looks, from inside the first, as though they never came back:
+    Liz Pike's party span is the sponsor builder's while the 2013 House seat she returned to is
+    `usa_wa_facts_seats.house.build`'s, and her party tenure lost 2,190 days to a split that
+    could not see the return.
+    """
+    person = Person(source="usa_wa_legislature", source_id="17158", name_full="Liz Pike")
+    other = Person(source="usa_wa_legislature", source_id="99999", name_full="Someone Else")
+    db_session.add_all([person, other])
+    await db_session.flush()
+    role = await _add_role(db_session, usa_wa)
+    ev = await _fetch_event(db_session, wsl_source)
+
+    async def _resolve(_session, _span):
+        return role
+
+    async def _emit(span):
+        await emit_spans(
+            db_session,
+            [span],
+            resolve_role=_resolve,
+            citation_target=lambda _sp, _b: (ev.id, ev.fetched_at, ev.resource_id),
+            reliability=1.0,
+            person_source="usa_wa_legislature",
+            assignment_source="usa_wa_legislature",
+        )
+
+    await _emit(_span("17158", kind="party", disc="republican", start="2011-12"))
+    await _emit(_span("17158", kind="chamber-house", disc="ld-18-position-2", start="2013-14"))
+    await _emit(_span("99999", kind="chamber-house", disc="ld-1-position-1", start="2013-14"))
+
+    loaded = await load_context_spans(
+        db_session, member_ids={"17158"}, exclude_kinds={"party", "chamber-senate"}
+    )
+
+    # The House seat only: the builder's own kind is excluded, and so is a bystander member.
+    assert [(s.member_id, s.kind, s.discriminator) for s in loaded] == [
+        ("17158", "chamber-house", "ld-18-position-2")
+    ]
+    assert loaded[0].start_biennium == "2013-14"
+
+
+async def test_load_context_spans_is_empty_without_members(db_session):
+    """No member carries a `departed`, so there is nothing to look up — and the loader must
+    not scan the whole assignment table to discover that."""
+    assert await load_context_spans(db_session, member_ids=set(), exclude_kinds={"party"}) == []

@@ -42,8 +42,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
+from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED
 from clearinghouse_domain_legislative.operator_overlay import apply_operator_events, from_rows
-from clearinghouse_domain_legislative.span_emit import retire_unasserted_spans
+from clearinghouse_domain_legislative.span_emit import (
+    load_context_spans,
+    retire_unasserted_spans,
+)
 from clearinghouse_domain_legislative.span_kinds import KIND_PARTY, KIND_SENATE
 from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
@@ -278,11 +282,22 @@ async def build_pre1991(
     # the sponsor builder's cohort and matching is by ``member_id`` anyway, so an unscoped
     # load would read thousands of rows to apply none of them.
     event_rows = list(await current_events(session, member_ids={o.member_id for o in minted_obs}))
+    events = from_rows(event_rows)
+    # The `departed` split reads the member's return date off a span — but only the spans this
+    # builder owns (usa-wa#267). A member who returns into ANOTHER builder's cohort (Pike came
+    # back to a House seat) is invisible here, so load their other-builder spans read-only.
+    # Scoped to members carrying a `departed`: nothing else consults it.
+    context = await load_context_spans(
+        session,
+        member_ids={e.member_id for e in events if e.kind == KIND_DEPARTED},
+        exclude_kinds={KIND_PARTY, KIND_SENATE},
+    )
     minted_spans = apply_operator_events(
         built_spans,
-        from_rows(event_rows),
+        events,
         current_biennium=current,
         owned_kinds={KIND_PARTY, KIND_SENATE},
+        context_spans=context,
     )
     # The overlay can *synthesize* a span — a current-biennium ``seated`` the wire missed, or
     # a #105-excluded mover's closed House tenure — and a synthesized span must not cite the
