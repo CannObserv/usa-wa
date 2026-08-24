@@ -49,7 +49,7 @@ from clearinghouse_domain_legislative.span_emit import (
     retire_unasserted_spans,
 )
 from clearinghouse_domain_legislative.span_kinds import KIND_PARTY, KIND_SENATE
-from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan, build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.operators.store import (
@@ -190,6 +190,25 @@ def _counters(summary: Pre1991BuildSummary) -> dict[str, int]:
     return out
 
 
+def unattested_spans(minted: Sequence[TenureSpan], built: Sequence[TenureSpan]) -> list[TenureSpan]:
+    """The overlay-added spans this builder must not emit — a seat the wire built nothing for.
+
+    The roster emitter has no ``skip_citation_ids``, so every span it emits cites the archived
+    edition. That is right for anything the edition listed and wrong for a **synthesized** span
+    (a current-biennium ``seated`` the wire missed, or a #105-excluded mover's closed House
+    tenure), which would then cite an edition that never named the member in that seat.
+
+    The #267 **split** also adds a span, and that one is citable: the tail is the same member's
+    same tenure after a gap, and the edition lists them in exactly those biennia. What separates
+    the two is the **seat**, not the count — a split tail always shares
+    ``(member, kind, discriminator)`` with a built span, a synthesized one never does. The first
+    version of this guard compared whole ``source_id`` sets, could not tell them apart, and
+    aborted the production build on the first real split.
+    """
+    built_seats = {(s.member_id, s.kind, s.discriminator) for s in built}
+    return [s for s in minted if (s.member_id, s.kind, s.discriminator) not in built_seats]
+
+
 async def build_pre1991(
     session: AsyncSession, *, current_biennium: str | None = None
 ) -> Pre1991BuildSummary:
@@ -307,10 +326,18 @@ async def build_pre1991(
     # deliberately not passed. That is an invariant the emission depends on, so assert it
     # rather than leave it implicit (CR 34) — an emitter with no skip list would otherwise
     # cite a roster edition that never listed the member.
-    if {s.source_id for s in minted_spans} != {s.source_id for s in built_spans}:
+    #
+    # The #267 **split** also adds a span, and that one is perfectly citable: the tail is the
+    # same member's same tenure after a gap, and the edition lists them in exactly those
+    # biennia. What separates the two is the seat, not the count — a split tail always shares
+    # ``(member, kind, discriminator)`` with a built span, while a synthesized one is a seat
+    # the wire built nothing for. Comparing whole ``source_id`` sets could not tell them apart
+    # and aborted the build on the first real split.
+    if unattested := unattested_spans(minted_spans, built_spans):
         raise OracleViolation(
             "the operator overlay synthesized a span in the pre-1991 builder, which has no "
-            "citation skip list — it would emit citing an edition that never listed the member"
+            "citation skip list — it would emit citing an edition that never listed the "
+            f"member: {sorted(s.source_id for s in unattested)[:5]}"
         )
     emitted = await emit_roster_spans(
         session,
