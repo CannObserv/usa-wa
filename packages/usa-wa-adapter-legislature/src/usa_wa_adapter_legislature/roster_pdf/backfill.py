@@ -76,6 +76,10 @@ from usa_wa_adapter_legislature.operators.store import (
 )
 from usa_wa_adapter_legislature.provisioning import get_or_create_source as get_or_create_wsl
 from usa_wa_adapter_legislature.roster_pdf.cohort import RosterCohortProvider
+from usa_wa_adapter_legislature.roster_pdf.identity import (
+    identity_seatings,
+    resolve_identities,
+)
 from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
 from usa_wa_adapter_legislature.roster_pdf.resolve import (
     PositionTenure,
@@ -180,6 +184,8 @@ class BackfillSummary:
     """The whole run: what the roster stated, what resolved, and what was written."""
 
     records: int
+    #: Size of each seating index the resolver consulted (CR-4 finding 25).
+    seatings: dict[str, int]
     proposed: dict[str, int]
     resolution: dict[str, int]
     written: int
@@ -198,6 +204,7 @@ class BackfillSummary:
         """
         return {
             "records": self.records,
+            "seatings": self.seatings,
             "proposed": self.proposed,
             "resolution": self.resolution,
             "written": self.written,
@@ -484,7 +491,7 @@ def _log_conflicts(conflicts: Iterable[AttestationConflict]) -> None:
 
 async def resolve_roster_events(
     session: AsyncSession,
-) -> tuple[int, dict[str, int], ResolutionOutcome, str]:
+) -> tuple[int, dict[str, int], ResolutionOutcome, str, dict[str, int]]:
     """Parse the archived roster, propose boundaries, and resolve them. No writes.
 
     Returns the citation base URL alongside the outcome so the caller neither re-derives the
@@ -498,14 +505,35 @@ async def resolve_roster_events(
     # `None` only when nothing is archived — in which case there is nothing to cite either.
     evidence_base = await provider.archived_url() or DEFAULT_ROSTER_URL
     report = propose_events(records)
+    # The WSL index floors at 1991, so on its own it resolves every pre-floor boundary
+    # ``no_member`` — 363 of them — however many Persons exist locally. #228's identity
+    # resolution supplies the missing half: the same records, keyed by the identity each one
+    # was minted or joined under. The WSL seatings go in first and are also the join evidence
+    # the identity resolution runs on, so a crosser is keyed by its WSL member id in both
+    # halves rather than appearing twice under two ids (#226).
+    wsl_seatings = await load_seatings(session, source_id=wsl_source.id)
+    identities = resolve_identities(records, seatings=wsl_seatings)
+    roster_seatings = identity_seatings(identities)
+    # A refused identity contributes no seating, so its boundaries land in ``no_member``
+    # looking exactly like a record with no identity at all. Name them (CR-4 finding 24):
+    # a refusal is the case #228 asks a human to adjudicate, not a coverage gap.
+    for refusal in identities.refused:
+        logger.info(
+            "roster_backfill_identity_refused",
+            extra={"reason": refusal.reason, "fold": refusal.fold, "detail": refusal.detail},
+        )
     resolver = SuccessionResolver(
-        seatings=await load_seatings(session, source_id=wsl_source.id),
+        seatings=[*wsl_seatings, *roster_seatings],
         positions=await load_positions(session),
     )
     # ``unseated`` proposals are dated House boundaries awaiting a Position — exactly what the
     # resolver exists to supply, so they enter resolution alongside the ready ones.
     outcome = resolver.resolve_all(report.proposals + report.unseated)
-    return len(records), summarize(report), outcome, evidence_base
+    # Index sizes ride the counters (CR-4 finding 25). Without them a future revision that
+    # broke identity resolution would push ``no_member`` back toward 363 and read as a data
+    # problem rather than an index one — i.e. exactly like the defect this seam fixed.
+    seatings = {"wsl": len(wsl_seatings), "roster": len(roster_seatings)}
+    return len(records), summarize(report), outcome, evidence_base, seatings
 
 
 async def backfill_succession(
@@ -516,7 +544,7 @@ async def backfill_succession(
     supersede_conflicts: bool = False,
 ) -> BackfillSummary:
     """Parse → resolve → write. Idempotent; defers to every existing attestation."""
-    records, proposed, outcome, evidence_base = await resolve_roster_events(session)
+    records, proposed, outcome, evidence_base, seatings = await resolve_roster_events(session)
     resolved: Sequence[ResolvedEvent] = outcome.resolved
     if limit is not None:
         resolved = resolved[:limit]
@@ -537,6 +565,7 @@ async def backfill_succession(
     )
     return BackfillSummary(
         records=records,
+        seatings=seatings,
         proposed=proposed,
         resolution=resolution_summary(outcome),
         written=write.written,

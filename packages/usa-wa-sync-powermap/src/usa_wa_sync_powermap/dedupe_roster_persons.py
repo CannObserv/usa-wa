@@ -19,8 +19,8 @@ from dataclasses import dataclass, field
 
 from clearinghouse_sync_powermap.descriptors import normalize_name
 from usa_wa_common.names import (
-    folded_tokens,
     probe_surname,
+    split_name,
     strip_non_name_parts,
     surname_match_set,
 )
@@ -84,12 +84,11 @@ def _given_initials(cleaned: str) -> set[str]:
     candidate "compatible" and the guard inert. Tokens after the surname are generational
     suffixes and fall out with it.
     """
-    tokens = folded_tokens(cleaned)
-    surname = probe_surname(cleaned)
-    if surname is None:
+    split = split_name(cleaned)
+    if split is None:
         return set()
-    last = len(tokens) - 1 - tokens[::-1].index(surname)
-    return {token[0] for token in tokens[:last]}
+    given, _surname = split
+    return {token[0] for token in given}
 
 
 def adjudicate(name_full: str, candidates: list[Candidate]) -> Adjudication:

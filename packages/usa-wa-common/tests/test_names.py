@@ -11,6 +11,7 @@ import pytest
 from usa_wa_common.names import (
     fold_token,
     probe_surname,
+    split_name,
     strip_non_name_parts,
     surname_match_set,
 )
@@ -106,3 +107,29 @@ def test_strip_non_name_parts(raw, expected) -> None:
 )
 def test_probe_surname(raw, expected) -> None:
     assert probe_surname(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("Jay Inslee", (["jay"], "inslee")),
+        ("Belle (Mrs. Frank) Reeves", (["belle"], "reeves")),
+        ("Dr. A. C. Wingrove", (["a", "c"], "wingrove")),
+        # The suffix is neither given name nor surname: it falls out with the surname.
+        ("Kemper Freeman, Jr.", (["kemper"], "freeman")),
+        ("Charles P. Moriarty, Jr", (["charles", "p"], "moriarty")),
+        # A bare surname has no given tokens — the shape PM's stub records take.
+        ("Moriarty", ([], "moriarty")),
+        ("???", None),
+        ("Jr.", None),
+    ],
+)
+def test_split_name(raw, expected) -> None:
+    """One definition of where the surname sits.
+
+    Three call sites were re-deriving `len(tokens) - 1 - tokens[::-1].index(surname)`
+    independently (usa-wa#226 CR): the roster identity seating index and the PM dedup
+    adjudicator. A divergence there mismatches people silently rather than erroring, which is
+    the failure this module exists to prevent.
+    """
+    assert split_name(raw) == expected
