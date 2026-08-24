@@ -615,3 +615,58 @@ def test_a_second_seating_still_dates_a_separate_tenure():
         key=lambda s: s.valid_from,
     )
     assert [s.valid_from for s in out] == [date(2011, 3, 4), date(2017, 5, 6)]
+
+
+def test_a_seating_does_not_redate_a_tenure_it_did_not_start():
+    """usa-wa#272 — a seating dates the tenure it STARTS, not any tenure it falls inside.
+
+    `_matches_seat` attaches a seat-scoped event to any span whose window contains the date,
+    and `build_tenure_spans` merges contiguous biennia — so a thirteen-year tenure's window
+    contains almost any date in it. A `seated` belonging to a successor (member 630's
+    2016-02-29, against a House tenure keyed 2003-04) landed on the incumbent's span and
+    re-dated its start, recording a thirteen-year tenure as six weeks in 2016.
+    """
+    span = _span(
+        "630",
+        "chamber-house",
+        "ld-44-position-1",
+        start="2003-04",
+        frm=date(2003, 1, 1),
+        to=date(2016, 12, 31),
+        active=False,
+    )
+    out = apply_operator_events(
+        [span],
+        [SuccessionEvent("630", "seated", date(2016, 2, 29), "chamber-house", "ld-44-position-1")],
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+    )
+    kept = [s for s in out if s.start_biennium == "2003-04"]
+    assert len(kept) == 1
+    assert kept[0].valid_from == date(2003, 1, 1), "the 2003 tenure keeps its own start"
+
+
+def test_a_seating_one_biennium_early_still_dates_its_tenure():
+    """The rule must not bite the case it exists to serve. A mid-biennium appointee is absent
+    from the sponsor roster of the biennium they were appointed into, so their first span opens
+    at the FOLLOWING one — Graham Hunt, appointed 2014-01-17, has only `ld-2-position-1:2015-16`.
+    That span starting too late IS the defect the overlay corrects, so "at or after the event's
+    biennium" is the bound, not equality (the asymmetry `POSITION_LOOKBACK_YEARS` encodes on the
+    resolve side).
+    """
+    span = _span(
+        "hunt",
+        "chamber-house",
+        "ld-2-position-1",
+        start="2015-16",
+        frm=date(2014, 1, 1),
+        to=date(2016, 12, 31),
+        active=False,
+    )
+    out = apply_operator_events(
+        [span],
+        [SuccessionEvent("hunt", "seated", date(2014, 1, 17), "chamber-house", "ld-2-position-1")],
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+    )
+    assert out[0].valid_from == date(2014, 1, 17)
