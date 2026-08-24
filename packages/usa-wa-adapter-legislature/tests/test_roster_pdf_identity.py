@@ -37,6 +37,7 @@ from usa_wa_adapter_legislature.roster_pdf.identity import (
     WIDE_GAP_YEARS,
     IdentityReport,
     RefusedIdentity,
+    RosterIdentity,
     identity_fold,
     identity_seatings,
     resolve_identities,
@@ -594,6 +595,39 @@ def test_a_refused_identity_contributes_no_seatings() -> None:
                 reason="whatever", fold="ambiguousperson", records=tuple(rows), detail="-"
             ),
         ),
+    )
+
+    assert identity_seatings(report) == []
+
+
+def test_a_record_whose_name_folds_to_nothing_contributes_no_seating() -> None:
+    """A row whose printed name survives cleaning as nothing has no surname to seat on.
+    Emitting a seating with an empty surname would match every proposal in that district-year
+    (``fold_token("") in surname_match_set(...)`` is never true, but an empty given name is
+    read as "no evidence against"), so it must be skipped outright."""
+    rows = [_rec("???", 1923, chamber="house", district=13)]
+    report = resolve_identities(rows, seatings=())
+
+    assert report.identities  # the identity itself still resolves — only the seating is dropped
+    assert identity_seatings(report) == []
+
+
+def test_an_identity_with_neither_key_nor_member_id_contributes_no_seating() -> None:
+    """Defensive: a RosterIdentity is one or the other by construction, and nothing enforces
+    it. Seating a record under ``None`` would resolve boundaries onto a member id that
+    cannot exist."""
+    rows = [_rec("Belle Reeves", 1923, chamber="house", district=13)]
+    report = IdentityReport(
+        identities=(
+            RosterIdentity(
+                disposition=IDENTITY_MINTED,
+                fold="bellereeves",
+                key=None,
+                wsl_member_id=None,
+                records=tuple(rows),
+            ),
+        ),
+        refused=(),
     )
 
     assert identity_seatings(report) == []

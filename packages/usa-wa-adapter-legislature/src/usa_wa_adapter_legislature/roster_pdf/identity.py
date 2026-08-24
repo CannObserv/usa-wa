@@ -50,7 +50,7 @@ from usa_wa_adapter_legislature.roster_pdf.resolve import Seating
 from usa_wa_common.names import (
     fold_token,
     folded_tokens,
-    probe_surname,
+    split_name,
     strip_non_name_parts,
     surname_match_set,
 )
@@ -214,6 +214,14 @@ def identity_seatings(report: IdentityReport) -> list[Seating]:
 
     ``surname``/``given_name`` mirror WSL's ``LastName``/``FirstName`` so the resolver's #240
     given-name-initial guard reads the same shape from either index.
+
+    One seating per record **year**, deliberately not expanded to both years of the biennium
+    the way :func:`~usa_wa_adapter_legislature.roster_pdf.backfill.load_seatings` expands a
+    WSL roster. That expansion exists because WSL data is per-biennium and a boundary falls
+    in one of its two years; this index is per-record, and a proposal's ``session_year`` is
+    always its own record's year, so every record already covers its own proposal. Expanding
+    would add seatings no lookup asks for while widening the same-surname collision surface
+    that produces ``ambiguous_member``.
     """
     seatings: list[Seating] = []
     for identity in report.identities:
@@ -221,12 +229,10 @@ def identity_seatings(report: IdentityReport) -> list[Seating]:
         if member_id is None:  # defensive: an identity is one or the other, never neither
             continue
         for record in identity.records:
-            cleaned = clean_name(record.name)
-            surname = probe_surname(cleaned)
-            if surname is None:
+            split = split_name(clean_name(record.name))
+            if split is None:  # a name that folds to nothing has no surname to seat on
                 continue
-            tokens = folded_tokens(cleaned)
-            last = len(tokens) - 1 - tokens[::-1].index(surname)
+            given, surname = split
             seatings.append(
                 Seating(
                     member_id=member_id,
@@ -234,7 +240,7 @@ def identity_seatings(report: IdentityReport) -> list[Seating]:
                     district=record.district,
                     year=record.year,
                     surname=surname,
-                    given_name=" ".join(tokens[:last]),
+                    given_name=" ".join(given),
                 )
             )
     return seatings

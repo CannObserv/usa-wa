@@ -101,6 +101,28 @@ def probe_surname(full_name: str) -> str | None:
     return tokens[-1] if tokens else None
 
 
+def split_name(full_name: str) -> tuple[list[str], str] | None:
+    """``(given_tokens, surname)`` for an upstream name, or ``None`` if it folds to nothing.
+
+    One definition of where the surname sits. Three call sites were re-deriving it — the
+    roster identity seating index and the PM dedup adjudicator (usa-wa#226 CR) — and a
+    divergence in this family of logic mismatches people silently rather than erroring, which
+    is the whole reason this module exists.
+
+    Trailing generational suffixes fall out with the surname: they belong to neither half,
+    and :func:`probe_surname` already refuses to treat one as the surname. A bare surname
+    yields empty given tokens — the shape a stub record takes — which callers must read as
+    "no given-name evidence", never as agreement.
+    """
+    cleaned = strip_non_name_parts(full_name)
+    surname = probe_surname(cleaned)
+    if surname is None:
+        return None
+    tokens = folded_tokens(cleaned)
+    last = len(tokens) - 1 - tokens[::-1].index(surname)
+    return tokens[:last], surname
+
+
 def surname_match_set(full_name: str) -> set[str]:
     """The set of folded name keys an upstream name matches on — atomic folded tokens
     (single words; single-letter initials survive but won't false-match a surname) **plus
