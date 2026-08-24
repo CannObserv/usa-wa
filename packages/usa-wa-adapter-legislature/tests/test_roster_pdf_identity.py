@@ -373,6 +373,24 @@ def test_shipped_adjudication_tables_have_the_measured_shape() -> None:
     assert WIDE_GAP_YEARS == 20
 
 
+def test_adjudicated_near_duplicate_folds_stay_distinct() -> None:
+    """Two near-duplicate pairs reviewed against the roster and kept SEPARATE.
+
+    A sweep for near-duplicate folds resurfaces both every time, so the decision is pinned
+    here rather than left to prose alone — adding an alias for either must fail this test and
+    send the author to the evidence in `IDENTITY_ALIASES`'s note.
+
+    `nels`/`nils anderson` share LD51 House and one Norwegian name, but sit 14 years apart with
+    a single listing each, a party flip, and unrelated seat lineage in a Norwegian-settled
+    district. `n. b.`/`n. p. atkinson` differ in chamber, district, party, era and middle
+    initial.
+    """
+    for fold in ("nelsanderson", "nilsanderson", "nbatkinson", "npatkinson"):
+        assert fold not in IDENTITY_ALIASES, f"{fold} was adjudicated as its own person"
+        assert fold not in IDENTITY_ALIASES.values(), f"{fold} was adjudicated as its own person"
+        assert fold not in IDENTITY_SPLITS
+
+
 def test_summary_counts_dispositions_and_reasons() -> None:
     report = resolve_identities(
         [

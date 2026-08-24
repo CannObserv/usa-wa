@@ -87,6 +87,22 @@ REFUSED_JOIN_AMBIGUOUS = "join_ambiguous"
 #: person the fold alone would split. The genuine spousal/family successions that sweep also
 #: surfaces (Joseph → Margaret Hurley, the Swayzes) are correctly distinct folds and are
 #: deliberately NOT here.
+#:
+#: **Adjudicated and rejected**, recorded because a near-duplicate-fold sweep resurfaces them
+#: every time and the evidence is otherwise buried in the PDF:
+#:
+#: * ``nelsanderson`` (1909) / ``nilsanderson`` (1923) — the strongest-looking candidate on the
+#:   corpus and still two people. Same chamber and district, and Nels/Nils is one Norwegian name
+#:   — but one listing each **14 years apart**, party flipped R → D, and unrelated seat lineage
+#:   (Nels holds LD51 ``ord=3``, which passes to W. W. Conner in 1911; Nils holds ``ord=1``,
+#:   which came from Zylstra/Fulton). LD51 is Skagit County, whose roster reads Frostad,
+#:   Moldstad, Rudene, Zylstra, Knutzen — a Norwegian-settled district, where two men named
+#:   Nels and Nils Anderson is the likeliest genuine collision the corpus can produce. Every
+#:   entry above is an *adjacent* tenure spelled two ways; this is not that shape, and merging
+#:   on the name alone is the #240 error (a surname match is not identity).
+#: * ``nbatkinson`` (1919-21) / ``npatkinson`` (1939) — five independent differences: House vs
+#:   Senate, LD13 vs LD32, R vs D, 18 years apart, and a different middle initial printed
+#:   consistently across N. B.'s two listings, so not a one-off typo.
 IDENTITY_ALIASES: dict[str, str] = {
     "phillipmcdonough": "philipmcdonough",  # LD25 House, one tenure spelled both ways
     "josepharrasmith": "josephwarrasmith",  # LD7 House 1891-93, middle initial comes and goes
