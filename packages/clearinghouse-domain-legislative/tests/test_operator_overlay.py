@@ -274,3 +274,86 @@ def test_stale_exempt_members_multiple_events_uses_latest():
 
 def test_stale_exempt_members_empty():
     assert stale_exempt_members({}, "2013-14") == set()
+
+
+def test_departed_does_not_truncate_a_span_the_member_re_enters():
+    """usa-wa#267 — the resign-and-return shape, measured live on Elmer C. Huntley.
+
+    He resigned 1965-03-26 and was appointed to Senate LD9 on 1967-04-24. Both facts are
+    right; `build_tenure_spans` merges contiguous biennia into ONE party span, so a
+    person-scoped `departed` truncated his party tenure at 1965 while his 1967-72 Senate
+    span survived — leaving him holding a seat with no party affiliation under it for five
+    years. The guard is per-span: close what the member really left, keep what they return
+    to.
+    """
+    party = _span(
+        "huntley",
+        "party",
+        "republican",
+        start="1957-58",
+        frm=date(1957, 1, 1),
+        to=date(1972, 12, 31),
+        active=False,
+    )
+    senate = _span(
+        "huntley",
+        "chamber-senate",
+        "9",
+        start="1967-68",
+        frm=date(1967, 4, 24),
+        to=date(1972, 12, 31),
+        active=False,
+    )
+    events = [SuccessionEvent("huntley", "departed", date(1965, 3, 26))]
+
+    out = _by_key(
+        apply_operator_events(
+            [party, senate],
+            events,
+            current_biennium=CURRENT,
+            owned_kinds={"party", "chamber-senate"},
+        )
+    )
+    # The party span covers the return, so truncating it would strand the Senate seat.
+    assert out[("huntley", "party", "republican")].valid_to == date(1972, 12, 31)
+    # The seat he returned to begins after the departure — never in scope to begin with.
+    assert out[("huntley", "chamber-senate", "9")].valid_from == date(1967, 4, 24)
+    assert out[("huntley", "chamber-senate", "9")].valid_to == date(1972, 12, 31)
+
+
+def test_departed_still_closes_when_the_member_never_returns():
+    """The guard must not blunt the ordinary case: a death closes everything it covers.
+
+    A later span only earns protection when it starts AFTER the event — a seat already
+    running at the date is exactly what a death ends (the Ramos shape, #107).
+    """
+    party = _span(
+        "smith",
+        "party",
+        "democratic",
+        start="1933-34",
+        frm=date(1933, 1, 1),
+        to=date(1946, 12, 31),
+        active=False,
+    )
+    senate = _span(
+        "smith",
+        "chamber-senate",
+        "12",
+        start="1933-34",
+        frm=date(1933, 1, 1),
+        to=date(1946, 12, 31),
+        active=False,
+    )
+    events = [SuccessionEvent("smith", "departed", date(1942, 11, 17))]
+
+    out = _by_key(
+        apply_operator_events(
+            [party, senate],
+            events,
+            current_biennium=CURRENT,
+            owned_kinds={"party", "chamber-senate"},
+        )
+    )
+    assert out[("smith", "party", "democratic")].valid_to == date(1942, 11, 17)
+    assert out[("smith", "chamber-senate", "12")].valid_to == date(1942, 11, 17)
