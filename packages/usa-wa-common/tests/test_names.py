@@ -13,6 +13,7 @@ from usa_wa_common.names import (
     probe_surname,
     split_name,
     strip_non_name_parts,
+    strip_other_party_parts,
     surname_match_set,
 )
 
@@ -85,6 +86,36 @@ def test_surname_match_set_excludes_non_matching_surname() -> None:
 )
 def test_strip_non_name_parts(raw, expected) -> None:
     assert strip_non_name_parts(raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # A parenthetical marital form names the HUSBAND — those tokens are not hers, and an
+        # identity guard that keeps them lets him pass as her (usa-wa#277).
+        ("Frances (Mrs. Thomas A.) Swayze", "Frances Swayze"),
+        ("Belle (Mrs. Frank) Reeves", "Belle Reeves"),
+        # A quoted nickname is this person's OWN other name and SURVIVES here — the one place
+        # this differs from strip_non_name_parts. WSL records Bob McCaslin Jr's FirstName as
+        # "Bob", so dropping it removes the only token the two sides share.
+        ("Robert \u201cBob\u201d McCaslin,", "Robert \u201cBob\u201d McCaslin,"),
+        ('Frank "Buster" Brouillet', 'Frank "Buster" Brouillet'),
+        # Honorifics name nobody, so they go either way.
+        ("Dr. A. C. Wingrove", "A. C. Wingrove"),
+        # Generational suffixes distinguish two real people; they survive, as above.
+        ("Kemper Freeman, Jr.", "Kemper Freeman, Jr."),
+    ],
+)
+def test_strip_other_party_parts(raw, expected) -> None:
+    assert strip_other_party_parts(raw) == expected
+
+
+def test_the_two_strips_differ_only_on_the_quoted_nickname() -> None:
+    """The distinction the roster resolver depends on, pinned as a contrast so a future edit
+    cannot quietly collapse the two functions back together."""
+    row = "Frances (Mrs. Thomas A.) \u201cFran\u201d Swayze"
+    assert strip_non_name_parts(row) == "Frances Swayze"
+    assert strip_other_party_parts(row) == "Frances \u201cFran\u201d Swayze"
 
 
 @pytest.mark.parametrize(

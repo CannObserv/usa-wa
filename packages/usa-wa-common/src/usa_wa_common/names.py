@@ -60,6 +60,32 @@ def strip_non_name_parts(full_name: str) -> str:
     return " ".join(kept)
 
 
+def strip_other_party_parts(full_name: str) -> str:
+    """An upstream name with only the parts naming **somebody else** removed.
+
+    The narrower sibling of :func:`strip_non_name_parts`, for consumers that ask *"which of
+    these tokens could be this person's own name?"* rather than *"which tokens are a name?"*.
+    The two differ on the quoted nickname, and the difference is load-bearing (usa-wa#277):
+
+    * A **parenthetical** marital form names a *third party*. ``Frances (Mrs. Thomas A.)
+      Swayze`` contributes ``thomas`` and ``a``, which are her husband's — letting him pass a
+      same-tokens identity guard as though he were her.
+    * A **quoted nickname** is this person's own other name, and WSL often records it as the
+      ``FirstName`` outright: the roster prints ``Robert "Bob" McCaslin,`` and WSL carries
+      ``Bob``, so dropping it removes the only token the two sides share.
+
+    :func:`strip_non_name_parts` drops both, which is right for PM's full-name FTS (where a
+    nickname the other side lacks ANDs the query to nothing) and wrong for an identity guard.
+    Honorifics go either way — they name nobody — so they are dropped here too.
+    """
+    kept = [
+        word
+        for word in _PARENTHETICAL.sub(" ", full_name).split()
+        if fold_token(word) not in _HONORIFICS
+    ]
+    return " ".join(kept)
+
+
 def folded_tokens(full_name: str) -> list[str]:
     """The ordered folded tokens of a free-form upstream name.
 

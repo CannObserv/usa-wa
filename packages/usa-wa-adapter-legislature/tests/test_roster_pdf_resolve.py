@@ -453,3 +453,332 @@ class TestGivenNameGuard:
         resolved = resolver.resolve(proposal)
         assert isinstance(resolved, ResolvedEvent)
         assert resolved.member_id == "8000"
+
+
+class TestAdjacentBienniumWindow:
+    """#277 fix 1: the candidate-year window missed one biennium in each direction.
+
+    Roster listing years are biennium starts — **odd**. So an appointment dated December of an
+    *even* year had a window (`{session_year, effective_date.year}`) covering no listing year at
+    all, and the appointee's first listing sits at the *following* odd year, one step outside it.
+    Departures are the mirror: a member who leaves days into a biennium was last listed in the
+    previous one.
+
+    This is the asymmetry :data:`POSITION_LOOKBACK_YEARS` already encodes on the Position index;
+    the seating index never got the equivalent. 11 of the 15 live `no_member` refusals are this.
+    """
+
+    def test_an_appointee_first_listed_in_the_following_biennium_resolves(self) -> None:
+        """Rebecca Saldaña, appointed to LD37 Senate in the 2015-16 biennium, is first listed
+        in 2017 — the snapshot for her own biennium predates her arrival."""
+        proposal = _proposal(
+            "Appointed Jan. 17, 2016",
+            chamber="senate",
+            district=37,
+            year=2015,
+            name="Rebecca Saldana",
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="27290",
+                    chamber="senate",
+                    district=37,
+                    year=2017,
+                    surname="Saldana",
+                    given_name="Rebecca",
+                )
+            ],
+            positions=[],
+        )
+        resolved = resolver.resolve(proposal)
+        assert isinstance(resolved, ResolvedEvent), getattr(resolved, "reason", None)
+        assert resolved.member_id == "27290"
+
+    def test_a_departure_whose_member_was_last_listed_earlier_resolves(self) -> None:
+        """Lorraine A. Hine's LD33 House departure sits on a 1993 row; her listing is 1991."""
+        proposal = _proposal(
+            "Resigned June 15, 1993",
+            chamber="house",
+            district=33,
+            year=1993,
+            name="Lorraine A. Hine",
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="186",
+                    chamber="house",
+                    district=33,
+                    year=1991,
+                    surname="Hine",
+                    given_name="Lorraine",
+                )
+            ],
+            positions=[
+                PositionTenure(
+                    member_id="186", district=33, position="1", first_year=1991, last_year=1994
+                )
+            ],
+        )
+        resolved = resolver.resolve(proposal)
+        assert isinstance(resolved, ResolvedEvent), getattr(resolved, "reason", None)
+        assert resolved.member_id == "186"
+
+    def test_a_listing_two_bienniums_away_is_still_out_of_reach(self) -> None:
+        """Widening is one biennium, not unbounded: a seating four years off is a different
+        tenure and must not supply identity for this boundary."""
+        proposal = _proposal(
+            "Deceased June 15, 1993", chamber="senate", district=2, year=1993, name="Al Henry"
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="99",
+                    chamber="senate",
+                    district=2,
+                    year=1999,
+                    surname="Henry",
+                    given_name="Al",
+                )
+            ],
+            positions=[],
+        )
+        assert isinstance(resolver.resolve(proposal), Unresolved)
+
+
+class TestFullGivenTokenGuard:
+    """#277 fix 2: the guard compared given-name **initials**, so a same-initial relative
+    stayed compatible — its own docstring conceded the limit. All four live `ambiguous_member`
+    refusals are that shape, and all four split on one rule: prefer a full given-*token* match
+    over a bare initial match, falling back to initials only when nothing matches in full.
+    """
+
+    def test_a_shared_middle_initial_no_longer_makes_a_relative_compatible(self) -> None:
+        """Tony P. and August P. Mardesich held the same LD38 Senate seat. The shared middle
+        initial `P` made each compatible with the other's row."""
+        proposal = _proposal(
+            "Deceased June 10, 1949",
+            chamber="senate",
+            district=38,
+            year=1949,
+            name="Tony P. Mardesich",
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="1",
+                    chamber="senate",
+                    district=38,
+                    year=1949,
+                    surname="Mardesich",
+                    given_name="Tony P",
+                ),
+                Seating(
+                    member_id="2",
+                    chamber="senate",
+                    district=38,
+                    year=1949,
+                    surname="Mardesich",
+                    given_name="August P",
+                ),
+            ],
+            positions=[],
+        )
+        resolved = resolver.resolve(proposal)
+        assert isinstance(resolved, ResolvedEvent), getattr(resolved, "reason", None)
+        assert resolved.member_id == "1"
+
+    def test_a_marital_parenthetical_does_not_make_the_husband_a_candidate(self) -> None:
+        """`Frances (Mrs. Thomas A.) Swayze` — the guard matched against the *un-stripped*
+        tokens, so `thomas` and `a` counted as her own and her husband stayed compatible.
+        `strip_non_name_parts` exists for exactly this and both other consumers already use it.
+        """
+        proposal = _proposal(
+            "Resigned Sept. 29, 1965",
+            chamber="house",
+            district=31,
+            year=1965,
+            name="Frances (Mrs. Thomas A.) Swayze",
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="10",
+                    chamber="house",
+                    district=31,
+                    year=1965,
+                    surname="Swayze",
+                    given_name="Frances",
+                ),
+                Seating(
+                    member_id="11",
+                    chamber="house",
+                    district=31,
+                    year=1965,
+                    surname="Swayze",
+                    given_name="Thomas A",
+                ),
+            ],
+            positions=[
+                PositionTenure(
+                    member_id="10", district=31, position="1", first_year=1965, last_year=1966
+                )
+            ],
+        )
+        resolved = resolver.resolve(proposal)
+        assert isinstance(resolved, ResolvedEvent), getattr(resolved, "reason", None)
+        assert resolved.member_id == "10"
+
+    def test_a_shared_first_initial_no_longer_makes_a_spouse_compatible(self) -> None:
+        """Robert C. `Bob` Ridder and Ruthe Ridder both sat for LD34; the shared `R` tied them."""
+        proposal = _proposal(
+            "Resigned July 19, 1973",
+            chamber="senate",
+            district=34,
+            year=1973,
+            name='Robert C. "Bob" Ridder',
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="20",
+                    chamber="senate",
+                    district=34,
+                    year=1973,
+                    surname="Ridder",
+                    given_name="Robert C",
+                ),
+                Seating(
+                    member_id="21",
+                    chamber="senate",
+                    district=34,
+                    year=1973,
+                    surname="Ridder",
+                    given_name="Ruthe",
+                ),
+            ],
+            positions=[],
+        )
+        resolved = resolver.resolve(proposal)
+        assert isinstance(resolved, ResolvedEvent), getattr(resolved, "reason", None)
+        assert resolved.member_id == "20"
+
+    def test_an_initials_only_row_still_falls_back_to_the_initial_rule(self) -> None:
+        """`J. Bruce Holland` carries no full token matching WSL's `Jeffrey`. The initial
+        heuristic was built for exactly this row and must keep it."""
+        proposal = _proposal(
+            "Deceased June 15, 1979", chamber="senate", year=1979, name="J. Bruce Holland"
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="99",
+                    chamber="senate",
+                    district=2,
+                    year=1979,
+                    surname="Holland",
+                    given_name="Jeffrey",
+                )
+            ],
+            positions=[],
+        )
+        assert isinstance(resolver.resolve(proposal), ResolvedEvent)
+
+    def test_a_genuine_tie_is_still_reported_not_picked(self) -> None:
+        """Two full-token matches remain ambiguous. The rule narrows candidates; it never
+        breaks a tie by fiat."""
+        proposal = _proposal(
+            "Deceased June 15, 1994", chamber="senate", district=2, year=1993, name="Jay Chandler"
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="75",
+                    chamber="senate",
+                    district=2,
+                    year=1993,
+                    surname="Chandler",
+                    given_name="Jay",
+                ),
+                Seating(
+                    member_id="76",
+                    chamber="senate",
+                    district=2,
+                    year=1993,
+                    surname="Chandler",
+                    given_name="Jay",
+                ),
+            ],
+            positions=[],
+        )
+        resolved = resolver.resolve(proposal)
+        assert isinstance(resolved, Unresolved)
+        assert resolved.reason == UNRESOLVED_AMBIGUOUS_MEMBER
+
+    def test_a_blank_given_name_stays_compatible_beside_a_full_match(self) -> None:
+        """Absence of the signal is never evidence against a match (#240). A blank-given-name
+        seating must not be rejected just because a sibling candidate matched in full — the
+        honest answer there is ambiguity, not a confident pick."""
+        proposal = _proposal(
+            "Deceased June 15, 1979", chamber="senate", district=2, year=1979, name="Al Henry"
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="99",
+                    chamber="senate",
+                    district=2,
+                    year=1979,
+                    surname="Henry",
+                    given_name="Al",
+                ),
+                Seating(
+                    member_id="98",
+                    chamber="senate",
+                    district=2,
+                    year=1979,
+                    surname="Henry",
+                    given_name="",
+                ),
+            ],
+            positions=[],
+        )
+        resolved = resolver.resolve(proposal)
+        assert isinstance(resolved, Unresolved)
+        assert resolved.reason == UNRESOLVED_AMBIGUOUS_MEMBER
+
+    def test_a_quoted_nickname_still_carries_identity(self) -> None:
+        """A parenthetical names *someone else* (`Frances (Mrs. Thomas A.) Swayze`); a quoted
+        nickname is this person's own other name, and WSL frequently records it as the
+        `FirstName` outright. Bob McCaslin Jr. is the live case — the roster prints
+        `Robert "Bob" McCaslin,` and WSL carries `Bob`, so dropping the nickname loses the only
+        token the two sides share and refuses a correct match.
+        """
+        proposal = _proposal(
+            "Appointed Nov. 25, 2014",
+            chamber="house",
+            district=4,
+            year=2015,
+            name="Robert “Bob” McCaslin,",
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="20741",
+                    chamber="house",
+                    district=4,
+                    year=2015,
+                    surname="McCaslin",
+                    given_name="Bob",
+                )
+            ],
+            positions=[
+                PositionTenure(
+                    member_id="20741", district=4, position="1", first_year=2015, last_year=2018
+                )
+            ],
+        )
+        resolved = resolver.resolve(proposal)
+        assert isinstance(resolved, ResolvedEvent), getattr(resolved, "reason", None)
+        assert resolved.member_id == "20741"
