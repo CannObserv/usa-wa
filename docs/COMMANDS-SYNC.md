@@ -161,7 +161,20 @@ python -m usa_wa_sync_powermap.heal_assignment_clocks
 # (best run when the outbox is quiescent). Observed 2026-07-07: 1226 → 303 → 31 → 0.
 python -m usa_wa_sync_powermap.prune_subscriptions --dry-run
 python -m usa_wa_sync_powermap.prune_subscriptions   # re-run until dry-run shows stale=0
+```
 
+### Retract spurious anchored assignments (#144 Phase 2)
+
+**Ordering constraint (#276):** when a maintenance window pairs this with a span collapse
+(`sponsors.migrate_spans`), retraction must come **first**. Targets resolve by the local
+natural key `(source, source_id)` and `--source-id` is the only addressing mode, but the collapse
+hard-deletes the rows whose anchors it drops — so afterwards there is no local row to name
+and the orphaned PM assignment is reachable only through PM's admin-only unarchive. The
+pre-1991 sequence in
+[COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md#pre-1991-build-228--roster-persons-party-spans-senate-seat-spans)
+puts the preview and this retraction ahead of the collapse for that reason.
+
+```bash
 # Retract spurious anchored assignments (#144 Phase 2) — one-shot producer retraction. Given
 # local Assignment.source_id(s), retires each artifact tenure usa-wa produced (a WSL sponsor-
 # archive chamber-conflation like Wynne LD39 Senate 2001-02 + its paired party span) through the
@@ -180,6 +193,13 @@ python -m usa_wa_sync_powermap.prune_subscriptions   # re-run until dry-run show
 # archived, so a completed re-run isn't mis-reported not_found). Transient 429/5xx retries on a
 # bounded backoff. App-role local write; read-only-shaped PM mutation via observation.
 # Exit 0 clean / idempotent · 1 a target left unsettled (not-found / unanchored / PM-refused) · 2 auth
+# · 3 a persistent transient PM outage past the backoff budget (idempotent — re-run once PM recovers).
+python -m usa_wa_sync_powermap.retract_assignments --dry-run \
+    --source-id 481:chamber-senate:39:2001-02 --source-id 481:party:republican:2001-02
+python -m usa_wa_sync_powermap.retract_assignments \
+    --source-id 481:chamber-senate:39:2001-02 --source-id 481:party:republican:2001-02
+```
+
 ### Retire superseded outbox rejections (#258)
 
 `REJECTED` is the operator's to-do list and the sidecar alerts on its **rise**, so rejections that a
@@ -192,13 +212,6 @@ python -m usa_wa_sync_powermap.supersede_rejections
 ```
 
 Idempotent, local-only (app role, no PM traffic). Rows move to `SUPERSEDED` — kept, not deleted.
-
-# · 3 a persistent transient PM outage past the backoff budget (idempotent — re-run once PM recovers).
-python -m usa_wa_sync_powermap.retract_assignments --dry-run \
-    --source-id 481:chamber-senate:39:2001-02 --source-id 481:party:republican:2001-02
-python -m usa_wa_sync_powermap.retract_assignments \
-    --source-id 481:chamber-senate:39:2001-02 --source-id 481:party:republican:2001-02
-```
 
 ## Provenance & integrity
 
