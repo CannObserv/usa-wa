@@ -144,16 +144,45 @@ sudo systemctl stop usa-wa-sync-powermap
 uv run python -m usa_wa_adapter_legislature.roster_pdf.build --dry-run
 uv run python -m usa_wa_adapter_legislature.roster_pdf.build
 
-# 2. Collapse the stranded shallow keys (OWNER role — deletes citations, #54). Deepening
+# 2. PREVIEW the collapse and read `anchors_dropped` (#276). The dry-run rolls back, so its
+#    counters are exactly what the live run would do. Each drop is warned individually as
+#    `sponsor_span_migrate_anchor_dropped`, carrying the `source_id` step 3 needs.
+DATABASE_URL="$DATABASE_URL_OWNER" uv run python -m usa_wa_adapter_legislature.sponsors.migrate_spans --dry-run
+
+# 3. RETRACT every source_id the preview would drop — BEFORE the collapse, not after (#276).
+#    Skip this step entirely when anchors_dropped=0, which is the expected reading.
+uv run python -m usa_wa_sync_powermap.retract_assignments --dry-run --source-id <dropped>
+uv run python -m usa_wa_sync_powermap.retract_assignments --source-id <dropped>
+
+# 4. Collapse the stranded shallow keys (OWNER role — deletes citations, #54). Deepening
 #    re-keys a joined member's span to its roster-era start, stranding the shipped
 #    1991-start row; the #97 collapse transfers its PM anchor onto the deepened span.
-#    Measured: superseded_found=130, anchors_transferred=130, orphans=0.
+#    Measured: superseded_found=130, anchors_transferred=130, orphans=0, anchors_dropped=0.
 DATABASE_URL="$DATABASE_URL_OWNER" uv run python -m usa_wa_adapter_legislature.sponsors.migrate_spans
 
-# 3. Resume; the outbox drains the new Persons + Assignments to PM, paced (#85).
+# 5. Resume; the outbox drains the new Persons + Assignments to PM, paced (#85).
 #    Requires the PM prerequisite above; without it the person entries defer indefinitely.
 sudo systemctl start usa-wa-sync-powermap
 ```
+
+**Why steps 2–3 come before the collapse (#276).** The collapse is a one-way door for the rows
+whose anchors it drops. `_retire_onto` hard-deletes the stranded row *unconditionally* —
+including on the branch where the keeper already carries a different anchor, so the row and its
+only local handle disappear in the same pass that orphans the PM assignment.
+[`retract_assignments`](COMMANDS-SYNC.md#retract-spurious-anchored-assignments-144-phase-2)
+resolves its targets by the **local** natural key `(source, source_id)`, and `--source-id` is
+its only addressing mode — there is no `--pm-assignment-id` door. So after the collapse a
+dropped anchor is a live PM assignment nothing local can name: the CLI answers `not_found` and
+exits `1`, and the only remaining route is PM's admin-only unarchive. Retraction is **terminal**
+(power-map#391 shipped no reversible `archived:false`), so this is not a step to run
+speculatively — run it on exactly the ids the preview named.
+
+The recorded `anchors_transferred=130, orphans=0, anchors_dropped=0` is the *clean* reading, not
+a guarantee the collapse always reaches it. `anchors_dropped` rises whenever the sidecar drained
+a deepened span before the collapse ran: PM keys assignments on `(person, role, start_date)`, so
+the deepened span is minted as its **own** assignment (disposition `new`) and the stranded row's
+anchor has nowhere to transfer. That is the hazard the sidecar pause at the top of this sequence
+exists to prevent; steps 2–3 are the backstop for when it was not observed.
 
 **The roster cohort is a standing input to every unrestricted sponsor build** (#228,
 `roster_pdf/deepening.py`): a full rebuild that omitted it would re-assert the shallow
@@ -162,7 +191,7 @@ path never derives it (its cohort is all post-1991), so the timers are unaffecte
 codes: `0` clean · `1` failed (incl. an oracle violation) · `2` config · `4` degraded — no
 archive, **or a sweep guard tripped**. A degraded exit on a guard means stranded rows are
 still in place: read `sweep_aborted` / `retire_aborted` in the ledger counters and resolve
-before step 2, or the collapse runs against rows the sweep never touched.
+before step 4, or the collapse runs against rows the sweep never touched.
 
 Re-runs are idempotent — Persons and Assignments upsert on natural keys, a display name
 that changed since the last run is refreshed (`persons_renamed`), and a span under a key
@@ -172,8 +201,10 @@ a group's first session year) is soft-deleted (`spans_retired`).
 A stranded row **carrying a PM anchor is left alive**, counted as `spans_retired_anchored`,
 and degrades the exit: retiring it would orphan the PM assignment for good, since both
 `sponsors.migrate_spans` and `retract_assignments` filter `deleted_at IS NULL`. The sequence
-is therefore build → step 2's collapse (which transfers the anchor onto the successor span)
-→ **build again** (which retires the now-unanchored row and exits `0`).
+is therefore build → step 4's collapse (which transfers the anchor onto the successor span)
+→ **build again** (which retires the now-unanchored row and exits `0`). That trailing rebuild
+is a *conditional* step, not part of the numbered sequence above: it is needed only when a run
+reports `spans_retired_anchored > 0` and degrades the exit.
 
 `--supersede-conflicts` is off by default: the safe reading of a disagreement is that someone
 knew something the roster does not. It was overridden once, on evidence — all 17 live conflicts
