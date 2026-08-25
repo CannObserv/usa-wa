@@ -144,21 +144,33 @@ sudo systemctl stop usa-wa-sync-powermap
 uv run python -m usa_wa_adapter_legislature.roster_pdf.build --dry-run
 uv run python -m usa_wa_adapter_legislature.roster_pdf.build
 
-# 2. PREVIEW the collapse and read `anchors_dropped` (#276). The dry-run rolls back, so its
-#    counters are exactly what the live run would do. Each drop is warned individually as
-#    `sponsor_span_migrate_anchor_dropped`, carrying the `source_id` step 3 needs.
-DATABASE_URL="$DATABASE_URL_OWNER" uv run python -m usa_wa_adapter_legislature.sponsors.migrate_spans --dry-run
+# 2. PREVIEW the collapse and read `anchors_dropped` (#276). OWNER role, like step 4: the job
+#    declares role="owner" and resolves DATABASE_URL_OWNER itself, so just load the env — a
+#    per-command DATABASE_URL=... prefix is silently ignored here (see COMMANDS.md § alembic).
+#    The dry-run rolls back, and while the sidecar stays paused nothing moves the anchors
+#    underneath it, so its counters are what step 4 will do. Each drop is warned individually
+#    as `sponsor_span_migrate_anchor_dropped`, carrying the `source_id` step 3 needs. Only
+#    trust it once step 1 exited 0 — see below.
+uv run python -m usa_wa_adapter_legislature.sponsors.migrate_spans --dry-run
 
 # 3. RETRACT every source_id the preview would drop — BEFORE the collapse, not after (#276).
-#    Skip this step entirely when anchors_dropped=0, which is the expected reading.
-uv run python -m usa_wa_sync_powermap.retract_assignments --dry-run --source-id <dropped>
-uv run python -m usa_wa_sync_powermap.retract_assignments --source-id <dropped>
+#    Skip this step entirely when anchors_dropped=0, which is the expected reading. The flag
+#    is repeatable; retract the whole drop set in one invocation.
+uv run python -m usa_wa_sync_powermap.retract_assignments --dry-run \
+    --source-id <dropped-1> --source-id <dropped-2>
+uv run python -m usa_wa_sync_powermap.retract_assignments \
+    --source-id <dropped-1> --source-id <dropped-2>
+# NOTE: anchors_dropped does NOT fall to 0 afterwards — re-previewing still reports the same
+#    count. Retraction sets archived_at and leaves pm_assignment_id in place, and the collapse
+#    selects on deleted_at IS NULL alone, so the row is still seen and still counted. The drop
+#    is simply harmless now: the PM assignment it orphans is already archived. Treat
+#    anchors_dropped as a to-do list, not a convergence signal.
 
 # 4. Collapse the stranded shallow keys (OWNER role — deletes citations, #54). Deepening
 #    re-keys a joined member's span to its roster-era start, stranding the shipped
 #    1991-start row; the #97 collapse transfers its PM anchor onto the deepened span.
 #    Measured: superseded_found=130, anchors_transferred=130, orphans=0, anchors_dropped=0.
-DATABASE_URL="$DATABASE_URL_OWNER" uv run python -m usa_wa_adapter_legislature.sponsors.migrate_spans
+uv run python -m usa_wa_adapter_legislature.sponsors.migrate_spans
 
 # 5. Resume; the outbox drains the new Persons + Assignments to PM, paced (#85).
 #    Requires the PM prerequisite above; without it the person entries defer indefinitely.
@@ -191,7 +203,10 @@ path never derives it (its cohort is all post-1991), so the timers are unaffecte
 codes: `0` clean · `1` failed (incl. an oracle violation) · `2` config · `4` degraded — no
 archive, **or a sweep guard tripped**. A degraded exit on a guard means stranded rows are
 still in place: read `sweep_aborted` / `retire_aborted` in the ledger counters and resolve
-before step 4, or the collapse runs against rows the sweep never touched.
+**before step 2**, or the collapse runs against rows the sweep never touched. Step 2, not step
+4: a guard trip leaves rows the sweep should have retired, so the preview's `anchors_dropped`
+set is drawn from the wrong population — and step 3 acts on it with a *terminal* retraction.
+`anchors_dropped` is only meaningful once step 1 has exited `0`.
 
 Re-runs are idempotent — Persons and Assignments upsert on natural keys, a display name
 that changed since the last run is refreshed (`persons_renamed`), and a span under a key
