@@ -22,11 +22,13 @@ year, where at most two people sit, then tested with the shared
 SOS matchers use. A name that matches two members of the same seat is **ambiguous and refused**,
 never resolved by picking one: the corpus really does contain same-surname pairs in one district.
 
-**Two candidate years, because a boundary outlives its row.** ``Deceased June 15, 1979`` sits on
-a *1977* roster row — the death is in the next biennium. Keying only on the row's session year
-loses those; keying only on the effective date's year loses an appointment made just before the
-term it opens. Both years are tried and their matches unioned, so a genuine two-holder collision
-still surfaces as ambiguity rather than being silently resolved.
+**A window of candidate years, because a boundary outlives its row.** ``Deceased June 15, 1979``
+sits on a *1977* roster row — the death is in the next biennium. Keying only on the row's session
+year loses those; keying only on the effective date's year loses an appointment made just before
+the term it opens. Both are tried, plus one biennium either side (#277,
+:data:`SEATING_ADJACENT_BIENNIA`) — listing years are odd, so a boundary dated in an even year
+otherwise reached no listing at all. Matches across the window are unioned, so a genuine
+two-holder collision still surfaces as ambiguity rather than being silently resolved.
 
 Nothing here writes. :mod:`usa_wa_adapter_legislature.roster_pdf.backfill` is the write side.
 """
@@ -40,7 +42,13 @@ from datetime import date
 
 from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 from usa_wa_adapter_legislature.roster_pdf.succession import EventProposal
-from usa_wa_common.names import fold_token, folded_tokens, surname_match_set
+from usa_wa_common.names import (
+    fold_token,
+    folded_tokens,
+    split_by_given_name,
+    strip_other_party_parts,
+    surname_match_set,
+)
 
 #: Refusal reasons — why a dated boundary is still not writable. Report-don't-drop, as
 #: everywhere else in this source: an unresolved proposal is reported, never dropped.
@@ -79,6 +87,37 @@ class Seating:
 #: events worth writing. One year reaches the span a seating opens without letting a tenure
 #: two bienniums away supply a Position the member may not have held then.
 POSITION_LOOKBACK_YEARS = 1
+
+
+#: How many bienniums either side of a boundary's own the seating index is searched (#277).
+#:
+#: The seating index is keyed on **listing years**, which are biennium starts and therefore
+#: odd. The original window was ``{session_year, effective_date.year}``, so an appointment
+#: dated December of an *even* year covered no listing year at all — and the appointee's first
+#: listing is the *following* odd year, one step outside it. Departures are the mirror: a
+#: member who leaves days into a biennium was last listed in the previous one.
+#:
+#: This is the same asymmetry :data:`POSITION_LOOKBACK_YEARS` encodes on the Position index —
+#: *"a mid-biennium appointee is absent from the sponsor roster of the biennium they were
+#: appointed into"* — which the seating index never got. One biennium reaches the adjacent
+#: listing without letting a tenure two bienniums away supply identity for this boundary.
+#:
+#: Widening also widens the collision surface, which is why it ships with the full-given-token
+#: guard in :meth:`SuccessionResolver._member_ids`: the ambiguity check stays the arbiter, and
+#: a tie is still reported rather than picked.
+SEATING_ADJACENT_BIENNIA = 1
+
+
+def _candidate_years(proposal: EventProposal) -> set[int]:
+    """Every listing year the boundary may match, per :data:`SEATING_ADJACENT_BIENNIA`.
+
+    The boundary's own years are always kept, so this only ever *widens* — a seating recorded
+    under an even year (the index is not contractually odd-only) stays reachable.
+    """
+    own = {proposal.session_year, proposal.effective_date.year}
+    starts = {year if year % 2 else year - 1 for year in own}
+    span = range(-SEATING_ADJACENT_BIENNIA, SEATING_ADJACENT_BIENNIA + 1)
+    return own | {start + 2 * step for start in starts for step in span}
 
 
 @dataclass(frozen=True)
@@ -160,9 +199,9 @@ class SuccessionResolver:
             self._positions[position.member_id].append(position)
 
     def _surname_matches(self, proposal: EventProposal) -> list[Seating]:
-        """Every seating whose surname matches the roster row, across both candidate years."""
+        """Every seating whose surname matches the roster row, across all candidate years."""
         keys = surname_match_set(proposal.member_name)
-        years = {proposal.session_year, proposal.effective_date.year}
+        years = _candidate_years(proposal)
         return [
             seating
             for year in years
@@ -180,31 +219,34 @@ class SuccessionResolver:
         LD16 House was his successor Laura Grant-Herriot, whom WSL records under ``LastName``
         ``Grant``. His death closed every one of her spans 18 days before she was appointed.
 
-        The discriminator is the **given-name initial**: it must appear among the roster row's
-        own tokens. Every benign variant the corpus contains keeps it — nicknames
-        (``Mike``/``Michael``), formal names (``Moyne``/``Mike``), initials
-        (``J. Bruce``/``Jeffrey``), middle-name-first rows (``C Louise``/``Louise``) — while two
-        different people generally do not (``William`` vs ``Laura``).
+        The discriminator is the given name, split by the shared two-tier rule
+        :func:`~usa_wa_common.names.split_by_given_name` (#240 established the initial tier,
+        #277 the whole-token one). It is shared because
+        :meth:`~usa_wa_adapter_legislature.roster_pdf.identity._JoinResolver.resolve` asks the
+        same question of the same index, and the two were previously mirrored by hand.
 
-        A heuristic, not a proof: a same-initial collision (a ``John Smith`` succeeded by a
-        ``Jane Smith``) would still pass. It covers the observed defect class and every case in
-        the measured corpus, and rejections are reported rather than folded into ``no_member``
-        so the residue stays visible.
+        The roster row is read through :func:`~usa_wa_common.names.strip_other_party_parts`
+        first: ``Frances (Mrs. Thomas A.) Swayze`` otherwise contributes ``thomas`` and ``a``
+        as *her own* tokens, making her husband a compatible candidate. Deliberately not the
+        broader ``strip_non_name_parts`` — that also drops quoted nicknames, and a nickname is
+        this person's own name (WSL records ``Robert "Bob" McCaslin,`` as ``Bob``, so dropping
+        it refuses the match outright).
+
+        Still a heuristic, not a proof. Rejections are reported rather than folded into
+        ``no_member`` so the residue stays visible.
         """
-        tokens = {t[0] for t in folded_tokens(proposal.member_name) if t}
-        compatible: set[str] = set()
-        rejected: set[str] = set()
-        for seating in self._surname_matches(proposal):
-            # A given name can itself be several tokens — WSL carries "C Louise" for the
-            # member the roster prints as "Louise Miller" — so *any* of its initials
-            # matching is agreement. Folding it to one token would refuse a real member.
-            initials = {t[0] for t in folded_tokens(seating.given_name) if t}
-            # No given name on the WSL side is no signal — never evidence against the match.
-            if not initials or initials & tokens:
-                compatible.add(seating.member_id)
-            else:
-                rejected.add(seating.member_id)
-        return compatible, rejected
+        matches = self._surname_matches(proposal)
+        # One member can appear under several listing years, and WSL's FirstName need not
+        # agree across them — so every listing contributes rather than the last one winning.
+        # The widened window makes this reachable far more often than the old two-year one.
+        given: dict[str, set[str]] = defaultdict(set)
+        for seating in matches:
+            given[seating.member_id] |= set(folded_tokens(seating.given_name))
+        return split_by_given_name(
+            folded_tokens(strip_other_party_parts(proposal.member_name)),
+            given,
+            ignore_full={fold_token(seating.surname) for seating in matches},
+        )
 
     def _position(self, member_id: str, proposal: EventProposal) -> set[str]:
         """The Position discriminators covering this member's LD at the boundary's year."""

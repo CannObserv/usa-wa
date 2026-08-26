@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Collection, Mapping
 
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
 
@@ -57,6 +58,102 @@ def strip_non_name_parts(full_name: str) -> str:
     """
     cleaned = _QUOTED.sub(" ", _PARENTHETICAL.sub(" ", full_name))
     kept = [word for word in cleaned.split() if fold_token(word) not in _HONORIFICS]
+    return " ".join(kept)
+
+
+def split_by_given_name(
+    row_tokens: Collection[str],
+    candidates: Mapping[str, Collection[str]],
+    *,
+    ignore_full: Collection[str] = (),
+) -> tuple[set[str], set[str]]:
+    """``(compatible, rejected)`` candidate ids, split on given-name agreement with a row.
+
+    Single-sourced (usa-wa#277) because there are **two** consumers that must not drift: the
+    roster succession resolver's member lookup and the identity join's WSL lookup. Both ask
+    the same question — *can this WSL member be the person this roster row names?* — and both
+    were written as the same rule, mirrored by hand. Rewriting one and not the other diverged
+    them silently, which is the failure this module exists to prevent.
+
+    Two tiers (#240 established the first, #277 added the second):
+
+    * A shared **whole token** is the strong signal: ``tony`` picks ``Tony P`` over
+      ``August P``, ``robert`` picks ``Robert C`` over ``Ruthe``. When *some* candidate agrees
+      that way, the ones that do not are rejected.
+    * When **none** does, the tier falls back to the given-name **initial**, which carries the
+      benign variants the corpora are full of — ``Mike``/``Michael``, ``Moyne``/``Mike``,
+      ``J. Bruce``/``Jeffrey``, ``C Louise``/``Louise``. A given name can itself be several
+      tokens, so *any* of them agreeing is agreement.
+
+    Tiering rather than replacing matters both ways: the initial rule alone leaves a
+    same-initial relative compatible, and the full-token rule alone refuses every
+    initials-only row the initial rule exists to keep.
+
+    ``ignore_full`` names tokens that must not count as a whole-token match — the shared
+    surname, in both consumers. Every candidate is surname-matched by construction, so
+    counting it is free for all of them, and a rival whose given name merely *is* that surname
+    would be promoted into the tier that then rejects the true subject.
+
+    A blank candidate given name is always compatible, however its siblings match: absence of
+    the signal is never evidence against a match (#240). Two candidates agreeing in full stay
+    compatible — this narrows, it never breaks a tie by fiat; reporting the tie is the
+    caller's job.
+
+    Callers pass **already-folded** tokens, and choose their own preparation: the resolver
+    reads the row through :func:`strip_other_party_parts` (a nickname is identity, a marital
+    parenthetical is somebody else), while the identity join additionally strips position
+    suffixes so the guard reads the same string its fold does.
+    """
+    row = {token for token in row_tokens if token}
+    full_keys = {token for token in row if len(token) > 1} - set(ignore_full)
+    row_initials = {token[0] for token in row}
+    prepared = {
+        candidate_id: {token for token in tokens if token}
+        for candidate_id, tokens in candidates.items()
+    }
+    full_matched = {
+        candidate_id
+        for candidate_id, tokens in prepared.items()
+        if {token for token in tokens if len(token) > 1} & full_keys
+    }
+
+    compatible: set[str] = set()
+    rejected: set[str] = set()
+    for candidate_id, tokens in prepared.items():
+        if not tokens:
+            compatible.add(candidate_id)
+        elif full_matched:
+            (compatible if candidate_id in full_matched else rejected).add(candidate_id)
+        elif {token[0] for token in tokens} & row_initials:
+            compatible.add(candidate_id)
+        else:
+            rejected.add(candidate_id)
+    return compatible, rejected
+
+
+def strip_other_party_parts(full_name: str) -> str:
+    """An upstream name with only the parts naming **somebody else** removed.
+
+    The narrower sibling of :func:`strip_non_name_parts`, for consumers that ask *"which of
+    these tokens could be this person's own name?"* rather than *"which tokens are a name?"*.
+    The two differ on the quoted nickname, and the difference is load-bearing (usa-wa#277):
+
+    * A **parenthetical** marital form names a *third party*. ``Frances (Mrs. Thomas A.)
+      Swayze`` contributes ``thomas`` and ``a``, which are her husband's — letting him pass a
+      same-tokens identity guard as though he were her.
+    * A **quoted nickname** is this person's own other name, and WSL often records it as the
+      ``FirstName`` outright: the roster prints ``Robert "Bob" McCaslin,`` and WSL carries
+      ``Bob``, so dropping it removes the only token the two sides share.
+
+    :func:`strip_non_name_parts` drops both, which is right for PM's full-name FTS (where a
+    nickname the other side lacks ANDs the query to nothing) and wrong for an identity guard.
+    Honorifics go either way — they name nobody — so they are dropped here too.
+    """
+    kept = [
+        word
+        for word in _PARENTHETICAL.sub(" ", full_name).split()
+        if fold_token(word) not in _HONORIFICS
+    ]
     return " ".join(kept)
 
 
