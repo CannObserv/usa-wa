@@ -37,6 +37,12 @@ def _raise_conn_error(payload):
     raise ConnectionError("PM unreachable")
 
 
+def _raise_422(payload):
+    """PM refusing the payload permanently — the shape usa-wa#283 hit as
+    ``role_not_found`` after an org merge deleted the role the CREATE named."""
+    raise PayloadRejectedError("PM 422: role_not_found")
+
+
 async def _add_entity(session, *, source_id, name="x", anchor=None):
     row = FakeEntity(source="wsl", source_id=source_id, name=name, pm_fake_id=anchor)
     session.add(row)
@@ -1577,3 +1583,73 @@ async def test_a_rejection_for_another_reason_does_not_block_the_type(db_session
 
     assert len(client.posted) == 3  # every row still attempted
     assert engine.blocked_identifier_types == set()
+
+
+async def test_sweep_suppresses_the_identical_rejected_create_replay(db_session, caplog):
+    """usa-wa#283: the #132 replay guard covered only the local-newer UPDATE path, so a
+    permanently-unproducible CREATE re-minted a fresh REJECTED entry every cycle forever —
+    unbounded pile growth and the #85 rise alert firing each time.
+
+    The live incident: a Power Map org merge deleted the loser org's role, after which
+    every CREATE naming it was refused ``role_not_found``. 63 identical REJECTED entries
+    accumulated — same ``local_id``, same ``op``, same ``payload_hash``, ``attempts=0`` —
+    before the sidecar was paused by hand.
+    """
+    await _add_entity(db_session, source_id="1")
+    descriptor = FakeDescriptor()
+    engine = SyncEngine([descriptor], FakeClient(observation_result=_raise_422))
+
+    assert await engine.sweep_unanchored(db_session, descriptor) == 1
+    await engine.drain_outbox(db_session, now=NOW)  # PM refuses → parked REJECTED
+
+    with caplog.at_level("INFO"):
+        # Nothing about the row changed and nothing local can change it — the refusal is
+        # PM-side — so every later sweep is a provably-futile replay.
+        assert await engine.sweep_unanchored(db_session, descriptor) == 0
+        assert await engine.sweep_unanchored(db_session, descriptor) == 0
+
+    entries = (await db_session.execute(select(OutboxEntry))).scalars().all()
+    assert len(entries) == 1, [e.status for e in entries]  # the parked reject, no replays
+    assert entries[0].status == STATUS_REJECTED
+    assert entries[0].op == OP_CREATE
+    warned = [r for r in caplog.records if r.msg == "create_reject_replay_suppressed"]
+    still = [r for r in caplog.records if r.msg == "create_reject_replay_still_suppressed"]
+    assert [r.levelname for r in warned] == ["WARNING"]  # once per row per process
+    assert [r.levelname for r in still] == ["INFO"]
+
+
+async def test_sweep_reenqueues_the_create_after_a_local_fix(db_session):
+    """The CREATE guard re-arms exactly like the UPDATE one: a payload change is the data
+    fix, so the corrected CREATE enqueues. REJECTED stays fix-triggered-retry, never a
+    dead end — which is why it is not dead-lettered to UNAVAILABLE."""
+    row = await _add_entity(db_session, source_id="1", name="Broken")
+    descriptor = FakeDescriptor()
+    engine = SyncEngine([descriptor], FakeClient(observation_result=_raise_422))
+    await engine.sweep_unanchored(db_session, descriptor)
+    await engine.drain_outbox(db_session, now=NOW)
+
+    row.name = "Fixed"  # the data fix
+    await db_session.flush()
+
+    assert await engine.sweep_unanchored(db_session, descriptor) == 1
+    pending = (
+        (await db_session.execute(select(OutboxEntry).where(OutboxEntry.status == STATUS_PENDING)))
+        .scalars()
+        .all()
+    )
+    assert len(pending) == 1
+    assert pending[0].op == OP_CREATE
+
+
+async def test_sweep_reenqueues_the_create_when_the_rejected_entry_has_no_hash(db_session):
+    """A legacy REJECTED CREATE with a NULL ``payload_hash`` cannot prove the re-send
+    identical, so the guard stands down rather than suppressing on an unproven match."""
+    row = await _add_entity(db_session, source_id="1")
+    db_session.add(
+        OutboxEntry(entity_type="fake", local_id=row.id, op=OP_CREATE, status=STATUS_REJECTED)
+    )
+    await db_session.flush()
+    descriptor = FakeDescriptor()
+    engine = SyncEngine([descriptor], FakeClient())
+
+    assert await engine.sweep_unanchored(db_session, descriptor) == 1
