@@ -222,10 +222,10 @@ class OutboxWriter:
         await session.flush()
         return entry
 
-    async def rejected_identical_update(
-        self, session: AsyncSession, descriptor: EntityDescriptor, row
+    async def rejected_identical_replay(
+        self, session: AsyncSession, descriptor: EntityDescriptor, row, op: str = OP_UPDATE
     ) -> bool:
-        """Whether re-enqueueing ``row`` would replay the exact UPDATE PM just refused (#132).
+        """Whether re-enqueueing ``row`` would replay the exact ``op`` PM just refused (#132).
 
         The local-newer branch re-enqueues every reconcile while the local clock stays
         ahead of PM — and a rejected delivery adopts nothing, so a persistent 422
@@ -251,11 +251,11 @@ class OutboxWriter:
             .order_by(OutboxEntry.id.desc())
             .limit(1)
         )
-        key = (descriptor.entity_type, row.id)
+        key = (descriptor.entity_type, row.id, op)
         if (
             latest is None
             or latest.status != STATUS_REJECTED
-            or latest.op != OP_UPDATE
+            or latest.op != op
             or latest.payload_hash is None
         ):
             self._warned_reject_replay.discard(key)
@@ -274,8 +274,11 @@ class OutboxWriter:
         first = key not in self._warned_reject_replay
         self._warned_reject_replay.add(key)
         log = logger.warning if first else logger.info
+        verb = op.lower()
         log(
-            "update_reject_replay_suppressed" if first else "update_reject_replay_still_suppressed",
+            f"{verb}_reject_replay_suppressed"
+            if first
+            else f"{verb}_reject_replay_still_suppressed",
             extra={
                 "entity_type": descriptor.entity_type,
                 "local_id": str(row.id),
@@ -297,11 +300,16 @@ class OutboxWriter:
         Keeps the adapter ignorant of the sidecar — it just writes rows; the
         sweep discovers the un-anchored ones and queues them.
 
-        Note: a REJECTED CREATE is re-enqueued here **unguarded** — the #132 replay
-        guard covers only the local-newer UPDATE path. A rejected CREATE does carry
-        its refused-payload hash (stamped by :meth:`_reject`), so if a persistent
-        CREATE-422 cohort ever appears, a sweep-side identity check analogous to
-        :meth:`rejected_identical_update` is a small follow-up.
+        A REJECTED CREATE is **guarded** since usa-wa#283, by the same
+        :meth:`rejected_identical_replay` check the local-newer UPDATE path uses — the
+        follow-up this docstring used to describe as hypothetical, made due by a live
+        cohort. A Power Map org merge deleted the role an assignment CREATE named, so
+        every send returned ``role_not_found``; because nothing in the payload could
+        change, the sweep re-minted a fresh REJECTED entry each cycle and fired the #85
+        rise alert with it (63 identical entries before the sidecar was paused by hand).
+        The guard re-arms on any payload change, so REJECTED stays fix-triggered-retry;
+        a refusal whose cause is **PM-side** needs an explicit redrive, since no local
+        edit will re-arm it.
 
         Batched (#7): rows are keyset-paged by primary key (``id > last_id``,
         ``sweep_batch_size`` at a time) rather than materialised all at once, so a
@@ -362,6 +370,15 @@ class OutboxWriter:
 
     async def _sweep_row(self, session: AsyncSession, descriptor: EntityDescriptor, row) -> bool:
         """Process one unanchored row; return True iff a new CREATE was enqueued."""
+        # usa-wa#283: suppress the provably-futile CREATE replay before spending a PM
+        # read on it. A CREATE PM refuses for a reason outside the payload — the live
+        # case was an org merge deleting the role the observation named, so every send
+        # returned `role_not_found` — otherwise re-mints a fresh REJECTED entry every
+        # cycle forever, growing the pile and firing the #85 rise alert each time (63
+        # identical entries before the sidecar was paused by hand). Checked here rather
+        # than at `enqueue` so the per-cycle `pm_match` round-trip is skipped too.
+        if await self.rejected_identical_replay(session, descriptor, row, OP_CREATE):
+            return False
         # PM-first: try to find a pre-existing PM record before creating one,
         # so we never duplicate PM's curated tree (identifier-less backfill). The match
         # is a PM read, so it pauses-and-resumes on a 429 (#92) — a first bulk ingest

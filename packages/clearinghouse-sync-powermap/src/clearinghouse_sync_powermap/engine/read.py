@@ -288,8 +288,8 @@ class Reconciler:
                     # row would not change PM. Adopt PM's clock (parity) instead of enqueuing an
                     # identical observation the reconcile would re-send every cycle forever.
                     self._anchors.adopt_remote_clock(descriptor, existing, record)
-                elif not await self._writer.rejected_identical_update(
-                    session, descriptor, existing
+                elif not await self._writer.rejected_identical_replay(
+                    session, descriptor, existing, OP_UPDATE
                 ):
                     # #132: skip only the provably-futile replay of a payload PM just
                     # 422-refused. Deliberately NOT a clock adopt — the pending change
