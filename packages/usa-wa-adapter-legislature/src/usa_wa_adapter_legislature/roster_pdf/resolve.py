@@ -45,6 +45,7 @@ from usa_wa_adapter_legislature.roster_pdf.succession import EventProposal
 from usa_wa_common.names import (
     fold_token,
     folded_tokens,
+    split_by_given_name,
     strip_other_party_parts,
     surname_match_set,
 )
@@ -218,19 +219,11 @@ class SuccessionResolver:
         LD16 House was his successor Laura Grant-Herriot, whom WSL records under ``LastName``
         ``Grant``. His death closed every one of her spans 18 days before she was appointed.
 
-        The discriminator is the given name, tested in two tiers (#277). A **whole token**
-        shared with the roster row is the strong signal: ``tony`` picks ``Tony P`` over
-        ``August P``, ``robert`` picks ``Robert C`` over ``Ruthe``. When *some* candidate
-        matches that way, the ones that do not are rejected. When **none** does, the tier falls
-        back to the **initial**, which is what carries the benign variants the corpus is full of
-        — nicknames (``Mike``/``Michael``), formal names (``Moyne``/``Mike``), initials-only
-        rows (``J. Bruce``/``Jeffrey``), middle-name-first rows (``C Louise``/``Louise``) —
-        while two different people generally do not share one (``William`` vs ``Laura``).
-
-        Tiering rather than replacing matters: the initial rule alone let a same-initial
-        relative stay compatible (all four live ``ambiguous_member`` refusals were that), and
-        the full-token rule alone would refuse every initials-only row the initial rule exists
-        to keep.
+        The discriminator is the given name, split by the shared two-tier rule
+        :func:`~usa_wa_common.names.split_by_given_name` (#240 established the initial tier,
+        #277 the whole-token one). It is shared because
+        :meth:`~usa_wa_adapter_legislature.roster_pdf.identity._JoinResolver.resolve` asks the
+        same question of the same index, and the two were previously mirrored by hand.
 
         The roster row is read through :func:`~usa_wa_common.names.strip_other_party_parts`
         first: ``Frances (Mrs. Thomas A.) Swayze`` otherwise contributes ``thomas`` and ``a``
@@ -239,45 +232,21 @@ class SuccessionResolver:
         this person's own name (WSL records ``Robert "Bob" McCaslin,`` as ``Bob``, so dropping
         it refuses the match outright).
 
-        Still a heuristic, not a proof: two candidates matching in full stay ambiguous, and a
-        blank WSL given name stays compatible however its siblings match, because absence of
-        the signal is never evidence against a match. Rejections are reported rather than
-        folded into ``no_member`` so the residue stays visible.
+        Still a heuristic, not a proof. Rejections are reported rather than folded into
+        ``no_member`` so the residue stays visible.
         """
-        row_tokens = set(folded_tokens(strip_other_party_parts(proposal.member_name)))
-        row_full = {token for token in row_tokens if len(token) > 1}
-        row_initials = {token[0] for token in row_tokens}
-
         matches = self._surname_matches(proposal)
-        # A given name can itself be several tokens — WSL carries "C Louise" for the member the
-        # roster prints as "Louise Miller" — so *any* of them agreeing is agreement. Folding it
-        # to one token would refuse a real member.
-        given = {seating.member_id: set(folded_tokens(seating.given_name)) for seating in matches}
-        # Single letters are excluded from the full tier: a shared middle initial ("Tony P" vs
-        # "August P") is exactly the false agreement this tier exists to break.
-        full_matched = {
-            member_id
-            for member_id, tokens in given.items()
-            if {token for token in tokens if len(token) > 1} & row_full
-        }
-
-        compatible: set[str] = set()
-        rejected: set[str] = set()
+        # One member can appear under several listing years, and WSL's FirstName need not
+        # agree across them — so every listing contributes rather than the last one winning.
+        # The widened window makes this reachable far more often than the old two-year one.
+        given: dict[str, set[str]] = defaultdict(set)
         for seating in matches:
-            tokens = given[seating.member_id]
-            if not tokens:
-                # No given name on the WSL side is no signal — never evidence against the match.
-                compatible.add(seating.member_id)
-            elif full_matched:
-                # Some candidate agrees in full, so a bare initial no longer buys compatibility.
-                (compatible if seating.member_id in full_matched else rejected).add(
-                    seating.member_id
-                )
-            elif {token[0] for token in tokens} & row_initials:
-                compatible.add(seating.member_id)
-            else:
-                rejected.add(seating.member_id)
-        return compatible, rejected
+            given[seating.member_id] |= set(folded_tokens(seating.given_name))
+        return split_by_given_name(
+            folded_tokens(strip_other_party_parts(proposal.member_name)),
+            given,
+            ignore_full={fold_token(seating.surname) for seating in matches},
+        )
 
     def _position(self, member_id: str, proposal: EventProposal) -> set[str]:
         """The Position discriminators covering this member's LD at the boundary's year."""

@@ -50,6 +50,7 @@ from usa_wa_adapter_legislature.roster_pdf.resolve import Seating
 from usa_wa_common.names import (
     fold_token,
     folded_tokens,
+    split_by_given_name,
     split_name,
     strip_non_name_parts,
     surname_match_set,
@@ -281,9 +282,12 @@ class _Join:
     def resolve(self, post_rows: list[RosterRecord]) -> tuple[str | None, str | None]:
         """``(member_id, refusal_reason)`` — exactly one is non-``None``.
 
-        Mirrors :meth:`SuccessionResolver._member_ids` (#240): a surname match whose
-        given-name initials share nothing with the roster row's own tokens is *rejected*,
-        not matched — the single surviving surname match may be a different person.
+        Shares :func:`~usa_wa_common.names.split_by_given_name` with
+        :meth:`SuccessionResolver._member_ids` (#240, #277): a surname match whose given name
+        agrees with nothing in the roster row is *rejected*, not matched — the single
+        surviving surname match may be a different person. The rule was mirrored by hand
+        until #277 rewrote one copy and not the other; it is one implementation now, because
+        a divergence here mismatches people silently rather than erroring.
         Rejected candidates then get the corroboration tie-breaker: accepted only at
         :data:`CORROBORATION_FLOOR` distinct session years or more AND strictly ahead of
         every rival.
@@ -292,18 +296,28 @@ class _Join:
         rejected_years: dict[str, set[int]] = defaultdict(set)
         for row in post_rows:
             keys = surname_match_set(row.name)
+            matches = [
+                seating
+                for seating in self._by_seat.get((row.chamber, row.district, row.year), ())
+                if fold_token(seating.surname) in keys
+            ]
+            # One member can hold the seat across several listings; every one of them is
+            # evidence about the same person, so their given names union (#277 CR 43).
+            given: dict[str, set[str]] = defaultdict(set)
+            for seating in matches:
+                given[seating.member_id] |= set(folded_tokens(seating.given_name))
             # The CLEANED name (#259 CR): an annotation embedded in the printed name would
-            # otherwise contribute initials and admit a wrong same-surname candidate.
-            tokens = {t[0] for t in folded_tokens(clean_name(row.name)) if t}
-            for seating in self._by_seat.get((row.chamber, row.district, row.year), ()):
-                if fold_token(seating.surname) not in keys:
-                    continue
-                initials = {t[0] for t in folded_tokens(seating.given_name) if t}
-                # No given name on the WSL side is no signal — never evidence against.
-                if not initials or initials & tokens:
-                    compatible.add(seating.member_id)
-                else:
-                    rejected_years[seating.member_id].add(row.year)
+            # otherwise contribute initials and admit a wrong same-surname candidate. This
+            # guard reads the same string the fold does, which is why it is not the
+            # resolver's `strip_other_party_parts`.
+            row_compatible, row_rejected = split_by_given_name(
+                folded_tokens(clean_name(row.name)),
+                given,
+                ignore_full={fold_token(seating.surname) for seating in matches},
+            )
+            compatible |= row_compatible
+            for member_id in row_rejected:
+                rejected_years[member_id].add(row.year)
         if len(compatible) == 1:
             return compatible.pop(), None
         if len(compatible) > 1:

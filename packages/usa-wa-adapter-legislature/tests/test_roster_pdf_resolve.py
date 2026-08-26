@@ -782,3 +782,72 @@ class TestFullGivenTokenGuard:
         resolved = resolver.resolve(proposal)
         assert isinstance(resolved, ResolvedEvent), getattr(resolved, "reason", None)
         assert resolved.member_id == "20741"
+
+    @pytest.mark.parametrize("nickname_year", [2015, 2017])
+    def test_every_listing_of_one_member_contributes_its_given_name(
+        self, nickname_year: int
+    ) -> None:
+        """A member appears under several listing years, and WSL's `FirstName` need not agree
+        across them. Keying the candidate map by member id and overwriting per seating let
+        whichever listing happened to be visited last decide compatibility; the widened window
+        (#277) made that materially likelier by reaching more listings. Every listing is
+        evidence about the same person, so they union.
+        """
+        proposal = _proposal(
+            "Appointed Nov. 25, 2014",
+            chamber="senate",
+            district=4,
+            year=2015,
+            name="Robert McCaslin",
+        )
+        seatings = [
+            Seating(
+                member_id="20741",
+                chamber="senate",
+                district=4,
+                year=year,
+                surname="McCaslin",
+                given_name="Bob" if year == nickname_year else "Robert",
+            )
+            for year in (2015, 2017)
+        ]
+        resolved = SuccessionResolver(seatings=seatings, positions=[]).resolve(proposal)
+        assert isinstance(resolved, ResolvedEvent), getattr(resolved, "reason", None)
+        assert resolved.member_id == "20741"
+
+    def test_the_shared_surname_cannot_itself_be_the_full_token_match(self) -> None:
+        """Every candidate is surname-matched by construction, so counting the surname as a
+        full-token agreement is free for all of them — and promotes a rival whose WSL given
+        name merely happens to be that surname into the tier that then rejects the true
+        subject."""
+        proposal = _proposal(
+            "Deceased January 4, 2009",
+            chamber="senate",
+            district=16,
+            year=2009,
+            name="William Grant",
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="8000",
+                    chamber="senate",
+                    district=16,
+                    year=2009,
+                    surname="Grant",
+                    given_name="William",
+                ),
+                Seating(
+                    member_id="9000",
+                    chamber="senate",
+                    district=16,
+                    year=2009,
+                    surname="Grant",
+                    given_name="Grant",
+                ),
+            ],
+            positions=[],
+        )
+        resolved = resolver.resolve(proposal)
+        assert isinstance(resolved, ResolvedEvent), getattr(resolved, "reason", None)
+        assert resolved.member_id == "8000"
