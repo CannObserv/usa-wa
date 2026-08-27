@@ -160,7 +160,9 @@ python -m usa_wa_sync_powermap.heal_assignment_clocks
 # (person, role, start_date) — the same key PM's observation dedups on, so the match is
 # exact. Per role: one paged PM read, then re-anchor every local row whose id is absent
 # from PM's set but whose (person, start_date) matches. A dead anchor with NO match is
-# LEFT ALONE and counted `unresolved` — never guessed, never cleared.
+# LEFT ALONE and counted `unresolved` — never guessed, never cleared. The PM read passes
+# include_archived=true: an archived row is one PM still holds, so its anchor is alive and
+# must not read as dead (PM's listing default would hide it).
 #
 # Every re-anchor writes an AnchorReanchor ledger row (old_pm_id -> new_pm_id,
 # disposition natural_key_reanchor) — the only durable handle on the id PM dropped.

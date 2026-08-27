@@ -426,13 +426,25 @@ class GeneratedPowerMapClient:
         ``GET`` per anchor — ~15x fewer requests over the anchored cohort. ``role_id``
         is a first-class filter on the generated op, so this does not go through
         :meth:`list_entities` (whose uniform ``(limit, offset)`` adapter drops filters).
+
+        ``include_archived=True`` is deliberate and load-bearing: the caller reads "absent
+        from this listing" as "the anchor is dead", and PM's default *excludes* archived
+        rows — so an archived-but-present assignment would look absent and could move a
+        still-valid anchor onto a different row. An archived row is one PM still holds;
+        whether to re-point off it is a separate question (the #311 orphan cleanup), not
+        this listing's to decide. Measured on role ``01KWWWSG8F47HFAZZEJ418NAZX``: 1328
+        rows by default, 1414 with archived included.
         """
         records: list[dict] = []
         offset, limit = 0, 100
         while True:
             body = await self._send(
                 list_assignments.asyncio_detailed(
-                    client=self._client, role_id=str(role_pm_id), limit=limit, offset=offset
+                    client=self._client,
+                    role_id=str(role_pm_id),
+                    include_archived=True,
+                    limit=limit,
+                    offset=offset,
                 )
             )
             records.extend(item.to_dict() for item in body.data)
