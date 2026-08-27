@@ -16,6 +16,10 @@ CREATE would mint a duplicate beside each one. The anchor has to be re-resolved 
 own uniqueness key for an assignment, ``(person, role, start_date)`` — which is exactly
 what PM's assignment observation dedups on, so a match is exact rather than heuristic.
 
+"Absent" means absent from PM entirely, archived rows included — an archived assignment
+is one PM still holds, so its anchor is alive. (PM's listing default excludes archived,
+which would have read those as dead; see ``list_assignments_for_role``.)
+
 For each role (optionally scoped), this fetches PM's assignments for that role once and
 re-anchors every local row whose id is absent from PM's set but whose ``(person,
 start_date)`` matches a returned record. A dead anchor with **no** natural-key match is

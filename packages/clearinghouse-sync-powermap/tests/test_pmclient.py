@@ -1198,3 +1198,30 @@ async def test_list_assignments_for_role_filters_and_pages(client):
     assert len(records) == 2
     assert [p["role_id"] for p in seen] == [str(role_id), str(role_id)]
     assert [p["offset"] for p in seen] == ["0", "100"]
+
+
+@respx.mock
+async def test_list_assignments_for_role_includes_archived(client):
+    """An ARCHIVED assignment is still a row PM holds, so it must appear here.
+
+    The re-anchor (usa-wa#283) treats "absent from this listing" as "the anchor is dead".
+    PM's default is ``include_archived=false``, which would make an archived-but-present
+    row read as absent — a false dead-anchor signal that could move a valid anchor onto a
+    different row. Found in production: role 01KWWWSG8F47HFAZZEJ418NAZX returns 1328 rows
+    by default and 1414 with archived included.
+    """
+    role_id = ULID()
+    seen: list[dict] = []
+
+    def _respond(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json={"data": [], "meta": {"limit": 100, "offset": 0, "count": 0, "has_more": False}},
+        )
+
+    respx.get(f"{BASE}/api/v1/assignments").mock(side_effect=_respond)
+
+    await client.list_assignments_for_role(role_id)
+
+    assert seen[0]["include_archived"] == "true"
