@@ -418,6 +418,28 @@ class GeneratedPowerMapClient:
         next_cursor = str(offset + limit) if body.meta.has_more else None
         return EntityPage(records=records, cursor=next_cursor)
 
+    async def list_assignments_for_role(self, role_pm_id: Any) -> list[dict]:
+        """Every assignment PM holds for one role, all pages, as raw dicts.
+
+        The natural-key re-anchor (usa-wa#283) needs PM's ``(person_id, start_date)`` →
+        id map for a role. Fetching it per role costs one paged listing instead of one
+        ``GET`` per anchor — ~15x fewer requests over the anchored cohort. ``role_id``
+        is a first-class filter on the generated op, so this does not go through
+        :meth:`list_entities` (whose uniform ``(limit, offset)`` adapter drops filters).
+        """
+        records: list[dict] = []
+        offset, limit = 0, 100
+        while True:
+            body = await self._send(
+                list_assignments.asyncio_detailed(
+                    client=self._client, role_id=str(role_pm_id), limit=limit, offset=offset
+                )
+            )
+            records.extend(item.to_dict() for item in body.data)
+            if not body.meta.has_more:
+                return records
+            offset += limit
+
     async def list_role_types(self) -> list[dict]:
         """The public role_types catalog (power-map#268) as raw dicts.
 

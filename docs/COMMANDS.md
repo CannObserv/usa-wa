@@ -78,6 +78,7 @@ Full options, exit codes and rationale: [COMMANDS-SYNC.md](COMMANDS-SYNC.md).
 | `python -m usa_wa_sync_powermap.validate_committees` | Read-only local↔PM drift report (#64) |
 | `python -m usa_wa_sync_powermap.heal_committee_curation` | Force-adopt PM curation for LWW-locked committees (#65) |
 | `python -m usa_wa_sync_powermap.heal_assignment_clocks` | Adopt PM's clock onto LWW-skewed anchored assignments; stop churn (#102) |
+| `python -m usa_wa_sync_powermap.reanchor_assignments` | Re-resolve assignment anchors PM reminted in a merge, by natural key (#283) |
 | `python -m usa_wa_sync_powermap.prune_subscriptions` | Unsubscribe PM-only strangers; re-run to stale=0 (#73) |
 | `python -m usa_wa_sync_powermap.retract_assignments` | Retract spurious anchored assignments on PM (`op:"retract"`) + tombstone locally; sidecar-paused (#144 Phase 2) |
 | `python -m clearinghouse_core.integrity` | Provenance integrity sweep — rolling byte-slice (#54/#55; weekly) |
