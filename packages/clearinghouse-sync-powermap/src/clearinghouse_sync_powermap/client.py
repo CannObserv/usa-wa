@@ -268,6 +268,12 @@ class PowerMapClient(Protocol):
         """Fetch one full entity record by PM id (feed gives ids, not records)."""
         ...
 
+    async def list_assignments_for_role(self, role_pm_id: ULID) -> list[dict]:
+        """Every assignment PM holds for one role, all pages. Backs the natural-key
+        re-anchor (usa-wa#283), which needs a role's ``(person_id, start_date)`` → id
+        map to recover anchors PM reminted without publishing an old→new mapping."""
+        ...
+
     async def get_entity_conditional(
         self, read_path: str, pm_id: ULID, *, if_none_match: str | None
     ) -> EntityFetch:

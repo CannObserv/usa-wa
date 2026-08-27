@@ -1155,3 +1155,46 @@ async def test_min_request_interval_default_off(client):
 
     # A disabled gate returns before reserving, so its slot cursor never advances.
     assert client._gate._next_at == 0.0
+
+
+@respx.mock
+async def test_list_assignments_for_role_filters_and_pages(client):
+    """The natural-key re-anchor (usa-wa#283) needs every assignment PM holds for one
+    role. ``role_id`` must reach the wire as a filter (``list_entities``'s uniform
+    adapter drops it) and every page must be drained, not just the first."""
+    role_id = ULID()
+    first = [{"id": str(ULID()), "person_id": str(ULID()), "role_id": str(role_id)}]
+    second = [{"id": str(ULID()), "person_id": str(ULID()), "role_id": str(role_id)}]
+    seen: list[dict] = []
+
+    def _respond(request):
+        seen.append(dict(request.url.params))
+        page = first if request.url.params.get("offset") == "0" else second
+        has_more = request.url.params.get("offset") == "0"
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        **row,
+                        "start_date": "2019-01-01",
+                        "end_date": None,
+                        "is_current": False,
+                        "notes": None,
+                        "archived_at": None,
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "updated_at": "2026-01-01T00:00:00Z",
+                    }
+                    for row in page
+                ],
+                "meta": {"limit": 100, "offset": 0, "count": len(page), "has_more": has_more},
+            },
+        )
+
+    respx.get(f"{BASE}/api/v1/assignments").mock(side_effect=_respond)
+
+    records = await client.list_assignments_for_role(role_id)
+
+    assert len(records) == 2
+    assert [p["role_id"] for p in seen] == [str(role_id), str(role_id)]
+    assert [p["offset"] for p in seen] == ["0", "100"]

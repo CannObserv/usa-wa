@@ -147,6 +147,34 @@ python -m usa_wa_sync_powermap.heal_committee_curation
 python -m usa_wa_sync_powermap.heal_assignment_clocks --dry-run
 python -m usa_wa_sync_powermap.heal_assignment_clocks
 
+# Re-anchor assignments PM reminted (#283) — one-shot recovery after a PM merge.
+# power-map#467's org merge migrated a role's assignments by COPY-AND-DELETE: the rows
+# survived, every ULID changed, and no old->new map was recorded. power-map#469 restored
+# the org and role under their original ids but could NOT restore the assignment ids. So a
+# local pm_assignment_id can point at a PM row that 404s while the assignment is alive
+# upstream under a new id — invisible to the sidecar, which addresses anchored rows
+# PM-natively by id and only logs dead_anchor_unhealed once per row per process.
+#
+# DO NOT clear-and-re-produce: the rows exist in PM, so an unanchored CREATE mints a
+# DUPLICATE beside each one. This re-resolves the anchor on PM's own uniqueness key,
+# (person, role, start_date) — the same key PM's observation dedups on, so the match is
+# exact. Per role: one paged PM read, then re-anchor every local row whose id is absent
+# from PM's set but whose (person, start_date) matches. A dead anchor with NO match is
+# LEFT ALONE and counted `unresolved` — never guessed, never cleared.
+#
+# Every re-anchor writes an AnchorReanchor ledger row (old_pm_id -> new_pm_id,
+# disposition natural_key_reanchor) — the only durable handle on the id PM dropped.
+# Adopts PM's clock when the payload matches, so setting the anchor doesn't leave local
+# newer and restart the #102 churn; a genuine pending delta keeps its clock and still
+# pushes. Idempotent (a healed anchor reads `healthy`). App-role canonical write;
+# read-only PM. Exit 0 clean / 2 auth / 3 empty-cohort abort.
+#
+# Scope it: an unscoped sweep is one paged PM read per anchored role (312 as of #283).
+python -m usa_wa_sync_powermap.reanchor_assignments --dry-run \
+  --role-source-id committee-member-role:3532
+python -m usa_wa_sync_powermap.reanchor_assignments --role-source-id committee-member-role:3532
+
+
 # Subscription prune (#73 Axis 1 step 6) — one-shot reclaim. build_reconciler narrowed the
 # subscription set to the mirror set (jurisdiction lineage ∪ OUR anchored producer rows), but
 # sync_subscriptions is additive, so the ~1,000 PM-only strangers the old whole-subtree walk
