@@ -5,7 +5,7 @@ Skills are reusable agent instructions. `usa-wa` consumes two upstream catalogs 
 - **`skills/`** — agentskills.io convention (one symlink per skill, plus any local overrides).
 - **`.claude/skills/`** — Claude Code discovery directory (mirrors every entry in `skills/`).
 
-The vendor → symlink → discovery layout means the project carries no skill source code of its own (except local overrides) and stays in sync with upstream via submodule updates. The `SessionStart` hook in [`.claude/settings.json`](../.claude/settings.json) runs the vendored [`skills-submodule-update.sh`](../.claude/hooks/skills-submodule-update.sh) to keep both vendors current — once per UTC day, on `main` only, auto-committing the pointer bump. It also (re)installs `.skills/doctor.sh` on **every** session, outside the daily lock.
+The vendor → symlink → discovery layout means the project carries no skill source code of its own (except local overrides) and stays in sync with upstream via submodule updates. The `SessionStart` hook in [`.claude/settings.json`](../.claude/settings.json) runs the vendored [`skills-submodule-update.sh`](../.claude/hooks/skills-submodule-update.sh) to keep both vendors current — once per UTC day, on `main` only, auto-committing the pointer bump. It also (re)installs `.skills/doctor.sh` on **every** session, outside the daily lock. Two further `SessionStart` hooks are registered there: the SocratiCode prefetch reminder, and the daily health check ([§ SocratiCode health](#socraticode-health)).
 
 ## `.skills/doctor.sh` — the preflight
 
@@ -32,6 +32,7 @@ bash skills-vendor/gregoryfoster-skills/skills/managing-skills/scripts/install-d
 | `curating-context` | Curate the agent-context surface (`AGENTS.md` + the docs it links) against a token budget, verifying facts before removing anything. Triggers: `curate context`, `context budget`, `trim AGENTS.md`. Also installs the write guard — see [§ Context budget](#context-budget). |
 | `enforcing-architecture` | Graduate an accepted architecture finding into an executable fitness function (import-linter / module-size gate / OpenAPI drift guard). Triggers: `add a fitness function`, `enforce this contract`, `lock this rule`. |
 | `init-project-fastapi` | Bootstrap a new FastAPI service (this project's origin). |
+| `init-socraticode` | Set up / repair SocratiCode indexing, the context-artifact manifest, and the code-exploration policy. Vendors the two `SessionStart` hooks — the prefetch reminder and the daily health check (see [§ SocratiCode health](#socraticode-health)). |
 | `managing-skills` | Add/update/audit skills across vendors and overrides. |
 | `orchestrating-issue-backlog` | Triage and sequence open GitHub issues into actionable work. |
 | `reviewing-architecture` | Architectural review of a design doc or large change. Delegates to `enforcing-architecture` on a `fix + fitness` / `fitness` directive — both must be symlinked or the delegation fails to resolve. |
@@ -72,6 +73,22 @@ Every `reviewing-*` / `shipping-*` skill resolves its scripts by probing `script
 | [`scripts/pre-ship.sh`](../scripts/pre-ship.sh) | Loads the two env files, then `exec`s the vendored gate. The gate runs the full suite, whose `db`-marked majority needs `TEST_DATABASE_URL`, so on a clean shell its test phase died wholesale (#172; pre-#185 it died at conftest import). This is the override point the vendored script documents. |
 
 **It is a wrapper, not a fork — keep it that way.** The ~200 lines upstream owns (per-SHA stamp cache, `pytest-cov` detection, the JS block, the zombie preflight) stay in one place and keep improving without a merge; a copy would drift silently on every submodule bump. Pinned by [`scripts/tests/test_pre_ship_wrapper.py`](../scripts/tests/test_pre_ship_wrapper.py), whose last test fails if the vendored delegate path moves. Upstream ask to make this recipe the sanctioned idiom (it currently says "keep a thin local fork", and only 1 of the 4 `shipping-work*` variants says even that): [gregoryfoster/skills#105](https://github.com/gregoryfoster/skills/issues/105).
+
+## SocratiCode health
+
+Adding an artifact to `.socraticodecontextartifacts.json` **does not index it**. Nothing reacts to a manifest edit: `codebase_context_search` answers from indexed artifacts only, and silently answers without the missing one — no error, no warning, and `codebase_status` stays green at the top while reporting the shortfall in a line nobody reads (#263, upstream [gregoryfoster/skills#214](https://github.com/gregoryfoster/skills/issues/214)).
+
+`.claude/hooks/socraticode-health.sh` is the detector — a `SessionStart` hook symlinked through `skills/init-socraticode/` into the vendor, wired in [`.claude/settings.json`](../.claude/settings.json). It runs at most once per UTC day **per project** (the lock lives in the common `.git`, so N worktrees produce one report a day, not N), is silent when there is nothing to report, and exits 0 on every path so it can never block a session. It **reports; it never repairs** — no re-index, no `docker start`, no file edit.
+
+What it surfaces: a declared-but-unindexed (or stale) context artifact **by name**, a `codebase_health` problem, a FAILED or INCOMPLETE last operation, and the graph edge-yield gate. That last one fires here every day and is expected — it is the broken file-dependency graph documented in [`docs/CODE-EXPLORATION.md`](CODE-EXPLORATION.md), not a new finding.
+
+```bash
+SOCRATICODE_HEALTH_FORCE=1 bash .claude/hooks/socraticode-health.sh   # ignore the daily lock
+bash .claude/hooks/socraticode-health.sh --help                      # env vars, driver resolution
+# findings log: <common .git>/socraticode-health.log
+```
+
+Act on an artifact finding with `codebase_context_index`; on an index finding with `codebase_index`.
 
 ## Context budget
 
