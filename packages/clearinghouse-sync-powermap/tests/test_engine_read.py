@@ -2107,3 +2107,120 @@ async def test_anchored_cohort_disabled_uses_unconditional_fetch(db_session):
 
     assert applied == 1 and client.conditional_fetched == []  # never used the conditional path
     assert engine.conditional_get_stats == (0, 0)  # tally stays 0 when disabled (#160 CR)
+
+
+# --- usa-wa#290: a tombstone is only honoured while it is still true ---------------
+
+
+async def test_deleted_event_is_ignored_when_pm_still_serves_the_id(db_session):
+    """A ``deleted`` event whose entity PM STILL SERVES is stale and must not be acted on.
+
+    The incident (usa-wa#290): power-map#467 merged an org away and PM emitted
+    ``deleted`` + ``merged_into``; power-map#469 later reversed the merge and restored
+    the org under its original ULID. The replay backstop re-walks a trailing window every
+    pass, so it re-delivered that superseded tombstone and re-retired a row an operator
+    had just repaired — no error, no outbox entry, ``applied: 0``.
+
+    ``merged_into`` is deterministic and we still trust its *content*; what was missing
+    was any check that the event is still *current*."""
+    loser, winner = ULID(), ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=loser, updated_at=NOW)
+    descriptor = CohortDescriptor()
+    item = ChangeItem(
+        entity_type="fake",
+        entity_id=loser,
+        changed_at=NOW,
+        change_kind="deleted",
+        merged_into=winner,
+    )
+    client = FakeClient(
+        changes_pages=[ChangePage(items=[item], next_after=9)],
+        # The loser RESOLVES — PM restored it. The tombstone no longer describes reality.
+        entities={
+            loser: _record("x", "Restored", pm_id=loser, updated_at=NOW),
+            winner: _record("y", "Winner", pm_id=winner, updated_at=_PM_NEWER),
+        },
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.deleted_at is None  # not retired
+    assert row.pm_fake_id == loser  # not re-anchored onto the winner
+
+
+async def test_stale_deleted_event_does_not_suppress_a_later_upsert(db_session):
+    """A stale tombstone must not poison the ``dead_ids`` memo (#213).
+
+    That memo exists so one genuinely-dead id costs one fetch per pass. But a *stale*
+    tombstone that entered it would also skip every later item for the same entity in
+    that pass — suppressing exactly the upsert that carries PM's current state."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="Old", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortDescriptor()
+    page = ChangePage(
+        items=[
+            ChangeItem(
+                entity_type="fake",
+                entity_id=pm_id,
+                changed_at=NOW,
+                change_kind="deleted",
+                merged_into=ULID(),
+            ),
+            ChangeItem(entity_type="fake", entity_id=pm_id, changed_at=NOW, change_kind="updated"),
+        ],
+        next_after=9,
+    )
+    client = FakeClient(
+        changes_pages=[page],
+        entities={pm_id: _record("x", "Fresh", pm_id=pm_id, updated_at=_PM_NEWER)},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.deleted_at is None
+    assert row.name == "Fresh"  # the upsert was applied, not skipped
+
+
+async def test_genuine_delete_still_retires_when_pm_404s(db_session):
+    """The freshness check must not blunt a real delete: PM 404s the id, so the
+    tombstone is current and the existing routing runs unchanged."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortDescriptor()  # supports_rematch False → tombstone path
+    item = ChangeItem(entity_type="fake", entity_id=pm_id, changed_at=NOW, change_kind="deleted")
+    client = FakeClient(changes_pages=[ChangePage(items=[item], next_after=9)], entities={})
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.deleted_at is not None
+
+
+async def test_genuine_merge_still_reanchors_when_pm_404s(db_session):
+    """The ``merged_into`` re-anchor is preserved for a tombstone that is still true."""
+    loser, winner = ULID(), ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=loser, updated_at=NOW)
+    descriptor = CohortDescriptor()
+    item = ChangeItem(
+        entity_type="fake",
+        entity_id=loser,
+        changed_at=NOW,
+        change_kind="deleted",
+        merged_into=winner,
+    )
+    client = FakeClient(
+        changes_pages=[ChangePage(items=[item], next_after=9)],
+        entities={winner: _record("x", "Winner", pm_id=winner, updated_at=_PM_NEWER)},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+    await db_session.refresh(row)
+
+    assert row.pm_fake_id == winner
+    assert row.deleted_at is None

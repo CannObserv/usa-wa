@@ -55,7 +55,10 @@ resolved from one of two signals, in order of trust:
   - identifier re-match — the backstop when no ``merged_into`` was seen (a 404, or a bare
     ``deleted`` for a rematch-capable org). Only the org descriptor supports it.
 
-A bare ``deleted`` (no ``merged_into``) is otherwise an unambiguous genuine delete
+Every ``deleted`` item is first confirmed against PM (usa-wa#290): the replay backstop
+re-walks a trailing window, so a tombstone describing a state PM has since reversed would
+otherwise be re-executed on every pass — silently, and self-concealing once the row is
+tombstoned. A bare ``deleted`` (no ``merged_into``) is otherwise an unambiguous genuine delete
 post-power-map#235: non-rematch types (person/role/assignment) delete (``deleted_at``). The
 heal also retires a duplicate orphan when a many-to-one merge already left another local row
 on the winner, and a non-rematch type with no winner signal at all (a 404 backstop) logs once
@@ -190,6 +193,9 @@ class Reconciler:
         #: warns once per wedged row rather than every reconcile cycle (#36). Same
         #: throttle shape as the writer's ``_warned_stuck``; a restart re-warns once.
         self._warned_dead_anchors: set = set()
+        #: PM ids whose ``deleted`` event we found superseded (usa-wa#290) — WARN once
+        #: per id per process, not once per replay pass.
+        self._warned_stale_tombstones: set = set()
         #: Cumulative conditional-GET tallies across this cycle's per-descriptor reconciles
         #: **and the replay backstop** (usa-wa#160): reads skipped on a 304 vs. fetched full
         #: on a 200/first pass. Accumulated here (each runs in its own session but one
@@ -846,6 +852,44 @@ class Reconciler:
         await session.flush()
         return applied
 
+    async def _tombstone_is_current(
+        self, descriptor: EntityDescriptor, pm_id: ULID, alive_ids: set[ULID]
+    ) -> bool:
+        """Whether a ``deleted`` feed item still describes PM's state (usa-wa#290).
+
+        A tombstone is a *claim about a moment*, and the replay backstop re-walks a
+        trailing window every pass — so an event describing a state PM has since reversed
+        gets re-delivered and, before this check, re-executed. That is how power-map#467's
+        merge tombstone re-retired an org seven minutes after an operator repaired it,
+        once power-map#469 had restored the org under its original ULID: no error, no
+        outbox entry, ``applied: 0``, and self-concealing afterwards, because the delete
+        branch skips a row it has already tombstoned.
+
+        Re-fetching answers it directly and in the right direction both ways: a genuinely
+        dropped delete still 404s and is applied (the reason replay exists), while a
+        superseded one is skipped. This is *not* doubting ``merged_into`` — that content
+        stays authoritative; it is the event's **freshness** that was never established.
+
+        Runs on the live feed too, deliberately. There the answer is a near-certain 404,
+        but deletes are a thin slice of the feed and the alternative — a rule that holds
+        on one path and not the other — is the divergence this module keeps designing
+        against. ``alive_ids`` bounds the cost to one fetch per id per pass, mirroring
+        ``dead_ids``.
+        """
+        if pm_id in alive_ids:
+            return False
+        record = await descriptor.fetch_record(self._ctx.client, pm_id)
+        if record is None:
+            return True  # PM 404s it — the tombstone is true, route the delete
+        alive_ids.add(pm_id)
+        if pm_id not in self._warned_stale_tombstones:
+            self._warned_stale_tombstones.add(pm_id)
+            logger.warning(
+                "stale_tombstone_ignored",
+                extra={"entity_type": descriptor.entity_type, "pm_id": str(pm_id)},
+            )
+        return False
+
     async def _apply_feed_page(
         self,
         session: AsyncSession,
@@ -854,6 +898,7 @@ class Reconciler:
         now: datetime,
         conditional: bool = False,
         dead_ids: set[ULID] | None = None,
+        alive_ids: set[ULID] | None = None,
     ) -> tuple[int, int]:
         """Apply every item in one changes-feed page; return ``(processed, healed)``.
 
@@ -893,11 +938,19 @@ class Reconciler:
         healed = 0
         if dead_ids is None:
             dead_ids = set()
+        if alive_ids is None:
+            alive_ids = set()
         for item in page.items:
             descriptor = self._ctx.descriptor_for(item.entity_type)
             if descriptor is None or descriptor.read_source == "none":
                 continue
             if item.change_kind == "deleted":
+                if not await self._tombstone_is_current(descriptor, item.entity_id, alive_ids):
+                    # Superseded tombstone (usa-wa#290) — PM serves this id today. Skip the
+                    # whole delete routing, and deliberately do NOT add it to ``dead_ids``:
+                    # that memo would also suppress the later upsert item carrying PM's
+                    # current state, which is precisely what should be applied instead.
+                    continue
                 # The id is dead in PM either way — remember it so a later upsert item
                 # for it in this pass doesn't buy a guaranteed 404 (#213).
                 dead_ids.add(item.entity_id)
@@ -1056,6 +1109,10 @@ class Reconciler:
         # stale items for one gone entity — heal it once, then skip its re-fetches for
         # the rest of this pass (across pages, hence threaded here, not per page).
         dead_ids: set[ULID] = set()
+        # Pass-level *alive*-id memory (usa-wa#290), the mirror of the above: a superseded
+        # tombstone recurs on every replay pass until it drops below the floor, so confirm
+        # it once per pass rather than once per page.
+        alive_ids: set[ULID] = set()
         while True:
             pages += 1
             if pages > MAX_RECONCILE_PAGES:
@@ -1079,7 +1136,7 @@ class Reconciler:
             # Conditional (usa-wa#160): this window is re-read every pass, so most items
             # are ones we already applied — the case a stored ETag turns into a 304.
             page_processed, page_healed = await self._apply_feed_page(
-                session, page, now=now, conditional=True, dead_ids=dead_ids
+                session, page, now=now, conditional=True, dead_ids=dead_ids, alive_ids=alive_ids
             )
             applied += page_processed
             healed += page_healed
