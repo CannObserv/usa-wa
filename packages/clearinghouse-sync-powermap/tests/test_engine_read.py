@@ -2224,3 +2224,123 @@ async def test_genuine_merge_still_reanchors_when_pm_404s(db_session):
 
     assert row.pm_fake_id == winner
     assert row.deleted_at is None
+
+
+class ChildAttachingDescriptor(CohortDescriptor):
+    """Mirrors the person/org descriptors: ``fetch_record`` attaches an ``/{id}/events``
+    sub-resource, so a full record costs a *second* request."""
+
+    async def _attach_children(self, client, pm_id, record):
+        record["events"] = await client.list_entity_events(self.read_path, pm_id)
+        return record
+
+
+async def test_deleted_event_for_an_untracked_id_costs_no_fetch(db_session):
+    """#290 CR 50: confirm the tombstone only when a live row of ours is at risk.
+
+    An id we hold no row for was settled with zero PM reads before the freshness check
+    existed, and must still be. Replay re-reads a ~1000-item window every pass and this
+    module has a rate-limit outage behind it (#211), so a read bought for an id that
+    cannot be harmed is pure budget."""
+    descriptor = CohortDescriptor()
+    item = ChangeItem(entity_type="fake", entity_id=ULID(), changed_at=NOW, change_kind="deleted")
+    client = FakeClient(changes_pages=[ChangePage(items=[item], next_after=9)], entities={})
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+
+    assert client.fetched == []
+
+
+async def test_deleted_event_for_an_already_tombstoned_row_costs_no_fetch(db_session):
+    """#290 CR 50: a row we have already retired cannot be harmed twice — the branch
+    short-circuited on it before the freshness check and must still."""
+    pm_id = ULID()
+    row = await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    row.deleted_at = NOW
+    await db_session.flush()
+    descriptor = CohortDescriptor()
+    item = ChangeItem(entity_type="fake", entity_id=pm_id, changed_at=NOW, change_kind="deleted")
+    client = FakeClient(changes_pages=[ChangePage(items=[item], next_after=9)], entities={})
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+
+    assert client.fetched == []
+
+
+async def test_tombstone_check_does_not_attach_children(db_session):
+    """#290 CR 51: the check asks only "does PM still serve this id". Attaching the
+    ``/{id}/events`` sub-resource would buy a second request for a record we discard."""
+    pm_id = ULID()
+    await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = ChildAttachingDescriptor()
+    item = ChangeItem(entity_type="fake", entity_id=pm_id, changed_at=NOW, change_kind="deleted")
+    client = FakeClient(
+        changes_pages=[ChangePage(items=[item], next_after=9)],
+        entities={pm_id: _record("x", "Restored", pm_id=pm_id, updated_at=NOW)},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+
+    assert client.fetched == [("/api/v1/fakes", pm_id)]
+    assert client.events_fetched == []  # no sub-resource bought for an existence check
+
+
+async def test_repeated_stale_tombstone_is_confirmed_once_per_pass(db_session):
+    """#290 CR 53: the ``alive_ids`` memo, the mirror of ``dead_ids``. A superseded
+    tombstone recurs on every pass until it drops below the floor, so two items for the
+    same id in one pass must cost one confirmation, not two."""
+    pm_id = ULID()
+    await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortDescriptor()
+    items = [
+        ChangeItem(
+            entity_type="fake",
+            entity_id=pm_id,
+            changed_at=NOW,
+            change_kind="deleted",
+            merged_into=ULID(),
+        )
+        for _ in range(2)
+    ]
+    client = FakeClient(
+        changes_pages=[ChangePage(items=items, next_after=9)],
+        entities={pm_id: _record("x", "Restored", pm_id=pm_id, updated_at=NOW)},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    await engine.process_feed(db_session, now=NOW)
+
+    assert client.fetched == [("/api/v1/fakes", pm_id)]
+
+
+async def test_stale_tombstone_warns_once_per_id(db_session, caplog):
+    """#290 CR 54: this WARNING is the only operator-visible sign a reversal happened —
+    if it regressed to silence the next one would be as invisible as the first. Once per
+    id per process, like ``_warned_dead_anchors``, not once per item."""
+    pm_id = ULID()
+    await _add_anchored(db_session, source_id="x", name="X", pm_id=pm_id, updated_at=NOW)
+    descriptor = CohortDescriptor()
+    items = [
+        ChangeItem(
+            entity_type="fake",
+            entity_id=pm_id,
+            changed_at=NOW,
+            change_kind="deleted",
+            merged_into=ULID(),
+        )
+        for _ in range(3)
+    ]
+    client = FakeClient(
+        changes_pages=[ChangePage(items=items, next_after=9)],
+        entities={pm_id: _record("x", "Restored", pm_id=pm_id, updated_at=NOW)},
+    )
+    engine = SyncEngine([descriptor], client)
+
+    with caplog.at_level("WARNING"):
+        await engine.process_feed(db_session, now=NOW)
+
+    warned = [r for r in caplog.records if r.msg == "stale_tombstone_ignored"]
+    assert len(warned) == 1

@@ -24,7 +24,12 @@ For each role (optionally scoped), this fetches PM's assignments for that role o
 re-anchors every local row whose id is absent from PM's set but whose ``(person,
 start_date)`` matches a returned record. A dead anchor with **no** natural-key match is
 left untouched and counted: clearing it would hand the row to the CREATE path, which is
-the duplicate we are avoiding. Every re-anchor writes an :class:`AnchorReanchor` ledger
+the duplicate we are avoiding. A role PM serves *nothing* for is reported once as
+``roles_with_empty_listing`` rather than as N unresolved rows — the list endpoint answers
+200-with-empty for an unknown ``role_id``, so that is the shape a dead ``pm_role_id``
+takes, and it is the role that needs the operator, not its assignments.
+
+Every re-anchor writes an :class:`AnchorReanchor` ledger
 row — the same durable old→new record the #108 in-place overwrite writes, and the only
 handle on the id PM dropped.
 
@@ -142,16 +147,34 @@ async def reanchor_assignments(
             "reanchored": 0,
             "unresolved": 0,
             "skipped_no_person_anchor": 0,
+            "roles_with_empty_listing": 0,
             "clock_adopted": 0,
             "aborted": "empty_cohort",
         }
 
     checked = healthy = reanchored = unresolved = skipped = adopted = 0
+    empty_listings = 0
     for role in roles:
         rows = await _anchored_on_role(session, role)
         if not rows:
             continue
         records = await client.list_assignments_for_role(role.pm_role_id)
+        if not records:
+            # PM serves NOTHING for this role while we hold anchored rows on it. The list
+            # endpoint answers 200-with-empty for an unknown ``role_id`` rather than 404,
+            # so this is the shape a dead ``pm_role_id`` takes — the #283 failure itself.
+            # Blame the role once instead of reporting every row as ``unresolved``, which
+            # would point the operator at the assignments rather than at the anchor.
+            empty_listings += 1
+            logger.warning(
+                "reanchor_role_listing_empty",
+                extra={
+                    "role_source_id": role.source_id,
+                    "pm_role_id": str(role.pm_role_id),
+                    "anchored_rows": len(rows),
+                },
+            )
+            continue
         live_ids = {str(record.get("id")) for record in records}
         index = _natural_key_index(records)
 
@@ -224,6 +247,7 @@ async def reanchor_assignments(
         "reanchored": reanchored,
         "unresolved": unresolved,
         "skipped_no_person_anchor": skipped,
+        "roles_with_empty_listing": empty_listings,
         "clock_adopted": adopted,
         "aborted": None,
     }
