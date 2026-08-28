@@ -56,13 +56,13 @@ The upstream `init-project-fastapi` skill's Phase 10 loop now enforces this itse
 
 ## Local overrides
 
-Full local copies (not symlinks) live in `skills/<name>/`. Each must declare `overrides: <vendor>/<upstream-skill-name>` and `override-reason:` in its frontmatter `metadata` block.
+**There are none.** Every entry in `skills/` is a symlink into a vendor.
 
-| Override | Reason |
-|---|---|
-| `skills/brainstorming/` | Project-specific narrative content (the upstream skill is generic). |
+A local override is a full copy (not a symlink) at `skills/<name>/`, declaring `overrides: <vendor>/<upstream-skill-name>`, `override-reason:`, and — since gregoryfoster/skills#238 — a `synced-from: "<repo> <tag> (<commit>)"` recording the vendor commit last synced from. Without that last key the doctor reports the fork as un-assessable, which is the same failure as not detecting drift at all.
 
-Add a thin override only when the project genuinely diverges from the upstream behavior — see the `init-project-fastapi` SKILL.md "Phase 10 — `skills/` directory" section for the conditions that warrant a fork.
+`skills/brainstorming/` was the one override and is now a symlink (#263). It claimed "project-specific narrative content", but it was byte-identical to obra-superpowers **v5.1.0** apart from its three frontmatter lines — the project content it was forked to hold was never added. Meanwhile upstream moved 810 lines across 8 files (v6.3.0's three-path router), none of which the repo was getting. That is the drift mode the `synced-from:` check exists to surface, caught here in its terminal form: a fork with nothing in it, silently pinning a skill at the version vendored on day one (2026-05-25) through seven upstream releases (v6.0.0 → v6.3.0).
+
+**The lesson, not just the fix:** an override costs a permanent manual re-sync obligation, so fork only when the project genuinely diverges *today* — never speculatively, to hold content someone might add later. See the `init-project-fastapi` SKILL.md "Phase 10 — `skills/` directory" section for the conditions that warrant one.
 
 ## Local script overrides
 
