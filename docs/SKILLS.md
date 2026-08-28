@@ -101,6 +101,7 @@ Act on an artifact finding with `codebase_context_index`; on an index finding wi
 | `context-token-ratio` | this repo's measured bytes-per-token, written by each `--exact` run; the offline estimators read it so `bytes/4` (which under-reports this content by ~60%) is never used |
 | `context-metrics.jsonl` | append-only ledger, one row per run. Committed rather than centralized so the history travels with the repo and is reviewable in the same PR as the edits it describes |
 | `doctor.sh` | unrelated — see [§ the preflight](#skillsdoctorsh--the-preflight) |
+| `worktree_venv` | unrelated — see [§ Worktree venv isolation](#worktree-venv-isolation) |
 
 The weekly run recovers ground; the **write guard** stops regrowth between runs. It is a `PostToolUse` hook on `Edit|Write|MultiEdit`, wired in [`.claude/settings.json`](../.claude/settings.json), and it is advisory only — always exits 0, and stays silent unless an edit *both* pushes a context-surface file past its budget *and* increases it since `HEAD`, so a curation run is never nagged. `docs/plans/`, `docs/specs/`, and `docs/research/` are excluded as archival at any depth (so are `audits/` and `archive/`, which this repo does not currently have).
 
@@ -110,6 +111,16 @@ bash skills/curating-context/scripts/prove-no-loss.sh --base main # assert a cur
 ```
 
 `.claude/hooks/context-budget-guard.sh` is a symlink through `skills/curating-context/` into the vendor submodule, so on an uninitialized checkout it dangles and every edit fails the hook until the submodule is initialized — `.skills/doctor.sh` heals it, since the chain routes through `skills/*`, which the doctor's scan covers (upstream: [gregoryfoster/skills#99](https://github.com/gregoryfoster/skills/issues/99)).
+
+## Worktree venv isolation
+
+`.skills/worktree_venv` holds **`none`**, so `worktree-create.sh` links no `.venv` into a new worktree and says so on stderr. Provision one there with `uv sync --locked` — about 2 s against a warm cache.
+
+**Why, concretely.** The main checkout is `usa-wa.service`'s `WorkingDirectory=`, and the default (`link`) symlinks its `.venv` into every worktree — handing them one shared *mutable* environment while isolating them in every other respect. `uv run` reinstalls the workspace project, so a single `uv run pytest` in a worktree restamps all eleven editable `.pth` files in the live service's venv to point at `.worktrees/…`. That happened twice while wiring #263 before this knob was set. The service survives it (every unit runs `uv run --frozen --no-sync`), but it is then importing from a worktree, and destroying that worktree breaks it.
+
+The reverse direction bites too: a worktree's own `uv sync` prunes dependency groups it was not asked for, out from under the running workers.
+
+**It is committed**, a deliberate departure from the skill's "commit only if it holds for every clone". Here it does: [`AGENTS.md`](../AGENTS.md) § Infrastructure fixes this repo as a **single-VM setup where code committed to main is the deployed code**, so the main checkout is a service working directory in every deployment this repo contemplates. An untracked knob would also be lost on a repo reset — silently restoring the failure it exists to prevent. The cost elsewhere is one `uv sync` per worktree.
 
 ## Updating skills
 

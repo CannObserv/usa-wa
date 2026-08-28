@@ -23,7 +23,7 @@ SocratiCode is the preferred semantic-search tool for this repo (once indexed; t
 **The file-dependency graph is broken here.** Empty output from `codebase_graph_query` /
 `_circular` / `_stats` or the file-mode of `codebase_impact` means "tool broken", never "no
 dependents" — derive import edges with `grep`. The goal→tool table, the measurements behind that
-finding, and where the session-start `ToolSearch` prefetch query comes from:
+finding, and the source of the session-start `ToolSearch` prefetch query:
 [`docs/CODE-EXPLORATION.md`](docs/CODE-EXPLORATION.md).
 
 ## Project Layout
@@ -70,6 +70,8 @@ The full service table (every systemd unit and what each one does), the `OnFailu
 **Port 8000 belongs to systemd.** Never start uvicorn manually on port 8000.
 
 **Prod checkout stays on `main` (issue #87).** Every code-running unit carries `ExecStartPre=…/scripts/assert-main-checkout.sh` and refuses to start off-main, so a feature branch left checked out wedges the timers rather than deploying itself. Do feature work in a git worktree (see the `using-git-worktrees` skill). Recovery and the start-limit reasoning: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+Run `uv sync --locked` in a new worktree: `.skills/worktree_venv=none` links no venv on purpose ([`docs/SKILLS.md`](docs/SKILLS.md#worktree-venv-isolation)).
 
 **Units never sync the venv (issue #30).** Every entrypoint runs `uv run --frozen --no-sync`, so unit start cannot apply a dependency change a `git pull` landed in `uv.lock`. Dependency changes land only via a deliberate sync:
 
@@ -118,9 +120,8 @@ export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 # Run tests
 uv run pytest
 
-# Concurrent sessions (other worktrees) serialize on a Postgres advisory lock (#208):
-# a second db-marked run queues up to TEST_DATABASE_LOCK_TIMEOUT s (default 600), then
-# fails loudly — "another pytest session holds the test database"
+# Concurrent db-marked runs serialize on a Postgres advisory lock, then fail
+# loudly (#208) — see docs/COMMANDS.md
 
 # Unit tier (#185) — no database at all; own coverage gate (#198), so no flags
 # needed. Add --no-cov for a faster (~11s vs ~27s), ungated inner loop
@@ -186,7 +187,7 @@ JSON records carry `{timestamp, level, logger, message}` (#133; structlog's defa
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the reusable Layer-3 pattern; read before adding an adapter, a source, or a span/seat builder
 - [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model: entities, lifecycle axes, spans-as-assignments, the three event shapes; read before adding a fact
 - the ten `docs/MODULES-*.md` per-package references are listed under § Project Layout above — one entry each, not repeated here
-- [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→tool table, the broken file-dependency graph, where the `ToolSearch` prefetch query comes from
+- [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→tool table, the broken file-dependency graph, the `ToolSearch` prefetch
 - [docs/API.md](docs/API.md) — the read-only `/api/v1` surface: route inventory, pagination, and the response contracts
 - [docs/LWW-NOOP-GATE.md](docs/LWW-NOOP-GATE.md) — the local-newer no-op gate; read before adding a `write_enabled` producer descriptor
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — systemd units, failure alerting, DB roles, restart/lifecycle table

@@ -17,3 +17,21 @@ retarget :: - the nine `docs/MODULES-*.md` per-package references are listed und
 # rule it carried — port 8001, load env first — survives in the rewritten
 # sentence, which now points at § Common Commands instead of a colon.
 duplicate :: **Dev server workflow.** Run on port `8001` so the live service stays up. Load env first:
+
+# --- #263 follow-up: the worktree-venv opt-out ---
+
+# The three-line comment restated the advisory-lock behaviour verbatim held in
+# docs/COMMANDS.md (the lock, the TEST_DATABASE_LOCK_TIMEOUT default, the error
+# string) and again in docs/ENVIRONMENT.md's entry for that variable. Compressed
+# to the rule plus a pointer; nothing about the behaviour is now unstated.
+duplicate :: # Concurrent sessions (other worktrees) serialize on a Postgres advisory lock (#208):
+duplicate :: # a second db-marked run queues up to TEST_DATABASE_LOCK_TIMEOUT s (default 600), then
+duplicate :: # fails loudly — "another pytest session holds the test database"
+
+# Both pointers said docs/CODE-EXPLORATION.md CARRIES the prefetch query. This
+# same change removed the query from that doc — it had drifted, omitting three
+# graph tools — and pointed it at socraticode-reminder.sh, the hook that emits
+# the query verbatim every session. So the pointer's target moved in this run
+# and both lines now say "the source of" instead.
+retarget :: finding, and where the session-start `ToolSearch` prefetch query comes from:
+retarget :: - [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→tool table, the broken file-dependency graph, where the `ToolSearch` prefetch query comes from
