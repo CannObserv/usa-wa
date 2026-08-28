@@ -23,7 +23,7 @@ SocratiCode is the preferred semantic-search tool for this repo (once indexed; t
 **The file-dependency graph is broken here.** Empty output from `codebase_graph_query` /
 `_circular` / `_stats` or the file-mode of `codebase_impact` means "tool broken", never "no
 dependents" — derive import edges with `grep`. The goal→tool table, the measurements behind that
-finding, and the session-start `ToolSearch` prefetch query:
+finding, and where the session-start `ToolSearch` prefetch query comes from:
 [`docs/CODE-EXPLORATION.md`](docs/CODE-EXPLORATION.md).
 
 ## Project Layout
@@ -186,7 +186,7 @@ JSON records carry `{timestamp, level, logger, message}` (#133; structlog's defa
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the reusable Layer-3 pattern; read before adding an adapter, a source, or a span/seat builder
 - [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model: entities, lifecycle axes, spans-as-assignments, the three event shapes; read before adding a fact
 - the ten `docs/MODULES-*.md` per-package references are listed under § Project Layout above — one entry each, not repeated here
-- [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→tool table, the broken file-dependency graph, the `ToolSearch` prefetch query
+- [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→tool table, the broken file-dependency graph, where the `ToolSearch` prefetch query comes from
 - [docs/API.md](docs/API.md) — the read-only `/api/v1` surface: route inventory, pagination, and the response contracts
 - [docs/LWW-NOOP-GATE.md](docs/LWW-NOOP-GATE.md) — the local-newer no-op gate; read before adding a `write_enabled` producer descriptor
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — systemd units, failure alerting, DB roles, restart/lifecycle table

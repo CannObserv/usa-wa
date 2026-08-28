@@ -38,6 +38,15 @@ finding every day (#263) — expected here, not news. The finding it exists for 
 declared in `.socraticodecontextartifacts.json` but never indexed**, which produces no error and no
 warning otherwise. See [`docs/SKILLS.md` § SocratiCode health](SKILLS.md#socraticode-health).
 
-Prefetch query — run via `ToolSearch` at session start:
+Prefetch query — **emitted verbatim into every session** by the
+`socraticode-reminder.sh` `SessionStart` hook, which is a symlink into the vendored
+source of truth. Read it from there rather than from a copy here:
 
-`select:mcp__plugin_socraticode_socraticode__codebase_search,mcp__plugin_socraticode_socraticode__codebase_symbol,mcp__plugin_socraticode_socraticode__codebase_symbols,mcp__plugin_socraticode_socraticode__codebase_flow,mcp__plugin_socraticode_socraticode__codebase_impact,mcp__plugin_socraticode_socraticode__codebase_graph_query,mcp__plugin_socraticode_socraticode__codebase_status,mcp__plugin_socraticode_socraticode__codebase_context,mcp__plugin_socraticode_socraticode__codebase_context_search`
+```bash
+bash .claude/hooks/socraticode-reminder.sh
+```
+
+This file used to transcribe the query, and the transcription had already gone stale —
+it omitted `codebase_graph_circular`, `_stats` and `_visualize`. That is the failure
+upstream removed the copies for (gregoryfoster/skills#234): a transcription of a
+symlinked hook's output drifts silently, because nothing compares the two.
