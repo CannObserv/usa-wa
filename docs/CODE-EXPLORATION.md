@@ -15,9 +15,10 @@ the broken file-dependency graph, and the session-start prefetch query.
 | Imports/dependents of a file | `grep` — **not** `codebase_graph_query` (see below) |
 | DB schemas, deployment topology, runbook context | `codebase_context` / `codebase_context_search` |
 
-**The file-dependency graph does not work on this repo.** `codebase_graph_build` resolves **3 edges
-across 374 files** (81.8% of symbols unresolved), and `codebase_graph_query` on a module with 25
-imports returns "No dependency information found". A rebuild does not fix it — the resolver does not
+**The file-dependency graph does not work on this repo.** `codebase_graph_build` resolves **11 edges
+across 439 files** (82.2% of symbols unresolved — 3/374 at 81.8% when first measured; the ratio has
+not moved), and `codebase_graph_query` on a module with 25 imports returns "No dependency
+information found". A rebuild does not fix it — the resolver does not
 map `usa_wa_adapter_legislature.tenure_spans` onto
 `packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/tenure_spans.py`, i.e. it cannot
 follow a `uv` workspace `src` layout where the directory name is dashed and the module name is
@@ -31,6 +32,11 @@ grep -rnE '^[[:space:]]*(from|import)[[:space:]]+usa_wa_adapter_' packages/*/src
 
 `codebase_search`, `codebase_symbol`, and the context tools are unaffected and remain preferred.
 Filed upstream as gregoryfoster/skills#107; revisit this note when it is fixed.
+
+The daily `socraticode-health.sh` `SessionStart` hook re-measures this yield and reports it as a
+finding every day (#263) — expected here, not news. The finding it exists for is a **context artifact
+declared in `.socraticodecontextartifacts.json` but never indexed**, which produces no error and no
+warning otherwise. See [`docs/SKILLS.md` § SocratiCode health](SKILLS.md#socraticode-health).
 
 Prefetch query — run via `ToolSearch` at session start:
 
