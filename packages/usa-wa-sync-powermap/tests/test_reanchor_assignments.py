@@ -306,3 +306,22 @@ async def test_skips_assignment_with_no_person_anchor(db_session):
 
     assert result["skipped_no_person_anchor"] == 1
     assert str(row.pm_assignment_id) == str(dead)
+
+
+async def test_empty_pm_listing_implicates_the_role_not_its_rows(db_session):
+    """An empty listing means the ROLE is unreachable, not that N assignments failed to match.
+
+    ``GET /assignments?role_id=<dead>`` answers **200 with an empty ``data``**, not 404
+    (verified against production), so a dead ``pm_role_id`` is indistinguishable from "no
+    natural-key match" unless it is called out. That is precisely the #283 failure — the
+    role anchor was the broken thing — and reporting it as N unresolved assignments points
+    the operator at the wrong layer entirely."""
+    role = await _add_role(db_session, source_id="committee-member-role:3532")
+    await _add_assignment(db_session, role, anchor=ULID(), source_id="A-1")
+    await _add_assignment(db_session, role, anchor=ULID(), source_id="A-2")
+    client = _FakeClient({})  # PM serves nothing for this role
+
+    result = await heal.reanchor_assignments(db_session, AssignmentDescriptor(), client)
+
+    assert result["roles_with_empty_listing"] == 1
+    assert result["unresolved"] == 0  # the rows are not each blamed for the role's fault
