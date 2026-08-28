@@ -160,7 +160,10 @@ python -m usa_wa_sync_powermap.heal_assignment_clocks
 # (person, role, start_date) — the same key PM's observation dedups on, so the match is
 # exact. Per role: one paged PM read, then re-anchor every local row whose id is absent
 # from PM's set but whose (person, start_date) matches. A dead anchor with NO match is
-# LEFT ALONE and counted `unresolved` — never guessed, never cleared. The PM read passes
+# LEFT ALONE and counted `unresolved` — never guessed, never cleared. A role PM serves
+# NOTHING for is reported once as `roles_with_empty_listing`, not as N unresolved rows:
+# the list endpoint answers 200-with-empty for an unknown role_id, so that is how a dead
+# pm_role_id presents (the #283 failure) and the role is what needs an operator. The PM read passes
 # include_archived=true: an archived row is one PM still holds, so its anchor is alive and
 # must not read as dead (PM's listing default would hide it).
 #

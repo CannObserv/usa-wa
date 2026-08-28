@@ -873,12 +873,17 @@ class Reconciler:
         Runs on the live feed too, deliberately. There the answer is a near-certain 404,
         but deletes are a thin slice of the feed and the alternative — a rule that holds
         on one path and not the other — is the divergence this module keeps designing
-        against. ``alive_ids`` bounds the cost to one fetch per id per pass, mirroring
-        ``dead_ids``.
+        against. The caller reaches this only for a **live anchored row**, so an id that
+        no tombstone could harm costs nothing (#290 CR), and ``alive_ids`` bounds the rest
+        to one read per id per pass, mirroring ``dead_ids``.
+
+        Deliberately ``get_entity``, not ``descriptor.fetch_record``: the only question is
+        whether PM still serves the id, and ``fetch_record`` would attach the ``/{id}/events``
+        sub-resource — a second request, for a record this method discards (#290 CR).
         """
         if pm_id in alive_ids:
             return False
-        record = await descriptor.fetch_record(self._ctx.client, pm_id)
+        record = await self._ctx.client.get_entity(descriptor.read_path, pm_id)
         if record is None:
             return True  # PM 404s it — the tombstone is true, route the delete
         alive_ids.add(pm_id)
@@ -945,18 +950,23 @@ class Reconciler:
             if descriptor is None or descriptor.read_source == "none":
                 continue
             if item.change_kind == "deleted":
+                row = await self._anchors.row_by_anchor(session, descriptor, item.entity_id)
+                if row is None or descriptor.is_deleted(row):
+                    # Nothing of ours the tombstone could harm — settle it with no PM read
+                    # (#290 CR): the freshness check below exists to protect a *live*
+                    # anchored row, and replay re-reads a ~1000-item window every pass on a
+                    # path with a rate-limit outage behind it (#211). The id is dead as far
+                    # as we are concerned either way, so still remember it — a later upsert
+                    # item for it in this pass must not buy a guaranteed 404 (#213).
+                    dead_ids.add(item.entity_id)
+                    continue
                 if not await self._tombstone_is_current(descriptor, item.entity_id, alive_ids):
                     # Superseded tombstone (usa-wa#290) — PM serves this id today. Skip the
                     # whole delete routing, and deliberately do NOT add it to ``dead_ids``:
                     # that memo would also suppress the later upsert item carrying PM's
                     # current state, which is precisely what should be applied instead.
                     continue
-                # The id is dead in PM either way — remember it so a later upsert item
-                # for it in this pass doesn't buy a guaranteed 404 (#213).
                 dead_ids.add(item.entity_id)
-                row = await self._anchors.row_by_anchor(session, descriptor, item.entity_id)
-                if row is None or descriptor.is_deleted(row):
-                    continue
                 if item.merged_into is not None:
                     # Merge: PM names the surviving winner (power-map#235). Re-anchor any
                     # entity type to it deterministically — no identifier re-match.
