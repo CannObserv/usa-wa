@@ -433,8 +433,13 @@ async def test_replay_dead_id_fetched_once_per_pass(db_session, fake_descriptor,
 
 
 async def test_replay_deleted_event_suppresses_later_upsert_fetch(db_session, fake_descriptor):
-    """A ``deleted`` event already proves the id is dead — a later stale upsert item for
-    the same id inside the pass must not buy a guaranteed-404 fetch (usa-wa#213)."""
+    """A confirmed-dead id is fetched ONCE per pass, however many items reference it.
+
+    usa-wa#213: a later stale upsert item for the same id must not buy a second
+    guaranteed-404 fetch. usa-wa#290 changed the baseline from zero fetches to one — the
+    ``deleted`` event is now confirmed against PM before it is acted on, because a
+    replayed tombstone may describe a state PM has since reversed. The O(1)-per-dead-id
+    property #213 bought is what matters and is unchanged; only the constant moved."""
     pm_id = ULID()
     row = await _add_anchored(db_session, source_id="1", name="Local", pm_id=pm_id)
     await _bootstrap_high_water(db_session)
@@ -450,12 +455,19 @@ async def test_replay_deleted_event_suppresses_later_upsert_fetch(db_session, fa
     await db_session.refresh(row)
 
     assert row.deleted_at == NOW  # bare delete, non-rematch type → genuine delete (#37)
-    assert client.fetched == []  # the stale upsert item never re-fetched the dead id
+    # Exactly one fetch: the #290 freshness confirmation (PM 404s → the tombstone is
+    # true). The stale upsert item that follows adds none — that is the #213 memo.
+    assert client.fetched == [("/api/v1/fakes", pm_id)]
 
 
 async def test_replay_deleted_item_never_reaches_the_conditional_fetch(db_session, fake_descriptor):
-    """The delete/merge/heal branch runs *before* the fetch and must stay that way — a
-    ``deleted`` item costs no conditional PM read at all."""
+    """A ``deleted`` item costs no *conditional* PM read, and must stay that way.
+
+    The #290 freshness check ahead of the delete branch is a plain unconditional fetch:
+    it asks only "does PM still serve this id", for which a 404 is the cheapest possible
+    answer and the common one. It deliberately does not reach for the conditional path,
+    which would buy two extra local queries (anchor + stored ETag) to ask a question the
+    delete branch does not have."""
     pm_id = ULID()
     winner = ULID()
     row = await _add_anchored(db_session, source_id="1", name="Loser", pm_id=pm_id)
