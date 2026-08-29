@@ -25,6 +25,36 @@ repos:
         pass_filenames: false
         always_run: true
 
+  # SessionStart/PostToolUse hook wiring (issue #263). A Claude Code hook is two
+  # artifacts — the script under .claude/hooks/ and the settings.json entry that
+  # names it — and only the second makes it run. The first is the only one a
+  # directory listing shows, so "installed, unregistered, never runs" is
+  # invisible; the health hook #263 installed is silent when clean by design, so
+  # an unwired copy and a healthy one are observationally identical.
+  #
+  # --check-only, not the bare invocation: the default warns and exits 0 so that
+  # review preflights aren't hard-blocked by a defect outside the diff under
+  # review, and a gate that reports damage then signals "fine" is no gate
+  # (gregoryfoster/skills#231). always_run because the commit that REMOVES a
+  # registration need not stage anything under .claude/. Pinned by
+  # scripts/tests/test_hook_registration_gate.py.
+  #
+  # The default run FIRST, output discarded: --check-only also exits 1 on
+  # uninitialized skills-vendor/ submodules, which is the state every `git
+  # worktree add` produces and which AGENTS.md's worktree-per-feature rule makes
+  # routine (verified: 0 vendor entries, rc=1 in a fresh worktree). The default
+  # invocation self-heals exactly that, so healing first leaves the gate failing
+  # only on the wiring gap it was added for. Its own exit code is ignored — a
+  # failure to heal shows up as the probe's finding, in the probe's words.
+  - repo: local
+    hooks:
+      - id: hook-registration
+        name: doctor --check-only (hook wiring)
+        entry: bash -c 'bash .skills/doctor.sh >/dev/null 2>&1; exec bash .skills/doctor.sh --check-only'
+        language: system
+        pass_filenames: false
+        always_run: true
+
   # Static validation of deploy/ systemd units (issue #51). Assumes the VM's
   # env: verify resolves absolute ExecStart paths (/usr/local/bin/uv) and
   # User=exedev against the local box, so OFF-VM it can false-FAIL (not just

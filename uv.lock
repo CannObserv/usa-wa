@@ -35,6 +35,7 @@ dev = [
     { name = "pytest", specifier = ">=8.0,<9" },
     { name = "pytest-asyncio", specifier = ">=1.0,<2" },
     { name = "pytest-cov", specifier = ">=6.0,<7" },
+    { name = "pyyaml", specifier = ">=6.0,<7" },
     { name = "respx", specifier = ">=0.21,<1" },
     { name = "ruff", specifier = ">=0.9,<1" },
     { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
