@@ -36,3 +36,25 @@ duplicate :: # fails loudly — "another pytest session holds the test database"
 # and both lines now say "the source of" instead.
 retarget :: finding, and where the session-start `ToolSearch` prefetch query comes from:
 retarget :: - [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→tool table, the broken file-dependency graph, where the `ToolSearch` prefetch query comes from
+
+# --- #263 CR round 2 -------------------------------------------------------
+# The #263 round demoted this line into docs/ARCHITECTURE.md verbatim. Review
+# found the copy did two wrong things at once: its leading pointer told the
+# reader to read the document they were already in, and the rest restated what
+# that document already says at length. Read clause by clause against the
+# destination before deleting it — every one is already there:
+#
+#   one package per jurisdiction+target, sources inside  -> ## One package per *target*
+#   source = transport/adapter/normalize/cohort/harvest  -> the tree in that section
+#   application source-agnostic via a cohort interface   -> same section, opening
+#   usa-wa-adapter-sos as the worked example             -> ## Worked example — WA SOS House Position
+#   audit coverage before building on a source           -> ## Audit before you build
+#   never key a parser on an exact upstream string       -> ARCHITECTURE.md:222, and kept
+#                                                           inline in AGENTS.md besides
+#   #183 flat top level / subpackage on a varying axis   -> ## When a target publishes only one source (#183)
+#   harvest.py = Phase A, build.py = Phase B             -> same section, and kept inline
+#
+# So the demotion's destination already held the content; what moved was a
+# summary of it. AGENTS.md keeps the pointer plus the two always-on rules.
+duplicate :: **Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder.** It is the reusable Layer-3 pattern: one adapter package per *jurisdiction+target* bundling every source that target publishes; each **source** a self-contained archive (own `Source`/`source_slug`/archive-key/transport/adapter/normalize/cohort/harvest); the **application** (spans/seats) source-agnostic, consuming a cohort interface — so a fact can draw on a new source without a rewrite (the `usa-wa-adapter-sos` filings + results sources are the worked example). Audit a source's coverage before building on it; never key a parser on an exact upstream string. Inside a package (#183): single-source target ⇒ flat top level (no `pdc/` inside `usa_wa_adapter_pdc`); subpackage only on an axis that varies (WSL splits on its four archives); **`harvest.py` = Phase A, `build.py` = Phase B**, plus `projector`/`emit`/`migrate_*`.
+

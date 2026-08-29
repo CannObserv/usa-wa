@@ -114,7 +114,10 @@ def test_registrations_are_project_dir_anchored() -> None:
     re-running the installer upgrades them in place.
     """
     for command in _registered_commands():
-        if ".claude/hooks/" not in command:
+        # Commands spelled as a repo-relative path — the shape the installers
+        # write, and the only one that can be cwd-relative. An absolute path is
+        # cwd-independent already, so it needs no anchor and is not a finding.
+        if ".claude/hooks/" not in command or command.startswith("bash /"):
             continue
         assert "CLAUDE_PROJECT_DIR" in command, (
             f"cwd-relative hook command: {command!r} — re-run its installer"

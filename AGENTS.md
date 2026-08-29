@@ -174,6 +174,7 @@ JSON records carry `{timestamp, level, logger, message}` (#133). `level`/`logger
 **Date & Time:**
 - All UTC
 - ISO 8601: `YYYY-MM-DDTHH:MM:SS.ffffffZ` (timestamps), `YYYY-MM-DD` (dates)
+- One deliberate exception: a log record's `timestamp` uses the `+00:00` offset form, not the `Z` suffix ([`docs/LOGGING.md`](docs/LOGGING.md))
 
 **General:**
 - No inline module imports; all at file top

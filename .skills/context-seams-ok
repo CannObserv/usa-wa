@@ -45,10 +45,11 @@ docs/LWW-NOOP-GATE.md :: Sibling: the rejected-UPDATE replay guard (#132)
 docs/MODULES-FACTS-SEATS.md :: The archive/rebuild split (#201)
 docs/MODULES-LEGISLATURE.md :: Package layout (#183)
 
-# --- #263 round: two seams this run created, two verified truthful ----------
+# --- #263 round: one seam this run created, two verified truthful ----------
+# (a second, in docs/ARCHITECTURE.md, was removed in CR round 2 along with the
+#  near-duplicate section that carried it — so its ack was pruned with it.)
 # Read against the edited AGENTS.md, which still carries § Conventions and
 # § Infrastructure; measure-context reports dead_anchors: [].
-docs/ARCHITECTURE.md :: The summary `AGENTS.md` used to carry inline, moved here in full (#263):
 docs/LOGGING.md :: The rules an agent needs on most tasks stay in [`AGENTS.md`](../AGENTS.md) § Conventions:
 docs/DEPLOYMENT.md :: `AGENTS.md` against its 6,000-token budget, plus the doc tree and cross-reference
 docs/SKILLS.md :: [`AGENTS.md`](../AGENTS.md) § Infrastructure fixes this repo as a **single-VM setup
