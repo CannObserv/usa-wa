@@ -30,7 +30,7 @@ finding, and the source of the session-start `ToolSearch` prefetch query:
 
 `uv` workspace. Four-layer clearinghouse split — framework + domain shared across deployments; adapters + API per jurisdiction. See [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](docs/specs/2026-05-25-usa-wa-mvp-design.md).
 
-**Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder.** It is the reusable Layer-3 pattern: one adapter package per *jurisdiction+target* bundling every source that target publishes; each **source** a self-contained archive (own `Source`/`source_slug`/archive-key/transport/adapter/normalize/cohort/harvest); the **application** (spans/seats) source-agnostic, consuming a cohort interface — so a fact can draw on a new source without a rewrite (the `usa-wa-adapter-sos` filings + results sources are the worked example). Audit a source's coverage before building on it; never key a parser on an exact upstream string. Inside a package (#183): single-source target ⇒ flat top level (no `pdc/` inside `usa_wa_adapter_pdc`); subpackage only on an axis that varies (WSL splits on its four archives); **`harvest.py` = Phase A, `build.py` = Phase B**, plus `projector`/`emit`/`migrate_*`.
+**Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder** — the reusable Layer-3 pattern, in full, with the worked example. Two rules bind whatever you are building: audit a source's coverage before building on it, and never key a parser on an exact upstream string. Inside a package (#183), **`harvest.py` = Phase A, `build.py` = Phase B**.
 
 **Six layers since #189 (AR-14), enforced by `import-linter`** — `uv run lint-imports`, wired into the pre-commit gate beside ruff, contracts + rationale in the root `pyproject.toml`:
 
@@ -168,8 +168,8 @@ from clearinghouse_core.logging import get_logger
 logger = get_logger(__name__)
 ```
 Entry points only: `configure_logging()` is called once inside the FastAPI `lifespan`. Never in library modules.
-**Under uvicorn, `configure_logging()` is not enough** (#155 / gregoryfoster/skills#81): uvicorn ships `uvicorn`/`uvicorn.access`/`uvicorn.error` with `propagate=False` and their own plain-text handlers, which the root-only `configure_logging()` never reaches — journald then interleaves plain-text access lines with JSON app records. Every uvicorn invocation (the `usa-wa.service` `ExecStart` **and** the dev-server commands) therefore passes `--log-config packages/usa-wa-api/src/usa_wa_api/log_config.json`, a dictConfig routing all three through the shared `build_json_formatter` (`"()"` factory — no duplicated fmt string) with `ColorMessageFilter` on each logger to drop uvicorn's ANSI-duplicate `color_message` extra at the record source. Pinned by `packages/usa-wa-api/tests/test_log_config.py` (file validity, formatter single-sourcing, filter placement, and that the unit + docs still pass the flag).
-JSON records carry `{timestamp, level, logger, message}` (#133; structlog's default key set). The `timestamp` uses the `+00:00` offset form, a deliberate deviation from the `Z`-suffix date convention below — the structlog migration (gregoryfoster/skills#68) owns the final format. `level`/`logger`/`timestamp`/`message` are reserved: never pass them in `extra={}`.
+**Under uvicorn, `configure_logging()` alone is not enough** (#155): every uvicorn invocation — the `usa-wa.service` `ExecStart` **and** the dev-server commands — must pass `--log-config packages/usa-wa-api/src/usa_wa_api/log_config.json`, or journald interleaves plain-text access lines with JSON app records. Why, and what pins it: [`docs/LOGGING.md`](docs/LOGGING.md).
+JSON records carry `{timestamp, level, logger, message}` (#133). `level`/`logger`/`timestamp`/`message` are reserved: never pass them in `extra={}`.
 
 **Date & Time:**
 - All UTC
@@ -188,6 +188,7 @@ JSON records carry `{timestamp, level, logger, message}` (#133; structlog's defa
 - [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model: entities, lifecycle axes, spans-as-assignments, the three event shapes; read before adding a fact
 - the ten `docs/MODULES-*.md` per-package references are listed under § Project Layout above — one entry each, not repeated here
 - [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→tool table, the broken file-dependency graph, the `ToolSearch` prefetch
+- [docs/LOGGING.md](docs/LOGGING.md) — the JSON record shape and why every uvicorn invocation passes `--log-config`
 - [docs/API.md](docs/API.md) — the read-only `/api/v1` surface: route inventory, pagination, and the response contracts
 - [docs/LWW-NOOP-GATE.md](docs/LWW-NOOP-GATE.md) — the local-newer no-op gate; read before adding a `write_enabled` producer descriptor
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — systemd units, failure alerting, DB roles, restart/lifecycle table

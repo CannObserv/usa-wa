@@ -20,6 +20,10 @@ dev = [
     "anyio>=4.0,<5",
     "httpx>=0.27,<1",
     "pre-commit>=4.0,<5",
+    # Read by scripts/tests/test_hook_registration_gate.py to parse
+    # .pre-commit-config.yaml. Present transitively via pre-commit, but a gate
+    # test must not depend on another package's dependency tree staying put.
+    "pyyaml>=6.0,<7",
     "pytest>=8.0,<9",
     "pytest-asyncio>=1.0,<2",
     "pytest-cov>=6.0,<7",

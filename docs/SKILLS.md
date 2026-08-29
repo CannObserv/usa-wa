@@ -58,9 +58,16 @@ The upstream `init-project-fastapi` skill's Phase 10 loop now enforces this itse
 
 **There are none.** Every entry in `skills/` is a symlink into a vendor.
 
-A local override is a full copy (not a symlink) at `skills/<name>/`, declaring `overrides: <vendor>/<upstream-skill-name>`, `override-reason:`, and — since gregoryfoster/skills#238 — a `synced-from: "<repo> <tag> (<commit>)"` recording the vendor commit last synced from. Without that last key the doctor reports the fork as un-assessable, which is the same failure as not detecting drift at all.
+A local override is a full copy (not a symlink) at `skills/<name>/`, declaring `overrides: <vendor>/<upstream-skill-name>` and `override-reason:`. Since gregoryfoster/skills#238 it must also record **what it was last synced from**, and which key depends on the vendor:
 
-`skills/brainstorming/` was the one override and is now a symlink (#263). It claimed "project-specific narrative content", but it was byte-identical to obra-superpowers **v5.1.0** apart from its three frontmatter lines — the project content it was forked to hold was never added. Meanwhile upstream moved 810 lines across 8 files (v6.3.0's three-path router), none of which the repo was getting. That is the drift mode the `synced-from:` check exists to surface, caught here in its terminal form: a fork with nothing in it, silently pinning a skill at the version vendored on day one (2026-05-25) through seven upstream releases (v6.0.0 → v6.3.0).
+| Vendor frontmatter | Override records | Doctor compares |
+|---|---|---|
+| ships a `version:` | `version:` — *the vendor version last synced from*, bumped on every re-sync even when the local deltas are unchanged | the two version strings |
+| ships none | `synced-from: "<repo> <tag> (<commit>)"` | `git diff <commit> HEAD` scoped to the skill's path |
+
+Neither key present is reported as **un-assessable**, which is the same failure as not detecting drift at all.
+
+`skills/brainstorming/` was the one override and is now a symlink (#263). It claimed "project-specific narrative content", but it was byte-identical to obra-superpowers **v5.1.0** apart from its three frontmatter lines — the project content it was forked to hold was never added. Meanwhile upstream changed 950 lines across 8 files (+810/−140, including v6.3.0's three-path router), none of which the repo was getting. That is the drift mode the `synced-from:` check exists to surface, caught here in its terminal form: a fork with nothing in it, silently pinning a skill at the version vendored on day one (2026-05-25) through seven upstream releases (v6.0.0 → v6.3.0).
 
 **The lesson, not just the fix:** an override costs a permanent manual re-sync obligation, so fork only when the project genuinely diverges *today* — never speculatively, to hold content someone might add later. See the `init-project-fastapi` SKILL.md "Phase 10 — `skills/` directory" section for the conditions that warrant one.
 
@@ -78,7 +85,7 @@ Every `reviewing-*` / `shipping-*` skill resolves its scripts by probing `script
 
 Adding an artifact to `.socraticodecontextartifacts.json` **does not index it**. Nothing reacts to a manifest edit: `codebase_context_search` answers from indexed artifacts only, and silently answers without the missing one — no error, no warning, and `codebase_status` stays green at the top while reporting the shortfall in a line nobody reads (#263, upstream [gregoryfoster/skills#214](https://github.com/gregoryfoster/skills/issues/214)).
 
-`.claude/hooks/socraticode-health.sh` is the detector — a `SessionStart` hook symlinked through `skills/init-socraticode/` into the vendor, wired in [`.claude/settings.json`](../.claude/settings.json). It runs at most once per UTC day **per project** (the lock lives in the common `.git`, so N worktrees produce one report a day, not N), is silent when there is nothing to report, and exits 0 on every path so it can never block a session. It **reports; it never repairs** — no re-index, no `docker start`, no file edit.
+`.claude/hooks/socraticode-health.sh` is the detector — a `SessionStart` hook symlinked into the vendored `init-socraticode/scripts/`, wired in [`.claude/settings.json`](../.claude/settings.json). It runs at most once per UTC day **per project** (the lock lives in the common `.git`, so N worktrees produce one report a day, not N), is silent when there is nothing to report, and exits 0 on every path so it can never block a session. It **reports; it never repairs** — no re-index, no `docker start`, no file edit.
 
 What it surfaces: a declared-but-unindexed (or stale) context artifact **by name**, a `codebase_health` problem, a FAILED or INCOMPLETE last operation, and the graph edge-yield gate. That last one fires here every day and is expected — it is the broken file-dependency graph documented in [`docs/CODE-EXPLORATION.md`](CODE-EXPLORATION.md), not a new finding.
 
@@ -101,7 +108,6 @@ Act on an artifact finding with `codebase_context_index`; on an index finding wi
 | `context-token-ratio` | this repo's measured bytes-per-token, written by each `--exact` run; the offline estimators read it so `bytes/4` (which under-reports this content by ~60%) is never used |
 | `context-metrics.jsonl` | append-only ledger, one row per run. Committed rather than centralized so the history travels with the repo and is reviewable in the same PR as the edits it describes |
 | `doctor.sh` | unrelated — see [§ the preflight](#skillsdoctorsh--the-preflight) |
-| `worktree_venv` | unrelated — see [§ Worktree venv isolation](#worktree-venv-isolation) |
 
 The weekly run recovers ground; the **write guard** stops regrowth between runs. It is a `PostToolUse` hook on `Edit|Write|MultiEdit`, wired in [`.claude/settings.json`](../.claude/settings.json), and it is advisory only — always exits 0, and stays silent unless an edit *both* pushes a context-surface file past its budget *and* increases it since `HEAD`, so a curation run is never nagged. `docs/plans/`, `docs/specs/`, and `docs/research/` are excluded as archival at any depth (so are `audits/` and `archive/`, which this repo does not currently have).
 

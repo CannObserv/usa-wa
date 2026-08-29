@@ -8,6 +8,12 @@ adding an adapter, a data source, or a span/seat builder.
 The concrete design record is [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](specs/2026-05-25-usa-wa-mvp-design.md);
 this document is the pattern that record instantiates.
 
+## The pattern in one paragraph
+
+The summary `AGENTS.md` used to carry inline, moved here in full (#263):
+
+**Read [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder.** It is the reusable Layer-3 pattern: one adapter package per *jurisdiction+target* bundling every source that target publishes; each **source** a self-contained archive (own `Source`/`source_slug`/archive-key/transport/adapter/normalize/cohort/harvest); the **application** (spans/seats) source-agnostic, consuming a cohort interface — so a fact can draw on a new source without a rewrite (the `usa-wa-adapter-sos` filings + results sources are the worked example). Audit a source's coverage before building on it; never key a parser on an exact upstream string. Inside a package (#183): single-source target ⇒ flat top level (no `pdc/` inside `usa_wa_adapter_pdc`); subpackage only on an axis that varies (WSL splits on its four archives); **`harvest.py` = Phase A, `build.py` = Phase B**, plus `projector`/`emit`/`migrate_*`.
+
 ## The four layers (recap)
 
 | Layer | Package(s) | Owns |

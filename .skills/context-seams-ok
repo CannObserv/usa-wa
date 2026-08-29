@@ -44,3 +44,23 @@ docs/DEPLOYMENT.md :: Validating unit edits (#51)
 docs/LWW-NOOP-GATE.md :: Sibling: the rejected-UPDATE replay guard (#132)
 docs/MODULES-FACTS-SEATS.md :: The archive/rebuild split (#201)
 docs/MODULES-LEGISLATURE.md :: Package layout (#183)
+
+# --- #263 round: two seams this run created, two verified truthful ----------
+# Read against the edited AGENTS.md, which still carries § Conventions and
+# § Infrastructure; measure-context reports dead_anchors: [].
+docs/ARCHITECTURE.md :: The summary `AGENTS.md` used to carry inline, moved here in full (#263):
+docs/LOGGING.md :: The rules an agent needs on most tasks stay in [`AGENTS.md`](../AGENTS.md) § Conventions:
+docs/DEPLOYMENT.md :: `AGENTS.md` against its 6,000-token budget, plus the doc tree and cross-reference
+docs/SKILLS.md :: [`AGENTS.md`](../AGENTS.md) § Infrastructure fixes this repo as a **single-VM setup
+
+# --- provenance-headings never acked, same class as the block above --------
+# Issue numbers in headings, in docs this run did not touch. Judged legitimate
+# under class 2 above: the numbers are the design record and the slugs are
+# load-bearing. Acked so the ledger's seam count reflects judgement, not backlog.
+docs/COMMANDS-BACKFILL.md :: ## Roster PDF — the archival member source (#225, epic #219)
+docs/COMMANDS-BACKFILL.md :: ## Pre-1991 build (#228) — roster Persons, party spans, Senate seat spans
+docs/COMMANDS-SYNC.md :: ### Retract spurious anchored assignments (#144 Phase 2)
+docs/COMMANDS-SYNC.md :: ### Retire superseded outbox rejections (#258)
+docs/DEPLOYMENT.md :: ## Scheduled work outside systemd (#221)
+docs/LWW-NOOP-GATE.md :: ## The inverse: the branch that never fires (#247)
+
