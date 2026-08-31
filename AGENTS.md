@@ -106,6 +106,12 @@ The systemd service loads both automatically. For shell commands:
 export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 ```
 
+**In a worktree that line is one file short (#296).** `.env` is git-ignored, so `git worktree add` never produces one — and `/etc/usa-wa/.env` deliberately does not carry `TEST_DATABASE_URL`, so the db tier stays broken however many times you run it. `scripts/pre-ship.sh` falls back to the primary checkout's `.env` on its own; for an ad-hoc shell, name it:
+
+```bash
+export $(cat /etc/usa-wa/.env /home/exedev/usa-wa/.env 2>/dev/null | xargs)
+```
+
 Every variable the deployment reads — including the PM sidecar tunables — is documented in [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md).
 
 ## Common Commands
