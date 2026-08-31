@@ -118,6 +118,18 @@ bash skills/curating-context/scripts/prove-no-loss.sh --base main # assert a cur
 
 `.claude/hooks/context-budget-guard.sh` is a symlink through `skills/curating-context/` into the vendor submodule, so on an uninitialized checkout it dangles and every edit fails the hook until the submodule is initialized — `.skills/doctor.sh` heals it, since the chain routes through `skills/*`, which the doctor's scan covers (upstream: [gregoryfoster/skills#99](https://github.com/gregoryfoster/skills/issues/99)).
 
+## Ship-gate sensitive paths
+
+`.skills/doc-sensitive-paths` is the list Step 1.5 of the shipping skill (`doc-check.sh`) checks a branch's changed files against — files whose names or structure some doc enumerates, so the matching section gets a look before the branch ships. It **replaces** the vendored defaults rather than extending them.
+
+Grammar: one path per line, blank lines and `#` comments ignored (the same shape as `.skills/import-targets` upstream). Entries match whole path **segments** at any depth, so `pyproject.toml` covers the root file *and* every `packages/*/pyproject.toml`.
+
+**Why this repo needs its own (#297).** Before [gregoryfoster/skills#252](https://github.com/gregoryfoster/skills/issues/252) entries were anchored at the start of the path, so on this uv workspace — eleven members, every source file under `packages/*/src/` — the defaults matched nothing below the root and a branch that renamed a member printed `No sensitive paths changed` and exited 0. Six of the twelve defaults (`CHANGELOG.md`, `schema.sql`, `src/api/`, `src/models/`, `src/core/`, `.env.example`) name nothing that exists here at all.
+
+Two upstream behaviours make a stale list visible rather than silent: an entry matching no tracked file is named in a note on every clean run, and a list where *no* entry matches anything exits 2 — a gate that could not have found anything is not a pass. `scripts/tests/test_doc_sensitive_paths.py` fails on either state before it reaches a ship.
+
+The list is deliberately narrower than a bare `src/`: that would match every source file in the workspace, so every branch would exit 1 and the exit code would stop meaning anything. Each entry names a surface a doc *enumerates*.
+
 ## Worktree venv isolation
 
 `.skills/worktree_venv` holds **`none`**, so `worktree-create.sh` links no `.venv` into a new worktree and says so on stderr. Provision one there with `uv sync --locked` — about 2 s against a warm cache.
