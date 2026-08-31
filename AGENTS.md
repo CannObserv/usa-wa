@@ -20,6 +20,8 @@ SocratiCode is the preferred semantic-search tool for this repo (once indexed; t
 
 **Negative rule.** For broad semantic questions ("where is X", "how does Y work", "what depends on Z"), use SocratiCode MCP tools first. Reach for `grep`/`ripgrep` only on exact strings (error messages, log lines, known symbols). Reserve the Explore subagent for path-pattern walks (e.g. "all `*.py` under `packages/usa-wa-api/src/usa_wa_api/api/`"), not semantic search.
 
+**Adding a doc? Declare it.** Every tracked `*.md` at the repo root or under `docs/` must be named in `.socraticodecontextartifacts.json` or exempted in `.skills/context-artifacts-exempt` — undeclared docs are unreachable via `codebase_context_search` and nothing else reports them (#300). `scripts/tests/test_context_manifest_drift.py` fails on drift.
+
 **The file-dependency graph is broken here.** Empty output from `codebase_graph_query` /
 `_circular` / `_stats` or the file-mode of `codebase_impact` means "tool broken", never "no
 dependents" — derive import edges with `grep`. The goal→tool table, the measurements behind that

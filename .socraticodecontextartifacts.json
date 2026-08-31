@@ -148,7 +148,12 @@
     {
       "name": "skills",
       "path": "./docs/SKILLS.md",
-      "description": "Vendored agent skills — inventory, the submodule and symlink layout under skills/ and .claude/skills/, the refresh procedure, and worktree venv isolation."
+      "description": "Vendored agent skills — inventory, the submodule and symlink layout under skills/ and .claude/skills/, the refresh procedure, worktree venv isolation, the context budget, and the ship gate's sensitive-path list."
+    },
+    {
+      "name": "readme",
+      "path": "./README.md",
+      "description": "Repository orientation — setup, the dev-server and port convention, the operational CLI list, and curated links into the canonical docs. The human entry point; AGENTS.md is the agent one."
     }
   ]
 }
