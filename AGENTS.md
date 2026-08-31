@@ -187,7 +187,7 @@ JSON records carry `{timestamp, level, logger, message}` (#133). `level`/`logger
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the reusable Layer-3 pattern; read before adding an adapter, a source, or a span/seat builder
 - [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model: entities, lifecycle axes, spans-as-assignments, the three event shapes; read before adding a fact
-- the ten `docs/MODULES-*.md` per-package references are listed under § Project Layout above — one entry each, not repeated here
+- the `docs/MODULES-*.md` per-package references are listed under § Project Layout above — one entry each, not repeated here
 - [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→tool table, the broken file-dependency graph, the `ToolSearch` prefetch
 - [docs/LOGGING.md](docs/LOGGING.md) — the JSON record shape and why every uvicorn invocation passes `--log-config`
 - [docs/API.md](docs/API.md) — the read-only `/api/v1` surface: route inventory, pagination, and the response contracts

@@ -3,12 +3,22 @@
     {
       "name": "agent-guidelines",
       "path": "./AGENTS.md",
-      "description": "Agent guidelines — project overview, TDD methodology, environment/tooling, the four-layer clearinghouse layout (framework/domain/adapters/API), per-package module map, infrastructure/systemd topology, DB role split, env vars, and code exploration policy. Source of truth for how the repo is organized."
+      "description": "Agent guidelines — project overview, TDD methodology, environment/tooling, the six-layer clearinghouse layout (framework / domain-legislative / usa-wa-common vocabulary / adapters / facts / deployment) enforced by import-linter, per-package module map, infrastructure and systemd topology, DB role split, env vars, commit and logging conventions, and the code exploration policy. Source of truth for how the repo is organized."
+    },
+    {
+      "name": "architecture-pattern",
+      "path": "./docs/ARCHITECTURE.md",
+      "description": "The reusable Layer-3 sourcing pattern — sourcing vs. application, multi-source target packages, the harvest.py (Phase A) / build.py (Phase B) split, and the two binding rules: audit a source's coverage before building on it, and never key a parser on an exact upstream string. Read before adding an adapter, a data source, or a span/seat builder."
+    },
+    {
+      "name": "ontology",
+      "path": "./docs/ONTOLOGY.md",
+      "description": "The domain model — what ingested data becomes: entities, lifecycle axes, spans-as-assignments, and the three event shapes. Sibling of ARCHITECTURE.md (which covers how data gets in). Read before adding a fact."
     },
     {
       "name": "architecture-design",
       "path": "./docs/specs/2026-05-25-usa-wa-mvp-design.md",
-      "description": "MVP architecture design — the four-layer clearinghouse split (clearinghouse-core / domain-legislative / per-jurisdiction adapters / deployment API), provenance model, and adapter contract. Source of truth for the data model and high-level design decisions."
+      "description": "The original MVP architecture design — the four-layer clearinghouse split (clearinghouse-core / domain-legislative / per-jurisdiction adapters / deployment API), provenance model, and adapter contract. Historical baseline: the layering has since grown to six layers (see AGENTS.md), but this remains the source of truth for the data model and the founding design decisions."
     },
     {
       "name": "architecture-specs",
@@ -26,14 +36,119 @@
       "description": "Discovery outputs and integration contracts — Archiver/Watcher/Power Map contracts, multi-state legislative IA delta, jurisdictional information architecture, and Power Map reseed guidance."
     },
     {
+      "name": "modules-framework",
+      "path": "./docs/MODULES-FRAMEWORK.md",
+      "description": "Layers 1-2 module reference — the jurisdiction-agnostic framework primitives in clearinghouse-core and the legislative domain model in clearinghouse-domain-legislative, including the term calendar, the span engine, and the CohortProvider Protocols."
+    },
+    {
+      "name": "modules-sync-engine",
+      "path": "./docs/MODULES-SYNC-ENGINE.md",
+      "description": "The portable Power Map sync engine and the generated PM client — producer descriptors, the write path, and the engine seam shared across deployments."
+    },
+    {
+      "name": "modules-common",
+      "path": "./docs/MODULES-COMMON.md",
+      "description": "Layer 2b usa-wa-common module reference — Washington vocabulary (term calendar, seats, name handling, parties, ballot) and the cohort seam. Source-free: may not import an adapter."
+    },
+    {
+      "name": "modules-legislature",
+      "path": "./docs/MODULES-LEGISLATURE.md",
+      "description": "WSL (Washington State Legislature) adapter module reference — SOAP transport, normalizers, the daily refresh path, cohort providers, and write-free probes. The ingest half of the usa-wa-adapter-legislature package."
+    },
+    {
+      "name": "modules-legislature-roster",
+      "path": "./docs/MODULES-LEGISLATURE-ROSTER.md",
+      "description": "The roster-PDF source (1889-2025 official member roster) — parser, audit oracle, and the succession → resolve → backfill pipeline that adds ~102 years of member coverage with exact succession dates."
+    },
+    {
+      "name": "modules-legislature-spans",
+      "path": "./docs/MODULES-LEGISLATURE-SPANS.md",
+      "description": "The tenure-span subject area across two layers — the Layer-2 engine (biennium arithmetic, merged-span builder, span→Assignment emitter, operator succession overlay) and the Layer-3 WSL drivers (operator-event store, roster hygiene, Phase-B span builders, span-collapse migrations)."
+    },
+    {
+      "name": "modules-pdc",
+      "path": "./docs/MODULES-PDC.md",
+      "description": "PDC (Public Disclosure Commission) SODA adapter module reference — identifier-only sourcing."
+    },
+    {
+      "name": "modules-sos",
+      "path": "./docs/MODULES-SOS.md",
+      "description": "Washington Secretary of State adapter module reference — the filings and election-results sources."
+    },
+    {
+      "name": "modules-facts-seats",
+      "path": "./docs/MODULES-FACTS-SEATS.md",
+      "description": "Layer 3b usa-wa-facts-seats module reference — the composition layer that builds cohorts across adapters: House Position, Senate corroboration, and PDC spans."
+    },
+    {
+      "name": "modules-sync",
+      "path": "./docs/MODULES-SYNC.md",
+      "description": "Layer 4 module reference — the usa-wa-api deployment, the Power Map sidecar daemon, and the repo-root directories."
+    },
+    {
+      "name": "modules-sync-producers",
+      "path": "./docs/MODULES-SYNC-PRODUCERS.md",
+      "description": "The one-shot Power Map producer CLIs — reconcilers, heals, validation, and retraction."
+    },
+    {
       "name": "commands",
       "path": "./docs/COMMANDS.md",
-      "description": "Operational and backfill CLIs — full options, exit codes, and design rationale for the daily/weekly timers and run-once/ad-hoc backfill commands (refreshes, reconcilers, harvests, span builders, integrity sweep)."
+      "description": "Command index plus setup, tests, migrations, and the daily refresh — the entry point to the grouped operational and backfill command references."
+    },
+    {
+      "name": "commands-succession",
+      "path": "./docs/COMMANDS-SUCCESSION.md",
+      "description": "Operator succession commands — odd-year corroboration and committee lineage."
+    },
+    {
+      "name": "commands-sync",
+      "path": "./docs/COMMANDS-SYNC.md",
+      "description": "Power Map sync commands — reconcilers, heals, validation, provenance and integrity sweeps."
+    },
+    {
+      "name": "commands-backfill",
+      "path": "./docs/COMMANDS-BACKFILL.md",
+      "description": "Backfill commands — historical harvests, span builders, one-shot migrations, and write-free probes. Pair with USA_WA_BIENNIUM to target a non-current biennium."
+    },
+    {
+      "name": "commands-seats",
+      "path": "./docs/COMMANDS-SEATS.md",
+      "description": "Seat-fact backfill commands — PDC identifier links (#79) and WSL+SOS House Position (#101)."
+    },
+    {
+      "name": "code-exploration",
+      "path": "./docs/CODE-EXPLORATION.md",
+      "description": "Code exploration tool selection — the goal→tool table, the measurements behind the broken file-dependency-graph finding (empty graph_query/_circular/_stats or file-mode impact output means the tool is broken, never 'no dependents'), and the source of the session-start ToolSearch prefetch query."
+    },
+    {
+      "name": "api",
+      "path": "./docs/API.md",
+      "description": "The HTTP API — the read-only /api/v1 surface: route inventory, pagination, and the response contracts."
+    },
+    {
+      "name": "deployment",
+      "path": "./docs/DEPLOYMENT.md",
+      "description": "Deployment reference — systemd unit table, the OnFailure alerting chain, the owner/app/test DB role split, the restart and lifecycle table, and the assert-main-checkout gate that keeps the prod checkout on main."
+    },
+    {
+      "name": "environment",
+      "path": "./docs/ENVIRONMENT.md",
+      "description": "Every environment variable the deployment reads, with defaults, including the Power Map sidecar tunables."
+    },
+    {
+      "name": "logging",
+      "path": "./docs/LOGGING.md",
+      "description": "The JSON log record shape ({timestamp, level, logger, message}, four reserved keys) and why every uvicorn invocation must pass --log-config or journald interleaves plain-text access lines with JSON app records."
+    },
+    {
+      "name": "lww-noop-gate",
+      "path": "./docs/LWW-NOOP-GATE.md",
+      "description": "The local-newer no-op gate — the named pattern behind #102. Read before adding a write_enabled producer descriptor, or when a cohort's outbox volume goes flat-but-nonzero forever."
     },
     {
       "name": "skills",
       "path": "./docs/SKILLS.md",
-      "description": "Agent skills directory — available skills, their locations (skills/ and .claude/skills/), and the agentskills.io discovery spec."
+      "description": "Vendored agent skills — inventory, the submodule and symlink layout under skills/ and .claude/skills/, the refresh procedure, and worktree venv isolation."
     }
   ]
 }
