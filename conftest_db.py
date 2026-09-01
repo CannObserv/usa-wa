@@ -81,11 +81,20 @@ def missing_test_database_url_message(project_root: Path | None = None) -> str:
     """
     root = Path(project_root) if project_root is not None else Path(__file__).parent
     repo_env = _repo_env_path(root)
-    files = SYSTEM_ENV if repo_env is None else f"{SYSTEM_ENV} {repo_env}"
+    if repo_env is None:
+        # Naming SYSTEM_ENV alone here would reproduce the very advice #296 was
+        # filed about: it is by design the one file that does not carry this
+        # variable, so reading it changes nothing. With no `.env` in either
+        # checkout the actionable move is to create one.
+        remedy = (
+            f"No .env carries it — create {root / '.env'} with "
+            "TEST_DATABASE_URL=… (git-ignored, so it will not be committed)"
+        )
+    else:
+        remedy = f"Load env: export $(cat {SYSTEM_ENV} {repo_env} 2>/dev/null | xargs)"
     return (
         "TEST_DATABASE_URL is not set, and this test needs a database. "
-        f"Load env: export $(cat {files} 2>/dev/null | xargs) — "
-        "or run the unit tier, which needs none: "
+        f"{remedy} — or run the unit tier, which needs none: "
         "uv run pytest -m 'not db and not integration'"
     )
 

@@ -129,6 +129,8 @@ Production secrets in `/etc/usa-wa/.env`, dev/agent secrets in `./.env` — both
 
 ```bash
 export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
+# In a worktree that is one file short — `.env` is git-ignored and never
+# inherited. See AGENTS.md § Environment Variables (#296).
 ```
 
 ## Dev server

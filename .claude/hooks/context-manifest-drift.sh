@@ -134,6 +134,13 @@ FINDINGS=""
 RC=0
 FINDINGS="$("$PYTHON" "$CHECKER" --project-root "$PROJECT" 2>>"$LOG")" || RC=$?
 
+# rc 2 is "the check did not run" — a malformed manifest, an unreadable list.
+# Reported, because silence here is byte-identical to a clean tree, and a miss
+# that prints like a pass is the failure this whole check exists to close.
+if [ "$RC" -eq 2 ]; then
+  echo "context-manifest-drift: the check could not run (see $LOG); manifest coverage is unverified today."
+fi
+
 if [ "$RC" -eq 1 ] && [ -n "$FINDINGS" ]; then
   echo "context-manifest-drift: docs missing from .socraticodecontextartifacts.json (see $LOG):"
   echo "$FINDINGS"

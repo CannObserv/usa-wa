@@ -120,6 +120,26 @@ def test_an_exempt_doc_is_not_reported(tmp_path):
     assert result.returncode == 0, result.stdout
 
 
+def test_an_exemption_outside_the_checked_scope_says_so(tmp_path):
+    """ "Not tracked" would be false, and would send the reader to delete a file.
+
+    Package README.md files are module documentation, not context artifacts, so
+    they are out of scope — but they very much exist.
+    """
+    repo = _scratch(
+        tmp_path,
+        artifacts=["./AGENTS.md"],
+        docs=["AGENTS.md", "packages/pkg/README.md"],
+        exempt="packages/pkg/README.md\n",
+    )
+
+    result = _run(repo)
+
+    assert result.returncode == 1
+    assert "outside the checked scope" in result.stdout
+    assert "not a tracked" not in result.stdout
+
+
 def test_an_exemption_for_a_deleted_file_is_reported(tmp_path):
     """A stale opt-out suppresses nothing and reads like a considered decision."""
     repo = _scratch(

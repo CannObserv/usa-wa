@@ -239,6 +239,16 @@ def test_no_env_anywhere_is_an_actionable_error(tmp_path):
     assert str(repo / ".env") in result.stderr
     assert not log.exists(), "the delegate ran anyway; the gate should not have started"
 
+    # One line per file consulted. Without the fallback the repo-root path is
+    # both "the .env here" and "the .env we settled on", and printing it twice
+    # makes the reader doubt a list whose only job is precision.
+    consulted = [
+        line
+        for line in result.stderr.splitlines()
+        if str(repo / ".env") in line and ("(absent)" in line or "(read;" in line)
+    ]
+    assert len(consulted) == 1, f"path listed more than once: {consulted}"
+
 
 def test_the_system_env_file_is_loaded(tmp_path):
     """Both files, in order — the repo-root one overrides, as AGENTS.md documents."""

@@ -75,14 +75,22 @@ def test_names_the_primary_checkouts_env_from_a_worktree(tmp_path):
     message = conftest_db.missing_test_database_url_message(wt)
 
     assert str(repo / ".env") in message
-    assert str(wt / ".env") not in message.replace(str(repo / ".env"), "")
+    assert str(wt / ".env") not in message
 
 
-def test_falls_back_to_the_documented_recipe_outside_a_repo(tmp_path):
-    """No git, no worktree, nothing to resolve — still say something actionable."""
+def test_no_env_anywhere_says_to_create_one(tmp_path):
+    """The degenerate case must not fall back to the unfollowable recipe.
+
+    With no `.env` in either checkout the old shape reduced to `cat
+    /etc/usa-wa/.env`, which by the repo's deliberate split is the one file that
+    never carries the variable — #296's "the suggested fix cannot work",
+    surviving inside the change that fixed it. A fresh clone needs to be told to
+    CREATE the file, not to read one that cannot help.
+    """
     message = conftest_db.missing_test_database_url_message(tmp_path)
 
-    assert "/etc/usa-wa/.env" in message
+    assert str(tmp_path / ".env") in message
+    assert "/etc/usa-wa/.env" not in message
 
 
 def test_the_unit_tier_hatch_spells_out_both_markers():

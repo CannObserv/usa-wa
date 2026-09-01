@@ -122,7 +122,7 @@ Every variable the deployment reads — including the PM sidecar tunables — is
 # Install dependencies
 uv sync
 
-# Load environment (required before running server, migrations, or gh)
+# Load environment (before server, migrations, gh; worktrees: § Environment Variables)
 export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 
 # Run tests

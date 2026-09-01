@@ -100,8 +100,9 @@ def test_every_installed_hook_is_registered() -> None:
 
     unregistered = [name for name in installed if name not in registered]
     assert not unregistered, (
-        f"installed but never run: {unregistered}. Re-run the hook's installer "
-        f"(see its <hook>.install manifest) to register it."
+        f"installed but never run: {unregistered}. For a vendored hook, re-run "
+        f"its installer (see the <hook>.install manifest beside it); for a "
+        f"project-local one, add the SessionStart entry to {SETTINGS.name}."
     )
 
 

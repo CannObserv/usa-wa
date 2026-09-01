@@ -61,6 +61,11 @@ SYSTEM_ENV="${PRE_SHIP_SYSTEM_ENV:-/etc/usa-wa/.env}"
 # worktree, so the fallback resolves it against PROJECT_ROOT.
 REPO_ENV="$PROJECT_ROOT/.env"
 FALLBACK_NOTE=""
+# Built once, here, so the refusal below reports exactly the files that were
+# consulted — one line each. Assembling it at print time listed
+# $PROJECT_ROOT/.env twice whenever no fallback was taken, which is the common
+# case, in the one message whose entire job is precision.
+CONSULTED=("$SYSTEM_ENV" "$REPO_ENV")
 if [[ ! -f "$REPO_ENV" ]]; then
   commondir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || commondir=""
   if [[ -z "$commondir" ]]; then
@@ -76,6 +81,7 @@ if [[ ! -f "$REPO_ENV" ]]; then
     # the note below would claim a fallback that changed nothing.
     if [[ "$MAIN_ROOT" != "$PROJECT_ROOT" && -f "$MAIN_ROOT/.env" ]]; then
       REPO_ENV="$MAIN_ROOT/.env"
+      CONSULTED+=("$REPO_ENV")
       FALLBACK_NOTE="pre-ship: no .env in this checkout (worktrees never inherit one); loaded $REPO_ENV"
     fi
   fi
@@ -108,7 +114,7 @@ fi
 if [[ -z "${TEST_DATABASE_URL:-}" ]]; then
   echo "ERROR: TEST_DATABASE_URL is unset after loading every env file this gate knows about," >&2
   echo "       so the db-marked majority of the suite cannot run. Consulted:" >&2
-  for candidate in "$SYSTEM_ENV" "$PROJECT_ROOT/.env" "$REPO_ENV"; do
+  for candidate in "${CONSULTED[@]}"; do
     if [[ -f "$candidate" ]]; then
       echo "         $candidate (read; no TEST_DATABASE_URL)" >&2
     else
