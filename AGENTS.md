@@ -20,6 +20,8 @@ SocratiCode is the preferred semantic-search tool for this repo (once indexed; t
 
 **Negative rule.** For broad semantic questions ("where is X", "how does Y work", "what depends on Z"), use SocratiCode MCP tools first. Reach for `grep`/`ripgrep` only on exact strings (error messages, log lines, known symbols). Reserve the Explore subagent for path-pattern walks (e.g. "all `*.py` under `packages/usa-wa-api/src/usa_wa_api/api/`"), not semantic search.
 
+**Adding a doc? Declare it.** Every tracked `*.md` at the repo root or under `docs/` must be named in `.socraticodecontextartifacts.json` or exempted in `.skills/context-artifacts-exempt` — undeclared docs are unreachable via `codebase_context_search` and nothing else reports them (#300). `scripts/tests/test_context_manifest_drift.py` fails on drift.
+
 **The file-dependency graph is broken here.** Empty output from `codebase_graph_query` /
 `_circular` / `_stats` or the file-mode of `codebase_impact` means "tool broken", never "no
 dependents" — derive import edges with `grep`. The goal→tool table, the measurements behind that
@@ -106,6 +108,12 @@ The systemd service loads both automatically. For shell commands:
 export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 ```
 
+**In a worktree that line is one file short (#296).** `.env` is git-ignored, so `git worktree add` never produces one — and `/etc/usa-wa/.env` deliberately does not carry `TEST_DATABASE_URL`, so the db tier stays broken however many times you run it. `scripts/pre-ship.sh` falls back to the primary checkout's `.env` on its own; for an ad-hoc shell, name it:
+
+```bash
+export $(cat /etc/usa-wa/.env /home/exedev/usa-wa/.env 2>/dev/null | xargs)
+```
+
 Every variable the deployment reads — including the PM sidecar tunables — is documented in [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md).
 
 ## Common Commands
@@ -114,7 +122,7 @@ Every variable the deployment reads — including the PM sidecar tunables — is
 # Install dependencies
 uv sync
 
-# Load environment (required before running server, migrations, or gh)
+# Load environment (before server, migrations, gh; worktrees: § Environment Variables)
 export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 
 # Run tests

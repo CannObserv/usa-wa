@@ -1,0 +1,16 @@
+# context-artifacts-exempt — docs deliberately absent from
+# .socraticodecontextartifacts.json (#300).
+#
+# One path per line, repo-relative; blank lines and `#` comments ignored (the
+# same grammar as .skills/doc-sensitive-paths). Read by
+# scripts/context_manifest_drift.py, which reports every tracked Markdown file
+# at the repo root or under docs/ that no declared artifact covers.
+#
+# Entries are checked, not trusted: an exemption naming a file that is gone, or
+# one that has since been declared, is reported as stale. An opt-out nobody
+# revisits is a blindfold.
+
+# Eleven bytes — `@AGENTS.md`, and nothing else. Claude Code resolves the
+# include itself, so indexing it would put a pointer in the search results where
+# the document it points at already is.
+CLAUDE.md

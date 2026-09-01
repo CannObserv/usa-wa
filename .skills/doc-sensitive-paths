@@ -1,0 +1,56 @@
+# doc-sensitive-paths — the shipping gate's Step 1.5 list, tailored to this repo.
+#
+# Read by the vendored `doc-check.sh` (gregoryfoster/skills#252). One path per
+# line; blank lines and `#` comments ignored. This file REPLACES the built-in
+# defaults rather than extending them, so anything the gate should flag has to
+# appear below.
+#
+# Entries match whole path SEGMENTS at any depth, not just the start of the
+# path: `pyproject.toml` covers the root file AND every `packages/*/pyproject.
+# toml`, which on this uv workspace is the difference between the gate seeing a
+# package rename and reporting a clean green (#297). Six of the twelve defaults
+# — CHANGELOG.md, schema.sql, src/api/, src/models/, src/core/, .env.example —
+# name nothing that exists here and are deliberately absent; upstream prints a
+# note about any entry that matches no tracked file, and
+# scripts/tests/test_doc_sensitive_paths.py fails on one.
+#
+# The list is narrower than a bare `src/` on purpose. `src/` would match every
+# source file in the workspace, so every branch would exit 1 and the exit code
+# would stop meaning anything. Each entry below names a surface some doc
+# ENUMERATES, so a change to it plausibly dates that doc.
+
+# The policy file and the orientation README — root and every workspace member's
+# (AGENTS.md § Project Layout, docs/MODULES-*.md).
+AGENTS.md
+README.md
+
+# Workspace membership, layer contracts, coverage profiles, dependency pins.
+# AGENTS.md's six-layer table and import-linter contracts live in the root file;
+# per-package ones carry the names docs/MODULES-*.md index.
+pyproject.toml
+uv.lock
+
+# Schema shape and migration order — docs/COMMANDS.md § migrations, the DB role
+# split in docs/DEPLOYMENT.md.
+alembic/
+
+# systemd units and the operational CLIs the docs index by name:
+# docs/DEPLOYMENT.md's service table, docs/COMMANDS*.md.
+deploy/
+scripts/
+
+# The agent-context surface itself. docs/SKILLS.md describes the symlink layout
+# and the .skills knobs; docs/CODE-EXPLORATION.md describes the manifest and the
+# session hooks; AGENTS.md § Agent Skills points at both.
+.claude/
+.skills/
+.socraticodecontextartifacts.json
+.pre-commit-config.yaml
+.github/
+
+# Enumerated code surfaces. The read-only route table is docs/API.md; the PM
+# producer descriptors are docs/MODULES-SYNC-PRODUCERS.md and
+# docs/LWW-NOOP-GATE.md; the CLI entry points are docs/COMMANDS.md.
+api/v1/
+cli/
+descriptors/

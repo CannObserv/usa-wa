@@ -22,8 +22,10 @@ keeps this module's own imports to Layer 1 — the harness never names an adapte
 """
 
 import os
+import subprocess
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from sqlalchemy import event, select, text
@@ -32,6 +34,69 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.models import Base
 from clearinghouse_core.testing import acquire_test_db_lock, declared_schemas, release_test_db_lock
+
+#: Production secrets (AGENTS.md § Environment Variables). Deliberately *not* where
+#: ``TEST_DATABASE_URL`` lives — naming it alone is what made the old remediation
+#: unfollowable (#296).
+SYSTEM_ENV = "/etc/usa-wa/.env"
+
+
+def _repo_env_path(project_root: Path) -> Path | None:
+    """The ``.env`` that actually exists for ``project_root``, or ``None``.
+
+    ``.env`` is git-ignored, so ``git worktree add`` never produces one and
+    nothing seeds it — while AGENTS.md § Server Lifecycle mandates worktree-based
+    feature work (#87). So the primary checkout's copy is the fallback, resolved
+    the way ``scripts/pre-ship.sh`` and ``socraticode-health.sh`` resolve it:
+    ``--git-common-dir`` is the shared ``.git`` for a worktree and for the primary
+    checkout alike, and its parent is the primary checkout.
+    """
+    here = project_root / ".env"
+    if here.is_file():
+        return here
+    try:
+        common = subprocess.run(  # noqa: S603 — fixed argv, no shell, no user input
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],  # noqa: S607
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if not common:
+        return None
+    fallback = Path(common).parent / ".env"
+    return fallback if fallback.is_file() else None
+
+
+def missing_test_database_url_message(project_root: Path | None = None) -> str:
+    """The error a db-marked test gets with no DSN — naming a path that exists.
+
+    Built from the checkout it is raised in rather than from a fixed recipe. The
+    old message printed ``cat /etc/usa-wa/.env .env``, which in a worktree
+    expands to the one file that by design does not carry ``TEST_DATABASE_URL``:
+    the reader followed it and got the identical error back.
+    """
+    root = Path(project_root) if project_root is not None else Path(__file__).parent
+    repo_env = _repo_env_path(root)
+    if repo_env is None:
+        # Naming SYSTEM_ENV alone here would reproduce the very advice #296 was
+        # filed about: it is by design the one file that does not carry this
+        # variable, so reading it changes nothing. With no `.env` in either
+        # checkout the actionable move is to create one.
+        remedy = (
+            f"No .env carries it — create {root / '.env'} with "
+            "TEST_DATABASE_URL=… (git-ignored, so it will not be committed)"
+        )
+    else:
+        remedy = f"Load env: export $(cat {SYSTEM_ENV} {repo_env} 2>/dev/null | xargs)"
+    return (
+        "TEST_DATABASE_URL is not set, and this test needs a database. "
+        f"{remedy} — or run the unit tier, which needs none: "
+        "uv run pytest -m 'not db and not integration'"
+    )
 
 
 @pytest.fixture(scope="session")
@@ -60,11 +125,7 @@ async def test_engine():
     """
     test_database_url = os.environ.get("TEST_DATABASE_URL")
     if not test_database_url:
-        raise RuntimeError(
-            "TEST_DATABASE_URL is not set, and this test needs a database. "
-            "Load env: export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs) — "
-            "or run the unit tier, which needs none: uv run pytest -m 'not db'"
-        )
+        raise RuntimeError(missing_test_database_url_message())
     acquire_test_db_lock(test_database_url)
     engine = create_async_engine(test_database_url)
     schemas = declared_schemas()
