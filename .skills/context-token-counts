@@ -3,15 +3,15 @@
 # The offline estimators prefer a file's own last exact measurement to the
 # repo-wide figure in .skills/context-token-ratio, falling back to it for a
 # file never counted exactly or since drifted far from the size recorded here.
-12893 5635 AGENTS.md
+13713 5977 AGENTS.md
 8997 3541 docs/API.md
 16459 6252 docs/ARCHITECTURE.md
-3138 1210 docs/CODE-EXPLORATION.md
+5135 1973 docs/CODE-EXPLORATION.md
 34481 13525 docs/COMMANDS-BACKFILL.md
 10208 4193 docs/COMMANDS-SEATS.md
 14732 5649 docs/COMMANDS-SUCCESSION.md
 20230 8224 docs/COMMANDS-SYNC.md
-19842 8533 docs/COMMANDS.md
+19977 8583 docs/COMMANDS.md
 22002 9312 docs/DEPLOYMENT.md
 9458 3860 docs/ENVIRONMENT.md
 1756 681 docs/LOGGING.md
@@ -28,4 +28,4 @@
 14398 5660 docs/MODULES-SYNC-PRODUCERS.md
 17008 6543 docs/MODULES-SYNC.md
 22463 8426 docs/ONTOLOGY.md
-14465 5472 docs/SKILLS.md
+16397 6171 docs/SKILLS.md
