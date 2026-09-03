@@ -97,9 +97,16 @@ def _empty_store(tmp_path, source: str) -> RawStore:
 
 
 #: The role dimension the standard fixture's three spans name — one per
-#: (span_kind, span_discriminator) slot. Seeded as the canonical oracle so a
-#: clean run is clean on the ROLE parity too, not merely on the span one.
-FIXTURE_ROLE_KEYS = ("party-role:democratic", "seat:senate:ld-14", "party-role:republican")
+#: (span_kind, span_discriminator) slot, with the ATTRIBUTES `conformed.roles`
+#: derives for each. Seeded as the canonical oracle so a clean run is clean on
+#: the role parity too, not merely on the span one; carrying the real
+#: role_type/name/qualifier is what makes a drift test mean anything (CR 84).
+FIXTURE_ROLES = (
+    ("party-role:democratic", "party_member", "Member", None),
+    ("seat:senate:ld-14", "state_senator", "Washington State Senator, LD-14", None),
+    ("party-role:republican", "party_member", "Member", None),
+)
+FIXTURE_ROLE_KEYS = tuple(role[0] for role in FIXTURE_ROLES)
 
 #: The org natural keys those slots hang from, in the crosswalk's own shape.
 FIXTURE_ORG_KEYS = (
@@ -112,16 +119,16 @@ FIXTURE_ORG_KEYS = (
 async def _seed_role(
     db_session,
     *,
-    role_keys: tuple[str, ...] = FIXTURE_ROLE_KEYS,
+    roles_spec: tuple[tuple[str, str, str, str | None], ...] = FIXTURE_ROLES,
     bind_orgs: bool = True,
     role_source: str = SOURCE,
 ) -> Role:
     """Seed the canonical role dimension and return the Role assignments hang off.
 
-    Every key in ``role_keys`` becomes a `canonical.roles` row, because the probe
-    diffs our derived role keys against that table (CR 77). The parity compares
-    ``source_id`` only, so which Organization each canonical Role hangs from is
-    irrelevant to what is asserted here.
+    Every ``(source_id, role_type, name, qualifier)`` in ``roles_spec`` becomes a
+    `canonical.roles` row, because the probe diffs our derived roles against that
+    table on all four (CR 77, CR 84). Which Organization each hangs from is not
+    compared, so one is minted per slot purely to satisfy `uq_roles_org_name`.
     """
     state_type = JurisdictionType(slug="state", display_name="State")
     db_session.add(state_type)
@@ -136,19 +143,20 @@ async def _seed_role(
     # chamber is its own Org).
     orgs = [
         Organization(source=SOURCE, source_id=f"org-{i}", name=f"Org {i}", org_type="chamber")
-        for i, _ in enumerate(role_keys)
+        for i, _ in enumerate(roles_spec)
     ]
     db_session.add_all(orgs)
     await db_session.flush()
     roles = [
         Role(
             source=role_source,
-            source_id=key,
+            source_id=source_id,
             organization_id=org.id,
-            name="Member",
-            role_type="other",
+            name=name,
+            role_type=role_type,
+            qualifier=qualifier,
         )
-        for key, org in zip(role_keys, orgs, strict=True)
+        for (source_id, role_type, name, qualifier), org in zip(roles_spec, orgs, strict=True)
     ]
     db_session.add_all(roles)
     await db_session.flush()
@@ -463,16 +471,103 @@ async def test_a_clean_run_reports_every_integrity_counter_at_zero(db_session, t
     assert result.counters["integrity_failures"] == []
 
 
-async def test_an_empty_role_oracle_degrades(db_session, tmp_path) -> None:
+async def test_an_empty_role_oracle_degrades_but_keeps_the_span_diff(db_session, tmp_path) -> None:
     """The same rule the span oracle follows: with nothing to compare against,
     report "no oracle" — never a fork. Reachable because the filter is on the
     role's SOURCE: a canonical dimension holding only another source's roles has
-    none of ours, even though assignments necessarily hang off some Role."""
+    none of ours, even though assignments necessarily hang off some Role.
+
+    CR 85: the span comparison is finished by then, so it must survive into the
+    degraded result. Discarding a completed diff because a *different* oracle is
+    missing is the #331 shape — counters lost on an abnormal exit — chosen
+    voluntarily, and it blinds the span probe that was working.
+    """
     role = await _seed_role(db_session, role_source="usa_wa_pdc")
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
-    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=4)
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
     assert result.outcome == OUTCOME_DEGRADED
     assert result.counters["empty_canonical_roles"] is True
+    # the span half was computed and is reported anyway: the one canonical row
+    # is matched, so the divergence is our Senate seat and our roster span
+    assert result.counters["spans"] == 3
+    assert result.counters["canonical"] == 1
+    assert result.counters["missing"] == 0
+    assert result.counters["extra"] == 2
+    assert result.counters["divergence"] == 2
+
+
+async def test_role_attributes_are_compared_not_just_keys(db_session, tmp_path) -> None:
+    """CR 84: the key set matching is not the whole claim. A role carries a
+    role_type, a name and a qualifier, and all three are derived here
+    independently of the tier that publishes them."""
+    role = await _seed_role(db_session)
+    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
+    await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
+    await _bind_key(db_session, f"{SOURCE}:100")
+    await _seed_roster_family(db_session, role)
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
+    assert result.outcome == OUTCOME_OK
+    assert result.counters["role_divergence"] == 0
+    assert result.counters["role_attribute_mismatches"] == 0
+
+
+async def test_a_role_type_drift_fails_the_probe(db_session, tmp_path) -> None:
+    """The #110 shape, which the round-7 gate could not see: 305 party roles
+    churned on local `member` vs PM `party_member` — every KEY identical. A
+    classifier that drifts from the tier publishes a role whose meaning differs
+    from the one Power Map matches on, so it is gated at zero rather than
+    ratcheted: it measures 0 on the live corpus across all three attributes.
+    """
+    drifted = (
+        ("party-role:democratic", "member", "Member", None),
+        *FIXTURE_ROLES[1:],
+    )
+    role = await _seed_role(db_session, roles_spec=drifted)
+    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
+    await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
+    await _bind_key(db_session, f"{SOURCE}:100")
+    await _seed_roster_family(db_session, role)
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
+    # the key set is identical — only the classification forked
+    assert result.counters["role_divergence"] == 0
+    assert result.counters["divergence"] == 0
+    assert result.counters["role_attribute_mismatches"] == 1
+    assert result.outcome == OUTCOME_FAILED
+    assert result.resolved_exit_code() == 1
+    assert result.counters["integrity_failures"] == ["role_attribute_mismatches"]
+
+
+async def test_a_role_name_drift_is_caught_too(db_session, tmp_path) -> None:
+    """`name` is derived here from a format string and there by the emitter, so
+    it can fork the same way. Cheap to compare, and it measures 0 today."""
+    drifted = (
+        FIXTURE_ROLES[0],
+        ("seat:senate:ld-14", "state_senator", "WA State Senator LD 14", None),
+        FIXTURE_ROLES[2],
+    )
+    role = await _seed_role(db_session, roles_spec=drifted)
+    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
+    await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
+    await _bind_key(db_session, f"{SOURCE}:100")
+    await _seed_roster_family(db_session, role)
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
+    assert result.counters["role_attribute_mismatches"] == 1
+    assert result.outcome == OUTCOME_FAILED
+
+
+async def test_a_ratchet_failure_names_which_ratchet_tripped(db_session, tmp_path) -> None:
+    """CR 89: two ratchets now share one exit code. `integrity_failures` names
+    the offender for the gated counters; the ratchets say which one moved."""
+    role = await _seed_role(db_session)
+    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
+    await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
+    await _seed_assignment(db_session, role, f"777:party:republican:{CURRENT}")
+    await _bind_key(db_session, f"{SOURCE}:100")
+    await _seed_roster_family(db_session, role)
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
+    assert result.outcome == OUTCOME_FAILED
+    assert result.counters["ratchet_failures"] == ["divergence"]
+    assert result.counters["integrity_failures"] == []
 
 
 async def test_role_keys_are_diffed_against_the_canonical_dimension(db_session, tmp_path) -> None:
@@ -503,7 +598,13 @@ async def test_a_role_key_the_canonical_tier_does_not_hold_fails(db_session, tmp
     deterministic key cannot tolerate, because nothing mediates the join. The
     diff is symmetric and unfiltered on purpose: the tier gaining a role family
     we do not publish is as much a signal as us minting one it never saw."""
-    role = await _seed_role(db_session, role_keys=(*FIXTURE_ROLE_KEYS, "seat:senate:ld-99"))
+    role = await _seed_role(
+        db_session,
+        roles_spec=(
+            *FIXTURE_ROLES,
+            ("seat:senate:ld-99", "state_senator", "Washington State Senator, LD-99", None),
+        ),
+    )
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
     await _bind_key(db_session, f"{SOURCE}:100")
@@ -514,6 +615,7 @@ async def test_a_role_key_the_canonical_tier_does_not_hold_fails(db_session, tmp
     assert result.counters["divergence"] == 0
     assert result.outcome == OUTCOME_FAILED
     assert result.resolved_exit_code() == 1
+    assert result.counters["ratchet_failures"] == ["role_divergence"]
 
 
 async def test_role_divergence_at_its_baseline_is_ok(db_session, tmp_path) -> None:
@@ -521,7 +623,13 @@ async def test_role_divergence_at_its_baseline_is_ok(db_session, tmp_path) -> No
     snapshot. It measures 0 today — 312 = 312, exact — so the default gates at
     zero, but a knowingly stale role stays expressible rather than forcing the
     gate off."""
-    role = await _seed_role(db_session, role_keys=(*FIXTURE_ROLE_KEYS, "seat:senate:ld-99"))
+    role = await _seed_role(
+        db_session,
+        roles_spec=(
+            *FIXTURE_ROLES,
+            ("seat:senate:ld-99", "state_senator", "Washington State Senator, LD-99", None),
+        ),
+    )
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
     await _bind_key(db_session, f"{SOURCE}:100")
@@ -554,9 +662,11 @@ async def test_unregistered_orgs_are_counted_and_gated(db_session, tmp_path) -> 
 
 async def test_roles_are_derived_from_spans_not_from_registered_rows(db_session, tmp_path) -> None:
     """A slot exists whether or not the person filling it is registered, so the
-    role derivation reads the SPANS, not the crosswalk-joined rows. Deriving it
-    from the published rows instead would let a registrar gap silently shrink
-    the role dimension too — one defect masking another."""
+    role derivation reads the SPANS, not the crosswalk-joined rows — which keeps
+    the role parity a statement about the DERIVATION rather than the registry
+    (CR 86). From the published rows a registrar gap would report as a phantom
+    role fork, sending the operator after the wrong defect, and it would hide a
+    genuine fork whose only spans happen to be unregistered."""
     role = await _seed_role(db_session)
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
