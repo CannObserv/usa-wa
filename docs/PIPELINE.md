@@ -46,6 +46,35 @@ The pre-commit hook `dbt-build` runs the gate whenever a commit touches
 `target/` and `logs/` and the local `data/` db are git-ignored; the gate writes its
 artifacts into a temp dir so the checkout stays clean.
 
+## The raw tier (#304)
+
+Upstream of dbt: pristine wires in a file store at `USA_WA_RAW_ROOT` (default
+`raw/`), the file analog of the Postgres provenance pair and the input the
+staging models read (#306).
+
+```
+raw/<source-slug>/
+  objects/<sha[:2]>/<sha256>   — content-addressed wire bodies, immutable, deduped
+  runs/<run_id>.json           — one manifest per harvest run (the FetchEvent analog)
+  latest.json                  — resource_id → newest ok fetch, for TTL decisions
+```
+
+- Harvesters: `python -m usa_wa_adapter_legislature.raw_harvest` (daily SOAP set +
+  member fan-out, committees enumerated from the run's own roster wire — no DB),
+  `…usa_wa_adapter_pdc.raw_harvest` (winner cohorts), `…usa_wa_adapter_sos.raw_harvest`
+  (filings + results). All reuse the adapters' transports, rate limiters, and the
+  Postgres archive's resource-id vocabulary; per-resource failures are contained as
+  `err` manifest entries; a byte-identical re-fetch is recorded but stored once
+  (`skip_unchanged` parity). `--ttl-days N` skips fresh resources; the default 0
+  forces the daily wire.
+- Integrity: `python -m clearinghouse_core.raw_integrity` re-hashes objects against
+  the sha256 they are stored under (the name is the baseline) — rolling
+  `--byte-budget` with a cursor at `<root>/.raw_integrity_state.json`, exit 1 on any
+  mismatch/missing object. The Postgres sweep keeps running beside it until #302
+  cutover.
+- Retention: the tracked sources are archival (#54) — nothing deletes; manifests are
+  small and kept indefinitely.
+
 ## TDD for dbt models
 
 Red → Green → Refactor applies; what changes is where each color lives:
