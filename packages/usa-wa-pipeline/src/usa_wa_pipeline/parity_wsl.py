@@ -10,9 +10,10 @@ canonical tables the old pipeline maintains.
 - **committees** — staging `committees-roster:*` ids ∪ the **Joint/`Other`**
   meeting committee refs (the only agencies the canonical meeting path ingests,
   #39 — House/Senate refs ride along in meeting data but are
-  `CommitteeService`'s domain) vs. `Organization(source='usa_wa_legislature',
-  org_type='committee')` source ids, archived + dissolved included (history is
-  the point).
+  `CommitteeService`'s domain) vs. canonical
+  `Organization(source='usa_wa_legislature', org_type IN ('committee','other'))`
+  source ids — both types are the committee universe (Joint/`Other` bodies are
+  `other`), archived + dissolved included (history is the point).
 - **sponsors** — staging member ids from the sponsor wires ∪ the
   committee-member wires (both member resources mint the Person cluster, P1b)
   vs. `Person(source='usa_wa_legislature')` source ids.
@@ -55,55 +56,9 @@ SOURCE = "usa_wa_legislature"
 #: `normalize/committee_meetings._MEETING_DERIVED_AGENCIES`.
 MEETING_DERIVED_AGENCIES = frozenset({"Joint", "Other"})
 
-#: Joint/`Other` bodies present in ARCHIVED meeting windows that canonical never
-#: materialized: the #39 ingestion discovers from the current window daily, and
-#: the historical windows were archived Phase-A-only. Staging reads the whole
-#: archive, so it sees them — canonical ⊆ staging, nothing lost; these become
-#: orgs properly in the conformed tier. Verified by name against the wires
-#: (2026-09-03): all twenty are real bodies (JLARC, Joint Transportation, …).
-_ARCHIVED_MEETING_BODIES = frozenset(
-    {
-        "-141",
-        "-140",
-        "-74",
-        "-71",
-        "-27",
-        "-14",
-        "-12",
-        "-5",
-        "-4",
-        "13945",
-        "15660",
-        "17159",
-        "18046",
-        "18048",
-        "18059",
-        "21488",
-        "22601",
-        "27992",
-        "28113",
-        "34724",
-        # 35341 (Joint Select Cmte on Civic Health, 2023-24 window) and 36496
-        # (Joint Leg-Exec Cmte on Budget Transparency, 2025-26 window) — same
-        # class; 36496 being CURRENT-window suggests the #39 daily discovery
-        # may have skipped it (flagged on the issue for follow-up).
-        "35341",
-        "36496",
-    }
-)
-
 #: Explained-and-accepted divergences. Empty is the goal state; every entry
 #: names its reason and dies loudly once the divergence heals.
-ACCEPTED: tuple[AcceptedDiff, ...] = tuple(
-    AcceptedDiff(
-        key,
-        "staging",
-        "Joint/Other body from an archived meeting window canonical never "
-        "normalized (#39 is current-window discovery; historical windows were "
-        "Phase-A-only)",
-    )
-    for key in sorted(_ARCHIVED_MEETING_BODIES)
-) + (
+ACCEPTED: tuple[AcceptedDiff, ...] = (
     AcceptedDiff(
         "31656",
         "canonical",
@@ -135,7 +90,13 @@ async def run_parity(
         (
             await session.execute(
                 select(Organization.source_id).where(
-                    Organization.source == SOURCE, Organization.org_type == "committee"
+                    Organization.source == SOURCE,
+                    # canonical classifies House/Senate standing committees as
+                    # 'committee' and Joint/`Other` bodies as 'other' (#39) —
+                    # both are the committee universe staging sees (#309 CR:
+                    # the original 'committee'-only filter manufactured 22
+                    # false staging-extras)
+                    Organization.org_type.in_(["committee", "other"]),
                 )
             )
         ).scalars()

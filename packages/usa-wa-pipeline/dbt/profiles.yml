@@ -7,4 +7,7 @@ usa_wa_pipeline:
     dev:
       type: duckdb
       path: "{{ env_var('USA_WA_PIPELINE_DB', 'data/pipeline.duckdb') }}"
-      threads: 4
+      # 1 on purpose: threaded Python models race first-imports of the
+      # workspace packages (_ModuleLock deadlock on clearinghouse_core), and at
+      # ~10^4 rows parallel build time is noise.
+      threads: 1

@@ -31,6 +31,10 @@ def test_dbt_build_green(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setenv("USA_WA_PIPELINE_DB", str(tmp_path / "test.duckdb"))
     monkeypatch.setenv("USA_WA_RAW_ROOT", str(tmp_path / "raw"))
+    # hermetic: the conformed crosswalk models read the registry only when a
+    # DATABASE_URL is present, and this in-process build must never touch one
+    # (nor call asyncio.run inside pytest's loop)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     result = dbtRunner().invoke(
         [
             "build",
@@ -74,6 +78,10 @@ def test_dbt_data_test_failure_is_red(tmp_path, monkeypatch) -> None:
     )
     monkeypatch.setenv("USA_WA_PIPELINE_DB", str(tmp_path / "test.duckdb"))
     monkeypatch.setenv("USA_WA_RAW_ROOT", str(tmp_path / "raw"))
+    # hermetic: the conformed crosswalk models read the registry only when a
+    # DATABASE_URL is present, and this in-process build must never touch one
+    # (nor call asyncio.run inside pytest's loop)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     result = dbtRunner().invoke(
         [
             "build",
