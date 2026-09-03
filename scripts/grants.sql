@@ -71,22 +71,24 @@ REASSIGN OWNED BY :"reassign_from" TO :"owner";
 --    on purpose: it carries only alembic_version (migrate-only, owned by
 --    postgres), so the app role never touches it and <owner> — which does not
 --    own public — must not try to grant on it at steady state.
-GRANT USAGE ON SCHEMA canonical, clearinghouse_core, sync TO :"owner";
-GRANT USAGE ON SCHEMA canonical, clearinghouse_core, sync TO :"app";
+GRANT USAGE ON SCHEMA canonical, clearinghouse_core, registry, sync TO :"owner";
+GRANT USAGE ON SCHEMA canonical, clearinghouse_core, registry, sync TO :"app";
 
 -- 4. DML grants on all current tables + sequences for the app role.
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA canonical TO :"app";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA clearinghouse_core TO :"app";
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA registry TO :"app";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA sync TO :"app";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA canonical TO :"app";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA clearinghouse_core TO :"app";
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA registry TO :"app";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA sync TO :"app";
 
 -- 5. Default privileges: tables/sequences a FUTURE migration creates (as <owner>)
 --    auto-grant DML to <app>, so no role lag between migrate and serve.
-ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_core, sync
+ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_core, registry, sync
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"app";
-ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_core, sync
+ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_core, registry, sync
   GRANT USAGE, SELECT ON SEQUENCES TO :"app";
 
 -- 6. Write-once provenance (#54). The provenance spine is append-only by

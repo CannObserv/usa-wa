@@ -113,6 +113,23 @@ Governor's ex-officio Rules seat from the retired `committee-members:`
 vocabulary); PDC 312/312 exact. SOS has no per-source probe on purpose —
 results/filings corroborate spans, covered by #309's span parity.
 
+## Identity registry (#308)
+
+`registry` Postgres schema (master state — the pipeline's ONLY mutable state):
+`entities` / `entity_keys` / `adjudications`, machinery in
+`clearinghouse_core.registry` (jurisdiction-blind by design — see
+MODULES-FRAMEWORK.md). Key namespaces: `<source-slug>:<source_id>` and
+`<scheme>:<value>` (e.g. `usa_wa_legislature:27992`, `wa_pdc:7710`).
+
+```bash
+# One-time: seed from canonical rows, ULIDs preserved (idempotent)
+uv run python -m usa_wa_pipeline.registry_seed
+```
+
+The registrar consuming `proposed_links` (matching-tier output) and the
+matching models themselves land with the rest of #308; corrections are always
+adjudications — a matching-rule change can propose the world and move nothing.
+
 ## TDD for dbt models
 
 Red → Green → Refactor applies; what changes is where each color lives:
