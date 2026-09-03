@@ -83,6 +83,7 @@ from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
 )
 from usa_wa_common.seats import district_number
 from usa_wa_pipeline.conformed.house import build_house_spans
+from usa_wa_pipeline.conformed.roles import role_for_span
 from usa_wa_pipeline.conformed.wire import committee_rosters, sponsor_wire_rows
 
 logger = get_logger(__name__)
@@ -104,6 +105,7 @@ ASSIGNMENT_COLUMNS = [
     "entity_id",
     "member_id",
     "source",
+    "role_key",
     "span_kind",
     "span_discriminator",
     "span_start_biennium",
@@ -495,6 +497,10 @@ def assignment_rows(
                     "entity_id": entity_id,
                     "member_id": span.member_id,
                     "source": source,
+                    # the slot this tenure fills, as a deterministic structural
+                    # key (#309 inc 4) — no ULID mediation, joinable straight
+                    # to the `roles` dimension
+                    "role_key": role_for_span(span.kind, span.discriminator).role_key,
                     "span_kind": span.kind,
                     "span_discriminator": span.discriminator,
                     "span_start_biennium": span.start_biennium,

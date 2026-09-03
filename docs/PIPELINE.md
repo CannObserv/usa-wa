@@ -17,7 +17,8 @@ packages/usa-wa-pipeline/
                            gate + tests always override with a throwaway path)
     models/staging/      — one cleaning regime per source, NATURAL KEYS ONLY
     models/matching/     — cross-source link proposals feeding the registrar (#308)
-    models/conformed/    — registry-joined products with stable ULIDs (#309)
+    models/conformed/    — registry-joined products with stable ULIDs, plus the
+                           structurally-keyed roles dimension (#309)
 ```
 
 Layer rules are the spec's: staging never joins across sources and never sees a ULID;
@@ -254,6 +255,19 @@ back-chain and the #103 within-LD elimination are imported unchanged from
 `usa_wa_facts_seats.house`. `restrict_to_biennium` dissolves with the rest of
 the DB half — a stateless rebuild is unconditionally the unrestricted, deep
 one, so the #100 depth-mismatch question cannot arise here at all.
+
+**Roles and seats are structural, not registered** (`conformed/roles.py`). A
+Role is a named slot in an Organization; an Assignment binds one in time
+(ONTOLOGY.md § 2). The span already carries the slot's identity as
+`(span_kind, span_discriminator)`, so the `role_key` is a pure function of it —
+`seat:house:ld-5:position-1`, `party-role:democratic`,
+`committee-member-role:28240`, `seat:senate:ld-22` — identical on every run and
+aligned 1:1 with Power Map's seat match key. No ULID mediates it; only the
+*organization* the slot belongs to is registry-joined. `assignments.role_key`
+names the row in `roles`, and a dbt test fails on any dangling key, because a
+deterministic join that has forked is the one failure this design cannot
+tolerate. Every key function is imported unchanged from the adapter's
+normalizer and the WA vocabulary.
 
 Each family's input carries a **refusal**, on one rule: an input whose absence
 silently deletes facts must refuse, not return empty (CR 57). The roster tier
