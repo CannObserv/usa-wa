@@ -52,6 +52,14 @@ COMMITTEE_MEMBER_COLUMNS = [
     "member_id",
     "name",
     "long_name",
+    # The member's own identity fields, which the wire carries and the span tier
+    # needs (#309): `is_person` screens name-blanked stubs on first+last name,
+    # and `agency` is the member's chamber, distinct from `committee_agency`.
+    "first_name",
+    "last_name",
+    "agency",
+    "party",
+    "district",
 ]
 MEETING_COLUMNS = [
     "meeting_window",
@@ -131,6 +139,11 @@ def committee_member_rows(
                     "member_id": _text(record.get("Id")),
                     "name": record.get("Name"),
                     "long_name": record.get("LongName"),
+                    "first_name": record.get("FirstName"),
+                    "last_name": record.get("LastName"),
+                    "agency": record.get("Agency"),
+                    "party": record.get("Party"),
+                    "district": _text(record.get("District")),
                 }
             )
     return rows

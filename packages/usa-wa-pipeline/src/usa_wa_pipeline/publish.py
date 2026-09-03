@@ -64,10 +64,14 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
     ("org_crosswalk", "conformed"),
     ("persons", "conformed"),
     ("organizations", "conformed"),
+    ("assignments", "conformed"),
 ]
 
 #: Per-dataset schema semver: additive = minor, rename/removal = major (spec).
-SCHEMA_VERSION = "1.0.0"
+#: 1.1.0 (#309): stg_wsl_committee_members gained the member identity fields
+#: the span tier needs, and `assignments` joined the published set. One knob
+#: covers every dataset today — per-dataset versions are a later refinement.
+SCHEMA_VERSION = "1.1.0"
 
 DEFAULT_MAX_SHRINK = 0.10
 
