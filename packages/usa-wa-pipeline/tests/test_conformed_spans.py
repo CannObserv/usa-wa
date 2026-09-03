@@ -10,6 +10,8 @@ plumbing and the order, not the engine's own behavior.
 
 from datetime import date
 
+import pytest
+
 from clearinghouse_domain_legislative.span_kinds import (
     KIND_COMMITTEE,
     KIND_PARTY,
@@ -21,11 +23,17 @@ from usa_wa_pipeline.conformed.spans import (
     build_all_spans,
     committee_rosters,
     entity_index,
+    roster_records,
     sponsor_wire_rows,
 )
 
 BIENNIUM = "2023-24"
 CURRENT = "2025-26"
+
+#: Every test below builds a corpus with no roster tier, so each states the
+#: deepening explicitly (CR 57): an EMPTY roster is the one thing the builder
+#: refuses to guess at, because guessing publishes shallow spans silently.
+NO_DEEPENING: list = []
 
 
 def _sponsor(member_id: str, biennium: str, **over) -> dict:
@@ -98,7 +106,7 @@ def test_name_blanked_stub_yields_no_observation() -> None:
         committee_members=[],
         events=[],
     )
-    assert build_all_spans(inputs, current_biennium=CURRENT) == []
+    assert build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING) == []
 
 
 def test_party_and_senate_spans_merge_contiguous_bienniums() -> None:
@@ -107,7 +115,7 @@ def test_party_and_senate_spans_merge_contiguous_bienniums() -> None:
         committee_members=[],
         events=[],
     )
-    spans = build_all_spans(inputs, current_biennium=CURRENT)
+    spans = build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING)
     by_kind = {s.kind: s for s in spans}
     assert set(by_kind) == {KIND_PARTY, KIND_SENATE}
     party = by_kind[KIND_PARTY]
@@ -126,7 +134,7 @@ def test_committee_spans_key_on_committee_id() -> None:
         ],
         events=[],
     )
-    [span] = build_all_spans(inputs, current_biennium=CURRENT)
+    [span] = build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING)
     assert span.kind == KIND_COMMITTEE
     assert span.discriminator == "500"
     assert span.start_biennium == "2021-22"
@@ -142,7 +150,7 @@ def test_independent_party_emits_no_party_span() -> None:
         committee_members=[],
         events=[],
     )
-    assert build_all_spans(inputs, current_biennium=CURRENT) == []
+    assert build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING) == []
 
 
 def test_house_row_emits_no_senate_seat_span() -> None:
@@ -153,7 +161,10 @@ def test_house_row_emits_no_senate_seat_span() -> None:
         committee_members=[],
         events=[],
     )
-    kinds = {s.kind for s in build_all_spans(inputs, current_biennium=CURRENT)}
+    kinds = {
+        s.kind
+        for s in build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING)
+    }
     assert kinds == {KIND_PARTY}
 
 
@@ -165,7 +176,7 @@ def test_assignment_rows_join_the_crosswalk_and_count_drops() -> None:
         committee_members=[],
         events=[],
     )
-    spans = build_all_spans(inputs, current_biennium=CURRENT)
+    spans = build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING)
     rows, counters = assignment_rows(spans, {"usa_wa_legislature:100": "01ENTITY"})
     assert {r["member_id"] for r in rows} == {"100"}
     assert all(r["entity_id"] == "01ENTITY" for r in rows)
@@ -190,3 +201,53 @@ def test_entity_index_follows_merge_tombstones() -> None:
     assert index["usa_wa_legislature:1"] == "C"
     assert index["usa_wa_legislature:2"] == "C"
     assert index["usa_wa_legislature:3"] == "C"
+
+
+def test_deepening_derived_from_an_empty_roster_is_refused() -> None:
+    """CR 57: an empty roster tier silently re-asserts SHALLOW 1991-start spans.
+
+    The #228 deepening is a standing input, not an optional enrichment: without
+    it a member crossing the archive floor emits a 1991-start span abutting a
+    roster-sourced twin (the #97 collapse). The publish shrink gate cannot see
+    it — the key set changes while the row count barely moves — and the parity
+    probe runs after publish. So the builder refuses rather than guessing.
+    """
+    inputs = SpanInputs(
+        sponsors=[_sponsor("100", CURRENT)], committee_members=[], events=[], roster=[]
+    )
+    with pytest.raises(ValueError, match="roster"):
+        build_all_spans(inputs, current_biennium=CURRENT)
+
+
+def test_an_empty_corpus_needs_no_roster() -> None:
+    """The refusal is about a roster that went missing under a live corpus, not
+    about the hermetic build (empty raw root ⇒ no sponsors ⇒ nothing to deepen)."""
+    assert (
+        build_all_spans(SpanInputs(sponsors=[], committee_members=[]), current_biennium=CURRENT)
+        == []
+    )
+
+
+def test_explicit_extras_are_always_honored() -> None:
+    """`extra_observations` is the deliberate seam: passing it — even empty —
+    states the deepening rather than deriving it."""
+    inputs = SpanInputs(sponsors=[_sponsor("100", CURRENT)], committee_members=[], roster=[])
+    spans = build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING)
+    assert {s.kind for s in spans} == {KIND_PARTY, KIND_SENATE}
+
+
+def test_malformed_roster_rows_are_counted_not_silently_dropped(caplog) -> None:
+    """CR 63: report-don't-drop. A staging regression that mangles roster rows
+    must leave a trace, not vanish into a bare `continue`."""
+    good = {
+        "district": "5",
+        "chamber": "house",
+        "year": "1975",
+        "order": "1",
+        "name": "Jordan Smith",
+        "party_token": "R",
+        "annotation": None,
+    }
+    records = roster_records([good, {**good, "year": "not-a-year"}, {"district": "5"}])
+    assert len(records) == 1
+    assert "roster_records_malformed" in caplog.text

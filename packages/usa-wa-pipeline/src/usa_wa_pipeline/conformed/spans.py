@@ -42,6 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.operator_overlay import (
     apply_operator_events,
     from_rows,
@@ -77,6 +78,8 @@ from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
 )
 from usa_wa_common.seats import district_number
 
+logger = get_logger(__name__)
+
 #: The source these spans are asserted under — the WSL archive.
 SOURCE = "usa_wa_legislature"
 
@@ -108,8 +111,9 @@ class SpanInputs:
     committee_members: list[dict[str, Any]]
     events: list[Any] = field(default_factory=list)
     #: Roster-PDF member-years — the #228 deepening input (see
-    #: :func:`deepening_observations`). Empty means "no deepening", which
-    #: re-asserts the shallow 1991-start keys, so a real build must pass them.
+    #: :func:`deepening_observations`). Leaving it empty under a live sponsor
+    #: corpus is refused by :func:`build_all_spans` rather than silently
+    #: re-asserting the shallow 1991-start keys (CR 57).
     roster: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -186,6 +190,7 @@ def roster_records(rows: list[dict[str, Any]]) -> list[RosterRecord]:
     reads it (verified) — only the parser that produced it did.
     """
     records: list[RosterRecord] = []
+    malformed = 0
     for row in rows:
         try:
             records.append(
@@ -202,8 +207,14 @@ def roster_records(rows: list[dict[str, Any]]) -> list[RosterRecord]:
             )
         except (KeyError, TypeError, ValueError):
             # report-don't-drop belongs to the parser; a malformed staging row
-            # here is a staging bug the roster key tests catch, not a fact.
-            continue
+            # here is a staging bug the roster key tests catch, not a fact —
+            # but it must still leave a trace, never a bare `continue` (CR 63).
+            malformed += 1
+    if malformed:
+        logger.warning(
+            "roster_records_malformed",
+            extra={"malformed": malformed, "kept": len(records)},
+        )
     return records
 
 
@@ -239,10 +250,25 @@ def build_all_spans(
 
     Committee spans build FIRST so they can serve as the sponsor build's
     ``context_spans`` (#267) — see the module docstring.
+
+    Raises ``ValueError`` when the #228 deepening would be derived from an
+    **empty** roster under a non-empty sponsor corpus (CR 57). That combination
+    silently re-asserts shallow 1991-start spans (the #97 collapse shape), and
+    nothing downstream can catch it: the publish shrink gate compares row
+    counts, which barely move when the key set shifts, and the parity probe
+    runs after publish. Pass ``extra_observations`` — ``[]`` included — to
+    state the deepening instead of deriving it.
     """
     events = from_rows(inputs.events)
     rosters = committee_rosters(inputs.committee_members)
     roster_map = sponsor_wire_rows(inputs.sponsors)
+    if extra_observations is None and inputs.sponsors and not inputs.roster:
+        raise ValueError(
+            "the #228 deepening needs the roster tier: SpanInputs.roster is empty under a "
+            f"corpus of {len(inputs.sponsors)} sponsor rows, which would publish shallow "
+            "1991-start spans. Pass roster rows, or extra_observations to state the "
+            "deepening explicitly."
+        )
     extras = (
         list(extra_observations)
         if extra_observations is not None

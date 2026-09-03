@@ -43,7 +43,17 @@ class EventRow:
 
 
 async def operator_event_rows(session: AsyncSession) -> list[EventRow]:
-    """Every current (non-superseded) operator event, oldest first."""
+    """Every current (non-superseded) operator event, oldest first — and, within
+    one date, in curation order.
+
+    The ULID tiebreak is load-bearing (CR 61). ``apply_operator_events`` sorts
+    **stably** on ``(is_departed, effective_date)``, so the input order settles
+    same-date ties, and its per-span seating dedup makes which of two same-date
+    events lands first outcome-affecting. Postgres promises no order for equal
+    sort keys, and production carries seven (member, date) pairs holding two
+    current events each — enough to re-date spans between two runs over
+    identical inputs, which a content-hashed versioned dataset cannot tolerate.
+    """
     rows = (
         await session.execute(
             select(
@@ -54,7 +64,7 @@ async def operator_event_rows(session: AsyncSession) -> list[EventRow]:
                 OperatorEvent.seat_discriminator,
             )
             .where(OperatorEvent.superseded_by_id.is_(None))
-            .order_by(OperatorEvent.effective_date)
+            .order_by(OperatorEvent.effective_date, OperatorEvent.id)
         )
     ).all()
     return [EventRow(*row) for row in rows]
