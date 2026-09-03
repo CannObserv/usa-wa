@@ -1,0 +1,15 @@
+# staging layer: one cleaning regime per source, NATURAL KEYS ONLY — no ULIDs,
+# no cross-source joins (replatform spec § Target architecture). Real models
+# arrive with #306 (legislature) and #307 (PDC + SOS).
+version: 2
+
+models:
+  - name: stg_scaffold_smoke
+    description: Scaffold smoke model; retired when real staging models land.
+    columns:
+      - name: id
+        data_tests: [not_null, unique]
+      - name: label
+        data_tests:
+          - accepted_values:
+              values: ["ok"]

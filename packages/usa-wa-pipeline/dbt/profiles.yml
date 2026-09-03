@@ -1,0 +1,10 @@
+# duckdb target. USA_WA_PIPELINE_DB names the database file; the default is
+# relative to the invoker's cwd (the repo root, per docs/PIPELINE.md), and the
+# commit gate + test suite always override it with a throwaway path.
+usa_wa_pipeline:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('USA_WA_PIPELINE_DB', 'data/pipeline.duckdb') }}"
+      threads: 4

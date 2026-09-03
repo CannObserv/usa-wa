@@ -67,3 +67,17 @@ repos:
         entry: scripts/verify-units.sh
         language: script
         files: ^deploy/.*\.(service|timer)$
+
+  # dbt pipeline gate (issue #303). `dbt build` on packages/usa-wa-pipeline/dbt
+  # against a THROWAWAY duckdb: every model must compile and every schema/data
+  # test must pass before a pipeline change lands. Scoped by `files` — the
+  # pipeline evolves independently of the Python packages, so unrelated commits
+  # don't pay the build. Pinned by scripts/tests/test_pipeline_gate.py.
+  - repo: local
+    hooks:
+      - id: dbt-build
+        name: dbt build (pipeline models + data tests)
+        entry: scripts/dbt-gate.sh
+        language: script
+        pass_filenames: false
+        files: ^packages/usa-wa-pipeline/
