@@ -52,7 +52,7 @@ set -euo pipefail
 # copy that produced it. Nothing branches on it: sync_self keeps the installed
 # copy equal to the vendored source, which makes drift transient and a
 # version-comparison mechanism unnecessary.
-VERSION="2026-08-27-2"
+VERSION="2026-08-31-1"
 
 CHECK_ONLY=0
 VERBOSE=0
@@ -109,6 +109,40 @@ commit for vendors that ship no version) has fallen behind the vendor
 copy. Drift is advisory in every mode including --check-only, and
 nothing is ever auto-merged: the point of an override is that upstream
 text cannot be applied blindly.
+
+That version comparison checks the STAMP. It cannot see divergence at
+the SAME version — an override synced honestly from v1.1 whose text
+dropped a fix v1.1 contains — and #63 was reintroduced a second time
+through that opening (#260). So each override's SKILL.md is also read,
+whatever its stamp says, for two things:
+
+  - fragments the vendor FENCES as required. Upstream marks a block
+    <!-- skill:required --> when dropping it reintroduces a fixed
+    failure; an override must carry each one, compared insensitive to
+    whitespace. Only fenced code blocks, and only what upstream marks —
+    an override is supposed to differ, so this is not a diff.
+  - a bare "bash scripts/X.sh" invocation INSIDE A FENCED CODE BLOCK,
+    where it is an instruction to execute. The agent's cwd is the
+    project root and a skill's scripts/ ships inside the skill, so that
+    path opens nothing (#63). A script that cd's to the toplevel does
+    not fix it: that resolves the root it operates on, not the path
+    bash uses to open the file. Prose is not scanned: an override
+    carrying upstream's own warning against the pattern was reported
+    as committing it.
+
+Both are advisory in every mode, like the drift check they sit beside.
+
+A vendored file committed as a REGULAR FILE where the vendor ships one of
+the same name is reported as silently forked (#256) — it stops tracking
+upstream forever and nothing else detects it. Only inside a skills/<name>
+that is a real directory: a whole-directory symlink cannot fork, and a
+declared override is local by definition. The walk covers the skill's own
+*.md plus one level under each of scripts/, references/ and assets/ — a
+fork nested deeper than that is not seen. pre-ship.sh is exempt by name
+(consumers are expected to supply their own), and any other deliberate
+divergence is declared one repo-relative path per line in
+.skills/forked-ok. Advisory in every mode, and never healed: a fork is
+sometimes the right answer, so the operator decides.
 
 Re-syncs .skills/doctor.sh from the vendored source under skills-vendor/
 when the two differ, so upstream fixes reach consumers that did not
@@ -472,6 +506,170 @@ report_override_unassessed() {
   echo "doctor: as not detecting drift at all (#238)." >&2
 }
 
+# #260 — version equality is a check on the STAMP, not on the content.
+#
+# #238's detector catches an override that has fallen BEHIND. It cannot catch
+# divergence AT THE SAME VERSION, and #63 was reintroduced a second time through
+# that opening: CannObserv/cannabis.observer-wordpress' shipping-work-php
+# override recorded `version: "1.1"` against a vendor also at 1.1 — the doctor
+# exited 0, correctly by its own contract — while its Step 1 had replaced
+# upstream's `bash "<SKILL_SCRIPTS>/pre-ship.sh"` with `bash scripts/pre-ship.sh`
+# for all six scripts. The stamp was honest; the content diverged underneath it.
+# `version:` records the vendor version last synced from, and the failure mode
+# is not "someone forgot to bump it" — it is "someone synced from 1.1 and, in
+# the same edit, replaced upstream text with something worse".
+#
+# Divergence is also the EXPECTED state: an override exists to differ, so a
+# check cannot simply diff and warn on any difference. What can be checked is a
+# vendor's own claim about which fragments are not optional. Upstream fences
+# those in its SKILL.md:
+#
+#   <!-- skill:required -->
+#   ```bash
+#   …the fragment…
+#   ```
+#
+# The marker arms the fenced block that FOLLOWS it, and only a fenced block —
+# prose gets legitimately reworded, and a fence is exactly delimited, so a
+# fragment check over prose would flag every honest edit. An override must carry
+# each armed block; anything else in the file is the override's own business.
+#
+# Compared whitespace-insensitively, because reflowing a code block is not
+# dropping it. Absent a fence anywhere in the vendor file, this contributes
+# nothing and says nothing: an upstream that marks nothing required is making no
+# claim, which is different from an override that satisfies every claim made.
+required_fragments() {
+  awk '
+    # The marker arms; a second one before any fence just re-arms.
+    /^[[:space:]]*<!--[[:space:]]*skill:required[[:space:]]*-->[[:space:]]*$/ {
+      armed = 1; next
+    }
+    armed && !infence && /^[[:space:]]*```/ { infence = 1; buf = ""; next }
+    infence && /^[[:space:]]*```/ {
+      infence = 0; armed = 0
+      gsub(/[[:space:]]+/, " ", buf)
+      sub(/^ /, "", buf); sub(/ $/, "", buf)
+      if (buf != "") print buf
+      next
+    }
+    infence { buf = buf " " $0; next }
+    # An armed marker followed by prose rather than a fence is a malformed
+    # mark, not a licence to claim the next fence further down the file.
+    armed && $0 !~ /^[[:space:]]*$/ { armed = 0 }
+  ' "$1"
+}
+
+# The whole file as one whitespace-collapsed line, so a fragment match is
+# insensitive to line wrapping and indentation and nothing else.
+#
+# Joined first and collapsed ONCE at the end, not per line. Collapsing each line
+# before appending leaves an indented line contributing its own leading space
+# next to the joining one, so every re-indented block in the override missed a
+# fragment that was verbatim apart from its indentation — a whitespace-sensitive
+# check wearing a whitespace-insensitive one's clothes.
+flatten_md() {
+  awk '
+    { flat = flat " " $0 }
+    END {
+      gsub(/[[:space:]]+/, " ", flat)
+      sub(/^ /, "", flat); sub(/ $/, "", flat)
+      print flat
+    }
+  ' "$1"
+}
+
+# Output channels for the two content checks, at top scope for the same reason
+# FORKED is: one remedy block for the whole list, not one per finding.
+declare -a MISSING_FRAGMENT=()
+declare -a MISSING_FRAGMENT_TEXT=()
+declare -a BARE_SCRIPT_PATH=()
+
+report_missing_fragments() {
+  local i
+  echo "doctor: an override omits text its vendor marks as required:" >&2
+  for i in "${!MISSING_FRAGMENT[@]}"; do
+    echo "  ${MISSING_FRAGMENT[$i]}" >&2
+    echo "      missing: ${MISSING_FRAGMENT_TEXT[$i]}" >&2
+  done
+  echo "doctor: upstream fences these with <!-- skill:required --> because" >&2
+  echo "doctor: dropping one reintroduces a fixed failure. An override is" >&2
+  echo "doctor: SUPPOSED to differ, so this is not a diff — it is the small" >&2
+  echo "doctor: set the vendor says is not optional, and a version: stamp" >&2
+  echo "doctor: cannot see it: #63 came back a second time under a version" >&2
+  echo "doctor: that matched exactly (#260). Re-sync the fragment, or drop" >&2
+  echo "doctor: the override in favour of per-file symlinks. Advisory." >&2
+}
+
+report_bare_script_paths() {
+  local i
+  echo "doctor: an override tells an agent to run a script by a path that" >&2
+  echo "doctor: resolves from nowhere:" >&2
+  for i in "${!BARE_SCRIPT_PATH[@]}"; do
+    echo "  ${BARE_SCRIPT_PATH[$i]}" >&2
+  done
+  echo "doctor: the agent's cwd is the PROJECT root, and a skill's scripts/" >&2
+  echo "doctor: ships inside the skill — so 'bash scripts/X.sh' fails with" >&2
+  echo "doctor: 'No such file or directory' (#63). A script that cd's to" >&2
+  echo "doctor: 'git rev-parse --show-toplevel' does not fix this: that" >&2
+  echo "doctor: resolves the root it OPERATES on, not the path bash uses to" >&2
+  echo "doctor: OPEN the file. Use the resolved placeholder form instead:" >&2
+  echo "doctor:   bash \"<SKILL_SCRIPTS>/X.sh\"" >&2
+  echo "doctor: The vendor's own suite gates this; nothing gated a consumer's" >&2
+  echo "doctor: override until #260. Advisory: nothing is changed for you." >&2
+}
+
+# Both content checks for one override, run whatever the version stamps say —
+# which is the point: the two occurrences of #63 differed only in whether the
+# stamp had been kept honest, and the second one had.
+check_override_content() {
+  local dir="$1" target="$2" vendor_md="$3" md="$4"
+  local flat frag line
+
+  flat="$(flatten_md "$md")"
+  while IFS= read -r frag; do
+    [ -n "$frag" ] || continue
+    # Quoted inside the pattern, so every glob character in the fragment is
+    # matched literally — a required block is code, and code is full of them.
+    case "$flat" in
+      *"$frag"*) ;;
+      *)
+        MISSING_FRAGMENT+=("$dir/SKILL.md (overrides $target)")
+        MISSING_FRAGMENT_TEXT+=("$(printf '%.100s' "$frag")…")
+        ;;
+    esac
+  done <<EOF
+$(required_fragments "$vendor_md")
+EOF
+
+  # The #63 shape itself, checked directly rather than only through a fence.
+  # It costs the vendor nothing to mark, and this catches it in an override of
+  # a skill whose upstream marks nothing at all — which is every vendor that
+  # has not adopted the fence yet, and the state the report arrived from.
+  #
+  # INSIDE A FENCED CODE BLOCK ONLY, which is where both occurrences of #63
+  # lived and where the string is an instruction to execute. A whole-file grep
+  # flagged prose that WARNS against the pattern — an override carrying
+  # upstream's own "never write `bash scripts/X.sh`" note was reported as
+  # committing it. That lands the false positive on the most careful override
+  # there is, and a brand-new advisory detector that cries wolf on its first
+  # encounter is one operators learn to skim.
+  #
+  # `N:text` from awk, split here rather than glued into one string: the fork
+  # and seam reports print copy-pasteable `path:line` locators, and `path: N:`
+  # was neither.
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    BARE_SCRIPT_PATH+=("$dir/SKILL.md:${line%%:*}  ${line#*:}")
+  done <<EOF
+$(awk '
+    /^[[:space:]]*(```|~~~)/ { infence = !infence; next }
+    infence && /bash[[:space:]]+scripts\/[^[:space:]]+\.sh/ {
+      printf "%d:%s\n", NR, $0
+    }
+  ' "$md")
+EOF
+}
+
 # #238 — a local override is the one file the drift mitigations cannot reach.
 # The auto-refresh hook moves the submodule pointer, which never touches a
 # forked file; per-script symlinks track upstream for free; and the symlink
@@ -500,6 +698,9 @@ report_override_unassessed() {
 # an auto-merge — upstream text cannot be applied to a fork blindly.
 check_override_drift() {
   [ -d skills ] || return 0
+  MISSING_FRAGMENT=()
+  MISSING_FRAGMENT_TEXT=()
+  BARE_SCRIPT_PATH=()
   local dir md target repo_dir skill_rel vendor_md o_ver v_ver synced rec rc
   for dir in skills/*; do
     # A regular directory carrying a SKILL.md whose frontmatter names an
@@ -521,6 +722,13 @@ check_override_drift() {
         "no vendor copy at $vendor_md (uninitialized submodule, or the skill moved upstream)"
       continue
     fi
+
+    # BEFORE the version comparisons, and outside every `continue` below them.
+    # An override that matches the vendor's version exactly takes the first
+    # `continue` in the block that follows, which is exactly the state #260
+    # reports: the content check must not sit behind a verdict that says there
+    # is nothing to look at.
+    check_override_content "$dir" "$target" "$vendor_md" "$md"
 
     v_ver="$(frontmatter_value "$vendor_md" version)"
     o_ver="$(frontmatter_value "$md" version)"
@@ -564,10 +772,149 @@ check_override_drift() {
         "'git diff $rec HEAD -- $skill_rel' failed in $repo_dir"
     fi
   done
+  # After the loop, so a repo with several overrides gets one remedy block per
+  # class rather than one per file — the shape check_silent_forks settled on.
+  [ "${#MISSING_FRAGMENT[@]}" -eq 0 ] || report_missing_fragments
+  [ "${#BARE_SCRIPT_PATH[@]}" -eq 0 ] || report_bare_script_paths
   return 0
 }
 
 check_override_drift
+
+# #256 — a vendored file committed as a REGULAR FILE where a symlink was
+# expected stops tracking upstream forever, and nothing detected it: not this
+# doctor, not managing-skills, not the consumer's own tooling.
+#
+# Two vendoring shapes are in use across the cohort and they look identical
+# from a shell, which is why this survived several sweeps:
+#
+#   - a whole-directory symlink at skills/<name> — everything beneath it is
+#     upstream by construction, and nothing can drift;
+#   - a real directory of PER-FILE symlinks — a change reaches it file by
+#     file, so any one file committed as 100644/100755 silently opts out.
+#
+# The cost, measured: cannabis.observer-wordpress carried
+# skills/shipping-work-php/scripts/doc-check.sh as a regular file among five
+# symlinked siblings, still running the pre-#252 matcher, with its own tailored
+# path list matching nothing — the exact bug #252 fixed, sitting undetected in
+# the repo that had tailored the list most carefully. Three others carried a
+# forked SKILL.md, so their scripts updated and the instructions describing
+# them did not.
+#
+# Reported, never healed. A project-local divergence is sometimes deliberate,
+# so the remedy is named and the operator decides. Two ways to say "deliberate":
+# pre-ship.sh by name (upstream ships a stub for the bare variant, and
+# docs/STYLE.md blesses a project-supplied wrapper), and a .skills/forked-ok
+# list for anything else.
+#
+# Warn-only in every mode, including --check-only — same call as the override
+# drift above it (#238). A fork is sync debt an operator pays down on their
+# schedule, and a probe that failed on it would push consumers toward deleting
+# the local file rather than declaring it.
+
+# Basenames a consumer is expected to supply itself. Space-delimited, matched
+# whole.
+FORK_EXEMPT_NAMES=" pre-ship.sh "
+
+# A declared-deliberate fork, one repo-relative path per line, `#` comments and
+# blank lines ignored. Same shape and the same no-trailing-newline guard as
+# doc-check.sh's .skills/doc-sensitive-paths.
+fork_declared() {
+  local want="$1" line
+  [ -f .skills/forked-ok ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ''|\#*) continue ;; esac
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [ "$line" = "$want" ] && return 0
+  done < .skills/forked-ok
+  return 1
+}
+
+# FORKED is check_silent_forks' output channel, declared at top scope for the
+# same reason BROKEN and UNINIT are. One remedy block for the whole list, not
+# one per file: the three repos that forked a SKILL.md would otherwise print
+# the same six lines for every file they link.
+#
+# Two parallel arrays rather than one "path (vendor: path)" string, because the
+# consumer path is the exact text .skills/forked-ok has to hold. The combined
+# form printed a line that could not be pasted into the ack file — the obvious
+# and only implied workflow — and the paste then declared nothing, silently,
+# with the doctor reporting the same fork again next run (#256 CR round 1). An
+# escape hatch that quietly does not apply is the defect it exists to declare.
+declare -a FORKED=()
+declare -a FORKED_VENDOR=()
+
+report_forked() {
+  local i
+  echo "doctor: silently forked — regular files where the vendor ships one:" >&2
+  for i in "${!FORKED[@]}"; do
+    echo "  ${FORKED[$i]}" >&2
+    echo "      (upstream: ${FORKED_VENDOR[$i]})" >&2
+  done
+  echo "doctor: they will never receive upstream fixes, and nothing else" >&2
+  echo "doctor: detects that. Replace each with a relative symlink into" >&2
+  echo "doctor: skills-vendor/ (wrap, don't fork — docs/STYLE.md), or declare" >&2
+  echo "doctor: it deliberate in .skills/forked-ok — one path per line, copied" >&2
+  echo "doctor: exactly as listed above and nothing else on the line; the" >&2
+  echo "doctor: (upstream: …) line is context, not part of the path (#256)." >&2
+  echo "doctor: Advisory: nothing is changed for you." >&2
+}
+
+check_silent_forks() {
+  FORKED=()
+  FORKED_VENDOR=()
+  [ -d skills ] || return 0
+  local dir name vendor_dir vendor_file rel local_file
+  for dir in skills/*; do
+    # A whole-directory symlink cannot fork. A declared override is local by
+    # definition — its drift is check_override_drift's business, not this
+    # one's, and reporting every file in it would bury the real finding.
+    [ -L "$dir" ] && continue
+    [ -d "$dir" ] || continue
+    if [ -f "$dir/SKILL.md" ] \
+      && [ -n "$(frontmatter_value "$dir/SKILL.md" overrides)" ]; then
+      continue
+    fi
+    name="${dir#skills/}"
+    for vendor_dir in skills-vendor/*/skills/"$name"; do
+      [ -d "$vendor_dir" ] || continue
+      # The three directories the spec defines, plus the SKILL.md itself.
+      # Enumerated by glob rather than by `find` so this needs no subprocess
+      # and no exit code to check: an unmatched glob stays literal and the
+      # -f test rejects it.
+      for vendor_file in "$vendor_dir"/*.md "$vendor_dir"/scripts/* \
+        "$vendor_dir"/references/* "$vendor_dir"/assets/*; do
+        [ -f "$vendor_file" ] || continue
+        rel="${vendor_file#"$vendor_dir"/}"
+        case "$FORK_EXEMPT_NAMES" in *" ${rel##*/} "*) continue ;; esac
+        local_file="$dir/$rel"
+        # Absent is not forked: a consumer that links only some of a skill's
+        # files is using less of it, not diverging from it.
+        [ -e "$local_file" ] || continue
+        [ -L "$local_file" ] && continue
+        [ -f "$local_file" ] || continue
+        fork_declared "$local_file" && continue
+        FORKED+=("$local_file")
+        FORKED_VENDOR+=("$vendor_file")
+      done
+      # First matching vendor wins, as everywhere else in this script.
+      break
+    done
+  done
+  if [ "${#FORKED[@]}" -gt 0 ]; then
+    report_forked
+  fi
+  return 0
+}
+
+# Call site 1 of 2. A fresh clone has no vendor tree to compare against, so
+# this pass is silent there and the one below — after the heal, where the tree
+# has only just become readable — is the one that reports. Same two-call shape
+# sync_self uses, for the same reason: the check that needs the vendor content
+# cannot run before the content exists, and a fresh clone or a new worktree is
+# exactly where a consumer runs the doctor first (#256 CR round 1).
+check_silent_forks
 
 # #231 — the audience split, enforced. The unregistered-hook state was detected
 # (#224) and still ungated: every review preflight runs the default invocation,
@@ -1029,6 +1376,7 @@ fi
 # site 1 ran before the init and would have found nothing to sync against.
 sync_self
 
+
 # Re-check after self-heal.
 scan_broken
 if [ "${#BROKEN[@]}" -gt 0 ]; then
@@ -1066,6 +1414,14 @@ if [ "${#UNHELD[@]}" -gt 0 ]; then
   printf '  %s\n' "${UNHELD[@]}" >&2
   exit 1
 fi
+
+# Call site 2 of 2, for the same reason (#256): before the init there was no
+# vendored skill to compare a consumer's regular file against.
+#
+# BELOW the post-heal gates, not above them. This report is advisory and the
+# two checks above exit 1; printing a fork list ahead of a hard failure buries
+# the failure under output the operator does not have to act on today.
+check_silent_forks
 
 [ "$VERBOSE" = "1" ] && echo "doctor: self-healed; all scanned symlinks resolve" >&2
 exit 0
