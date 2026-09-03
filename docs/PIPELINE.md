@@ -274,9 +274,16 @@ construction and that query is unfalsifiable; it pins containment, which is
 worth pinning, and nothing more. The fork that can actually happen is ours
 drifting from the Postgres tier that already publishes these keys to Power Map,
 and the oracle for it is `canonical.roles` — 312 rows against our 312, exact in
-both directions with matching `role_type`s, measured 2026-09-03. `parity_spans`
-diffs them on its own ratchet (`--role-baseline`, default 0), because dbt has
-no session to reach that table.
+both directions, measured 2026-09-03. `parity_spans` diffs them on its own
+ratchet (`--role-baseline`, default 0), because dbt has no session to reach
+that table.
+
+The diff covers the **attributes too**, not just the key (CR 84): `role_type`,
+`name` and `qualifier` are each derived here independently of the tier, and the
+one production instance of this fork changed no key at all — #110 churned 305
+party roles on local `member` against PM's `party_member`. All three measure 0
+mismatches across the 312 roles, so `role_attribute_mismatches` is gated at zero
+rather than ratcheted.
 
 Each family's input carries a **refusal**, on one rule: an input whose absence
 silently deletes facts must refuse, not return empty (CR 57). The roster tier
@@ -316,22 +323,28 @@ message and discards `extra`. Counters that must reach an operator therefore
 belong in a job, not a model: `parity_spans` recomputes the crosswalk join and
 reports it under the harness, where records serialize as JSON.
 
-**Reported is not enough — four counters are gated at zero.** The nightly's
+**Reported is not enough — five counters are gated at zero.** The nightly's
 `OnFailure=` alerting fires on the *exit code*, so a counter that only reaches
 journald tells nobody while the job passes. `unregistered_spans` (a registrar
 gap silently shrinking the published table), `unregistered_orgs` (the same gap
 in the role dimension — a role whose org is unregistered still publishes, by
 design, so nothing else notices it going headless), `malformed_roster_rows`
-(partial roster corruption quietly degrading the #228 deepening) and
-`unparsable_canonical_keys` each carry no known-stale story — unlike the two
-divergence ratchets — and each measures 0 on the live corpus, so any of them
-nonzero exits 1 and names itself in `integrity_failures`.
+(partial roster corruption quietly degrading the #228 deepening),
+`unparsable_canonical_keys` and `role_attribute_mismatches` (the #110 shape —
+same key, different classification) each carry no known-stale story — unlike the
+two divergence ratchets — and each measures 0 on the live corpus, so any of them
+nonzero exits 1 and names itself in `integrity_failures`. The two ratchets name
+themselves in `ratchet_failures` for the same reason (CR 89): they share the
+exit code, so the alert has to say which one moved.
 
 `unregistered_orgs` reaches the probe rather than the model for the reason
 above, and the role keys are derived there from the **spans**, not from the
 crosswalk-joined rows: a slot exists whether or not the person filling it is
-registered, so reading the joined rows would let a registrar gap shrink the role
-dimension too — one defect masking another.
+registered, so reading the joined rows would make the role parity a statement
+about the registry instead of about the derivation (CR 86). A registrar gap
+would then report as a phantom role fork — sending the operator after the wrong
+defect — and would *hide* a genuine fork whose only spans happen to be
+unregistered.
 
 The probe's crosswalk read is **not** the read the model made: the nightly runs
 `dbt build → registrar → publish → parity`, so the registrar may have bound
