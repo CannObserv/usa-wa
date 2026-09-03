@@ -17,6 +17,7 @@ from clearinghouse_sync_powermap.engine import outbox_backlog
 from usa_wa_api.api.datasets import router as datasets_router
 from usa_wa_api.api.deps import get_db_session
 from usa_wa_api.api.redrive import router as redrive_router
+from usa_wa_api.api.serving import router as serving_router
 from usa_wa_api.api.v1 import router as v1_router
 
 logger = get_logger(__name__)
@@ -70,6 +71,9 @@ app.include_router(health_router)
 # The published-dataset surface (#311): /datasets/* static files + the
 # /health/datasets publication probe (the pipeline-era successor to /health/sync).
 app.include_router(datasets_router)
+# The API's own projection of that contract (#313): /health/serving answers
+# "did this deployment load what was published", which /health/datasets cannot.
+app.include_router(serving_router)
 app.include_router(redrive_router)
 # The read-only product surface (#184). Mounted last: the unversioned probes above
 # are deployment contracts and keep their paths.

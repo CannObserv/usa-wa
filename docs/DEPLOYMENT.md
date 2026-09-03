@@ -108,6 +108,12 @@ DDL and DML rights are split across roles so a misconfigured DSN can't migrate/d
 | `usa_wa_test_owner` | owns the **separate** `usa_wa_test` database; DDL | `TEST_DATABASE_URL` — the suite owns its own schema lifecycle (`create_all`/drop per session) |
 
 - `DATABASE_URL` (app role) serves; `DATABASE_URL_OWNER` (owner role, migrate host only) migrates. `alembic/env.py` prefers `DATABASE_URL_OWNER` when set, else `DATABASE_URL`.
+- **`serving` is the one schema alembic does not own** (#313). It is a disposable projection of
+  the published datasets, so `scripts/grants.sql` creates it and grants the app role `CREATE`
+  *inside* it; the loader builds its own tables there and replaces every row each run. Drop the
+  schema and the next `python -m usa_wa_api.serving.load` rebuilds it from `published/` alone.
+  The app role deliberately cannot `CREATE SCHEMA` — Postgres checks that privilege before
+  `IF NOT EXISTS` short-circuits, so the loader never issues one.
 - [`scripts/grants.sql`](../scripts/grants.sql) is the version-controlled source of truth for grants — idempotent, re-applied after every migration by [`scripts/migrate.sh`](../scripts/migrate.sh). `ALTER DEFAULT PRIVILEGES` means new tables auto-grant DML to the app role. **Add new schemas to it** when a migration introduces one.
 - Provision prod once as superuser: `psql -d usa_wa -v reassign_from=usa_wa -f scripts/grants.sql` (then per-role `ALTER ROLE … PASSWORD` out-of-band; passwords are never committed).
 - The **test DB** needs only its role + ownership — do **not** run `grants.sql` against it (its schemas don't exist until the suite creates them, so the schema-grant steps would error). Provision with: `psql -c "CREATE ROLE usa_wa_test_owner LOGIN PASSWORD '…'"` then `ALTER DATABASE usa_wa_test OWNER TO usa_wa_test_owner`.
