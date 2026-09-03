@@ -16,9 +16,16 @@ roster, #82) — parsed as an empty list, not an error.
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from usa_wa_adapter_legislature.transport import WSLClient
+
+# One lock over every parse call: the shared WSLClient singletons are
+# single-threaded by contract (transport.py), and zeep binding internals are
+# not vetted for concurrency — dbt's threads:1 relies on this seam staying
+# serialized even if a future consumer parallelizes (#302 CR).
+_parse_lock = threading.Lock()
 
 _committee_client = WSLClient("CommitteeService")
 _meeting_client = WSLClient("CommitteeMeetingService")
@@ -29,25 +36,29 @@ def parse_committees(wire: bytes) -> list[dict[str, Any]]:
     """Archived ``GetCommittees`` envelope → committee dicts."""
     if not wire:
         return []
-    return _committee_client._parse_committees_sync(wire)
+    with _parse_lock:
+        return _committee_client._parse_committees_sync(wire)
 
 
 def parse_committee_members(wire: bytes) -> list[dict[str, Any]]:
     """Archived ``GetCommitteeMembers`` envelope → member dicts."""
     if not wire:
         return []
-    return _committee_client._parse_historical_committee_members_sync(wire)
+    with _parse_lock:
+        return _committee_client._parse_historical_committee_members_sync(wire)
 
 
 def parse_sponsors(wire: bytes) -> list[dict[str, Any]]:
     """Archived ``GetSponsors`` envelope → sponsor dicts."""
     if not wire:
         return []
-    return _sponsor_client._parse_sponsors_sync(wire)
+    with _parse_lock:
+        return _sponsor_client._parse_sponsors_sync(wire)
 
 
 def parse_committee_meetings(wire: bytes) -> list[dict[str, Any]]:
     """Archived ``GetCommitteeMeetings`` envelope → meeting dicts."""
     if not wire:
         return []
-    return _meeting_client._parse_committee_meetings_sync(wire)
+    with _parse_lock:
+        return _meeting_client._parse_committee_meetings_sync(wire)

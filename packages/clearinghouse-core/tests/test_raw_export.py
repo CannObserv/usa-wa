@@ -8,14 +8,17 @@ payload-less FetchEvents (dedup shares) skipped, resumable by FetchEvent id.
 """
 
 import hashlib
+import json
 from datetime import UTC, datetime
 
 import pytest
 
+from clearinghouse_core import raw_export as raw_export_module
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
-from clearinghouse_core.raw_export import ExportMismatch, export_corpus
+from clearinghouse_core.raw_export import ExportMismatch, export_corpus, main
 from clearinghouse_core.rawstore import RawStore
+from clearinghouse_core.testing import patch_job_runtime
 
 pytestmark = pytest.mark.db
 
@@ -89,8 +92,6 @@ async def test_exports_payloads_with_verified_hashes(db_session, tmp_path) -> No
 
     store = RawStore(tmp_path, "fake_source")
     [manifest_path] = store.manifest_paths()
-    import json
-
     manifest = json.loads(manifest_path.read_text())
     by_resource = {e["resource_id"]: e for e in manifest["entries"]}
     assert set(by_resource) == {"r1", "r2"}
@@ -123,3 +124,26 @@ async def test_resumable_by_cursor(db_session, tmp_path) -> None:
 
     again = await export_corpus(db_session, tmp_path, after_event_id=rest["last_event_id"])
     assert again["exported"] == 0
+
+
+def test_cli_persists_and_resumes_cursor(tmp_path, monkeypatch) -> None:
+    """The resumability contract the module docstring leads with: the CLI
+    persists ``last_event_id`` and hands it back as the next run's cursor."""
+    patch_job_runtime(monkeypatch)
+    calls: list[str | None] = []
+
+    async def fake_export(session, root, *, after_event_id=None, limit=None):
+        calls.append(after_event_id)
+        assert limit == 1
+        return {"exported": 1, "unchanged": 0, "unbaselined": 0, "last_event_id": "evt-7"}
+
+    monkeypatch.setattr(raw_export_module, "export_corpus", fake_export)
+    assert main(["--root", str(tmp_path), "--limit", "1", "--json"]) == 0
+    state = json.loads((tmp_path / ".rawpayload_export_state.json").read_text())
+    assert state["last_event_id"] == "evt-7"
+
+    assert main(["--root", str(tmp_path), "--limit", "1", "--json"]) == 0
+    assert calls == [None, "evt-7"]
+
+    assert main(["--root", str(tmp_path), "--limit", "1", "--reset-cursor", "--json"]) == 0
+    assert calls[-1] is None

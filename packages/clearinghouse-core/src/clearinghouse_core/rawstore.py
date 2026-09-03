@@ -19,13 +19,20 @@ and kept indefinitely.
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
 import secrets
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
+
+from clearinghouse_core.logging import get_logger
+
+logger = get_logger(__name__)
 
 RAW_ROOT_ENV = "USA_WA_RAW_ROOT"
 _DEFAULT_ROOT = "raw"
@@ -67,7 +74,18 @@ class VerifyResult:
 
     @property
     def clean(self) -> bool:
+        """True when the pass found no mismatched and no missing objects."""
         return not self.mismatched and not self.missing
+
+
+@dataclass(frozen=True)
+class RecordOutcome:
+    """What one :func:`record_fetch` did: exactly one of the three shapes —
+    a payload landed, the resource was TTL-fresh, or the fetch errored."""
+
+    payload: Any | None
+    skipped_fresh: bool
+    error: bool
 
 
 class RawStore:
@@ -81,7 +99,13 @@ class RawStore:
         self.runs_dir = self.source_dir / "runs"
 
     def put_object(self, body: bytes) -> tuple[str, bool]:
-        """Store ``body`` under its sha256. Returns ``(sha256, newly_stored)``."""
+        """Store ``body`` under its sha256. Returns ``(sha256, newly_stored)``.
+
+        Deliberately trusts an existing file's name over its bytes: a corrupted
+        object on disk is NOT repaired by a later genuine re-fetch — the
+        integrity sweep detects the mismatch and repair is a manual act, so a
+        tampered store never self-launders under routine harvesting.
+        """
         sha = hashlib.sha256(body).hexdigest()
         path = self.object_path(sha)
         if path.exists():
@@ -93,12 +117,15 @@ class RawStore:
         return sha, True
 
     def object_path(self, sha256: str) -> Path:
+        """Sharded on-disk path of the object stored under ``sha256``."""
         return self.objects_dir / sha256[:2] / sha256
 
     def open_run(self, run_id: str | None = None) -> RawRun:
+        """Start recording one harvest run (buffered; visible on ``close``)."""
         return RawRun(self, run_id=run_id)
 
     def manifest_paths(self) -> list[Path]:
+        """Every closed run manifest of this source, oldest first."""
         if not self.runs_dir.is_dir():
             return []
         return sorted(self.runs_dir.glob("*.json"))
@@ -122,6 +149,18 @@ class RawStore:
         return now - fetched <= timedelta(days=ttl_days)
 
     def _update_latest(self, entries: list[dict], run_id: str) -> None:
+        # Read-modify-write under an exclusive per-source flock: two runs
+        # closing concurrently on one source (live harvest + #305 export, the
+        # overlap raw_export blesses) must not clobber each other's entries.
+        self.source_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.source_dir / ".latest.lock", "w") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                self._update_latest_locked(entries, run_id)
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    def _update_latest_locked(self, entries: list[dict], run_id: str) -> None:
         path = self.source_dir / "latest.json"
         latest = self.latest()
         for entry in entries:
@@ -219,6 +258,49 @@ class RawRun:
         tmp.replace(path)
         self.store._update_latest(self._entries, self.run_id)
         return path
+
+
+async def record_fetch(
+    run: RawRun,
+    store: RawStore,
+    resource_id: str,
+    url: str,
+    fetcher: Callable[[], Awaitable[Any]],
+    counters: dict[str, int],
+    ttl_days: float,
+    *,
+    log_event: str,
+) -> RecordOutcome:
+    """The shared Phase-A loop body: TTL fresh-skip, fetch, per-resource error
+    containment, dedup-aware record. One implementation for every harvester —
+    the three hand-rolled copies diverged (#302 CR).
+
+    ``counters`` must carry ``fetched``/``unchanged``/``skipped_fresh``/``errors``.
+    ``fetcher`` returns an adapter fetch object exposing ``.wire`` (bytes) and
+    optionally ``.content_type``. An error is contained: recorded ``err``,
+    logged under ``log_event``, counted — never raised.
+    """
+    if ttl_days and store.is_fresh(resource_id, ttl_days=ttl_days):
+        run.record(resource_id, None, url=url, status="skipped")
+        counters["skipped_fresh"] += 1
+        return RecordOutcome(payload=None, skipped_fresh=True, error=False)
+    try:
+        payload = await fetcher()
+    except Exception:
+        logger.exception(log_event, extra={"resource_id": resource_id})
+        run.record(resource_id, None, url=url, status="err")
+        counters["errors"] += 1
+        return RecordOutcome(payload=None, skipped_fresh=False, error=True)
+    recorded = run.record(
+        resource_id,
+        payload.wire,
+        url=url,
+        content_type=getattr(payload, "content_type", None),
+    )
+    counters["fetched"] += 1
+    if not recorded.newly_stored:
+        counters["unchanged"] += 1
+    return RecordOutcome(payload=payload, skipped_fresh=False, error=False)
 
 
 def verify_store(
