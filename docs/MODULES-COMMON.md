@@ -1,5 +1,7 @@
 # Modules — usa-wa-common (Layer 2b)
 
+**#310 ownership transfer**: `jurisdictions.py` (the declared WA jurisdiction registry — country, state, 49 LDs, 39 counties, 10 CDs, extracted verbatim from the PM mirror 2026-09-03) + `seed_jurisdictions.py` (`jurisdictions-seed`: slug-keyed upsert that asserts the vocabulary into `clearinghouse_core.jurisdictions`; strangers counted, never deleted). The table's writer is now this vocabulary, not the sidecar; a redistricting edit happens here first.
+
 Washington-State legislative **vocabulary**, source-free. Created by #189 (AR-14) as the home
 for code that is a fact about Washington's legislature rather than about any one publisher of
 data about it.
