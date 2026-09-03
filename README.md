@@ -95,7 +95,7 @@ environment) are indexed under **Detail Docs** in [`AGENTS.md`](AGENTS.md).
 ## Deploy
 
 The systemd units live under [`deploy/`](deploy/) — the live API plus a sync
-sidecar, a migrate oneshot, and eleven timer-driven oneshots.
+sidecar, a migrate oneshot, and twelve timer-driven oneshots.
 
 Production secrets live in `/etc/usa-wa/.env` (managed manually on the VM, not in
 the repo) — **this file must exist before enabling any unit**, or migrate (owner
@@ -148,6 +148,9 @@ sudo systemctl enable --now usa-wa-senate-corroboration.timer               # da
 sudo systemctl enable --now usa-wa-house-corroboration.timer                # daily 07:05 UTC (#149)
 sudo systemctl enable --now usa-wa-succession-invariants.timer              # daily 07:15 UTC (#107)
 sudo systemctl enable --now usa-wa-committee-lineage-invariants.timer       # daily 07:30 UTC (#124 C4)
+
+# Dataset pipeline (daily) — the #302 publish chain
+sudo systemctl enable --now usa-wa-pipeline.timer                           # daily 08:00 UTC (#311)
 
 # Reconcile + sweep (weekly)
 sudo systemctl enable --now usa-wa-reconcile-committee-active.timer         # weekly Sun 07:00 UTC
