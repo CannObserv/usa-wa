@@ -75,6 +75,39 @@ raw/<source-slug>/
 - Retention: the tracked sources are archival (#54) — nothing deletes; manifests are
   small and kept indefinitely.
 
+## Staging: legislature (#306)
+
+Five models under `models/staging/`, each a thin adapter over a pytest-covered
+row-builder in `usa_wa_pipeline.staging` (wsl.py / roster.py); the offline SOAP
+parse goes through `usa_wa_adapter_legislature.parsing` (same operation
+bindings as the live pulls; one WSDL GET per service, amortized):
+
+| Model | Key | Notes |
+|---|---|---|
+| `stg_wsl_committees` | (biennium, committee_id) | newest `committees-roster:*` wire per biennium |
+| `stg_wsl_sponsors` | (biennium, member_id, agency) | a chamber move lists both agencies |
+| `stg_wsl_committee_members` | (biennium, committee_id, member_id, long_name) | chamber movers list twice; committee key rides the resource id (#82) |
+| `stg_wsl_meetings` | none (raw refs) | all agencies kept; Joint/`Other` filter is downstream policy |
+| `stg_roster_members` | (year, chamber, district, order, name) | order is seat-lineage order (#229): a successor inherits it |
+
+Composite keys + coverage floors (sponsors 1991-92, roster 1889) live as
+singular tests under `dbt/tests/` — vacuous on an empty store, so the hermetic
+commit gate stays fast.
+
+**Parity probe** (the transition oracle's comparator, write-free):
+
+```bash
+uv run python -m usa_wa_pipeline.parity_wsl --root /home/exedev/usa-wa/raw
+```
+
+Diffs staging key sets against live canonical Postgres; exit 1 on any
+unexplained divergence. Accepted divergences are code (`parity_wsl.ACCEPTED`),
+each with a named reason, and a stale acceptance fails the run. Verified clean
+2026-09-03: committees 208/186 with 22 accepted (archived-meeting Joint/`Other`
+bodies canonical never normalized), sponsors 640/641 with 1 accepted (the Lt.
+Governor's ex-officio Rules seat from the retired `committee-members:`
+vocabulary).
+
 ## TDD for dbt models
 
 Red → Green → Refactor applies; what changes is where each color lives:

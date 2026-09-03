@@ -1,15 +1,49 @@
 # staging layer: one cleaning regime per source, NATURAL KEYS ONLY — no ULIDs,
-# no cross-source joins (replatform spec § Target architecture). Real models
-# arrive with #306 (legislature) and #307 (PDC + SOS).
+# no cross-source joins (replatform spec § Target architecture). Composite-key
+# uniqueness lives in the singular tests under tests/ (one file per key).
 version: 2
 
 models:
-  - name: stg_scaffold_smoke
-    description: Scaffold smoke model; retired when real staging models land.
+  - name: stg_wsl_committees
+    description: One row per (biennium, committee) from the newest committees-roster wire.
     columns:
-      - name: id
-        data_tests: [not_null, unique]
-      - name: label
-        data_tests:
-          - accepted_values:
-              values: ["ok"]
+      - name: biennium
+        data_tests: [not_null]
+      - name: committee_id
+        data_tests: [not_null]
+      - name: agency
+        data_tests: [not_null]
+  - name: stg_wsl_sponsors
+    description: One row per (biennium, member, agency) — a chamber move lists both agencies.
+    columns:
+      - name: biennium
+        data_tests: [not_null]
+      - name: member_id
+        data_tests: [not_null]
+  - name: stg_wsl_committee_members
+    description: One row per (biennium, committee, member, honorific) — chamber movers list twice (see tests/); committee key rides the resource id (#82).
+    columns:
+      - name: biennium
+        data_tests: [not_null]
+      - name: committee_id
+        data_tests: [not_null]
+      - name: member_id
+        data_tests: [not_null]
+  - name: stg_wsl_meetings
+    description: One row per (window, meeting, committee ref) — duplicates across meetings are the source's truth; dedup is downstream policy.
+    columns:
+      - name: meeting_window
+        data_tests: [not_null]
+      - name: committee_id
+        data_tests: [not_null]
+  - name: stg_roster_members
+    description: Member-year rows from the newest roster-PDF revision; order is seat-lineage order (#229).
+    columns:
+      - name: year
+        data_tests: [not_null]
+      - name: district
+        data_tests: [not_null]
+      - name: chamber
+        data_tests: [not_null]
+      - name: name
+        data_tests: [not_null]

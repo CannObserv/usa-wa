@@ -30,6 +30,7 @@ def test_dbt_build_green(tmp_path, monkeypatch) -> None:
     from dbt.cli.main import dbtRunner
 
     monkeypatch.setenv("USA_WA_PIPELINE_DB", str(tmp_path / "test.duckdb"))
+    monkeypatch.setenv("USA_WA_RAW_ROOT", str(tmp_path / "raw"))
     result = dbtRunner().invoke(
         [
             "build",
@@ -72,6 +73,7 @@ def test_dbt_data_test_failure_is_red(tmp_path, monkeypatch) -> None:
         "              values: ['ok']\n"
     )
     monkeypatch.setenv("USA_WA_PIPELINE_DB", str(tmp_path / "test.duckdb"))
+    monkeypatch.setenv("USA_WA_RAW_ROOT", str(tmp_path / "raw"))
     result = dbtRunner().invoke(
         [
             "build",

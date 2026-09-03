@@ -39,6 +39,7 @@ reserved for "aborted, took no action") — see
 | `python -m usa_wa_adapter_sos.raw_harvest` | Filings + results wires into the raw file store (#304), both SOS sources one run |
 | `python -m clearinghouse_core.raw_integrity` | Raw-store integrity sweep — re-hash file objects vs manifests, rolling byte-slice + cursor (#304); exit 1 = corruption |
 | `python -m clearinghouse_core.raw_export` | One-shot hash-preserving RawPayload corpus export into the raw store (#305); resumable cursor, `--reset-cursor`, mismatch = exit 1 |
+| `python -m usa_wa_pipeline.parity_wsl` | Write-free parity probe: WSL staging rows vs. canonical Postgres (#306); exit 1 = unexplained divergence |
 
 ### Seat-fact backfills
 

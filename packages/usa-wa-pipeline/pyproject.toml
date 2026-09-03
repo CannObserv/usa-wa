@@ -7,7 +7,14 @@ requires-python = ">=3.12"
 dependencies = [
     "dbt-core>=1.9,<2",
     "dbt-duckdb>=1.9,<2",
+    "pandas>=2.0,<3",
+    "clearinghouse-core",
+    "usa-wa-adapter-legislature",
 ]
+
+[tool.uv.sources]
+clearinghouse-core = { workspace = true }
+usa-wa-adapter-legislature = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
