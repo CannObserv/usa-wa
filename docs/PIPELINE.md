@@ -202,8 +202,8 @@ publish with a green build).
 ## Conformed: tenure spans (#309 part 2)
 
 `models/conformed/assignments.py` is a thin binder over
-`usa_wa_pipeline.conformed.spans` — merged tenure spans for the three kinds the
-tier owns today (`party`, `chamber-senate`, `committee`), joined to the person
+`usa_wa_pipeline.conformed.spans` — merged tenure spans for all four kinds
+(`party`, `chamber-senate`, `committee`, `chamber-house`), joined to the person
 crosswalk. The span `source_id`'s parts become real columns
 (`span_kind` / `span_discriminator` / `span_start_biennium`), retiring the
 string-splitting workaround `docs/API.md` documents.
@@ -240,9 +240,28 @@ order — each encodes a production incident. Two structural differences:
   the `load_context_spans` read exist to mutate a durable table; a stateless
   transform recomputes everything, so a span the archive stops asserting is
   simply absent (retraction-as-absence, the publication contract).
-- **Context spans come from the same run** (#267): committee spans build first
-  and serve as the sponsor build's context, so there is no cross-builder
-  blindness. `chamber-house` is still missing until the facts-seats port.
+- **Context spans come from the same run** (#267): committee spans build first,
+  then House, and both serve as the sponsor build's context — no cross-builder
+  blindness and no DB read. With `chamber-house` landed the seam is complete:
+  Liz Pike's 2,190-day party gap, the incident #267 is named for, is exactly a
+  member who returned only to a House seat.
+
+**The House Position seat** (`conformed/house.py`) is the Layer-3b composition
+the other families do not need: WSL owns *who sits* (the sponsor roster — LD +
+party), SOS owns *which position* (the ballot's Position 1/2). The #105 (a)
+mover exclusion, the #123 even-seating ∪ odd-special-**winners** map, the #118
+back-chain and the #103 within-LD elimination are imported unchanged from
+`usa_wa_facts_seats.house`. `restrict_to_biennium` dissolves with the rest of
+the DB half — a stateless rebuild is unconditionally the unrestricted, deep
+one, so the #100 depth-mismatch question cannot arise here at all.
+
+Each family's input carries a **refusal**, on one rule: an input whose absence
+silently deletes facts must refuse, not return empty (CR 57). The roster tier
+for the #228 deepening, the SOS ballot for the House seat — chamber-house is
+~4% of the table, inside the publish gate's 10% shrink floor, so its
+disappearance is exactly the kind nothing downstream would catch. Both have an
+explicit seam (`extra_observations`, `house_spans`) for stating the family
+rather than deriving it.
 
 Two curated Postgres inputs, both read through explicit seams and both empty
 only under `USA_WA_PIPELINE_HERMETIC=1`: the registry crosswalk
@@ -288,7 +307,8 @@ correctly reads as zero.
 diffs both families against `canonical.assignments` — keyed on
 `(source, source_id)` — and gates on a **ratchet**, not equality: measured
 2026-09-03 the stored rows diverge by 82 (79 missing / 2 extra / 1 dated
-differently). For the WSL family (45 of those) running the Postgres-tier
+differently). `chamber-house` contributes **none** of that: 329 built, 329
+canonical, exact. For the WSL family (45 of those) running the Postgres-tier
 adapter's *own* pipeline fresh that day reproduced the identical divergence,
 because the stored rows predate the current identity resolve (#277/#281); port
 and adapter agreed with each other exactly, 4,851 = 4,851, zero differences.

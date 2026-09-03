@@ -49,6 +49,7 @@ def model(dbt, session):
             sponsors=sponsors,
             committee_members=dbt.ref("stg_wsl_committee_members").df().to_dict("records"),
             roster=roster,
+            sos_results=dbt.ref("stg_sos_results").df().to_dict("records"),
             events=events,
         ),
         current_biennium=current_biennium,
