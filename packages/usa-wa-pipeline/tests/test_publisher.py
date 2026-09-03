@@ -1,0 +1,115 @@
+"""The dataset publisher (#311): built duckdb → immutable versions + catalog."""
+
+import json
+
+import duckdb
+import pytest
+
+from usa_wa_pipeline.publish import PublishRefused, publish
+
+
+@pytest.fixture
+def built_db(tmp_path):
+    db = tmp_path / "pipeline.duckdb"
+    con = duckdb.connect(str(db))
+    con.execute("create table persons as select '01A' as entity_id, 'Dana' as name_full")
+    con.execute(
+        "create table person_crosswalk as "
+        "select '01A' as entity_id, 'usa_wa_legislature:1' as natural_key"
+    )
+    con.close()
+    return db
+
+
+def _manifest(tmp_path):
+    path = tmp_path / "manifest.json"
+    path.write_text(
+        json.dumps(
+            {
+                "nodes": {
+                    "model.usa_wa_pipeline.persons": {
+                        "depends_on": {"nodes": ["model.usa_wa_pipeline.person_crosswalk"]}
+                    },
+                    "model.usa_wa_pipeline.person_crosswalk": {"depends_on": {"nodes": []}},
+                }
+            }
+        )
+    )
+    return path
+
+
+DATASETS = [("persons", "conformed"), ("person_crosswalk", "conformed")]
+
+
+def test_publish_mints_versions_and_catalog(built_db, tmp_path):
+    out = tmp_path / "datasets"
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    assert summary["minted"] == 2
+
+    catalog = json.loads((out / "catalog.json").read_text())
+    entry = next(d for d in catalog["datasets"] if d["name"] == "persons")
+    version = entry["latest_version"]
+    assert entry["tier"] == "conformed"
+    assert entry["rows"] == 1
+    assert entry["derived_from"] == ["person_crosswalk"]
+
+    package = json.loads((out / "persons" / version / "datapackage.json").read_text())
+    [resource] = package["resources"]
+    assert resource["hash"].startswith("sha256:")
+    field_names = [f["name"] for f in resource["schema"]["fields"]]
+    assert field_names == ["entity_id", "name_full"]
+    data = (out / "persons" / version / "data.csv").read_text()
+    assert "Dana" in data
+
+
+def test_publish_skips_unchanged(built_db, tmp_path):
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    assert summary["minted"] == 0
+    assert summary["unchanged"] == 2
+    versions = [p.name for p in (out / "persons").iterdir() if p.is_dir()]
+    assert len(versions) == 1
+
+
+def test_publish_gate_refuses_shrink(built_db, tmp_path):
+    out = tmp_path / "datasets"
+    con = duckdb.connect(str(built_db))
+    con.execute("insert into persons select '01B', 'Two'")
+    con.execute("insert into persons select '01C', 'Three'")
+    con.execute("insert into persons select '01D', 'Four'")
+    con.close()
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+    con = duckdb.connect(str(built_db))
+    con.execute("delete from persons where entity_id != '01A'")  # 4 → 1: a 75% shrink
+    con.close()
+    with pytest.raises(PublishRefused, match="persons"):
+        publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    # the refused run minted nothing anywhere and the catalog still lists v1
+    catalog = json.loads((out / "catalog.json").read_text())
+    entry = next(d for d in catalog["datasets"] if d["name"] == "persons")
+    assert entry["rows"] == 4
+
+
+def test_publish_refuses_missing_table(built_db, tmp_path):
+    with pytest.raises(PublishRefused, match="nope"):
+        publish(
+            built_db,
+            tmp_path / "datasets",
+            _manifest(tmp_path),
+            datasets=[("nope", "conformed")],
+        )
+
+
+def test_shrink_gate_overridable_per_run(built_db, tmp_path):
+    out = tmp_path / "datasets"
+    con = duckdb.connect(str(built_db))
+    con.execute("insert into persons select '01B', 'Two'")
+    con.close()
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    con = duckdb.connect(str(built_db))
+    con.execute("delete from persons where entity_id != '01A'")
+    con.close()
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS, max_shrink=1.0)
+    assert summary["minted"] == 1

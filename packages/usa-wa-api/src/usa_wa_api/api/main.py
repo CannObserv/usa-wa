@@ -14,6 +14,7 @@ from clearinghouse_core.config import get_settings
 from clearinghouse_core.database import get_session_factory, log_connection_fingerprint
 from clearinghouse_core.logging import configure_logging, get_logger
 from clearinghouse_sync_powermap.engine import outbox_backlog
+from usa_wa_api.api.datasets import router as datasets_router
 from usa_wa_api.api.deps import get_db_session
 from usa_wa_api.api.redrive import router as redrive_router
 from usa_wa_api.api.v1 import router as v1_router
@@ -66,6 +67,9 @@ async def health_sync(session: AsyncSession = Depends(get_db_session)) -> dict:
 
 
 app.include_router(health_router)
+# The published-dataset surface (#311): /datasets/* static files + the
+# /health/datasets publication probe (the pipeline-era successor to /health/sync).
+app.include_router(datasets_router)
 app.include_router(redrive_router)
 # The read-only product surface (#184). Mounted last: the unversioned probes above
 # are deployment contracts and keep their paths.

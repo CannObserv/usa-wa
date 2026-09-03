@@ -47,6 +47,7 @@ reserved for "aborted, took no action") — see
 | `python -m usa_wa_pipeline.adjudicate` | Merge entities / move a key, `--note` mandatory, recorded in `registry.adjudications` (#308) |
 | `python -m usa_wa_pipeline.parity_registry` | Write-free parity: every canonical row's key maps to its own ULID in the registry (#308) |
 | `python -m usa_wa_pipeline.anchor_export` | One-time PM crosswalk seed: every `pm_*` anchor as base32 pairs + manifest (#312); read-only |
+| `python -m usa_wa_pipeline.publish` | Publish versioned dataset snapshots + catalog from the built duckdb (#311); shrink gate refuses a degraded build (`--max-shrink` overrides); exit 1 = refused, nothing minted |
 
 ### Seat-fact backfills
 
