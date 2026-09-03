@@ -52,5 +52,20 @@ models:
         data_tests: [not_null]
       - name: span_start_biennium
         data_tests: [not_null]
+      - name: role_key
+        data_tests: [not_null]
       - name: valid_from
+        data_tests: [not_null]
+  - name: roles
+    description: "The seat/slot dimension the assignments name (#309). role_key is a DETERMINISTIC structural key — a pure function of the seat, identical on every run and aligned 1:1 with Power Map's seat match key — so it needs no registry; only org_entity_id is registry-joined."
+    columns:
+      - name: role_key
+        data_tests: [not_null, unique]
+      - name: role_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["party_member", "committee_member", "state_senator", "state_representative"]
+      - name: org_source_id
         data_tests: [not_null]
