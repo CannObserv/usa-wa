@@ -1,5 +1,6 @@
 """Conformed persons/orgs survivorship (#309): registry ⨝ staging, pure."""
 
+import usa_wa_pipeline.conformed.entities as mod
 from usa_wa_pipeline.conformed.entities import org_rows, person_rows
 
 CROSSWALK = [
@@ -37,7 +38,6 @@ PDC = [{"person_id": "999", "filer_name": "DOE JANE", "election_year": 2024}]
 
 
 def test_person_survivorship_roster_over_wsl_over_pdc(monkeypatch) -> None:
-    import usa_wa_pipeline.conformed.entities as mod
 
     monkeypatch.setattr(mod, "identity_fold", lambda name: "danawhitfield")
     rows = person_rows(CROSSWALK, sponsors=SPONSORS, roster=ROSTER, pdc=PDC)
@@ -120,3 +120,25 @@ def test_org_rows_meeting_derived_fallback() -> None:
     [row] = org_rows(crosswalk, committees=[], meetings=meetings)
     assert row["name"] == "JLARC"
     assert row["agency"] == "Joint"
+
+
+def test_org_rows_structural_branch_uses_verbatim_vocabulary() -> None:
+    """CR 31g: the chambers/legislature/parties take their names and types from
+    STRUCTURAL_ORGS, not from any attested wire."""
+    crosswalk = [
+        {
+            "entity_id": "03A",
+            "key_namespace": "usa_wa_legislature",
+            "key_value": "usa_wa_house",
+            "merged_into": None,
+        },
+    ]
+    [row] = org_rows(crosswalk, committees=COMMITTEES, meetings=[])
+    assert row["name"] == "Washington State House of Representatives"
+    assert row["org_type"] == "chamber"
+    assert row["first_biennium"] is None
+
+
+def test_org_rows_drop_tombstoned_entities() -> None:
+    merged = [dict(ORG_CROSSWALK[0], merged_into="09Z")]
+    assert org_rows(merged, committees=COMMITTEES, meetings=[]) == []

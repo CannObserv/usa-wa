@@ -99,8 +99,15 @@ class RegistryAdjudication(Base):
     id: Mapped[_PyULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     action: Mapped[str] = mapped_column(String(16), nullable=False)  # merge | split | move
-    subject_entity_id: Mapped[_PyULID | None] = mapped_column(ULID(), nullable=True)
-    target_entity_id: Mapped[_PyULID | None] = mapped_column(ULID(), nullable=True)
+    # FK-backed (#302 CR): the only ledger that moves identity must not be
+    # able to reference an entity that does not exist (entities are never
+    # deleted, so the constraint costs nothing)
+    subject_entity_id: Mapped[_PyULID | None] = mapped_column(
+        ULID(), ForeignKey(f"{SCHEMA}.entities.id"), nullable=True
+    )
+    target_entity_id: Mapped[_PyULID | None] = mapped_column(
+        ULID(), ForeignKey(f"{SCHEMA}.entities.id"), nullable=True
+    )
     natural_key: Mapped[str | None] = mapped_column(String(256), nullable=True)
     note: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

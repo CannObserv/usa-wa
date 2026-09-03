@@ -1,9 +1,10 @@
 """The registrar (#308): proposed link pairs → clusters → registry writes."""
 
+import duckdb
 import pytest
 
-from clearinghouse_core.registry import KIND_PERSON, registered_view
-from usa_wa_pipeline.registrar import cluster_pairs, run_registrar
+from clearinghouse_core.registry import KIND_PERSON, apply_decision, decide, registered_view
+from usa_wa_pipeline.registrar import cluster_pairs, load_pairs, run_registrar
 
 
 def test_cluster_pairs_connected_components() -> None:
@@ -15,8 +16,6 @@ def test_cluster_pairs_connected_components() -> None:
 
 @pytest.mark.db
 async def test_registrar_mints_appends_and_reports_conflicts(db_session) -> None:
-    from clearinghouse_core.registry import apply_decision, decide
-
     # pre-register two distinct entities the conflict pair will collide across
     a = await apply_decision(
         db_session, KIND_PERSON, decide(frozenset({"wsl:1"}), {}), registered_by="test"
@@ -47,8 +46,6 @@ async def test_registrar_mints_appends_and_reports_conflicts(db_session) -> None
 
 @pytest.mark.db
 async def test_registrar_clean_append(db_session) -> None:
-    from clearinghouse_core.registry import apply_decision, decide
-
     a = await apply_decision(
         db_session, KIND_PERSON, decide(frozenset({"wsl:1"}), {}), registered_by="test"
     )
@@ -63,3 +60,18 @@ async def test_registrar_idempotent(db_session) -> None:
     summary = await run_registrar(db_session, KIND_PERSON, pairs=[("a:1", "b:2")])
     assert summary["minted"] == 0
     assert summary["noops"] == 1
+
+
+def test_load_pairs_filters_on_kind(tmp_path) -> None:
+    """CR 20: an org rule unioned into proposed_links must never reach the
+    person registration path — load_pairs reads one kind only."""
+    db_path = str(tmp_path / "m.duckdb")
+    con = duckdb.connect(db_path)
+    con.execute(
+        "create table proposed_links as select * from (values "
+        "('person', 'a', 'b', 'r', 1.0), ('org', 'x', 'y', 'r', 1.0)"
+        ") t(kind, left_key, right_key, rule, score)"
+    )
+    con.close()
+    assert load_pairs(db_path) == [("a", "b")]
+    assert load_pairs(db_path, "org") == [("x", "y")]

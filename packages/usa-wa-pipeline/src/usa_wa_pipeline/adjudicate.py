@@ -4,14 +4,18 @@
         --loser <ULID> --survivor <ULID> --note "…"
     python -m usa_wa_pipeline.adjudicate move --kind person \
         --key <natural-key> --to <ULID> --note "…"
+    python -m usa_wa_pipeline.adjudicate unmerge --kind person \
+        --entity <ULID> --note "…"
 
 Corrections are always adjudications (sticky registry, spec § tradeoffs): a
 merge sets the loser's ``merged_into`` tombstone — the signal the published
 crosswalk carries and PM's mapping layer follows — and a move re-points one
 natural key. Every action writes a ``registry.adjudications`` row with its
-note; there is no delete and no undo (a wrong adjudication is corrected by
-another adjudication, so the trail stays whole). ``--note`` is mandatory: an
-unexplained identity decision is exactly what the trail exists to prevent.
+note; there is no delete (a wrong adjudication is corrected by another
+adjudication, so the trail stays whole — a wrong merge specifically by
+``unmerge``, never by a reverse merge, which would cycle the tombstones).
+``--note`` is mandatory: an unexplained identity decision is exactly what the
+trail exists to prevent.
 """
 
 from __future__ import annotations
@@ -34,18 +38,36 @@ JOB_SLUG = "registry-adjudicate"
 async def _require_entity(session: AsyncSession, kind: str, entity_id: str) -> RegistryEntity:
     entity = await session.get(RegistryEntity, entity_id)
     if entity is None or entity.kind != kind:
-        raise ValueError(f"no live {kind} entity {entity_id!r} in the registry")
+        raise ValueError(f"no {kind} entity {entity_id!r} in the registry")
+    return entity
+
+
+async def _require_live_entity(session: AsyncSession, kind: str, entity_id: str) -> RegistryEntity:
+    entity = await _require_entity(session, kind, entity_id)
+    if entity.merged_into is not None:
+        raise ValueError(
+            f"{kind} entity {entity_id!r} is tombstoned (merged into "
+            f"{entity.merged_into!s}) — a merge survivor or move destination "
+            "must be live; correct a wrong merge with the unmerge verb"
+        )
     return entity
 
 
 async def adjudicate_merge(
     session: AsyncSession, kind: str, *, loser: str, survivor: str, note: str
 ) -> None:
-    """Tombstone ``loser`` into ``survivor`` and record the decision."""
+    """Tombstone ``loser`` into ``survivor`` and record the decision.
+
+    The survivor must be LIVE (CR 1): a reverse merge (B→A after A→B) would
+    create a tombstone cycle that drops both entities from conformed and loops
+    the published crosswalk — the correction for a wrong merge is
+    :func:`adjudicate_unmerge`. Requiring a live survivor also keeps chains
+    shallow only in the forward direction (A→B then B→C stays legal).
+    """
     if loser == survivor:
         raise ValueError("loser and survivor are the same entity")
     loser_row = await _require_entity(session, kind, loser)
-    await _require_entity(session, kind, survivor)
+    await _require_live_entity(session, kind, survivor)
     if loser_row.merged_into is not None:
         raise ValueError(f"{loser!r} is already merged into {loser_row.merged_into!s}")
     loser_row.merged_into = survivor
@@ -62,11 +84,39 @@ async def adjudicate_merge(
     logger.info("registry_merge", extra={"kind": kind, "loser": loser, "survivor": survivor})
 
 
+async def adjudicate_unmerge(session: AsyncSession, kind: str, *, entity: str, note: str) -> None:
+    """Clear ``entity``'s tombstone and record the decision — the sanctioned
+    recovery for a wrong merge (CR 1). Keys that were moved during the merge
+    stay where they are; move them back explicitly if the audit says so."""
+    row = await _require_entity(session, kind, entity)
+    if row.merged_into is None:
+        raise ValueError(f"{kind} entity {entity!r} is not merged — nothing to unmerge")
+    former_survivor = str(row.merged_into)
+    row.merged_into = None
+    session.add(
+        RegistryAdjudication(
+            kind=kind,
+            action="unmerge",
+            subject_entity_id=entity,
+            target_entity_id=former_survivor,
+            note=note,
+        )
+    )
+    await session.flush()
+    logger.info(
+        "registry_unmerge", extra={"kind": kind, "entity": entity, "was_into": former_survivor}
+    )
+
+
 async def adjudicate_move(
     session: AsyncSession, kind: str, *, natural_key: str, to_entity: str, note: str
 ) -> None:
-    """Re-point one natural key at ``to_entity`` and record the decision."""
-    await _require_entity(session, kind, to_entity)
+    """Re-point one natural key at ``to_entity`` and record the decision.
+
+    The destination must be live (CR 22): landing a key on a merged-away
+    entity would be a re-point whose crosswalk row immediately says "merged
+    away" — almost always a typo'd ULID."""
+    await _require_live_entity(session, kind, to_entity)
     key_row = (
         await session.execute(
             select(RegistryKey).where(
@@ -96,13 +146,14 @@ async def adjudicate_move(
 
 
 def _add_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("verb", choices=["merge", "move"])
+    parser.add_argument("verb", choices=["merge", "move", "unmerge"])
     parser.add_argument("--kind", required=True, choices=["person", "org"])
     parser.add_argument("--note", required=True, help="Why — recorded on the adjudication row.")
     parser.add_argument("--loser", help="merge: the entity to tombstone.")
     parser.add_argument("--survivor", help="merge: the entity that lives on.")
     parser.add_argument("--key", help="move: the natural key to re-point.")
     parser.add_argument("--to", dest="to_entity", help="move: the destination entity.")
+    parser.add_argument("--entity", help="unmerge: the tombstoned entity to revive.")
 
 
 async def _adjudicate_job(ctx: JobContext) -> JobResult:
@@ -117,6 +168,10 @@ async def _adjudicate_job(ctx: JobContext) -> JobResult:
             survivor=ctx.args.survivor,
             note=ctx.args.note,
         )
+    elif ctx.args.verb == "unmerge":
+        if not ctx.args.entity:
+            raise SystemExit("unmerge needs --entity")
+        await adjudicate_unmerge(session, ctx.args.kind, entity=ctx.args.entity, note=ctx.args.note)
     else:
         if not (ctx.args.key and ctx.args.to_entity):
             raise SystemExit("move needs --key and --to")

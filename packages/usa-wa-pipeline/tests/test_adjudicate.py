@@ -10,7 +10,7 @@ from clearinghouse_core.registry import (
     decide,
     registered_view,
 )
-from usa_wa_pipeline.adjudicate import adjudicate_merge, adjudicate_move
+from usa_wa_pipeline.adjudicate import adjudicate_merge, adjudicate_move, adjudicate_unmerge
 
 pytestmark = pytest.mark.db
 
@@ -65,3 +65,61 @@ async def test_move_repoints_one_key(db_session) -> None:
         )
     ).scalar_one()
     assert row.natural_key == "roster:x:1901"
+
+
+async def test_reverse_merge_is_refused_not_a_cycle(db_session) -> None:
+    """Correcting A→B with B→A must be refused (CR 1): a tombstone cycle drops
+    BOTH entities from conformed and loops the published crosswalk. The
+    correction path is unmerge."""
+    a, b = await _two_entities(db_session)
+    await adjudicate_merge(db_session, KIND_PERSON, loser=a, survivor=b, note="wrong")
+    with pytest.raises(ValueError, match="tombstoned"):
+        await adjudicate_merge(db_session, KIND_PERSON, loser=b, survivor=a, note="undo")
+
+
+async def test_unmerge_clears_tombstone_and_records(db_session) -> None:
+    """The sanctioned recovery for a wrong merge: clear the tombstone, keep the
+    trail whole."""
+    a, b = await _two_entities(db_session)
+    await adjudicate_merge(db_session, KIND_PERSON, loser=b, survivor=a, note="wrong")
+    await adjudicate_unmerge(db_session, KIND_PERSON, entity=b, note="distinct after audit")
+    view = await registered_view(db_session, KIND_PERSON)
+    assert view["roster:x:1901"] == b  # resolves to itself again
+    row = (
+        await db_session.execute(
+            select(RegistryAdjudication).where(RegistryAdjudication.action == "unmerge")
+        )
+    ).scalar_one()
+    assert str(row.subject_entity_id) == b
+    assert str(row.target_entity_id) == a  # the survivor it was merged into
+
+
+async def test_unmerge_refuses_a_live_entity(db_session) -> None:
+    a, _ = await _two_entities(db_session)
+    with pytest.raises(ValueError, match="not merged"):
+        await adjudicate_unmerge(db_session, KIND_PERSON, entity=a, note="n")
+
+
+async def test_move_refuses_tombstoned_destination(db_session) -> None:
+    """A typo'd --to landing on a merged-away entity must fail loudly (CR 22)."""
+    a, b = await _two_entities(db_session)
+    await adjudicate_merge(db_session, KIND_PERSON, loser=b, survivor=a, note="merge")
+    with pytest.raises(ValueError, match="tombstoned"):
+        await adjudicate_move(
+            db_session, KIND_PERSON, natural_key="wsl:1", to_entity=b, note="typo"
+        )
+
+
+async def test_chain_merge_resolves_to_terminal_survivor(db_session) -> None:
+    """A→B then B→C is legal (each merge's survivor was live at the time) and
+    every key resolves to C; the crosswalk carries both tombstones (CR 31f)."""
+    a, b = await _two_entities(db_session)
+    c = await apply_decision(
+        db_session, KIND_PERSON, decide(frozenset({"pdc:7"}), {}), registered_by="test"
+    )
+    await adjudicate_merge(db_session, KIND_PERSON, loser=a, survivor=b, note="a is b")
+    await adjudicate_merge(db_session, KIND_PERSON, loser=b, survivor=c, note="b is c")
+    view = await registered_view(db_session, KIND_PERSON)
+    assert view["wsl:1"] == c
+    assert view["roster:x:1901"] == c
+    assert view["pdc:7"] == c

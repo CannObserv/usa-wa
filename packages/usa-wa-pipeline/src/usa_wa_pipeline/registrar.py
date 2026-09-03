@@ -94,14 +94,18 @@ async def run_registrar(
     return summary
 
 
-def load_pairs(db_path: str) -> list[tuple[str, str]]:
-    """Read the matching tier's pairs from the built pipeline database."""
+def load_pairs(db_path: str, kind: str = KIND_PERSON) -> list[tuple[str, str]]:
+    """Read one kind's pairs from the built pipeline database.
+
+    Filtered on ``kind`` (#302 CR): the registrar registers each component
+    under one entity kind, so an org rule unioned into ``proposed_links``
+    must never reach the person registration path."""
     con = duckdb.connect(db_path, read_only=True)
     try:
         return [
             (left, right)
             for left, right in con.execute(
-                "select left_key, right_key from proposed_links"
+                "select left_key, right_key from proposed_links where kind = ?", [kind]
             ).fetchall()
         ]
     finally:

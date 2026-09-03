@@ -15,11 +15,17 @@ from typing import Any
 
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_pdc import parsing
+from usa_wa_adapter_pdc.harvest import (
+    HOUSE_WINNERS_RESOURCE_PREFIX,
+    SENATE_WINNERS_RESOURCE_PREFIX,
+)
 from usa_wa_pipeline.staging.common import latest_wires as _latest_wires
 from usa_wa_pipeline.staging.common import text as _text
 
-_HOUSE_PREFIX = "house-winners:"
-_SENATE_PREFIX = "senate-winners:"
+# the adapter's exported prefixes (#302 CR): a rename upstream must break the
+# import, never silently empty this staging model
+_HOUSE_PREFIX = HOUSE_WINNERS_RESOURCE_PREFIX
+_SENATE_PREFIX = SENATE_WINNERS_RESOURCE_PREFIX
 
 Parser = Callable[[bytes], list[dict[str, Any]]]
 

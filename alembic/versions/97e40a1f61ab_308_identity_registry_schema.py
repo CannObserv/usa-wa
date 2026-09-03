@@ -72,3 +72,6 @@ def downgrade() -> None:
     op.drop_table('entities', schema='registry')
     op.drop_table('adjudications', schema='registry')
     # ### end Alembic commands ###
+    # Symmetric with upgrade (#302 CR): every schema-introducing migration in
+    # this repo drops its schema on downgrade.
+    op.execute('DROP SCHEMA IF EXISTS "registry" CASCADE')

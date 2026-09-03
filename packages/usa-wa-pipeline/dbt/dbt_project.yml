@@ -2,20 +2,20 @@
 # spec (docs/specs/2026-09-02-dataset-publication-replatform-design.md):
 # staging (per-source cleaning, natural keys only), matching (cross-source link
 # proposals feeding the registrar), conformed (registry-joined products).
-# Materialization strategy per layer is set when real models land (#306+);
-# external CSV/Parquet materialization is the spec's end state.
+# Python models materialize as tables (dbt-duckdb cannot view-materialize
+# them); the matching SQL rule models stay views over staging tables.
+# External CSV/Parquet materialization is the spec's end state.
 name: usa_wa_pipeline
 version: "0.1.0"
 profile: usa_wa_pipeline
 
 model-paths: ["models"]
-seed-paths: ["seeds"]
 test-paths: ["tests"]
 
 models:
   usa_wa_pipeline:
     staging:
-      +materialized: view
+      +materialized: table
     matching:
       +materialized: view
     conformed:
