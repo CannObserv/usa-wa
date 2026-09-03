@@ -134,12 +134,13 @@ uv run python -m usa_wa_pipeline.registrar --db data/pipeline.duckdb [--dry-run]
 # Human corrections (merge/move), each with a mandatory recorded note
 uv run python -m usa_wa_pipeline.adjudicate merge --kind person --loser <ULID> --survivor <ULID> --note "…"
 # A WRONG merge is corrected by unmerge (a reverse merge is refused — it would
-# cycle the tombstones and drop both entities from conformed). Unmerge prints
-# the keys whose move adjudications took them off this entity — move each back
-# deliberately, or the revived entity stays keyless (out of conformed, and the
-# registry parity probe + seed alarm nightly until resolved):
-uv run python -m usa_wa_pipeline.adjudicate unmerge --kind person --entity <ULID> --note "…"
-uv run python -m usa_wa_pipeline.adjudicate move --kind person --key <each listed key> --to <ULID> --note "…"
+# cycle the tombstones and drop both entities from conformed). Two steps, in
+# THIS order (`move` refuses a tombstoned destination, so the revive comes
+# first). Unmerge reports `keys_moved_away` in its counters — the keys still
+# bound elsewhere; move each back onto the revived entity, or it stays keyless
+# (absent from conformed, and the registry parity probe + seed alarm nightly):
+uv run python -m usa_wa_pipeline.adjudicate unmerge --kind person --entity <revived-ULID> --note "…"
+uv run python -m usa_wa_pipeline.adjudicate move --kind person --key <each reported key> --to <revived-ULID> --note "…"
 # Invariant probe: canonical identity ⊆ registry crosswalk
 uv run python -m usa_wa_pipeline.parity_registry
 ```

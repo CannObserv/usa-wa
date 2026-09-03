@@ -89,11 +89,11 @@ async def adjudicate_unmerge(
 ) -> list[str]:
     """Clear ``entity``'s tombstone and record the decision — the sanctioned
     recovery for a wrong merge (CR 1). Keys that were moved off this entity
-    stay where they are; the returned (and logged) inventory names them —
-    every ``move`` adjudication whose subject is this entity — so the operator
-    can move them back deliberately instead of mining the ledger mid-incident
-    (CR 41). A revived entity left keyless stays out of conformed and trips
-    the parity probes until the moves are resolved."""
+    stay where they are; the returned inventory names those still bound
+    elsewhere, so the operator can move them back deliberately instead of
+    mining the ledger mid-incident (CR 41/52) — the CLI reports it in its
+    counters (CR 51). A revived entity left keyless stays out of conformed and
+    trips the parity probes until the moves are resolved."""
     row = await _require_entity(session, kind, entity)
     if row.merged_into is None:
         raise ValueError(f"{kind} entity {entity!r} is not merged — nothing to unmerge")
@@ -109,15 +109,25 @@ async def adjudicate_unmerge(
         )
     )
     await session.flush()
+    # Only keys whose CURRENT binding is elsewhere (CR 52): a key moved away
+    # and later moved back is this entity's again, and listing it would invite
+    # a wrong move that re-breaks the identity just restored.
     moved_away = sorted(
         {
             key
             for (key,) in (
                 await session.execute(
-                    select(RegistryAdjudication.natural_key).where(
+                    select(RegistryAdjudication.natural_key)
+                    .join(
+                        RegistryKey,
+                        (RegistryKey.kind == RegistryAdjudication.kind)
+                        & (RegistryKey.natural_key == RegistryAdjudication.natural_key),
+                    )
+                    .where(
                         RegistryAdjudication.kind == kind,
                         RegistryAdjudication.action == "move",
                         RegistryAdjudication.subject_entity_id == entity,
+                        RegistryKey.entity_id != entity,
                     )
                 )
             ).all()
@@ -199,7 +209,12 @@ async def _adjudicate_job(ctx: JobContext) -> JobResult:
     elif ctx.args.verb == "unmerge":
         if not ctx.args.entity:
             raise SystemExit("unmerge needs --entity")
-        await adjudicate_unmerge(session, ctx.args.kind, entity=ctx.args.entity, note=ctx.args.note)
+        moved_away = await adjudicate_unmerge(
+            session, ctx.args.kind, entity=ctx.args.entity, note=ctx.args.note
+        )
+        # The inventory must reach the operator through the interface they use,
+        # not only the structured log (CR 51).
+        return JobResult.ok({"action": "unmerge", "keys_moved_away": moved_away})
     else:
         if not (ctx.args.key and ctx.args.to_entity):
             raise SystemExit("move needs --key and --to")
