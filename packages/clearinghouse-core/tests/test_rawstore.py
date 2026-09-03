@@ -158,3 +158,16 @@ def test_verify_store_resumes_after_cursor(store: RawStore, tmp_path) -> None:
     assert rest.objects_verified == 2
     assert rest.exhausted_budget is False
     assert rest.last_key != first.last_key
+
+
+def test_latest_index_keeps_newest_fetched_at(store: RawStore) -> None:
+    """A later RUN recording an OLDER fetch (the #305 corpus export) must not
+    regress latest.json past what the live harvest already recorded."""
+    live = store.open_run()
+    live.record("r", BODY, url="u", fetched_at=datetime(2026, 9, 1, tzinfo=UTC))
+    live.close()
+    export = store.open_run()
+    export.record("r", b"historical", url="u", fetched_at=datetime(2020, 1, 1, tzinfo=UTC))
+    export.close()
+    assert store.latest()["r"]["sha256"] == SHA
+    assert store.latest()["r"]["fetched_at"].startswith("2026-09-01")

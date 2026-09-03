@@ -127,6 +127,11 @@ class RawStore:
         for entry in entries:
             if entry["status"] != "ok":
                 continue
+            current = latest.get(entry["resource_id"])
+            if current is not None and current["fetched_at"] >= entry["fetched_at"]:
+                # A later run recording an older fetch (the #305 corpus export)
+                # must not regress the index past the live harvest.
+                continue
             latest[entry["resource_id"]] = {
                 "sha256": entry["sha256"],
                 "fetched_at": entry["fetched_at"],
@@ -162,9 +167,12 @@ class RawRun:
         status: str = "ok",
         content_type: str | None = None,
         fetched_at: datetime | None = None,
+        extra: dict | None = None,
     ) -> RawFetch:
         """Record one fetch; stores ``body`` when present. ``status`` mirrors the
-        FetchEvent vocabulary (``ok`` | ``err`` | ``skipped``)."""
+        FetchEvent vocabulary (``ok`` | ``err`` | ``skipped``); ``extra`` merges
+        additional keys into the manifest entry (e.g. the #305 export's
+        ``unbaselined`` marker)."""
         sha: str | None = None
         newly = False
         size = 0
@@ -190,6 +198,7 @@ class RawRun:
                 "url": fetch.url,
                 "status": fetch.status,
                 "content_type": fetch.content_type,
+                **(extra or {}),
             }
         )
         return fetch

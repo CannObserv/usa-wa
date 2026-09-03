@@ -42,3 +42,5 @@ packages/usa-wa-pipeline/dbt/target/
 packages/usa-wa-pipeline/dbt/logs/
 packages/usa-wa-pipeline/dbt/.user.yml
 .coverage.*
+# Raw-tier file store (#304) when rooted in the checkout (USA_WA_RAW_ROOT default)
+raw/
