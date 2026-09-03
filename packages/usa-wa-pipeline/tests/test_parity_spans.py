@@ -27,6 +27,12 @@ pytestmark = pytest.mark.db
 
 CURRENT = "2025-26"
 
+#: What `_roster_row()` mints: one closed pre-1991 party span in the roster
+#: source space. Every run below builds it, because the probe now compares BOTH
+#: families — so each test states where it lands.
+ROSTER_MEMBER = "wilburcranston:1925"
+ROSTER_SPAN_ID = f"{ROSTER_MEMBER}:party:republican:1925-26"
+
 
 def _sponsor(member_id: str, biennium: str) -> dict:
     return {
@@ -92,7 +98,16 @@ async def _seed_role(db_session) -> Role:
     return role
 
 
-async def _seed_assignment(db_session, role, source_id: str, *, source: str = SOURCE) -> None:
+async def _seed_assignment(
+    db_session,
+    role,
+    source_id: str,
+    *,
+    source: str = SOURCE,
+    valid_from: date = date(2025, 1, 1),
+    valid_to: date | None = None,
+    is_active: bool = True,
+) -> None:
     person = Person(source=source, source_id=source_id, name_full="Dana Whitfield")
     db_session.add(person)
     await db_session.flush()
@@ -102,9 +117,9 @@ async def _seed_assignment(db_session, role, source_id: str, *, source: str = SO
             source_id=source_id,
             person_id=person.id,
             role_id=role.id,
-            valid_from=date(2025, 1, 1),
-            valid_to=None,
-            is_active=True,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            is_active=is_active,
         )
     )
     await db_session.flush()
@@ -125,6 +140,22 @@ async def _bind_key(db_session, natural_key: str) -> None:
         )
     )
     await db_session.flush()
+
+
+async def _seed_roster_family(db_session, role) -> None:
+    """The fixture roster identity, present on BOTH sides — its canonical span
+    and its registry key — so a test asserting a clean run is clean on the
+    roster family too, not merely on the WSL one."""
+    await _seed_assignment(
+        db_session,
+        role,
+        ROSTER_SPAN_ID,
+        source=ROSTER_SOURCE,
+        valid_from=date(1925, 1, 1),
+        valid_to=date(1926, 12, 31),
+        is_active=False,
+    )
+    await _bind_key(db_session, f"{ROSTER_SOURCE}:{ROSTER_MEMBER}")
 
 
 async def _run(
@@ -194,10 +225,14 @@ async def test_exact_agreement_is_ok(db_session, tmp_path) -> None:
     for source_id in (f"100:party:democratic:{CURRENT}", f"100:chamber-senate:14:{CURRENT}"):
         await _seed_assignment(db_session, role, source_id)
     await _bind_key(db_session, f"{SOURCE}:100")
+    await _seed_roster_family(db_session, role)
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
     assert result.outcome == OUTCOME_OK
     assert result.counters["divergence"] == 0
-    assert result.counters["spans"] == result.counters["canonical"] == 2
+    # both families compared: 2 WSL spans + 1 roster span
+    assert result.counters["spans"] == result.counters["canonical"] == 3
+    assert result.counters["wsl_spans"] == 2
+    assert result.counters["roster_spans"] == 1
 
 
 async def test_divergence_beyond_the_baseline_fails(db_session, tmp_path) -> None:
@@ -207,10 +242,10 @@ async def test_divergence_beyond_the_baseline_fails(db_session, tmp_path) -> Non
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
     assert result.outcome == OUTCOME_FAILED
     assert result.resolved_exit_code() == 1
-    # 777 is only canonical; the Senate seat span is only ours
+    # 777 is only canonical; the Senate seat span and the roster span are only ours
     assert result.counters["missing"] == 1
-    assert result.counters["extra"] == 1
-    assert result.counters["divergence"] == 2
+    assert result.counters["extra"] == 2
+    assert result.counters["divergence"] == 3
 
 
 async def test_divergence_at_the_baseline_is_ok(db_session, tmp_path) -> None:
@@ -219,21 +254,28 @@ async def test_divergence_at_the_baseline_is_ok(db_session, tmp_path) -> None:
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     await _seed_assignment(db_session, role, f"777:party:republican:{CURRENT}")
     await _bind_key(db_session, f"{SOURCE}:100")
-    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=2)
+    await _bind_key(db_session, f"{ROSTER_SOURCE}:{ROSTER_MEMBER}")
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=3)
     assert result.outcome == OUTCOME_OK
-    assert result.counters["divergence"] == 2
+    assert result.counters["divergence"] == 3
 
 
-async def test_the_roster_family_is_not_compared(db_session, tmp_path) -> None:
-    """`usa_wa_legislature_roster` spans belong to the increment that has not
-    landed; their presence must not read as ours-missing."""
+async def test_the_roster_family_is_compared_in_its_own_key_space(db_session, tmp_path) -> None:
+    """Increment 2: the roster family is built and diffed alongside the WSL one.
+    The two share a table but not an identity space, so the comparison key is
+    (source, source_id) — a canonical roster row the build does not assert is
+    `missing`, exactly like a WSL one."""
     role = await _seed_role(db_session)
     await _seed_assignment(
         db_session, role, "frankgmyers:1919:party:republican:1919-20", source=ROSTER_SOURCE
     )
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
-    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=1)
-    assert result.counters["canonical"] == 1
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=4)
+    assert result.counters["canonical"] == 2
+    assert result.counters["roster_spans"] == 1
+    # Gmyers is canonical-only; our Senate seat and our own roster span are ours-only
+    assert result.counters["missing"] == 1
+    assert result.counters["extra"] == 2
 
 
 async def test_a_roster_store_that_parses_to_nothing_degrades(db_session, tmp_path) -> None:
@@ -264,8 +306,8 @@ async def test_unregistered_spans_are_reported(db_session, tmp_path) -> None:
     role = await _seed_role(db_session)
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=1)
-    # no registry keys seeded, so every span is unregistered
-    assert result.counters["unregistered_spans"] == 2
+    # no registry keys seeded, so every span is unregistered — both families
+    assert result.counters["unregistered_spans"] == 3
     assert result.counters["registered_spans"] == 0
 
 
@@ -292,10 +334,19 @@ async def test_unregistered_spans_fail_the_probe(db_session, tmp_path) -> None:
     role = await _seed_role(db_session)
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
+    await _seed_assignment(
+        db_session,
+        role,
+        ROSTER_SPAN_ID,
+        source=ROSTER_SOURCE,
+        valid_from=date(1925, 1, 1),
+        valid_to=date(1926, 12, 31),
+        is_active=False,
+    )
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
     # divergence is 0 — only the unregistered spans are wrong
     assert result.counters["divergence"] == 0
-    assert result.counters["unregistered_spans"] == 2
+    assert result.counters["unregistered_spans"] == 3
     assert result.outcome == OUTCOME_FAILED
     assert result.resolved_exit_code() == 1
     assert result.counters["integrity_failures"] == ["unregistered_spans"]
@@ -309,6 +360,7 @@ async def test_malformed_roster_rows_are_counted_and_gated(db_session, tmp_path)
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
     await _bind_key(db_session, f"{SOURCE}:100")
+    await _seed_roster_family(db_session, role)
     result = await _run(
         db_session,
         tmp_path,
@@ -326,9 +378,10 @@ async def test_a_clean_run_reports_every_integrity_counter_at_zero(db_session, t
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
     await _bind_key(db_session, f"{SOURCE}:100")
+    await _seed_roster_family(db_session, role)
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
     assert result.outcome == OUTCOME_OK
-    assert result.counters["registered_spans"] == 2
+    assert result.counters["registered_spans"] == 3
     assert result.counters["unregistered_spans"] == 0
     assert result.counters["malformed_roster_rows"] == 0
     assert result.counters["unparsable_canonical_keys"] == 0

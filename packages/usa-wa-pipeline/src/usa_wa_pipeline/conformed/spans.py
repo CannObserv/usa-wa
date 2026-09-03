@@ -62,8 +62,14 @@ from clearinghouse_domain_legislative.tenure_spans import (
 from usa_wa_adapter_legislature.membership.projector import (
     build_committee_membership_observations,
 )
+from usa_wa_adapter_legislature.roster_pdf.build import (
+    OracleViolation,
+    unattested_spans,
+    verify_pre1991,
+)
 from usa_wa_adapter_legislature.roster_pdf.identity import (
     IDENTITY_WSL,
+    ROSTER_IDENTITY_FLOOR,
     Seating,
     resolve_identities,
 )
@@ -80,8 +86,12 @@ from usa_wa_common.seats import district_number
 
 logger = get_logger(__name__)
 
-#: The source these spans are asserted under — the WSL archive.
+#: The WSL archive: numeric member ids, 1991-.
 SOURCE = "usa_wa_legislature"
+
+#: The roster-PDF source: minted `<fold>:<first-session-year>` identities,
+#: pre-1991. A DISJOINT identity space sharing the same assignments table.
+ROSTER_SOURCE = "usa_wa_legislature_roster"
 
 #: The kinds this module owns. `chamber-house` belongs to the facts-seats port.
 SPONSOR_KINDS = frozenset({KIND_PARTY, KIND_SENATE})
@@ -218,26 +228,54 @@ def roster_records(rows: list[dict[str, Any]]) -> list[RosterRecord]:
     return records
 
 
-def deepening_observations(
+@dataclass(frozen=True)
+class RosterResolution:
+    """One resolve of the roster corpus, partitioned by disposition.
+
+    The pre-1991 corpus feeds **two** span families and the resolve is the
+    expensive part (~8,600 records), so it runs once and both halves come from
+    the same report — resolving twice would also give the halves a chance to
+    disagree about who is WSL-joined.
+
+    - :attr:`joined` — the #228 deepening: observations for identities the
+      resolve bound to a WSL member id, merged into the WSL family's build so a
+      crossing member emits ONE span at its true start (the #97 collapse shape).
+    - :attr:`minted` — the roster family's own: identities with no WSL
+      counterpart, keyed ``<fold>:<first-session-year>`` in the roster source
+      space.
+    """
+
+    joined: list[Observation]
+    minted: list[Observation]
+    #: Every parsed record, refused groups included — the seat-listing index the
+    #: §5 truncation bound needs, and the oracle's partition denominator.
+    records: list[RosterRecord]
+
+
+def roster_resolution(
     roster: list[dict[str, Any]], sponsors: list[dict[str, Any]]
-) -> list[Observation]:
-    """The #228 deepening: roster-era tenure for WSL-JOINED identities.
+) -> RosterResolution:
+    """Staging rows → the resolved, oracle-checked pre-1991 projection.
 
-    A member whose service crosses the 1991 sponsor-archive floor must emit ONE
-    span keyed at its true start, not a shallow 1991-start span abutting a
-    roster-sourced twin (the #97 collapse shape). Ported from
-    ``roster_pdf.deepening.joined_pre1991_observations``: same resolve, same
-    projection, same WSL-joined filter — but over staging rows, so no
-    provenance-table read and no WSL re-pull.
+    Ported from ``roster_pdf.build.build_pre1991`` steps 1–3 and
+    ``roster_pdf.deepening``: same resolve, same projection, same acceptance
+    oracle — but over staging rows, so no provenance-table read and no WSL
+    re-pull. The oracle is imported unchanged and runs **before** anything is
+    built, exactly as the Postgres tier runs it before anything is written:
 
-    Raises ``ValueError`` when roster rows were supplied but **none parsed**
-    (CR 67). An empty result here is indistinguishable downstream from "no
+    - partition exactness and person-side Senate simultaneity
+      (``verify_pre1991``);
+    - the party vocabulary — an edition introducing an unclassified
+      abbreviation aborts rather than publishing a member with no party.
+
+    Raises :class:`ValueError` when roster rows were supplied but **none
+    parsed** (CR 67): an empty result is indistinguishable downstream from "no
     deepening applies", so a roster tier broken by an upstream rename would
-    reach the same silent shallow publish :func:`build_all_spans` refuses at
-    the other end. Both routes to an empty deepening are now closed.
+    otherwise reach the same silent shallow publish :func:`build_all_spans`
+    refuses at the other end.
     """
     if not roster:
-        return []
+        return RosterResolution(joined=[], minted=[], records=[])
     records = roster_records(roster)
     if not records:
         raise ValueError(
@@ -248,9 +286,91 @@ def deepening_observations(
             "raise fires, that warning is invisible — see docs/PIPELINE.md.)"
         )
     report = resolve_identities(records, seatings=seatings_from_sponsors(sponsors))
+    verify_pre1991(
+        report.identities,
+        [r for r in records if r.year < ROSTER_IDENTITY_FLOOR],
+        refused_records=sum(len(ref.records) for ref in report.refused),
+    )
     projection = build_pre1991_observations(report.identities, records)
-    joined = {i.wsl_member_id for i in report.identities if i.disposition == IDENTITY_WSL}
-    return [o for o in projection.observations if o.member_id in joined]
+    if projection.unrecognized_parties:
+        raise OracleViolation(
+            f"unrecognized party tokens: {dict(projection.unrecognized_parties)} — a new "
+            "edition introduced an abbreviation nobody has classified"
+        )
+    joined_members = {i.wsl_member_id for i in report.identities if i.disposition == IDENTITY_WSL}
+    return RosterResolution(
+        joined=[o for o in projection.observations if o.member_id in joined_members],
+        minted=[o for o in projection.observations if o.member_id not in joined_members],
+        records=records,
+    )
+
+
+def deepening_observations(
+    roster: list[dict[str, Any]], sponsors: list[dict[str, Any]]
+) -> list[Observation]:
+    """The #228 deepening alone — :attr:`RosterResolution.joined`.
+
+    Kept for callers that build only the WSL family; a build wanting both
+    families should call :func:`roster_resolution` once and pass its halves.
+    """
+    return roster_resolution(roster, sponsors).joined
+
+
+def build_roster_spans(
+    resolution: RosterResolution,
+    *,
+    events: list[Any],
+    current_biennium: str,
+    context_spans: list[TenureSpan] | None = None,
+) -> list[TenureSpan]:
+    """The roster family: pre-1991 tenure for the MINTED identities.
+
+    The conformed analog of ``roster_pdf.build.build_pre1991``'s emission half,
+    minus everything that existed to mutate Postgres — minting Persons,
+    retiring unasserted rows and Persons, the anchor bootstrap, the citation
+    writes. A recomputed transform expresses all of that as absence.
+
+    What is kept, because each is a guard rather than a write:
+
+    - the **operator overlay**, scoped to this family's own members. Every
+      pre-1991 span is this builder's, so the roster's 922 dated mid-term
+      boundaries take effect here or nowhere (#226) — without it a resignation
+      dated June 1930 leaves the span ending at its biennium floor.
+    - the **unattested-span check**: the overlay can *synthesize* a span, and a
+      synthesized one names a seat the edition never listed. The Postgres tier
+      aborts rather than emit it citing an edition that never listed the
+      member; absent citations here, it still means the build inferred a seat
+      from an event, which the roster cannot attest.
+
+    ``context_spans`` (#267) are read-only spans of OTHER kinds used to find a
+    departed member's return. In the Postgres tier they come from a DB read; in
+    one pass they are the WSL family built alongside. They can only match when
+    a minted identity holds an other-kind span — none do today (the WSL family
+    keys on numeric member ids), but `chamber-house` from the facts-seats port
+    will be the first that could, so the seam is wired rather than assumed shut.
+    """
+    if not resolution.minted:
+        return []
+    members = {o.member_id for o in resolution.minted}
+    # Scoped to this family's members, mirroring the adapter: matching is by
+    # member_id anyway, so an unscoped overlay reads thousands of WSL-era rows
+    # to apply none of them.
+    scoped = [e for e in from_rows(events) if e.member_id in members]
+    built = build_tenure_spans(resolution.minted, current_biennium=current_biennium)
+    spans = apply_operator_events(
+        built,
+        scoped,
+        current_biennium=current_biennium,
+        owned_kinds=set(SPONSOR_KINDS),
+        context_spans=context_spans or [],
+    )
+    if unattested := unattested_spans(spans, built):
+        raise OracleViolation(
+            "the operator overlay synthesized a span in the roster family, which the "
+            "edition never listed — it would publish a seat inferred from an event "
+            f"alone: {sorted(s.source_id for s in unattested)[:5]}"
+        )
+    return sorted(spans, key=lambda s: (s.member_id, s.kind, s.discriminator, s.start_biennium))
 
 
 def build_all_spans(
@@ -353,36 +473,48 @@ def entity_index(crosswalk: list[dict[str, Any]]) -> dict[str, str]:
 
 
 def assignment_rows(
-    spans: list[TenureSpan], entity_by_key: dict[str, str]
+    spans_by_source: dict[str, list[TenureSpan]], entity_by_key: dict[str, str]
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Spans ⨝ the person crosswalk → published assignment rows + counters.
+    """Span families ⨝ the person crosswalk → published rows + counters.
 
-    The 4-part span ``source_id`` becomes real columns (#309): a consumer reads
+    Keyed by source because the two families live in **disjoint identity
+    spaces** and share one table: the WSL family's member ids are the archive's
+    numeric ids, the roster family's are minted ``<fold>:<year>`` keys, and the
+    crosswalk lookup is ``<source>:<member_id>`` for both. A row must therefore
+    name the source its key belongs to, not inherit a module default.
+
+    The span ``source_id``'s parts become real columns (#309): a consumer reads
     ``span_kind``/``span_discriminator``/``span_start_biennium`` instead of
-    splitting a string. A member with no registry key drops (inner join) and is
-    counted — an unregistered identity must never publish a headless
-    assignment.
+    splitting a string — which for the roster family is not even possible from
+    the left, since its member ids contain a colon (CR 58).
+
+    A member with no registry key drops (inner join) and is counted — an
+    unregistered identity must never publish a headless assignment.
     """
     rows: list[dict[str, Any]] = []
-    counters = {"spans": len(spans), "unregistered_spans": 0}
-    for span in spans:
-        entity_id = entity_by_key.get(f"{SOURCE}:{span.member_id}")
-        if entity_id is None:
-            counters["unregistered_spans"] += 1
-            continue
-        rows.append(
-            {
-                "entity_id": entity_id,
-                "member_id": span.member_id,
-                "source": SOURCE,
-                "span_kind": span.kind,
-                "span_discriminator": span.discriminator,
-                "span_start_biennium": span.start_biennium,
-                "span_end_biennium": span.end_biennium,
-                "valid_from": span.valid_from,
-                "valid_to": span.valid_to,
-                "is_active": span.is_active,
-            }
-        )
+    counters = {
+        "spans": sum(len(spans) for spans in spans_by_source.values()),
+        "unregistered_spans": 0,
+    }
+    for source, spans in spans_by_source.items():
+        for span in spans:
+            entity_id = entity_by_key.get(f"{source}:{span.member_id}")
+            if entity_id is None:
+                counters["unregistered_spans"] += 1
+                continue
+            rows.append(
+                {
+                    "entity_id": entity_id,
+                    "member_id": span.member_id,
+                    "source": source,
+                    "span_kind": span.kind,
+                    "span_discriminator": span.discriminator,
+                    "span_start_biennium": span.start_biennium,
+                    "span_end_biennium": span.end_biennium,
+                    "valid_from": span.valid_from,
+                    "valid_to": span.valid_to,
+                    "is_active": span.is_active,
+                }
+            )
     counters["published"] = len(rows)
     return rows, counters

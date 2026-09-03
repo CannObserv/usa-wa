@@ -8,13 +8,25 @@ this tier owns (``party``, ``chamber-senate``, ``committee``), keyed on the
 span's 4-part identity with ``valid_from``/``valid_to``/``is_active`` compared
 exactly.
 
+Both families are rebuilt and diffed: the WSL archive's (numeric member ids)
+and the roster PDF's (minted ``<fold>:<year>`` identities). They share the
+table but not the identity space, so the comparison key is
+``(source, source_id)``.
+
 **The oracle is a snapshot, and it is stale.** Measured 2026-09-03: the stored
 assignments diverge from the port by :data:`BASELINE_DIVERGENCE` rows — and
 running the *Postgres-tier adapter's own pipeline* fresh that day produced the
-**identical** divergence (4,851 spans; 42 missing / 2 extra / 1 dated
-differently), because the stored rows predate the current identity-resolve
-(the #277/#281 candidate-splitting work). The port and the adapter agreed
-exactly with each other: 4,851 = 4,851, zero key and zero value differences.
+**identical** divergence for the WSL family (4,851 spans; 42 missing / 2 extra
+/ 1 dated differently), because the stored rows predate the current
+identity-resolve (the #277/#281 candidate-splitting work).
+
+The roster family adds **37 missing rows across 15 identities, the same story
+seen from the other side**: each is an identity the stored snapshot minted as a
+roster person and today's resolve JOINS to a WSL member. Cliff Bailey is the
+worked example — canonical holds both a shallow ``15:*:1991-92`` pair *and* a
+minted ``cliffbailey:1985:*`` pair, where this build asserts the one merged
+``15:*:1985-86`` tenure the #228 deepening produces. Nothing is lost; the
+tenure moved families, which is exactly what the #97 collapse is for.
 
 So this probe's gate is a **ratchet, not equality**: divergence at or below the
 recorded baseline is the known staleness, and any growth is a regression in
@@ -51,12 +63,15 @@ from clearinghouse_core.registry import KIND_PERSON
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_pipeline.conformed.spans import (
+    ROSTER_SOURCE,
     SOURCE,
     SpanInputs,
     assignment_rows,
     build_all_spans,
+    build_roster_spans,
     entity_index,
     roster_records,
+    roster_resolution,
 )
 from usa_wa_pipeline.operator_read import operator_event_rows
 from usa_wa_pipeline.registry_read import crosswalk_rows
@@ -68,16 +83,16 @@ logger = get_logger(__name__)
 #: Stable ledger identity (#178).
 JOB_SLUG = "parity-spans"
 
-ROSTER_SOURCE = "usa_wa_legislature_roster"
-
 #: The span kinds the conformed tier owns today. `chamber-house` arrives with
 #: the facts-seats port (PDC Position inference, #229) and is excluded until
 #: then so its absence cannot read as a regression.
 OWNED_KINDS = ("party", "chamber-senate", "committee")
 
-#: Known stale-oracle rows, measured 2026-09-03 (see the module docstring).
-#: Lower this the moment a Postgres-tier rebuild lands.
-BASELINE_DIVERGENCE = 45
+#: Known stale-oracle rows, measured 2026-09-03 (see the module docstring):
+#: 42 + 37 missing (WSL shallow keys and their roster-minted twins, one
+#: pre-#277 identity split each), 2 extra, 1 dated. Lower this the moment a
+#: Postgres-tier rebuild lands — the number dying is the point.
+BASELINE_DIVERGENCE = 82
 
 #: Counters that must be ZERO, checked together (CR 72/73). Unlike
 #: ``divergence`` these carry no known-stale story — each is a defect in an
@@ -155,39 +170,56 @@ async def run_parity(
     # rather than a log line in a job whose logs nobody reads while it passes.
     malformed_roster_rows = len(roster) - len(roster_records(roster))
 
+    sponsors = sponsor_rows(store)
+    events = await operator_event_rows(session)
+    # One resolve, both families — see `conformed.spans.roster_resolution`.
+    resolution = roster_resolution(roster, sponsors)
     spans = build_all_spans(
         SpanInputs(
-            sponsors=sponsor_rows(store),
+            sponsors=sponsors,
             committee_members=committee_member_rows(store),
             roster=roster,
-            events=await operator_event_rows(session),
+            events=events,
         ),
         current_biennium=current_biennium,
+        extra_observations=resolution.joined,
     )
-    ours = {s.source_id: (s.valid_from, s.valid_to, s.is_active) for s in spans}
-    canonical: dict[str, tuple[Any, Any, Any]] = {}
+    roster_spans = build_roster_spans(
+        resolution, events=events, current_biennium=current_biennium, context_spans=spans
+    )
+    families = {SOURCE: spans, ROSTER_SOURCE: roster_spans}
+
+    # Keyed by (source, source_id): the two families are disjoint identity
+    # spaces sharing one table, and only the pair is unique by construction.
+    ours = {
+        (source, s.source_id): (s.valid_from, s.valid_to, s.is_active)
+        for source, family in families.items()
+        for s in family
+    }
+    canonical: dict[tuple[str, str], tuple[Any, Any, Any]] = {}
     unparsable = 0
     for row in (
         await session.execute(
             select(
+                Assignment.source,
                 Assignment.source_id,
                 Assignment.valid_from,
                 Assignment.valid_to,
                 Assignment.is_active,
-            ).where(Assignment.source == SOURCE)
+            ).where(Assignment.source.in_(tuple(families)))
         )
     ).all():
-        kind = owned_kind(row[0])
+        kind = owned_kind(row[1])
         if kind is None:
             # Excluding a key that cannot carry a kind is right; excluding it
             # SILENTLY shrinks the oracle unnoticed (CR 70).
             unparsable += 1
         elif kind in OWNED_KINDS:
-            canonical[row[0]] = (row[1], row[2], row[3])
+            canonical[(row[0], row[1])] = (row[2], row[3], row[4])
     if not canonical:
         # An empty oracle makes every comparison vacuously clean (#302 CR 6).
-        logger.warning("parity_spans_empty_canonical", extra={"source": SOURCE})
-        return JobResult.degraded({"empty_canonical": True, "spans": len(spans)})
+        logger.warning("parity_spans_empty_canonical", extra={"sources": sorted(families)})
+        return JobResult.degraded({"empty_canonical": True, "spans": len(ours)})
 
     # The crosswalk join the `assignments` model performs, reported HERE
     # because the model cannot report it (CR 68): a `dbt build` never calls
@@ -202,14 +234,18 @@ async def run_parity(
     # the state tomorrow's build will publish from, so a gap here is the one
     # worth alarming on. A gap the registrar has since closed is transient and
     # self-healing, and correctly reads as zero.
-    _rows, join = assignment_rows(spans, entity_index(await crosswalk_rows(session, KIND_PERSON)))
+    _rows, join = assignment_rows(
+        families, entity_index(await crosswalk_rows(session, KIND_PERSON))
+    )
 
     missing = sorted(set(canonical) - set(ours))
     extra = sorted(set(ours) - set(canonical))
     dated = sorted(k for k in set(ours) & set(canonical) if ours[k] != canonical[k])
     divergence = len(missing) + len(extra) + len(dated)
     counters = {
-        "spans": len(spans),
+        "spans": len(ours),
+        "wsl_spans": len(spans),
+        "roster_spans": len(roster_spans),
         "canonical": len(canonical),
         "missing": len(missing),
         "extra": len(extra),
@@ -231,9 +267,9 @@ async def run_parity(
         "parity_spans_report",
         extra={
             "summary": counters,
-            "missing_sample": missing[:20],
-            "extra_sample": extra[:20],
-            "dated_sample": dated[:20],
+            "missing_sample": [f"{src}/{sid}" for src, sid in missing[:20]],
+            "extra_sample": [f"{src}/{sid}" for src, sid in extra[:20]],
+            "dated_sample": [f"{src}/{sid}" for src, sid in dated[:20]],
         },
     )
     if divergence > baseline or counters["integrity_failures"]:

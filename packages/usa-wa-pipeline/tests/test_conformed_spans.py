@@ -18,12 +18,17 @@ from clearinghouse_domain_legislative.span_kinds import (
     KIND_SENATE,
 )
 from usa_wa_pipeline.conformed.spans import (
+    ROSTER_SOURCE,
+    SOURCE,
+    OracleViolation,
     SpanInputs,
     assignment_rows,
     build_all_spans,
+    build_roster_spans,
     committee_rosters,
     entity_index,
     roster_records,
+    roster_resolution,
     sponsor_wire_rows,
 )
 
@@ -177,7 +182,7 @@ def test_assignment_rows_join_the_crosswalk_and_count_drops() -> None:
         events=[],
     )
     spans = build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING)
-    rows, counters = assignment_rows(spans, {"usa_wa_legislature:100": "01ENTITY"})
+    rows, counters = assignment_rows({SOURCE: spans}, {f"{SOURCE}:100": "01ENTITY"})
     assert {r["member_id"] for r in rows} == {"100"}
     assert all(r["entity_id"] == "01ENTITY" for r in rows)
     assert counters["unregistered_spans"] == 2  # 999's party + senate spans
@@ -292,3 +297,90 @@ def test_a_roster_that_parses_is_not_refused() -> None:
         KIND_PARTY,
         KIND_SENATE,
     }
+
+
+def _roster(name: str, year: int, district: int = 5, chamber: str = "house", **over) -> dict:
+    row = {
+        "district": str(district),
+        "chamber": chamber,
+        "year": str(year),
+        "order": "1",
+        "name": name,
+        "party_token": "R",
+        "annotation": None,
+    }
+    row.update(over)
+    return row
+
+
+def test_roster_resolution_partitions_joined_from_minted() -> None:
+    """One resolve, two families (#309 part 2 increment 2). The pre-1991 corpus
+    splits by disposition: WSL-JOINED identities feed the #228 deepening of the
+    WSL family, MINTED ones are the roster family's own spans. Resolving twice
+    would be both wasteful and a chance for the halves to disagree.
+    """
+    resolution = roster_resolution(
+        [_roster("Wilbur Cranston", 1925), _roster("Wilbur Cranston", 1927)],
+        [_sponsor("100", CURRENT)],
+    )
+    assert resolution.minted, "a pre-1991 stranger to the sponsor corpus mints"
+    assert not resolution.joined
+    assert {o.member_id for o in resolution.minted} == {"wilburcranston:1925"}
+
+
+def test_roster_spans_key_on_the_minted_identity() -> None:
+    """The roster family's member_id is `<fold>:<first-session-year>` — which is
+    why an assignment source_id carries FIVE colon segments there (CR 58)."""
+    resolution = roster_resolution(
+        [_roster("Wilbur Cranston", 1925), _roster("Wilbur Cranston", 1927)], []
+    )
+    spans = build_roster_spans(resolution, events=[], current_biennium=CURRENT)
+    assert spans
+    for span in spans:
+        assert span.member_id == "wilburcranston:1925"
+        assert span.kind in {KIND_PARTY, KIND_SENATE}
+        assert not span.is_active, "every pre-1991 span is closed"
+        assert len(span.source_id.split(":")) == 5
+
+
+def test_senate_roster_rows_emit_a_seat_span() -> None:
+    resolution = roster_resolution(
+        [_roster("Wilbur Cranston", 1925, district=30, chamber="senate")], []
+    )
+    spans = build_roster_spans(resolution, events=[], current_biennium=CURRENT)
+    by_kind = {s.kind: s for s in spans}
+    assert set(by_kind) == {KIND_PARTY, KIND_SENATE}
+    assert by_kind[KIND_SENATE].discriminator == "30"
+
+
+def test_an_unknown_party_token_is_refused() -> None:
+    """The projector's party vocabulary is an oracle, not a best effort: a new
+    edition introducing an unclassified abbreviation must abort rather than
+    publish a member with no party."""
+    with pytest.raises(OracleViolation, match="party"):
+        roster_resolution([_roster("Wilbur Cranston", 1925, party_token="ZZZ")], [])
+
+
+def test_assignment_rows_tag_each_family_with_its_own_source() -> None:
+    """Both families land in one `assignments` table, so each row must name the
+    source its natural key belongs to — the crosswalk lookup is
+    `<source>:<member_id>` and the two spaces are disjoint."""
+    wsl = build_all_spans(
+        SpanInputs(sponsors=[_sponsor("100", CURRENT)], committee_members=[]),
+        current_biennium=CURRENT,
+        extra_observations=NO_DEEPENING,
+    )
+    resolution = roster_resolution([_roster("Wilbur Cranston", 1925)], [])
+    roster_spans = build_roster_spans(resolution, events=[], current_biennium=CURRENT)
+    rows, counters = assignment_rows(
+        {SOURCE: wsl, ROSTER_SOURCE: roster_spans},
+        {
+            f"{SOURCE}:100": "01WSLENTITY",
+            f"{ROSTER_SOURCE}:wilburcranston:1925": "01ROSTERENTITY",
+        },
+    )
+    by_source = {r["source"] for r in rows}
+    assert by_source == {SOURCE, ROSTER_SOURCE}
+    assert {r["entity_id"] for r in rows if r["source"] == ROSTER_SOURCE} == {"01ROSTERENTITY"}
+    assert counters["unregistered_spans"] == 0
+    assert counters["published"] == len(rows) == len(wsl) + len(roster_spans)

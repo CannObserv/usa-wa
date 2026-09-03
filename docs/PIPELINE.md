@@ -204,9 +204,31 @@ publish with a green build).
 `models/conformed/assignments.py` is a thin binder over
 `usa_wa_pipeline.conformed.spans` — merged tenure spans for the three kinds the
 tier owns today (`party`, `chamber-senate`, `committee`), joined to the person
-crosswalk. The span's 4-part `source_id` becomes real columns
+crosswalk. The span `source_id`'s parts become real columns
 (`span_kind` / `span_discriminator` / `span_start_biennium`), retiring the
 string-splitting workaround `docs/API.md` documents.
+
+**Two families, one table, disjoint identity spaces.** The WSL archive keys on
+numeric member ids from 1991; the roster PDF keys on minted
+`<fold>:<first-session-year>` identities before it. `source` names which space
+a row's `member_id` belongs to, and the crosswalk lookup is
+`<source>:<member_id>` for both — a row must never inherit a module default.
+The roster family is `roster_pdf.build.build_pre1991`'s emission half minus
+everything that existed to mutate Postgres (minting Persons, retiring
+unasserted rows, the anchor bootstrap, citation writes); what it keeps is the
+operator overlay scoped to its own members — every pre-1991 span is this
+builder's, so the roster's 922 dated mid-term boundaries take effect here or
+nowhere (#226) — and the unattested-span check, which refuses a seat the
+overlay synthesized from an event the edition never listed.
+
+**One resolve feeds both.** `roster_resolution()` runs the ~8,600-record
+identity resolve once and partitions by disposition: WSL-joined observations
+deepen the sponsor build (#228), minted ones are the roster family. Resolving
+twice would double the cost and let the halves disagree about who is joined.
+The acceptance oracle (`verify_pre1991` — partition exactness, person-side
+Senate simultaneity — plus the party vocabulary) is imported unchanged and runs
+before anything is built, as the Postgres tier runs it before anything is
+written.
 
 Nothing about the span engine is re-implemented. The pure engine
 (`build_tenure_spans`, `apply_operator_events`), the projections, the #105
@@ -263,12 +285,21 @@ worth alarming on. A gap the registrar has since closed is transient and
 correctly reads as zero.
 
 **The canonical oracle is stale.** `python -m usa_wa_pipeline.parity_spans`
-diffs the conformed spans against `canonical.assignments` and gates on a
-**ratchet**, not equality: measured 2026-09-03 the stored rows diverge by 45
-(42 missing / 2 extra / 1 dated differently) — and running the Postgres-tier
+diffs both families against `canonical.assignments` — keyed on
+`(source, source_id)` — and gates on a **ratchet**, not equality: measured
+2026-09-03 the stored rows diverge by 82 (79 missing / 2 extra / 1 dated
+differently). For the WSL family (45 of those) running the Postgres-tier
 adapter's *own* pipeline fresh that day reproduced the identical divergence,
-because the stored rows predate the current identity resolve (#277/#281). Port
-and adapter agreed with each other exactly: 4,851 = 4,851, zero differences.
+because the stored rows predate the current identity resolve (#277/#281); port
+and adapter agreed with each other exactly, 4,851 = 4,851, zero differences.
+
+The roster family's 37 are **the same story from the other side**: 15
+identities the snapshot minted as roster persons and today's resolve joins to
+WSL members. Cliff Bailey is the worked example — canonical holds both a
+shallow `15:*:1991-92` pair and a minted `cliffbailey:1985:*` pair, where this
+build asserts the one merged `15:*:1985-86` tenure the deepening produces.
+Nothing is lost; the tenure moved families, which is what the #97 collapse is
+for.
 Any growth past the baseline is a regression; a Postgres-tier rebuild would
 take the baseline to zero, and lowering it then is the point.
 
