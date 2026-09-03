@@ -23,7 +23,9 @@ suite until the table below matches.
 |---|---|---|
 | GET | `/health` | Liveness. No external calls; returns the build id. |
 | GET | `/ready` | Readiness. `SELECT 1` against the database; 503 on failure. |
-| GET | `/health/sync` | PM-sync outbox backlog — terminal piles plus overdue PENDING work. |
+| GET | `/health/sync` | PM-sync outbox backlog — terminal piles plus overdue PENDING work. Retires at #313 with the outbox. |
+| GET | `/health/datasets` | Publication health (#311): catalog age + per-dataset latest version/rows/age; `published: false` before the first publish. The pipeline-era successor to `/health/sync`. |
+| GET | `/datasets/{path:path}` | Published dataset files (#311): `catalog.json` + `<name>/<version>/data.csv\|datapackage.json` off `USA_WA_DATASETS_ROOT`. Traversal-guarded; 404 for anything unpublished. |
 | POST | `/sync/redrive` | **Mutating.** Re-drives dead-lettered outbox entries. `X-Operator-Token` gated. |
 
 ### `/api/v1` — operations

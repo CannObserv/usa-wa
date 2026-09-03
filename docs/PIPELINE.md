@@ -167,6 +167,21 @@ the workspace packages. Verified on the real archive 2026-09-03: 3,135 persons
 orgs, type distribution matching canonical exactly. Roles/seats + assignments
 (the span engine as Python models) complete the layer next.
 
+## Publication (#311, in progress)
+
+`python -m usa_wa_pipeline.publish` materializes each dataset in
+`publish.PUBLISHED_DATASETS` (staging tier + conformed products; deliberate
+config — publishing is a decision; lineage comes from the dbt manifest) as an
+immutable `USA_WA_DATASETS_ROOT/<name>/<version>/data.csv + datapackage.json`
+and flips `catalog.json` last (tmp+rename both — a crash leaves unlisted
+orphans, never a listed partial). Skip-if-unchanged: no version churn on a
+quiet day. Producer-side gates: a missing table or a row shrink beyond
+`--max-shrink` (default 10%) refuses the whole run with nothing minted —
+retraction=absence means a degraded build must never ship as mass retraction.
+The API serves the tree at `/datasets/*` with `/health/datasets` as the
+publication probe. The nightly systemd chain (harvests → dbt build → registrar
+→ publish) is #311's remaining half.
+
 ## TDD for dbt models
 
 Red → Green → Refactor applies; what changes is where each color lives:
