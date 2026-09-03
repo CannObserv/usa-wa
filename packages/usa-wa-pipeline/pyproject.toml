@@ -10,11 +10,15 @@ dependencies = [
     "pandas>=2.0,<3",
     "clearinghouse-core",
     "usa-wa-adapter-legislature",
+    "usa-wa-adapter-pdc",
+    "usa-wa-adapter-sos",
 ]
 
 [tool.uv.sources]
 clearinghouse-core = { workspace = true }
 usa-wa-adapter-legislature = { workspace = true }
+usa-wa-adapter-pdc = { workspace = true }
+usa-wa-adapter-sos = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

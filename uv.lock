@@ -2619,6 +2619,8 @@ dependencies = [
     { name = "dbt-duckdb" },
     { name = "pandas" },
     { name = "usa-wa-adapter-legislature" },
+    { name = "usa-wa-adapter-pdc" },
+    { name = "usa-wa-adapter-sos" },
 ]
 
 [package.metadata]
@@ -2628,6 +2630,8 @@ requires-dist = [
     { name = "dbt-duckdb", specifier = ">=1.9,<2" },
     { name = "pandas", specifier = ">=2.0,<3" },
     { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
+    { name = "usa-wa-adapter-pdc", editable = "packages/usa-wa-adapter-pdc" },
+    { name = "usa-wa-adapter-sos", editable = "packages/usa-wa-adapter-sos" },
 ]
 
 [[package]]

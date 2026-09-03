@@ -47,3 +47,28 @@ models:
         data_tests: [not_null]
       - name: name
         data_tests: [not_null]
+  - name: stg_pdc_winners
+    description: One row per (chamber, election_year, filer) from the archived SODA winner cohorts (#307).
+    columns:
+      - name: chamber
+        data_tests: [not_null]
+      - name: election_year
+        data_tests: [not_null]
+      - name: filer_id
+        data_tests: [not_null]
+  - name: stg_sos_results
+    description: One row per (election, race, candidate) from the archived results exports (#307).
+    columns:
+      - name: election_date
+        data_tests: [not_null]
+      - name: race
+        data_tests: [not_null]
+      - name: candidate
+        data_tests: [not_null]
+  - name: stg_sos_filings
+    description: One row per (election, race, filed candidate) from the archived WhoFiled exports (#307). Store empty until the raw harvest runs (the Postgres archive held no filings payloads to export).
+    columns:
+      - name: election_date
+        data_tests: [not_null]
+      - name: ballot_name
+        data_tests: [not_null]

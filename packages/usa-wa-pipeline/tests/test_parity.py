@@ -34,3 +34,19 @@ def test_stale_acceptance_is_an_error() -> None:
     """An allowlist entry that no longer diverges is a blindfold — refuse it."""
     with pytest.raises(ValueError, match="stale parity acceptances"):
         key_set_parity("d", ["a"], ["a"], accepted=[AcceptedDiff("a", "staging", "old")])
+
+
+def test_subset_parity_ignores_staging_surplus() -> None:
+    from usa_wa_pipeline.parity import subset_parity
+
+    report = subset_parity("d", ["a", "b", "extra"], ["a", "b"])
+    assert report.clean
+    assert report.staging_total == 3
+
+
+def test_subset_parity_fails_on_canonical_loss() -> None:
+    from usa_wa_pipeline.parity import subset_parity
+
+    report = subset_parity("d", ["a"], ["a", "lost"])
+    assert not report.clean
+    assert report.only_canonical == {"lost"}
