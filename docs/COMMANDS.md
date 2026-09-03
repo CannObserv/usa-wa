@@ -34,6 +34,10 @@ reserved for "aborted, took no action") — see
 | `python -m usa_wa_facts_seats.pdc.refresh` | Daily PDC rebuild — `person_wa_pdc` identifier links off the archive (#69; identifier-only since #101, rebuild-only since #201) |
 | `python -m usa_wa_adapter_sos.results.archive_refresh` | Daily SOS results archive — Phase A of the SOS cycle (#201); exit 4 = every cohort unserved |
 | `python -m usa_wa_facts_seats.house.refresh` | Daily House Position rebuild — the WSL+SOS span builder off the archive (#101; rebuild-only since #201) |
+| `python -m usa_wa_adapter_legislature.raw_harvest` | Daily WSL SOAP set + member fan-out into the #302 raw file store (#304; no DB reads); `--root`, `--ttl-days` |
+| `python -m usa_wa_adapter_pdc.raw_harvest` | Winner-cohort wires into the raw file store (#304); exit 4 = whole-source outage |
+| `python -m usa_wa_adapter_sos.raw_harvest` | Filings + results wires into the raw file store (#304), both SOS sources one run |
+| `python -m clearinghouse_core.raw_integrity` | Raw-store integrity sweep — re-hash file objects vs manifests, rolling byte-slice + cursor (#304); exit 1 = corruption |
 
 ### Seat-fact backfills
 
