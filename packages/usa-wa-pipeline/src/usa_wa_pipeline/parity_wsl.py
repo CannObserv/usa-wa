@@ -60,6 +60,7 @@ MEETING_DERIVED_AGENCIES = frozenset({"Joint", "Other"})
 #: names its reason and dies loudly once the divergence heals.
 ACCEPTED: tuple[AcceptedDiff, ...] = (
     AcceptedDiff(
+        "sponsors",
         "31656",
         "canonical",
         "Denny Heck (Lt. Governor): ex-officio Senate Rules seat minted from the "
@@ -79,6 +80,7 @@ async def run_parity(
     meeting_rows: Callable[[RawStore], list[dict[str, Any]]] = wsl.meeting_rows,
     sponsor_rows: Callable[[RawStore], list[dict[str, Any]]] = wsl.sponsor_rows,
     committee_member_rows: Callable[[RawStore], list[dict[str, Any]]] = wsl.committee_member_rows,
+    accepted: tuple[AcceptedDiff, ...] = ACCEPTED,
 ) -> list[ParityReport]:
     """Build both reports. Row-builders injectable for tests; read-only on the DB."""
     staging_committees = {r["committee_id"] for r in committee_rows(store)} | {
@@ -107,20 +109,13 @@ async def run_parity(
     canonical_sponsors = set(
         (await session.execute(select(Person.source_id).where(Person.source == SOURCE))).scalars()
     )
-    accepted = [d for d in ACCEPTED]
+    # Acceptances go through unfiltered (#302 CR): key_set_parity scopes by
+    # dataset, and an acceptance that no longer matches — including one whose
+    # key vanished from BOTH sides — must die loudly as stale, never be
+    # pre-filtered out of the check.
     return [
-        key_set_parity(
-            "committees",
-            staging_committees,
-            canonical_committees,
-            accepted=[d for d in accepted if d.key in staging_committees | canonical_committees],
-        ),
-        key_set_parity(
-            "sponsors",
-            staging_sponsors,
-            canonical_sponsors,
-            accepted=[d for d in accepted if d.key in staging_sponsors | canonical_sponsors],
-        ),
+        key_set_parity("committees", staging_committees, canonical_committees, accepted=accepted),
+        key_set_parity("sponsors", staging_sponsors, canonical_sponsors, accepted=accepted),
     ]
 
 

@@ -144,14 +144,9 @@ def decide(cluster: frozenset[str], registered: dict[str, str]) -> Decision:
     return Decision("append", keys_to_register=unknown, entity_id=entity_id)
 
 
-async def registered_view(session: AsyncSession, kind: str) -> dict[str, str]:
-    """Natural key → LIVE entity id (merges resolved to the survivor)."""
-    rows = (
-        await session.execute(
-            select(RegistryKey.natural_key, RegistryKey.entity_id).where(RegistryKey.kind == kind)
-        )
-    ).all()
-    merges = {
+async def merge_map(session: AsyncSession, kind: str) -> dict[str, str]:
+    """Entity id → ``merged_into``, for every tombstoned entity of ``kind``."""
+    return {
         str(entity_id): str(merged_into)
         for entity_id, merged_into in (
             await session.execute(
@@ -162,14 +157,31 @@ async def registered_view(session: AsyncSession, kind: str) -> dict[str, str]:
         ).all()
     }
 
-    def resolve(entity_id: str) -> str:
-        seen = set()
-        while entity_id in merges and entity_id not in seen:
-            seen.add(entity_id)
-            entity_id = merges[entity_id]
-        return entity_id
 
-    return {key: resolve(str(entity_id)) for key, entity_id in rows}
+def resolve_merged(merges: dict[str, str], entity_id: str) -> str:
+    """Follow the tombstone chain to its terminal survivor (cycle-guarded)."""
+    seen: set[str] = set()
+    while entity_id in merges and entity_id not in seen:
+        seen.add(entity_id)
+        entity_id = merges[entity_id]
+    return entity_id
+
+
+async def registered_view(
+    session: AsyncSession, kind: str, *, resolve_merges: bool = True
+) -> dict[str, str]:
+    """Natural key → entity id. By default merges resolve to the survivor;
+    ``resolve_merges=False`` returns the raw bindings (what each key is
+    registered to, tombstones unfollowed) — the parity probe's view."""
+    rows = (
+        await session.execute(
+            select(RegistryKey.natural_key, RegistryKey.entity_id).where(RegistryKey.kind == kind)
+        )
+    ).all()
+    if not resolve_merges:
+        return {key: str(entity_id) for key, entity_id in rows}
+    merges = await merge_map(session, kind)
+    return {key: resolve_merged(merges, str(entity_id)) for key, entity_id in rows}
 
 
 async def apply_decision(

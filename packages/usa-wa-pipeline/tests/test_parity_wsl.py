@@ -7,6 +7,7 @@ import pytest
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.rawstore import RawStore
 from clearinghouse_domain_legislative.identity import Organization, Person
+from usa_wa_pipeline.parity import AcceptedDiff
 from usa_wa_pipeline.parity_wsl import SOURCE, run_parity
 
 pytestmark = pytest.mark.db
@@ -52,6 +53,7 @@ async def test_clean_parity(db_session, tmp_path) -> None:
         ],
         sponsor_rows=lambda s: [{"member_id": "100"}],
         committee_member_rows=lambda s: [{"member_id": "100"}],
+        accepted=(),
     )
     assert all(r.clean for r in reports)
 
@@ -65,8 +67,46 @@ async def test_divergence_surfaces_both_sides(db_session, tmp_path) -> None:
         meeting_rows=lambda s: [],
         sponsor_rows=lambda s: [],
         committee_member_rows=lambda s: [{"member_id": "77"}],
+        accepted=(),
     )
     by_name = {r.dataset: r for r in reports}
     assert by_name["committees"].only_staging == {"2"}
     assert by_name["committees"].only_canonical == {"9"}
     assert by_name["sponsors"].only_staging == {"77"}
+
+
+async def test_acceptance_matches_and_scopes_by_dataset(db_session, tmp_path) -> None:
+    """A canonical-side sponsor acceptance heals the sponsors report, is carried
+    as matched — and does NOT swallow the same key in the committees report."""
+    accepted = (AcceptedDiff("sponsors", "31656", "canonical", "Heck ex-officio (#309)"),)
+    await _seed_canonical(db_session, committee_ids=[], member_ids=["31656"])
+    reports = await run_parity(
+        db_session,
+        _store(tmp_path),
+        committee_rows=lambda s: [{"committee_id": "31656"}],  # same numeric key, other dataset
+        meeting_rows=lambda s: [],
+        sponsor_rows=lambda s: [],
+        committee_member_rows=lambda s: [],
+        accepted=accepted,
+    )
+    by_name = {r.dataset: r for r in reports}
+    assert by_name["sponsors"].clean
+    assert by_name["sponsors"].accepted == accepted
+    assert by_name["committees"].only_staging == {"31656"}  # not swallowed
+
+
+async def test_vanished_acceptance_fails_the_run(db_session, tmp_path) -> None:
+    """An acceptance whose key is gone from BOTH sides is stale and raises —
+    the pre-filter that silently dropped it was the #302 CR hole."""
+    accepted = (AcceptedDiff("sponsors", "31656", "canonical", "healed"),)
+    await _seed_canonical(db_session, committee_ids=[], member_ids=[])
+    with pytest.raises(ValueError, match="stale"):
+        await run_parity(
+            db_session,
+            _store(tmp_path),
+            committee_rows=lambda s: [],
+            meeting_rows=lambda s: [],
+            sponsor_rows=lambda s: [],
+            committee_member_rows=lambda s: [],
+            accepted=accepted,
+        )
