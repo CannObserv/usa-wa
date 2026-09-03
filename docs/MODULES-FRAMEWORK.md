@@ -11,7 +11,7 @@ packages/
   clearinghouse-core/                 — Layer 1: framework primitives (jurisdiction-agnostic)
     src/clearinghouse_core/
       models.py       — Declarative Base, TimestampMixin (side-effect-imports jurisdictions + provenance + sweep_state + runs + source_coverage for Base.metadata)
-      jurisdictions.py — Jurisdiction cache mirror (4 tables: types/relationship_types lookups, jurisdictions, jurisdiction_relationships) — local copy of Power Map's Jurisdiction extension
+      jurisdictions.py — Jurisdiction tables (types/relationship_types lookups, jurisdictions, jurisdiction_relationships). Historically the PM mirror; since #310 the WRITER is `usa_wa_common.seed_jurisdictions` asserting the local vocabulary (the sidecar's jurisdiction sync is redundant, retires at #314)
       provenance.py   — Source, FetchEvent, RawPayload, Citation, Note, DocumentIdentifier (every canonical fact traces back to these)
       adapter.py      — BaseAdapter contract + FetchedPayload / NormalizedBatch / ResourceRef
       runner.py       — AdapterRunner: cache-or-fetch decision, idempotent upsert, provenance writing (derives FetchEvent.content_hash = sha256(RawPayload.body) — the #54 integrity baseline, single chokepoint). `archive_only(resource_id)` (#79) is the public promotion of the `_archive_payload` seam (#62): fetch + archive a wire **without** normalizing (honours the freshness cache), for a Phase-A harvest whose canonical derivation is archive-first + needs context the harvest doesn't hold (PDC's era roster)

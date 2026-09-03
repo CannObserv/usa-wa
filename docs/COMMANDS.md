@@ -42,6 +42,7 @@ reserved for "aborted, took no action") — see
 | `python -m usa_wa_pipeline.parity_wsl` | Write-free parity probe: WSL staging rows vs. canonical Postgres (#306); exit 1 = unexplained divergence |
 | `python -m usa_wa_pipeline.parity_pdc` | Write-free subset parity: canonical `wa_pdc` links ⊆ staging PDC winners (#307) |
 | `python -m usa_wa_pipeline.registry_seed` | Seed the identity registry from canonical persons/orgs, ULIDs preserved (#308); idempotent; exit 4 = conflicts |
+| `python -m usa_wa_common.seed_jurisdictions` | Assert the locally-owned WA jurisdiction vocabulary into the table (#310); idempotent; strangers reported, never deleted |
 
 ### Seat-fact backfills
 
