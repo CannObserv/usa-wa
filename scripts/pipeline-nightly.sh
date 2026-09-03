@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Nightly #302 pipeline chain (#311): raw harvests → dbt build → registrar →
-# publish → parity probes. ExecStart of usa-wa-pipeline.service.
+# publish → serving load → parity probes. ExecStart of usa-wa-pipeline.service.
 #
 # Failure policy, stage by stage:
 # - a HARVEST failure is contained (counted, chain continues): the raw store
@@ -11,6 +11,8 @@
 #   today's attributes, never a guessed identity (spec § registrar);
 # - PUBLISH refusal (exit 1) is counted — the gate did its job, the catalog
 #   still lists the last good versions;
+# - a SERVING LOAD failure is counted: the API keeps serving the last good
+#   snapshot (the load is one transaction), so this is stale-but-correct;
 # - PARITY divergence is counted — observational, runs after publish.
 # Any counted failure exits 1 at the end so OnFailure= emails the operator.
 #
@@ -50,6 +52,14 @@ if ! $UV python -m usa_wa_pipeline.publish \
     --db data/pipeline.duckdb \
     --manifest /home/exedev/usa-wa/data/target/manifest.json; then
   echo "pipeline-nightly: publish refused/failed (last good catalog stands)" >&2
+  failures=$((failures + 1))
+fi
+
+# The deployment's own projection of what just published (#313). After publish
+# so it loads the new catalog; before the probes so a load failure is counted
+# beside them rather than discovered by a 200 answering stale rows.
+if ! $UV python -m usa_wa_api.serving.load; then
+  echo "pipeline-nightly: serving load failed (API still serves the last snapshot)" >&2
   failures=$((failures + 1))
 fi
 

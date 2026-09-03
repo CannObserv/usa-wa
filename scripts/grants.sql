@@ -66,6 +66,19 @@ $$;
 REASSIGN OWNED BY :"reassign_from" TO :"owner";
 \endif
 
+-- 2b. The serving schema (#313) — the one schema alembic does NOT own. It is a
+--     disposable projection of the published datasets, rebuilt in full by
+--     `python -m usa_wa_api.serving.load`, so the app role OWNS it and creates
+--     its own tables there. A migration would imply state worth preserving,
+--     and there is none: drop the schema and the next load rebuilds it from
+--     `published/` alone. Created here because only <owner> may create a schema.
+--     <owner> creates the schema (only it may); the app role gets CREATE on it
+--     so the loader can build and rebuild its own tables inside. Ownership is
+--     NOT transferred — <owner> cannot SET ROLE to <app> — and it need not be:
+--     the app owns every table it creates there, so drop/replace is its own.
+CREATE SCHEMA IF NOT EXISTS serving;
+GRANT USAGE, CREATE ON SCHEMA serving TO :"app";
+
 -- 3. Schema usage. Enumerate every app-facing schema Base.metadata declares.
 --    ADD NEW SCHEMAS HERE when a migration introduces one. `public` is omitted
 --    on purpose: it carries only alembic_version (migrate-only, owned by
