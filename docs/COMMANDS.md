@@ -41,6 +41,7 @@ reserved for "aborted, took no action") — see
 | `python -m clearinghouse_core.raw_export` | One-shot hash-preserving RawPayload corpus export into the raw store (#305); resumable cursor, `--reset-cursor`, mismatch = exit 1 |
 | `python -m usa_wa_pipeline.parity_wsl` | Write-free parity probe: WSL staging rows vs. canonical Postgres (#306); exit 1 = unexplained divergence |
 | `python -m usa_wa_pipeline.parity_pdc` | Write-free subset parity: canonical `wa_pdc` links ⊆ staging PDC winners (#307) |
+| `python -m usa_wa_pipeline.registry_seed` | Seed the identity registry from canonical persons/orgs, ULIDs preserved (#308); idempotent; exit 4 = conflicts |
 
 ### Seat-fact backfills
 
