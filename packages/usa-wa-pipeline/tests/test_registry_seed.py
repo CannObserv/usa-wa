@@ -8,11 +8,17 @@ from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.registry import (
     KIND_ORG,
     KIND_PERSON,
+    KIND_ROLE,
     apply_decision,
     decide,
     registered_view,
 )
-from clearinghouse_domain_legislative.identity import Organization, Person, PersonIdentifier
+from clearinghouse_domain_legislative.identity import (
+    Organization,
+    Person,
+    PersonIdentifier,
+    Role,
+)
 from usa_wa_pipeline.adjudicate import adjudicate_merge
 from usa_wa_pipeline.registry_seed import seed_registry
 
@@ -44,14 +50,24 @@ async def _seed_canonical(db_session):
     )
     db_session.add(org)
     await db_session.flush()
-    return person, org
+    role = Role(
+        source="usa_wa_legislature",
+        source_id="committee-member-role:1754",
+        organization_id=org.id,
+        name="Member",
+        role_type="committee_member",
+    )
+    db_session.add(role)
+    await db_session.flush()
+    return person, org, role
 
 
 async def test_seed_registers_clusters_under_canonical_ulids(db_session) -> None:
-    person, org = await _seed_canonical(db_session)
+    person, org, role = await _seed_canonical(db_session)
     summary = await seed_registry(db_session)
     assert summary["persons_minted"] == 1
     assert summary["orgs_minted"] == 1
+    assert summary["roles_minted"] == 1
     assert summary["conflicts"] == 0
 
     persons = await registered_view(db_session, KIND_PERSON)
@@ -59,6 +75,20 @@ async def test_seed_registers_clusters_under_canonical_ulids(db_session) -> None
     assert persons["wa_pdc:7710"] == str(person.id)
     orgs = await registered_view(db_session, KIND_ORG)
     assert orgs["usa_wa_legislature:1754"] == str(org.id)
+    roles = await registered_view(db_session, KIND_ROLE)
+    assert roles["usa_wa_legislature:committee-member-role:1754"] == str(role.id)
+
+
+async def test_the_seed_preserves_the_role_ulid_power_map_already_holds(db_session) -> None:
+    """#313: the reason roles get a registry at all is that the API needs a
+    stable handle, and PM already holds 312 role anchors from the #312 export.
+    Minting fresh ULIDs would invalidate them mid-cutover — so the seed carries
+    the canonical id across exactly as it does for persons and orgs, and
+    `role_key` stays the natural key so nothing is mediated away."""
+    _person, _org, role = await _seed_canonical(db_session)
+    await seed_registry(db_session)
+    roles = await registered_view(db_session, KIND_ROLE)
+    assert roles["usa_wa_legislature:committee-member-role:1754"] == str(role.id)
 
 
 async def test_seed_is_idempotent(db_session) -> None:
@@ -75,7 +105,7 @@ async def test_foreign_owned_key_is_a_conflict_not_a_silent_append(db_session) -
     conflict at seed time (CR 3): the append row of the decision table would
     otherwise bind the person's whole cluster to that entity and never mint
     their canonical ULID — a silent cross-person merge."""
-    person, _org = await _seed_canonical(db_session)
+    person, _org, _role = await _seed_canonical(db_session)
     foreign = await apply_decision(
         db_session, KIND_PERSON, decide(frozenset({"wa_pdc:7710"}), {}), registered_by="test"
     )
@@ -92,7 +122,7 @@ async def test_reseed_after_adjudicated_merge_is_not_a_conflict(db_session) -> N
     """A canonical row whose entity was merged away by adjudication re-seeds as
     a noop: the cluster resolves to the survivor the canonical ULID itself
     resolves to — sanctioned policy, not a duplicate (CR 3/4 symmetry)."""
-    person, _org = await _seed_canonical(db_session)
+    person, _org, _role = await _seed_canonical(db_session)
     await seed_registry(db_session)
     survivor = await apply_decision(
         db_session, KIND_PERSON, decide(frozenset({"other:1"}), {}), registered_by="test"

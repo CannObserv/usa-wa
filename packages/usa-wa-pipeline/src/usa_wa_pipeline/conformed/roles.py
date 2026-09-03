@@ -48,6 +48,7 @@ HOUSE_ORG = "usa_wa_house"
 SENATE_ORG = "usa_wa_senate"
 
 ROLE_COLUMNS = [
+    "entity_id",
     "role_key",
     "role_type",
     "name",
@@ -139,18 +140,26 @@ def role_for_span(span_kind: str, span_discriminator: str) -> Role:
 
 
 def role_rows(
-    assignments: list[dict[str, Any]], entity_by_key: dict[str, str]
+    assignments: list[dict[str, Any]],
+    org_by_key: dict[str, str],
+    role_by_key: dict[str, str],
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Published assignments → the role dimension they point at, deduplicated.
 
     One row per slot, not per tenure: two members holding one seat across time
-    are one role. ``entity_by_key`` is the ORG crosswalk — a role whose
-    organization is not registered still publishes, with a null
-    ``org_entity_id`` and a count. That asymmetry with
+    are one role. Two crosswalks join here — ``role_by_key`` gives the role its
+    own ULID (#313), ``org_by_key`` the organization it sits in — and **neither
+    is allowed to drop a row**. That asymmetry with
     :func:`~usa_wa_pipeline.conformed.spans.assignment_rows` is deliberate: an
     assignment with no person is headless and must drop, but a seat exists
-    whether or not the registry has minted its chamber — and dropping it would
-    delete the dimension row a published assignment names.
+    whether or not the registry has reached it, and dropping it would delete the
+    dimension row a published assignment already names. The nightly runs
+    ``dbt build → registrar → publish``, so a brand-new seat is unregistered in
+    the build that first sees it and bound by the next; the counters are what
+    make that one-run latency visible rather than silent.
+
+    ``role_key`` stays first-class beside ``entity_id``: it is what PM matches a
+    seat on, and mediating it away is exactly what #309 refused.
     """
     seen: dict[str, Role] = {}
     for row in assignments:
@@ -158,13 +167,17 @@ def role_rows(
         seen.setdefault(role.role_key, role)
 
     rows: list[dict[str, Any]] = []
-    counters = {"roles": len(seen), "unregistered_orgs": 0}
+    counters = {"roles": len(seen), "unregistered_orgs": 0, "unregistered_roles": 0}
     for role in sorted(seen.values(), key=lambda r: r.role_key):
-        entity_id = entity_by_key.get(f"{SOURCE}:{role.org_source_id}")
+        entity_id = org_by_key.get(f"{SOURCE}:{role.org_source_id}")
         if entity_id is None:
             counters["unregistered_orgs"] += 1
+        role_entity_id = role_by_key.get(f"{SOURCE}:{role.role_key}")
+        if role_entity_id is None:
+            counters["unregistered_roles"] += 1
         rows.append(
             {
+                "entity_id": role_entity_id,
                 "role_key": role.role_key,
                 "role_type": role.role_type,
                 "name": role.name,

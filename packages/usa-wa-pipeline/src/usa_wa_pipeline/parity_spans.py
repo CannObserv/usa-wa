@@ -73,7 +73,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root
-from clearinghouse_core.registry import KIND_ORG, KIND_PERSON
+from clearinghouse_core.registry import KIND_ORG, KIND_PERSON, KIND_ROLE
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.identity import Role as CanonicalRole
 from clearinghouse_domain_legislative.terms import biennium_for_date
@@ -141,9 +141,11 @@ ROLE_ATTRIBUTES = ("role_type", "name", "qualifier")
 INTEGRITY_COUNTERS = (
     "unregistered_spans",
     "unregistered_orgs",
+    "unregistered_roles",
     "malformed_roster_rows",
     "unparsable_canonical_keys",
     "role_attribute_mismatches",
+    "role_entity_mismatches",
 )
 
 
@@ -335,24 +337,28 @@ async def run_parity(
             for s in family
         ],
         entity_index(await crosswalk_rows(session, KIND_ORG)),
+        entity_index(await crosswalk_rows(session, KIND_ROLE)),
     )
     our_roles = {
         row["role_key"]: tuple(row[attr] for attr in ROLE_ATTRIBUTES) for row in derived_roles
     }
-    canonical_roles = {
-        row[0]: tuple(row[1:])
-        for row in (
-            await session.execute(
-                select(
-                    CanonicalRole.source_id,
-                    *(getattr(CanonicalRole, attr) for attr in ROLE_ATTRIBUTES),
-                ).where(
-                    CanonicalRole.source == ROLE_SOURCE,
-                    CanonicalRole.deleted_at.is_(None),
-                )
+    our_role_ids = {row["role_key"]: row["entity_id"] for row in derived_roles}
+    canonical_roles: dict[str, tuple[Any, ...]] = {}
+    canonical_role_ids: dict[str, str] = {}
+    for row in (
+        await session.execute(
+            select(
+                CanonicalRole.source_id,
+                CanonicalRole.id,
+                *(getattr(CanonicalRole, attr) for attr in ROLE_ATTRIBUTES),
+            ).where(
+                CanonicalRole.source == ROLE_SOURCE,
+                CanonicalRole.deleted_at.is_(None),
             )
-        ).all()
-    }
+        )
+    ).all():
+        canonical_roles[row[0]] = tuple(row[2:])
+        canonical_role_ids[row[0]] = str(row[1])
     if not canonical_roles:
         # Same rule as the empty span oracle: report "no oracle", never a fork.
         logger.warning("parity_spans_empty_canonical_roles", extra={"source": ROLE_SOURCE})
@@ -370,6 +376,16 @@ async def run_parity(
         for i, attr in enumerate(ROLE_ATTRIBUTES)
         if our_roles[key][i] != canonical_roles[key][i]
     )
+    # The ULID the seed carried across from `canonical.roles` must be the one we
+    # publish (#313) — this is the entire justification for giving roles a
+    # registry, because PM's 312 role anchors name those ids. A role the
+    # registrar has not reached yet is `unregistered_roles`, not a mismatch:
+    # null is a one-run latency, a DIFFERENT id is a broken anchor.
+    role_entity_mismatches = sorted(
+        key
+        for key in set(our_role_ids) & set(canonical_role_ids)
+        if our_role_ids[key] is not None and our_role_ids[key] != canonical_role_ids[key]
+    )
     counters.update(
         {
             "roles": len(our_roles),
@@ -377,6 +393,8 @@ async def run_parity(
             "role_divergence": len(role_only_ours) + len(role_only_canonical),
             "role_baseline": role_baseline,
             "role_attribute_mismatches": len(attribute_mismatches),
+            "role_entity_mismatches": len(role_entity_mismatches),
+            "unregistered_roles": role_join["unregistered_roles"],
             "unregistered_orgs": role_join["unregistered_orgs"],
         }
     )
@@ -404,6 +422,7 @@ async def run_parity(
             "dated_sample": [f"{src}/{sid}" for src, sid in dated[:20]],
             "role_only_ours_sample": role_only_ours[:20],
             "role_only_canonical_sample": role_only_canonical[:20],
+            "role_entity_mismatch_sample": role_entity_mismatches[:20],
             "role_attribute_sample": [
                 f"{key}.{attr}: canonical={theirs!r} ours={mine!r}"
                 for key, attr, theirs, mine in attribute_mismatches[:20]

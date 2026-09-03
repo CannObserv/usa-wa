@@ -124,6 +124,24 @@ results/filings corroborate spans, covered by #309's span parity.
 MODULES-FRAMEWORK.md). Key namespaces: `<source-slug>:<source_id>` and
 `<scheme>:<value>` (e.g. `usa_wa_legislature:27992`, `wa_pdc:7710`).
 
+**Three kinds since #313: `person`, `org`, `role`.** Roles are the odd one, and
+deliberately so — a role has **no matching problem**. `role_for_span(kind,
+discriminator)` is a pure function, two runs necessarily agree, and roles never
+merge, so the ledger is always a 1:1 map from one natural key
+(`usa_wa_legislature:<role_key>`) to one entity. It exists for the *other*
+service a registry provides: a stable handle. `role_key` is a derived string,
+and this repo's rule against keying on an exact upstream string applies just as
+much to a public id — so `/api/v1` addresses a role by ULID while `role_key`
+stays published beside it, because that key is what Power Map matches a seat on
+and mediating it away is what #309 refused.
+
+**Order matters once, at deployment.** `registry_seed` carries the canonical
+Role ULIDs across; the registrar's role pass *mints* for anything unregistered.
+Run the seed **before** the first registrar pass that sees roles, or 312 fresh
+ULIDs replace the ones PM's #312 anchors name. The `role_entity_mismatches`
+counter in `parity_spans` is the backstop, gated at zero — it catches the
+mistake, but the seed is what prevents it.
+
 ```bash
 # One-time: seed from canonical rows, ULIDs preserved (idempotent)
 uv run python -m usa_wa_pipeline.registry_seed
@@ -265,6 +283,16 @@ Role is a named slot in an Organization; an Assignment binds one in time
 aligned 1:1 with Power Map's seat match key. No ULID mediates it; only the
 *organization* the slot belongs to is registry-joined. Every key function is
 imported unchanged from the adapter's normalizer and the WA vocabulary.
+
+**#313 adds a role's own `entity_id`** without disturbing that. The key is still
+structural and still what PM matches on; the ULID is a stable handle for the API
+to address, minted through the registry's third kind (§ Identity registry above)
+and carried across from `canonical.roles` so the #312 anchors keep naming the
+same rows. Neither crosswalk may drop a role: a seat exists whether or not the
+registry has reached it, and the nightly runs `dbt build → registrar → publish`,
+so a brand-new seat is unregistered in the build that first sees it and bound by
+the next. `unregistered_roles` and `unregistered_orgs` make that one-run latency
+visible; `role_entity_mismatches` separates it from a *broken* anchor.
 
 A deterministic join that has forked is the one failure this design cannot
 tolerate — but the dbt `assignments_name_a_role` test does **not** detect it

@@ -41,9 +41,9 @@ reserved for "aborted, took no action") — see
 | `python -m clearinghouse_core.raw_export` | One-shot hash-preserving RawPayload corpus export into the raw store (#305); resumable cursor, `--reset-cursor`, mismatch = exit 1 |
 | `python -m usa_wa_pipeline.parity_wsl` | Write-free parity probe: WSL staging rows vs. canonical Postgres (#306); exit 1 = unexplained divergence |
 | `python -m usa_wa_pipeline.parity_pdc` | Write-free subset parity: canonical `wa_pdc` links ⊆ staging PDC winners (#307) |
-| `python -m usa_wa_pipeline.registry_seed` | Seed the identity registry from canonical persons/orgs, ULIDs preserved (#308); idempotent; exit 4 = conflicts |
+| `python -m usa_wa_pipeline.registry_seed` | Seed the identity registry from canonical persons/orgs/**roles**, ULIDs preserved (#308, #313); idempotent; exit 4 = conflicts. **Run before the first registrar pass that sees roles** — otherwise it mints fresh role ULIDs and PM's #312 anchors break (docs/PIPELINE.md § Identity registry) |
 | `python -m usa_wa_common.seed_jurisdictions` | Assert the locally-owned WA jurisdiction vocabulary into the table (#310); idempotent; strangers reported, never deleted |
-| `python -m usa_wa_pipeline.registrar` | Cluster `proposed_links` (union-find) and apply the registry decision table (#308); `--dry-run` previews; exit 4 = conflicts to triage |
+| `python -m usa_wa_pipeline.registrar` | Cluster `proposed_links` (union-find) and apply the registry decision table (#308); also registers roles from the conformed dimension as singleton clusters (#313); `--dry-run` previews; exit 4 = conflicts to triage |
 | `python -m usa_wa_pipeline.adjudicate` | Merge/unmerge entities / move a key, `--note` mandatory, recorded in `registry.adjudications` (#308) |
 | `python -m usa_wa_pipeline.parity_spans` | Write-free parity: conformed tenure spans vs `canonical.assignments` **and** the derived role dimension (key + `role_type`/`name`/`qualifier`) vs `canonical.roles`. Two ratchets (`--baseline`, `--role-baseline`) plus integrity counters gated at zero; a failing run names them in `ratchet_failures`/`integrity_failures` (#309) |
 | `python -m usa_wa_pipeline.parity_registry` | Write-free parity: every canonical row's key maps to its own ULID in the registry (#308) |
