@@ -8,6 +8,9 @@ set -euo pipefail
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 export USA_WA_PIPELINE_DB="$tmp/gate.duckdb"
+# Hermetic: an empty raw root, so the gate validates compilation + schema/data
+# tests without parsing the checkout's live store (or fetching WSDLs) (#306).
+export USA_WA_RAW_ROOT="$tmp/raw"
 uv run --frozen --no-sync dbt build \
   --project-dir packages/usa-wa-pipeline/dbt \
   --profiles-dir packages/usa-wa-pipeline/dbt \
