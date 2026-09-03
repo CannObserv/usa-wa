@@ -11,7 +11,6 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_pipeline.conformed.spans import (
     ASSIGNMENT_COLUMNS,
@@ -22,8 +21,6 @@ from usa_wa_pipeline.conformed.spans import (
 )
 from usa_wa_pipeline.operator_read import operator_events
 from usa_wa_pipeline.registry_read import crosswalk_frame
-
-logger = get_logger(__name__)
 
 
 def model(dbt, session):
@@ -42,10 +39,12 @@ def model(dbt, session):
         ),
         current_biennium=current_biennium,
     )
-    rows, counters = assignment_rows(spans, entity_index(crosswalk_frame("person")))
-    # `unregistered_spans` is the ONLY signal that a registrar gap dropped spans
-    # on the join (CR 60): the table just comes back smaller, and a build that
-    # discards the count publishes that silently.
-    log = logger.warning if counters["unregistered_spans"] else logger.info
-    log("assignments_built", extra={"summary": counters})
+    # The join's counters — `unregistered_spans` above all — are reported by
+    # `usa_wa_pipeline.parity_spans`, not from here (CR 68). A `dbt build`
+    # never calls `configure_logging`, so a logger in a Python model emits
+    # nothing: the info path is dropped and the warning path reaches
+    # `logging.lastResort`, which prints the message and discards `extra`.
+    # Round 4 logged from here and the counters reached no one; the probe
+    # recomputes the same join under the job harness, where they are real.
+    rows, _counters = assignment_rows(spans, entity_index(crosswalk_frame("person")))
     return pd.DataFrame(rows, columns=ASSIGNMENT_COLUMNS)
