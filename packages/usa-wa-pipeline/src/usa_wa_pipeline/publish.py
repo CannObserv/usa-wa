@@ -69,9 +69,13 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
 ]
 
 #: Per-dataset schema semver: additive = minor, rename/removal = major (spec).
-#: 1.1.0 (#309): stg_wsl_committee_members gained the member identity fields
-#: the span tier needs, and `assignments` joined the published set. One knob
-#: covers every dataset today — per-dataset versions are a later refinement.
+#: One knob covers every dataset today — per-dataset versions are a later
+#: refinement, so a bump re-versions all of them.
+#:
+#: - 1.1.0 (#309): stg_wsl_committee_members gained the member identity fields
+#:   the span tier needs, and `assignments` joined the published set.
+#: - 1.2.0 (#309 inc 4): `roles` joined the published set and `assignments`
+#:   gained `role_key`. Both additive, hence minor.
 SCHEMA_VERSION = "1.2.0"
 
 DEFAULT_MAX_SHRINK = 0.10

@@ -21,6 +21,7 @@ from usa_wa_pipeline.conformed.spans import (
     ROSTER_SOURCE,
     SOURCE,
     OracleViolation,
+    RosterResolution,
     SpanInputs,
     assignment_rows,
     build_all_spans,
@@ -241,6 +242,45 @@ def test_deepening_derived_from_an_empty_roster_is_refused() -> None:
     )
     with pytest.raises(ValueError, match="roster"):
         build_all_spans(inputs, current_biennium=CURRENT)
+
+
+def test_an_empty_roster_is_refused_at_the_resolve_the_models_call() -> None:
+    """CR 76: the CR-57 refusal lived on a door production never opens.
+
+    `build_all_spans` raises only when `extra_observations is None`, but BOTH
+    callers — the `assignments` model and `parity_spans` — pass
+    `roster_resolution(...).joined` so the ~8,600-record resolve runs once for
+    two families. `roster_resolution` returned an empty resolution for an empty
+    roster without complaint, so the exact combination CR 57 refuses reached a
+    silent shallow publish through the only path that runs in production.
+
+    The refusal therefore belongs on the resolve, which is the single door.
+    """
+    with pytest.raises(ValueError, match="roster"):
+        roster_resolution([], [_sponsor("100", CURRENT)])
+
+
+def test_the_models_call_shape_refuses_an_empty_roster() -> None:
+    """The same defect stated end-to-end, in the shape the binder actually uses
+    — resolve, then hand both halves to the builders. Pinning the call shape and
+    not just the callee keeps a future refactor from re-opening the door by
+    moving the resolve rather than by removing the guard."""
+    sponsors = [_sponsor("100", CURRENT)]
+    with pytest.raises(ValueError, match="roster"):
+        resolution = roster_resolution([], sponsors)
+        build_all_spans(
+            SpanInputs(sponsors=sponsors, committee_members=[], roster=[], sos_results=[]),
+            current_biennium=CURRENT,
+            extra_observations=resolution.joined,
+            house_spans=NO_HOUSE,
+        )
+
+
+def test_an_empty_corpus_resolves_to_nothing_without_complaint() -> None:
+    """The complement of CR 76: with no sponsors there is nothing to deepen, so
+    the hermetic build (`USA_WA_PIPELINE_HERMETIC=1`, empty raw root) must still
+    resolve to an empty partition rather than raise."""
+    assert roster_resolution([], []) == RosterResolution(joined=[], minted=[], records=[])
 
 
 def test_an_empty_corpus_needs_no_roster() -> None:
