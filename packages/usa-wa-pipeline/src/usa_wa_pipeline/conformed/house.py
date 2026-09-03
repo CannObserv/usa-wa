@@ -174,6 +174,9 @@ def build_house_spans(
     backchain = backchain_house_observations(
         roster_by_biennium, positions_by_biennium, max_hops=max_backchain_hops
     )
+    # Its reader is `parity_spans`, not the build (CR 83): under `dbt build`
+    # this emits nothing — no `configure_logging()` — but the probe calls the
+    # same builder under the job harness, where the record serializes as JSON.
     logger.info(
         "conformed_house_cohort",
         extra={

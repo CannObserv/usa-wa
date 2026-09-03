@@ -127,8 +127,10 @@ class SpanInputs:
     events: list[Any] = field(default_factory=list)
     #: Roster-PDF member-years — the #228 deepening input (see
     #: :func:`deepening_observations`). Leaving it empty under a live sponsor
-    #: corpus is refused by :func:`build_all_spans` rather than silently
-    #: re-asserting the shallow 1991-start keys (CR 57).
+    #: corpus is refused rather than silently re-asserting the shallow
+    #: 1991-start keys (CR 57): by :func:`build_all_spans` when the deepening is
+    #: derived, and by :func:`roster_resolution` — the door the models and the
+    #: probe actually open — when it is stated (CR 76).
     roster: list[dict[str, Any]] = field(default_factory=list)
     #: SOS legislative-results rows — the ballot that positions a House seat
     #: (#101). Refused empty under a live sponsor corpus for the same reason.
@@ -240,13 +242,30 @@ def roster_resolution(
     - the party vocabulary — an edition introducing an unclassified
       abbreviation aborts rather than publishing a member with no party.
 
-    Raises :class:`ValueError` when roster rows were supplied but **none
-    parsed** (CR 67): an empty result is indistinguishable downstream from "no
-    deepening applies", so a roster tier broken by an upstream rename would
-    otherwise reach the same silent shallow publish :func:`build_all_spans`
-    refuses at the other end.
+    Raises :class:`ValueError` on **either** route to an empty deepening under a
+    live sponsor corpus, because this is the single door both production callers
+    open (CR 76):
+
+    - no roster rows at all (CR 57). :func:`build_all_spans` refuses this too,
+      but only when ``extra_observations is None`` — and neither the
+      ``assignments`` model nor ``parity_spans`` passes ``None``: both hand it
+      :attr:`RosterResolution.joined` so the ~8,600-record resolve runs once for
+      two families. That guard therefore sat on a door production never opens.
+    - roster rows that **none parsed** (CR 67), the upstream-rename shape.
+
+    Both publish shallow 1991-start spans (the #97 collapse) while the row count
+    barely moves, so the publish shrink gate sees nothing and the parity probe
+    runs afterward. An empty *corpus* is not this case: with no sponsors there
+    is nothing to deepen, which is the hermetic build.
     """
     if not roster:
+        if sponsors:
+            raise ValueError(
+                f"the #228 deepening needs the roster tier: 0 roster rows under a corpus of "
+                f"{len(sponsors)} sponsor rows, which would publish shallow 1991-start spans. "
+                "Pass roster rows, or call build_all_spans with an explicit "
+                "extra_observations to state the deepening."
+            )
         return RosterResolution(joined=[], minted=[], records=[])
     records = roster_records(roster)
     if not records:
