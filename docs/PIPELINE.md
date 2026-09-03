@@ -110,7 +110,10 @@ each with a named reason, and a stale acceptance fails the run. Verified clean
 2026-09-03: committees 208/186 with 22 accepted (archived-meeting Joint/`Other`
 bodies canonical never normalized), sponsors 640/641 with 1 accepted (the Lt.
 Governor's ex-officio Rules seat from the retired `committee-members:`
-vocabulary); PDC 312/312 exact. SOS has no per-source probe on purpose —
+vocabulary); PDC 312/312 exact. (#309 corrected the committee comparator to
+`org_type IN ('committee','other')` — canonical files Joint/`Other` bodies as
+`other` — which dissolved all 22 earlier committee acceptances: 208/208 exact,
+none accepted.) SOS has no per-source probe on purpose —
 results/filings corroborate spans, covered by #309's span parity.
 
 ## Identity registry (#308)
@@ -146,6 +149,23 @@ seeded registry carries every historical link, so exact rules only need the
 forward flow; verified live 2026-09-03 — 813 proposals → 0 mints, 0 conflicts,
 505 crosswalk-key appends, and `parity-registry` clean (3,135 persons / 219
 orgs, 0 missing, 0 mismapped).
+
+## Conformed: crosswalks + entities (#309, in progress)
+
+`models/conformed/`: `person_crosswalk` / `org_crosswalk` (the registry's
+published identity surface — every natural key, its entity ULID, and the
+`merged_into` tombstone, read via `usa_wa_pipeline.registry_read`; empty with
+no `DATABASE_URL`, so the hermetic gate stays db-free) and `persons` /
+`organizations` (one row per LIVE entity; logic in
+`usa_wa_pipeline.conformed.entities` — person names roster > WSL > PDC with
+newest-attestation-wins, org attributes from the newest biennium's roster wire,
+meeting-ref fallback for Joint/`Other`, and the synthesized structural orgs —
+legislature, chambers, parties — from `usa_wa_common.orgs.STRUCTURAL_ORGS`).
+`profiles.yml` pins `threads: 1`: threaded Python models race first-imports of
+the workspace packages. Verified on the real archive 2026-09-03: 3,135 persons
+(2,999 roster-named / 135 WSL / 1 known gap — the Heck acceptance) and 219
+orgs, type distribution matching canonical exactly. Roles/seats + assignments
+(the span engine as Python models) complete the layer next.
 
 ## TDD for dbt models
 
