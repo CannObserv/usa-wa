@@ -126,9 +126,26 @@ MODULES-FRAMEWORK.md). Key namespaces: `<source-slug>:<source_id>` and
 uv run python -m usa_wa_pipeline.registry_seed
 ```
 
-The registrar consuming `proposed_links` (matching-tier output) and the
-matching models themselves land with the rest of #308; corrections are always
-adjudications — a matching-rule change can propose the world and move nothing.
+```bash
+# Nightly: cluster proposed_links and apply the decision table (dry-run first)
+uv run python -m usa_wa_pipeline.registrar --db data/pipeline.duckdb [--dry-run]
+# Human corrections (merge/move), each with a mandatory recorded note
+uv run python -m usa_wa_pipeline.adjudicate merge --kind person --loser <ULID> --survivor <ULID> --note "…"
+# Invariant probe: canonical identity ⊆ registry crosswalk
+uv run python -m usa_wa_pipeline.parity_registry
+```
+
+Matching models (`models/matching/`): `match_pdc_wsl` (SQL — same seat + seating
+biennium + surname token-containment; PDC renders names in both orders) and
+`match_roster_wsl` (Python — MUST use the adapter's `identity_fold`, the same
+fold the seeded roster keys carry; join = biennium + chamber + district +
+fold-equal names) union into `proposed_links`, the registrar's sole input.
+Corrections are always adjudications — a matching-rule change can propose the
+world and move nothing (sticky registry). Splink's fuzzy tail is deferred: the
+seeded registry carries every historical link, so exact rules only need the
+forward flow; verified live 2026-09-03 — 813 proposals → 0 mints, 0 conflicts,
+505 crosswalk-key appends, and `parity-registry` clean (3,135 persons / 219
+orgs, 0 missing, 0 mismapped).
 
 ## TDD for dbt models
 

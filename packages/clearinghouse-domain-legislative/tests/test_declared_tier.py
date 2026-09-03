@@ -63,7 +63,6 @@ OPEN_TRACKING_ISSUES = {
     28: "P1c: WSL bill cluster (bills, actions, sponsorships, versions) + discover(since)",
     67: "WSL committee activity + legislation-detail cluster",
     194: "Declared tier: 12 tables with no producer and no implementation issue",
-    308: "Identity registry: adjudications written by the triage CLI (matching half of #308)",
 }
 
 #: Packages excluded from the producer scan.

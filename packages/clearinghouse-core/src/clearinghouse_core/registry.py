@@ -90,16 +90,8 @@ class RegistryKey(Base):
 class RegistryAdjudication(Base):
     """A human identity decision — the only path that moves or merges.
 
-    Declared tier until the triage CLI lands with the rest of #308 — the
-    registrar core ships first so the seed can run.
+    Written by :mod:`usa_wa_pipeline.adjudicate`.
     """
-
-    __implementation_status__ = "declared"
-    __implementation_tracking_issues__ = (308,)
-    __implementation_rationale__ = (
-        "The registrar core + seed ship first; the triage CLI that writes "
-        "adjudications lands with the matching half of #308."
-    )
 
     __tablename__ = "adjudications"
     __table_args__ = ({"schema": SCHEMA},)
