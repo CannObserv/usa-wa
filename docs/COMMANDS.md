@@ -46,6 +46,7 @@ reserved for "aborted, took no action") — see
 | `python -m usa_wa_pipeline.registrar` | Cluster `proposed_links` (union-find) and apply the registry decision table (#308); `--dry-run` previews; exit 4 = conflicts to triage |
 | `python -m usa_wa_pipeline.adjudicate` | Merge entities / move a key, `--note` mandatory, recorded in `registry.adjudications` (#308) |
 | `python -m usa_wa_pipeline.parity_registry` | Write-free parity: every canonical row's key maps to its own ULID in the registry (#308) |
+| `python -m usa_wa_pipeline.anchor_export` | One-time PM crosswalk seed: every `pm_*` anchor as base32 pairs + manifest (#312); read-only |
 
 ### Seat-fact backfills
 
