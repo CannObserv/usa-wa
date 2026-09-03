@@ -73,7 +73,8 @@ async def seed_jurisdictions(session: AsyncSession) -> dict[str, int]:
             summary["unknown_local"] += 1
             logger.info("jurisdiction_outside_vocabulary", extra={"slug": slug})
     await session.flush()
-    logger.info("jurisdictions_seed_complete", extra=dict(summary))
+    # "created" is a reserved stdlib LogRecord attribute — nest the counters.
+    logger.info("jurisdictions_seed_complete", extra={"summary": dict(summary)})
     return summary
 
 
