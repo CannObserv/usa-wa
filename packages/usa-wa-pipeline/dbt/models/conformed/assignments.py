@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
+from clearinghouse_core.registry import KIND_PERSON
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_pipeline.conformed.spans import (
     ASSIGNMENT_COLUMNS,
@@ -46,5 +47,5 @@ def model(dbt, session):
     # `logging.lastResort`, which prints the message and discards `extra`.
     # Round 4 logged from here and the counters reached no one; the probe
     # recomputes the same join under the job harness, where they are real.
-    rows, _counters = assignment_rows(spans, entity_index(crosswalk_frame("person")))
+    rows, _counters = assignment_rows(spans, entity_index(crosswalk_frame(KIND_PERSON)))
     return pd.DataFrame(rows, columns=ASSIGNMENT_COLUMNS)

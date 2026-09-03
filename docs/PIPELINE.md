@@ -244,8 +244,23 @@ so a `get_logger()` call inside a model emits nothing — the info path is
 dropped and the warning path reaches `logging.lastResort`, which prints the
 message and discards `extra`. Counters that must reach an operator therefore
 belong in a job, not a model: `parity_spans` recomputes the crosswalk join and
-reports `registered_spans` / `unregistered_spans` — the only signal that a
-registrar gap dropped spans — under the harness, where they serialize as JSON.
+reports it under the harness, where records serialize as JSON.
+
+**Reported is not enough — three counters are gated at zero.** The nightly's
+`OnFailure=` alerting fires on the *exit code*, so a counter that only reaches
+journald tells nobody while the job passes. `unregistered_spans` (a registrar
+gap silently shrinking the published table), `malformed_roster_rows` (partial
+roster corruption quietly degrading the #228 deepening) and
+`unparsable_canonical_keys` each carry no known-stale story — unlike the
+divergence ratchet — and each measures 0 on the live corpus, so any of them
+nonzero exits 1 and names itself in `integrity_failures`.
+
+The probe's crosswalk read is **not** the read the model made: the nightly runs
+`dbt build → registrar → publish → parity`, so the registrar may have bound
+keys in between. `registered_spans` therefore describes the registry as it
+stands *now* — the state tomorrow's build publishes from, which is the gap
+worth alarming on. A gap the registrar has since closed is transient and
+correctly reads as zero.
 
 **The canonical oracle is stale.** `python -m usa_wa_pipeline.parity_spans`
 diffs the conformed spans against `canonical.assignments` and gates on a

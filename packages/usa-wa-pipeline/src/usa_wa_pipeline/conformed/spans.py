@@ -241,9 +241,11 @@ def deepening_observations(
     records = roster_records(roster)
     if not records:
         raise ValueError(
-            f"the #228 deepening parsed 0 records from {len(roster)} roster rows — the "
-            "roster staging shape changed. Publishing now would re-assert shallow "
-            "1991-start spans; see the roster_records_malformed warning for the count."
+            f"the #228 deepening parsed 0 records from {len(roster)} roster rows — every "
+            "one malformed, so the roster staging shape changed. Publishing now would "
+            "re-assert shallow 1991-start spans. (The count is carried here rather than "
+            "left to the roster_records_malformed warning: under a dbt build, where this "
+            "raise fires, that warning is invisible — see docs/PIPELINE.md.)"
         )
     report = resolve_identities(records, seatings=seatings_from_sponsors(sponsors))
     projection = build_pre1991_observations(report.identities, records)

@@ -21,9 +21,15 @@ recorded baseline is the known staleness, and any growth is a regression in
 the port. A Postgres-tier span rebuild would drop the baseline to zero, at
 which point lower it here — the number dying is the point.
 
-Exit ``0`` at/below baseline · ``1`` above it · ``4`` degraded — no WSL store,
-no roster store (the #228 deepening's input, whose absence would read as a port
-regression), or an empty oracle. A degraded probe compared nothing and says so.
+Three integrity counters (``unregistered_spans``, ``malformed_roster_rows``,
+``unparsable_canonical_keys``) carry no known-stale story and must be ZERO;
+unlike the divergence ratchet they are gated, because the nightly alerts on the
+exit code and a counter that only reaches journald tells nobody (CR 72/73).
+
+Exit ``0`` clean · ``1`` divergence past the baseline OR any integrity counter
+nonzero · ``4`` degraded — no WSL store, no roster store or roster rows (the
+#228 deepening's input, whose absence would read as a port regression), or an
+empty oracle. A degraded probe compared nothing and says so.
 """
 
 from __future__ import annotations
@@ -50,6 +56,7 @@ from usa_wa_pipeline.conformed.spans import (
     assignment_rows,
     build_all_spans,
     entity_index,
+    roster_records,
 )
 from usa_wa_pipeline.operator_read import operator_event_rows
 from usa_wa_pipeline.registry_read import crosswalk_rows
@@ -71,6 +78,18 @@ OWNED_KINDS = ("party", "chamber-senate", "committee")
 #: Known stale-oracle rows, measured 2026-09-03 (see the module docstring).
 #: Lower this the moment a Postgres-tier rebuild lands.
 BASELINE_DIVERGENCE = 45
+
+#: Counters that must be ZERO, checked together (CR 72/73). Unlike
+#: ``divergence`` these carry no known-stale story — each is a defect in an
+#: input or in the identity join, and each is 0 on the live corpus today. They
+#: are *gated*, not merely reported, because the nightly's ``OnFailure=``
+#: alerting fires on the exit code: a counter that only reaches journald tells
+#: nobody, which is the silence findings 60 and 68 were about.
+INTEGRITY_COUNTERS = (
+    "unregistered_spans",
+    "malformed_roster_rows",
+    "unparsable_canonical_keys",
+)
 
 
 def _add_args(parser: argparse.ArgumentParser) -> None:
@@ -130,6 +149,11 @@ async def run_parity(
     if not roster:
         logger.warning("parity_spans_empty_roster_rows", extra={"source": ROSTER_SOURCE})
         return JobResult.degraded({"empty_roster_rows": True})
+    # PARTIAL malformation trips neither the CR-67 raise (records survive) nor
+    # anything else — it quietly degrades the #228 deepening (CR 73). The build
+    # re-parses; this parse is cheap and makes the number a gated counter
+    # rather than a log line in a job whose logs nobody reads while it passes.
+    malformed_roster_rows = len(roster) - len(roster_records(roster))
 
     spans = build_all_spans(
         SpanInputs(
@@ -171,6 +195,13 @@ async def run_parity(
     # the info path is dropped outright and the warning path reaches
     # `logging.lastResort`, which prints the message and discards `extra`.
     # This probe runs under the job harness, so its counters are real JSON.
+    #
+    # NOT the same read the model made (CR 75): the nightly runs
+    # `dbt build → registrar → publish → parity`, so the registrar may have
+    # bound keys since. This measures the registry as it stands NOW — which is
+    # the state tomorrow's build will publish from, so a gap here is the one
+    # worth alarming on. A gap the registrar has since closed is transient and
+    # self-healing, and correctly reads as zero.
     _rows, join = assignment_rows(spans, entity_index(await crosswalk_rows(session, KIND_PERSON)))
 
     missing = sorted(set(canonical) - set(ours))
@@ -187,9 +218,15 @@ async def run_parity(
         "baseline": baseline,
         "registered_spans": join["published"],
         "unregistered_spans": join["unregistered_spans"],
+        "malformed_roster_rows": malformed_roster_rows,
         "unparsable_canonical_keys": unparsable,
     }
-    log = logger.info if divergence <= baseline else logger.error
+    counters["integrity_failures"] = [c for c in INTEGRITY_COUNTERS if counters[c]]
+    log = (
+        logger.info
+        if divergence <= baseline and not counters["integrity_failures"]
+        else logger.error
+    )
     log(
         "parity_spans_report",
         extra={
@@ -199,7 +236,7 @@ async def run_parity(
             "dated_sample": dated[:20],
         },
     )
-    if divergence > baseline:
+    if divergence > baseline or counters["integrity_failures"]:
         return JobResult.failed(counters, exit_code=1)
     return JobResult.ok(counters)
 
