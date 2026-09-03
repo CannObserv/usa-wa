@@ -1,0 +1,17 @@
+[project]
+name = "usa-wa-pipeline"
+version = "0.1.0"
+description = "The dataset-publication pipeline (#302/#303): the dbt-core + dbt-duckdb project holding the staging / matching / conformed layers of the replatform spec (docs/specs/2026-09-02-dataset-publication-replatform-design.md), plus the Python surface around it (publisher and dbt Python-model support land in later sub-issues). Sits beside usa-wa-facts-seats in the layer order: above the adapters whose parsers its models may import, below the deployments."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "dbt-core>=1.9,<2",
+    "dbt-duckdb>=1.9,<2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/usa_wa_pipeline"]

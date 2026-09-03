@@ -35,3 +35,10 @@ coverage.xml
 
 # Per-worktree port allocation (using-git-worktrees); never repo content
 .port
+
+# dbt pipeline (#303): local duckdb + dbt run artifacts; never repo content
+data/
+packages/usa-wa-pipeline/dbt/target/
+packages/usa-wa-pipeline/dbt/logs/
+packages/usa-wa-pipeline/dbt/.user.yml
+.coverage.*

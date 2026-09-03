@@ -154,6 +154,11 @@
       "name": "readme",
       "path": "./README.md",
       "description": "Repository orientation — setup, the dev-server and port convention, the operational CLI list, and curated links into the canonical docs. The human entry point; AGENTS.md is the agent one."
+    },
+    {
+      "name": "pipeline-reference",
+      "path": "./docs/PIPELINE.md",
+      "description": "The dataset-publication pipeline (usa-wa-pipeline, #302/#303): dbt-core + dbt-duckdb project layout (staging / matching / conformed layers and their rules), build commands, the dbt-build pre-commit gate, USA_WA_PIPELINE_DB, and the TDD policy for dbt models (schema-first red/green, data tests, Python models as thin adapters over pytest-covered logic)."
     }
   ]
 }

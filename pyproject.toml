@@ -14,6 +14,7 @@ dev = [
     "usa-wa-api",
     "usa-wa-common",
     "usa-wa-facts-seats",
+    "usa-wa-pipeline",
     "usa-wa-sync-powermap",
     # Tools
     "alembic>=1.15.0,<2",
@@ -44,6 +45,7 @@ usa-wa-adapter-sos = { workspace = true }
 usa-wa-api = { workspace = true }
 usa-wa-common = { workspace = true }
 usa-wa-facts-seats = { workspace = true }
+usa-wa-pipeline = { workspace = true }
 usa-wa-sync-powermap = { workspace = true }
 
 [tool.pytest.ini_options]
@@ -134,6 +136,7 @@ known-first-party = [
     "usa_wa_api",
     "usa_wa_common",
     "usa_wa_facts_seats",
+    "usa_wa_pipeline",
     "usa_wa_sync_powermap",
 ]
 
@@ -160,6 +163,7 @@ root_packages = [
     "usa_wa_adapter_pdc",
     "usa_wa_adapter_sos",
     "usa_wa_facts_seats",
+    "usa_wa_pipeline",
     "usa_wa_api",
     "usa_wa_sync_powermap",
 ]
@@ -171,7 +175,10 @@ name = "Layers: core < domain < common < adapter < facts < deployment"
 type = "layers"
 layers = [
     "usa_wa_api : usa_wa_sync_powermap",
-    "usa_wa_facts_seats",
+    # facts and pipeline are independent siblings: both compose across adapters
+    # (the pipeline's dbt Python models may import adapter parsers, never a
+    # transport), neither may import the other (#302/#303).
+    "usa_wa_facts_seats : usa_wa_pipeline",
     "usa_wa_adapter_legislature : usa_wa_adapter_pdc : usa_wa_adapter_sos",
     "usa_wa_common",
     "clearinghouse_domain_legislative : clearinghouse_sync_powermap",
@@ -226,7 +233,10 @@ forbidden_modules = [
 name = "Facts depend on cohort interfaces, never on a transport"
 type = "forbidden"
 allow_indirect_imports = true  # as above: a provider legitimately owns its transport
-source_modules = ["usa_wa_facts_seats"]
+# usa_wa_pipeline sits under the same rule (#303): its staging models re-parse
+# the *archive* (raw/ files) through adapter parse functions; driving a wire
+# from a dbt model would put a harvest inside a transform.
+source_modules = ["usa_wa_facts_seats", "usa_wa_pipeline"]
 forbidden_modules = [
     "usa_wa_adapter_legislature.transport",
     "usa_wa_adapter_pdc.transport",

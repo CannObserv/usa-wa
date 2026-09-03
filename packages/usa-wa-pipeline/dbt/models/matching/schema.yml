@@ -1,0 +1,4 @@
+# matching layer: exact-rule link proposals + the Splink tail → proposed_links,
+# consumed by the registrar (replatform spec § Identity registry). Models land
+# with #308. Proposals only — this layer never writes identity.
+version: 2

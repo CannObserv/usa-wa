@@ -1,0 +1,5 @@
+# conformed layer: staging ⨝ registry crosswalk → stable-ULID products
+# (persons, organizations, roles/seats, assignments, crosswalks). Models land
+# with #309; the span engine arrives as dbt Python models importing the pure
+# clearinghouse_domain_legislative logic unchanged.
+version: 2
