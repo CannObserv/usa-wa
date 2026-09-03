@@ -198,6 +198,43 @@ the conformed crosswalk models materialize empty — otherwise a missing
 `DATABASE_URL` fails the build loudly (#302 CR: empty identity must never
 publish with a green build).
 
+## Conformed: tenure spans (#309 part 2)
+
+`models/conformed/assignments.py` is a thin binder over
+`usa_wa_pipeline.conformed.spans` — merged tenure spans for the three kinds the
+tier owns today (`party`, `chamber-senate`, `committee`), joined to the person
+crosswalk. The span's 4-part `source_id` becomes real columns
+(`span_kind` / `span_discriminator` / `span_start_biennium`), retiring the
+string-splitting workaround `docs/API.md` documents.
+
+Nothing about the span engine is re-implemented. The pure engine
+(`build_tenure_spans`, `apply_operator_events`), the projections, the #105
+roster hygiene, the #145 biennium-scoped exemption and the #144 artifact
+denylist are all **imported unchanged** and applied in the Postgres tier's own
+order — each encodes a production incident. Two structural differences:
+
+- **No DB half.** `close_stale_spans` (#83), the synthetic-anchor bootstrap and
+  the `load_context_spans` read exist to mutate a durable table; a stateless
+  transform recomputes everything, so a span the archive stops asserting is
+  simply absent (retraction-as-absence, the publication contract).
+- **Context spans come from the same run** (#267): committee spans build first
+  and serve as the sponsor build's context, so there is no cross-builder
+  blindness. `chamber-house` is still missing until the facts-seats port.
+
+Two curated Postgres inputs, both read through explicit seams and both empty
+only under `USA_WA_PIPELINE_HERMETIC=1`: the registry crosswalk
+(`registry_read`) and the operator succession events (`operator_read`).
+
+**The canonical oracle is stale.** `python -m usa_wa_pipeline.parity_spans`
+diffs the conformed spans against `canonical.assignments` and gates on a
+**ratchet**, not equality: measured 2026-09-03 the stored rows diverge by 45
+(42 missing / 2 extra / 1 dated differently) — and running the Postgres-tier
+adapter's *own* pipeline fresh that day reproduced the identical divergence,
+because the stored rows predate the current identity resolve (#277/#281). Port
+and adapter agreed with each other exactly: 4,851 = 4,851, zero differences.
+Any growth past the baseline is a regression; a Postgres-tier rebuild would
+take the baseline to zero, and lowering it then is the point.
+
 ## TDD for dbt models
 
 Red → Green → Refactor applies; what changes is where each color lives:
