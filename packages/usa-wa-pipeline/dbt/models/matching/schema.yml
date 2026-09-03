@@ -1,4 +1,15 @@
 # matching layer: exact-rule link proposals + the Splink tail → proposed_links,
-# consumed by the registrar (replatform spec § Identity registry). Models land
-# with #308. Proposals only — this layer never writes identity.
+# consumed by the registrar (replatform spec § Identity registry). Proposals
+# only — this layer never writes identity.
 version: 2
+
+models:
+  - name: proposed_links
+    description: Every matching rule's pairs, the registrar's sole input.
+    columns:
+      - name: left_key
+        data_tests: [not_null]
+      - name: right_key
+        data_tests: [not_null]
+      - name: rule
+        data_tests: [not_null]
