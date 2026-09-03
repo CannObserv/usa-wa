@@ -268,3 +268,19 @@ async def test_record_fetch_counts_unchanged_refetch(store: RawStore) -> None:
     )
     assert not outcome.error
     assert counters["fetched"] == 1 and counters["unchanged"] == 1
+
+
+async def test_record_fetch_refuses_a_none_wire(store: RawStore) -> None:
+    """CR 44: a payload with wire=None is a broken transport contract — recording
+    it "ok" would poison latest.json into TTL-freshening a resource with no
+    stored bytes. Raise, never contain."""
+    run = store.open_run()
+    counters = _fresh_counters()
+
+    async def fetcher() -> _Payload:
+        return _Payload(None)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="wire"):
+        await record_fetch(
+            run, store, "r1", "u", fetcher, counters, 0.0, log_event="test_fetch_failed"
+        )

@@ -19,7 +19,9 @@ the #179 job harness for the ledger row; the database session goes unused.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
+import secrets
 from pathlib import Path
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
@@ -54,9 +56,24 @@ def _load_cursor(state_path: Path, scope: str) -> tuple[str, str] | None:
 
 
 def _store_cursor(state_path: Path, scope: str, cursor: tuple[str, str] | None) -> None:
-    state = _load_state(state_path)
-    state[scope] = list(cursor) if cursor else None
-    state_path.write_text(json.dumps({"cursors": state}) + "\n")
+    """Read-modify-write of the shared multi-scope state, under a lock and via
+    tmp+replace (CR 43): a concurrent timer + ad-hoc ``--source`` sweep must
+    not drop each other's cursor, and a crash mid-write must not leave
+    truncated JSON that wedges every later load. A cleared cursor is pruned,
+    not kept as an accumulating null."""
+    with open(state_path.parent / (state_path.name + ".lock"), "w") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            state = _load_state(state_path)
+            if cursor:
+                state[scope] = list(cursor)
+            else:
+                state.pop(scope, None)
+            tmp = state_path.with_name(f"{state_path.name}.{secrets.token_hex(4)}.tmp")
+            tmp.write_text(json.dumps({"cursors": state}) + "\n")
+            tmp.replace(state_path)
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 def _add_args(parser: argparse.ArgumentParser) -> None:

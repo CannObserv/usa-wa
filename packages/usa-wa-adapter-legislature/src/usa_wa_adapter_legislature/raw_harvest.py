@@ -63,7 +63,15 @@ async def harvest_raw(
     sponsors = sponsor_client or WSLClient("SponsorService")
     store = RawStore(root, SOURCE_SLUG)
     run = store.open_run()
-    counters = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 0, "fanout_skipped": 0}
+    counters = {
+        "fetched": 0,
+        "unchanged": 0,
+        "skipped_fresh": 0,
+        "errors": 0,
+        "fanout_skipped": 0,
+        "fanout_attempted": 0,
+        "fanout_landed": 0,
+    }
     service = f"{WSL_BASE_URL}/CommitteeService.asmx"
     roster_resource = f"{COMMITTEES_ROSTER_RESOURCE_PREFIX}{biennium}"
 
@@ -112,7 +120,13 @@ async def harvest_raw(
 
         roster_wire = _roster_wire(store, roster, roster_resource)
         parsed: list[dict] | None = None
-        if roster_wire is not None:
+        if roster_wire is not None and not roster_wire:
+            # The archived form of a benign fault (#82, CR 38): an
+            # out-of-coverage biennium returns an EMPTY wire — no committees,
+            # not a lost fan-out. The transport's parse raises on zero bytes,
+            # so short-circuit exactly as usa_wa_adapter_legislature.parsing does.
+            parsed = []
+        elif roster_wire is not None:
             try:
                 parsed = await committees.parse_committees(roster_wire)
             except Exception:
@@ -131,7 +145,8 @@ async def harvest_raw(
                 if committee_id is None or not agency or not name:
                     logger.warning("wsl_raw_harvest_committee_unkeyed", extra={"record": committee})
                     continue
-                await record_fetch(
+                counters["fanout_attempted"] += 1
+                member = await record_fetch(
                     run,
                     store,
                     committee_members_hist_resource_id(biennium, str(committee_id), agency, name),
@@ -143,6 +158,8 @@ async def harvest_raw(
                     ttl_days,
                     log_event="wsl_raw_harvest_fetch_failed",
                 )
+                if not member.error:
+                    counters["fanout_landed"] += 1
     finally:
         # An uncontained failure (corrupt latest.json, cancellation) must not
         # abandon already-fetched wires as unmanifested strays (#302 CR).
@@ -179,10 +196,18 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 def job_outcome(counters: dict[str, int]) -> JobResult:
     """Degraded when the source landed nothing, when every attempted fetch
     failed (a TTL-masked outage), or when the member fan-out was lost — #49
-    alerting must fire for each of these real degradations (#302 CR)."""
+    alerting must fire for each of these real degradations (#302 CR).
+
+    Fan-out loss has two shapes (CR 38/39): the roster wire unusable
+    (``fanout_skipped``, parse-level) and every member fetch erroring
+    (``fanout_attempted`` with nothing landed, fetch-level). A benign empty
+    roster attempts no fan-out and is NOT a loss."""
     landed_nothing = counters["fetched"] == 0 and counters["skipped_fresh"] == 0
     every_attempt_failed = counters["errors"] > 0 and counters["fetched"] == 0
-    if landed_nothing or every_attempt_failed or counters.get("fanout_skipped"):
+    fanout_lost = counters.get("fanout_skipped") or (
+        counters.get("fanout_attempted", 0) > 0 and counters.get("fanout_landed", 0) == 0
+    )
+    if landed_nothing or every_attempt_failed or fanout_lost:
         return JobResult.degraded(counters)
     return JobResult.ok(counters)
 

@@ -63,7 +63,7 @@ def test_budget_cursor_advances_and_wraps(tmp_path, monkeypatch) -> None:
 
     # third pass reaches the tail and resets the cursor
     assert main(["--root", str(tmp_path), "--byte-budget", "1000000", "--json"]) == 0
-    assert json.loads(state_path.read_text())["cursors"][""] is None
+    assert json.loads(state_path.read_text())["cursors"].get("") is None
 
 
 def test_dry_run_does_not_persist_cursor(tmp_path, monkeypatch) -> None:
@@ -107,13 +107,14 @@ def test_cursor_is_scoped_per_source(tmp_path, monkeypatch) -> None:
     store_b = RawStore(tmp_path, "src-b")
     run = store_b.open_run()
     run.record("r0", b"zzzz", url="u")
+    run.record("r1", b"yyyy", url="u")
     run.close()
     state_path = tmp_path / ".raw_integrity_state.json"
 
     # budget-limited scoped run on src-b persists a cursor for its own scope
     assert main(["--root", str(tmp_path), "--source", "src-b", "--byte-budget", "4", "--json"]) == 0
     state = json.loads(state_path.read_text())
-    assert "src-b" in state["cursors"]
+    assert state["cursors"]["src-b"] is not None
 
     # corrupt src-a's first object; an unbudgeted scoped run on src-a must see it,
     # unaffected by src-b's persisted cursor
@@ -122,3 +123,19 @@ def test_cursor_is_scoped_per_source(tmp_path, monkeypatch) -> None:
     first.write_bytes(b"tampered")
     argv = ["--root", str(tmp_path), "--source", "src-a", "--byte-budget", "1000000", "--json"]
     assert main(argv) == 1
+
+
+def test_cursor_store_is_atomic_and_prunes_cleared_scopes(tmp_path, monkeypatch) -> None:
+    """CR 43: the state write goes through tmp+replace (a crash cannot leave
+    truncated JSON), and a scope whose cursor cleared is dropped, not kept as
+    an accumulating null."""
+    patch_job_runtime(monkeypatch)
+    _seed(tmp_path, [b"aaaa", b"bbbb", b"cccc"])
+    state_path = tmp_path / ".raw_integrity_state.json"
+    assert main(["--root", str(tmp_path), "--byte-budget", "4", "--json"]) == 0
+    assert json.loads(state_path.read_text())["cursors"][""] is not None
+    # wrap: the cursor clears and the scope key is pruned
+    assert main(["--root", str(tmp_path), "--byte-budget", "1000000", "--json"]) == 0
+    state = json.loads(state_path.read_text())
+    assert state["cursors"] == {}
+    assert not list(tmp_path.glob(".raw_integrity_state.json.*.tmp"))

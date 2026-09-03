@@ -12,7 +12,8 @@ SOS carries no per-source parity probe on purpose: results/filings never mint
 canonical entities — they corroborate spans built in the conformed tier, where
 #309's span parity covers them.
 
-Exit ``0`` clean · ``1`` canonical ids missing from staging · ``4`` no store.
+Exit ``0`` clean · ``1`` canonical ids missing from staging · ``4`` no store
+or empty canonical oracle (a subset probe must never pass vacuously).
 """
 
 from __future__ import annotations

@@ -16,7 +16,7 @@ up with the database:
 - ``registry.entity_keys`` — natural key → entity, append-only in spirit.
   Membership never decays: a key absent from today's staging is a staging
   fact, not an identity fact.
-- ``registry.adjudications`` — the human decisions (merge/split/move), each
+- ``registry.adjudications`` — the human decisions (merge/unmerge/move), each
   with a note; corrections are always adjudications, never side effects of a
   matching-rule change (sticky registry, spec § tradeoffs).
 
@@ -98,7 +98,7 @@ class RegistryAdjudication(Base):
 
     id: Mapped[_PyULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
-    action: Mapped[str] = mapped_column(String(16), nullable=False)  # merge | split | move
+    action: Mapped[str] = mapped_column(String(16), nullable=False)  # merge | unmerge | move
     # FK-backed (#302 CR): the only ledger that moves identity must not be
     # able to reference an entity that does not exist (entities are never
     # deleted, so the constraint costs nothing)

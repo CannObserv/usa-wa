@@ -81,3 +81,10 @@ def test_continuous_service_is_not_ambiguous() -> None:
 def test_empty_inputs_return_typed_empty_frame() -> None:
     out = roster_wsl_links(_roster([]), _sponsors([SMITH_SPONSOR]))
     assert out.empty and list(out.columns) == LINK_COLUMNS
+
+
+def test_null_named_roster_row_is_dropped_not_crashed() -> None:
+    """CR 50: the roster-side null-name drop is a real branch too."""
+    nameless = {"name": None, "year": 2025, "chamber": "House", "district": "13"}
+    out = roster_wsl_links(_roster([SMITH_ROSTER, nameless]), _sponsors([SMITH_SPONSOR]))
+    assert len(out) == 1

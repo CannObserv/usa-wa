@@ -123,3 +123,26 @@ async def test_chain_merge_resolves_to_terminal_survivor(db_session) -> None:
     assert view["wsl:1"] == c
     assert view["roster:x:1901"] == c
     assert view["pdc:7"] == c
+
+
+async def test_unmerge_inventories_keys_moved_away(db_session) -> None:
+    """CR 41: unmerge names the keys whose move adjudications took them off
+    this entity, so the operator has the move-back inventory mid-incident
+    instead of hand-mining registry.adjudications."""
+    a, b = await _two_entities(db_session)
+    # the normal merge shape: b's key moved onto a, then b tombstoned into a
+    await adjudicate_move(
+        db_session, KIND_PERSON, natural_key="roster:x:1901", to_entity=a, note="merge move"
+    )
+    await adjudicate_merge(db_session, KIND_PERSON, loser=b, survivor=a, note="merge")
+
+    moved_away = await adjudicate_unmerge(
+        db_session, KIND_PERSON, entity=b, note="distinct after audit"
+    )
+    assert moved_away == ["roster:x:1901"]
+
+
+async def test_unmerge_with_no_moves_reports_empty_inventory(db_session) -> None:
+    a, b = await _two_entities(db_session)
+    await adjudicate_merge(db_session, KIND_PERSON, loser=b, survivor=a, note="merge")
+    assert await adjudicate_unmerge(db_session, KIND_PERSON, entity=b, note="undo") == []

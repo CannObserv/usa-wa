@@ -112,6 +112,22 @@ def load_pairs(db_path: str, kind: str = KIND_PERSON) -> list[tuple[str, str]]:
         con.close()
 
 
+def unprocessed_kinds(db_path: str) -> list[str]:
+    """Kinds present in ``proposed_links`` that no registration pass consumes.
+
+    The matching tier may legally emit kinds this job does not yet register
+    (an org rule, say) — but their pairs must never vanish SILENTLY (CR 40):
+    the job degrades and names them, so wiring the pass is forced the day the
+    rule lands."""
+    con = duckdb.connect(db_path, read_only=True)
+    try:
+        rows = con.execute("select distinct kind from proposed_links").fetchall()
+        kinds = {row[0] for row in rows}
+    finally:
+        con.close()
+    return sorted(kinds - {KIND_PERSON})
+
+
 def _add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--db",
@@ -124,7 +140,11 @@ async def _registrar_job(ctx: JobContext) -> JobResult:
     db_path = ctx.args.db or os.environ.get("USA_WA_PIPELINE_DB", _DEFAULT_DB)
     pairs = load_pairs(db_path)
     summary = await run_registrar(ctx.require_session(), KIND_PERSON, pairs=pairs)
-    if summary["conflicts"]:
+    skipped_kinds = unprocessed_kinds(db_path)
+    if skipped_kinds:
+        summary["unprocessed_kinds"] = skipped_kinds
+        logger.error("registrar_unprocessed_kinds", extra={"kinds": skipped_kinds})
+    if summary["conflicts"] or skipped_kinds:
         return JobResult.degraded(summary)
     return JobResult.ok(summary)
 

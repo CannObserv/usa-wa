@@ -131,13 +131,18 @@ def test_refusal_on_a_later_dataset_leaves_no_tmp_orphans(built_db, tmp_path):
 
 
 def test_startup_sweeps_prior_orphans(built_db, tmp_path):
+    """CR 15/42: dirs AND plain files, dataset tmps AND the catalog tmp — every
+    orphan shape a crash can leave inside the served tree."""
     out = tmp_path / "datasets"
     out.mkdir()
     stray = out / ".tmp-persons-deadbeef"
     stray.mkdir()
     (stray / "data.csv").write_text("x\n")
+    (out / ".tmp-persons-cafe").write_text("a plain-file stray\n")
+    (out / ".catalog-beef.tmp").write_text("{}\n")
     publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
     assert list(out.glob(".tmp-*")) == []
+    assert list(out.glob(".catalog-*.tmp")) == []
 
 
 def test_rebuilt_identical_table_is_skipped_not_reminted(built_db, tmp_path):

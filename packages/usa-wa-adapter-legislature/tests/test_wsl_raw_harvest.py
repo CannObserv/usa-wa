@@ -217,3 +217,55 @@ def test_job_outcome_degrades_on_masked_outage_and_lost_fanout() -> None:
     # one member error on a run that otherwise landed wires: still degraded-free? No —
     # the sibling wsl-refresh fails on any committee error; errors with fetches stay ok
     assert job_outcome({**base, "fetched": 5, "errors": 1}).outcome == "ok"
+
+
+async def test_benign_empty_roster_is_not_degraded(tmp_path) -> None:
+    """CR 38: an empty roster wire is the archived form of the #82 benign fault
+    (biennium out of coverage) — it parses to no committees, not to a lost
+    fan-out. The transport's own parse raises on zero bytes, so the harvester
+    must short-circuit before parsing."""
+
+    class EmptyRosterClient(FakeCommitteeClient):
+        async def fetch_committees(self, biennium: str) -> _Wire:
+            return _Wire(wire=b"")
+
+        async def parse_committees(self, wire: bytes) -> list[dict]:
+            raise AssertionError("an empty wire must never reach the parser")
+
+    summary = await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        committee_client=EmptyRosterClient(),
+        meeting_client=FakeMeetingClient(),
+        sponsor_client=FakeSponsorClient(),
+    )
+    assert summary["fanout_skipped"] == 0
+    assert summary["fetched"] == 4
+    assert job_outcome(summary).outcome == "ok"
+
+
+async def test_total_fetch_layer_fanout_loss_degrades(tmp_path) -> None:
+    """CR 39: the base pulls landing while EVERY member fetch errors is a lost
+    fan-out — the run's whole point beyond four wires — and must alert."""
+    summary = await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        committee_client=FakeCommitteeClient(fail_member_ids={1, 2}),
+        meeting_client=FakeMeetingClient(),
+        sponsor_client=FakeSponsorClient(),
+    )
+    assert summary["fanout_attempted"] == 2
+    assert summary["fanout_landed"] == 0
+    assert job_outcome(summary).outcome == "degraded"
+
+
+async def test_partial_fanout_failure_stays_ok(tmp_path) -> None:
+    summary = await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        committee_client=FakeCommitteeClient(fail_member_ids={1}),
+        meeting_client=FakeMeetingClient(),
+        sponsor_client=FakeSponsorClient(),
+    )
+    assert summary["fanout_landed"] == 1
+    assert job_outcome(summary).outcome == "ok"

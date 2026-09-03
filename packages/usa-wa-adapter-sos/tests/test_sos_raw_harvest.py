@@ -147,3 +147,26 @@ def test_job_outcome_alerts_per_source() -> None:
     assert job_outcome({"filings": masked, "results": healthy}).outcome == "degraded"
     fresh = {"fetched": 0, "unchanged": 0, "skipped_fresh": 2, "errors": 0}
     assert job_outcome({"filings": fresh, "results": healthy}).outcome == "ok"
+
+
+async def test_manifest_url_honors_injected_client_bases(tmp_path) -> None:
+    """CR 45: provenance records the request the fetching clients would make."""
+
+    class MirrorFilings(FakeFilingsClient):
+        def export_url(self) -> str:
+            return "https://mirror.example/whofiled"
+
+    class MirrorResults(FakeResultsClient):
+        def export_index_url(self, election_date: str) -> str:
+            return f"https://mirror.example/results/{election_date}/export.html"
+
+    await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        filings_client=MirrorFilings(),
+        results_client=MirrorResults(),
+    )
+    filings = json.loads(RawStore(tmp_path, "usa_wa_sos").manifest_paths()[0].read_text())
+    assert all(e["url"].startswith("https://mirror.example/whofiled?") for e in filings["entries"])
+    results = json.loads(RawStore(tmp_path, "usa_wa_sos_results").manifest_paths()[0].read_text())
+    assert all(e["url"].startswith("https://mirror.example/results/") for e in results["entries"])
