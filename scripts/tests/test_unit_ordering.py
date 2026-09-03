@@ -91,6 +91,21 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     # PDC cohort ARCHIVE refresh (#201) — the Phase-A half the fact rebuild used to run
     # in-process. Sources only (Socrata → RawPayload), so it needs no WSL predecessor; it is
     # pulled in and ordered by the rebuild unit below, not by a timer of its own.
+    # Nightly #302 dataset pipeline (#311): harvests → dbt → registrar → publish →
+    # parity. Ordered after the canonical refreshes (best-effort, no Wants=) because
+    # the parity probes at its tail compare against the same-day canonical oracle.
+    "usa-wa-pipeline.service": {
+        "After": {
+            "network-online.target",
+            "postgresql.service",
+            "usa-wa-migrate.service",
+            "usa-wa-wsl-refresh.service",
+            "usa-wa-pdc-refresh.service",
+            "usa-wa-sos-refresh.service",
+        },
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
     "usa-wa-pdc-archive-refresh.service": {
         "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
         "Before": set(),
@@ -219,6 +234,7 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "OnFailure": set(),
     },
     "usa-wa-wsl-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
+    "usa-wa-pipeline.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-pdc-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-sos-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-integrity-sweep.timer": {"After": set(), "Before": set(), "OnFailure": set()},

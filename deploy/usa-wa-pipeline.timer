@@ -1,0 +1,18 @@
+[Unit]
+Description=usa-wa — nightly dataset pipeline
+Documentation=https://github.com/CannObserv/usa-wa/issues/311
+
+[Timer]
+# Daily at 08:00 UTC — after the 06:00–07:30 canonical refreshes + invariant
+# gates, so the parity probes compare against a same-day oracle. Same-day
+# re-runs are safe end to end: harvests dedup byte-identical wires, the build
+# is a rebuild, the registrar no-ops on known clusters, and the publisher
+# skips unchanged content.
+OnCalendar=*-*-* 08:00:00 UTC
+# Run on next boot if the box was down at the scheduled time.
+Persistent=true
+# Jitter to avoid hammering WSL on the dot.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
