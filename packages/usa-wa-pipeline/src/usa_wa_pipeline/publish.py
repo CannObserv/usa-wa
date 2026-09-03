@@ -20,9 +20,11 @@ Materializes each published dataset as an immutable versioned directory —
 - **Lineage** from the dbt manifest (``derived_from`` = the dataset's direct
   model parents), never hand-maintained; the dataset *list* is deliberate
   config (:data:`PUBLISHED_DATASETS` — publishing is a decision).
-- Versions are timestamps (``v20260903T120000Z``); the catalog lists only the
-  latest. Retention/pruning is deliberately absent: these are archival
-  products at ~10^4 rows.
+- Versions are timestamps plus a collision token
+  (``v20260903T120000Z-a1b2c3``); the catalog lists only the latest.
+  Retention/pruning is deliberately absent: these are archival products at
+  ~10^4 rows — sound only because skip-if-unchanged hashes a DETERMINISTIC
+  export (``order by all``), so a quiet day mints nothing.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -116,6 +119,12 @@ def publish(
     """Publish every configured dataset. Returns counters; raises on a gate."""
     out_root = Path(out_root)
     out_root.mkdir(parents=True, exist_ok=True)
+    # Sweep orphans from prior failed runs (#302 CR): a refused publish is a
+    # ROUTINE outcome that repeats nightly until an operator acts, and its
+    # leftovers would accumulate inside the tree /datasets serves. The nightly
+    # oneshot is the only publisher, so anything dot-tmp here is dead.
+    for stray in out_root.glob(".tmp-*"):
+        shutil.rmtree(stray, ignore_errors=True)
     datasets = PUBLISHED_DATASETS if datasets is None else datasets
     lineage = _lineage(Path(manifest_path))
     previous = {d["name"]: d for d in _load_catalog(out_root)["datasets"]}
@@ -131,6 +140,10 @@ def publish(
                 raise PublishRefused(f"dataset {name!r}: table missing from the build") from exc
             rows = con.execute(f'select count(*) from "{name}"').fetchone()[0]  # noqa: S608
             prior = previous.get(name)
+            # Baseline is the PREVIOUS publish, not a high-water mark: decay
+            # under max_shrink per night compounds unseen (~50%/week at 10%).
+            # Accepted for now — the parity probes watch absolute counts; a
+            # windowed max baseline is the upgrade path if that ever moves.
             if prior and prior["rows"] > 0:
                 shrink = (prior["rows"] - rows) / prior["rows"]
                 if shrink > max_shrink:
@@ -143,7 +156,12 @@ def publish(
             tmp_dir = out_root / f".tmp-{name}-{secrets.token_hex(4)}"
             tmp_dir.mkdir(parents=True)
             csv_path = tmp_dir / "data.csv"
-            con.execute(f"copy \"{name}\" to '{csv_path}' (header, delimiter ',')")  # noqa: S608
+            # order by all: duckdb guarantees no row order across rebuilds, and
+            # the skip-if-unchanged hash must not churn on identical data (#302 CR)
+            con.execute(
+                f'copy (select * from "{name}" order by all) '  # noqa: S608
+                f"to '{csv_path}' (header, delimiter ',')"
+            )
             digest = hashlib.sha256(csv_path.read_bytes()).hexdigest()
             staged.append(
                 {
@@ -160,6 +178,12 @@ def publish(
                     "prior": prior,
                 }
             )
+    except BaseException:
+        # A refusal (or any failure) must not strand staged tmp dirs inside the
+        # served tree (#302 CR): nothing minted means nothing kept.
+        for item in staged:
+            shutil.rmtree(item["tmp_dir"], ignore_errors=True)
+        raise
     finally:
         con.close()
 

@@ -18,7 +18,9 @@
 # raw/ + data/pipeline.duckdb + data/datasets are the documented defaults, and
 # dbt resolves --target-path relative to the PROJECT dir, so it is spelled out.
 set -u
-cd /home/exedev/usa-wa
+# Guarded (#302 CR): with no -e, a failed cd would scatter raw/ and data/
+# under whatever cwd a by-hand invocation inherited.
+cd /home/exedev/usa-wa || exit 1
 
 UV="/usr/local/bin/uv run --frozen --no-sync"
 failures=0

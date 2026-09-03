@@ -113,3 +113,53 @@ def test_shrink_gate_overridable_per_run(built_db, tmp_path):
     con.close()
     summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS, max_shrink=1.0)
     assert summary["minted"] == 1
+
+
+def test_refusal_on_a_later_dataset_leaves_no_tmp_orphans(built_db, tmp_path):
+    """CR 15: a shrink refusal on dataset k must not strand the tmp dirs
+    already staged for 1..k-1 inside the served tree — refusals repeat nightly
+    until an operator acts."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+    con = duckdb.connect(str(built_db))
+    con.execute("delete from person_crosswalk")  # 100% shrink on the SECOND dataset
+    con.close()
+    with pytest.raises(PublishRefused):
+        publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    assert list(out.glob(".tmp-*")) == []
+
+
+def test_startup_sweeps_prior_orphans(built_db, tmp_path):
+    out = tmp_path / "datasets"
+    out.mkdir()
+    stray = out / ".tmp-persons-deadbeef"
+    stray.mkdir()
+    (stray / "data.csv").write_text("x\n")
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    assert list(out.glob(".tmp-*")) == []
+
+
+def test_rebuilt_identical_table_is_skipped_not_reminted(built_db, tmp_path):
+    """CR 16: the unchanged hash must survive a table REBUILD — duckdb gives no
+    row-order guarantee, so the export orders deterministically."""
+    out = tmp_path / "datasets"
+    con = duckdb.connect(str(built_db))
+    con.execute("drop table persons")
+    con.execute(
+        "create table persons as "
+        "select * from (values ('01A', 'Dana'), ('01B', 'Riley')) t(entity_id, name_full)"
+    )
+    con.close()
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+    con = duckdb.connect(str(built_db))
+    con.execute("drop table persons")
+    con.execute(
+        "create table persons as "
+        "select * from (values ('01B', 'Riley'), ('01A', 'Dana')) t(entity_id, name_full)"
+    )
+    con.close()
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    assert summary["unchanged"] == 2
+    assert summary["minted"] == 0

@@ -9,7 +9,7 @@ each layer's models arrive with its sub-issue (#306–#309).
 
 ```
 packages/usa-wa-pipeline/
-  src/usa_wa_pipeline/   — Python surface: PROJECT_DIR now; the publisher later (#311)
+  src/usa_wa_pipeline/   — Python surface: staging/matching/parity/registry + the publisher
   dbt/                   — the dbt project
     dbt_project.yml      — three model layers: staging / matching / conformed
     profiles.yml         — duckdb target; USA_WA_PIPELINE_DB names the db file
@@ -18,7 +18,6 @@ packages/usa-wa-pipeline/
     models/staging/      — one cleaning regime per source, NATURAL KEYS ONLY
     models/matching/     — cross-source link proposals feeding the registrar (#308)
     models/conformed/    — registry-joined products with stable ULIDs (#309)
-    seeds/               — small checked-in inputs (currently the scaffold smoke seed)
 ```
 
 Layer rules are the spec's: staging never joins across sources and never sees a ULID;
@@ -77,7 +76,7 @@ raw/<source-slug>/
 
 ## Staging: legislature (#306)
 
-Five models under `models/staging/`, each a thin adapter over a pytest-covered
+Eight models under `models/staging/`, each a thin adapter over a pytest-covered
 row-builder in `usa_wa_pipeline.staging` (wsl.py / roster.py); the offline SOAP
 parse goes through `usa_wa_adapter_legislature.parsing` (same operation
 bindings as the live pulls; one WSDL GET per service, amortized):
@@ -134,6 +133,9 @@ uv run python -m usa_wa_pipeline.registry_seed
 uv run python -m usa_wa_pipeline.registrar --db data/pipeline.duckdb [--dry-run]
 # Human corrections (merge/move), each with a mandatory recorded note
 uv run python -m usa_wa_pipeline.adjudicate merge --kind person --loser <ULID> --survivor <ULID> --note "…"
+# A WRONG merge is corrected by unmerge (a reverse merge is refused — it would
+# cycle the tombstones and drop both entities from conformed):
+uv run python -m usa_wa_pipeline.adjudicate unmerge --kind person --entity <ULID> --note "…"
 # Invariant probe: canonical identity ⊆ registry crosswalk
 uv run python -m usa_wa_pipeline.parity_registry
 ```
@@ -179,8 +181,16 @@ quiet day. Producer-side gates: a missing table or a row shrink beyond
 `--max-shrink` (default 10%) refuses the whole run with nothing minted —
 retraction=absence means a degraded build must never ship as mass retraction.
 The API serves the tree at `/datasets/*` with `/health/datasets` as the
-publication probe. The nightly systemd chain (harvests → dbt build → registrar
-→ publish) is #311's remaining half.
+publication probe. The nightly systemd chain (`scripts/pipeline-nightly.sh`,
+`usa-wa-pipeline.timer`, daily 08:00 UTC) runs harvests → dbt build →
+registrar → publish → parity probes; any counted failure exits 1 so
+`OnFailure=` emails the operator.
+
+A dev/CI build with NO database must say so: `USA_WA_PIPELINE_HERMETIC=1`
+(set by `scripts/dbt-gate.sh` and the dbt tests) is the only thing that lets
+the conformed crosswalk models materialize empty — otherwise a missing
+`DATABASE_URL` fails the build loudly (#302 CR: empty identity must never
+publish with a green build).
 
 ## TDD for dbt models
 
