@@ -108,3 +108,16 @@ def test_job_outcome_degrades_on_ttl_masked_outage() -> None:
     assert job_outcome(base).outcome == "degraded"
     assert job_outcome({**base, "skipped_fresh": 2, "errors": 3}).outcome == "degraded"
     assert job_outcome({**base, "fetched": 1, "errors": 4}).outcome == "ok"
+
+
+async def test_manifest_url_honors_the_injected_clients_base(tmp_path) -> None:
+    """CR 45: provenance records the request the fetching client would make."""
+
+    class MirrorClient(FakePDCClient):
+        def winners_url(self) -> str:
+            return "https://mirror.example/resource/abc.json"
+
+    await harvest_raw(tmp_path, biennium=BIENNIUM, pdc_client=MirrorClient())
+    store = RawStore(tmp_path, SOURCE_SLUG)
+    manifest = json.loads(store.manifest_paths()[0].read_text())
+    assert all(e["url"].startswith("https://mirror.example/") for e in manifest["entries"])

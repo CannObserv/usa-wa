@@ -119,12 +119,17 @@ def publish(
     """Publish every configured dataset. Returns counters; raises on a gate."""
     out_root = Path(out_root)
     out_root.mkdir(parents=True, exist_ok=True)
-    # Sweep orphans from prior failed runs (#302 CR): a refused publish is a
-    # ROUTINE outcome that repeats nightly until an operator acts, and its
-    # leftovers would accumulate inside the tree /datasets serves. The nightly
-    # oneshot is the only publisher, so anything dot-tmp here is dead.
-    for stray in out_root.glob(".tmp-*"):
-        shutil.rmtree(stray, ignore_errors=True)
+    # Sweep orphans from prior failed runs (#302 CR 15/42): a refused publish
+    # is a ROUTINE outcome that repeats nightly until an operator acts, and its
+    # leftovers would accumulate inside the tree /datasets serves. Both shapes:
+    # dataset tmp dirs AND the catalog tmp file (rmtree no-ops on plain files,
+    # so files need their own unlink). The nightly oneshot is the only
+    # publisher, so anything matching here is dead.
+    for stray in [*out_root.glob(".tmp-*"), *out_root.glob(".catalog-*.tmp")]:
+        if stray.is_dir():
+            shutil.rmtree(stray, ignore_errors=True)
+        else:
+            stray.unlink(missing_ok=True)
     datasets = PUBLISHED_DATASETS if datasets is None else datasets
     lineage = _lineage(Path(manifest_path))
     previous = {d["name"]: d for d in _load_catalog(out_root)["datasets"]}

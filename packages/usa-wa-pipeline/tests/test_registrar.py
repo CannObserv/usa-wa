@@ -4,7 +4,7 @@ import duckdb
 import pytest
 
 from clearinghouse_core.registry import KIND_PERSON, apply_decision, decide, registered_view
-from usa_wa_pipeline.registrar import cluster_pairs, load_pairs, run_registrar
+from usa_wa_pipeline.registrar import cluster_pairs, load_pairs, run_registrar, unprocessed_kinds
 
 
 def test_cluster_pairs_connected_components() -> None:
@@ -75,3 +75,25 @@ def test_load_pairs_filters_on_kind(tmp_path) -> None:
     con.close()
     assert load_pairs(db_path) == [("a", "b")]
     assert load_pairs(db_path, "org") == [("x", "y")]
+
+
+def test_unprocessed_kinds_names_what_the_job_skips(tmp_path) -> None:
+    """CR 40: pairs of a kind the job does not register must degrade, not
+    vanish silently."""
+    db_path = str(tmp_path / "m.duckdb")
+    con = duckdb.connect(db_path)
+    con.execute(
+        "create table proposed_links as select * from (values "
+        "('person', 'a', 'b', 'r', 1.0), ('org', 'x', 'y', 'r', 1.0)"
+        ") t(kind, left_key, right_key, rule, score)"
+    )
+    con.close()
+    assert unprocessed_kinds(db_path) == ["org"]
+
+    con = duckdb.connect(str(tmp_path / "p.duckdb"))
+    con.execute(
+        "create table proposed_links as select * from (values "
+        "('person', 'a', 'b', 'r', 1.0)) t(kind, left_key, right_key, rule, score)"
+    )
+    con.close()
+    assert unprocessed_kinds(str(tmp_path / "p.duckdb")) == []

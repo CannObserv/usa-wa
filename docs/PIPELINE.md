@@ -134,8 +134,12 @@ uv run python -m usa_wa_pipeline.registrar --db data/pipeline.duckdb [--dry-run]
 # Human corrections (merge/move), each with a mandatory recorded note
 uv run python -m usa_wa_pipeline.adjudicate merge --kind person --loser <ULID> --survivor <ULID> --note "…"
 # A WRONG merge is corrected by unmerge (a reverse merge is refused — it would
-# cycle the tombstones and drop both entities from conformed):
+# cycle the tombstones and drop both entities from conformed). Unmerge prints
+# the keys whose move adjudications took them off this entity — move each back
+# deliberately, or the revived entity stays keyless (out of conformed, and the
+# registry parity probe + seed alarm nightly until resolved):
 uv run python -m usa_wa_pipeline.adjudicate unmerge --kind person --entity <ULID> --note "…"
+uv run python -m usa_wa_pipeline.adjudicate move --kind person --key <each listed key> --to <ULID> --note "…"
 # Invariant probe: canonical identity ⊆ registry crosswalk
 uv run python -m usa_wa_pipeline.parity_registry
 ```
@@ -156,8 +160,9 @@ orgs, 0 missing, 0 mismapped).
 
 `models/conformed/`: `person_crosswalk` / `org_crosswalk` (the registry's
 published identity surface — every natural key, its entity ULID, and the
-`merged_into` tombstone, read via `usa_wa_pipeline.registry_read`; empty with
-no `DATABASE_URL`, so the hermetic gate stays db-free) and `persons` /
+`merged_into` tombstone, read via `usa_wa_pipeline.registry_read`; empty only
+under `USA_WA_PIPELINE_HERMETIC=1` — a missing `DATABASE_URL` fails the build,
+§ Nightly chain below) and `persons` /
 `organizations` (one row per LIVE entity; logic in
 `usa_wa_pipeline.conformed.entities` — person names roster > WSL > PDC with
 newest-attestation-wins, org attributes from the newest biennium's roster wire,

@@ -64,7 +64,10 @@ async def harvest_raw(
         (f"{SENATE_WINNERS_RESOURCE_PREFIX}{y}", "senate", y)
         for y in senate_election_years_for_biennium(biennium)
     ]
-    winners_url = PDCClient().winners_url()
+    # from the client actually fetching when it can say (CR 45): a mirror or
+    # test host must not record a URL that was never requested
+    url_source = client if hasattr(client, "winners_url") else PDCClient()
+    winners_url = url_source.winners_url()
     try:
         for resource_id, chamber, year in plan:
             params = (

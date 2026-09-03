@@ -291,6 +291,11 @@ async def record_fetch(
         run.record(resource_id, None, url=url, status="err")
         counters["errors"] += 1
         return RecordOutcome(payload=None, skipped_fresh=False, error=True)
+    if payload.wire is None:
+        # A broken transport contract, not per-resource weather (CR 44):
+        # recording it "ok" would write a null-sha latest entry that TTL then
+        # honors — a resource with no stored bytes becoming "fresh".
+        raise ValueError(f"fetcher for {resource_id!r} returned a payload with wire=None")
     recorded = run.record(
         resource_id,
         payload.wire,

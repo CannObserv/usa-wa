@@ -66,7 +66,10 @@ async def harvest_raw(
     # by healthy results — the sibling Postgres-tier jobs alert per source.
     filings_counters = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
     results_counters = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
-    filings_url = SOSFilingsClient().export_url()
+    # from the clients actually fetching when they can say (CR 45)
+    filings_url_source = filings if hasattr(filings, "export_url") else SOSFilingsClient()
+    filings_url = filings_url_source.export_url()
+    results_url_source = results if hasattr(results, "export_index_url") else SOSResultsClient()
 
     filings_store = RawStore(root, SOS_SOURCE_SLUG)
     filings_run = filings_store.open_run()
@@ -96,7 +99,7 @@ async def harvest_raw(
                 results_store,
                 legresults_resource_id(year),
                 # the export index the traversal starts from — computable and real
-                SOSResultsClient().export_index_url(results_election_date(year)),
+                results_url_source.export_index_url(results_election_date(year)),
                 lambda y=year: results.fetch_legislative_results(y),
                 results_counters,
                 ttl_days,

@@ -84,10 +84,16 @@ async def adjudicate_merge(
     logger.info("registry_merge", extra={"kind": kind, "loser": loser, "survivor": survivor})
 
 
-async def adjudicate_unmerge(session: AsyncSession, kind: str, *, entity: str, note: str) -> None:
+async def adjudicate_unmerge(
+    session: AsyncSession, kind: str, *, entity: str, note: str
+) -> list[str]:
     """Clear ``entity``'s tombstone and record the decision — the sanctioned
-    recovery for a wrong merge (CR 1). Keys that were moved during the merge
-    stay where they are; move them back explicitly if the audit says so."""
+    recovery for a wrong merge (CR 1). Keys that were moved off this entity
+    stay where they are; the returned (and logged) inventory names them —
+    every ``move`` adjudication whose subject is this entity — so the operator
+    can move them back deliberately instead of mining the ledger mid-incident
+    (CR 41). A revived entity left keyless stays out of conformed and trips
+    the parity probes until the moves are resolved."""
     row = await _require_entity(session, kind, entity)
     if row.merged_into is None:
         raise ValueError(f"{kind} entity {entity!r} is not merged — nothing to unmerge")
@@ -103,9 +109,31 @@ async def adjudicate_unmerge(session: AsyncSession, kind: str, *, entity: str, n
         )
     )
     await session.flush()
-    logger.info(
-        "registry_unmerge", extra={"kind": kind, "entity": entity, "was_into": former_survivor}
+    moved_away = sorted(
+        {
+            key
+            for (key,) in (
+                await session.execute(
+                    select(RegistryAdjudication.natural_key).where(
+                        RegistryAdjudication.kind == kind,
+                        RegistryAdjudication.action == "move",
+                        RegistryAdjudication.subject_entity_id == entity,
+                    )
+                )
+            ).all()
+            if key is not None
+        }
     )
+    logger.info(
+        "registry_unmerge",
+        extra={
+            "kind": kind,
+            "entity": entity,
+            "was_into": former_survivor,
+            "keys_moved_away": moved_away[:50],
+        },
+    )
+    return moved_away
 
 
 async def adjudicate_move(
@@ -192,7 +220,7 @@ def main(argv: list[str] | None = None) -> int:
         _adjudicate_job,
         argv=argv,
         prog="python -m usa_wa_pipeline.adjudicate",
-        description="Merge entities or move a key, with a recorded note (#308).",
+        description="Merge/unmerge entities or move a key, with a recorded note (#308).",
         extra_args=_add_args,
     )
 
