@@ -1,7 +1,7 @@
 # conformed layer: registry-joined products with stable ULIDs (replatform
 # spec § Target architecture). Crosswalks carry the merge tombstones — the
-# only re-point signal a consumer gets. Roles/seats + assignments (the span
-# engine as Python models) complete this layer later in #309.
+# only re-point signal a consumer gets. Assignments are the span engine as a
+# Python model (#309); roles/seats complete this layer.
 version: 2
 
 models:

@@ -172,8 +172,9 @@ legislature, chambers, parties — from `usa_wa_common.orgs.STRUCTURAL_ORGS`).
 `profiles.yml` pins `threads: 1`: threaded Python models race first-imports of
 the workspace packages. Verified on the real archive 2026-09-03: 3,135 persons
 (2,999 roster-named / 135 WSL / 1 known gap — the Heck acceptance) and 219
-orgs, type distribution matching canonical exactly. Roles/seats + assignments
-(the span engine as Python models) complete the layer next.
+orgs, type distribution matching canonical exactly. Assignments (the span
+engine as a Python model) landed next — see below; roles/seats complete the
+layer.
 
 ## Publication (#311, in progress)
 
@@ -223,7 +224,17 @@ order — each encodes a production incident. Two structural differences:
 
 Two curated Postgres inputs, both read through explicit seams and both empty
 only under `USA_WA_PIPELINE_HERMETIC=1`: the registry crosswalk
-(`registry_read`) and the operator succession events (`operator_read`).
+(`registry_read`) and the operator succession events (`operator_read`). The
+event read orders by `(effective_date, id)`: the overlay sorts **stably**, so
+input order settles same-date ties (prod holds seven such pairs) and a
+content-hashed dataset cannot inherit Postgres's unspecified order.
+
+**The #228 deepening is a standing input, not an enrichment.** `build_all_spans`
+*refuses* to derive it from an empty roster under a live sponsor corpus, because
+the failure is invisible downstream: the key set shifts to shallow 1991-start
+spans while the row count barely moves, so the publish shrink gate sees nothing
+and the parity probe only runs afterward. Pass `extra_observations` — `[]`
+included — to state the deepening rather than derive it.
 
 **The canonical oracle is stale.** `python -m usa_wa_pipeline.parity_spans`
 diffs the conformed spans against `canonical.assignments` and gates on a

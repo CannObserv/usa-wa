@@ -1,6 +1,6 @@
 """Span parity probe (#309): conformed spans vs. canonical assignments.
 
-    python -m usa_wa_pipeline.parity_spans [--root PATH] [--json]
+    python -m usa_wa_pipeline.parity_spans [--root PATH] [--baseline N] [--json]
 
 Write-free. Rebuilds the conformed spans from the raw store + the curated
 operator events and diffs them against ``canonical.assignments`` for the kinds
@@ -21,17 +21,22 @@ recorded baseline is the known staleness, and any growth is a regression in
 the port. A Postgres-tier span rebuild would drop the baseline to zero, at
 which point lower it here — the number dying is the point.
 
-Exit ``0`` at/below baseline · ``1`` above it · ``4`` no store.
+Exit ``0`` at/below baseline · ``1`` above it · ``4`` degraded — no WSL store,
+no roster store (the #228 deepening's input, whose absence would read as a port
+regression), or an empty oracle. A degraded probe compared nothing and says so.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
@@ -70,23 +75,53 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-async def _parity_job(ctx: JobContext) -> JobResult:
-    root = Path(ctx.args.root) if ctx.args.root else get_raw_root()
-    store = RawStore(root, SOURCE)
-    if not store.latest():
-        logger.warning("parity_spans_empty_store", extra={"root": str(root)})
-        return JobResult.degraded({"empty_store": True})
+def owned_kind(source_id: str) -> str | None:
+    """The span ``kind`` encoded in an assignment's ``source_id``, or ``None``.
 
-    session = ctx.require_session()
-    current = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
+    A span key is ``<member_id>:<kind>:<discriminator>:<start_biennium>`` — but
+    the **member id is not colon-free**: the roster family mints ``<fold>:<year>``
+    ids, so its keys carry five segments and counting from the left lands on the
+    mint year (CR 58). Only the last three parts are structural, so the read is
+    right-anchored. A key too short to carry one returns ``None`` — a probe
+    degrades on a malformed row rather than crashing the nightly chain.
+    """
+    parts = source_id.rsplit(":", 3)
+    return parts[1] if len(parts) == 4 else None
+
+
+async def run_parity(
+    session: AsyncSession,
+    store: RawStore,
+    roster_store: RawStore,
+    *,
+    baseline: int,
+    current_biennium: str,
+    sponsor_rows: Callable[[RawStore], list[dict[str, Any]]] = wsl.sponsor_rows,
+    committee_member_rows: Callable[[RawStore], list[dict[str, Any]]] = wsl.committee_member_rows,
+    roster_rows: Callable[[RawStore], list[dict[str, Any]]] = roster_staging.roster_rows,
+) -> JobResult:
+    """Diff the rebuilt spans against the canonical snapshot. Write-free.
+
+    The staging readers are injected so the comparator and its exit gate are
+    testable without a raw corpus (the shape :mod:`parity_wsl` uses).
+    """
+    if not store.latest():
+        logger.warning("parity_spans_empty_store", extra={"source": SOURCE})
+        return JobResult.degraded({"empty_store": True})
+    if not roster_store.latest():
+        # Without it the #228 deepening is lost and divergence explodes — which
+        # would read as a regression in the port rather than a missing input.
+        logger.warning("parity_spans_empty_roster_store", extra={"source": ROSTER_SOURCE})
+        return JobResult.degraded({"empty_roster_store": True})
+
     spans = build_all_spans(
         SpanInputs(
-            sponsors=wsl.sponsor_rows(store),
-            committee_members=wsl.committee_member_rows(store),
-            roster=roster_staging.roster_rows(RawStore(root, ROSTER_SOURCE)),
+            sponsors=sponsor_rows(store),
+            committee_members=committee_member_rows(store),
+            roster=roster_rows(roster_store),
             events=await operator_event_rows(session),
         ),
-        current_biennium=current,
+        current_biennium=current_biennium,
     )
     ours = {s.source_id: (s.valid_from, s.valid_to, s.is_active) for s in spans}
     canonical = {
@@ -101,7 +136,7 @@ async def _parity_job(ctx: JobContext) -> JobResult:
                 ).where(Assignment.source == SOURCE)
             )
         ).all()
-        if row[0].split(":")[1] in OWNED_KINDS
+        if owned_kind(row[0]) in OWNED_KINDS
     }
     if not canonical:
         # An empty oracle makes every comparison vacuously clean (#302 CR 6).
@@ -119,9 +154,9 @@ async def _parity_job(ctx: JobContext) -> JobResult:
         "extra": len(extra),
         "dated_differently": len(dated),
         "divergence": divergence,
-        "baseline": ctx.args.baseline,
+        "baseline": baseline,
     }
-    log = logger.info if divergence <= ctx.args.baseline else logger.error
+    log = logger.info if divergence <= baseline else logger.error
     log(
         "parity_spans_report",
         extra={
@@ -131,9 +166,23 @@ async def _parity_job(ctx: JobContext) -> JobResult:
             "dated_sample": dated[:20],
         },
     )
-    if divergence > ctx.args.baseline:
+    if divergence > baseline:
         return JobResult.failed(counters, exit_code=1)
     return JobResult.ok(counters)
+
+
+async def _parity_job(ctx: JobContext) -> JobResult:
+    """Bind the probe to the real raw root and the current biennium."""
+    root = Path(ctx.args.root) if ctx.args.root else get_raw_root()
+    return await run_parity(
+        ctx.require_session(),
+        RawStore(root, SOURCE),
+        RawStore(root, ROSTER_SOURCE),
+        baseline=ctx.args.baseline,
+        current_biennium=(
+            os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
+        ),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
