@@ -125,7 +125,10 @@ def unprocessed_kinds(db_path: str) -> list[str]:
         kinds = {row[0] for row in rows}
     finally:
         con.close()
-    return sorted(kinds - {KIND_PERSON})
+    # A NULL kind is itself unprocessed, and must not crash the sort (CR 53):
+    # the schema's not_null test guards the nightly only by ordering.
+    unprocessed = {"<null>" if kind is None else kind for kind in kinds} - {KIND_PERSON}
+    return sorted(unprocessed)
 
 
 def _add_args(parser: argparse.ArgumentParser) -> None:

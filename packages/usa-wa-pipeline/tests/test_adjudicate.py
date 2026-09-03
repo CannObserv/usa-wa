@@ -1,5 +1,7 @@
 """The adjudication CLI's core (#308): merge + move, each leaving a record."""
 
+from types import SimpleNamespace
+
 import pytest
 from sqlalchemy import select
 
@@ -10,7 +12,12 @@ from clearinghouse_core.registry import (
     decide,
     registered_view,
 )
-from usa_wa_pipeline.adjudicate import adjudicate_merge, adjudicate_move, adjudicate_unmerge
+from usa_wa_pipeline.adjudicate import (
+    _adjudicate_job,
+    adjudicate_merge,
+    adjudicate_move,
+    adjudicate_unmerge,
+)
 
 pytestmark = pytest.mark.db
 
@@ -146,3 +153,43 @@ async def test_unmerge_with_no_moves_reports_empty_inventory(db_session) -> None
     a, b = await _two_entities(db_session)
     await adjudicate_merge(db_session, KIND_PERSON, loser=b, survivor=a, note="merge")
     assert await adjudicate_unmerge(db_session, KIND_PERSON, entity=b, note="undo") == []
+
+
+async def test_unmerge_inventory_excludes_keys_moved_back(db_session) -> None:
+    """CR 52: a key moved away and later moved BACK is bound to this entity
+    again — listing it would invite a wrong move mid-incident."""
+    a, b = await _two_entities(db_session)
+    await adjudicate_move(
+        db_session, KIND_PERSON, natural_key="roster:x:1901", to_entity=a, note="away"
+    )
+    await adjudicate_move(
+        db_session, KIND_PERSON, natural_key="roster:x:1901", to_entity=b, note="back"
+    )
+    await adjudicate_merge(db_session, KIND_PERSON, loser=b, survivor=a, note="merge")
+    assert await adjudicate_unmerge(db_session, KIND_PERSON, entity=b, note="undo") == []
+
+
+async def test_unmerge_cli_reports_the_inventory(db_session, monkeypatch) -> None:
+    """CR 51: the operator's interface must carry the keys, not just the log."""
+    a, b = await _two_entities(db_session)
+    await adjudicate_move(
+        db_session, KIND_PERSON, natural_key="roster:x:1901", to_entity=a, note="merge move"
+    )
+    await adjudicate_merge(db_session, KIND_PERSON, loser=b, survivor=a, note="merge")
+
+    ctx = SimpleNamespace(
+        args=SimpleNamespace(
+            verb="unmerge",
+            kind=KIND_PERSON,
+            note="undo",
+            entity=b,
+            loser=None,
+            survivor=None,
+            key=None,
+            to_entity=None,
+        ),
+        require_session=lambda: db_session,
+    )
+    result = await _adjudicate_job(ctx)
+    assert result.counters["action"] == "unmerge"
+    assert result.counters["keys_moved_away"] == ["roster:x:1901"]

@@ -97,3 +97,17 @@ def test_unprocessed_kinds_names_what_the_job_skips(tmp_path) -> None:
     )
     con.close()
     assert unprocessed_kinds(str(tmp_path / "p.duckdb")) == []
+
+
+def test_unprocessed_kinds_tolerates_a_null_kind(tmp_path) -> None:
+    """CR 53: a NULL kind must be reported, not crash the sort (the dbt
+    not_null test guards the nightly by ordering, but this is callable alone)."""
+    db_path = str(tmp_path / "n.duckdb")
+    con = duckdb.connect(db_path)
+    con.execute(
+        "create table proposed_links as select * from (values "
+        "('person', 'a', 'b', 'r', 1.0), (NULL, 'x', 'y', 'r', 1.0), ('org', 'q', 'z', 'r', 1.0)"
+        ") t(kind, left_key, right_key, rule, score)"
+    )
+    con.close()
+    assert unprocessed_kinds(db_path) == ["<null>", "org"]

@@ -125,10 +125,10 @@ def test_cursor_is_scoped_per_source(tmp_path, monkeypatch) -> None:
     assert main(argv) == 1
 
 
-def test_cursor_store_is_atomic_and_prunes_cleared_scopes(tmp_path, monkeypatch) -> None:
-    """CR 43: the state write goes through tmp+replace (a crash cannot leave
-    truncated JSON), and a scope whose cursor cleared is dropped, not kept as
-    an accumulating null."""
+def test_cursor_store_prunes_cleared_scopes_without_leftovers(tmp_path, monkeypatch) -> None:
+    """CR 43/55: a scope whose cursor cleared is dropped rather than kept as an
+    accumulating null, and the tmp+replace write leaves no stray tmp file.
+    (Crash-atomicity itself follows from `replace` and is not asserted here.)"""
     patch_job_runtime(monkeypatch)
     _seed(tmp_path, [b"aaaa", b"bbbb", b"cccc"])
     state_path = tmp_path / ".raw_integrity_state.json"
