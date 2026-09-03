@@ -76,6 +76,7 @@ from usa_wa_pipeline.conformed.spans import (
 from usa_wa_pipeline.operator_read import operator_event_rows
 from usa_wa_pipeline.registry_read import crosswalk_rows
 from usa_wa_pipeline.staging import roster as roster_staging
+from usa_wa_pipeline.staging import sos as sos_staging
 from usa_wa_pipeline.staging import wsl
 
 logger = get_logger(__name__)
@@ -83,10 +84,12 @@ logger = get_logger(__name__)
 #: Stable ledger identity (#178).
 JOB_SLUG = "parity-spans"
 
-#: The span kinds the conformed tier owns today. `chamber-house` arrives with
-#: the facts-seats port (PDC Position inference, #229) and is excluded until
-#: then so its absence cannot read as a regression.
-OWNED_KINDS = ("party", "chamber-senate", "committee")
+#: The SOS legislative-results store — the ballot that positions a House seat.
+SOS_SOURCE = "usa_wa_sos_results"
+
+#: Every span kind the conformed tier owns — all four since #309 increment 3
+#: brought `chamber-house` (the WSL roster x SOS ballot join).
+OWNED_KINDS = ("party", "chamber-senate", "committee", "chamber-house")
 
 #: Known stale-oracle rows, measured 2026-09-03 (see the module docstring):
 #: 42 + 37 missing (WSL shallow keys and their roster-minted twins, one
@@ -135,12 +138,14 @@ async def run_parity(
     session: AsyncSession,
     store: RawStore,
     roster_store: RawStore,
+    sos_store: RawStore,
     *,
     baseline: int,
     current_biennium: str,
     sponsor_rows: Callable[[RawStore], list[dict[str, Any]]] = wsl.sponsor_rows,
     committee_member_rows: Callable[[RawStore], list[dict[str, Any]]] = wsl.committee_member_rows,
     roster_rows: Callable[[RawStore], list[dict[str, Any]]] = roster_staging.roster_rows,
+    sos_result_rows: Callable[[RawStore], list[dict[str, Any]]] = sos_staging.result_rows,
 ) -> JobResult:
     """Diff the rebuilt spans against the canonical snapshot. Write-free.
 
@@ -171,6 +176,12 @@ async def run_parity(
     malformed_roster_rows = len(roster) - len(roster_records(roster))
 
     sponsors = sponsor_rows(store)
+    sos_results = sos_result_rows(sos_store)
+    if sponsors and not sos_results:
+        # The House family's ballot input, guarded like the roster tier's:
+        # its absence deletes ~4% of the table, inside the publish shrink floor.
+        logger.warning("parity_spans_empty_sos_rows", extra={"source": SOS_SOURCE})
+        return JobResult.degraded({"empty_sos_rows": True})
     events = await operator_event_rows(session)
     # One resolve, both families — see `conformed.spans.roster_resolution`.
     resolution = roster_resolution(roster, sponsors)
@@ -179,6 +190,7 @@ async def run_parity(
             sponsors=sponsors,
             committee_members=committee_member_rows(store),
             roster=roster,
+            sos_results=sos_results,
             events=events,
         ),
         current_biennium=current_biennium,
@@ -284,6 +296,7 @@ async def _parity_job(ctx: JobContext) -> JobResult:
         ctx.require_session(),
         RawStore(root, SOURCE),
         RawStore(root, ROSTER_SOURCE),
+        RawStore(root, SOS_SOURCE),
         baseline=ctx.args.baseline,
         current_biennium=(
             os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())

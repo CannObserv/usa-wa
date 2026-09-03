@@ -18,6 +18,7 @@ from clearinghouse_core.registry import KIND_PERSON, RegistryEntity, RegistryKey
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from usa_wa_pipeline.parity_spans import (
     ROSTER_SOURCE,
+    SOS_SOURCE,
     SOURCE,
     owned_kind,
     run_parity,
@@ -32,6 +33,22 @@ CURRENT = "2025-26"
 #: families — so each test states where it lands.
 ROSTER_MEMBER = "wilburcranston:1925"
 ROSTER_SPAN_ID = f"{ROSTER_MEMBER}:party:republican:1925-26"
+
+
+#: One ballot row, so the House family's guard is satisfied. It positions
+#: nobody in these fixtures (LD 41 is in no sponsor row), which keeps the
+#: arithmetic below about the families each test is actually asserting —
+#: `test_conformed_house.py` owns the join itself.
+def _ballot_row() -> dict:
+    return {
+        "election_date": "20081104",
+        "race": "Legislative District 41 - State Representative Pos. 1",
+        "candidate": "Chris Vance",
+        "party": "(Prefers Republican Party)",
+        "votes": "30000",
+        "percentage_of_total_votes": "60.0",
+        "jurisdiction_name": "Legislative",
+    }
 
 
 def _sponsor(member_id: str, biennium: str) -> dict:
@@ -159,7 +176,15 @@ async def _seed_roster_family(db_session, role) -> None:
 
 
 async def _run(
-    db_session, tmp_path, *, sponsors, baseline=0, roster_store=None, store=None, roster=None
+    db_session,
+    tmp_path,
+    *,
+    sponsors,
+    baseline=0,
+    roster_store=None,
+    store=None,
+    roster=None,
+    sos_results=None,
 ):
     return await run_parity(
         db_session,
@@ -167,11 +192,13 @@ async def _run(
         roster_store
         if roster_store is not None
         else _store(tmp_path, ROSTER_SOURCE, "roster-pdf:2025"),
+        _store(tmp_path, SOS_SOURCE, "sos-legresults:20081104"),
         baseline=baseline,
         current_biennium=CURRENT,
         sponsor_rows=lambda s: sponsors,
         committee_member_rows=lambda s: [],
         roster_rows=lambda s: [_roster_row()] if roster is None else roster,
+        sos_result_rows=lambda s: [_ballot_row()] if sos_results is None else sos_results,
     )
 
 
@@ -287,11 +314,13 @@ async def test_a_roster_store_that_parses_to_nothing_degrades(db_session, tmp_pa
         db_session,
         _store(tmp_path, SOURCE, "sponsors:2025-26"),
         _store(tmp_path, ROSTER_SOURCE, "roster-pdf:2025"),
+        _store(tmp_path, SOS_SOURCE, "sos-legresults:20081104"),
         baseline=0,
         current_biennium=CURRENT,
         sponsor_rows=lambda s: [_sponsor("100", CURRENT)],
         committee_member_rows=lambda s: [],
         roster_rows=lambda s: [],
+        sos_result_rows=lambda s: [_ballot_row()],
     )
     assert result.outcome == OUTCOME_DEGRADED
     assert result.counters["empty_roster_rows"] is True

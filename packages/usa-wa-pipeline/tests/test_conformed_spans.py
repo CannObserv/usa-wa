@@ -25,20 +25,21 @@ from usa_wa_pipeline.conformed.spans import (
     assignment_rows,
     build_all_spans,
     build_roster_spans,
-    committee_rosters,
     entity_index,
     roster_records,
     roster_resolution,
-    sponsor_wire_rows,
 )
+from usa_wa_pipeline.conformed.wire import committee_rosters, sponsor_wire_rows
 
 BIENNIUM = "2023-24"
 CURRENT = "2025-26"
 
-#: Every test below builds a corpus with no roster tier, so each states the
-#: deepening explicitly (CR 57): an EMPTY roster is the one thing the builder
-#: refuses to guess at, because guessing publishes shallow spans silently.
+#: Every test below builds a corpus with no roster tier and no ballot
+#: archive, so each states both families explicitly (CR 57): an EMPTY input is
+#: the one thing the builder refuses to guess at, because guessing publishes
+#: silently-wrong spans. `usa_wa_pipeline.conformed.house` has its own tests.
 NO_DEEPENING: list = []
+NO_HOUSE: list = []
 
 
 def _sponsor(member_id: str, biennium: str, **over) -> dict:
@@ -111,7 +112,12 @@ def test_name_blanked_stub_yields_no_observation() -> None:
         committee_members=[],
         events=[],
     )
-    assert build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING) == []
+    assert (
+        build_all_spans(
+            inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING, house_spans=NO_HOUSE
+        )
+        == []
+    )
 
 
 def test_party_and_senate_spans_merge_contiguous_bienniums() -> None:
@@ -120,7 +126,9 @@ def test_party_and_senate_spans_merge_contiguous_bienniums() -> None:
         committee_members=[],
         events=[],
     )
-    spans = build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING)
+    spans = build_all_spans(
+        inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING, house_spans=NO_HOUSE
+    )
     by_kind = {s.kind: s for s in spans}
     assert set(by_kind) == {KIND_PARTY, KIND_SENATE}
     party = by_kind[KIND_PARTY]
@@ -139,7 +147,9 @@ def test_committee_spans_key_on_committee_id() -> None:
         ],
         events=[],
     )
-    [span] = build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING)
+    [span] = build_all_spans(
+        inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING, house_spans=NO_HOUSE
+    )
     assert span.kind == KIND_COMMITTEE
     assert span.discriminator == "500"
     assert span.start_biennium == "2021-22"
@@ -155,7 +165,12 @@ def test_independent_party_emits_no_party_span() -> None:
         committee_members=[],
         events=[],
     )
-    assert build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING) == []
+    assert (
+        build_all_spans(
+            inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING, house_spans=NO_HOUSE
+        )
+        == []
+    )
 
 
 def test_house_row_emits_no_senate_seat_span() -> None:
@@ -168,7 +183,9 @@ def test_house_row_emits_no_senate_seat_span() -> None:
     )
     kinds = {
         s.kind
-        for s in build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING)
+        for s in build_all_spans(
+            inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING, house_spans=NO_HOUSE
+        )
     }
     assert kinds == {KIND_PARTY}
 
@@ -181,7 +198,9 @@ def test_assignment_rows_join_the_crosswalk_and_count_drops() -> None:
         committee_members=[],
         events=[],
     )
-    spans = build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING)
+    spans = build_all_spans(
+        inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING, house_spans=NO_HOUSE
+    )
     rows, counters = assignment_rows({SOURCE: spans}, {f"{SOURCE}:100": "01ENTITY"})
     assert {r["member_id"] for r in rows} == {"100"}
     assert all(r["entity_id"] == "01ENTITY" for r in rows)
@@ -237,7 +256,9 @@ def test_explicit_extras_are_always_honored() -> None:
     """`extra_observations` is the deliberate seam: passing it — even empty —
     states the deepening rather than deriving it."""
     inputs = SpanInputs(sponsors=[_sponsor("100", CURRENT)], committee_members=[], roster=[])
-    spans = build_all_spans(inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING)
+    spans = build_all_spans(
+        inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING, house_spans=NO_HOUSE
+    )
     assert {s.kind for s in spans} == {KIND_PARTY, KIND_SENATE}
 
 
@@ -293,7 +314,8 @@ def test_a_roster_that_parses_is_not_refused() -> None:
         "annotation": None,
     }
     inputs = SpanInputs(sponsors=[_sponsor("100", CURRENT)], committee_members=[], roster=[good])
-    assert {s.kind for s in build_all_spans(inputs, current_biennium=CURRENT)} == {
+    spans = build_all_spans(inputs, current_biennium=CURRENT, house_spans=NO_HOUSE)
+    assert {s.kind for s in spans} == {
         KIND_PARTY,
         KIND_SENATE,
     }
@@ -369,6 +391,7 @@ def test_assignment_rows_tag_each_family_with_its_own_source() -> None:
         SpanInputs(sponsors=[_sponsor("100", CURRENT)], committee_members=[]),
         current_biennium=CURRENT,
         extra_observations=NO_DEEPENING,
+        house_spans=NO_HOUSE,
     )
     resolution = roster_resolution([_roster("Wilbur Cranston", 1925)], [])
     roster_spans = build_roster_spans(resolution, events=[], current_biennium=CURRENT)

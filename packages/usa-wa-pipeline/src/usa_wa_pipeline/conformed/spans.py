@@ -29,12 +29,11 @@ the same steps in the same ORDER as ``sponsors/build.py``.
 **Context spans (#267).** The `departed` split reads a member's return date
 off spans of OTHER kinds. The old builder loads them from Postgres because
 each builder writes separately; here every kind is built in ONE pass, so the
-committee spans computed in this run serve as the sponsor build's context —
-same information, no cross-builder blindness. The one kind still missing is
-`chamber-house`, which needs the PDC Position inference (#229) the facts-seats
-port brings; until then a member who returned only to a House seat can keep a
-span the Postgres tier would have split. That gap is measured by the span
-parity probe, not assumed away.
+committee AND House spans computed in this run serve as the sponsor build's
+context — same information, no cross-builder blindness, and no DB read. With
+`chamber-house` landed (increment 3, :mod:`usa_wa_pipeline.conformed.house`)
+the seam is complete: Liz Pike's 2,190-day party gap, the incident #267 is
+named for, is exactly a member who returned only to a House seat.
 """
 
 from __future__ import annotations
@@ -83,6 +82,8 @@ from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
     stale_exclusions_by_biennium,
 )
 from usa_wa_common.seats import district_number
+from usa_wa_pipeline.conformed.house import build_house_spans
+from usa_wa_pipeline.conformed.wire import committee_rosters, sponsor_wire_rows
 
 logger = get_logger(__name__)
 
@@ -93,7 +94,9 @@ SOURCE = "usa_wa_legislature"
 #: pre-1991. A DISJOINT identity space sharing the same assignments table.
 ROSTER_SOURCE = "usa_wa_legislature_roster"
 
-#: The kinds this module owns. `chamber-house` belongs to the facts-seats port.
+#: The kinds each build step owns. `chamber-house` is delegated to
+#: :mod:`usa_wa_pipeline.conformed.house` — a Layer-3b composition, not a
+#: sponsor projection — but built here so it can serve as #267 context.
 SPONSOR_KINDS = frozenset({KIND_PARTY, KIND_SENATE})
 COMMITTEE_KINDS = frozenset({KIND_COMMITTEE})
 
@@ -125,42 +128,9 @@ class SpanInputs:
     #: corpus is refused by :func:`build_all_spans` rather than silently
     #: re-asserting the shallow 1991-start keys (CR 57).
     roster: list[dict[str, Any]] = field(default_factory=list)
-
-
-def _wire(row: dict[str, Any]) -> dict[str, Any]:
-    """One staging row in the WSL wire's own shape, for the projectors."""
-    return {
-        "Id": row.get("member_id"),
-        "FirstName": row.get("first_name"),
-        "LastName": row.get("last_name"),
-        "Name": row.get("name"),
-        "LongName": row.get("long_name"),
-        "Agency": row.get("agency"),
-        "Party": row.get("party"),
-        "District": row.get("district"),
-    }
-
-
-def sponsor_wire_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    """Staging sponsor rows → ``{biennium: [wire dicts]}`` (the roster-map shape)."""
-    out: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        biennium = row.get("biennium")
-        if not biennium:
-            continue
-        out.setdefault(str(biennium), []).append(_wire(row))
-    return out
-
-
-def committee_rosters(rows: list[dict[str, Any]]) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    """Staging committee-member rows → ``{(biennium, committee_id): [wire dicts]}``."""
-    out: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for row in rows:
-        biennium, committee_id = row.get("biennium"), row.get("committee_id")
-        if not biennium or not committee_id:
-            continue
-        out.setdefault((str(biennium), str(committee_id)), []).append(_wire(row))
-    return out
+    #: SOS legislative-results rows — the ballot that positions a House seat
+    #: (#101). Refused empty under a live sponsor corpus for the same reason.
+    sos_results: list[dict[str, Any]] = field(default_factory=list)
 
 
 def seatings_from_sponsors(rows: list[dict[str, Any]]) -> list[Seating]:
@@ -379,11 +349,12 @@ def build_all_spans(
     current_biennium: str,
     stale_min_coverage: float = STALE_MIN_COVERAGE_DEFAULT,
     extra_observations: list[Observation] | None = None,
+    house_spans: list[TenureSpan] | None = None,
 ) -> list[TenureSpan]:
     """Every span this module owns, in the Postgres tier's own order.
 
-    Committee spans build FIRST so they can serve as the sponsor build's
-    ``context_spans`` (#267) — see the module docstring.
+    Committee spans build FIRST, then House, so both serve as the sponsor
+    build's ``context_spans`` (#267) — see the module docstring.
 
     Raises ``ValueError`` when the #228 deepening would be derived from an
     **empty** roster under a non-empty sponsor corpus (CR 57). That combination
@@ -417,6 +388,23 @@ def build_all_spans(
         current_biennium=current_biennium,
         owned_kinds=set(COMMITTEE_KINDS),
     )
+    # House SECOND: it needs no other family, and both it and the committee
+    # spans are #267 context for the sponsor build below. `house_spans` is the
+    # same deliberate seam `extra_observations` is — passing it, `[]` included,
+    # STATES the family rather than deriving it from the ballot archive.
+    house = (
+        list(house_spans)
+        if house_spans is not None
+        else build_house_spans(
+            sponsors=inputs.sponsors,
+            committee_members=inputs.committee_members,
+            sos_results=inputs.sos_results,
+            events=inputs.events,
+            current_biennium=current_biennium,
+            stale_min_coverage=stale_min_coverage,
+            context_spans=committee_spans,
+        )
+    )
 
     # #105 stale-row exclusion, then the #145 biennium-scoped operator
     # exemption, then the #144 artifact denylist as a hard union — the same
@@ -439,10 +427,10 @@ def build_all_spans(
         events,
         current_biennium=current_biennium,
         owned_kinds=set(SPONSOR_KINDS),
-        context_spans=committee_spans,
+        context_spans=[*committee_spans, *house],
     )
     return sorted(
-        [*committee_spans, *sponsor_spans],
+        [*committee_spans, *house, *sponsor_spans],
         key=lambda s: (s.member_id, s.kind, s.discriminator, s.start_biennium),
     )
 

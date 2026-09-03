@@ -111,8 +111,11 @@ _HOUSE_ASSIGNMENT_SOURCE = WSL_SOURCE_SLUG
 HousePositionsByLd = dict[int, list[HousePosition]]
 
 
-def _biennium_election_years(biennium: str) -> tuple[int, int]:
-    """``(even_seating_year, odd_special_year)`` for a biennium (#123). ``election_years_for_
+def biennium_election_years(biennium: str) -> tuple[int, int]:
+    """``(even_seating_year, odd_special_year)`` for a biennium (#123).
+
+    Public since #309: the conformed tier composes the same map, and a second
+    implementation of the even/odd split is a divergence waiting to happen. ``election_years_for_
     biennium`` returns ``[start-1, start]`` — the even November that seats the chamber and the odd
     November that fills mid-biennium vacancies by special. ``even == odd`` never happens (start-1 is
     always even), so the two are distinct sources to merge."""
@@ -120,7 +123,7 @@ def _biennium_election_years(biennium: str) -> tuple[int, int]:
     return years[0], years[-1]
 
 
-def _merge_positions(
+def merge_positions(
     biennium: str,
     positions: dict[int, HousePositionsByLd],
     house_winners: dict[int, HousePositionsByLd],
@@ -132,7 +135,7 @@ def _merge_positions(
     special candidacy must not false-match a member). An absent/empty odd cohort (no special that
     biennium, or the odd November not yet held) leaves the even map unchanged — backward
     compatible with the pre-#123 single-year lookup."""
-    even_year, odd_year = _biennium_election_years(biennium)
+    even_year, odd_year = biennium_election_years(biennium)
     merged: HousePositionsByLd = {
         ld: list(entries) for ld, entries in positions.get(even_year, {}).items()
     }
@@ -242,7 +245,7 @@ async def build_house_position_spans(
         for biennium in bienniums
     }
     positions_by_biennium = {
-        biennium: _merge_positions(biennium, positions, house_winners) for biennium in bienniums
+        biennium: merge_positions(biennium, positions, house_winners) for biennium in bienniums
     }
     # #123 §1c citation plumbing: a member whose position resolves from the odd-year special
     # cohort (and NOT the even seating cohort) is cited to the odd wire (`sos-legresults:<odd>`) —
@@ -252,7 +255,7 @@ async def build_house_position_spans(
     special_keys: set[tuple[str, str]] = set()
     special_events: dict[str, CitationTarget] = {}
     for biennium in bienniums:
-        even_year, odd_year = _biennium_election_years(biennium)
+        even_year, odd_year = biennium_election_years(biennium)
         odd_event = citation_events.get(odd_year)
         odd_map = house_winners.get(odd_year, {})
         if odd_event is None or not odd_map:
