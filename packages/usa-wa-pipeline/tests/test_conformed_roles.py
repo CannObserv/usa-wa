@@ -64,6 +64,38 @@ def test_an_unparseable_discriminator_is_refused() -> None:
         role_for_span("chamber-senate", "not-a-district")
 
 
+def test_a_role_carries_its_own_registry_ulid() -> None:
+    """#313: roles get a ULID so the API has a stable handle when the derived
+    `role_key` moves, and because PM already holds 312 role anchors. The key
+    stays first-class beside it — nothing PM matches on is mediated away."""
+    rows, counters = role_rows(
+        [{"span_kind": "chamber-senate", "span_discriminator": "22"}],
+        {"usa_wa_legislature:usa_wa_senate": "01SENATE"},
+        {"usa_wa_legislature:seat:senate:ld-22": "01ROLE"},
+    )
+    [row] = rows
+    assert row["entity_id"] == "01ROLE"
+    assert row["role_key"] == "seat:senate:ld-22"
+    assert counters["unregistered_roles"] == 0
+
+
+def test_a_role_the_registry_has_not_reached_is_counted_not_dropped() -> None:
+    """Same asymmetry as the org join, for the same reason: the nightly runs
+    `dbt build -> registrar -> publish`, so a brand-new seat is unregistered in
+    the build that first sees it and bound by the next one. Dropping it would
+    delete the dimension row a published assignment already names; the counter
+    is what makes the one-run latency visible instead of silent."""
+    rows, counters = role_rows(
+        [{"span_kind": "committee", "span_discriminator": "999"}],
+        {"usa_wa_legislature:999": "01ORG"},
+        {},
+    )
+    [row] = rows
+    assert row["entity_id"] is None
+    assert row["role_key"] == "committee-member-role:999"
+    assert counters["unregistered_roles"] == 1
+
+
 def test_role_rows_are_one_per_slot_and_carry_the_org_entity() -> None:
     """The dimension is keyed on the role, not the assignment: two members in
     one seat across time are one row. The org entity comes from the crosswalk,
@@ -78,6 +110,10 @@ def test_role_rows_are_one_per_slot_and_carry_the_org_entity() -> None:
         {
             "usa_wa_legislature:usa_wa_senate": "01SENATE",
             "usa_wa_legislature:party-democratic": "01DEMS",
+        },
+        {
+            "usa_wa_legislature:seat:senate:ld-22": "01SEAT",
+            "usa_wa_legislature:party-role:democratic": "01PARTYROLE",
         },
     )
     assert len(rows) == 2
@@ -94,7 +130,11 @@ def test_a_role_whose_org_is_unregistered_is_counted_not_dropped() -> None:
     the seat exists whether or not the registry has minted its chamber yet. It
     publishes with a null org and is counted, so the gap is visible rather than
     silently deleting the dimension row an assignment points at."""
-    rows, counters = role_rows([{"span_kind": "committee", "span_discriminator": "999"}], {})
+    rows, counters = role_rows(
+        [{"span_kind": "committee", "span_discriminator": "999"}],
+        {},
+        {"usa_wa_legislature:committee-member-role:999": "01ROLE"},
+    )
     [row] = rows
     assert row["org_entity_id"] is None
     assert counters["unregistered_orgs"] == 1

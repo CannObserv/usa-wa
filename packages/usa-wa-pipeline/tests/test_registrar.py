@@ -3,8 +3,21 @@
 import duckdb
 import pytest
 
-from clearinghouse_core.registry import KIND_PERSON, apply_decision, decide, registered_view
-from usa_wa_pipeline.registrar import cluster_pairs, load_pairs, run_registrar, unprocessed_kinds
+from clearinghouse_core.registry import (
+    KIND_PERSON,
+    KIND_ROLE,
+    apply_decision,
+    decide,
+    registered_view,
+)
+from usa_wa_pipeline.registrar import (
+    cluster_pairs,
+    load_pairs,
+    load_role_keys,
+    role_pairs,
+    run_registrar,
+    unprocessed_kinds,
+)
 
 
 def test_cluster_pairs_connected_components() -> None:
@@ -111,3 +124,38 @@ def test_unprocessed_kinds_tolerates_a_null_kind(tmp_path) -> None:
     )
     con.close()
     assert unprocessed_kinds(db_path) == ["<null>", "org"]
+
+
+def test_role_natural_keys_are_read_from_the_conformed_dimension(tmp_path) -> None:
+    """#313: roles register from the conformed `roles` model, not from
+    `proposed_links` — there is no matching to propose. The natural key is
+    `<source>:<role_key>`, the same shape persons and orgs use, so the seed's
+    ULID-preserving pass and this ongoing pass address the same rows."""
+    db_path = str(tmp_path / "r.duckdb")
+    con = duckdb.connect(db_path)
+    con.execute(
+        "create table roles as select * from (values "
+        "('seat:senate:ld-14'), ('party-role:democratic')) t(role_key)"
+    )
+    con.close()
+    assert load_role_keys(db_path) == [
+        "usa_wa_legislature:party-role:democratic",
+        "usa_wa_legislature:seat:senate:ld-14",
+    ]
+
+
+async def test_the_registrar_mints_one_entity_per_role_key(db_session) -> None:
+    """A singleton cluster per role: nothing to match, nothing to merge, so the
+    decision table only ever mints or no-ops. Re-running must not double-mint —
+    the role dimension is rebuilt from scratch on every pipeline run."""
+    keys = ["usa_wa_legislature:seat:senate:ld-14", "usa_wa_legislature:party-role:democratic"]
+    summary = await run_registrar(db_session, KIND_ROLE, pairs=role_pairs(keys))
+    assert summary["minted"] == 2
+    assert summary["conflicts"] == 0
+
+    again = await run_registrar(db_session, KIND_ROLE, pairs=role_pairs(keys))
+    assert again["minted"] == 0
+    assert again["noops"] == 2
+
+    view = await registered_view(db_session, KIND_ROLE)
+    assert sorted(view) == sorted(keys)

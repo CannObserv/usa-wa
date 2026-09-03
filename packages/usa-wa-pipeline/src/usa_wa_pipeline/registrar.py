@@ -29,7 +29,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.registry import KIND_PERSON, apply_decision, decide, registered_view
+from clearinghouse_core.registry import (
+    KIND_PERSON,
+    KIND_ROLE,
+    apply_decision,
+    decide,
+    registered_view,
+)
+from usa_wa_pipeline.conformed.roles import SOURCE as ROLE_SOURCE
 
 logger = get_logger(__name__)
 
@@ -112,6 +119,34 @@ def load_pairs(db_path: str, kind: str = KIND_PERSON) -> list[tuple[str, str]]:
         con.close()
 
 
+def role_pairs(natural_keys: Iterable[str]) -> list[tuple[str, str]]:
+    """Role natural keys → singleton clusters for :func:`run_registrar` (#313).
+
+    A role has no matching problem, so every cluster is one key paired with
+    itself: the decision table then only ever mints (new seat) or no-ops
+    (every subsequent run). Reusing that table rather than writing a second
+    registration path is the point — one ledger, one set of rules.
+    """
+    return [(key, key) for key in natural_keys]
+
+
+def load_role_keys(db_path: str) -> list[str]:
+    """Role natural keys from the built pipeline database's role dimension.
+
+    Roles do not come from ``proposed_links``: nothing proposes them, because
+    ``role_for_span`` is a pure function of the seat. The conformed ``roles``
+    model IS the set of slots that exist, and the natural key is
+    ``<source>:<role_key>`` — the same shape persons and orgs use, so the
+    ULID-preserving seed and this ongoing pass address identical rows.
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    try:
+        rows = con.execute("select distinct role_key from roles order by 1").fetchall()
+    finally:
+        con.close()
+    return [f"{ROLE_SOURCE}:{row[0]}" for row in rows]
+
+
 def unprocessed_kinds(db_path: str) -> list[str]:
     """Kinds present in ``proposed_links`` that no registration pass consumes.
 
@@ -141,8 +176,17 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 
 async def _registrar_job(ctx: JobContext) -> JobResult:
     db_path = ctx.args.db or os.environ.get("USA_WA_PIPELINE_DB", _DEFAULT_DB)
+    session = ctx.require_session()
     pairs = load_pairs(db_path)
-    summary = await run_registrar(ctx.require_session(), KIND_PERSON, pairs=pairs)
+    summary = await run_registrar(session, KIND_PERSON, pairs=pairs)
+    # Roles (#313), from the conformed dimension rather than proposed_links —
+    # see `load_role_keys`. Counters are namespaced so a role mint is never
+    # read as a person mint; conflicts fold into the one triage signal.
+    role_summary = await run_registrar(
+        session, KIND_ROLE, pairs=role_pairs(load_role_keys(db_path))
+    )
+    summary.update({f"role_{name}": value for name, value in role_summary.items()})
+    summary["conflicts"] += role_summary["conflicts"]
     skipped_kinds = unprocessed_kinds(db_path)
     if skipped_kinds:
         summary["unprocessed_kinds"] = skipped_kinds

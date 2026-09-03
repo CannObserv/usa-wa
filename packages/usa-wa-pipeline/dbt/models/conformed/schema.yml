@@ -57,8 +57,10 @@ models:
       - name: valid_from
         data_tests: [not_null]
   - name: roles
-    description: "The seat/slot dimension the assignments name (#309). role_key is a DETERMINISTIC structural key — a pure function of the seat, identical on every run and aligned 1:1 with Power Map's seat match key — so it needs no registry; only org_entity_id is registry-joined."
+    description: "The seat/slot dimension the assignments name (#309). role_key is a DETERMINISTIC structural key — a pure function of the seat, identical on every run and aligned 1:1 with Power Map's seat match key. Since #313 a role also carries entity_id, its registry ULID: the API needs a stable handle when the derived key moves, and PM already holds 312 role anchors. Both are published; the key is never mediated away. entity_id is nullable for one run only — the nightly registers after the build."
     columns:
+      - name: entity_id
+        data_tests: [unique]
       - name: role_key
         data_tests: [not_null, unique]
       - name: role_type

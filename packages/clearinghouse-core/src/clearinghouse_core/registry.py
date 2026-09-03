@@ -43,6 +43,17 @@ SCHEMA = "registry"
 
 KIND_PERSON = "person"
 KIND_ORG = "org"
+#: Roles (#313). The odd one out, deliberately: a role has **no matching
+#: problem** — ``role_for_span(kind, discriminator)`` is a pure function, two
+#: runs necessarily agree, and roles never merge — so this kind's ledger is
+#: always a 1:1 map from one natural key (the structural ``role_key``) to one
+#: entity. It exists for the *other* service a registry provides: a stable
+#: handle. ``role_key`` is a derived string, and this repo's rule against
+#: keying on an exact upstream string applies just as much to a public id;
+#: PM also already holds 312 role anchors from the #312 export, which minting
+#: fresh ids would invalidate. The key stays published beside the ULID, so
+#: nothing PM matches on is mediated away.
+KIND_ROLE = "role"
 
 
 def _new_ulid() -> _PyULID:

@@ -76,7 +76,10 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
 #:   the span tier needs, and `assignments` joined the published set.
 #: - 1.2.0 (#309 inc 4): `roles` joined the published set and `assignments`
 #:   gained `role_key`. Both additive, hence minor.
-SCHEMA_VERSION = "1.2.0"
+#: - 1.3.0 (#313): `roles` gained `entity_id`, its registry ULID — the stable
+#:   handle `/api/v1` addresses a role by once it serves from the published
+#:   contract. `role_key` stays beside it, so PM's seat match key is unmoved.
+SCHEMA_VERSION = "1.3.0"
 
 DEFAULT_MAX_SHRINK = 0.10
 
