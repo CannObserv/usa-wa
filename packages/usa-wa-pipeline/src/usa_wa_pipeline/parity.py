@@ -94,3 +94,30 @@ def key_set_parity(
         canonical_total=len(canonical),
         accepted=tuple(matched),
     )
+
+
+def subset_parity(
+    dataset: str,
+    staging_keys: Iterable[str],
+    canonical_keys: Iterable[str],
+    *,
+    accepted: Iterable[AcceptedDiff] = (),
+) -> ParityReport:
+    """One-directional parity: every canonical key must exist in staging.
+
+    For datasets where staging legitimately holds MORE than canonical ever
+    materialized (PDC winners: canonical links identifiers only for matched
+    members). ``only_staging`` is reported as empty by construction — the
+    surplus is the dataset's nature, not a divergence; ``clean`` means
+    canonical ⊆ staging.
+    """
+    staging = set(staging_keys)
+    report = key_set_parity(dataset, staging, canonical_keys, accepted=accepted)
+    return ParityReport(
+        dataset=dataset,
+        only_staging=frozenset(),
+        only_canonical=report.only_canonical,
+        staging_total=report.staging_total,
+        canonical_total=report.canonical_total,
+        accepted=report.accepted,
+    )

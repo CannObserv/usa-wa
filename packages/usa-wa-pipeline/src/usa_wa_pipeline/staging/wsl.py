@@ -11,7 +11,7 @@ a parser on an exact upstream string.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from typing import Any
 
 from clearinghouse_core.rawstore import RawStore
@@ -22,6 +22,8 @@ from usa_wa_adapter_legislature.adapter import (
     SPONSORS_RESOURCE_PREFIX,
     parse_committee_members_hist_resource_id,
 )
+from usa_wa_pipeline.staging.common import latest_wires as _latest_wires
+from usa_wa_pipeline.staging.common import text as _text
 
 _MEETINGS_PREFIX = "committee-meetings:"
 
@@ -55,13 +57,6 @@ MEETING_COLUMNS = [
     "committee_agency",
     "committee_name",
 ]
-
-
-def _latest_wires(store: RawStore, prefix: str) -> Iterator[tuple[str, bytes]]:
-    """The newest ok wire per resource id under ``prefix``, id-sorted for determinism."""
-    for resource_id, entry in sorted(store.latest().items()):
-        if resource_id.startswith(prefix):
-            yield resource_id, store.object_path(entry["sha256"]).read_bytes()
 
 
 def committee_rows(
@@ -167,8 +162,3 @@ def meeting_rows(
                     }
                 )
     return rows
-
-
-def _text(value: Any) -> str | None:
-    """Source ids as text, uniformly — WSL renders ints, resource ids carry strings."""
-    return None if value is None else str(value)

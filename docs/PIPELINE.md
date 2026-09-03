@@ -89,6 +89,9 @@ bindings as the live pulls; one WSDL GET per service, amortized):
 | `stg_wsl_committee_members` | (biennium, committee_id, member_id, long_name) | chamber movers list twice; committee key rides the resource id (#82) |
 | `stg_wsl_meetings` | none (raw refs) | all agencies kept; Joint/`Other` filter is downstream policy |
 | `stg_roster_members` | (year, chamber, district, order, name) | order is seat-lineage order (#229): a successor inherits it |
+| `stg_pdc_winners` | (chamber, election_year, filer_id) | #307; `person_id` is the `wa_pdc` link value |
+| `stg_sos_results` | (election_date, race, candidate) | #307 |
+| `stg_sos_filings` | — | #307; store empty until the raw harvest runs (no archived filings payloads existed to export) |
 
 Composite keys + coverage floors (sponsors 1991-92, roster 1889) live as
 singular tests under `dbt/tests/` — vacuous on an empty store, so the hermetic
@@ -98,6 +101,7 @@ commit gate stays fast.
 
 ```bash
 uv run python -m usa_wa_pipeline.parity_wsl --root /home/exedev/usa-wa/raw
+uv run python -m usa_wa_pipeline.parity_pdc --root /home/exedev/usa-wa/raw   # subset mode: canonical ⊆ staging
 ```
 
 Diffs staging key sets against live canonical Postgres; exit 1 on any
@@ -106,7 +110,8 @@ each with a named reason, and a stale acceptance fails the run. Verified clean
 2026-09-03: committees 208/186 with 22 accepted (archived-meeting Joint/`Other`
 bodies canonical never normalized), sponsors 640/641 with 1 accepted (the Lt.
 Governor's ex-officio Rules seat from the retired `committee-members:`
-vocabulary).
+vocabulary); PDC 312/312 exact. SOS has no per-source probe on purpose —
+results/filings corroborate spans, covered by #309's span parity.
 
 ## TDD for dbt models
 
