@@ -229,10 +229,22 @@ def deepening_observations(
     ``roster_pdf.deepening.joined_pre1991_observations``: same resolve, same
     projection, same WSL-joined filter — but over staging rows, so no
     provenance-table read and no WSL re-pull.
+
+    Raises ``ValueError`` when roster rows were supplied but **none parsed**
+    (CR 67). An empty result here is indistinguishable downstream from "no
+    deepening applies", so a roster tier broken by an upstream rename would
+    reach the same silent shallow publish :func:`build_all_spans` refuses at
+    the other end. Both routes to an empty deepening are now closed.
     """
+    if not roster:
+        return []
     records = roster_records(roster)
     if not records:
-        return []
+        raise ValueError(
+            f"the #228 deepening parsed 0 records from {len(roster)} roster rows — the "
+            "roster staging shape changed. Publishing now would re-assert shallow "
+            "1991-start spans; see the roster_records_malformed warning for the count."
+        )
     report = resolve_identities(records, seatings=seatings_from_sponsors(sponsors))
     projection = build_pre1991_observations(report.identities, records)
     joined = {i.wsl_member_id for i in report.identities if i.disposition == IDENTITY_WSL}

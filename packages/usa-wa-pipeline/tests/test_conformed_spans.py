@@ -251,3 +251,44 @@ def test_malformed_roster_rows_are_counted_not_silently_dropped(caplog) -> None:
     records = roster_records([good, {**good, "year": "not-a-year"}, {"district": "5"}])
     assert len(records) == 1
     assert "roster_records_malformed" in caplog.text
+
+
+def test_a_roster_that_parses_to_nothing_is_refused(caplog) -> None:
+    """CR 67: the round-4 refusal read the RAW rows, but `deepening_observations`
+    returns [] on its own when no row survives parsing — so a roster tier that
+    is present but entirely malformed reached the same silent shallow publish
+    the guard exists to prevent. A staging rename is the plausible trigger,
+    which is the scenario the guard was written for.
+    """
+    mangled = [
+        {
+            "district": "5",
+            "chamber": "house",
+            "year": "1975",
+            "seat_order": 1,  # `order` renamed upstream
+            "name": "Jordan Smith",
+            "party_token": "R",
+            "annotation": None,
+        }
+    ]
+    inputs = SpanInputs(sponsors=[_sponsor("100", CURRENT)], committee_members=[], roster=mangled)
+    with pytest.raises(ValueError, match="parsed"):
+        build_all_spans(inputs, current_biennium=CURRENT)
+
+
+def test_a_roster_that_parses_is_not_refused() -> None:
+    """The complement: a roster that yields records builds, deepening derived."""
+    good = {
+        "district": "5",
+        "chamber": "house",
+        "year": "1975",
+        "order": "1",
+        "name": "Jordan Smith",
+        "party_token": "R",
+        "annotation": None,
+    }
+    inputs = SpanInputs(sponsors=[_sponsor("100", CURRENT)], committee_members=[], roster=[good])
+    assert {s.kind for s in build_all_spans(inputs, current_biennium=CURRENT)} == {
+        KIND_PARTY,
+        KIND_SENATE,
+    }

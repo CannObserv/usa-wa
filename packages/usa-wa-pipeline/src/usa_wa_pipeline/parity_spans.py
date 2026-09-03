@@ -41,10 +41,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root
+from clearinghouse_core.registry import KIND_PERSON
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_pipeline.conformed.spans import SOURCE, SpanInputs, build_all_spans
+from usa_wa_pipeline.conformed.spans import (
+    SOURCE,
+    SpanInputs,
+    assignment_rows,
+    build_all_spans,
+    entity_index,
+)
 from usa_wa_pipeline.operator_read import operator_event_rows
+from usa_wa_pipeline.registry_read import crosswalk_rows
 from usa_wa_pipeline.staging import roster as roster_staging
 from usa_wa_pipeline.staging import wsl
 
@@ -114,34 +122,56 @@ async def run_parity(
         logger.warning("parity_spans_empty_roster_store", extra={"source": ROSTER_SOURCE})
         return JobResult.degraded({"empty_roster_store": True})
 
+    # The guard belongs on the ROWS, not the store (CR 69): a store holding
+    # wires that yield nothing must degrade with a named reason here, rather
+    # than raising out of build_all_spans through the harness's exception
+    # route — which loses the counters (#331).
+    roster = roster_rows(roster_store)
+    if not roster:
+        logger.warning("parity_spans_empty_roster_rows", extra={"source": ROSTER_SOURCE})
+        return JobResult.degraded({"empty_roster_rows": True})
+
     spans = build_all_spans(
         SpanInputs(
             sponsors=sponsor_rows(store),
             committee_members=committee_member_rows(store),
-            roster=roster_rows(roster_store),
+            roster=roster,
             events=await operator_event_rows(session),
         ),
         current_biennium=current_biennium,
     )
     ours = {s.source_id: (s.valid_from, s.valid_to, s.is_active) for s in spans}
-    canonical = {
-        row[0]: (row[1], row[2], row[3])
-        for row in (
-            await session.execute(
-                select(
-                    Assignment.source_id,
-                    Assignment.valid_from,
-                    Assignment.valid_to,
-                    Assignment.is_active,
-                ).where(Assignment.source == SOURCE)
-            )
-        ).all()
-        if owned_kind(row[0]) in OWNED_KINDS
-    }
+    canonical: dict[str, tuple[Any, Any, Any]] = {}
+    unparsable = 0
+    for row in (
+        await session.execute(
+            select(
+                Assignment.source_id,
+                Assignment.valid_from,
+                Assignment.valid_to,
+                Assignment.is_active,
+            ).where(Assignment.source == SOURCE)
+        )
+    ).all():
+        kind = owned_kind(row[0])
+        if kind is None:
+            # Excluding a key that cannot carry a kind is right; excluding it
+            # SILENTLY shrinks the oracle unnoticed (CR 70).
+            unparsable += 1
+        elif kind in OWNED_KINDS:
+            canonical[row[0]] = (row[1], row[2], row[3])
     if not canonical:
         # An empty oracle makes every comparison vacuously clean (#302 CR 6).
         logger.warning("parity_spans_empty_canonical", extra={"source": SOURCE})
         return JobResult.degraded({"empty_canonical": True, "spans": len(spans)})
+
+    # The crosswalk join the `assignments` model performs, reported HERE
+    # because the model cannot report it (CR 68): a `dbt build` never calls
+    # `configure_logging`, so a logger inside a Python model emits nothing —
+    # the info path is dropped outright and the warning path reaches
+    # `logging.lastResort`, which prints the message and discards `extra`.
+    # This probe runs under the job harness, so its counters are real JSON.
+    _rows, join = assignment_rows(spans, entity_index(await crosswalk_rows(session, KIND_PERSON)))
 
     missing = sorted(set(canonical) - set(ours))
     extra = sorted(set(ours) - set(canonical))
@@ -155,6 +185,9 @@ async def run_parity(
         "dated_differently": len(dated),
         "divergence": divergence,
         "baseline": baseline,
+        "registered_spans": join["published"],
+        "unregistered_spans": join["unregistered_spans"],
+        "unparsable_canonical_keys": unparsable,
     }
     log = logger.info if divergence <= baseline else logger.error
     log(

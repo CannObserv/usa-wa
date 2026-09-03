@@ -212,3 +212,48 @@ async def test_the_roster_family_is_not_compared(db_session, tmp_path) -> None:
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=1)
     assert result.counters["canonical"] == 1
+
+
+async def test_a_roster_store_that_parses_to_nothing_degrades(db_session, tmp_path) -> None:
+    """CR 69: the guard belongs on the ROWS, not the store. A store holding
+    wires that yield no roster rows must degrade with a named reason, not raise
+    out through the harness's exception route (which loses the counters, #331).
+    """
+    result = await run_parity(
+        db_session,
+        _store(tmp_path, SOURCE, "sponsors:2025-26"),
+        _store(tmp_path, ROSTER_SOURCE, "roster-pdf:2025"),
+        baseline=0,
+        current_biennium=CURRENT,
+        sponsor_rows=lambda s: [_sponsor("100", CURRENT)],
+        committee_member_rows=lambda s: [],
+        roster_rows=lambda s: [],
+    )
+    assert result.outcome == OUTCOME_DEGRADED
+    assert result.counters["empty_roster_rows"] is True
+
+
+async def test_unregistered_spans_are_reported(db_session, tmp_path) -> None:
+    """CR 68: the count of spans dropped on the crosswalk join has to reach an
+    operator. It cannot come from the dbt model — a `dbt build` never calls
+    `configure_logging`, so that logger emits nothing — so the probe, which
+    runs under the job harness, carries it.
+    """
+    role = await _seed_role(db_session)
+    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=1)
+    # no registry keys seeded, so every span is unregistered
+    assert result.counters["unregistered_spans"] == 2
+    assert result.counters["registered_spans"] == 0
+
+
+async def test_a_malformed_oracle_key_is_counted(db_session, tmp_path) -> None:
+    """CR 70: a canonical key too short to carry a kind shrinks the comparison
+    set. Excluding it is right; excluding it silently is the vacuous-parity
+    shape earlier rounds fixed elsewhere."""
+    role = await _seed_role(db_session)
+    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
+    await _seed_assignment(db_session, role, "nonsense")
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=1)
+    assert result.counters["unparsable_canonical_keys"] == 1
+    assert result.counters["canonical"] == 1

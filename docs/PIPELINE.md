@@ -234,7 +234,18 @@ content-hashed dataset cannot inherit Postgres's unspecified order.
 the failure is invisible downstream: the key set shifts to shallow 1991-start
 spans while the row count barely moves, so the publish shrink gate sees nothing
 and the parity probe only runs afterward. Pass `extra_observations` — `[]`
-included — to state the deepening rather than derive it.
+included — to state the deepening rather than derive it. **Both** routes to an
+empty deepening are refused: an empty roster tier, and a roster tier present but
+parsing to zero records (an upstream rename), which would otherwise reach the
+same silent shallow publish through `deepening_observations`.
+
+**Python models cannot log.** A `dbt build` never calls `configure_logging()`,
+so a `get_logger()` call inside a model emits nothing — the info path is
+dropped and the warning path reaches `logging.lastResort`, which prints the
+message and discards `extra`. Counters that must reach an operator therefore
+belong in a job, not a model: `parity_spans` recomputes the crosswalk join and
+reports `registered_spans` / `unregistered_spans` — the only signal that a
+registrar gap dropped spans — under the harness, where they serialize as JSON.
 
 **The canonical oracle is stale.** `python -m usa_wa_pipeline.parity_spans`
 diffs the conformed spans against `canonical.assignments` and gates on a
