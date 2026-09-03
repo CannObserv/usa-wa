@@ -57,6 +57,12 @@ async def _parity_job(ctx: JobContext) -> JobResult:
             )
         ).scalars()
     )
+    if not canonical:
+        # A subset probe with an empty oracle passes vacuously — and an empty
+        # oracle means a misconfigured DSN or scheme, never "nothing to check"
+        # (prod carries hundreds of wa_pdc links). Degrade like an empty store.
+        logger.warning("parity_pdc_empty_canonical", extra={"scheme": SCHEME})
+        return JobResult.degraded({"empty_canonical": True, "staging": len(staging)})
     report = subset_parity("pdc_winners", staging, canonical)
     counters = {
         "staging": report.staging_total,

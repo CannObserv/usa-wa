@@ -6,13 +6,15 @@ per run, a ``latest.json`` index for freshness decisions, and re-verification
 of bytes against their names for the integrity sweep.
 """
 
+import fcntl
 import hashlib
 import json
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from clearinghouse_core.rawstore import RawStore, verify_store
+from clearinghouse_core.rawstore import RawStore, record_fetch, verify_store
 
 BODY = b"<wire>hello</wire>"
 SHA = hashlib.sha256(BODY).hexdigest()
@@ -171,3 +173,98 @@ def test_latest_index_keeps_newest_fetched_at(store: RawStore) -> None:
     export.close()
     assert store.latest()["r"]["sha256"] == SHA
     assert store.latest()["r"]["fetched_at"].startswith("2026-09-01")
+
+
+def test_update_latest_serializes_on_source_lock(store: RawStore) -> None:
+    """Concurrent closes on one source must not lose each other's entries: the
+    read-modify-write of ``latest.json`` holds an exclusive per-source flock."""
+    run = store.open_run()
+    run.record("r1", BODY, url="u")
+    store.source_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = store.source_dir / ".latest.lock"
+    with open(lock_path, "w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        worker = threading.Thread(target=run.close)
+        worker.start()
+        worker.join(timeout=0.3)
+        assert worker.is_alive(), "close() must block while another holder owns the lock"
+        fcntl.flock(held, fcntl.LOCK_UN)
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+    assert store.latest()["r1"]["sha256"] == SHA
+
+
+class _Payload:
+    def __init__(self, wire: bytes, content_type: str | None = None) -> None:
+        self.wire = wire
+        self.content_type = content_type
+
+
+def _fresh_counters() -> dict[str, int]:
+    return {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
+
+
+async def test_record_fetch_stores_and_counts(store: RawStore) -> None:
+    run = store.open_run()
+    counters = _fresh_counters()
+
+    async def fetcher() -> _Payload:
+        return _Payload(BODY, "text/xml")
+
+    outcome = await record_fetch(
+        run, store, "r1", "u", fetcher, counters, 0.0, log_event="test_fetch_failed"
+    )
+    assert outcome.payload is not None and outcome.payload.wire == BODY
+    assert not outcome.skipped_fresh and not outcome.error
+    assert counters == {"fetched": 1, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
+    run.close()
+    assert store.latest()["r1"]["sha256"] == SHA
+
+
+async def test_record_fetch_contains_errors(store: RawStore) -> None:
+    run = store.open_run()
+    counters = _fresh_counters()
+
+    async def fetcher() -> _Payload:
+        raise RuntimeError("wire down")
+
+    outcome = await record_fetch(
+        run, store, "r1", "u", fetcher, counters, 0.0, log_event="test_fetch_failed"
+    )
+    assert outcome.error and outcome.payload is None
+    assert counters["errors"] == 1
+    run.close()
+    assert store.latest() == {}  # an err entry never advances the index
+
+
+async def test_record_fetch_skips_fresh(store: RawStore) -> None:
+    run = store.open_run()
+    run.record("r1", BODY, url="u")
+    run.close()
+    counters = _fresh_counters()
+
+    async def fetcher() -> _Payload:  # pragma: no cover - must not be called
+        raise AssertionError("fresh resource must not be fetched")
+
+    run2 = store.open_run()
+    outcome = await record_fetch(
+        run2, store, "r1", "u", fetcher, counters, 7.0, log_event="test_fetch_failed"
+    )
+    assert outcome.skipped_fresh and outcome.payload is None and not outcome.error
+    assert counters["skipped_fresh"] == 1
+
+
+async def test_record_fetch_counts_unchanged_refetch(store: RawStore) -> None:
+    run = store.open_run()
+    run.record("r1", BODY, url="u")
+    run.close()
+    counters = _fresh_counters()
+
+    async def fetcher() -> _Payload:
+        return _Payload(BODY)
+
+    outcome = await record_fetch(
+        run, store, "r1", "u", fetcher, counters, 0.0, log_event="test_fetch_failed"
+    )
+    assert not outcome.error
+    assert counters["fetched"] == 1 and counters["unchanged"] == 1

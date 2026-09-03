@@ -99,8 +99,15 @@ class RegistryAdjudication(Base):
     id: Mapped[_PyULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     action: Mapped[str] = mapped_column(String(16), nullable=False)  # merge | split | move
-    subject_entity_id: Mapped[_PyULID | None] = mapped_column(ULID(), nullable=True)
-    target_entity_id: Mapped[_PyULID | None] = mapped_column(ULID(), nullable=True)
+    # FK-backed (#302 CR): the only ledger that moves identity must not be
+    # able to reference an entity that does not exist (entities are never
+    # deleted, so the constraint costs nothing)
+    subject_entity_id: Mapped[_PyULID | None] = mapped_column(
+        ULID(), ForeignKey(f"{SCHEMA}.entities.id"), nullable=True
+    )
+    target_entity_id: Mapped[_PyULID | None] = mapped_column(
+        ULID(), ForeignKey(f"{SCHEMA}.entities.id"), nullable=True
+    )
     natural_key: Mapped[str | None] = mapped_column(String(256), nullable=True)
     note: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -144,14 +151,9 @@ def decide(cluster: frozenset[str], registered: dict[str, str]) -> Decision:
     return Decision("append", keys_to_register=unknown, entity_id=entity_id)
 
 
-async def registered_view(session: AsyncSession, kind: str) -> dict[str, str]:
-    """Natural key → LIVE entity id (merges resolved to the survivor)."""
-    rows = (
-        await session.execute(
-            select(RegistryKey.natural_key, RegistryKey.entity_id).where(RegistryKey.kind == kind)
-        )
-    ).all()
-    merges = {
+async def merge_map(session: AsyncSession, kind: str) -> dict[str, str]:
+    """Entity id → ``merged_into``, for every tombstoned entity of ``kind``."""
+    return {
         str(entity_id): str(merged_into)
         for entity_id, merged_into in (
             await session.execute(
@@ -162,14 +164,31 @@ async def registered_view(session: AsyncSession, kind: str) -> dict[str, str]:
         ).all()
     }
 
-    def resolve(entity_id: str) -> str:
-        seen = set()
-        while entity_id in merges and entity_id not in seen:
-            seen.add(entity_id)
-            entity_id = merges[entity_id]
-        return entity_id
 
-    return {key: resolve(str(entity_id)) for key, entity_id in rows}
+def resolve_merged(merges: dict[str, str], entity_id: str) -> str:
+    """Follow the tombstone chain to its terminal survivor (cycle-guarded)."""
+    seen: set[str] = set()
+    while entity_id in merges and entity_id not in seen:
+        seen.add(entity_id)
+        entity_id = merges[entity_id]
+    return entity_id
+
+
+async def registered_view(
+    session: AsyncSession, kind: str, *, resolve_merges: bool = True
+) -> dict[str, str]:
+    """Natural key → entity id. By default merges resolve to the survivor;
+    ``resolve_merges=False`` returns the raw bindings (what each key is
+    registered to, tombstones unfollowed) — the parity probe's view."""
+    rows = (
+        await session.execute(
+            select(RegistryKey.natural_key, RegistryKey.entity_id).where(RegistryKey.kind == kind)
+        )
+    ).all()
+    if not resolve_merges:
+        return {key: str(entity_id) for key, entity_id in rows}
+    merges = await merge_map(session, kind)
+    return {key: resolve_merged(merges, str(entity_id)) for key, entity_id in rows}
 
 
 async def apply_decision(

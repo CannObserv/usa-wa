@@ -22,10 +22,9 @@ SocratiCode is the preferred semantic-search tool for this repo (once indexed; t
 
 **Adding a doc? Declare it.** Every tracked `*.md` at the repo root or under `docs/` must be named in `.socraticodecontextartifacts.json` or exempted in `.skills/context-artifacts-exempt` — undeclared docs are unreachable via `codebase_context_search` and nothing else reports them (#300). `scripts/tests/test_context_manifest_drift.py` fails on drift.
 
-**The file-dependency graph is broken here.** Empty output from `codebase_graph_query` /
-`_circular` / `_stats` or the file-mode of `codebase_impact` means "tool broken", never "no
-dependents" — derive import edges with `grep`. The goal→tool table, the measurements behind that
-finding, and the source of the session-start `ToolSearch` prefetch query:
+**The file-dependency graph is broken here.** Empty output from the `codebase_graph_*` tools or
+the file-mode of `codebase_impact` means "tool broken", never "no dependents" — derive import
+edges with `grep`. Goal→tool table, evidence, and the session-start `ToolSearch` prefetch:
 [`docs/CODE-EXPLORATION.md`](docs/CODE-EXPLORATION.md).
 
 ## Project Layout
@@ -109,7 +108,7 @@ The systemd service loads both automatically. For shell commands:
 export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 ```
 
-**In a worktree that line is one file short (#296).** `.env` is git-ignored, so `git worktree add` never produces one — and `/etc/usa-wa/.env` deliberately does not carry `TEST_DATABASE_URL`, so the db tier stays broken however many times you run it. `scripts/pre-ship.sh` falls back to the primary checkout's `.env` on its own; for an ad-hoc shell, name it:
+**In a worktree that line is one file short (#296).** `.env` is git-ignored and `/etc/usa-wa/.env` deliberately carries no `TEST_DATABASE_URL`, so the db tier stays broken. `scripts/pre-ship.sh` falls back to the primary checkout's `.env` itself; for an ad-hoc shell, name it:
 
 ```bash
 export $(cat /etc/usa-wa/.env /home/exedev/usa-wa/.env 2>/dev/null | xargs)
@@ -129,11 +128,11 @@ export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 # Run tests
 uv run pytest
 
-# Concurrent db-marked runs serialize on a Postgres advisory lock, then fail
-# loudly (#208) — see docs/COMMANDS.md
+# Concurrent db-marked runs serialize on an advisory lock, then
+# fail loudly (#208) — docs/COMMANDS.md
 
-# Unit tier (#185) — no database at all; own coverage gate (#198), so no flags
-# needed. Add --no-cov for a faster (~11s vs ~27s), ungated inner loop
+# Unit tier (#185) — no database; own coverage gate (#198), no flags needed.
+# Add --no-cov for a faster (~11s vs ~27s), ungated inner loop
 uv run pytest -m 'not db and not integration'
 
 # A subset — --no-cov: neither gate measures a slice

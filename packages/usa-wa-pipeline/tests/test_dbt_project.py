@@ -2,9 +2,8 @@
 
 Drives dbt in-process (``dbtRunner``) against a throwaway duckdb file, so the
 suite proves what the pre-commit gate proves: ``dbt build`` parses the project,
-loads the seeds, builds every model, and runs every schema/data test. The
-scaffold ships a smoke seed + staging model so a green build exercises the whole
-harness, not an empty project.
+builds every model and runs every schema/data test, so a green build
+exercises the whole harness, not an empty project.
 """
 
 import pytest
@@ -30,6 +29,7 @@ def test_dbt_build_green(tmp_path, monkeypatch) -> None:
     from dbt.cli.main import dbtRunner
 
     monkeypatch.setenv("USA_WA_PIPELINE_DB", str(tmp_path / "test.duckdb"))
+    monkeypatch.setenv("USA_WA_PIPELINE_HERMETIC", "1")
     monkeypatch.setenv("USA_WA_RAW_ROOT", str(tmp_path / "raw"))
     # hermetic: the conformed crosswalk models read the registry only when a
     # DATABASE_URL is present, and this in-process build must never touch one
@@ -77,6 +77,7 @@ def test_dbt_data_test_failure_is_red(tmp_path, monkeypatch) -> None:
         "              values: ['ok']\n"
     )
     monkeypatch.setenv("USA_WA_PIPELINE_DB", str(tmp_path / "test.duckdb"))
+    monkeypatch.setenv("USA_WA_PIPELINE_HERMETIC", "1")
     monkeypatch.setenv("USA_WA_RAW_ROOT", str(tmp_path / "raw"))
     # hermetic: the conformed crosswalk models read the registry only when a
     # DATABASE_URL is present, and this in-process build must never touch one

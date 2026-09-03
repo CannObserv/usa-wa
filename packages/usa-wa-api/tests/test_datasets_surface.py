@@ -67,5 +67,22 @@ async def test_serves_catalog_and_files(client, published) -> None:
 
 
 async def test_traversal_and_missing_are_404(client, published) -> None:
+    # the percent-encoded form is the one that actually reaches the handler
+    # un-collapsed — httpx normalizes literal dot segments client-side, so the
+    # plain form never exercised the guard (#302 CR)
+    assert (await client.get("/datasets/%2e%2e/%2e%2e/etc/passwd")).status_code == 404
     assert (await client.get("/datasets/../../etc/passwd")).status_code == 404
     assert (await client.get("/datasets/persons/v9/data.csv")).status_code == 404
+
+
+async def test_symlink_escape_is_404(client, published, tmp_path) -> None:
+    """resolve() must defeat a symlink pointing outside the published root."""
+    outside = tmp_path / "secret.txt"
+    outside.write_text("not published")
+    (published / "persons" / "v1" / "link.txt").symlink_to(outside)
+    assert (await client.get("/datasets/persons/v1/link.txt")).status_code == 404
+
+
+async def test_garbage_path_is_404_not_500(client, published) -> None:
+    """An embedded NUL makes Path.resolve() raise — that is a 404 (#302 CR)."""
+    assert (await client.get("/datasets/%00")).status_code == 404

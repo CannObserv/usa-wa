@@ -22,10 +22,13 @@ from usa_wa_adapter_legislature.adapter import (
     SPONSORS_RESOURCE_PREFIX,
     parse_committee_members_hist_resource_id,
 )
+from usa_wa_adapter_legislature.meetings.windows import (
+    COMMITTEE_MEETINGS_RESOURCE_PREFIX,
+)
 from usa_wa_pipeline.staging.common import latest_wires as _latest_wires
 from usa_wa_pipeline.staging.common import text as _text
 
-_MEETINGS_PREFIX = "committee-meetings:"
+_MEETINGS_PREFIX = COMMITTEE_MEETINGS_RESOURCE_PREFIX
 
 Parser = Callable[[bytes], list[dict[str, Any]]]
 

@@ -2,15 +2,14 @@
 
 import pytest
 
-from clearinghouse_core.registry import KIND_PERSON, apply_decision, decide
-from usa_wa_pipeline.registry_read import crosswalk_rows
+from clearinghouse_core.config import get_settings
+from clearinghouse_core.registry import KIND_PERSON, RegistryEntity, apply_decision, decide
+from usa_wa_pipeline.registry_read import crosswalk_frame, crosswalk_rows
 
 pytestmark = pytest.mark.db
 
 
 async def test_crosswalk_rows_flatten_keys_and_tombstones(db_session) -> None:
-    from clearinghouse_core.registry import RegistryEntity
-
     a = await apply_decision(
         db_session,
         KIND_PERSON,
@@ -32,3 +31,19 @@ async def test_crosswalk_rows_flatten_keys_and_tombstones(db_session) -> None:
     # the tombstoned entity's key still lists, carrying the merge signal
     assert by_key["roster:x:1901"]["entity_id"] == b
     assert by_key["roster:x:1901"]["merged_into"] == a
+
+
+def test_frame_is_empty_only_under_the_hermetic_marker(monkeypatch) -> None:
+    """CR 2: the empty fallback is opt-in. Without the marker, a missing
+    DATABASE_URL fails the build loudly instead of publishing empty identity."""
+    monkeypatch.setenv("USA_WA_PIPELINE_HERMETIC", "1")
+    assert crosswalk_frame(KIND_PERSON) == []
+
+    monkeypatch.delenv("USA_WA_PIPELINE_HERMETIC", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    get_settings.cache_clear()  # the settings cache may hold an env-loaded DSN
+    try:
+        with pytest.raises(RuntimeError, match="DATABASE_URL"):
+            crosswalk_frame(KIND_PERSON)
+    finally:
+        get_settings.cache_clear()  # never leak the env-less settings to later tests

@@ -16,8 +16,12 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class AcceptedDiff:
-    """One explained divergence: the key, which side has it, and why that is fine."""
+    """One explained divergence: the dataset it belongs to, the key, which side
+    has it, and why that is fine. ``dataset`` scopes the acceptance — the same
+    key can exist in another dataset's keyspace (WSL committee and member ids
+    share a numeric range) and must not be swallowed there (#302 CR)."""
 
+    dataset: str
     key: str
     side: str  # "staging" | "canonical"
     reason: str
@@ -64,9 +68,11 @@ def key_set_parity(
 ) -> ParityReport:
     """Diff two key sets, removing allowlisted keys from their named side.
 
-    An allowlist entry whose key is not actually diverging is itself an error
-    (a stale acceptance is a blindfold — the #300 exemption rule), surfaced by
-    keeping it in the report's ``accepted`` only when it matched.
+    Acceptances are scoped by ``dataset``: entries for other datasets pass
+    through untouched, while every entry for THIS dataset must match a real
+    divergence — a stale acceptance is a blindfold (the #300 exemption rule)
+    and fails the run unconditionally, including when the key has vanished
+    from both sides (#302 CR: presence pre-filtering defeated the guarantee).
     """
     staging = set(staging_keys)
     canonical = set(canonical_keys)
@@ -75,6 +81,8 @@ def key_set_parity(
     matched: list[AcceptedDiff] = []
     stale: list[AcceptedDiff] = []
     for diff in accepted:
+        if diff.dataset != dataset:
+            continue
         target = only_staging if diff.side == "staging" else only_canonical
         if diff.key in target:
             target.discard(diff.key)
@@ -109,8 +117,15 @@ def subset_parity(
     materialized (PDC winners: canonical links identifiers only for matched
     members). ``only_staging`` is reported as empty by construction — the
     surplus is the dataset's nature, not a divergence; ``clean`` means
-    canonical ⊆ staging.
+    canonical ⊆ staging. Only canonical-side acceptances are meaningful here:
+    a staging-side one would "match" against a surplus the report discards.
     """
+    for diff in accepted:
+        if diff.dataset == dataset and diff.side == "staging":
+            raise ValueError(
+                f"[{dataset}] staging-side acceptance {diff.key!r} is meaningless "
+                "in subset mode (the staging surplus is not a divergence)"
+            )
     staging = set(staging_keys)
     report = key_set_parity(dataset, staging, canonical_keys, accepted=accepted)
     return ParityReport(

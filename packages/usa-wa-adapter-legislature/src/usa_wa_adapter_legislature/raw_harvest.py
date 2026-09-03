@@ -26,7 +26,7 @@ from typing import Any
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.rawstore import RawRun, RawStore, get_raw_root
+from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.adapter import (
     COMMITTEES_RESOURCE_PREFIX,
@@ -46,36 +46,6 @@ JOB_SLUG = "wsl-raw-harvest"
 SOURCE_SLUG = WSL_SOURCE_SLUG
 
 
-async def _record(
-    run: RawRun,
-    store: RawStore,
-    resource_id: str,
-    url: str,
-    fetcher: Any,
-    counters: dict[str, int],
-    ttl_days: float,
-) -> Any | None:
-    """Fetch one resource into the run; returns the fetch (for fan-out) or None."""
-    if ttl_days and store.is_fresh(resource_id, ttl_days=ttl_days):
-        run.record(resource_id, None, url=url, status="skipped")
-        counters["skipped_fresh"] += 1
-        return None
-    try:
-        fetch = await fetcher()
-    except Exception:
-        logger.exception("wsl_raw_harvest_fetch_failed", extra={"resource_id": resource_id})
-        run.record(resource_id, None, url=url, status="err")
-        counters["errors"] += 1
-        return None
-    recorded = run.record(
-        resource_id, fetch.wire, url=url, content_type=getattr(fetch, "content_type", None)
-    )
-    counters["fetched"] += 1
-    if not recorded.newly_stored:
-        counters["unchanged"] += 1
-    return fetch
-
-
 async def harvest_raw(
     root: Path | str,
     *,
@@ -93,70 +63,107 @@ async def harvest_raw(
     sponsors = sponsor_client or WSLClient("SponsorService")
     store = RawStore(root, SOURCE_SLUG)
     run = store.open_run()
-    counters = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
+    counters = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 0, "fanout_skipped": 0}
     service = f"{WSL_BASE_URL}/CommitteeService.asmx"
+    roster_resource = f"{COMMITTEES_ROSTER_RESOURCE_PREFIX}{biennium}"
 
-    roster = await _record(
-        run,
-        store,
-        f"{COMMITTEES_ROSTER_RESOURCE_PREFIX}{biennium}",
-        f"{service}?biennium={biennium}#GetCommittees",
-        lambda: committees.fetch_committees(biennium),
-        counters,
-        ttl_days,
-    )
-    await _record(
-        run,
-        store,
-        f"{COMMITTEES_RESOURCE_PREFIX}{biennium}",
-        f"{service}#GetActiveCommittees",
-        committees.fetch_active_committees,
-        counters,
-        ttl_days,
-    )
-    begin, end = biennium_window(biennium)
-    await _record(
-        run,
-        store,
-        meetings_resource_id(begin, end),
-        f"{WSL_BASE_URL}/CommitteeMeetingService.asmx#GetCommitteeMeetings",
-        lambda: meetings.fetch_committee_meetings(begin, end),
-        counters,
-        ttl_days,
-    )
-    await _record(
-        run,
-        store,
-        f"{SPONSORS_RESOURCE_PREFIX}{biennium}",
-        f"{WSL_BASE_URL}/SponsorService.asmx?biennium={biennium}#GetSponsors",
-        lambda: sponsors.fetch_sponsors(biennium),
-        counters,
-        ttl_days,
-    )
+    try:
+        roster = await record_fetch(
+            run,
+            store,
+            roster_resource,
+            f"{service}?biennium={biennium}#GetCommittees",
+            lambda: committees.fetch_committees(biennium),
+            counters,
+            ttl_days,
+            log_event="wsl_raw_harvest_fetch_failed",
+        )
+        await record_fetch(
+            run,
+            store,
+            f"{COMMITTEES_RESOURCE_PREFIX}{biennium}",
+            f"{service}#GetActiveCommittees",
+            committees.fetch_active_committees,
+            counters,
+            ttl_days,
+            log_event="wsl_raw_harvest_fetch_failed",
+        )
+        begin, end = biennium_window(biennium)
+        await record_fetch(
+            run,
+            store,
+            meetings_resource_id(begin, end),
+            f"{WSL_BASE_URL}/CommitteeMeetingService.asmx#GetCommitteeMeetings",
+            lambda: meetings.fetch_committee_meetings(begin, end),
+            counters,
+            ttl_days,
+            log_event="wsl_raw_harvest_fetch_failed",
+        )
+        await record_fetch(
+            run,
+            store,
+            f"{SPONSORS_RESOURCE_PREFIX}{biennium}",
+            f"{WSL_BASE_URL}/SponsorService.asmx?biennium={biennium}#GetSponsors",
+            lambda: sponsors.fetch_sponsors(biennium),
+            counters,
+            ttl_days,
+            log_event="wsl_raw_harvest_fetch_failed",
+        )
 
-    if roster is not None:
-        for committee in await committees.parse_committees(roster.wire):
-            committee_id = committee.get("Id")
-            agency = committee.get("Agency")
-            name = committee.get("Name")
-            if committee_id is None or not agency or not name:
-                logger.warning("wsl_raw_harvest_committee_unkeyed", extra={"record": committee})
-                continue
-            await _record(
-                run,
-                store,
-                committee_members_hist_resource_id(biennium, str(committee_id), agency, name),
-                f"{service}?biennium={biennium}&committee={committee_id}#GetCommitteeMembers",
-                lambda a=agency, n=name: committees.fetch_historical_committee_members(
-                    biennium, a, n
-                ),
-                counters,
-                ttl_days,
-            )
-
-    run.close()
+        roster_wire = _roster_wire(store, roster, roster_resource)
+        parsed: list[dict] | None = None
+        if roster_wire is not None:
+            try:
+                parsed = await committees.parse_committees(roster_wire)
+            except Exception:
+                # An HTTP-200 roster that does not parse must not abandon the
+                # run ledger: contain, skip the fan-out, degrade at job level.
+                logger.exception(
+                    "wsl_raw_harvest_roster_unparseable", extra={"resource_id": roster_resource}
+                )
+        if parsed is None:
+            counters["fanout_skipped"] = 1
+        else:
+            for committee in parsed:
+                committee_id = committee.get("Id")
+                agency = committee.get("Agency")
+                name = committee.get("Name")
+                if committee_id is None or not agency or not name:
+                    logger.warning("wsl_raw_harvest_committee_unkeyed", extra={"record": committee})
+                    continue
+                await record_fetch(
+                    run,
+                    store,
+                    committee_members_hist_resource_id(biennium, str(committee_id), agency, name),
+                    f"{service}?biennium={biennium}&committee={committee_id}#GetCommitteeMembers",
+                    lambda a=agency, n=name: committees.fetch_historical_committee_members(
+                        biennium, a, n
+                    ),
+                    counters,
+                    ttl_days,
+                    log_event="wsl_raw_harvest_fetch_failed",
+                )
+    finally:
+        # An uncontained failure (corrupt latest.json, cancellation) must not
+        # abandon already-fetched wires as unmanifested strays (#302 CR).
+        run.close()
     logger.info("wsl_raw_harvest_complete", extra={"biennium": biennium, **counters})
     return counters
+
+
+def _roster_wire(store: RawStore, roster: Any, resource_id: str) -> bytes | None:
+    """The roster wire the member fan-out enumerates from: this run's fetch, or
+    the stored latest wire when the roster was TTL-fresh — a fresh roster must
+    not suppress the members' own TTL/retry decisions (#302 CR)."""
+    if roster.payload is not None:
+        return roster.payload.wire
+    if roster.skipped_fresh:
+        entry = store.latest().get(resource_id)
+        if entry and entry.get("sha256"):
+            path = store.object_path(entry["sha256"])
+            if path.is_file():
+                return path.read_bytes()
+    return None
 
 
 def _add_args(parser: argparse.ArgumentParser) -> None:
@@ -169,12 +176,20 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-async def _harvest_job(ctx: JobContext) -> JobResult:
-    root = Path(ctx.args.root) if ctx.args.root else get_raw_root()
-    counters = await harvest_raw(root, ttl_days=ctx.args.ttl_days)
-    if counters["fetched"] == 0 and counters["skipped_fresh"] == 0:
+def job_outcome(counters: dict[str, int]) -> JobResult:
+    """Degraded when the source landed nothing, when every attempted fetch
+    failed (a TTL-masked outage), or when the member fan-out was lost — #49
+    alerting must fire for each of these real degradations (#302 CR)."""
+    landed_nothing = counters["fetched"] == 0 and counters["skipped_fresh"] == 0
+    every_attempt_failed = counters["errors"] > 0 and counters["fetched"] == 0
+    if landed_nothing or every_attempt_failed or counters.get("fanout_skipped"):
         return JobResult.degraded(counters)
     return JobResult.ok(counters)
+
+
+async def _harvest_job(ctx: JobContext) -> JobResult:
+    root = Path(ctx.args.root) if ctx.args.root else get_raw_root()
+    return job_outcome(await harvest_raw(root, ttl_days=ctx.args.ttl_days))
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -11,6 +11,9 @@ export USA_WA_PIPELINE_DB="$tmp/gate.duckdb"
 # Hermetic: an empty raw root, so the gate validates compilation + schema/data
 # tests without parsing the checkout's live store (or fetching WSDLs) (#306).
 export USA_WA_RAW_ROOT="$tmp/raw"
+# Hermetic marker (#302 CR): the ONLY way the conformed crosswalk models may
+# build with no database — a prod run missing DATABASE_URL fails loudly instead.
+export USA_WA_PIPELINE_HERMETIC=1
 uv run --frozen --no-sync dbt build \
   --project-dir packages/usa-wa-pipeline/dbt \
   --profiles-dir packages/usa-wa-pipeline/dbt \

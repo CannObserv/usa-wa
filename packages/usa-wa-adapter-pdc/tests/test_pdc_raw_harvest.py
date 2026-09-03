@@ -7,7 +7,8 @@ import pytest
 
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_pdc.harvest import biennium_resource_ids
-from usa_wa_adapter_pdc.raw_harvest import SOURCE_SLUG, harvest_raw
+from usa_wa_adapter_pdc.raw_harvest import SOURCE_SLUG, harvest_raw, job_outcome
+from usa_wa_adapter_pdc.transport import PDCClient
 
 BIENNIUM = "2025-26"
 
@@ -88,3 +89,22 @@ def test_resource_ids_reuse_archive_prefixes(prefix: str) -> None:
     """The raw store keys match the Postgres archive's resource ids, so #306's
     staging models address one vocabulary across both stores."""
     assert any(r.startswith(prefix) for r in biennium_resource_ids(BIENNIUM))
+
+
+async def test_manifest_url_is_replayable_soda_request(tmp_path) -> None:
+    await harvest_raw(tmp_path, biennium=BIENNIUM, pdc_client=FakePDCClient())
+    store = RawStore(tmp_path, SOURCE_SLUG)
+    manifest = json.loads(store.manifest_paths()[0].read_text())
+    for entry in manifest["entries"]:
+        year = entry["resource_id"].rsplit(":", 1)[-1]
+        assert entry["url"].startswith(PDCClient().winners_url() + "?")
+        assert f"election_year={year}" in entry["url"]
+
+
+def test_job_outcome_degrades_on_ttl_masked_outage() -> None:
+    """A whole-source outage must alert even when TTL skips mask it (#302 CR)."""
+    base = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
+    assert job_outcome({**base, "fetched": 5}).outcome == "ok"
+    assert job_outcome(base).outcome == "degraded"
+    assert job_outcome({**base, "skipped_fresh": 2, "errors": 3}).outcome == "degraded"
+    assert job_outcome({**base, "fetched": 1, "errors": 4}).outcome == "ok"

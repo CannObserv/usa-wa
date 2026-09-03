@@ -36,15 +36,27 @@ DEFAULT_BYTE_BUDGET = 256 * 1024 * 1024
 STATE_FILENAME = ".raw_integrity_state.json"
 
 
-def _load_cursor(state_path: Path) -> tuple[str, str] | None:
+def _load_state(state_path: Path) -> dict[str, list | None]:
+    """The per-scope cursor map. A ``--source`` run and the unscoped run walk
+    different keyspaces, so each scope owns its own coverage cursor (#302 CR);
+    the pre-scoping shape (``{"cursor": [...]}``) reads as the unscoped scope."""
     if not state_path.is_file():
-        return None
-    cursor = json.loads(state_path.read_text()).get("cursor")
+        return {}
+    loaded = json.loads(state_path.read_text())
+    if "cursors" in loaded:
+        return dict(loaded["cursors"])
+    return {"": loaded["cursor"]} if loaded.get("cursor") else {}
+
+
+def _load_cursor(state_path: Path, scope: str) -> tuple[str, str] | None:
+    cursor = _load_state(state_path).get(scope)
     return (cursor[0], cursor[1]) if cursor else None
 
 
-def _store_cursor(state_path: Path, cursor: tuple[str, str] | None) -> None:
-    state_path.write_text(json.dumps({"cursor": list(cursor) if cursor else None}) + "\n")
+def _store_cursor(state_path: Path, scope: str, cursor: tuple[str, str] | None) -> None:
+    state = _load_state(state_path)
+    state[scope] = list(cursor) if cursor else None
+    state_path.write_text(json.dumps({"cursors": state}) + "\n")
 
 
 def _add_args(parser: argparse.ArgumentParser) -> None:
@@ -69,17 +81,24 @@ async def _sweep_job(ctx: JobContext) -> JobResult:
         logger.info("raw_integrity_empty_root", extra={"root": str(root)})
         return JobResult.ok({"objects_verified": 0, "empty_root": True})
     state_path = root / STATE_FILENAME
+    scope = ctx.args.source or ""
     budget = ctx.args.byte_budget or None
-    cursor = _load_cursor(state_path) if budget else None
+    cursor = _load_cursor(state_path, scope) if budget else None
 
     result = verify_store(root, ctx.args.source, byte_budget=budget, after=cursor)
     if cursor is not None and result.objects_verified == 0 and not result.exhausted_budget:
-        # cursor sat at the tail — wrap and start a fresh coverage cycle
+        # cursor sat at the tail — wrap and start a fresh coverage cycle.
+        # Merge, never replace: a missing-only tail is exactly the state that
+        # lands here (missing objects verify nothing), and the wrap pass may
+        # exhaust its budget before re-reaching it (#302 CR).
+        tail = result
         result = verify_store(root, ctx.args.source, byte_budget=budget, after=None)
+        result.missing.extend(sha for sha in tail.missing if sha not in result.missing)
+        result.mismatched.extend(sha for sha in tail.mismatched if sha not in result.mismatched)
 
     next_cursor = result.last_key if result.exhausted_budget else None
     if not ctx.dry_run:
-        _store_cursor(state_path, next_cursor)
+        _store_cursor(state_path, scope, next_cursor)
 
     counters = {
         "objects_verified": result.objects_verified,

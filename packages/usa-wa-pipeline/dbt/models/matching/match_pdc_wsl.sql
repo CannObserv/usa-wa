@@ -26,6 +26,7 @@ with pdc as (
 )
 
 select distinct
+    'person' as kind,
     'wa_pdc:' || p.person_id as left_key,
     'usa_wa_legislature:' || cast(s.member_id as varchar) as right_key,
     'pdc_wsl_seat_surname' as rule,

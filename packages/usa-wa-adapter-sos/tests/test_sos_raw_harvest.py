@@ -5,7 +5,8 @@ from dataclasses import dataclass
 
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_sos.filings.adapter import whofiled_resource_id
-from usa_wa_adapter_sos.raw_harvest import harvest_raw
+from usa_wa_adapter_sos.filings.transport import SOSFilingsClient
+from usa_wa_adapter_sos.raw_harvest import harvest_raw, job_outcome
 from usa_wa_adapter_sos.results.adapter import legresults_resource_id
 from usa_wa_common.elections import election_years_for_biennium
 
@@ -71,3 +72,78 @@ async def test_one_source_failing_does_not_stop_the_other(tmp_path) -> None:
     assert summary["fetched"] == len(years)
     results = json.loads(RawStore(tmp_path, "usa_wa_sos_results").manifest_paths()[0].read_text())
     assert all(e["status"] == "ok" for e in results["entries"])
+
+
+async def test_ttl_skips_fresh_resources(tmp_path) -> None:
+    await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        filings_client=FakeFilingsClient(),
+        results_client=FakeResultsClient(),
+    )
+
+    class MustNotFetchFilings(FakeFilingsClient):
+        async def fetch_whofiled(self, election_year: int) -> _Wire:
+            raise AssertionError("fresh resource must not be fetched")
+
+    class MustNotFetchResults(FakeResultsClient):
+        async def fetch_legislative_results(self, election_year: int) -> _Wire:
+            raise AssertionError("fresh resource must not be fetched")
+
+    summary = await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        filings_client=MustNotFetchFilings(),
+        results_client=MustNotFetchResults(),
+        ttl_days=1,
+    )
+    assert summary["fetched"] == 0
+    assert summary["skipped_fresh"] == 2 * len(election_years_for_biennium(BIENNIUM))
+
+
+async def test_refetch_is_deduped_not_restored(tmp_path) -> None:
+    await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        filings_client=FakeFilingsClient(),
+        results_client=FakeResultsClient(),
+    )
+    summary = await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        filings_client=FakeFilingsClient(),
+        results_client=FakeResultsClient(),
+    )
+    assert summary["unchanged"] == 2 * len(election_years_for_biennium(BIENNIUM))
+    assert len(RawStore(tmp_path, "usa_wa_sos").manifest_paths()) == 2
+
+
+async def test_manifest_urls_are_real_endpoints(tmp_path) -> None:
+    """The manifest ``url`` is the #54 provenance record: the actual export
+    endpoints, not fabricated sos.wa.gov paths."""
+    await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        filings_client=FakeFilingsClient(),
+        results_client=FakeResultsClient(),
+    )
+    filings = json.loads(RawStore(tmp_path, "usa_wa_sos").manifest_paths()[0].read_text())
+    for entry in filings["entries"]:
+        assert entry["url"].startswith(SOSFilingsClient().export_url() + "?")
+        assert "electionDate=" in entry["url"]
+    results = json.loads(RawStore(tmp_path, "usa_wa_sos_results").manifest_paths()[0].read_text())
+    for entry in results["entries"]:
+        assert entry["url"].endswith("/export.html")
+
+
+def test_job_outcome_alerts_per_source() -> None:
+    """A dead source degrades even when the other is healthy or TTL masks it."""
+    healthy = {"fetched": 2, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
+    dead = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 2}
+    masked = {"fetched": 0, "unchanged": 0, "skipped_fresh": 1, "errors": 1}
+    assert job_outcome({"filings": healthy, "results": healthy}).outcome == "ok"
+    assert job_outcome({"filings": dead, "results": healthy}).outcome == "degraded"
+    assert job_outcome({"filings": healthy, "results": dead}).outcome == "degraded"
+    assert job_outcome({"filings": masked, "results": healthy}).outcome == "degraded"
+    fresh = {"fetched": 0, "unchanged": 0, "skipped_fresh": 2, "errors": 0}
+    assert job_outcome({"filings": fresh, "results": healthy}).outcome == "ok"

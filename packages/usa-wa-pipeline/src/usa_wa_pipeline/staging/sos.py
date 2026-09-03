@@ -13,10 +13,14 @@ from typing import Any
 
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_sos import parsing
+from usa_wa_adapter_sos.filings.adapter import WHOFILED_RESOURCE_PREFIX
+from usa_wa_adapter_sos.results.adapter import LEGRESULTS_RESOURCE_PREFIX
 from usa_wa_pipeline.staging.common import latest_wires as _latest_wires
 
-_WHOFILED_PREFIX = "sos-whofiled:"
-_LEGRESULTS_PREFIX = "sos-legresults:"
+# the adapters' exported prefixes (#302 CR): a rename upstream must break the
+# import, never silently empty this staging model
+_WHOFILED_PREFIX = WHOFILED_RESOURCE_PREFIX
+_LEGRESULTS_PREFIX = LEGRESULTS_RESOURCE_PREFIX
 
 Parser = Callable[[bytes], list[dict[str, Any]]]
 

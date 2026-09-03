@@ -8,10 +8,12 @@ no database at all.
 import json
 from dataclasses import dataclass
 
+import pytest
+
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
-from usa_wa_adapter_legislature.raw_harvest import SOURCE_SLUG, harvest_raw
+from usa_wa_adapter_legislature.raw_harvest import SOURCE_SLUG, harvest_raw, job_outcome
 
 BIENNIUM = "2025-26"
 
@@ -126,3 +128,92 @@ async def test_roster_fetch_failure_degrades_fanout_only(tmp_path) -> None:
     assert by_status[f"committees-roster:{BIENNIUM}"] == "err"
     assert by_status[f"sponsors:{BIENNIUM}"] == "ok"
     assert by_status[f"committees:{BIENNIUM}"] == "ok"
+
+
+async def test_fresh_roster_still_enumerates_fanout(tmp_path) -> None:
+    """A TTL-fresh roster must not suppress the member fan-out: each member wire
+    makes its own TTL decision, so an errored member is retried (#302 CR)."""
+    await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        committee_client=FakeCommitteeClient(fail_member_ids={1}),
+        meeting_client=FakeMeetingClient(),
+        sponsor_client=FakeSponsorClient(),
+    )
+
+    class NoRosterFetchClient(FakeCommitteeClient):
+        async def fetch_committees(self, biennium: str) -> _Wire:
+            raise AssertionError("a fresh roster must not be re-fetched")
+
+    summary = await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        committee_client=NoRosterFetchClient(),
+        meeting_client=FakeMeetingClient(),
+        sponsor_client=FakeSponsorClient(),
+        ttl_days=7,
+    )
+    # the errored member (id 1) is the only fetch; everything else is fresh
+    assert summary["fetched"] == 1
+    assert summary["errors"] == 0
+    assert summary["fanout_skipped"] == 0
+    store = RawStore(tmp_path, SOURCE_SLUG)
+    retried = committee_members_hist_resource_id(BIENNIUM, "1", "House", "Agriculture")
+    assert store.latest()[retried]["sha256"]
+
+
+async def test_unparseable_roster_is_contained_and_flagged(tmp_path) -> None:
+    """An HTTP-200 roster that fails to parse skips the fan-out, closes the run
+    ledger, and flags the loss for the job-level degraded decision."""
+
+    class UnparseableRosterClient(FakeCommitteeClient):
+        async def parse_committees(self, wire: bytes) -> list[dict]:
+            raise ValueError("malformed envelope")
+
+    summary = await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        committee_client=UnparseableRosterClient(),
+        meeting_client=FakeMeetingClient(),
+        sponsor_client=FakeSponsorClient(),
+    )
+    assert summary["fanout_skipped"] == 1
+    assert summary["fetched"] == 4  # the daily set still landed
+    store = RawStore(tmp_path, SOURCE_SLUG)
+    [manifest_path] = store.manifest_paths()
+    manifest = json.loads(manifest_path.read_text())
+    assert {e["resource_id"] for e in manifest["entries"]} == {
+        f"committees-roster:{BIENNIUM}",
+        f"committees:{BIENNIUM}",
+        f"sponsors:{BIENNIUM}",
+        meetings_resource_id(*biennium_window(BIENNIUM)),
+    }
+
+
+async def test_uncontained_failure_still_closes_run(tmp_path) -> None:
+    """A crash after successful fetches must not abandon them as unmanifested
+    strays: ``run.close()`` runs on the error path too (#302 CR)."""
+    with pytest.raises(ValueError):
+        await harvest_raw(
+            tmp_path,
+            biennium="not-a-biennium",  # biennium_window raises after two fetches land
+            committee_client=FakeCommitteeClient(),
+            meeting_client=FakeMeetingClient(),
+            sponsor_client=FakeSponsorClient(),
+        )
+    store = RawStore(tmp_path, SOURCE_SLUG)
+    [manifest_path] = store.manifest_paths()
+    manifest = json.loads(manifest_path.read_text())
+    assert len(manifest["entries"]) == 2
+
+
+def test_job_outcome_degrades_on_masked_outage_and_lost_fanout() -> None:
+    """#49 alerting fires for a TTL-masked outage and for a lost fan-out."""
+    base = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 0, "fanout_skipped": 0}
+    assert job_outcome({**base, "fetched": 6}).outcome == "ok"
+    assert job_outcome(base).outcome == "degraded"  # landed nothing
+    assert job_outcome({**base, "skipped_fresh": 3, "errors": 2}).outcome == "degraded"
+    assert job_outcome({**base, "fetched": 4, "fanout_skipped": 1}).outcome == "degraded"
+    # one member error on a run that otherwise landed wires: still degraded-free? No —
+    # the sibling wsl-refresh fails on any committee error; errors with fetches stay ok
+    assert job_outcome({**base, "fetched": 5, "errors": 1}).outcome == "ok"

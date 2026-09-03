@@ -24,7 +24,9 @@ from clearinghouse_core.registry import (
     KIND_PERSON,
     apply_decision,
     decide,
+    merge_map,
     registered_view,
+    resolve_merged,
 )
 from clearinghouse_domain_legislative.identity import Organization, Person, PersonIdentifier
 
@@ -32,6 +34,24 @@ logger = get_logger(__name__)
 
 #: Stable ledger identity (#178).
 JOB_SLUG = "registry-seed"
+
+
+def _is_seed_conflict(decision, canonical_id: str, merges: dict[str, str]) -> bool:
+    """True when this canonical row must NOT be applied.
+
+    The decision table's ``conflict`` row only fires once both duplicates are
+    registered; during the seed, order matters — a cluster resolving to a
+    DIFFERENT identity (the append/noop rows) means some other entity already
+    owns one of this row's keys, and applying it would silently bind the rest
+    of the cluster there without ever minting this canonical ULID (CR 3).
+    An adjudicated merge is the sanctioned exception: when the canonical ULID
+    itself resolves through tombstones to the decision's entity, the cluster
+    is that survivor's — a noop, not a duplicate."""
+    if decision.action == "conflict":
+        return True
+    if decision.entity_id is None or decision.entity_id == canonical_id:
+        return False
+    return resolve_merged(merges, canonical_id) != decision.entity_id
 
 
 async def seed_registry(session: AsyncSession) -> dict[str, int]:
@@ -47,15 +67,20 @@ async def seed_registry(session: AsyncSession) -> dict[str, int]:
         identifiers.setdefault(str(person_id), []).append(f"{scheme}:{value}")
 
     view = await registered_view(session, KIND_PERSON)
+    merges = await merge_map(session, KIND_PERSON)
     for person in (await session.execute(select(Person))).scalars():
         cluster = frozenset(
             [f"{person.source}:{person.source_id}", *identifiers.get(str(person.id), [])]
         )
         decision = decide(cluster, view)
-        if decision.action == "conflict":
+        if _is_seed_conflict(decision, str(person.id), merges):
             logger.error(
                 "registry_seed_conflict",
-                extra={"kind": KIND_PERSON, "cluster": sorted(cluster)},
+                extra={
+                    "kind": KIND_PERSON,
+                    "cluster": sorted(cluster),
+                    "resolved_to": decision.entity_id,
+                },
             )
             summary["conflicts"] += 1
             continue
@@ -72,12 +97,18 @@ async def seed_registry(session: AsyncSession) -> dict[str, int]:
             view[key] = resolved  # keep the in-memory view current within the run
 
     view = await registered_view(session, KIND_ORG)
+    merges = await merge_map(session, KIND_ORG)
     for org in (await session.execute(select(Organization))).scalars():
         cluster = frozenset([f"{org.source}:{org.source_id}"])
         decision = decide(cluster, view)
-        if decision.action == "conflict":
+        if _is_seed_conflict(decision, str(org.id), merges):
             logger.error(
-                "registry_seed_conflict", extra={"kind": KIND_ORG, "cluster": sorted(cluster)}
+                "registry_seed_conflict",
+                extra={
+                    "kind": KIND_ORG,
+                    "cluster": sorted(cluster),
+                    "resolved_to": decision.entity_id,
+                },
             )
             summary["conflicts"] += 1
             continue

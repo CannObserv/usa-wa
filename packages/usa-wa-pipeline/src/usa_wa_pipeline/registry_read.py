@@ -18,6 +18,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from clearinghouse_core.config import get_database_url
 from clearinghouse_core.registry import RegistryEntity, RegistryKey
 
 
@@ -53,15 +54,20 @@ async def crosswalk_rows(session: AsyncSession, kind: str) -> list[dict[str, Any
 
 
 def crosswalk_frame(kind: str) -> list[dict[str, Any]]:
-    """Sync wrapper for dbt Python models: own engine off ``DATABASE_URL``."""
+    """Sync wrapper for dbt Python models: own engine off ``DATABASE_URL``.
 
-    if not os.environ.get("DATABASE_URL"):
-        # the hermetic commit gate builds with no database at all — empty
-        # crosswalks keep the DAG compilable and the schema tests vacuous
+    The empty fallback is OPT-IN (CR 2): only ``USA_WA_PIPELINE_HERMETIC=1``
+    (set by the commit gate and the dbt tests) may build with no database —
+    a production run missing ``DATABASE_URL`` must fail the build loudly, not
+    materialize empty crosswalks whose schema tests pass vacuously and hand
+    the publish gate a 100%-shrink surprise two stages later.
+    """
+    if os.environ.get("USA_WA_PIPELINE_HERMETIC") == "1":
         return []
+    database_url = get_database_url()
 
     async def _read() -> list[dict[str, Any]]:
-        engine = create_async_engine(os.environ["DATABASE_URL"])
+        engine = create_async_engine(database_url)
         try:
             async with AsyncSession(engine) as session:
                 return await crosswalk_rows(session, kind)

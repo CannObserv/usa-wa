@@ -7,9 +7,33 @@ models:
   - name: proposed_links
     description: Every matching rule's pairs, the registrar's sole input.
     columns:
+      - name: kind
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["person", "org"]
       - name: left_key
         data_tests: [not_null]
       - name: right_key
         data_tests: [not_null]
       - name: rule
+        data_tests: [not_null]
+  - name: match_pdc_wsl
+    description: Exact rule — PDC winner ↔ WSL sponsor on (biennium, chamber, district, surname token).
+    columns:
+      - name: kind
+        data_tests: [not_null]
+      - name: left_key
+        data_tests: [not_null]
+      - name: right_key
+        data_tests: [not_null]
+  - name: match_roster_wsl
+    description: Exact rule — roster member-year ↔ WSL sponsor on (biennium, chamber, district, identity fold); wide-gap (Jr/Sr) folds withheld.
+    columns:
+      - name: kind
+        data_tests: [not_null]
+      - name: left_key
+        data_tests: [not_null]
+      - name: right_key
         data_tests: [not_null]

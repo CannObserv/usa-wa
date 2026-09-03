@@ -34,8 +34,12 @@ def _root() -> Path:
 
 
 @router.get("/health/datasets")
-async def health_datasets() -> dict:
-    """Publication health: catalog age + per-dataset version/rows/age."""
+def health_datasets() -> dict:
+    """Publication health: catalog age + per-dataset version/rows/age.
+
+    Plain ``def`` (#302 CR): the handler reads the catalog off disk, and a
+    sync handler runs in Starlette's threadpool instead of blocking the loop.
+    """
     catalog_path = _root() / "catalog.json"
     if not catalog_path.is_file():
         return {"published": False, "datasets": []}
@@ -64,11 +68,20 @@ async def health_datasets() -> dict:
 
 
 @router.get("/datasets/{path:path}")
-async def serve_dataset_file(path: str) -> FileResponse:
-    """One published file, straight off disk. 404 for anything not published."""
+def serve_dataset_file(path: str) -> FileResponse:
+    """One published file, straight off disk. 404 for anything not published.
+
+    Plain ``def`` for the same threadpool reason as the health probe; garbage
+    input that makes ``Path`` itself choke (an embedded NUL) is a 404, not a
+    500 (#302 CR).
+    """
     root = _root().resolve()
-    target = (root / path).resolve()
-    if not target.is_relative_to(root) or not target.is_file():
+    try:
+        target = (root / path).resolve()
+        published = target.is_relative_to(root) and target.is_file()
+    except (ValueError, OSError):
+        published = False
+    if not published:
         raise HTTPException(status_code=404, detail="no such published file")
     return FileResponse(
         target, media_type=_MEDIA_TYPES.get(target.suffix, "application/octet-stream")

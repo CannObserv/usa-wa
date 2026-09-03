@@ -21,10 +21,11 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.rawstore import RawStore, get_raw_root
+from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_pdc.harvest import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
@@ -63,33 +64,31 @@ async def harvest_raw(
         (f"{SENATE_WINNERS_RESOURCE_PREFIX}{y}", "senate", y)
         for y in senate_election_years_for_biennium(biennium)
     ]
-    for resource_id, chamber, year in plan:
-        url = f"soda://pdc/{chamber}-winners/{year}"
-        if ttl_days and store.is_fresh(resource_id, ttl_days=ttl_days):
-            run.record(resource_id, None, url=url, status="skipped")
-            counters["skipped_fresh"] += 1
-            continue
-        try:
-            fetch = (
-                await client.fetch_house_winners(year)
+    winners_url = PDCClient().winners_url()
+    try:
+        for resource_id, chamber, year in plan:
+            params = (
+                PDCClient.house_winners_params(year)
                 if chamber == "house"
-                else await client.fetch_senate_winners(year)
+                else PDCClient.senate_winners_params(year)
             )
-        except Exception:
-            logger.exception("pdc_raw_harvest_cohort_failed", extra={"resource_id": resource_id})
-            run.record(resource_id, None, url=url, status="err")
-            counters["errors"] += 1
-            continue
-        recorded = run.record(
-            resource_id,
-            fetch.wire,
-            url=url,
-            content_type=getattr(fetch, "content_type", None),
-        )
-        counters["fetched"] += 1
-        if not recorded.newly_stored:
-            counters["unchanged"] += 1
-    run.close()
+            await record_fetch(
+                run,
+                store,
+                resource_id,
+                # the real, replayable request (#54 provenance) — not a pseudo-URL
+                f"{winners_url}?{urlencode(params)}",
+                lambda c=chamber, y=year: (
+                    client.fetch_house_winners(y)
+                    if c == "house"
+                    else client.fetch_senate_winners(y)
+                ),
+                counters,
+                ttl_days,
+                log_event="pdc_raw_harvest_cohort_failed",
+            )
+    finally:
+        run.close()
     logger.info("pdc_raw_harvest_complete", extra={"biennium": biennium, **counters})
     return counters
 
@@ -104,12 +103,19 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-async def _harvest_job(ctx: JobContext) -> JobResult:
-    root = Path(ctx.args.root) if ctx.args.root else get_raw_root()
-    counters = await harvest_raw(root, ttl_days=ctx.args.ttl_days)
-    if counters["fetched"] == 0 and counters["skipped_fresh"] == 0:
+def job_outcome(counters: dict[str, int]) -> JobResult:
+    """Degraded when the source landed nothing, or when every attempted fetch
+    failed — a whole-source outage must alert even when TTL skips mask it."""
+    landed_nothing = counters["fetched"] == 0 and counters["skipped_fresh"] == 0
+    every_attempt_failed = counters["errors"] > 0 and counters["fetched"] == 0
+    if landed_nothing or every_attempt_failed:
         return JobResult.degraded(counters)
     return JobResult.ok(counters)
+
+
+async def _harvest_job(ctx: JobContext) -> JobResult:
+    root = Path(ctx.args.root) if ctx.args.root else get_raw_root()
+    return job_outcome(await harvest_raw(root, ttl_days=ctx.args.ttl_days))
 
 
 def main(argv: list[str] | None = None) -> int:
