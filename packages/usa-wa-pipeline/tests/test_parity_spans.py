@@ -14,6 +14,7 @@ import pytest
 from clearinghouse_core.job import OUTCOME_DEGRADED, OUTCOME_FAILED, OUTCOME_OK
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.rawstore import RawStore
+from clearinghouse_core.registry import KIND_PERSON, RegistryEntity, RegistryKey
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from usa_wa_pipeline.parity_spans import (
     ROSTER_SOURCE,
@@ -109,7 +110,26 @@ async def _seed_assignment(db_session, role, source_id: str, *, source: str = SO
     await db_session.flush()
 
 
-async def _run(db_session, tmp_path, *, sponsors, baseline=0, roster_store=None, store=None):
+async def _bind_key(db_session, natural_key: str) -> None:
+    """Bind one person natural key to a fresh registry entity, so the span's
+    crosswalk join lands and `unregistered_spans` is genuinely 0."""
+    entity = RegistryEntity(kind=KIND_PERSON)
+    db_session.add(entity)
+    await db_session.flush()
+    db_session.add(
+        RegistryKey(
+            kind=KIND_PERSON,
+            natural_key=natural_key,
+            entity_id=entity.id,
+            registered_by="test",
+        )
+    )
+    await db_session.flush()
+
+
+async def _run(
+    db_session, tmp_path, *, sponsors, baseline=0, roster_store=None, store=None, roster=None
+):
     return await run_parity(
         db_session,
         store if store is not None else _store(tmp_path, SOURCE, "sponsors:2025-26"),
@@ -120,7 +140,7 @@ async def _run(db_session, tmp_path, *, sponsors, baseline=0, roster_store=None,
         current_biennium=CURRENT,
         sponsor_rows=lambda s: sponsors,
         committee_member_rows=lambda s: [],
-        roster_rows=lambda s: [_roster_row()],
+        roster_rows=lambda s: [_roster_row()] if roster is None else roster,
     )
 
 
@@ -173,6 +193,7 @@ async def test_exact_agreement_is_ok(db_session, tmp_path) -> None:
     role = await _seed_role(db_session)
     for source_id in (f"100:party:democratic:{CURRENT}", f"100:chamber-senate:14:{CURRENT}"):
         await _seed_assignment(db_session, role, source_id)
+    await _bind_key(db_session, f"{SOURCE}:100")
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
     assert result.outcome == OUTCOME_OK
     assert result.counters["divergence"] == 0
@@ -197,6 +218,7 @@ async def test_divergence_at_the_baseline_is_ok(db_session, tmp_path) -> None:
     role = await _seed_role(db_session)
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     await _seed_assignment(db_session, role, f"777:party:republican:{CURRENT}")
+    await _bind_key(db_session, f"{SOURCE}:100")
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=2)
     assert result.outcome == OUTCOME_OK
     assert result.counters["divergence"] == 2
@@ -257,3 +279,57 @@ async def test_a_malformed_oracle_key_is_counted(db_session, tmp_path) -> None:
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=1)
     assert result.counters["unparsable_canonical_keys"] == 1
     assert result.counters["canonical"] == 1
+
+
+async def test_unregistered_spans_fail_the_probe(db_session, tmp_path) -> None:
+    """CR 72: the nightly's OnFailure= alerting fires on the EXIT CODE. A
+    counter that only ever reaches journald is the same silence findings 60 and
+    68 described — a registrar gap shrinks the published dataset and nobody is
+    told. The floor is 0: measured 0 on the live corpus, and the nightly runs
+    the registrar BEFORE this probe, so a newly harvested member is already
+    bound by the time it runs.
+    """
+    role = await _seed_role(db_session)
+    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
+    await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
+    # divergence is 0 — only the unregistered spans are wrong
+    assert result.counters["divergence"] == 0
+    assert result.counters["unregistered_spans"] == 2
+    assert result.outcome == OUTCOME_FAILED
+    assert result.resolved_exit_code() == 1
+    assert result.counters["integrity_failures"] == ["unregistered_spans"]
+
+
+async def test_malformed_roster_rows_are_counted_and_gated(db_session, tmp_path) -> None:
+    """CR 73: PARTIAL roster malformation trips neither the CR-67 raise (records
+    survive) nor anything else — it degrades the #228 deepening quietly. Same
+    0 floor, measured 0 on the real corpus."""
+    role = await _seed_role(db_session)
+    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
+    await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
+    await _bind_key(db_session, f"{SOURCE}:100")
+    result = await _run(
+        db_session,
+        tmp_path,
+        sponsors=[_sponsor("100", CURRENT)],
+        roster=[_roster_row(), {**_roster_row(), "year": "not-a-year"}],
+    )
+    assert result.counters["malformed_roster_rows"] == 1
+    assert result.outcome == OUTCOME_FAILED
+    assert result.counters["integrity_failures"] == ["malformed_roster_rows"]
+
+
+async def test_a_clean_run_reports_every_integrity_counter_at_zero(db_session, tmp_path) -> None:
+    """The complement: registered spans, no malformed rows, no unparsable keys."""
+    role = await _seed_role(db_session)
+    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
+    await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
+    await _bind_key(db_session, f"{SOURCE}:100")
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
+    assert result.outcome == OUTCOME_OK
+    assert result.counters["registered_spans"] == 2
+    assert result.counters["unregistered_spans"] == 0
+    assert result.counters["malformed_roster_rows"] == 0
+    assert result.counters["unparsable_canonical_keys"] == 0
+    assert result.counters["integrity_failures"] == []
