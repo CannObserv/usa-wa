@@ -27,9 +27,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
-from datetime import date
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
-from usa_wa_api.serving.schema import SCHEMA, SERVING_TABLES, ServingBase
+from usa_wa_api.serving.schema import SCHEMA, SERVING_TABLES, LoadState, ServingBase
 
 logger = get_logger(__name__)
 
@@ -56,6 +58,16 @@ SERVED_DATASETS: tuple[str, ...] = tuple(SERVING_TABLES)
 
 class ContractMismatch(RuntimeError):
     """The published contract and the serving schema disagree — load nothing."""
+
+
+@dataclass(frozen=True)
+class _Staged:
+    """One dataset read and coerced, waiting for every other one to pass too."""
+
+    table: Table
+    version: str
+    sha256: str | None
+    rows: list[dict[str, Any]]
 
 
 def datasets_root() -> Path:
@@ -83,11 +95,81 @@ def datapackage_fields(root: Path, name: str, version: str) -> list[dict[str, An
     return list(descriptor["resources"][0]["schema"]["fields"])
 
 
-def dataset_rows(root: Path, name: str, version: str) -> list[dict[str, str]]:
-    """One published version's rows, verbatim — every value still a string."""
+def datapackage_resource(root: Path, name: str, version: str) -> dict[str, Any]:
+    """One published version's resource descriptor — schema plus `hash`/`rows`."""
+    path = Path(root) / name / version / "datapackage.json"
+    return dict(json.loads(path.read_text())["resources"][0])
+
+
+def read_dataset(root: Path, name: str, version: str) -> tuple[list[str], list[dict[str, str]]]:
+    """``(header, rows)`` of one published version — every value still a string.
+
+    The header comes back because the CSV has to be checked against the
+    datapackage that describes it, not only against the table (CR 93).
+    """
     path = Path(root) / name / version / "data.csv"
     with path.open(newline="") as handle:
-        return list(csv.DictReader(handle))
+        reader = csv.DictReader(handle)
+        return list(reader.fieldnames or []), list(reader)
+
+
+def dataset_rows(root: Path, name: str, version: str) -> list[dict[str, str]]:
+    """One published version's rows, verbatim — every value still a string."""
+    return read_dataset(root, name, version)[1]
+
+
+def verify_payload(root: Path, name: str, version: str, resource: dict[str, Any]) -> list[str]:
+    """The published bytes against the digest and row count that describe them.
+
+    The datapackage carries a ``sha256`` of ``data.csv`` for exactly this, and a
+    loader that reads the bytes while ignoring the digest is trusting a contract
+    rather than verifying one (CR 91). Truncation is the failure that matters:
+    it exits 0 everywhere else, so the nightly's ``OnFailure=`` never fires and
+    a short table just looks like a quiet day. ``rows`` is checked alongside
+    because it costs nothing here and names that cause far better than a digest
+    mismatch does.
+    """
+    path = Path(root) / name / version / "data.csv"
+    problems: list[str] = []
+    declared_hash = resource.get("hash")
+    if declared_hash:
+        digest = f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+        if digest != declared_hash:
+            problems.append(
+                f"{name}: data.csv sha256 is {digest}, datapackage declares {declared_hash} — "
+                "the published bytes are not the bytes on disk"
+            )
+    declared_rows = resource.get("rows")
+    if declared_rows is not None:
+        actual = len(dataset_rows(root, name, version))
+        if actual != declared_rows:
+            problems.append(
+                f"{name}: data.csv holds {actual} rows, datapackage declares {declared_rows}"
+            )
+    return problems
+
+
+def verify_header(name: str, header: list[str], fields: list[dict[str, Any]]) -> list[str]:
+    """The CSV's own header against the fields its datapackage declares (CR 93).
+
+    Compared as sets: the loader keys rows by name, never by position, so a
+    reordering is not a contract break. A **missing** column is the silent one —
+    ``csv.DictReader`` simply omits the key, SQLAlchemy compiles the INSERT from
+    the keys present, and that column loads NULL for every row with no error. An
+    extra column fails loudly on its own, but is named here for symmetry.
+    """
+    declared = {field["name"] for field in fields}
+    present = set(header)
+    problems = []
+    if missing := sorted(declared - present):
+        problems.append(
+            f"{name}: data.csv header is missing {missing}, which its datapackage declares"
+        )
+    if extra := sorted(present - declared):
+        problems.append(
+            f"{name}: data.csv header carries {extra}, which its datapackage does not declare"
+        )
+    return problems
 
 
 def verify_contract(name: str, fields: list[dict[str, Any]], table: Table) -> list[str]:
@@ -150,7 +232,7 @@ async def load_serving(
     """
     entries = catalog_entries(root)
     problems: list[str] = []
-    staged: dict[str, tuple[Table, list[dict[str, Any]]]] = {}
+    staged: dict[str, _Staged] = {}
     for name in datasets:
         entry = entries.get(name)
         if entry is None:
@@ -159,13 +241,22 @@ async def load_serving(
             )
             continue
         version = entry["latest_version"]
-        fields = datapackage_fields(root, name, version)
+        resource = datapackage_resource(root, name, version)
+        fields = list(resource["schema"]["fields"])
         table = SERVING_TABLES[name]
+        # Three checks, in widening order: the bytes are the published bytes,
+        # the CSV matches the datapackage describing it, and the datapackage
+        # matches the table it loads into.
+        problems.extend(verify_payload(root, name, version, resource))
+        header, raw_rows = read_dataset(root, name, version)
+        problems.extend(verify_header(name, header, fields))
         problems.extend(verify_contract(name, fields, table))
         types = {field["name"]: field["type"] for field in fields}
-        staged[name] = (
-            table,
-            [coerce_row(row, types) for row in dataset_rows(root, name, version)],
+        staged[name] = _Staged(
+            table=table,
+            version=version,
+            sha256=resource.get("hash"),
+            rows=[coerce_row(row, types) for row in raw_rows],
         )
     if problems:
         # Refuse before the first write: a partial load leaves the snapshot
@@ -173,13 +264,28 @@ async def load_serving(
         logger.error("serving_load_contract_mismatch", extra={"problems": problems})
         raise ContractMismatch("; ".join(problems))
 
+    loaded_at = datetime.now(UTC)
     counters: dict[str, int] = {}
-    for name, (table, rows) in staged.items():
-        await session.execute(delete(table))
-        if rows:
-            await session.execute(insert(table), rows)
-        counters[name] = len(rows)
-    counters["versions"] = len({entries[name]["latest_version"] for name in datasets})
+    for name, item in staged.items():
+        await session.execute(delete(item.table))
+        if item.rows:
+            await session.execute(insert(item.table), item.rows)
+        # Same transaction as the rows it describes: a state row that could
+        # outlive its data would be worse than no state row at all.
+        await session.execute(delete(LoadState.__table__).where(LoadState.dataset == name))
+        await session.execute(
+            insert(LoadState.__table__),
+            [
+                {
+                    "dataset": name,
+                    "version": item.version,
+                    "sha256": item.sha256,
+                    "rows": len(item.rows),
+                    "loaded_at": loaded_at,
+                }
+            ],
+        )
+        counters[name] = len(item.rows)
     logger.info("serving_load_complete", extra=dict(counters))
     return counters
 

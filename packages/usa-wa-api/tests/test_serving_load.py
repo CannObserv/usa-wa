@@ -9,6 +9,7 @@ rather than a silent partial load.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date
 from pathlib import Path
@@ -24,9 +25,12 @@ from usa_wa_api.serving.load import (
     dataset_rows,
     ensure_serving_schema,
     load_serving,
+    read_dataset,
     verify_contract,
+    verify_header,
+    verify_payload,
 )
-from usa_wa_api.serving.schema import SERVING_TABLES, Assignment, Person
+from usa_wa_api.serving.schema import SERVING_TABLES, Assignment, LoadState, Person
 
 
 @pytest.fixture
@@ -74,14 +78,23 @@ def _publish(root: Path, name: str, version: str, rows: list[dict], fields=None)
     lines += [
         ",".join("" if row.get(k) is None else str(row.get(k)) for k in header) for row in rows
     ]
-    (version_dir / "data.csv").write_text("\n".join(lines) + "\n")
+    payload = "\n".join(lines) + "\n"
+    (version_dir / "data.csv").write_text(payload)
+    # hash + rows as the publisher writes them — the loader verifies both.
     (version_dir / "datapackage.json").write_text(
         json.dumps(
             {
                 "name": name,
                 "version": version,
                 "tier": "conformed",
-                "resources": [{"name": name, "rows": len(rows), "schema": {"fields": fields}}],
+                "resources": [
+                    {
+                        "name": name,
+                        "hash": "sha256:" + hashlib.sha256(payload.encode()).hexdigest(),
+                        "rows": len(rows),
+                        "schema": {"fields": fields},
+                    }
+                ],
             }
         )
     )
@@ -101,6 +114,10 @@ def _publish(root: Path, name: str, version: str, rows: list[dict], fields=None)
         }
     ]
     catalog_path.write_text(json.dumps(catalog))
+
+
+def _resource(root: Path, name: str, version: str) -> dict:
+    return json.loads((root / name / version / "datapackage.json").read_text())["resources"][0]
 
 
 def test_the_catalog_names_the_version_the_loader_reads(tmp_path) -> None:
@@ -247,3 +264,86 @@ async def test_a_dataset_the_catalog_does_not_list_refuses(
     with pytest.raises(ContractMismatch, match="assignments"):
         await load_serving(db_session, tmp_path, datasets=("persons", "assignments"))
     assert (await db_session.scalar(select(func.count()).select_from(Person.__table__))) == 0
+
+
+def test_the_published_hash_is_verified(tmp_path) -> None:
+    """CR 91: the datapackage publishes a sha256 of `data.csv` for exactly this.
+    A loader that reads the bytes and ignores the digest is not verifying a
+    contract, it is trusting one — and a truncated CSV would exit 0, so the
+    nightly's OnFailure= would never fire."""
+    _publish(tmp_path, "persons", "v1", [{"entity_id": "01A", "name_full": "Dana"}])
+    assert verify_payload(tmp_path, "persons", "v1", _resource(tmp_path, "persons", "v1")) == []
+
+
+def test_a_corrupted_payload_is_refused(tmp_path) -> None:
+    _publish(tmp_path, "persons", "v1", [{"entity_id": "01A", "name_full": "Dana"}])
+    path = tmp_path / "persons" / "v1" / "data.csv"
+    path.write_text(path.read_text().replace("Dana", "Rae!"))
+    problems = verify_payload(tmp_path, "persons", "v1", _resource(tmp_path, "persons", "v1"))
+    assert problems and "sha256" in problems[0]
+
+
+def test_a_truncated_payload_is_refused_by_row_count(tmp_path) -> None:
+    """`rows` comes free in the same pass and names the failure more usefully
+    than a digest does when the cause is truncation."""
+    _publish(
+        tmp_path,
+        "persons",
+        "v1",
+        [{"entity_id": "01A", "name_full": "Dana"}, {"entity_id": "01B", "name_full": "Rae"}],
+    )
+    resource = _resource(tmp_path, "persons", "v1")
+    path = tmp_path / "persons" / "v1" / "data.csv"
+    path.write_text("\n".join(path.read_text().splitlines()[:2]) + "\n")
+    problems = verify_payload(tmp_path, "persons", "v1", resource)
+    assert any("rows" in p for p in problems)
+
+
+def test_the_csv_header_is_checked_against_its_own_datapackage(tmp_path) -> None:
+    """CR 93: `verify_contract` compares the datapackage to the TABLE. Nothing
+    compared it to the CSV it describes — and a header that lost a column yields
+    DictReader rows without that key, so SQLAlchemy compiles the INSERT from the
+    keys present and the column loads NULL for every row, silently."""
+    _publish(tmp_path, "persons", "v1", [{"entity_id": "01A", "name_full": "Dana"}])
+    path = tmp_path / "persons" / "v1" / "data.csv"
+    path.write_text("entity_id,name_full\n01A,Dana\n")
+    fieldnames, _rows = read_dataset(tmp_path, "persons", "v1")
+    problems = verify_header("persons", fieldnames, FIELDS["persons"])
+    assert problems and "name_source" in problems[0]
+
+
+@pytest.mark.db
+async def test_the_loaded_version_is_recorded(serving_schema, db_session, tmp_path) -> None:
+    """CR 92: row counts cannot tell yesterday's snapshot from today's — and an
+    unchanged count is the NORMAL case here, which is why the publisher has a
+    skip-if-unchanged path at all. The version is the only thing that can."""
+    _publish(tmp_path, "persons", "v1", [{"entity_id": "01A", "name_full": "Dana"}])
+    await load_serving(db_session, tmp_path, datasets=("persons",))
+    state = (await db_session.execute(select(LoadState))).scalars().one()
+    assert state.dataset == "persons"
+    assert state.version == "v1"
+    assert state.rows == 1
+    assert state.sha256.startswith("sha256:")
+
+
+@pytest.mark.db
+async def test_a_new_version_with_the_same_row_count_is_still_recorded(
+    serving_schema, db_session, tmp_path
+) -> None:
+    """The case row counts are blind to, stated directly."""
+    _publish(tmp_path, "persons", "v1", [{"entity_id": "01A", "name_full": "Dana"}])
+    await load_serving(db_session, tmp_path, datasets=("persons",))
+    _publish(tmp_path, "persons", "v2", [{"entity_id": "01A", "name_full": "Rae"}])
+    await load_serving(db_session, tmp_path, datasets=("persons",))
+    state = (await db_session.execute(select(LoadState))).scalars().one()
+    assert state.version == "v2"
+
+
+@pytest.mark.db
+async def test_load_state_is_replaced_not_appended(serving_schema, db_session, tmp_path) -> None:
+    """One row per dataset: the state is what IS loaded, not a history of what
+    was. A ledger of loads is the job ledger's business (#178), not this."""
+    _publish(tmp_path, "persons", "v1", [{"entity_id": "01A", "name_full": "Dana"}])
+    await load_serving(db_session, tmp_path, datasets=("persons",))
+    await load_serving(db_session, tmp_path, datasets=("persons",))
+    assert len((await db_session.execute(select(LoadState))).scalars().all()) == 1
