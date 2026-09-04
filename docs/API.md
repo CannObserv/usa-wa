@@ -37,20 +37,20 @@ suite until the table below matches.
 | GET | `/api/v1/sources` | `Page[SourceOut]` | Every configured feed. |
 | GET | `/api/v1/sources/{slug}` | `SourceOut` | One feed by slug. |
 | GET | `/api/v1/sources/{slug}/coverage` | `SourceCoverageOut` | What the feed covers, per dimension (#180). |
-| GET | `/api/v1/provenance/{entity_type}/{entity_id}` | `Page[CitationOut]` | Citation chain for one canonical row, newest first. |
+| GET | `/api/v1/provenance/{entity_type}/{entity_id}` | `Page[CitationOut]` | Citation chain for one published entity, in `(source, resource_id)` order. `entity_type` ∈ `person` \| `organization` \| `role` \| `assignment`; `entity_id` is a registry ULID except for an assignment, whose id is its span key. |
 
-### `/api/v1` — canonical
+### `/api/v1` — products (served from the `serving` schema since #313)
 
 | Method | Path | Response model | What |
 |---|---|---|---|
-| GET | `/api/v1/persons` | `Page[PersonSummary]` | People. Filters: `source`, `name_contains`, `include_hidden`. |
-| GET | `/api/v1/persons/{person_id}` | `PersonDetail` | One person plus their external-identifier graph. |
-| GET | `/api/v1/organizations` | `Page[OrganizationOut]` | Filters: `org_type`, `jurisdiction_id`, `active`, `include_hidden`. |
+| GET | `/api/v1/persons` | `Page[PersonSummary]` | People. Filters: `source` (key namespace), `name_contains`. |
+| GET | `/api/v1/persons/{person_id}` | `PersonDetail` | One person plus every natural key the registry binds to them. |
+| GET | `/api/v1/organizations` | `Page[OrganizationOut]` | Filters: `org_type`, `agency`. |
 | GET | `/api/v1/organizations/{organization_id}` | `OrganizationOut` | One organization. |
-| GET | `/api/v1/roles` | `Page[RoleOut]` | Filters: `organization_id`, `role_type`, `jurisdiction_id`, `include_hidden`. |
-| GET | `/api/v1/roles/{role_id}` | `RoleOut` | One role. |
-| GET | `/api/v1/assignments` | `Page[AssignmentSummary]` | **Tenure spans.** Filters: `person_id`, `role_id`, `is_active`, `span_kind`, `as_of`, `include_hidden`. |
-| GET | `/api/v1/assignments/{assignment_id}` | `AssignmentDetail` | One span with its citation chain. |
+| GET | `/api/v1/roles` | `Page[RoleOut]` | Filters: `organization_id`, `role_type`, `district`. Ordered by `role_key`. |
+| GET | `/api/v1/roles/{role_id}` | `RoleOut` | One role, by its registry ULID. |
+| GET | `/api/v1/assignments` | `Page[AssignmentSummary]` | **Tenure spans.** Filters: `person_id`, `role_id`, `role_key`, `is_active`, `span_kind`, `as_of`. |
+| GET | `/api/v1/assignments/{assignment_id}` | `AssignmentDetail` | One span with its citation chain. `assignment_id` is the 4-part span key. |
 
 ## Contracts
 
@@ -64,17 +64,22 @@ method set.
 ### There is no `/spans`
 
 A tenure span **is** an `Assignment` ([ONTOLOGY.md](ONTOLOGY.md) § 2), so `/assignments` is the
-span route. Its `source_id` is the 4-part span key
-`{member_id}:{kind}:{discriminator}:{start_biennium}`, which the API parses into `span_kind`,
-`span_discriminator` and `span_start_biennium` — all `null` on a row whose `source_id` is any
-other shape. The `span_kind` filter refuses to match those rows rather than reading position 2 of
-a key that has no position 2.
+span route. Since #313 the span key's parts are **real columns** — `source`, `member_id`,
+`span_kind`, `span_discriminator`, `span_start_biennium` — and `assignment_id` is assembled from
+them rather than parsed out of a string. That is the inverse of the old model, and it is what
+retires #335: `span_kind` filters a column, so the roster family (whose member ids carry their own
+colon) stops being invisible to it.
+
+`assignment_id` is `{member_id}:{kind}:{discriminator}:{start_biennium}`, split from the **right**
+when it comes back in (#259). `source` is not part of it: the two families key in disjoint
+identity spaces, and a span key matching in both is a 500, not a coin flip.
 
 ### Pagination
 
-Keyset, on the row's ULID primary key, ascending — except `/health/jobs` (keyed on `job_slug`)
-and `/provenance/…` (descending, newest attestation first). Each route's docstring states its own
-order.
+Keyset, ascending, on whatever the row's own identity is: a registry ULID for
+`persons`/`organizations`, the structural `role_key` for `roles`, `job_slug` for `/health/jobs`,
+and — for `assignments` and `/provenance/…` — the several columns that together are the key,
+encoded into one opaque token. Each route's docstring states its own order.
 
 ```
 GET /api/v1/persons?limit=50
@@ -85,7 +90,7 @@ GET /api/v1/persons?limit=50&cursor=01J9ZQ...
 | Parameter | Default | Max | Notes |
 |---|---|---|---|
 | `limit` | 50 | **200** | Above the cap is a 422, not a clamp — clamping would make a short page ambiguous with exhaustion. |
-| `cursor` | — | — | Opaque and route-scoped. Echo a `next_cursor` back; never construct one. |
+| `cursor` | — | — | Opaque and route-scoped. Echo a `next_cursor` back; never construct one. A cursor from another route decodes cleanly but means something else, so its key arity is checked and a mismatch is a 422. |
 
 `next_cursor` is `null` exactly when the page is the last. It is the *only* exhaustion signal:
 branch on it, not on `len(items)`.
@@ -109,17 +114,42 @@ which is not an id this system's consumers can use (Power Map's API 404s on it).
 a ULID is expected is a **422**, deliberately: a 404 would read as "no such row" and send the
 caller hunting for a data problem that does not exist.
 
-### Liveness
+### Liveness, and why there is none left
 
-List routes hide archived and deleted rows, applying `queries.live_only` once per lifecycle model
-the query joins through — so an archived Organization hides its roles *and* the tenures held under
-them. `include_hidden=true` is the explicit audit escape hatch.
+The lifecycle tombstones are gone with the tables that carried them. A row the pipeline no longer
+asserts is simply **absent** — retraction-as-absence, the #302 publication contract — and a person
+the registry merged away is reachable through the crosswalk's `merged_into` rather than through an
+archived row. So `archived_at`, `deleted_at`, `include_hidden` and `Organization.active` are all
+gone: there is nothing to hide, and therefore no escape hatch to offer.
 
-Detail routes never filter: a caller who names an id gets that row with its `archived_at` /
-`deleted_at` visible, because "archived" is an answer and a 404 is not.
+Detail routes still answer for a row a list route would not surface. A caller holding an id
+usually holds it *because* the row went quiet.
 
-`Organization.active` is a **third** axis and not a liveness filter — a dissolved committee is
-inactive, not archived, and stays in every read. It is exposed as a field and as a filter.
+### Serving-tier migration (#313)
+
+`/api/v1` now serves the published datasets, loaded into the `serving` schema, rather than the
+canonical Postgres tables. Same paths, same methods; the payloads changed. What a consumer
+migrates to:
+
+| Gone | Why | Instead |
+|---|---|---|
+| `id` on every product row | The identity is a *registry entity*, not a canonical row | `entity_id` — the same ULID: the registry seed preserved them, so ids did not move |
+| `source` / `source_id` scalars on persons and orgs | Multi-source by construction; one pair could never say more than one thing | `person_crosswalk` / `org_crosswalk`, embedded on the person detail route as `identifiers` |
+| `PersonIdentifier` rows | Identity is the registry's now, so an external id is a key bound to an entity | `PersonCrosswalkOut` — `natural_key`, `key_namespace`, `key_value`, `registered_by`, `merged_into` |
+| `pm_person_id` / `pm_organization_id` / `pm_role_id` / `pm_assignment_id` | The PM sync retires with the outbox | Power Map's own API; the anchors it holds are unmoved |
+| `created_at` / `updated_at` | The dataset **version** is the clock — a row clock said when a row was written, not when the fact was true | `/health/datasets` and `/health/serving` for the version and its age |
+| `archived_at` / `deleted_at` / `include_hidden` | See *Liveness* above | Absence, and `merged_into` |
+| `Assignment.id` (a ULID) | A span has no row identity; a span **is** its key | `assignment_id` — the 4-part span key |
+| `Assignment.holder_name_raw` | An unresolved holder is an unregistered one now, not a name with no id | `entity_id: null` |
+| `Organization.jurisdiction_id` / `active`, `Role.jurisdiction_id` | Not in the published datasets | `agency` on an org; `district` on a role |
+| `CitationOut.id` / `confidence` / `asserted_at` / `field_path` | A stateless join asserts nothing a re-derivation would not re-assert, and nothing emits field-level citations | `sha256` — which names the bytes exactly |
+| `personidentifier` as a `/provenance` type | A key is not a thing that gets separately attested | The person's own chain |
+
+Two filters changed meaning rather than disappearing. `persons?source=` now asks *which key
+namespace knows this person* instead of *which source created this row* — a person reachable by
+both a WSL and a PDC key answers to both, which the old scalar could not express. And
+`assignments?role_id=` resolves through `roles.role_key`, so `role_key` is offered beside it for a
+caller who already holds the structural name.
 
 ### `source_coverage` when nothing has been recorded
 
