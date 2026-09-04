@@ -87,8 +87,17 @@ identity spaces, and a span key matching in both is a 500, not a coin flip.
 
 Keyset, ascending, on whatever the row's own identity is: a registry ULID for
 `persons`/`organizations`, the structural `role_key` for `roles`, `job_slug` for `/health/jobs`,
-and — for `assignments` and `/provenance/…` — the several columns that together are the key,
-encoded into one opaque token. Each route's docstring states its own order.
+and the several columns that together are the key for `assignments` and `/provenance/…`. Each
+route's docstring states its own order.
+
+Where the key has a checkable shape the cursor is that value and it is validated as one — a
+26-character ULID, so a truncated or `::text`-cast token is a 422 rather than a page starting in
+the wrong place. Where it does not (`roles`, and the multi-column routes) the cursor is
+**encoded**, which rejects every token this API did not issue that we tried: a raw key, a cursor
+from another route, junk, an oversized string. Neither is proof against a well-formed *wrong*
+token — a base64 cursor truncated by one character re-pads and decodes to a shorter key, which
+shows up as a repeated row rather than a missing one. Only a signed cursor would close that, and a
+read-only API over immutable published datasets does not warrant the key management.
 
 ```
 GET /api/v1/persons?limit=50

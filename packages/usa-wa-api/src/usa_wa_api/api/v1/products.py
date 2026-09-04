@@ -37,7 +37,6 @@ from usa_wa_api.api.v1.pagination import (
     Page,
     decode_cursor,
     encode_cursor,
-    parse_bounded_cursor,
     parse_ulid_cursor,
     take_page,
 )
@@ -110,9 +109,18 @@ def _ulid_cursor(cursor: str | None) -> str | None:
     return None if parsed is None else str(parsed)
 
 
-def _key_cursor(cursor: str | None, column) -> str | None:
-    """A cursor keyed on a plain string column, bounded by that column's width."""
-    return parse_bounded_cursor(cursor, max_length=column.type.length, field=column.key)
+def _key_cursor(cursor: str | None) -> str | None:
+    """A cursor keyed on a plain string column, encoded (CR 105).
+
+    ``role_key`` is a structural name with no shape to validate, so the length
+    bound this replaced could not tell a real cursor from any other string of
+    similar size — a token like ``zzz`` sorted past every row and returned an
+    empty page, which a paging consumer reads as exhaustion. Encoding is what
+    the two multi-column routes already do, and it makes "opaque, never
+    construct one" a fact here rather than an instruction.
+    """
+    decoded = decode_cursor(cursor, arity=1)
+    return None if decoded is None else decoded[0]
 
 
 async def _page(session: AsyncSession, stmt: Select, model, *, key_of, limit: int) -> Page:
@@ -260,7 +268,7 @@ async def list_roles(
     limit: LimitQuery = DEFAULT_LIMIT,
     cursor: CursorQuery = None,
 ) -> Page[RoleOut]:
-    """Roles, in structural key order. The cursor is a `role_key`.
+    """Roles, in structural key order. The cursor encodes that `role_key`.
 
     Ordered by ``role_key`` rather than by the registry ULID because the key is
     the row's own identity here — a role minted later still sorts beside its
@@ -277,9 +285,9 @@ async def list_roles(
         stmt = stmt.where(Role.district == district)
     return await _page(
         session,
-        _keyset(stmt, Role.role_key, cursor=_key_cursor(cursor, Role.role_key), limit=limit),
+        _keyset(stmt, Role.role_key, cursor=_key_cursor(cursor), limit=limit),
         RoleOut,
-        key_of=lambda row: row.role_key,
+        key_of=lambda row: encode_cursor([row.role_key]),
         limit=limit,
     )
 

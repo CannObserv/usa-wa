@@ -257,8 +257,17 @@ uv run python -m usa_wa_pipeline.parity_citations   # last in the nightly probe 
 The probe asks the **built artifact**, not a recomputation: that is the only
 check that catches a binder which dropped an input the pure function handles
 fine. Gated at zero — `orphan_citations` (a citation naming a resource
-`stg_raw_fetches` does not carry), `uncited_assignments`, `uncited_roles`,
-`uncited_organizations`. Ratcheted — `uncited_persons`, baseline **3**: one
+`stg_raw_fetches` does not carry), `uncited_assignments`, `uncited_roles` and
+`uncited_organizations`.
+
+`uncited_roles` counts **registered** roles only. `roles.entity_id` is null for
+exactly one build — the nightly runs `dbt build → registrar → publish`, so a
+brand-new seat is unregistered in the build that first sees it — and a role with
+no ULID has nothing to be cited *by*. Gating that at zero would have failed the
+nightly and emailed the operator every time a committee was created. Those roles
+are counted apart as `unregistered_roles` and reported, not gated; the
+**persistent** case is caught by `parity_spans`, which re-reads the registry
+after the registrar rather than the artifact built before it. Ratcheted — `uncited_persons`, baseline **3**: one
 registered WSL member no wire names, plus the two Elmer E. Johnstons sharing the
 fold `elmerejohnston`, which the citer refuses to guess between. Counted only —
 `structural_organizations` (11: the Legislature, both chambers, eight parties),

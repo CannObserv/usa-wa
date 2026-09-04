@@ -67,31 +67,23 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
     ("organizations", "conformed"),
     ("assignments", "conformed"),
     ("roles", "conformed"),
+    # `internal` is not the subscriber contract (#313). It is published all the
+    # same — same immutable version dirs, same digest, same `/datasets` tree,
+    # because the deployment loads it exactly the way it loads every other
+    # one — but nothing outside this repo is invited to depend on its shape, and
+    # it carries no schema-stability promise. `citations` exists so
+    # `/provenance/{type}/{id}` keeps answering once the Postgres provenance
+    # tables retire; its columns follow the API, not consumers.
+    #
+    # The signal a consumer reads is the catalog's own per-dataset `tier`, which
+    # `/health/datasets` already returns. There is deliberately no second
+    # constant naming the internal tiers (CR 106): the one place that would
+    # consume it is the API, which does not depend on this package and should
+    # not start doing so — pulling dbt, duckdb and pandas into the serving
+    # deployment to hold one frozenset would be a real cost for a restatement of
+    # a field the catalog already publishes.
     ("citations", "internal"),
 ]
-
-#: Tiers that are **not** part of the subscriber contract (#313). An internal
-#: dataset is published — same immutable version dirs, same digest, same
-#: ``/datasets`` tree, because the deployment loads it exactly the way it loads
-#: every other one — but nothing outside this repo is invited to depend on its
-#: shape, and it carries no schema-stability promise. `citations` is the first:
-#: it exists so ``/provenance/{type}/{id}`` keeps answering once the Postgres
-#: provenance tables retire, and its columns follow the API, not consumers.
-#:
-#: Read by :func:`internal_datasets`, so the distinction is derived from this set
-#: rather than restated (CR 103): a constant that names a policy nothing consults
-#: is one a later edit can contradict without any gate noticing.
-INTERNAL_TIERS = frozenset({"internal"})
-
-
-def internal_datasets(datasets: list[tuple[str, str]] | None = None) -> frozenset[str]:
-    """The published datasets that carry no subscriber contract (#313)."""
-    return frozenset(
-        name
-        for name, tier in (PUBLISHED_DATASETS if datasets is None else datasets)
-        if tier in INTERNAL_TIERS
-    )
-
 
 #: Per-dataset schema semver: additive = minor, rename/removal = major (spec).
 #: One knob covers every dataset today — per-dataset versions are a later
