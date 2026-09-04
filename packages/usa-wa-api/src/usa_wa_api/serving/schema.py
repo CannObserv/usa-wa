@@ -20,9 +20,9 @@ splitting a string — which is what retires #335.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, MetaData, String, Table
+from sqlalchemy import Boolean, Date, DateTime, Integer, MetaData, String, Table
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 SCHEMA = "serving"
@@ -131,8 +131,34 @@ class OrgCrosswalk(ServingBase):
     merged_into: Mapped[str | None] = mapped_column(String(26))
 
 
+class LoadState(ServingBase):
+    """Which published version each served table currently holds (CR 92).
+
+    Without this the only currency signal is a row count, and an **unchanged
+    count is the normal case** for this corpus — the publisher has a
+    skip-if-unchanged path precisely because quiet days are typical, so
+    yesterday's 8,772 assignments are indistinguishable from today's. The whole
+    value of immutable versioned datasets is provenance, and a consumer that
+    keeps none cannot answer the one question its health probe asks.
+
+    One row per dataset: this is what *is* loaded, not a history of what was.
+    The history of load runs belongs to the job ledger (#178).
+    """
+
+    __tablename__ = "load_state"
+
+    dataset: Mapped[str] = mapped_column(String(64), primary_key=True)
+    version: Mapped[str] = mapped_column(String(64))
+    #: The digest the datapackage published, verified before the load (CR 91).
+    sha256: Mapped[str | None] = mapped_column(String(80))
+    rows: Mapped[int] = mapped_column(Integer)
+    loaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 #: dataset name → the table it loads into. The names are the *published* ones,
 #: so this mapping is also the statement of which datasets the API depends on.
+#: ``load_state`` is deliberately absent: it is the loader's own bookkeeping,
+#: not a projection of anything published.
 SERVING_TABLES: dict[str, Table] = {
     "persons": Person.__table__,
     "organizations": Organization.__table__,
