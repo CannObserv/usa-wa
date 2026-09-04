@@ -60,13 +60,24 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
     ("stg_pdc_winners", "staging"),
     ("stg_sos_results", "staging"),
     ("stg_sos_filings", "staging"),
+    ("stg_raw_fetches", "staging"),
     ("person_crosswalk", "conformed"),
     ("org_crosswalk", "conformed"),
     ("persons", "conformed"),
     ("organizations", "conformed"),
     ("assignments", "conformed"),
     ("roles", "conformed"),
+    ("citations", "internal"),
 ]
+
+#: Tiers that are **not** part of the subscriber contract (#313). An internal
+#: dataset is published — same immutable version dirs, same digest, same
+#: ``/datasets`` tree, because the deployment loads it exactly the way it loads
+#: every other one — but nothing outside this repo is invited to depend on its
+#: shape, and it carries no schema-stability promise. `citations` is the first:
+#: it exists so ``/provenance/{type}/{id}`` keeps answering once the Postgres
+#: provenance tables retire, and its columns follow the API, not consumers.
+INTERNAL_TIERS = frozenset({"internal"})
 
 #: Per-dataset schema semver: additive = minor, rename/removal = major (spec).
 #: One knob covers every dataset today — per-dataset versions are a later
@@ -79,7 +90,11 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
 #: - 1.3.0 (#313): `roles` gained `entity_id`, its registry ULID — the stable
 #:   handle `/api/v1` addresses a role by once it serves from the published
 #:   contract. `role_key` stays beside it, so PM's seat match key is unmoved.
-SCHEMA_VERSION = "1.3.0"
+#: - 1.4.0 (#313 inc 3): every staging dataset gained `source` + `resource_id`,
+#:   the raw coordinates of the wire the row was read from, and two datasets
+#:   joined — `stg_raw_fetches` (the attestation dimension) and `citations`
+#:   (internal). Appended columns, hence minor.
+SCHEMA_VERSION = "1.4.0"
 
 DEFAULT_MAX_SHRINK = 0.10
 

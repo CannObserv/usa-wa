@@ -15,7 +15,9 @@ from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_sos import parsing
 from usa_wa_adapter_sos.filings.adapter import WHOFILED_RESOURCE_PREFIX
 from usa_wa_adapter_sos.results.adapter import LEGRESULTS_RESOURCE_PREFIX
+from usa_wa_pipeline.staging.common import PROVENANCE_COLUMNS
 from usa_wa_pipeline.staging.common import latest_wires as _latest_wires
+from usa_wa_pipeline.staging.common import provenance as _provenance
 
 # the adapters' exported prefixes (#302 CR): a rename upstream must break the
 # import, never silently empty this staging model
@@ -32,6 +34,7 @@ RESULT_COLUMNS = [
     "votes",
     "percentage_of_total_votes",
     "jurisdiction_name",
+    *PROVENANCE_COLUMNS,
 ]
 FILING_COLUMNS = [
     "election_date",
@@ -39,6 +42,7 @@ FILING_COLUMNS = [
     "party_name",
     "race_name",
     "race_jurisdiction_name",
+    *PROVENANCE_COLUMNS,
 ]
 
 
@@ -59,6 +63,7 @@ def result_rows(
                     "votes": record.get("Votes"),
                     "percentage_of_total_votes": record.get("PercentageOfTotalVotes"),
                     "jurisdiction_name": record.get("JurisdictionName"),
+                    **_provenance(store, resource_id),
                 }
             )
     return rows
@@ -77,6 +82,7 @@ def filing_rows(store: RawStore, *, parse: Parser = parsing.parse_whofiled) -> l
                     "party_name": record.get("PartyName"),
                     "race_name": record.get("RaceName"),
                     "race_jurisdiction_name": record.get("RaceJurisdictionName"),
+                    **_provenance(store, resource_id),
                 }
             )
     return rows

@@ -64,7 +64,7 @@ if ! $UV python -m usa_wa_api.serving.load; then
 fi
 
 for probe in usa_wa_pipeline.parity_wsl usa_wa_pipeline.parity_pdc usa_wa_pipeline.parity_registry \
-             usa_wa_pipeline.parity_spans; do
+             usa_wa_pipeline.parity_spans usa_wa_pipeline.parity_citations; do
   if ! $UV python -m "$probe"; then
     echo "pipeline-nightly: parity divergence: $probe" >&2
     failures=$((failures + 1))

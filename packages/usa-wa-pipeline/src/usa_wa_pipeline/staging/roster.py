@@ -16,6 +16,8 @@ from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_legislature.roster_pdf.adapter import ROSTER_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.roster_pdf.extraction import extract_pages
 from usa_wa_adapter_legislature.roster_pdf.normalize import parse_district_pages_reporting
+from usa_wa_pipeline.staging.common import PROVENANCE_COLUMNS
+from usa_wa_pipeline.staging.common import provenance as _provenance
 
 ROSTER_COLUMNS = [
     "revision",
@@ -26,6 +28,7 @@ ROSTER_COLUMNS = [
     "name",
     "party_token",
     "annotation",
+    *PROVENANCE_COLUMNS,
 ]
 
 
@@ -55,4 +58,5 @@ def roster_rows(
     newest_id = max(candidates, key=lambda rid: candidates[rid]["fetched_at"])
     revision = newest_id.removeprefix(ROSTER_RESOURCE_PREFIX)
     wire = store.object_path(candidates[newest_id]["sha256"]).read_bytes()
-    return [{"revision": revision, **row} for row in parse(wire)]
+    citation = _provenance(store, newest_id)
+    return [{"revision": revision, **row, **citation} for row in parse(wire)]

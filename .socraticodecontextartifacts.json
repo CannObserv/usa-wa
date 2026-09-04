@@ -158,7 +158,12 @@
     {
       "name": "pipeline-reference",
       "path": "./docs/PIPELINE.md",
-      "description": "The dataset-publication pipeline (usa-wa-pipeline, #302/#303): dbt-core + dbt-duckdb project layout (staging / matching / conformed layers and their rules), build commands, the dbt-build pre-commit gate, USA_WA_PIPELINE_DB, and the TDD policy for dbt models (schema-first red/green, data tests, Python models as thin adapters over pytest-covered logic)."
+      "description": "The #302 dataset-publication pipeline — dbt-duckdb project layout, commands, the raw file store (objects/manifests/latest.json), the staging models and their parity probes, the identity registry and registrar, and the publication contract (immutable versioned datasets + catalog). The conformed tier lives in PIPELINE-CONFORMED.md."
+    },
+    {
+      "name": "pipeline-conformed",
+      "path": "./docs/PIPELINE-CONFORMED.md",
+      "description": "The #302 pipeline's conformed tier — the registry-joined products and the guards each carries: crosswalks and entity survivorship, the tenure-span engine (two families, one table, the #228 roster deepening and its refusals), the structurally keyed roles dimension and its role_type/name/qualifier parity, and the citations chain that replaces the Postgres Citation ledger (per-kind rules, the coverage probe, its zero gates and the uncited-persons ratchet)."
     }
   ]
 }

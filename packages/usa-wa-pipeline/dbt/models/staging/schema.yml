@@ -72,3 +72,14 @@ models:
         data_tests: [not_null]
       - name: ballot_name
         data_tests: [not_null]
+  - name: stg_raw_fetches
+    description: "The raw attestation dimension (#313): one row per (source, resource_id) — the newest ok fetch, its sha256 and fetch time from latest.json, its URL and byte count from the run manifest that recorded it. Sources are DISCOVERED from the raw root, not configured, so a source added to the harvest chain cannot silently publish uncitable entities. url/bytes are null when the manifest has been pruned; sha256 never is."
+    columns:
+      - name: source
+        data_tests: [not_null]
+      - name: resource_id
+        data_tests: [not_null]
+      - name: sha256
+        data_tests: [not_null]
+      - name: fetched_at
+        data_tests: [not_null]
