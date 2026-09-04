@@ -327,12 +327,41 @@ class TestRoles:
         assert response.status_code == 422
         assert "organization_id" in response.json()["detail"]
 
-    async def test_a_cursor_that_is_not_a_role_key_is_refused(self, client, corpus) -> None:
-        """CR 99. `roles` keys on `role_key`, not a ULID, so the shape check is a
-        length bound rather than a pattern — but a cursor longer than the column
-        can hold is still one this route never issued."""
-        response = await client.get("/api/v1/roles", params={"cursor": "x" * 300})
-        assert response.status_code == 422
+    async def test_the_roles_cursor_is_opaque_not_a_readable_key(self, client, corpus) -> None:
+        """CR 105. `roles` keys on `role_key`, which has no shape to check — so
+        the cursor is ENCODED, like the two multi-column routes. That is what
+        makes "opaque, never construct one" true here rather than aspirational."""
+        body = (await client.get("/api/v1/roles", params={"limit": 1})).json()
+        assert body["next_cursor"] != "committee-member-role:5"
+        second = (
+            await client.get("/api/v1/roles", params={"limit": 1, "cursor": body["next_cursor"]})
+        ).json()
+        assert [i["role_key"] for i in second["items"]] == ["senate-seat-role:14"]
+
+    @pytest.mark.parametrize(
+        ("cursor", "why"),
+        [
+            ("committee-member-role:5", "a raw role_key — the pre-CR-105 cursor form"),
+            (PERSON_A, "a cursor from another route"),
+            ("zzz", "a hand-constructed token"),
+            ("x" * 300, "an oversized token"),
+        ],
+    )
+    async def test_a_cursor_this_route_did_not_issue_is_refused(
+        self, client, corpus, cursor, why
+    ) -> None:
+        """CR 105. Measured: encoding catches every one of these, where the
+        length bound it replaces caught only the last. It is NOT proof against a
+        well-formed wrong token — only a signed cursor would be, and this surface
+        does not warrant one — so the cases pinned here are the ones it does
+        catch, named."""
+        response = await client.get("/api/v1/roles", params={"cursor": cursor})
+        assert response.status_code == 422, why
+        # Assert on the message, not only the code: an oversized token would
+        # otherwise pass this test because FastAPI's `CURSOR_MAX_LENGTH` refused
+        # it first, and the route's own guard would go untested (CR 108).
+        detail = response.json()["detail"]
+        assert "not a token this API issued" in str(detail), why
 
     async def test_addressed_by_the_registry_ulid_not_the_derived_key(self, client, corpus) -> None:
         """The key is derived, so it moves when the derivation is corrected, and

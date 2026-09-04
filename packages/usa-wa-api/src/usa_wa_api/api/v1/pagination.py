@@ -109,30 +109,6 @@ def take_page[R](
     return list(rows), None
 
 
-def parse_bounded_cursor(cursor: str | None, *, max_length: int, field: str) -> str | None:
-    """Validate a cursor keyed on a plain string column (CR 99).
-
-    ``roles`` keys on the structural ``role_key``, not on an id with a shape, so
-    the only check available is that the value could have come from the column —
-    ``max_length`` is that column's width. It is a weak check and deliberately
-    so: the strong one is impossible, and NO check is the wrong answer. An
-    unvalidated cursor goes straight into ``column > :cursor``, where a
-    truncated or foreign token does not fail — it resumes the scan at whatever
-    position it sorts to and the caller silently SKIPS rows, which is the exact
-    failure this module exists to prevent.
-    """
-    if cursor is None:
-        return None
-    if len(cursor) > max_length:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"cursor is not a token this API issued (max {max_length} characters for {field})"
-            ),
-        )
-    return cursor
-
-
 def parse_ulid_cursor(cursor: str | None) -> _ULID | None:
     """Validate a ULID-keyed cursor at the request boundary.
 
@@ -170,6 +146,16 @@ def decode_cursor(cursor: str | None, *, arity: int) -> tuple[str, ...] | None:
     ``arity`` is checked, not assumed: a cursor from a different route decodes
     cleanly but means something else, and using it would resume the scan at an
     arbitrary point rather than failing. A 422 says so; a wrong page would not.
+
+    **What this does and does not catch** (CR 105, measured rather than
+    asserted). Encoding rejects every token this API did not issue that was
+    tried: a raw key value, a cursor from a ULID-keyed route, junk, an oversized
+    string. It is **not** proof against a well-formed wrong token — a base64
+    string truncated by one character re-pads, decodes to a shorter key and
+    resumes the scan early, which shows up as a repeated row rather than a
+    missing one. Only a signed cursor would close that, and this surface — a
+    read-only API over published, immutable datasets — does not warrant the key
+    management. The claim made here is the one that is true.
     """
     if cursor is None:
         return None
