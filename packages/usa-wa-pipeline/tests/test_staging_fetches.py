@@ -87,3 +87,28 @@ def test_a_source_that_never_succeeded_contributes_nothing(tmp_path) -> None:
 
 def test_an_absent_raw_root_is_empty_not_an_error(tmp_path) -> None:
     assert fetches.fetch_rows(tmp_path / "nowhere") == []
+
+
+def test_each_run_manifest_is_read_once_not_once_per_resource(tmp_path, monkeypatch) -> None:
+    """CR 101: the cache was spelled with `setdefault`, whose default argument is
+    evaluated EAGERLY — so the manifest was re-read and re-parsed on every row.
+    Measured against the live store that was 1,391 reads for 8 manifests, while
+    the comment above it claimed the opposite."""
+    run = _store(tmp_path, "usa_wa_pdc").open_run()
+    for year in range(2000, 2020, 2):
+        run.record(f"house-winners:{year}", f"w{year}".encode(), url=f"https://pdc/{year}")
+    run.close()
+
+    reads: list[str] = []
+    real = fetches.Path.read_text
+
+    def counting(self, *args, **kwargs):
+        if self.parent.name == "runs":
+            reads.append(self.name)
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(fetches.Path, "read_text", counting)
+    rows = fetches.fetch_rows(tmp_path)
+
+    assert len(rows) == 10
+    assert len(reads) == 1, f"one run, one manifest read; got {len(reads)}"

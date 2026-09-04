@@ -15,10 +15,11 @@ one has to earn — that following a citation lands on bytes, and that nothing
 published is unreachable from a citation.
 
 **Gated at zero** (:data:`INTEGRITY_COUNTERS`): a citation naming a resource
-``stg_raw_fetches`` does not carry, and any uncited assignment, role or sourced
-organization. **Ratcheted** against a documented baseline: uncited persons —
-see :data:`BASELINE_UNCITED_PERSONS`. **Counted only**: structural
-organizations, which are definitional and uncitable by construction.
+``stg_raw_fetches`` does not carry, and any uncited assignment, *registered*
+role or sourced organization. **Ratcheted** against a documented baseline:
+uncited persons — see :data:`BASELINE_UNCITED_PERSONS`. **Counted only**:
+structural organizations, which are definitional and uncitable by construction,
+and unregistered roles, which are one build behind the registrar by design.
 
 Exit ``0`` clean · ``1`` a gate fired or the ratchet moved.
 """
@@ -56,6 +57,15 @@ REQUIRED_TABLES = (
 
 #: Counters that must be zero. Each is an integrity break, not a coverage
 #: shortfall: a dangling citation, or a published row nothing attests.
+#:
+#: ``unregistered_roles`` is deliberately NOT here (CR 98). ``roles.entity_id``
+#: is null for exactly one build — the nightly runs ``dbt build → registrar →
+#: publish``, so a brand-new seat is unregistered in the build that first sees
+#: it and bound by the next, which is why ``conformed/schema.yml`` gives that
+#: column only a ``unique`` test. Gating it at zero would fail the nightly and
+#: email the operator every time a committee is created. The PERSISTENT case —
+#: a role the registrar never binds — is already caught by ``parity_spans``,
+#: which re-reads the registry rather than the build.
 INTEGRITY_COUNTERS = (
     "orphan_citations",
     "uncited_assignments",
@@ -106,9 +116,14 @@ def audit(db_path: str) -> tuple[dict[str, int], list[str]]:
                 "(select 1 from citations c where c.entity_type = 'person' "
                 "and c.entity_id = p.entity_id)"
             ).fetchone()[0],
+            # Registered roles only: a null `entity_id` has nothing to cite BY,
+            # so it is a registration gap rather than a coverage one (CR 98).
+            "unregistered_roles": con.execute(
+                "select count(*) from roles where entity_id is null"
+            ).fetchone()[0],
             "uncited_roles": con.execute(
-                "select count(*) from roles r where not exists "
-                "(select 1 from citations c where c.entity_type = 'role' "
+                "select count(*) from roles r where r.entity_id is not null "
+                "and not exists (select 1 from citations c where c.entity_type = 'role' "
                 "and c.entity_id = r.entity_id)"
             ).fetchone()[0],
             # The span's published identity is its 4-part source_id, reassembled

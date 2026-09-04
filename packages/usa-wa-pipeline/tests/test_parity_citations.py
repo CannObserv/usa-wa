@@ -155,3 +155,28 @@ def test_a_missing_artifact_is_a_failure_not_an_empty_pass(tmp_path) -> None:
     duckdb.connect(path).close()
     with pytest.raises(parity_citations.ArtifactMissing):
         parity_citations.audit(path)
+
+
+def test_an_unregistered_role_is_not_a_coverage_gap(tmp_path) -> None:
+    """CR 98: `roles.entity_id` is null for exactly ONE build — the nightly runs
+    `dbt build -> registrar -> publish`, so a brand-new seat is unregistered in
+    the build that first sees it and bound by the next (conformed/schema.yml
+    says so, which is why that column carries only a `unique` test).
+
+    Counting it as uncited put a zero gate under a documented, self-healing
+    state: creating a committee would fail the nightly and email the operator.
+    """
+    path = _db(tmp_path, citations=[], fetches=[], roles=[None])
+    counters, failures = parity_citations.audit(path)
+    assert counters["unregistered_roles"] == 1
+    assert counters["uncited_roles"] == 0
+    assert failures == []
+
+
+def test_a_registered_role_with_no_citation_still_fails(tmp_path) -> None:
+    """The exemption is for the null, not for the role: a role the registrar
+    HAS bound and nothing attests is the integrity break the gate exists for."""
+    path = _db(tmp_path, citations=[], fetches=[], roles=["01ROLE"])
+    counters, failures = parity_citations.audit(path)
+    assert counters["uncited_roles"] == 1
+    assert "uncited_roles" in failures

@@ -77,7 +77,21 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
 #: shape, and it carries no schema-stability promise. `citations` is the first:
 #: it exists so ``/provenance/{type}/{id}`` keeps answering once the Postgres
 #: provenance tables retire, and its columns follow the API, not consumers.
+#:
+#: Read by :func:`internal_datasets`, so the distinction is derived from this set
+#: rather than restated (CR 103): a constant that names a policy nothing consults
+#: is one a later edit can contradict without any gate noticing.
 INTERNAL_TIERS = frozenset({"internal"})
+
+
+def internal_datasets(datasets: list[tuple[str, str]] | None = None) -> frozenset[str]:
+    """The published datasets that carry no subscriber contract (#313)."""
+    return frozenset(
+        name
+        for name, tier in (PUBLISHED_DATASETS if datasets is None else datasets)
+        if tier in INTERNAL_TIERS
+    )
+
 
 #: Per-dataset schema semver: additive = minor, rename/removal = major (spec).
 #: One knob covers every dataset today — per-dataset versions are a later

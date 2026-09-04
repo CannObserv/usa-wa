@@ -109,6 +109,30 @@ def take_page[R](
     return list(rows), None
 
 
+def parse_bounded_cursor(cursor: str | None, *, max_length: int, field: str) -> str | None:
+    """Validate a cursor keyed on a plain string column (CR 99).
+
+    ``roles`` keys on the structural ``role_key``, not on an id with a shape, so
+    the only check available is that the value could have come from the column —
+    ``max_length`` is that column's width. It is a weak check and deliberately
+    so: the strong one is impossible, and NO check is the wrong answer. An
+    unvalidated cursor goes straight into ``column > :cursor``, where a
+    truncated or foreign token does not fail — it resumes the scan at whatever
+    position it sorts to and the caller silently SKIPS rows, which is the exact
+    failure this module exists to prevent.
+    """
+    if cursor is None:
+        return None
+    if len(cursor) > max_length:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"cursor is not a token this API issued (max {max_length} characters for {field})"
+            ),
+        )
+    return cursor
+
+
 def parse_ulid_cursor(cursor: str | None) -> _ULID | None:
     """Validate a ULID-keyed cursor at the request boundary.
 

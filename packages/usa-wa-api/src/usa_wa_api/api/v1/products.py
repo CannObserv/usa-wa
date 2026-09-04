@@ -37,6 +37,8 @@ from usa_wa_api.api.v1.pagination import (
     Page,
     decode_cursor,
     encode_cursor,
+    parse_bounded_cursor,
+    parse_ulid_cursor,
     take_page,
 )
 from usa_wa_api.api.v1.schemas import (
@@ -49,6 +51,7 @@ from usa_wa_api.api.v1.schemas import (
     PersonSummary,
     RoleOut,
     ULIDPath,
+    parse_ulid_query,
     split_span_key,
 )
 from usa_wa_api.serving.schema import (
@@ -82,13 +85,34 @@ _SPAN_KEY_COLUMNS = (
 def _keyset(stmt: Select, column, *, cursor: str | None, limit: int) -> Select:
     """Apply the ascending single-column keyset predicate, ordering and over-fetch.
 
-    The cursor is the key value itself. Registry ULIDs sort lexicographically by
-    creation time, so for the entity routes this is still the natural order; for
-    ``roles`` the key is the structural ``role_key``, which sorts by seat.
+    The cursor is the key value itself, and arrives **already validated** — see
+    :func:`_ulid_cursor` / :func:`_key_cursor`. Registry ULIDs sort
+    lexicographically by creation time, so for the entity routes this is still
+    the natural order; for ``roles`` the key is the structural ``role_key``,
+    which sorts by seat.
     """
     if cursor is not None:
         stmt = stmt.where(column > cursor)
     return stmt.order_by(column.asc()).limit(limit + 1)
+
+
+def _ulid_cursor(cursor: str | None) -> str | None:
+    """A ULID-keyed cursor, validated at the request boundary (CR 99).
+
+    Returns the STRING, not the ULID: these columns are ``String(26)`` in the
+    serving schema rather than a ULID type, so the comparison is lexicographic —
+    which is the same order, since base32 ULIDs sort by creation time as text.
+    Parsing is only how the shape gets checked. Notably this rejects the
+    UUID-hex form, so a consumer that round-tripped an id through a ``::text``
+    cast is told rather than handed a page starting in the wrong place.
+    """
+    parsed = parse_ulid_cursor(cursor)
+    return None if parsed is None else str(parsed)
+
+
+def _key_cursor(cursor: str | None, column) -> str | None:
+    """A cursor keyed on a plain string column, bounded by that column's width."""
+    return parse_bounded_cursor(cursor, max_length=column.type.length, field=column.key)
 
 
 async def _page(session: AsyncSession, stmt: Select, model, *, key_of, limit: int) -> Page:
@@ -145,7 +169,7 @@ async def list_persons(
         stmt = stmt.where(Person.name_full.ilike(f"%{name_contains}%"))
     return await _page(
         session,
-        _keyset(stmt, Person.entity_id, cursor=cursor, limit=limit),
+        _keyset(stmt, Person.entity_id, cursor=_ulid_cursor(cursor), limit=limit),
         PersonSummary,
         key_of=lambda row: row.entity_id,
         limit=limit,
@@ -196,7 +220,7 @@ async def list_organizations(
         stmt = stmt.where(Organization.agency == agency)
     return await _page(
         session,
-        _keyset(stmt, Organization.entity_id, cursor=cursor, limit=limit),
+        _keyset(stmt, Organization.entity_id, cursor=_ulid_cursor(cursor), limit=limit),
         OrganizationOut,
         key_of=lambda row: row.entity_id,
         limit=limit,
@@ -244,14 +268,16 @@ async def list_roles(
     """
     stmt = select(Role)
     if organization_id is not None:
-        stmt = stmt.where(Role.org_entity_id == organization_id)
+        stmt = stmt.where(
+            Role.org_entity_id == str(parse_ulid_query(organization_id, field="organization_id"))
+        )
     if role_type is not None:
         stmt = stmt.where(Role.role_type == role_type)
     if district is not None:
         stmt = stmt.where(Role.district == district)
     return await _page(
         session,
-        _keyset(stmt, Role.role_key, cursor=cursor, limit=limit),
+        _keyset(stmt, Role.role_key, cursor=_key_cursor(cursor, Role.role_key), limit=limit),
         RoleOut,
         key_of=lambda row: row.role_key,
         limit=limit,
@@ -305,12 +331,18 @@ async def list_assignments(
     """
     stmt = select(Assignment)
     if person_id is not None:
-        stmt = stmt.where(Assignment.entity_id == person_id)
+        stmt = stmt.where(
+            Assignment.entity_id == str(parse_ulid_query(person_id, field="person_id"))
+        )
     if role_key is not None:
         stmt = stmt.where(Assignment.role_key == role_key)
     if role_id is not None:
         stmt = stmt.where(
-            Assignment.role_key.in_(select(Role.role_key).where(Role.entity_id == role_id))
+            Assignment.role_key.in_(
+                select(Role.role_key).where(
+                    Role.entity_id == str(parse_ulid_query(role_id, field="role_id"))
+                )
+            )
         )
     if is_active is not None:
         stmt = stmt.where(Assignment.is_active.is_(is_active))
