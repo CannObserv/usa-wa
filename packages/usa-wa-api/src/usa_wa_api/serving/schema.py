@@ -131,6 +131,50 @@ class OrgCrosswalk(ServingBase):
     merged_into: Mapped[str | None] = mapped_column(String(26))
 
 
+class Citation(ServingBase):
+    """One entity ↔ one raw resource that attests it (#313).
+
+    The successor to the Postgres ``Citation`` chain, and the reason
+    ``/provenance/{type}/{id}`` survives the provenance tables retiring. The
+    whole row is the key — the artifact is a deduplicated set, so there is no
+    surrogate id to invent and nothing a narrower PK would protect.
+
+    ``entity_id`` is a registry ULID for ``person``/``organization``/``role``
+    and a 4-part span ``source_id`` for ``assignment``: the serving tier keys
+    assignments structurally, so a span's published identity *is* its key.
+    Hence ``String(256)``, not ``String(26)``.
+    """
+
+    __tablename__ = "citations"
+
+    entity_type: Mapped[str] = mapped_column(String(32), primary_key=True)
+    entity_id: Mapped[str] = mapped_column(String(256), primary_key=True, index=True)
+    source: Mapped[str] = mapped_column(String(64), primary_key=True)
+    resource_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+
+
+class RawFetch(ServingBase):
+    """What is known about one raw resource: the digest, when, from where.
+
+    The attestation dimension every :class:`Citation` joins through. Kept apart
+    from the citations themselves so a 64-char digest is stored once per
+    resource rather than once per citation — and because it is a genuine fact
+    about the archive, answerable on its own.
+    """
+
+    __tablename__ = "raw_fetches"
+
+    source: Mapped[str] = mapped_column(String(64), primary_key=True)
+    resource_id: Mapped[str] = mapped_column(String(256), primary_key=True)
+    sha256: Mapped[str | None] = mapped_column(String(64))
+    fetched_at: Mapped[str | None] = mapped_column(String(32))
+    run_id: Mapped[str | None] = mapped_column(String(64))
+    url: Mapped[str | None] = mapped_column(String(1024))
+    #: Null when the run manifest has been pruned — the digest still is not.
+    bytes: Mapped[int | None] = mapped_column(Integer)
+    content_type: Mapped[str | None] = mapped_column(String(128))
+
+
 class LoadState(ServingBase):
     """Which published version each served table currently holds (CR 92).
 
@@ -166,4 +210,9 @@ SERVING_TABLES: dict[str, Table] = {
     "assignments": Assignment.__table__,
     "person_crosswalk": PersonCrosswalk.__table__,
     "org_crosswalk": OrgCrosswalk.__table__,
+    # The provenance chain (#313). `stg_raw_fetches` keeps its published name
+    # as the key and loads into `raw_fetches`: the staging prefix names a
+    # pipeline tier, which is not a fact about the table the API reads.
+    "citations": Citation.__table__,
+    "stg_raw_fetches": RawFetch.__table__,
 }

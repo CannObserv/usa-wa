@@ -347,3 +347,96 @@ async def test_load_state_is_replaced_not_appended(serving_schema, db_session, t
     await load_serving(db_session, tmp_path, datasets=("persons",))
     await load_serving(db_session, tmp_path, datasets=("persons",))
     assert len((await db_session.execute(select(LoadState))).scalars().all()) == 1
+
+
+CITATION_FIELDS = [
+    {"name": "entity_type", "type": "string"},
+    {"name": "entity_id", "type": "string"},
+    {"name": "source", "type": "string"},
+    {"name": "resource_id", "type": "string"},
+]
+RAW_FETCH_FIELDS = [
+    {"name": "source", "type": "string"},
+    {"name": "resource_id", "type": "string"},
+    {"name": "sha256", "type": "string"},
+    {"name": "fetched_at", "type": "string"},
+    {"name": "run_id", "type": "string"},
+    {"name": "url", "type": "string"},
+    {"name": "bytes", "type": "integer"},
+    {"name": "content_type", "type": "string"},
+]
+
+
+class TestProvenanceChain:
+    """#313 inc 3: the citations artifact and the attestation dimension it joins."""
+
+    def test_both_halves_of_the_chain_are_served(self) -> None:
+        assert SERVING_TABLES["citations"].name == "citations"
+        assert SERVING_TABLES["stg_raw_fetches"].name == "raw_fetches"
+
+    def test_the_published_names_match_the_serving_columns(self) -> None:
+        """The dataset's name and its table's need not agree — a `stg_` prefix
+        names a pipeline tier, not a fact about what the API reads — but the
+        columns must, or the loader refuses."""
+        assert verify_contract("citations", CITATION_FIELDS, SERVING_TABLES["citations"]) == []
+        assert (
+            verify_contract("stg_raw_fetches", RAW_FETCH_FIELDS, SERVING_TABLES["stg_raw_fetches"])
+            == []
+        )
+
+    def test_a_renamed_table_is_named_in_the_refusal(self) -> None:
+        dropped = [f for f in RAW_FETCH_FIELDS if f["name"] != "url"]
+        [problem] = verify_contract("stg_raw_fetches", dropped, SERVING_TABLES["stg_raw_fetches"])
+        assert "stg_raw_fetches" in problem and "serving.raw_fetches" in problem
+
+    @pytest.mark.db
+    async def test_a_citation_joins_its_attestation_after_a_load(
+        self, serving_schema, tmp_path
+    ) -> None:
+        """The whole point: entity → resource → digest, closed in the database
+        the API queries, with no provenance table left in it."""
+        _publish(
+            tmp_path,
+            "citations",
+            "v1",
+            [
+                {
+                    "entity_type": "person",
+                    "entity_id": "01A",
+                    "source": "usa_wa_legislature",
+                    "resource_id": "sponsors:2025-26",
+                }
+            ],
+            fields=CITATION_FIELDS,
+        )
+        _publish(
+            tmp_path,
+            "stg_raw_fetches",
+            "v1",
+            [
+                {
+                    "source": "usa_wa_legislature",
+                    "resource_id": "sponsors:2025-26",
+                    "sha256": "abc123",
+                    "fetched_at": "2026-09-04T08:03:56.172554Z",
+                    "run_id": "20260904T080355-9be40a",
+                    "url": "https://wslwebservices.leg.wa.gov/",
+                    "bytes": 7503,
+                    "content_type": "text/xml",
+                }
+            ],
+            fields=RAW_FETCH_FIELDS,
+        )
+        citations = SERVING_TABLES["citations"]
+        fetches = SERVING_TABLES["stg_raw_fetches"]
+        await load_serving(serving_schema, tmp_path, datasets=("citations", "stg_raw_fetches"))
+        row = (
+            await serving_schema.execute(
+                select(citations.c.entity_id, fetches.c.sha256, fetches.c.bytes).join(
+                    fetches,
+                    (citations.c.source == fetches.c.source)
+                    & (citations.c.resource_id == fetches.c.resource_id),
+                )
+            )
+        ).one()
+        assert row == ("01A", "abc123", 7503)

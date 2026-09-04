@@ -182,14 +182,16 @@ def verify_contract(name: str, fields: list[dict[str, Any]], table: Table) -> li
     """
     declared = {field["name"] for field in fields}
     columns = set(table.columns.keys())
+    # The dataset's published name and the table's are not always the same — a
+    # `stg_` prefix names a pipeline tier, which is not a fact about the table
+    # the API reads — so the message says both rather than assuming one.
+    target = f"serving.{table.name}"
     problems = []
     if extra := sorted(declared - columns):
-        problems.append(
-            f"{name}: datapackage declares {extra}, which `serving.{name}` has no column for"
-        )
+        problems.append(f"{name}: datapackage declares {extra}, which `{target}` has no column for")
     if missing := sorted(columns - declared):
         problems.append(
-            f"{name}: `serving.{name}` has columns {missing} the datapackage no longer declares"
+            f"{name}: `{target}` has columns {missing} the datapackage no longer declares"
         )
     return problems
 

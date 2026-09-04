@@ -19,7 +19,9 @@ from usa_wa_adapter_pdc.harvest import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
     SENATE_WINNERS_RESOURCE_PREFIX,
 )
+from usa_wa_pipeline.staging.common import PROVENANCE_COLUMNS
 from usa_wa_pipeline.staging.common import latest_wires as _latest_wires
+from usa_wa_pipeline.staging.common import provenance as _provenance
 from usa_wa_pipeline.staging.common import text as _text
 
 # the adapter's exported prefixes (#302 CR): a rename upstream must break the
@@ -40,6 +42,7 @@ WINNER_COLUMNS = [
     "office",
     "general_election_status",
     "candidacy_id",
+    *PROVENANCE_COLUMNS,
 ]
 
 
@@ -70,6 +73,7 @@ def winner_rows(
                         "office": record.get("office"),
                         "general_election_status": record.get("general_election_status"),
                         "candidacy_id": _text(record.get("candidacy_id")),
+                        **_provenance(store, resource_id),
                     }
                 )
     return rows

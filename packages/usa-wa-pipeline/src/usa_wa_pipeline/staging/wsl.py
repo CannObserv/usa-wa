@@ -25,14 +25,25 @@ from usa_wa_adapter_legislature.adapter import (
 from usa_wa_adapter_legislature.meetings.windows import (
     COMMITTEE_MEETINGS_RESOURCE_PREFIX,
 )
+from usa_wa_pipeline.staging.common import PROVENANCE_COLUMNS
 from usa_wa_pipeline.staging.common import latest_wires as _latest_wires
+from usa_wa_pipeline.staging.common import provenance as _provenance
 from usa_wa_pipeline.staging.common import text as _text
 
 _MEETINGS_PREFIX = COMMITTEE_MEETINGS_RESOURCE_PREFIX
 
 Parser = Callable[[bytes], list[dict[str, Any]]]
 
-COMMITTEE_COLUMNS = ["biennium", "committee_id", "agency", "name", "long_name", "acronym", "phone"]
+COMMITTEE_COLUMNS = [
+    "biennium",
+    "committee_id",
+    "agency",
+    "name",
+    "long_name",
+    "acronym",
+    "phone",
+    *PROVENANCE_COLUMNS,
+]
 SPONSOR_COLUMNS = [
     "biennium",
     "member_id",
@@ -43,6 +54,7 @@ SPONSOR_COLUMNS = [
     "last_name",
     "party",
     "district",
+    *PROVENANCE_COLUMNS,
 ]
 COMMITTEE_MEMBER_COLUMNS = [
     "biennium",
@@ -60,6 +72,7 @@ COMMITTEE_MEMBER_COLUMNS = [
     "agency",
     "party",
     "district",
+    *PROVENANCE_COLUMNS,
 ]
 MEETING_COLUMNS = [
     "meeting_window",
@@ -67,6 +80,7 @@ MEETING_COLUMNS = [
     "committee_id",
     "committee_agency",
     "committee_name",
+    *PROVENANCE_COLUMNS,
 ]
 
 
@@ -87,6 +101,7 @@ def committee_rows(
                     "long_name": record.get("LongName"),
                     "acronym": record.get("Acronym"),
                     "phone": record.get("Phone"),
+                    **_provenance(store, resource_id),
                 }
             )
     return rows
@@ -111,6 +126,7 @@ def sponsor_rows(
                     "last_name": record.get("LastName"),
                     "party": record.get("Party"),
                     "district": _text(record.get("District")),
+                    **_provenance(store, resource_id),
                 }
             )
     return rows
@@ -144,6 +160,7 @@ def committee_member_rows(
                     "agency": record.get("Agency"),
                     "party": record.get("Party"),
                     "district": _text(record.get("District")),
+                    **_provenance(store, resource_id),
                 }
             )
     return rows
@@ -175,6 +192,7 @@ def meeting_rows(
                         "committee_id": _text(ref.get("Id")),
                         "committee_agency": ref.get("Agency"),
                         "committee_name": ref.get("Name"),
+                        **_provenance(store, resource_id),
                     }
                 )
     return rows

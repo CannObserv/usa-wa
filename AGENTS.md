@@ -12,7 +12,7 @@ TDD required. Red → Green → Refactor. No production code without a failing t
 
 ## Environment & Tooling
 
-Python ≥3.12, uv, pytest, ruff; dbt-duckdb for the #302 pipeline — commands + model TDD policy: [`docs/PIPELINE.md`](docs/PIPELINE.md).
+Python ≥3.12, uv, pytest, ruff; dbt-duckdb for the #302 pipeline — commands + model TDD policy: [`docs/PIPELINE.md`](docs/PIPELINE.md); the registry-joined conformed tier (spans, roles, citations): [`docs/PIPELINE-CONFORMED.md`](docs/PIPELINE-CONFORMED.md).
 
 ## Code Exploration Policy
 
