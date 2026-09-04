@@ -28,10 +28,12 @@ Reachable at `https://usa-wa.exe.xyz:8001/` via the exe.dev proxy.
 
 ## HTTP API
 
-A read-only `/api/v1` over the canonical data (#184) — persons, organizations, roles,
-assignments (which *are* the tenure spans), sources, coverage and provenance chains — plus the
-unversioned probes (`/health`, `/ready`, `/health/sync`) and the one mutating operator route
-(`POST /sync/redrive`).
+A read-only `/api/v1` over the **published datasets** (#184, flipped to the serving schema at
+#313) — persons, organizations, roles, assignments (which *are* the tenure spans), sources,
+coverage and provenance chains — plus the unversioned probes (`/health`, `/ready`,
+`/health/datasets`, `/health/serving`) and the `/datasets/*` tree itself.
+
+Read-only literally: since #313 the deployment registers no mutating route at all.
 
 ```bash
 curl -s localhost:8001/api/v1/health/jobs | jq            # last run per job slug (#178)

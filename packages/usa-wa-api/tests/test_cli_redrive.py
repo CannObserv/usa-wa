@@ -1,5 +1,9 @@
 """python -m usa_wa_api.cli.redrive re-drives UNAVAILABLE outbox entries.
 
+The ONLY re-drive surface since #313, so these carry the whole behaviour:
+``POST /sync/redrive`` retired with the rest of the mutating API, and its
+age-scoping test came here rather than being deleted with it.
+
 Exercises arg parsing, the in-loop ``_run`` (session open → perform → commit)
 against the savepointed test session, and ``main``'s arg-wiring + JSON output
 (with ``_run`` patched, since ``main`` spins its own event loop via
@@ -7,6 +11,7 @@ against the savepointed test session, and ``main``'s arg-wiring + JSON output
 """
 
 import json
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -194,3 +199,32 @@ def test_main_wires_args_and_prints_json(monkeypatch, capsys):
     assert seen["args"] == ("person", 60, 5, True)
     body = json.loads(capsys.readouterr().out.splitlines()[-1])["counters"]
     assert body == {"matched": 3, "redriven": 0, "dry_run": True, "entity_type": "person"}
+
+
+async def test_run_scopes_by_age(db_session):
+    """``--older-than-seconds`` re-drives only entries past the threshold.
+
+    Ported from the retired HTTP route's suite (#313). The guard it protects is
+    in `_non_negative_int`: a negative age inverts the filter to
+    ``created_at <= now + |X|`` and silently matches every row.
+    """
+    now = datetime.now(UTC)
+    old = OutboxEntry(entity_type="fake", local_id=ULID(), op=OP_CREATE, status=STATUS_UNAVAILABLE)
+    fresh = OutboxEntry(
+        entity_type="fake", local_id=ULID(), op=OP_CREATE, status=STATUS_UNAVAILABLE
+    )
+    db_session.add_all([old, fresh])
+    await db_session.flush()
+    old.created_at = now - timedelta(hours=2)
+    fresh.created_at = now - timedelta(seconds=1)
+    await db_session.flush()
+
+    result = await cli.perform_redrive(db_session, older_than_seconds=3600)
+
+    assert result["matched"] == 1
+    assert result["redriven"] == 1
+    assert result["older_than_seconds"] == 3600
+    await db_session.refresh(old)
+    await db_session.refresh(fresh)
+    assert old.status == STATUS_PENDING
+    assert fresh.status == STATUS_UNAVAILABLE
