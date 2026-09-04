@@ -71,10 +71,30 @@ def test_openapi_schema_generates_and_includes_the_v1_paths():
 
 
 def test_the_unversioned_probes_stay_where_operators_and_systemd_expect_them():
-    """``/health``, ``/ready`` and ``/health/sync`` predate the versioned surface and
-    are probe contracts, not product API. Versioning them would break the deployment."""
+    """``/health`` and ``/ready`` predate the versioned surface and are probe
+    contracts, not product API. Versioning them would break the deployment.
+
+    ``/health/sync`` was here until #313 and is deliberately absent: the outbox
+    it reported on is not what an operator watches any more, and the sidecar logs
+    the same backlog structure on every duty cycle.
+    """
     paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
-    assert {"/health", "/ready", "/health/sync"} <= paths
+    assert {"/health", "/ready"} <= paths
+
+
+def test_the_whole_app_is_read_only_not_just_the_v1_prefix():
+    """#313: with ``POST /sync/redrive`` retired this app registers no mutating
+    route at all — which is what lets Power Map revoke usa-wa's write scopes
+    against an API that provably cannot write, rather than one that promises not
+    to. The ``/api/v1``-scoped check above cannot see a route mounted outside the
+    prefix, which is exactly where the last mutating one lived.
+    """
+    mutating = sorted(
+        f"{sorted(r.methods)} {r.path}"
+        for r in app.routes
+        if isinstance(r, APIRoute) and not r.methods <= {"GET", "HEAD"}
+    )
+    assert mutating == []
 
 
 # --- docs/API.md route inventory ---------------------------------------------

@@ -2,10 +2,10 @@
 
 The `usa-wa-api` deployment's routes. Two surfaces with different contracts:
 
-- **Unversioned probes** — `/health`, `/ready`, `/health/sync`, `/sync/redrive`. Deployment
-  contracts consumed by systemd, the proxy and the operator's shell. They predate the versioned
-  surface and keep their paths; versioning them would break those consumers to buy a consistency
-  nobody asked for.
+- **Unversioned probes** — `/health`, `/ready`, `/health/datasets`, `/health/serving`,
+  `/datasets/{path}`. Deployment contracts consumed by systemd, the proxy and the operator's
+  shell. They predate the versioned surface and keep their paths; versioning them would break
+  those consumers to buy a consistency nobody asked for.
 - **`/api/v1`** — the read-only product surface (#184). Everything here is published through
   OpenAPI the moment it ships, so it is versioned from its first route.
 
@@ -23,11 +23,9 @@ suite until the table below matches.
 |---|---|---|
 | GET | `/health` | Liveness. No external calls; returns the build id. |
 | GET | `/ready` | Readiness. `SELECT 1` against the database; 503 on failure. |
-| GET | `/health/sync` | PM-sync outbox backlog — terminal piles plus overdue PENDING work. Retires at #313 with the outbox. |
 | GET | `/health/datasets` | Publication health (#311): catalog age + per-dataset latest version/rows/age; `published: false` before the first publish. The pipeline-era successor to `/health/sync`. |
 | GET | `/health/serving` | Serving-projection health (#313): per-dataset **loaded version** vs. the catalog's published version, plus rows and `unaddressable_rows`. Currency is a version comparison, not a row count — an unchanged count is the normal case, so counts cannot tell yesterday's snapshot from today's. `current: null` when the catalog does not carry the dataset. Distinct from `/health/datasets`: a healthy catalog with a stale load is the silent case, because every `/api/v1` answer is still a 200. `loaded: false` before the schema is built; a broken database raises rather than reporting `false` — `/ready` is the database-liveness probe. |
 | GET | `/datasets/{path:path}` | Published dataset files (#311): `catalog.json` + `<name>/<version>/data.csv\|datapackage.json` off `USA_WA_DATASETS_ROOT`. Traversal-guarded; 404 for anything unpublished. |
-| POST | `/sync/redrive` | **Mutating.** Re-drives dead-lettered outbox entries. `X-Operator-Token` gated. |
 
 ### `/api/v1` — operations
 
@@ -58,8 +56,19 @@ suite until the table below matches.
 
 Every `/api/v1` route is a `GET`. This is not a convention, it is a deployment fact: the API runs
 as the **app** role and the provenance tables carry `REVOKE UPDATE` (#54), so a mutating route
-here fails at the database, in production, not in review. `test_v1_contract.py` asserts the
-method set.
+here fails at the database, in production, not in review.
+
+Since #313 that is true of the **whole app**, not just the `/api/v1` prefix: `POST /sync/redrive`
+was the last mutating route and retired with the sync surface, so the deployment registers no
+non-GET operation anywhere. That is what lets Power Map revoke usa-wa's write scopes against an
+API that provably cannot write rather than one that promises not to.
+`test_v1_contract.py` asserts both — the prefixed set and the whole route table.
+
+Re-driving dead-lettered outbox work is now on-box only:
+`python -m usa_wa_api.cli.redrive` ([COMMANDS-SYNC.md](COMMANDS-SYNC.md)), with the same scoping
+and dry-run semantics. Shell access was always a stronger trust boundary than the single shared
+`X-Operator-Token` header the route carried, and that header — and
+`USA_WA_OPERATOR_TOKEN` — are gone with it.
 
 ### There is no `/spans`
 
@@ -188,7 +197,7 @@ Deliberate omissions, each because shipping it would have meant guessing at a co
 - **Bills, votes, statutes, lobbying.** Those tables are the declared-not-implemented tier (#182):
   no source populates them, so a route over them would publish an empty resource that looks like a
   data outage.
-- **Write routes of any kind.** `/sync/redrive` remains the only mutating endpoint.
+- **Write routes of any kind.** There are none at all since #313 — see *Read-only* above.
 - **Free-text search** beyond `persons?name_contains=`. A real search surface wants an index and a
   ranking contract, neither of which exists yet.
 - **Retiring the read-only probe CLIs** (`probe_committee_extent`, `probe_member_identity`,
