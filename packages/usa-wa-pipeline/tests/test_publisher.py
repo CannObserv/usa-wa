@@ -5,6 +5,7 @@ import json
 import duckdb
 import pytest
 
+from usa_wa_pipeline import publish as publish_module
 from usa_wa_pipeline.publish import PublishRefused, publish
 
 
@@ -168,3 +169,15 @@ def test_rebuilt_identical_table_is_skipped_not_reminted(built_db, tmp_path):
     summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
     assert summary["unchanged"] == 2
     assert summary["minted"] == 0
+
+
+def test_the_internal_tier_is_derived_from_the_dataset_config() -> None:
+    """CR 103: `INTERNAL_TIERS` named a policy nothing consulted, so a dataset
+    could gain a subscriber-facing tier with no gate noticing. Deriving the set
+    from `PUBLISHED_DATASETS` is what keeps the two from drifting apart."""
+    assert publish_module.internal_datasets() == {"citations"}
+    assert "persons" not in publish_module.internal_datasets()
+
+
+def test_a_dataset_whose_tier_is_not_internal_is_a_subscriber_product() -> None:
+    assert publish_module.internal_datasets([("x", "conformed"), ("y", "internal")]) == {"y"}

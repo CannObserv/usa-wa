@@ -63,13 +63,17 @@ def fetch_rows(root: Path | str) -> list[dict[str, Any]]:
             continue
         index = json.loads(index_path.read_text())
         # Manifests are read once per run, not once per resource: a harvest
-        # records hundreds of resources under one run id.
-        manifests: dict[str, dict[str, dict[str, Any]]] = {}
+        # records hundreds of resources under one run id. Spelled as an explicit
+        # membership test rather than `setdefault`, whose default argument is
+        # evaluated EAGERLY — that version re-read and re-parsed the manifest on
+        # every row, 1,391 reads for 8 distinct manifests against the live store,
+        # while this comment claimed the opposite (CR 101).
+        manifests: dict[str | None, dict[str, dict[str, Any]]] = {}
         for resource_id, entry in sorted(index.items()):
             run_id = entry.get("run_id")
-            manifest = manifests.setdefault(
-                run_id, _manifest_entries(source_dir / "runs", run_id) if run_id else {}
-            )
+            if run_id not in manifests:
+                manifests[run_id] = _manifest_entries(source_dir / "runs", run_id) if run_id else {}
+            manifest = manifests[run_id]
             recorded = manifest.get(resource_id, {})
             rows.append(
                 {

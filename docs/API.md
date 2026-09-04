@@ -114,14 +114,25 @@ that gets slow.
 of a hand-written `CoverageClaim` declaration — one per `(dimension, range_start)` — so the set is
 bounded by the audit, not by data volume.
 
-### Identifiers are ULIDs, in base32
+### Identifiers
 
-Every id in a request or response is the 26-character Crockford base32 form
-(`01J9ZQ7X8K3M4N5P6Q7R8S9T0V`). The PKs are stored as PostgreSQL `uuid`, so a `::text` cast — or
-any path through the `uuid.UUID` representation — yields the 36-character hyphenated hex form,
-which is not an id this system's consumers can use (Power Map's API 404s on it). Passing hex where
-a ULID is expected is a **422**, deliberately: a 404 would read as "no such row" and send the
-caller hunting for a data problem that does not exist.
+**Entity ids are ULIDs, in base32.** Persons, organizations and roles are addressed by
+`entity_id`, the 26-character Crockford base32 form (`01J9ZQ7X8K3M4N5P6Q7R8S9T0V`). The registry
+stores them as PostgreSQL `uuid`, so a `::text` cast — or any path through the `uuid.UUID`
+representation — yields the 36-character hyphenated hex form, which is not an id this system's
+consumers can use (Power Map's API 404s on it).
+
+**One deliberate exception: an assignment.** A span has no row identity — a span *is* its key —
+so it is addressed by `assignment_id`, the 4-part
+`{member_id}:{kind}:{discriminator}:{start_biennium}`. `/provenance/{entity_type}/{entity_id}`
+therefore accepts both shapes, since it answers for every kind.
+
+Where a ULID *is* expected, passing hex is a **422**, deliberately: a 404 would read as "no such
+row" and send the caller hunting for a data problem that does not exist. That holds for path
+parameters (`/persons/{id}`), for the ULID-valued query filters (`roles?organization_id=`,
+`assignments?person_id=`, `assignments?role_id=`), and for the cursors of the routes keyed on a
+ULID — where the alternative is worse than a 404, because an unvalidated cursor resumes the scan
+at whatever position it sorts to and the caller silently skips rows.
 
 ### Liveness, and why there is none left
 

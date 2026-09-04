@@ -261,6 +261,21 @@ class TestPersons:
     async def test_unknown_id_is_404(self, client, corpus) -> None:
         assert (await client.get("/api/v1/persons/01JZZZZZZZZZZZZZZZZZZZZZZZ")).status_code == 404
 
+    async def test_a_malformed_cursor_is_refused_not_silently_resumed(self, client, corpus) -> None:
+        """CR 99. A cursor this API did not issue must not resume the scan at
+        whatever position it happens to sort to — a truncated or `::text`-cast
+        cursor would then silently SKIP rows, which is the exact failure keyset
+        pagination exists to prevent."""
+        for bad in ("0192d4a1-0000-7000-8000-000000000000", "01KWWW", "not-a-cursor"):
+            response = await client.get("/api/v1/persons", params={"cursor": bad})
+            assert response.status_code == 422, bad
+
+    async def test_a_valid_cursor_still_pages(self, client, corpus) -> None:
+        """The guard rejects shapes, not cursors: the one this route issued works."""
+        response = await client.get("/api/v1/persons", params={"cursor": PERSON_A})
+        assert response.status_code == 200
+        assert [i["entity_id"] for i in response.json()["items"]] == [PERSON_B, PERSON_C]
+
     async def test_a_uuid_hex_id_is_422_not_404(self, client, corpus) -> None:
         """A consumer that round-tripped an id through a `::text` cast gets told,
         rather than a 404 they will read as "no such person"."""
@@ -304,6 +319,21 @@ class TestRoles:
         by_district = (await client.get("/api/v1/roles", params={"district": 14})).json()
         assert [item["role_key"] for item in by_district["items"]] == ["senate-seat-role:14"]
 
+    async def test_a_malformed_organization_filter_names_the_field(self, client, corpus) -> None:
+        """CR 100. An empty page would be indistinguishable from "this
+        organization has no roles" — the conflation this surface exists to
+        remove — so a malformed id is a 422 that says WHICH parameter."""
+        response = await client.get("/api/v1/roles", params={"organization_id": "not-a-ulid"})
+        assert response.status_code == 422
+        assert "organization_id" in response.json()["detail"]
+
+    async def test_a_cursor_that_is_not_a_role_key_is_refused(self, client, corpus) -> None:
+        """CR 99. `roles` keys on `role_key`, not a ULID, so the shape check is a
+        length bound rather than a pattern — but a cursor longer than the column
+        can hold is still one this route never issued."""
+        response = await client.get("/api/v1/roles", params={"cursor": "x" * 300})
+        assert response.status_code == 422
+
     async def test_addressed_by_the_registry_ulid_not_the_derived_key(self, client, corpus) -> None:
         """The key is derived, so it moves when the derivation is corrected, and
         an id that moves is not an id. Both are on the response either way."""
@@ -345,6 +375,13 @@ class TestAssignments:
         assert [item["assignment_id"] for item in by_id["items"]] == [
             item["assignment_id"] for item in by_key["items"]
         ]
+
+    @pytest.mark.parametrize("field", ["person_id", "role_id"])
+    async def test_a_malformed_id_filter_names_the_field(self, client, corpus, field) -> None:
+        """CR 100, both ULID-valued filters."""
+        response = await client.get("/api/v1/assignments", params={field: "nope"})
+        assert response.status_code == 422
+        assert field in response.json()["detail"]
 
     async def test_as_of_matches_open_and_closed_spans(self, client, corpus) -> None:
         body = (await client.get("/api/v1/assignments", params={"as_of": "2021-06-01"})).json()

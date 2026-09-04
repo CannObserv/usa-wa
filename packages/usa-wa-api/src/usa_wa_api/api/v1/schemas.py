@@ -46,9 +46,13 @@ ULID_PATTERN = r"^[0-9A-HJKMNP-TV-Z]{26}$"
 form fails this — deliberately."""
 
 SPAN_KEY_PARTS = 4
-"""``{member_id}:{kind}:{discriminator}:{start_biennium}`` — the tenure-span
-``Assignment.source_id`` shape (``docs/ONTOLOGY.md`` § 2). Any other part count is
-a legacy or non-span row and parses to nulls rather than to a wrong answer."""
+"""``{member_id}:{kind}:{discriminator}:{start_biennium}`` — a span's addressable
+identity (``docs/ONTOLOGY.md`` § 2), assembled from the serving tier's columns by
+:func:`span_key` and taken apart by :func:`split_span_key`. Since #313 the parts
+ARE columns, so this count describes the id a caller passes rather than a
+``source_id`` string the API parses; any other part count is refused with a 422
+rather than answered with nulls, because there is no longer a legacy row shape
+for it to legitimately be."""
 
 
 def _as_ulid_str(value: Any) -> Any:
