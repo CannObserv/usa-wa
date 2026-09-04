@@ -13,10 +13,10 @@ review — it would fail at the database, in production.
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import literal, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.provenance import Citation, FetchEvent, Source, citable_entity_types
+from clearinghouse_core.provenance import Source
 from clearinghouse_core.runs import JobRun
 from clearinghouse_core.source_coverage import SourceCoverage
 from usa_wa_api.api.deps import get_db_session
@@ -25,6 +25,8 @@ from usa_wa_api.api.v1.pagination import (
     CursorQuery,
     LimitQuery,
     Page,
+    decode_cursor,
+    encode_cursor,
     parse_ulid_cursor,
     take_page,
 )
@@ -34,18 +36,17 @@ from usa_wa_api.api.v1.schemas import (
     JobHealth,
     SourceCoverageOut,
     SourceOut,
-    ULIDPath,
-    parse_ulid_path,
 )
+from usa_wa_api.serving.schema import Citation, RawFetch
 
 router = APIRouter(tags=["operations"])
 
-#: The discriminators actually written today, for the 422 *message* only. The accepted
-#: set is the full ORM registry (any mapped class may be cited); naming all 52 in an
-#: error would bury the five a caller almost certainly meant.
-_CITED_ENTITY_TYPES = frozenset(
-    {"person", "personidentifier", "organization", "role", "assignment"}
-)
+#: The entity types the citations artifact carries (#313). A CLOSED set now, not a
+#: sample of an open ORM registry: the artifact is built from four named rules, so a
+#: type outside this list is a typo rather than a shape nobody has cited yet.
+#: ``personidentifier`` is gone — a third of the old chain — because identifiers are
+#: the crosswalk now, and a key is not a thing that gets separately attested.
+CITED_ENTITY_TYPES = ("assignment", "organization", "person", "role")
 
 
 @router.get("/health/jobs", response_model=Page[JobHealth])
@@ -177,56 +178,69 @@ async def get_source_coverage(
 @router.get("/provenance/{entity_type}/{entity_id}", response_model=Page[CitationOut])
 async def list_provenance(
     entity_type: str,
-    entity_id: ULIDPath,
+    entity_id: str,
     session: AsyncSession = Depends(get_db_session),
     limit: LimitQuery = DEFAULT_LIMIT,
     cursor: CursorQuery = None,
 ) -> Page[CitationOut]:
-    """The citation chain for one canonical row — "how do we know this?".
+    """The citation chain for one published entity — "how do we know this?".
 
-    ``entity_type`` is the polymorphic discriminator the writers use: the lowercase
-    mapped-class name. The accepted set is *derived from the ORM registry*
-    (:func:`~clearinghouse_core.provenance.citable_entity_types`) exactly the way the
-    writer derives it, so it cannot drift — and so it includes the ones a hand-written
-    list forgets. ``personidentifier`` is a third of production's citations and was
-    absent from every enumeration of this vocabulary in the codebase (CR #196 f41).
+    Since #313 this reads the published citations artifact rather than the
+    Postgres provenance ledger, and the shape of the answer changed with it: a
+    citation names a **raw resource** and the digest of its bytes, not a fetch
+    event and a confidence. That is a stronger statement, not a weaker one —
+    ``sha256`` identifies exactly what was read.
 
-    An unknown ``entity_type`` is a **422**: it is a closed set this system controls, so
-    a typo (``persons`` for ``person``) should be told rather than silently answered with
-    an empty page. An unknown ``entity_id`` is **not** — there is no FK on it by design,
-    one citation table spans every domain, so this route genuinely cannot tell "no
-    provenance recorded" from "no such row" and returns an empty page rather than
-    inventing a distinction it has no way to check.
+    ``entity_id`` is a registry ULID for ``person``/``organization``/``role`` and
+    the 4-part span key for ``assignment``, so it is **not** ULID-validated: the
+    assignment case is legitimately not a ULID.
 
-    Ordered **newest first** (id descending): a re-pull mints a fresh ``FetchEvent``
-    and citation for the same resource daily, so the head of the chain is the
-    current attestation and is what a reader wants first.
+    An unknown ``entity_type`` is a **422** — it is a closed set this system
+    controls (:data:`CITED_ENTITY_TYPES`), so a typo (``persons`` for ``person``)
+    should be told rather than silently answered with an empty page. An unknown
+    ``entity_id`` is **not**: one artifact spans every kind and carries no foreign
+    key, so this route genuinely cannot tell "no provenance recorded" from "no
+    such row", and it returns an empty page rather than inventing a distinction
+    it cannot check.
+
+    Ordered by ``(source, resource_id)``. The old chain ordered newest-first
+    because a daily re-pull minted a fresh citation for the same resource; the
+    artifact holds exactly one row per (entity, resource), so there is no
+    recency to surface and a stable key order is what pages correctly.
     """
-    known = citable_entity_types()
-    if entity_type not in known:
+    if entity_type not in CITED_ENTITY_TYPES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"unknown entity_type {entity_type!r}; expected one of "
-                f"{', '.join(sorted(known & _CITED_ENTITY_TYPES))}"
+                f"{', '.join(CITED_ENTITY_TYPES)}"
             ),
         )
     stmt = (
-        select(Citation, FetchEvent, Source)
-        .join(FetchEvent, Citation.fetch_event_id == FetchEvent.id)
-        .join(Source, FetchEvent.source_id == Source.id)
+        select(Citation, RawFetch)
+        # LEFT: a citation with no attestation is an integrity break the nightly
+        # probe gates at zero, and dropping it here would hide from a reader the
+        # very thing that probe exists to shout about.
+        .outerjoin(
+            RawFetch,
+            (Citation.source == RawFetch.source) & (Citation.resource_id == RawFetch.resource_id),
+        )
         .where(Citation.entity_type == entity_type)
-        .where(Citation.entity_id == parse_ulid_path(entity_id))
+        .where(Citation.entity_id == entity_id)
     )
-    before = parse_ulid_cursor(cursor)
-    if before is not None:
-        stmt = stmt.where(Citation.id < before)
-    stmt = stmt.order_by(Citation.id.desc()).limit(limit + 1)
+    after = decode_cursor(cursor, arity=2)
+    if after is not None:
+        stmt = stmt.where(
+            tuple_(Citation.source, Citation.resource_id) > tuple_(*(literal(v) for v in after))
+        )
+    stmt = stmt.order_by(Citation.source.asc(), Citation.resource_id.asc()).limit(limit + 1)
 
     rows = list((await session.execute(stmt)).all())
-    page, next_cursor = take_page(rows, limit=limit, key_of=lambda row: str(row[0].id))
+    page, next_cursor = take_page(
+        rows, limit=limit, key_of=lambda row: encode_cursor([row[0].source, row[0].resource_id])
+    )
     return Page(
-        items=[CitationOut.from_row(citation, event, source) for citation, event, source in page],
+        items=[CitationOut.from_row(citation, fetch) for citation, fetch in page],
         limit=limit,
         next_cursor=next_cursor,
     )

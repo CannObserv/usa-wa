@@ -17,6 +17,13 @@ data can use: Power Map's API takes base32 ULIDs and 404s on hex (project memory
 ``reference_ulid_pm_encoding``). :data:`ULIDStr` converts a UUID rather than
 accepting it, and rejects a hex string outright.
 
+**The canonical slice serves the published datasets** (#313). Persons,
+organizations, roles, assignments and citations are projections of
+``serving.*``, which is loaded from ``published/`` — so these models describe
+the *datapackage* contract, not the retired canonical tables. What that dropped,
+and what a consumer migrates to, is the table in ``docs/API.md`` §
+*Serving-tier migration*.
+
 **Coverage keeps its three statuses.** ``verified``/``assumed``/``absent`` are
 the whole point of ``source_coverage`` (#180): ``absent`` is a gap the system
 *knows about*, and collapsing it into "no rows" is the silence that table exists
@@ -247,243 +254,225 @@ class SourceCoverageOut(ApiModel):
 
 
 class CitationOut(ApiModel):
-    """One link from a canonical row back to the fetch that asserted it.
+    """One link from a published entity back to the raw wire that attests it.
 
-    Flattened across ``citations → fetch_events → sources`` because the question
-    the route answers ("how do we know this?") is never satisfied by the citation
-    row alone — it needs the URL, the instant, and the feed.
+    Flattened across ``citations → raw_fetches`` because the question the route
+    answers ("how do we know this?") is never satisfied by the citation row
+    alone — it needs the digest, the instant and the URL.
+
+    The #313 successor to the Postgres ``Citation`` chain. Three fields of that
+    chain are gone rather than renamed: ``id`` (a citation is now identified by
+    what it says, not by a row), ``confidence``/``asserted_at`` (a stateless
+    join asserts nothing a re-derivation would not re-assert), and
+    ``field_path`` (nothing emits field-level citations in the new tier). What
+    replaces them is exact: ``sha256`` names the bytes.
     """
 
-    id: ULIDStr
-    entity_type: str
-    entity_id: ULIDStr
-    field_path: str | None = Field(
-        default=None, description="Set when the citation attests one field rather than the row."
-    )
-    confidence: float
-    asserted_at: datetime
-
-    fetch_event_id: ULIDStr
-    resource_id: str
-    url: str
-    fetched_at: datetime
-    http_status: int | None = None
-    fetch_status: str = Field(description="`ok` | `err` | `skipped`.")
-    content_hash: str | None = Field(
-        default=None,
+    entity_type: str = Field(description="`person` | `organization` | `role` | `assignment`.")
+    entity_id: str = Field(
         description=(
-            "Hex sha256 over the archived bytes. `null` means *unbaselined* "
-            "(fetched before #54) — never a mismatch."
-        ),
+            "Registry ULID for person/organization/role; the 4-part span key for an "
+            "assignment, which is that row's published identity."
+        )
     )
-
-    source_id: ULIDStr
-    source_slug: str
+    source: str = Field(description="Raw-store source slug, e.g. `usa_wa_legislature`.")
+    resource_id: str = Field(description="The source's own name for the thing fetched.")
+    sha256: str | None = Field(
+        default=None, description="Hex digest of the archived bytes — the integrity baseline."
+    )
+    fetched_at: str | None = Field(default=None, description="When the wire was last pulled.")
+    url: str | None = Field(
+        default=None, description="`null` when the run manifest that recorded it was pruned."
+    )
+    bytes: int | None = None
+    content_type: str | None = None
 
     @classmethod
-    def from_row(cls, citation: Any, fetch_event: Any, source: Any) -> Self:
-        """Assemble the chain from the three joined rows.
+    def from_row(cls, citation: Any, fetch: Any | None) -> Self:
+        """Assemble one link from the citation and its attestation.
 
-        ``content_hash`` is ``LargeBinary`` on the way in; hex on the way out,
-        because raw bytes have no JSON form and base64 would be a second encoding
-        for a value every other tool in this repo prints as hex.
+        ``fetch`` is nullable because the join is a LEFT one: a citation whose
+        attestation is missing is an integrity break the nightly probe gates at
+        zero (``parity_citations.orphan_citations``), and dropping the row here
+        would hide from a reader exactly what that probe exists to shout about.
         """
         return cls(
-            id=citation.id,
             entity_type=citation.entity_type,
             entity_id=citation.entity_id,
-            field_path=citation.field_path,
-            confidence=citation.confidence,
-            asserted_at=citation.asserted_at,
-            fetch_event_id=fetch_event.id,
-            resource_id=fetch_event.resource_id,
-            url=fetch_event.url,
-            fetched_at=fetch_event.fetched_at,
-            http_status=fetch_event.http_status,
-            fetch_status=str(fetch_event.status),
-            content_hash=(
-                fetch_event.content_hash.hex() if fetch_event.content_hash is not None else None
-            ),
-            source_id=source.id,
-            source_slug=source.slug,
+            source=citation.source,
+            resource_id=citation.resource_id,
+            sha256=None if fetch is None else fetch.sha256,
+            fetched_at=None if fetch is None else fetch.fetched_at,
+            url=None if fetch is None else fetch.url,
+            bytes=None if fetch is None else fetch.bytes,
+            content_type=None if fetch is None else fetch.content_type,
         )
 
 
 # --------------------------------------------------------------------------- #
-# Canonical slice
+# Products slice — the published datasets, projected
 # --------------------------------------------------------------------------- #
 
 
-class LifecycleFields(ApiModel):
-    """The two PM-parity tombstones every identity row carries.
+class PersonCrosswalkOut(ApiModel):
+    """One natural key bound to a person entity, with its merge tombstone.
 
-    Both are exposed rather than collapsed into an ``is_live`` boolean: they are
-    orthogonal axes with opposite re-fetch semantics (``docs/ONTOLOGY.md`` §
-    *Lifecycle axes*), and a consumer that needs to tell "PM archived this" from
-    "PM deleted this" cannot recover the distinction from one flag.
+    The un-embedded successor to ``PersonIdentifier``: identity is the registry's
+    now, so an external id is a *key* rather than a row hanging off a person.
+    ``merged_into`` is the only re-point signal a consumer gets.
     """
 
-    archived_at: datetime | None = Field(
-        default=None, description="Mirrors PM's reversible *inactive* gate. The PM id is live."
+    natural_key: str = Field(description="`<namespace>:<value>`, e.g. `wa_pdc:7710`.")
+    key_namespace: str | None = None
+    key_value: str | None = None
+    registered_by: str | None = Field(
+        default=None, description="`seed` | `registrar` | an adjudication."
     )
-    deleted_at: datetime | None = Field(
-        default=None, description="Terminal tombstone. The PM id is gone."
+    merged_into: ULIDStr | None = Field(
+        default=None, description="Set when this key's entity was merged away."
     )
 
 
-class PersonIdentifierOut(ApiModel):
-    """One external id for a Person (bioguide, ``wsl_member_id``, ``pdc_filer_id``…)."""
+class PersonSummary(ApiModel):
+    """A human, as the published `persons` dataset asserts them.
 
-    id: ULIDStr
-    scheme: str
-    value: str
-    source: str
-    source_id: str
+    One row per LIVE registry entity: a merged entity is absent here and reachable
+    only through its crosswalk tombstone, which is retraction-as-absence applied
+    to identity.
+    """
 
-
-class PersonSummary(LifecycleFields):
-    """A human."""
-
-    id: ULIDStr
-    source: str
-    source_id: str
-    name_full: str
-    name_first: str | None = None
-    name_last: str | None = None
-    name_middle: str | None = None
-    name_suffix: str | None = None
-    name_used: str | None = None
-    gender: str | None = None
-    pm_person_id: ULIDStr | None = Field(
-        default=None, description="Power Map anchor; `null` when never synced."
+    entity_id: ULIDStr
+    name_full: str | None = Field(
+        default=None, description="Survivorship already applied: roster > WSL > PDC."
     )
-    created_at: datetime
-    updated_at: datetime
+    name_source: str | None = Field(
+        default=None, description="Which source won the name — the audit trail."
+    )
 
 
 class PersonDetail(PersonSummary):
-    """A Person plus its external-identifier graph."""
+    """A person plus every natural key the registry binds to them."""
 
-    identifiers: list[PersonIdentifierOut] = Field(default_factory=list)
+    identifiers: list[PersonCrosswalkOut] = Field(default_factory=list)
 
 
-class OrganizationOut(LifecycleFields):
-    """Any non-person legal/political entity, discriminated by ``org_type``."""
+class OrganizationOut(ApiModel):
+    """A committee or body, with the newest biennium's attributes."""
 
-    id: ULIDStr
-    source: str
-    source_id: str
-    jurisdiction_id: ULIDStr | None = Field(
-        default=None, description="Set for public orgs only; private orgs are global."
-    )
-    name: str
-    short_name: str | None = None
-    org_type: str
+    entity_id: ULIDStr
+    name: str | None = None
+    long_name: str | None = None
     acronym: str | None = None
-    phone: str | None = None
-    parent_organization_id: ULIDStr | None = None
-    active: bool = Field(
-        description=(
-            "PM's operational live-vs-dissolved flag. A **third** axis: a dissolved "
-            "committee is inactive, not archived, and stays in every read."
-        )
-    )
-    pm_organization_id: ULIDStr | None = None
-    created_at: datetime
-    updated_at: datetime
+    agency: str | None = Field(default=None, description="`House` | `Senate` | `Joint` | `Other`.")
+    org_type: str | None = Field(default=None, description="`committee` | `other` | …")
+    first_biennium: str | None = None
+    last_biennium: str | None = None
 
 
-class RoleOut(LifecycleFields):
-    """A named slot within an Organization — a template, not an occupancy."""
+class RoleOut(ApiModel):
+    """A seat or slot — a template, not an occupancy.
 
-    id: ULIDStr
-    source: str
-    source_id: str
-    organization_id: ULIDStr
-    name: str
-    role_type: str
-    jurisdiction_id: ULIDStr | None = Field(
+    Two identifiers, both published on purpose: ``role_key`` is the deterministic
+    structural name (a pure function of the seat, and Power Map's match key), and
+    ``entity_id`` is the registry ULID that stays put when the derived key moves.
+    """
+
+    role_key: str
+    entity_id: ULIDStr | None = Field(
         default=None,
-        description=(
-            "The seat's enduring district identity. Non-null marks a *seat* role; "
-            "`null` marks a title role (committee/leadership/staff)."
-        ),
+        description="Null for one build only — the nightly registers after the build.",
     )
+    role_type: str | None = None
+    name: str | None = None
+    span_kind: str | None = None
+    span_discriminator: str | None = None
+    org_source_id: str | None = None
+    org_entity_id: ULIDStr | None = None
+    district: int | None = Field(default=None, description="LD number; null off a district seat.")
     qualifier: str | None = Field(
         default=None, description='Seat disambiguator — "Position 1"/"Position 2"; null in Senate.'
     )
-    pm_role_id: ULIDStr | None = None
-    created_at: datetime
-    updated_at: datetime
 
 
-def _span_parts(source_id: str) -> tuple[str, str, str] | None:
-    """The ``(kind, discriminator, start_biennium)`` triple, or ``None``.
-
-    Returns ``None`` for anything that is not the 4-part span key rather than
-    guessing — a legacy ``source_id`` with a different part count is not a span,
-    and reporting a wrong kind is worse than reporting no kind.
-    """
-    parts = source_id.split(":")
-    if len(parts) != SPAN_KEY_PARTS:
-        return None
-    return parts[1], parts[2], parts[3]
-
-
-class AssignmentSummary(LifecycleFields):
+class AssignmentSummary(ApiModel):
     """Person × Role × period — and therefore also a **tenure span**.
 
     There is no ``spans`` table: a span *is* an Assignment (``docs/ONTOLOGY.md``
-    § 2, *Why there is no spans table*). The span's kind is not a column either —
-    it lives in the 4-part ``source_id``, so this model parses it into
-    :attr:`span_kind` / :attr:`span_discriminator` / :attr:`span_start_biennium`
-    rather than making every consumer re-implement the split. All three are
-    ``null`` on a row whose ``source_id`` is not that shape.
+    § 2). Since #313 the span key's parts are real columns rather than positions
+    inside a ``source_id`` string, which is what retires the ``split_part``
+    workaround (#335) — and what makes the roster family's colon-bearing member
+    ids safe to filter on.
     """
 
-    id: ULIDStr
-    source: str
-    source_id: str
-    person_id: ULIDStr | None = Field(
-        default=None, description="Null when the occupancy is attested by `holder_name_raw` only."
+    source: str = Field(
+        description=(
+            "Which identity space `member_id` belongs to: `usa_wa_legislature` "
+            "(numeric ids, 1991-) or `usa_wa_legislature_roster` (`<fold>:<year>`, pre-1991)."
+        )
     )
-    holder_name_raw: str | None = None
-    role_id: ULIDStr
-    valid_from: date
+    member_id: str
+    entity_id: ULIDStr | None = Field(
+        default=None, description="The holder's registry ULID; null while unregistered."
+    )
+    role_key: str | None = None
+    span_kind: str = Field(
+        description="`chamber-senate` | `chamber-house` | `committee` | `party`."
+    )
+    span_discriminator: str = Field(
+        description="What the span is scoped to — an LD, a position, a committee id."
+    )
+    span_start_biennium: str
+    span_end_biennium: str | None = None
+    valid_from: date | None = None
     valid_to: date | None = Field(default=None, description="`null` means open — still serving.")
-    is_active: bool
-    pm_assignment_id: ULIDStr | None = None
-    created_at: datetime
-    updated_at: datetime
+    is_active: bool | None = None
 
     @computed_field
     @property
-    def span_kind(self) -> str | None:
-        """`chamber-senate` | `chamber-house` | `committee` | `party`, or null."""
-        parts = _span_parts(self.source_id)
-        return None if parts is None else parts[0]
+    def assignment_id(self) -> str:
+        """The span's addressable identity: ``{member}:{kind}:{disc}:{start}``.
 
-    @computed_field
-    @property
-    def span_discriminator(self) -> str | None:
-        """What the span is scoped to — an LD, a `ld-n-position-p`, a committee id."""
-        parts = _span_parts(self.source_id)
-        return None if parts is None else parts[1]
-
-    @computed_field
-    @property
-    def span_start_biennium(self) -> str | None:
-        """The biennium the tenure opened in. Keying on the start is what makes
-        rebuilds idempotent."""
-        parts = _span_parts(self.source_id)
-        return None if parts is None else parts[2]
+        The same string the citations artifact cites an assignment by, and what
+        ``/assignments/{assignment_id}`` takes. Not a ULID: the serving tier keys
+        a span structurally, because a span *is* its key.
+        """
+        return span_key(
+            self.member_id, self.span_kind, self.span_discriminator, self.span_start_biennium
+        )
 
 
 class AssignmentDetail(AssignmentSummary):
-    """An Assignment with its provenance chain attached.
+    """An assignment with its provenance chain attached.
 
     "Who held this seat when, and how do we know" in one request — the question
-    #184 names, which otherwise takes a join across three schemas by hand.
+    #184 names, which otherwise takes a join across three datasets by hand.
     """
 
     citations: list[CitationOut] = Field(default_factory=list)
+
+
+def span_key(member_id: str, kind: str, discriminator: str, start_biennium: str) -> str:
+    """The 4-part span key, assembled. The inverse of :func:`split_span_key`."""
+    return f"{member_id}:{kind}:{discriminator}:{start_biennium}"
+
+
+def split_span_key(value: str) -> tuple[str, str, str, str]:
+    """A span key back into its parts, **right-anchored** (#259).
+
+    The trailing three segments are fixed, but the member id is not guaranteed
+    colon-free: the roster family's identities are ``<fold>:<year>``, so their
+    keys carry five segments and a left-to-right split silently excluded that
+    entire source — 3,627 rows reporting "nothing in scope" as though it meant
+    "nothing stranded".
+    """
+    parts = value.rsplit(":", 3)
+    if len(parts) != SPAN_KEY_PARTS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"assignment id must be {SPAN_KEY_PARTS} colon-separated parts "
+                "(member:kind:discriminator:start_biennium)"
+            ),
+        )
+    member, kind, discriminator, start = parts
+    return member, kind, discriminator, start

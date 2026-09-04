@@ -9,11 +9,14 @@ the empty answer stays distinguishable from the other empty answers.
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import insert
 from ulid import ULID
 
-from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
+from clearinghouse_core.provenance import Source
 from clearinghouse_core.runs import JobRun
 from clearinghouse_core.source_coverage import SourceCoverage
+from usa_wa_api.api.v1.ops import CITED_ENTITY_TYPES
+from usa_wa_api.serving.schema import Citation, RawFetch
 
 BASE = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -200,65 +203,126 @@ class TestSourceCoverage:
 
 
 class TestProvenance:
+    """The chain, read from the published citations artifact (#313).
+
+    What a citation *says* changed with the tier: a raw resource and the digest
+    of its bytes, rather than a fetch event and a confidence. That is a stronger
+    statement — `sha256` identifies exactly what was read.
+    """
+
     @pytest.fixture
-    async def cited_entity(self, db_session, source) -> ULID:
-        entity_id = _ordered_ulid(5)
-        for day in (1, 2):
-            event = FetchEvent(
-                id=_ordered_ulid(10 + day),
-                source_id=source.id,
-                resource_id=f"sponsors:2019-20#{day}",
-                url=f"https://example.invalid/{day}",
-                fetched_at=BASE + timedelta(days=day),
-                status=FetchStatus.ok,
-                content_hash=bytes([day]) * 32,
-            )
-            db_session.add(event)
-            await db_session.flush()
-            db_session.add(
-                Citation(
-                    id=_ordered_ulid(20 + day),
-                    entity_type="assignment",
-                    entity_id=entity_id,
-                    fetch_event_id=event.id,
-                    asserted_at=BASE + timedelta(days=day),
-                )
-            )
-        await db_session.flush()
+    async def cited_entity(self, serving_schema) -> str:
+        session = serving_schema
+        await session.execute(
+            insert(RawFetch.__table__),
+            [
+                {
+                    "source": "usa_wa_legislature",
+                    "resource_id": "sponsors:2019-20",
+                    "sha256": "aa" * 32,
+                    "fetched_at": "2026-01-02T00:00:00.000000Z",
+                    "run_id": "r1",
+                    "url": "https://example.invalid/1",
+                    "bytes": 11,
+                    "content_type": "text/xml",
+                },
+                {
+                    "source": "usa_wa_legislature",
+                    "resource_id": "sponsors:2021-22",
+                    "sha256": "bb" * 32,
+                    "fetched_at": "2026-01-03T00:00:00.000000Z",
+                    "run_id": "r1",
+                    "url": "https://example.invalid/2",
+                    "bytes": 22,
+                    "content_type": "text/xml",
+                },
+            ],
+        )
+        entity_id = "100:party:democratic:2019-20"
+        await session.execute(
+            insert(Citation.__table__),
+            [
+                {
+                    "entity_type": "assignment",
+                    "entity_id": entity_id,
+                    "source": "usa_wa_legislature",
+                    "resource_id": resource,
+                }
+                for resource in ("sponsors:2019-20", "sponsors:2021-22")
+            ],
+        )
+        await session.flush()
         return entity_id
 
-    async def test_returns_the_chain_newest_first(self, client, cited_entity):
+    async def test_returns_the_chain_in_stable_key_order(self, client, cited_entity):
+        """The old chain ordered newest-first because a daily re-pull minted a
+        fresh citation for the same resource. The artifact holds exactly one row
+        per (entity, resource), so there is no recency to surface — and a stable
+        key order is what pages correctly."""
         body = (await client.get(f"/api/v1/provenance/assignment/{cited_entity}")).json()
         assert [c["resource_id"] for c in body["items"]] == [
-            "sponsors:2019-20#2",
-            "sponsors:2019-20#1",
+            "sponsors:2019-20",
+            "sponsors:2021-22",
         ]
 
-    async def test_flattens_the_source_and_fetch_event_onto_each_citation(
-        self, client, cited_entity
-    ):
+    async def test_flattens_the_attestation_onto_each_citation(self, client, cited_entity):
         item = (await client.get(f"/api/v1/provenance/assignment/{cited_entity}")).json()["items"][
             0
         ]
-        assert item["source_slug"] == "wa_sos_filings"
-        assert item["url"] == "https://example.invalid/2"
-        assert item["fetch_status"] == "ok"
-        assert item["content_hash"] == (bytes([2]) * 32).hex()
+        assert item["source"] == "usa_wa_legislature"
+        assert item["sha256"] == "aa" * 32
+        assert item["url"] == "https://example.invalid/1"
+        assert item["bytes"] == 11
 
-    async def test_an_uncited_entity_is_an_empty_page(self, client, source):
-        """No FK on ``entity_id`` by design, so the route cannot tell "no provenance"
-        from "no such row" — and does not pretend to."""
+    async def test_an_orphan_citation_is_still_reported(self, client, serving_schema):
+        """The join is a LEFT one. An orphan is an integrity break the nightly
+        probe gates at zero, and hiding it here would deny a reader the very
+        thing that probe exists to shout about."""
+        await serving_schema.execute(
+            insert(Citation.__table__),
+            [
+                {
+                    "entity_type": "person",
+                    "entity_id": "01JAAAAAAAAAAAAAAAAAAAAAAA",
+                    "source": "usa_wa_legislature",
+                    "resource_id": "vanished:2019-20",
+                }
+            ],
+        )
+        await serving_schema.flush()
+        body = (await client.get("/api/v1/provenance/person/01JAAAAAAAAAAAAAAAAAAAAAAA")).json()
+        assert [c["resource_id"] for c in body["items"]] == ["vanished:2019-20"]
+        assert body["items"][0]["sha256"] is None
+
+    async def test_an_uncited_entity_is_an_empty_page(self, client, serving_schema):
+        """One artifact spans every kind and carries no foreign key, so the route
+        cannot tell "no provenance" from "no such row" — and does not pretend to."""
         body = (await client.get(f"/api/v1/provenance/person/{ULID()}")).json()
         assert body["items"] == []
 
-    async def test_a_uuid_hex_entity_id_is_rejected(self, client):
-        """The ``::text``-cast trap, at the request boundary."""
-        response = await client.get(f"/api/v1/provenance/person/{ULID().to_uuid()}")
-        assert response.status_code == 422
+    async def test_a_non_ulid_entity_id_is_accepted(self, client, serving_schema):
+        """An assignment's id is legitimately not a ULID — it is the span key —
+        so this path parameter cannot carry the ULID pattern any more."""
+        response = await client.get("/api/v1/provenance/assignment/100:party:democratic:2019-20")
+        assert response.status_code == 200
+
+    async def test_pages_over_the_composite_key(self, client, cited_entity):
+        first = (
+            await client.get(f"/api/v1/provenance/assignment/{cited_entity}", params={"limit": 1})
+        ).json()
+        assert [c["resource_id"] for c in first["items"]] == ["sponsors:2019-20"]
+        second = (
+            await client.get(
+                f"/api/v1/provenance/assignment/{cited_entity}",
+                params={"limit": 1, "cursor": first["next_cursor"]},
+            )
+        ).json()
+        assert [c["resource_id"] for c in second["items"]] == ["sponsors:2021-22"]
+        assert second["next_cursor"] is None
 
     async def test_a_malformed_cursor_is_422_not_500(self, client, cited_entity):
         response = await client.get(
-            f"/api/v1/provenance/assignment/{cited_entity}?cursor=not-a-ulid"
+            f"/api/v1/provenance/assignment/{cited_entity}?cursor=not-a-cursor"
         )
         assert response.status_code == 422
 
@@ -266,13 +330,13 @@ class TestProvenance:
 # --- CR #196 finding 41: entity_type is a closed set; entity_id is not -------
 
 
-async def test_provenance_rejects_an_unknown_entity_type(client):
+async def test_provenance_rejects_an_unknown_entity_type(client, serving_schema):
     """A typo in the discriminator is a 422, not an empty page.
 
-    ``entity_type`` is a closed set this system controls (the lowercase mapped-class
-    name the writer derives), so ``persons`` for ``person`` should be told. Silently
-    returning an empty page made a typo indistinguishable from "no provenance
-    recorded" — the exact conflation this surface exists to remove.
+    ``entity_type`` is a closed set this system controls, so ``persons`` for
+    ``person`` should be told. Silently returning an empty page made a typo
+    indistinguishable from "no provenance recorded" — the exact conflation this
+    surface exists to remove.
     """
     response = await client.get(f"/api/v1/provenance/persons/{ULID()}")
 
@@ -280,11 +344,12 @@ async def test_provenance_rejects_an_unknown_entity_type(client):
     assert "persons" in response.json()["detail"]
 
 
-async def test_provenance_accepts_every_type_actually_written(client):
-    """Including ``personidentifier``, which is a third of production's citations and
-    was absent from every hand-written enumeration of this vocabulary — which is why
-    the accepted set is derived from the ORM registry rather than listed."""
-    for entity_type in ("person", "personidentifier", "organization", "role", "assignment"):
+async def test_provenance_accepts_every_type_the_artifact_carries(client, serving_schema):
+    """A CLOSED set now (#313), not a sample of an open ORM registry: the
+    artifact is built from four named rules. ``personidentifier`` — a third of
+    the old chain — is gone, because identifiers are the crosswalk and a key is
+    not a thing that gets separately attested."""
+    for entity_type in CITED_ENTITY_TYPES:
         response = await client.get(f"/api/v1/provenance/{entity_type}/{ULID()}")
         assert response.status_code == 200, entity_type
         assert response.json()["items"] == []

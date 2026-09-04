@@ -21,9 +21,7 @@ from usa_wa_api.serving.load import (
     ContractMismatch,
     catalog_entries,
     coerce_row,
-    create_serving_tables,
     dataset_rows,
-    ensure_serving_schema,
     load_serving,
     read_dataset,
     verify_contract,
@@ -31,20 +29,6 @@ from usa_wa_api.serving.load import (
     verify_payload,
 )
 from usa_wa_api.serving.schema import SERVING_TABLES, Assignment, LoadState, Person
-
-
-@pytest.fixture
-async def serving_schema(db_session):
-    """Create the disposable schema for one test.
-
-    It is created here rather than by a migration on purpose: this tier owns no
-    state worth preserving, so `create_all` in the loader's own job is the whole
-    lifecycle (see `usa_wa_api.serving.schema`).
-    """
-    await ensure_serving_schema(db_session)
-    await create_serving_tables(db_session)
-    return db_session
-
 
 FIELDS = {
     "persons": [

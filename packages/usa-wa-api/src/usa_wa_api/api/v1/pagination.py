@@ -18,12 +18,16 @@ time, so the key is already the natural order for every canonical table.
 slow, and a capped or stale total is a worse contract than none. A consumer that
 needs "is there more" reads ``next_cursor``.
 
-**The cursor is opaque and route-scoped.** Most routes key on the row ULID;
-``/health/jobs`` keys on ``job_slug`` because its query is a ``DISTINCT ON``
-aggregate with one row per slug. Each route documents its own ordering; a
-consumer must only ever echo a ``next_cursor`` back, never construct one.
+**The cursor is opaque and route-scoped.** Most routes key on the row's own
+identifier — a registry ULID, a structural ``role_key``, a ``job_slug``. Since
+#313 ``/assignments`` keys on the five columns that *are* a span's identity, so
+its cursor is those values encoded (:func:`encode_cursor`) rather than one
+string. Each route documents its own ordering; a consumer must only ever echo a
+``next_cursor`` back, never construct one.
 """
 
+import base64
+import binascii
 from collections.abc import Callable, Sequence
 from typing import Annotated
 
@@ -39,9 +43,16 @@ MAX_LIMIT = 200
 """Hard cap. A caller asking for more gets a 422 rather than a silently truncated
 page — a clamp would make ``len(items) < limit`` ambiguous with exhaustion."""
 
-CURSOR_MAX_LENGTH = 128
-"""Longest accepted cursor. The ULID routes need 26; ``/health/jobs`` keys on
-``job_slug``, whose column is ``String(128)``."""
+CURSOR_MAX_LENGTH = 512
+"""Longest accepted cursor. The ULID routes need 26 and ``/health/jobs`` keys on
+``job_slug`` (``String(128)``), but ``/assignments`` encodes five columns —
+source, member id, kind, discriminator, start biennium — which base64 inflates
+past 128. Sized for that rather than for the shortest case."""
+
+_CURSOR_SEPARATOR = "\x1f"
+"""ASCII unit separator: the one delimiter no key value can contain. A span's
+member id carries colons (the roster family's ``<fold>:<year>``), which is
+exactly the assumption a punctuation delimiter would break."""
 
 LimitQuery = Annotated[
     int,
@@ -115,3 +126,41 @@ def parse_ulid_cursor(cursor: str | None) -> _ULID | None:
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="cursor must be a 26-character ULID",
         ) from exc
+
+
+def encode_cursor(values: Sequence[str]) -> str:
+    """Several key columns → one opaque cursor.
+
+    Base64url over a unit-separated join. Opaque is the contract (see the module
+    docstring), and encoding is what keeps it true: a cursor that looked like a
+    readable tuple would invite consumers to build one, and the day a key column
+    gains a part every hand-built cursor breaks.
+    """
+    joined = _CURSOR_SEPARATOR.join(values)
+    return base64.urlsafe_b64encode(joined.encode()).decode().rstrip("=")
+
+
+def decode_cursor(cursor: str | None, *, arity: int) -> tuple[str, ...] | None:
+    """A cursor back into its key columns, or ``None`` when there is no cursor.
+
+    ``arity`` is checked, not assumed: a cursor from a different route decodes
+    cleanly but means something else, and using it would resume the scan at an
+    arbitrary point rather than failing. A 422 says so; a wrong page would not.
+    """
+    if cursor is None:
+        return None
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        values = base64.urlsafe_b64decode(padded.encode()).decode()
+    except (binascii.Error, UnicodeDecodeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="cursor is not a token this API issued",
+        ) from exc
+    parts = tuple(values.split(_CURSOR_SEPARATOR))
+    if len(parts) != arity:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"cursor carries {len(parts)} key parts; this route keys on {arity}",
+        )
+    return parts

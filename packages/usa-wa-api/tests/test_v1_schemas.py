@@ -14,6 +14,7 @@ identifier this API emits must be the 26-character Crockford base32 form.
 from datetime import UTC, date, datetime
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 from ulid import ULID
 
@@ -22,34 +23,34 @@ from usa_wa_api.api.v1.schemas import (
     AssignmentSummary,
     CoverageSpan,
     JobHealth,
+    PersonSummary,
     SourceCoverageOut,
+    span_key,
+    split_span_key,
 )
 
 
-def _assignment(source_id: str) -> AssignmentSummary:
-    return AssignmentSummary(
-        id=ULID(),
-        source="usa_wa_legislature",
-        source_id=source_id,
-        person_id=None,
-        holder_name_raw="Doe, Jane",
-        role_id=ULID(),
-        valid_from=date(2019, 1, 1),
-        valid_to=None,
-        is_active=True,
-        pm_assignment_id=None,
-        archived_at=None,
-        deleted_at=None,
-        created_at=datetime(2026, 1, 1, tzinfo=UTC),
-        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
-    )
+def _assignment(**over) -> AssignmentSummary:
+    fields = {
+        "source": "usa_wa_legislature",
+        "member_id": "12345",
+        "entity_id": None,
+        "role_key": "party-role:democratic",
+        "span_kind": "party",
+        "span_discriminator": "democratic",
+        "span_start_biennium": "2019-20",
+        "span_end_biennium": None,
+        "valid_from": date(2019, 1, 1),
+        "valid_to": None,
+        "is_active": True,
+    }
+    return AssignmentSummary(**(fields | over))
 
 
 class TestULIDStr:
     def test_accepts_a_ulid_instance_and_renders_26_char_base32(self):
         ulid = ULID()
-        model = AssignmentSummary.model_validate({**_assignment("x").model_dump(), "id": ulid})
-        rendered = model.model_dump()["id"]
+        rendered = PersonSummary.model_validate({"entity_id": ulid}).model_dump()["entity_id"]
         assert rendered == str(ulid)
         assert len(rendered) == 26
         assert "-" not in rendered
@@ -57,45 +58,56 @@ class TestULIDStr:
     def test_converts_a_uuid_instance_to_the_base32_form(self):
         """A ``uuid.UUID`` off the driver must never render as UUID hex."""
         ulid = ULID()
-        model = AssignmentSummary.model_validate(
-            {**_assignment("x").model_dump(), "id": ulid.to_uuid()}
-        )
-        assert model.id == str(ulid)
-        assert model.id != str(ulid.to_uuid())
+        model = PersonSummary.model_validate({"entity_id": ulid.to_uuid()})
+        assert model.entity_id == str(ulid)
+        assert model.entity_id != str(ulid.to_uuid())
 
     def test_rejects_the_uuid_hex_string_form(self):
         """The ``::text``-cast trap: hyphenated hex is not a ULID and must not pass."""
         ulid = ULID()
         with pytest.raises(ValidationError):
-            AssignmentSummary.model_validate(
-                {**_assignment("x").model_dump(), "id": str(ulid.to_uuid())}
-            )
+            PersonSummary.model_validate({"entity_id": str(ulid.to_uuid())})
 
     def test_pattern_is_crockford_base32(self):
         assert ULID_PATTERN == r"^[0-9A-HJKMNP-TV-Z]{26}$"
 
 
 class TestAssignmentSpanKey:
-    """A tenure span *is* an Assignment (``docs/ONTOLOGY.md`` § 2) and its kind lives
-    in the 4-part ``source_id``. The API parses it so a consumer does not have to."""
+    """A tenure span *is* an Assignment (``docs/ONTOLOGY.md`` § 2). Since #313 the
+    key's parts are real columns and the *id* is what gets assembled from them —
+    the inverse of the old model, which carried a string and parsed it."""
 
-    def test_parses_the_four_part_span_key(self):
-        model = _assignment("12345:chamber-house:ld-5-position-1:2019-20")
-        assert model.span_kind == "chamber-house"
-        assert model.span_discriminator == "ld-5-position-1"
-        assert model.span_start_biennium == "2019-20"
+    def test_the_id_is_assembled_from_the_columns(self):
+        model = _assignment(span_kind="chamber-house", span_discriminator="ld-5-position-1")
+        assert model.assignment_id == "12345:chamber-house:ld-5-position-1:2019-20"
+        assert model.model_dump()["assignment_id"] == model.assignment_id
 
-    def test_non_span_source_id_yields_nulls_not_garbage(self):
-        model = _assignment("legacy-shape")
-        assert model.span_kind is None
-        assert model.span_discriminator is None
-        assert model.span_start_biennium is None
+    def test_a_roster_member_id_round_trips_through_its_own_colon(self):
+        """#259: `<fold>:<year>` makes the key five segments, and a left-anchored
+        split would hand back a member id of `jsmith` and a kind of `1937`."""
+        model = _assignment(
+            member_id="jsmith:1937",
+            span_kind="chamber-senate",
+            span_discriminator="28",
+            span_start_biennium="1937-38",
+        )
+        assert model.assignment_id == "jsmith:1937:chamber-senate:28:1937-38"
+        assert split_span_key(model.assignment_id) == (
+            "jsmith:1937",
+            "chamber-senate",
+            "28",
+            "1937-38",
+        )
 
-    def test_span_key_fields_are_serialized(self):
-        payload = _assignment("12345:party:democrat:2019-20").model_dump()
-        assert payload["span_kind"] == "party"
-        assert payload["span_discriminator"] == "democrat"
-        assert payload["span_start_biennium"] == "2019-20"
+    def test_split_is_the_inverse_of_assembly(self):
+        key = span_key("12345", "party", "democratic", "2019-20")
+        assert span_key(*split_span_key(key)) == key
+
+    def test_a_key_with_too_few_parts_is_refused(self):
+        """A 422, not a guess: reporting a wrong span kind is worse than none."""
+        with pytest.raises(HTTPException) as raised:
+            split_span_key("legacy-shape")
+        assert raised.value.status_code == 422
 
 
 class TestSourceCoverageOut:
