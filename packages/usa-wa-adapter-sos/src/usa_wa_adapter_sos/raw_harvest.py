@@ -66,6 +66,11 @@ class AcceptedOutage:
     source: str
     reason: str
     issue: str
+    #: Every chore the source's RECOVERY unblocks, not just this entry's own
+    #: removal. The staleness signal fires exactly once, so anything not named
+    #: here is lost with it — and the follow-ups an outage defers are precisely
+    #: the ones nobody remembers when the outage ends.
+    follow_up: tuple[str, ...]
     #: When the outage was first observed. Not enforced — an acceptance expires
     #: by the source RECOVERING, not by the calendar — but it dates the claim so
     #: a reader can see how long this has been standing.
@@ -89,6 +94,14 @@ ACCEPTED_OUTAGES: tuple[AcceptedOutage, ...] = (
         ),
         issue="#333",
         observed="2026-09-03",
+        follow_up=(
+            "remove this entry from ACCEPTED_OUTAGES in raw_harvest.py",
+            (
+                "ratchet dbt/tests/stg_sos_filings_key.sql from severity='warn' back to "
+                "error (#330): the key is a contract stated before any real WhoFiled wire "
+                "landed, so a first real wire is what finally verifies it"
+            ),
+        ),
     ),
 )
 
@@ -211,7 +224,10 @@ def job_outcome(
             extra={
                 "sources": stale,
                 "issues": sorted(o.issue for o in accepted if o.source in stale),
-                "detail": "the source recovered — remove the acceptance from ACCEPTED_OUTAGES",
+                "detail": "the source recovered — this acceptance is now a false claim",
+                # The full cleanup, because this fires ONCE: anything not on
+                # this line is lost with it.
+                "follow_up": [step for o in accepted if o.source in stale for step in o.follow_up],
             },
         )
     if reported["accepted_outages"]:

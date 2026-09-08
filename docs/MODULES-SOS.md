@@ -51,6 +51,14 @@ The reason it is safe to add at all is the other half: an accepted source that
 exemption outlives the outage and the source can go dark with nothing left to
 notice. Acceptances expire by the source recovering, never by the calendar.
 
+That signal fires **once**, so it carries the whole cleanup rather than just its
+own removal: `AcceptedOutage.follow_up` is required, not defaulted, and lists
+every chore the recovery unblocks. For #333 that is two — drop the entry, and
+ratchet `dbt/tests/stg_sos_filings_key.sql` from `severity: warn` back to error
+(#330), since that key is a contract stated before any real WhoFiled wire ever
+landed and a first real wire is what finally verifies it. An outage's deferred
+chores are exactly the ones nobody remembers when the outage ends.
+
 Currently accepted: **filings** (#333, observed 2026-09-03) — votewa.gov's
 WhoFiled `ExportToExcel` returns HTTP 500 for every election date. Nothing
 downstream reads it (`stg_sos_filings` is published but feeds no span, citation
