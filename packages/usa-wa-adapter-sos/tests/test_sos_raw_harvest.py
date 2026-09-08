@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_sos.filings.adapter import whofiled_resource_id
 from usa_wa_adapter_sos.filings.transport import SOSFilingsClient
-from usa_wa_adapter_sos.raw_harvest import harvest_raw, job_outcome
+from usa_wa_adapter_sos.raw_harvest import (
+    ACCEPTED_OUTAGES,
+    AcceptedOutage,
+    harvest_raw,
+    job_outcome,
+)
 from usa_wa_adapter_sos.results.adapter import legresults_resource_id
 from usa_wa_common.elections import election_years_for_biennium
 
@@ -136,17 +141,79 @@ async def test_manifest_urls_are_real_endpoints(tmp_path) -> None:
         assert entry["url"].endswith("/export.html")
 
 
+HEALTHY = {"fetched": 2, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
+DEAD = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 2}
+
+
 def test_job_outcome_alerts_per_source() -> None:
-    """A dead source degrades even when the other is healthy or TTL masks it."""
-    healthy = {"fetched": 2, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
-    dead = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 2}
+    """A dead source degrades even when the other is healthy or TTL masks it.
+
+    Driven with NO acceptances so it keeps pinning the underlying rule rather
+    than whatever `ACCEPTED_OUTAGES` happens to hold today.
+    """
     masked = {"fetched": 0, "unchanged": 0, "skipped_fresh": 1, "errors": 1}
-    assert job_outcome({"filings": healthy, "results": healthy}).outcome == "ok"
-    assert job_outcome({"filings": dead, "results": healthy}).outcome == "degraded"
-    assert job_outcome({"filings": healthy, "results": dead}).outcome == "degraded"
-    assert job_outcome({"filings": masked, "results": healthy}).outcome == "degraded"
+    none: tuple = ()
+    assert job_outcome({"filings": HEALTHY, "results": HEALTHY}, accepted=none).outcome == "ok"
+    assert job_outcome({"filings": DEAD, "results": HEALTHY}, accepted=none).outcome == "degraded"
+    assert job_outcome({"filings": HEALTHY, "results": DEAD}, accepted=none).outcome == "degraded"
+    assert job_outcome({"filings": masked, "results": HEALTHY}, accepted=none).outcome == "degraded"
     fresh = {"fetched": 0, "unchanged": 0, "skipped_fresh": 2, "errors": 0}
-    assert job_outcome({"filings": fresh, "results": healthy}).outcome == "ok"
+    assert job_outcome({"filings": fresh, "results": HEALTHY}, accepted=none).outcome == "ok"
+
+
+class TestAcceptedOutages:
+    """#333: a KNOWN upstream outage must not mail the operator every night.
+
+    votewa.gov's WhoFiled export has returned HTTP 500 for every election date
+    since 2026-09-03; the nightly mailed on five consecutive runs carrying no
+    new information, for a source that feeds nothing. Alert fatigue is how #49
+    alerting dies, so the outage is named in code — and the naming has to expire
+    by itself, or the exemption outlives the outage and the source goes dark
+    without anyone hearing about it.
+    """
+
+    ACCEPT_FILINGS = (
+        AcceptedOutage(
+            source="filings", reason="upstream 500", issue="#333", observed="2026-09-03"
+        ),
+    )
+
+    def test_an_accepted_outage_does_not_degrade_the_run(self) -> None:
+        result = job_outcome({"filings": DEAD, "results": HEALTHY}, accepted=self.ACCEPT_FILINGS)
+        assert result.outcome == "ok"
+        assert result.counters["accepted_outages"] == ["filings"]
+
+    def test_the_other_source_still_degrades(self) -> None:
+        """The acceptance is scoped to one source, not to the job."""
+        result = job_outcome({"filings": HEALTHY, "results": DEAD}, accepted=self.ACCEPT_FILINGS)
+        assert result.outcome == "degraded"
+        assert result.counters["unaccepted_outages"] == ["results"]
+
+    def test_an_accepted_source_that_recovers_makes_the_acceptance_stale(self) -> None:
+        """The self-clearing half, and the reason this is safe to add at all.
+
+        The day upstream comes back, the acceptance is a lie sitting in the
+        code — so it degrades ONCE and names itself, which is what forces its
+        removal. Without this the exemption is permanent and silent.
+        """
+        result = job_outcome({"filings": HEALTHY, "results": HEALTHY}, accepted=self.ACCEPT_FILINGS)
+        assert result.outcome == "degraded"
+        assert result.counters["stale_acceptances"] == ["filings"]
+
+    def test_a_stale_acceptance_and_a_real_outage_are_both_named(self) -> None:
+        result = job_outcome({"filings": HEALTHY, "results": DEAD}, accepted=self.ACCEPT_FILINGS)
+        assert result.counters["stale_acceptances"] == ["filings"]
+        assert result.counters["unaccepted_outages"] == ["results"]
+
+    def test_the_shipped_acceptance_covers_exactly_the_333_outage(self) -> None:
+        """Pins what is actually shipped, so widening it is a deliberate diff."""
+        assert [(a.source, a.issue) for a in ACCEPTED_OUTAGES] == [("filings", "#333")]
+
+    def test_todays_live_shape_is_ok_and_still_visible(self) -> None:
+        """Last night's exact counters: filings dead, results fine."""
+        result = job_outcome({"filings": DEAD, "results": HEALTHY})
+        assert result.outcome == "ok"
+        assert result.counters["accepted_outages"] == ["filings"]
 
 
 async def test_manifest_url_honors_injected_client_bases(tmp_path) -> None:
