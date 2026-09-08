@@ -42,7 +42,7 @@ edges with `grep`. Goal→tool table, evidence, and the session-start `ToolSearc
 | 2b vocabulary | `usa-wa-common` | WA facts, source-free — **may not import an adapter** |
 | 3 adapters | `usa-wa-adapter-*` | sourcing only, one per jurisdiction+target — **no adapter may import a peer adapter** |
 | 3b facts | `usa-wa-facts-*` | applications composing cohorts across adapters — **never an adapter's `transport`** |
-| 3c pipeline | `usa-wa-pipeline` | #302 dbt staging/matching/conformed tier — facts sibling, **never a `transport`** |
+| 3c pipeline | `usa-wa-pipeline` | #302 dbt staging/matching/conformed models + the publisher (four catalog tiers, one of them non-dbt) — facts sibling, **never a `transport`** |
 | 4 deployment | `usa-wa-api`, `usa-wa-sync-powermap` | serve + sync — **never an adapter's `transport`** |
 
 Per-package module reference — what each file is for and why it exists:

@@ -138,3 +138,24 @@ def test_export_and_publish_share_one_db_resolver() -> None:
     monkey = publish.pipeline_db_path
     assert monkey(None) == Path("data/pipeline.duckdb")
     assert monkey("/explicit.duckdb") == Path("/explicit.duckdb")
+
+
+def test_materialize_of_an_empty_crosswalk_declares_the_columns(tmp_path) -> None:
+    """The #314 shape: once the pm_* columns are dropped the export goes empty.
+    That must land as an empty TABLE — which the publisher's shrink gate refuses
+    as a 100% contraction — not as a missing one, which reads as a build failure
+    and refuses the whole catalog for a different, misleading reason."""
+    db = tmp_path / "pipeline.duckdb"
+
+    assert materialize_anchors([], db) == 0
+
+    columns, types, rows = _table(db)
+    assert columns == list(ANCHOR_COLUMNS)
+    assert set(types) == {"VARCHAR"}
+    assert rows == []
+
+
+def test_materialize_rejects_a_row_that_does_not_match_the_columns(tmp_path) -> None:
+    """A short/long row is a caller bug, not something to pad or truncate."""
+    with pytest.raises(ValueError, match="does not match columns"):
+        materialize_anchors([("person", "01A")], tmp_path / "pipeline.duckdb")

@@ -130,6 +130,22 @@ SCHEMA_VERSION = "1.5.0"
 
 DEFAULT_MAX_SHRINK = 0.10
 
+#: Where the built duckdb lives. `anchor_export` materializes INTO the same file
+#: this reads FROM, so the resolution lives here once and both call it (CR 110).
+#: Two copies of the literal would let the pair drift silently: the export would
+#: write a table the publisher never reads, the catalog would quietly stop
+#: carrying that dataset, and both jobs would still report `ok`.
+PIPELINE_DB_ENV = "USA_WA_PIPELINE_DB"
+_DEFAULT_PIPELINE_DB = "data/pipeline.duckdb"
+
+
+def pipeline_db_path(explicit: str | Path | None) -> Path:
+    """Resolve the pipeline duckdb: explicit flag, then env, then the default."""
+    if explicit:
+        return Path(explicit)
+    return Path(os.environ.get(PIPELINE_DB_ENV, _DEFAULT_PIPELINE_DB))
+
+
 _TYPE_MAP = {
     "VARCHAR": "string",
     "BIGINT": "integer",
@@ -329,7 +345,7 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 
 
 async def _publish_job(ctx: JobContext) -> JobResult:
-    db_path = Path(ctx.args.db or os.environ.get("USA_WA_PIPELINE_DB", "data/pipeline.duckdb"))
+    db_path = pipeline_db_path(ctx.args.db)
     out_root = Path(ctx.args.out or os.environ.get("USA_WA_DATASETS_ROOT", "data/datasets"))
     manifest = Path(ctx.args.manifest or db_path.parent / "target" / "manifest.json")
     try:
