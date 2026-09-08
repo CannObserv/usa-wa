@@ -1,6 +1,7 @@
 """SOS raw-tier harvest (#304): filings + results wires into the file store."""
 
 import json
+import logging
 from dataclasses import dataclass
 
 from clearinghouse_core.rawstore import RawStore
@@ -174,7 +175,13 @@ class TestAcceptedOutages:
 
     ACCEPT_FILINGS = (
         AcceptedOutage(
-            source="filings", reason="upstream 500", issue="#333", observed="2026-09-03"
+            source="filings",
+            reason="upstream 500",
+            issue="#333",
+            observed="2026-09-03",
+            # Required, not defaulted: an acceptance you cannot describe the
+            # cleanup for is one whose cleanup will not happen.
+            follow_up=("remove this entry",),
         ),
     )
 
@@ -199,6 +206,22 @@ class TestAcceptedOutages:
         result = job_outcome({"filings": HEALTHY, "results": HEALTHY}, accepted=self.ACCEPT_FILINGS)
         assert result.outcome == "degraded"
         assert result.counters["stale_acceptances"] == ["filings"]
+
+    def test_a_stale_acceptance_names_every_follow_up_the_recovery_unblocks(self, caplog) -> None:
+        """The recovery message has to carry the WHOLE cleanup, not half of it.
+
+        #333's own next-steps list two things a first real wire unblocks:
+        removing the acceptance, and ratcheting `stg_sos_filings_key` from
+        `severity: warn` back to error (its key is a contract stated before any
+        wire ever landed — #330). The staleness signal fires exactly once, so if
+        it names only the acceptance the second item goes with it, and the issue
+        gets closed on recovery with an unverified key still unenforced.
+        """
+        with caplog.at_level(logging.WARNING):
+            job_outcome({"filings": HEALTHY, "results": HEALTHY}, accepted=ACCEPTED_OUTAGES)
+        [record] = [r for r in caplog.records if r.message == "sos_raw_harvest_acceptance_stale"]
+        assert any("stg_sos_filings_key" in item for item in record.follow_up)
+        assert any("ACCEPTED_OUTAGES" in item for item in record.follow_up)
 
     def test_a_stale_acceptance_and_a_real_outage_are_both_named(self) -> None:
         result = job_outcome({"filings": HEALTHY, "results": DEAD}, accepted=self.ACCEPT_FILINGS)
