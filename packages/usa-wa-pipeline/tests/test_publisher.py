@@ -5,6 +5,7 @@ import json
 import duckdb
 import pytest
 
+from usa_wa_pipeline import publish as publish_mod
 from usa_wa_pipeline.publish import PUBLISHED_DATASETS, PublishRefused, publish
 
 
@@ -211,3 +212,24 @@ def test_publishes_a_non_dbt_table_with_empty_lineage(built_db, tmp_path) -> Non
     [resource] = package["resources"]
     assert [f["name"] for f in resource["schema"]["fields"]] == ["kind", "usa_wa_id", "pm_id"]
     assert resource["hash"] == entry["hash"]
+
+
+def test_unchanged_dataset_keeps_its_prior_schema_version(built_db, tmp_path, monkeypatch) -> None:
+    """A SCHEMA_VERSION bump does not restamp the catalog: an unchanged dataset
+    carries its prior entry forward, so its entry keeps naming the contract its
+    bytes were actually published under. The live catalog carries a spread of
+    versions for exactly this reason — it is the behaviour, not drift."""
+    out = tmp_path / "datasets"
+    monkeypatch.setattr(publish_mod, "SCHEMA_VERSION", "9.0.0")
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+    monkeypatch.setattr(publish_mod, "SCHEMA_VERSION", "9.1.0")
+    con = duckdb.connect(str(built_db))
+    con.execute("insert into persons select '01Z', 'Newcomer'")  # only `persons` changes
+    con.close()
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+    assert (summary["minted"], summary["unchanged"]) == (1, 1)
+    entries = {d["name"]: d for d in json.loads((out / "catalog.json").read_text())["datasets"]}
+    assert entries["persons"]["schema_version"] == "9.1.0"
+    assert entries["person_crosswalk"]["schema_version"] == "9.0.0"

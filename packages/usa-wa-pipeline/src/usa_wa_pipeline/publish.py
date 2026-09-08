@@ -102,7 +102,15 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
 
 #: Per-dataset schema semver: additive = minor, rename/removal = major (spec).
 #: One knob covers every dataset today — per-dataset versions are a later
-#: refinement, so a bump re-versions all of them.
+#: refinement.
+#:
+#: A bump does NOT restamp the catalog. Skip-if-unchanged carries an unchanged
+#: dataset's prior entry forward verbatim, so this value reaches a dataset only
+#: when that dataset next mints, and the catalog legitimately carries a spread
+#: (five of them as of #354). That is the more honest reading anyway — an entry
+#: names the contract its bytes were published under, not the newest constant —
+#: but it does mean the value is not a catalog-wide assertion. Pinned by
+#: `test_unchanged_dataset_keeps_its_prior_schema_version`.
 #:
 #: - 1.1.0 (#309): stg_wsl_committee_members gained the member identity fields
 #:   the span tier needs, and `assignments` joined the published set.
