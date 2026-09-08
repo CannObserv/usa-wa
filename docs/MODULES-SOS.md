@@ -37,3 +37,27 @@ source-agnostic `house/` application. The pattern it follows is in
       raw_harvest.py (package root) — **#302 raw-tier harvest** (#304, `python -m usa_wa_adapter_sos.raw_harvest`, slug `sos-raw-harvest`): both SOS sources one run — WhoFiled filings + legislative results per decisive year, written as pristine wires to `raw/usa_wa_sos/` + `raw/usa_wa_sos_results/` under the archive's resource ids; per-cohort and per-source failures contained. Runs beside the Postgres tier until #302 cutover
         refresh.py    — `python -m usa_wa_facts_seats.house.refresh` (#101): the **daily** driver of the House Position seat, **rebuild-only since #201** — re-drives `build_house_position_spans` scoped to the current biennium off the archive, and archives nothing (that is `results/archive_refresh.py` above, its own unit ordered before this one; splitting them is what let the `import-linter` exception go). Runs **after** the WSL refresh (reads its sponsor archive + binds its Persons); independent of the PDC refresh. Systemd timer 06:45 UTC fires this unit, which `Wants=` the archive half — weak on purpose: on a votewa outage the seat still re-derives from the last good archive rather than being cancelled with it
 ```
+
+## Accepted outages (#333)
+
+`raw_harvest.ACCEPTED_OUTAGES` names sources whose **total** failure is known,
+tracked and not worth an alert. A named source landing nothing exits 0 and logs
+`sos_raw_harvest_accepted_outage` with the issue and the date first observed;
+the counters still carry `errors` and `accepted_outages`, so the outage stays
+legible in the journal — it is unalarmed, not unreported.
+
+The reason it is safe to add at all is the other half: an accepted source that
+**recovers** exits 4 and names itself in `stale_acceptances`. Without that the
+exemption outlives the outage and the source can go dark with nothing left to
+notice. Acceptances expire by the source recovering, never by the calendar.
+
+Currently accepted: **filings** (#333, observed 2026-09-03) — votewa.gov's
+WhoFiled `ExportToExcel` returns HTTP 500 for every election date. Nothing
+downstream reads it (`stg_sos_filings` is published but feeds no span, citation
+or conformed product), so the outage costs coverage this deployment does not
+yet use. It had mailed the operator on five consecutive nightly runs.
+
+The granularity is the source, not the HTTP status: the counters record that a
+source landed nothing and do not carry the reason. So while an acceptance
+stands, a *different* cause of total failure in that same source is also
+accepted — stated here rather than hidden, and bounded by the staleness rule.

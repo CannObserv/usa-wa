@@ -36,7 +36,7 @@ reserved for "aborted, took no action") — see
 | `python -m usa_wa_facts_seats.house.refresh` | Daily House Position rebuild — the WSL+SOS span builder off the archive (#101; rebuild-only since #201) |
 | `python -m usa_wa_adapter_legislature.raw_harvest` | Daily WSL SOAP set + member fan-out into the #302 raw file store (#304; no DB reads); `--root`, `--ttl-days` |
 | `python -m usa_wa_adapter_pdc.raw_harvest` | Winner-cohort wires into the raw file store (#304); exit 4 = whole-source outage |
-| `python -m usa_wa_adapter_sos.raw_harvest` | Filings + results wires into the raw file store (#304), both SOS sources one run |
+| `python -m usa_wa_adapter_sos.raw_harvest` | Filings + results wires into the raw file store (#304), both SOS sources one run. Exit 4 = a source landed nothing, **unless it is named in `ACCEPTED_OUTAGES`** — a known upstream outage exits 0 while still logging `sos_raw_harvest_accepted_outage` with its issue. An accepted source that RECOVERS exits 4 as `stale_acceptances`, which is what forces the entry's removal (#333) |
 | `python -m clearinghouse_core.raw_integrity` | Raw-store integrity sweep — re-hash file objects vs manifests, rolling byte-slice + cursor (#304); exit 1 = corruption |
 | `python -m clearinghouse_core.raw_export` | One-shot hash-preserving RawPayload corpus export into the raw store (#305); resumable cursor, `--reset-cursor`, mismatch = exit 1 |
 | `python -m usa_wa_pipeline.parity_wsl` | Write-free parity probe: WSL staging rows vs. canonical Postgres (#306); exit 1 = unexplained divergence |

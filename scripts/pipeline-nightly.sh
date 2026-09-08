@@ -4,7 +4,11 @@
 #
 # Failure policy, stage by stage:
 # - a HARVEST failure is contained (counted, chain continues): the raw store
-#   keeps the last good wires and the publish shrink-gate protects downstream;
+#   keeps the last good wires and the publish shrink-gate protects downstream.
+#   A harvest may also exit 0 while reporting a KNOWN outage it has named in
+#   code (sos ACCEPTED_OUTAGES, #333) — that is deliberate: a nightly email
+#   nobody can act on is how alerting stops being read. The outage is still in
+#   the journal, and the acceptance fails the run once upstream recovers;
 # - a BUILD failure aborts (nothing downstream can run without the duckdb);
 # - REGISTRAR conflicts (exit 4) are counted, not fatal: the pipeline stays
 #   publishable during a triage backlog — yesterday's identity universe with
