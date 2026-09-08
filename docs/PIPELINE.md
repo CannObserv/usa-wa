@@ -194,8 +194,8 @@ orgs, 0 missing, 0 mismapped).
 ## Publication (#311, in progress)
 
 `python -m usa_wa_pipeline.publish` materializes each dataset in
-`publish.PUBLISHED_DATASETS` (staging tier + conformed products; deliberate
-config — publishing is a decision; lineage comes from the dbt manifest) as an
+`publish.PUBLISHED_DATASETS` (deliberate config — publishing is a decision;
+lineage comes from the dbt manifest) as an
 immutable `USA_WA_DATASETS_ROOT/<name>/<version>/data.csv + datapackage.json`
 and flips `catalog.json` last (tmp+rename both — a crash leaves unlisted
 orphans, never a listed partial). Skip-if-unchanged: no version churn on a
@@ -205,8 +205,35 @@ retraction=absence means a degraded build must never ship as mass retraction.
 The API serves the tree at `/datasets/*` with `/health/datasets` as the
 publication probe. The nightly systemd chain (`scripts/pipeline-nightly.sh`,
 `usa-wa-pipeline.timer`, daily 08:00 UTC) runs harvests → dbt build →
-registrar → publish → serving load → parity probes (`parity_citations` last);
-any counted failure exits 1 so `OnFailure=` emails the operator.
+registrar → anchor export → publish → serving load → parity probes
+(`parity_citations` last); any counted failure exits 1 so `OnFailure=` emails
+the operator.
+
+Four tiers, each answering a different question about who may depend on it.
+`tier` is per-dataset in the catalog and `/health/datasets` returns it, so the
+tier is published rather than inferred:
+
+| Tier | Datasets | Contract |
+|---|---|---|
+| `staging` | `stg_*` | The triage/lineage surface — one row per wire, source coordinates attached |
+| `conformed` | `persons`, `organizations`, `roles`, `assignments`, the crosswalks | The subscriber contract; schema-stable, semver'd |
+| `internal` | `citations` | Published bytes, no stability promise; its columns follow the API, not consumers |
+| `cutover` | `pm_anchors` | A migration artifact with a limited life — see below |
+
+`pm_anchors` is the PM crosswalk seed (#312) delivered as a dataset (#354,
+power-map#495) instead of as a second ad-hoc file path. It is the one published
+table with no dbt model behind it: `python -m usa_wa_pipeline.anchor_export`
+reads the `pm_*` anchor columns out of Postgres, writes `anchors.csv` +
+`manifest.json` under `--out`, and materializes the same rows into the pipeline
+duckdb as `pm_anchors`, which the publisher then picks up with no
+special-casing (`derived_from` is legitimately `[]`). Both id columns are
+pinned to `VARCHAR` — an all-digit Crockford ULID left to duckdb's CSV sniffer
+becomes a numeric column, and a mangled id 404s at PM.
+
+**It retires in #314.** The publisher refuses a run whose table is missing, so
+dropping the `pm_*` columns without also removing the `PUBLISHED_DATASETS`
+entry wedges the nightly publish for every other dataset. The entry says so at
+the point where it becomes due.
 
 A dev/CI build with NO database must say so: `USA_WA_PIPELINE_HERMETIC=1`
 (set by `scripts/dbt-gate.sh` and the dbt tests) is the only thing that lets

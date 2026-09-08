@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Nightly #302 pipeline chain (#311): raw harvests → dbt build → registrar →
-# publish → serving load → parity probes. ExecStart of usa-wa-pipeline.service.
+# anchor export → publish → serving load → parity probes. ExecStart of
+# usa-wa-pipeline.service.
 #
 # Failure policy, stage by stage:
 # - a HARVEST failure is contained (counted, chain continues): the raw store
@@ -13,6 +14,10 @@
 # - REGISTRAR conflicts (exit 4) are counted, not fatal: the pipeline stays
 #   publishable during a triage backlog — yesterday's identity universe with
 #   today's attributes, never a guessed identity (spec § registrar);
+# - an ANCHOR EXPORT failure is contained: the duckdb keeps the last good
+#   `pm_anchors`, so publish skips it unchanged rather than refusing. The
+#   anchors only move when the (now frozen) sidecar writes, so a re-export is
+#   normally a no-op that mints nothing;
 # - PUBLISH refusal (exit 1) is counted — the gate did its job, the catalog
 #   still lists the last good versions;
 # - a SERVING LOAD failure is counted: the API keeps serving the last good
@@ -49,6 +54,16 @@ fi
 
 if ! $UV python -m usa_wa_pipeline.registrar --db data/pipeline.duckdb; then
   echo "pipeline-nightly: registrar reported conflicts/failure (triage; publish continues)" >&2
+  failures=$((failures + 1))
+fi
+
+# The PM crosswalk seed (#312) as a catalog dataset (#354): read Postgres,
+# refresh `pm_anchors` in the duckdb, and let publish deliver it the way it
+# delivers every other dataset. Before publish so a re-export lands in the same
+# nightly catalog; contained, because a Postgres blip must not cost the other
+# datasets their publication.
+if ! $UV python -m usa_wa_pipeline.anchor_export --db data/pipeline.duckdb; then
+  echo "pipeline-nightly: anchor export failed (contained; last good pm_anchors stands)" >&2
   failures=$((failures + 1))
 fi
 

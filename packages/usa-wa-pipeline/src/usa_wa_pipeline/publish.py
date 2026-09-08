@@ -19,7 +19,9 @@ Materializes each published dataset as an immutable versioned directory —
   contraction. Nothing mints on a refused run.
 - **Lineage** from the dbt manifest (``derived_from`` = the dataset's direct
   model parents), never hand-maintained; the dataset *list* is deliberate
-  config (:data:`PUBLISHED_DATASETS` — publishing is a decision).
+  config (:data:`PUBLISHED_DATASETS` — publishing is a decision). A table with
+  no dbt model behind it publishes with empty lineage rather than being
+  special-cased, which is what lets ``pm_anchors`` (#354) ride this path.
 - Versions are timestamps plus a collision token
   (``v20260903T120000Z-a1b2c3``); the catalog lists only the latest.
   Retention/pruning is deliberately absent: these are archival products at
@@ -83,6 +85,19 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
     # deployment to hold one frozenset would be a real cost for a restatement of
     # a field the catalog already publishes.
     ("citations", "internal"),
+    # The PM anchor crosswalk (#354, power-map#495). Its own tier because it is
+    # honestly neither: not staging (no wire behind it), not conformed (not a
+    # product anyone subscribes to ongoing), but a CUTOVER artifact with a
+    # limited life. Materialized from Postgres by `anchor_export`, not by a dbt
+    # model, so `derived_from` is legitimately empty.
+    #
+    # DELETE THIS ENTRY IN #314, in the same commit that drops the `pm_*` anchor
+    # columns. The publisher refuses a run whose table is missing — deliberate
+    # for a live product, wrong for an artifact whose disappearance is planned —
+    # so dropping the columns without removing this line wedges the nightly
+    # publish for every other dataset. The shrink gate is the near-miss warning:
+    # emptying the anchors is a 100% shrink and refuses first.
+    ("pm_anchors", "cutover"),
 ]
 
 #: Per-dataset schema semver: additive = minor, rename/removal = major (spec).
@@ -100,7 +115,10 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
 #:   the raw coordinates of the wire the row was read from, and two datasets
 #:   joined — `stg_raw_fetches` (the attestation dimension) and `citations`
 #:   (internal). Appended columns, hence minor.
-SCHEMA_VERSION = "1.4.0"
+#: - 1.5.0 (#354): `pm_anchors` joined the published set, in a new `cutover`
+#:   tier. A dataset joining is additive — no existing dataset changed shape —
+#:   hence minor.
+SCHEMA_VERSION = "1.5.0"
 
 DEFAULT_MAX_SHRINK = 0.10
 

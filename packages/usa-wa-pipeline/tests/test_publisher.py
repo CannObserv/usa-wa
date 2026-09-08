@@ -5,7 +5,7 @@ import json
 import duckdb
 import pytest
 
-from usa_wa_pipeline.publish import PublishRefused, publish
+from usa_wa_pipeline.publish import PUBLISHED_DATASETS, PublishRefused, publish
 
 
 @pytest.fixture
@@ -168,3 +168,46 @@ def test_rebuilt_identical_table_is_skipped_not_reminted(built_db, tmp_path):
     summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
     assert summary["unchanged"] == 2
     assert summary["minted"] == 0
+
+
+def test_pm_anchors_ships_as_a_cutover_dataset() -> None:
+    """#354: the anchor export reaches PM through the catalog, not a second
+    ad-hoc path. Its own tier, because it is neither staging nor conformed —
+    a cutover artifact with a limited life."""
+    assert ("pm_anchors", "cutover") in PUBLISHED_DATASETS
+
+
+def test_publishes_a_non_dbt_table_with_empty_lineage(built_db, tmp_path) -> None:
+    """#354: `pm_anchors` is materialized from Postgres, not by a dbt model, so
+    the manifest knows nothing about it. That is honest lineage, not a failure —
+    and it must not cost the publisher any special-casing."""
+    con = duckdb.connect(str(built_db))
+    con.execute(
+        "create table pm_anchors as select * from (values "
+        "('person', '01A', '01P'), ('assignment', '01B', '01Q')) t(kind, usa_wa_id, pm_id)"
+    )
+    con.close()
+    out = tmp_path / "datasets"
+
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=[("pm_anchors", "cutover")])
+
+    assert summary["minted"] == 1
+    entry = next(
+        d
+        for d in json.loads((out / "catalog.json").read_text())["datasets"]
+        if d["name"] == "pm_anchors"
+    )
+    assert entry["tier"] == "cutover"
+    assert entry["rows"] == 2
+    assert entry["derived_from"] == []
+    # the counts-and-hash manifest.json carried, now carried the way every other
+    # catalog entry carries them
+    assert entry["hash"].startswith("sha256:")
+    assert entry["bytes"] > 0
+
+    package = json.loads(
+        (out / "pm_anchors" / entry["latest_version"] / "datapackage.json").read_text()
+    )
+    [resource] = package["resources"]
+    assert [f["name"] for f in resource["schema"]["fields"]] == ["kind", "usa_wa_id", "pm_id"]
+    assert resource["hash"] == entry["hash"]

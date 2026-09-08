@@ -23,7 +23,7 @@ suite until the table below matches.
 |---|---|---|
 | GET | `/health` | Liveness. No external calls; returns the build id. |
 | GET | `/ready` | Readiness. `SELECT 1` against the database; 503 on failure. |
-| GET | `/health/datasets` | Publication health (#311): catalog age + per-dataset latest version/rows/age; `published: false` before the first publish. The pipeline-era successor to `/health/sync`. |
+| GET | `/health/datasets` | Publication health (#311): catalog age + per-dataset `tier`, latest version, rows and age; `published: false` before the first publish. The pipeline-era successor to `/health/sync`. `tier` is what says whether a dataset is the subscriber contract — `conformed` — or `staging` / `internal` / `cutover`; the tiers are defined in [PIPELINE.md](PIPELINE.md#publication-311-in-progress). |
 | GET | `/health/serving` | Serving-projection health (#313): per-dataset **loaded version** vs. the catalog's published version, plus rows and `unaddressable_rows`. Currency is a version comparison, not a row count — an unchanged count is the normal case, so counts cannot tell yesterday's snapshot from today's. `current: null` when the catalog does not carry the dataset. Distinct from `/health/datasets`: a healthy catalog with a stale load is the silent case, because every `/api/v1` answer is still a 200. `loaded: false` before the schema is built; a broken database raises rather than reporting `false` — `/ready` is the database-liveness probe. |
 | GET | `/datasets/{path:path}` | Published dataset files (#311): `catalog.json` + `<name>/<version>/data.csv\|datapackage.json` off `USA_WA_DATASETS_ROOT`. Traversal-guarded; 404 for anything unpublished. |
 
