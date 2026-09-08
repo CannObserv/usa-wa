@@ -14,12 +14,27 @@ checkable on arrival. Read-only on Postgres; re-run replaces the output.
 **Delivery is the catalog (#354, power-map#495).** The export is a dataset in
 all but name — immutable, deterministically ordered, hash-carrying,
 regenerable — so it reaches PM the way every other dataset does rather than as
-a second ad-hoc path they fetch and integrity-check differently. The bridge is
-:func:`materialize_anchors`: the CSV lands in the pipeline duckdb as
-``pm_anchors``, and :mod:`usa_wa_pipeline.publish` picks it up from there with
-no special-casing at all. The local ``--out`` tree keeps being written
-alongside it — per-kind counts live only in ``manifest.json``, and the old path
-stays until PM confirms its puller reads the catalog entry (#314 sweeps it).
+a second ad-hoc path they fetch and integrity-check differently.
+
+One query, two independent sinks. :func:`anchor_rows` reads the anchors once;
+:func:`write_export` writes the local ``--out`` tree and :func:`materialize_anchors`
+builds ``pm_anchors`` in the pipeline duckdb, which :mod:`usa_wa_pipeline.publish`
+then picks up with no special-casing at all. Neither sink reads the other's
+output, which buys two things (CR round 12): retiring the local tree once PM's
+puller reads the catalog entry stays a deletion rather than a rewrite (#314
+sweeps it), and the two cannot disagree about which id is which — they take
+their column order from :data:`ANCHOR_COLUMNS`, and duckdb maps an explicit
+``columns=`` spec **positionally**, so a header the loader merely trusted would
+have swapped ``usa_wa_id`` and ``pm_id`` silently. Both are 26-char base32:
+every downstream shape check would still have passed.
+
+Per-kind counts live only in ``manifest.json`` — the catalog carries a single
+``rows`` total, the way every other entry does — but stay derivable from the
+published ``kind`` column.
+
+**This job writes.** Read-only on Postgres, but it replaces ``pm_anchors`` in
+the duckdb named by ``--db``, which defaults to the production pipeline
+database independently of ``--out``.
 """
 
 from __future__ import annotations
@@ -28,32 +43,33 @@ import argparse
 import csv
 import hashlib
 import json
-import os
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
+from usa_wa_pipeline.publish import pipeline_db_path
 
 logger = get_logger(__name__)
 
 #: Stable ledger identity (#178).
 JOB_SLUG = "pm-anchor-export"
 
-#: The table the publisher reads the crosswalk from, and its columns. Named
-#: here rather than inline so the test that pins the published schema and the
-#: writer cannot drift apart.
+#: The table the publisher reads the crosswalk from, and its columns. BOTH
+#: sinks take their column order from here — see the module docstring for what
+#: a positional mismatch would cost.
 ANCHOR_TABLE = "pm_anchors"
 ANCHOR_COLUMNS = ("kind", "usa_wa_id", "pm_id")
 
-#: Where the built pipeline duckdb lives, matching `publish`'s own default.
-PIPELINE_DB_ENV = "USA_WA_PIPELINE_DB"
-_DEFAULT_PIPELINE_DB = "data/pipeline.duckdb"
+#: Filename of the local CSV artifact, named once so the writer and the job agree.
+CSV_NAME = "anchors.csv"
 
 _KINDS = (
     ("person", Person, Person.pm_person_id),
@@ -63,25 +79,43 @@ _KINDS = (
 )
 
 
-async def export_anchors(session: AsyncSession, out_dir: Path | str) -> dict[str, int]:
-    """Write ``anchors.csv`` + ``manifest.json`` under ``out_dir``. Returns counts."""
+async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
+    """Every anchored entity as ``(kind, usa_wa_id, pm_id)``, both ids base32.
+
+    The single read both sinks are built from. Ordered by kind (in
+    :data:`_KINDS` order) then local id, so the export is deterministic across
+    runs — which is what lets the publisher's skip-if-unchanged hash mean
+    "nothing moved" rather than "the rows came back in a different order".
+    """
+    rows: list[tuple[str, str, str]] = []
+    for kind, model, anchor_col in _KINDS:
+        result = (
+            await session.execute(
+                select(model.id, anchor_col).where(anchor_col.isnot(None)).order_by(model.id)
+            )
+        ).all()
+        rows.extend((kind, str(local_id), str(pm_id)) for local_id, pm_id in result)
+    return rows
+
+
+def write_export(rows: Sequence[tuple[str, str, str]], out_dir: Path | str) -> dict[str, int]:
+    """Write ``anchors.csv`` + ``manifest.json`` under ``out_dir``. Returns per-kind counts.
+
+    The manifest is the only place the per-kind split survives: a catalog entry
+    carries one ``rows`` total, like every other dataset.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = out_dir / "anchors.csv"
-    counts: dict[str, int] = {}
+    csv_path = out_dir / CSV_NAME
+    counts: dict[str, int] = {kind: 0 for kind, _, _ in _KINDS}
     with csv_path.open("w", newline="") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["kind", "usa_wa_id", "pm_id"])
-        for kind, model, anchor_col in _KINDS:
-            counts[kind] = 0
-            rows = (
-                await session.execute(
-                    select(model.id, anchor_col).where(anchor_col.isnot(None)).order_by(model.id)
-                )
-            ).all()
-            for local_id, pm_id in rows:
-                writer.writerow([kind, str(local_id), str(pm_id)])
-                counts[kind] += 1
+        writer.writerow(list(ANCHOR_COLUMNS))
+        for kind, local_id, pm_id in rows:
+            if kind not in counts:
+                raise ValueError(f"unknown anchor kind {kind!r}; expected one of {sorted(counts)}")
+            writer.writerow([kind, local_id, pm_id])
+            counts[kind] += 1
     digest = hashlib.sha256(csv_path.read_bytes()).hexdigest()
     (out_dir / "manifest.json").write_text(
         json.dumps(
@@ -99,69 +133,89 @@ async def export_anchors(session: AsyncSession, out_dir: Path | str) -> dict[str
     return counts
 
 
-def pipeline_db_path(explicit: str | Path | None) -> Path:
-    """Resolve the duckdb to materialize into: flag, then env, then the default.
-
-    Deliberately the same resolution :mod:`usa_wa_pipeline.publish` uses. If the
-    two ever drift the export writes a table the publisher never reads, and the
-    catalog quietly stops carrying the crosswalk while both jobs report success.
-    """
-    if explicit is not None:
-        return Path(explicit)
-    return Path(os.environ.get(PIPELINE_DB_ENV, _DEFAULT_PIPELINE_DB))
+async def export_anchors(session: AsyncSession, out_dir: Path | str) -> dict[str, int]:
+    """Read the anchors and write the local export tree. Returns per-kind counts."""
+    return write_export(await anchor_rows(session), out_dir)
 
 
-def materialize_anchors(csv_path: Path | str, db_path: Path | str) -> int:
-    """Load ``anchors.csv`` into the pipeline duckdb as ``pm_anchors``. Returns rows.
+def materialize_anchors(rows: Sequence[tuple[str, str, str]], db_path: Path | str) -> int:
+    """Build ``pm_anchors`` in the pipeline duckdb from ``rows``. Returns rows written.
 
     ``create or replace``: a version of this dataset *is* the whole live
     crosswalk, so a re-export replaces rather than accumulates — the same
     retraction-as-absence rule the published contract runs on.
 
-    Every column is pinned to ``VARCHAR`` instead of being sniffed. A ULID is
-    Crockford base32 and may be all digits; left to infer, duckdb would type
-    such a column numerically and hand PM an id that no longer resolves — the
-    same encoding trap as the ``::text`` UUID-hex form this export exists to
-    avoid.
+    Every column is carried as pandas ``string`` dtype, which duckdb lands as
+    ``VARCHAR``. A ULID is Crockford base32 and may be all digits; typed
+    numerically, the id handed to PM no longer resolves — the same encoding trap
+    as the ``::text`` UUID-hex form this export exists to avoid. An empty frame
+    still declares the columns, so a wiped crosswalk is an empty table the
+    publisher's shrink gate can refuse rather than a missing one that reads as a
+    build failure.
+
+    Loaded as one registered frame rather than row-by-row: ``executemany`` of
+    12k inserts costs ~49s against ~0.02s here, and this runs inside the nightly
+    chain.
     """
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    spec = ", ".join(f"'{column}': 'VARCHAR'" for column in ANCHOR_COLUMNS)
+    values = [tuple(row) for row in rows]
+    bad = next((row for row in values if len(row) != len(ANCHOR_COLUMNS)), None)
+    if bad is not None:
+        raise ValueError(f"row {bad!r} does not match columns {ANCHOR_COLUMNS}")
+    frame = pd.DataFrame(values, columns=list(ANCHOR_COLUMNS), dtype="string")
     con = duckdb.connect(str(db_path))
     try:
-        con.execute(
-            f'create or replace table "{ANCHOR_TABLE}" as '  # noqa: S608
-            f"select * from read_csv(?, header = true, columns = {{{spec}}})",
-            [str(csv_path)],
-        )
-        rows = con.execute(f'select count(*) from "{ANCHOR_TABLE}"').fetchone()[0]  # noqa: S608
+        con.register("anchor_frame", frame)
+        try:
+            con.execute(
+                # ANCHOR_TABLE is a module constant, not caller input.
+                f'create or replace table "{ANCHOR_TABLE}" as select * from anchor_frame'  # noqa: S608
+            )
+        finally:
+            con.unregister("anchor_frame")
+        written = con.execute(f'select count(*) from "{ANCHOR_TABLE}"').fetchone()[0]  # noqa: S608
     finally:
         con.close()
-    logger.info("anchor_materialize_complete", extra={"table": ANCHOR_TABLE, "rows": rows})
-    return int(rows)
+    logger.info(
+        "anchor_materialize_complete",
+        extra={"table": ANCHOR_TABLE, "rows": written, "db": str(db_path)},
+    )
+    return int(written)
 
 
 def _add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--out", default="data/anchor-export", help="Output directory (default data/anchor-export)."
+        "--out",
+        default="data/anchor-export",
+        help="Local CSV/manifest directory (default data/anchor-export). Does NOT "
+        "redirect the duckdb write — see --db.",
     )
     parser.add_argument(
         "--db",
         default=None,
-        help="Pipeline duckdb to materialize pm_anchors into (default USA_WA_PIPELINE_DB).",
+        help="Pipeline duckdb whose pm_anchors table is REPLACED (default "
+        "USA_WA_PIPELINE_DB, else data/pipeline.duckdb — i.e. production). Point "
+        "this at a scratch file whenever --out is a scratch directory.",
     )
 
 
 async def _export_job(ctx: JobContext) -> JobResult:
-    out_dir = Path(ctx.args.out)
-    counts = await export_anchors(ctx.require_session(), out_dir)
-    db_path = pipeline_db_path(ctx.args.db)
-    rows = materialize_anchors(out_dir / "anchors.csv", db_path)
-    return JobResult.ok({**counts, "pm_anchors_rows": rows, "pipeline_db": str(db_path)})
+    rows = await anchor_rows(ctx.require_session())
+    counts = write_export(rows, Path(ctx.args.out))
+    # The db path is logged, not counted: the run ledger's counters are published
+    # verbatim by `GET /api/v1/health/jobs`, and a filesystem path is neither a
+    # counter nor something to put on a read surface (CR 113).
+    written = materialize_anchors(rows, pipeline_db_path(ctx.args.db))
+    return JobResult.ok({**counts, "pm_anchors_rows": written})
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Export the PM anchor crosswalk seed. Read-only on the database."""
+    """Export the PM anchor crosswalk seed.
+
+    Read-only on Postgres, but it REPLACES ``pm_anchors`` in the pipeline duckdb
+    (``--db``, defaulting to production independently of ``--out``).
+    """
     return run_job(
         JOB_SLUG,
         _export_job,

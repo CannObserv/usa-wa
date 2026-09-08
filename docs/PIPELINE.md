@@ -191,7 +191,7 @@ forward flow; verified live 2026-09-03 — 813 proposals → 0 mints, 0 conflict
 505 crosswalk-key appends, and `parity-registry` clean (3,135 persons / 219
 orgs, 0 missing, 0 mismapped).
 
-## Publication (#311, in progress)
+## Publication (#311)
 
 `python -m usa_wa_pipeline.publish` materializes each dataset in
 `publish.PUBLISHED_DATASETS` (deliberate config — publishing is a decision;
@@ -222,13 +222,24 @@ tier is published rather than inferred:
 
 `pm_anchors` is the PM crosswalk seed (#312) delivered as a dataset (#354,
 power-map#495) instead of as a second ad-hoc file path. It is the one published
-table with no dbt model behind it: `python -m usa_wa_pipeline.anchor_export`
-reads the `pm_*` anchor columns out of Postgres, writes `anchors.csv` +
-`manifest.json` under `--out`, and materializes the same rows into the pipeline
-duckdb as `pm_anchors`, which the publisher then picks up with no
-special-casing (`derived_from` is legitimately `[]`). Both id columns are
-pinned to `VARCHAR` — an all-digit Crockford ULID left to duckdb's CSV sniffer
-becomes a numeric column, and a mangled id 404s at PM.
+table with no dbt model behind it. `python -m usa_wa_pipeline.anchor_export`
+reads the `pm_*` anchor columns out of Postgres **once**, then feeds two
+independent sinks: `anchors.csv` + `manifest.json` under `--out`, and the
+`pm_anchors` table in the pipeline duckdb (`--db`), which the publisher picks
+up with no special-casing (`derived_from` is legitimately `[]`). Neither sink
+reads the other's output, so retiring the local tree is a deletion rather than
+a rewrite, and the two cannot disagree about which id is which — they take
+their column order from one constant.
+
+Both id columns are carried as text. An all-digit Crockford ULID typed
+numerically is an id that 404s at PM, and duckdb maps an explicit `columns=`
+spec **positionally**: a header it merely trusted would have swapped
+`usa_wa_id` and `pm_id` silently, since both are 26-char base32 and every
+downstream shape check still passes.
+
+**The job writes.** It is read-only on Postgres but *replaces* `pm_anchors` in
+the duckdb named by `--db`, which defaults to production independently of
+`--out` — point both at scratch, never just one.
 
 **It retires in #314.** The publisher refuses a run whose table is missing, so
 dropping the `pm_*` columns without also removing the `PUBLISHED_DATASETS`
