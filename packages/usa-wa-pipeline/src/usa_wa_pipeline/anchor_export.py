@@ -83,9 +83,9 @@ async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
     """Every anchored entity as ``(kind, usa_wa_id, pm_id)``, both ids base32.
 
     The single read both sinks are built from. Ordered by kind (in
-    :data:`_KINDS` order) then local id, so the export is deterministic across
-    runs — which is what lets the publisher's skip-if-unchanged hash mean
-    "nothing moved" rather than "the rows came back in a different order".
+    :data:`_KINDS` order) then local id, so the read is deterministic across
+    runs; :func:`write_export` imposes publication order itself rather than
+    trusting a caller to have done it.
     """
     rows: list[tuple[str, str, str]] = []
     for kind, model, anchor_col in _KINDS:
@@ -103,15 +103,26 @@ def write_export(rows: Sequence[tuple[str, str, str]], out_dir: Path | str) -> d
 
     The manifest is the only place the per-kind split survives: a catalog entry
     carries one ``rows`` total, like every other dataset.
+
+    **Byte-identical to the published ``data.csv``**, so ``manifest.json``'s
+    ``sha256`` equals the catalog entry's ``hash`` and a client cross-checking
+    the two artifacts always gets agreement. Two things buy that, and both are
+    load-bearing: rows are sorted here into the publisher's ``order by all``
+    order — enforced at the sink that makes the promise, not assumed of the
+    caller — and the terminator is ``\n`` rather than
+    :mod:`csv`'s ``excel``-dialect ``\r\n`` — duckdb's ``COPY`` writes bare
+    LF, and that difference alone was 12,462 bytes and a second, conflicting
+    digest for the same 12,461 rows. Pinned by
+    ``test_local_export_is_byte_identical_to_the_published_csv``.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out_dir / CSV_NAME
     counts: dict[str, int] = {kind: 0 for kind, _, _ in _KINDS}
     with csv_path.open("w", newline="") as fh:
-        writer = csv.writer(fh)
+        writer = csv.writer(fh, lineterminator="\n")
         writer.writerow(list(ANCHOR_COLUMNS))
-        for kind, local_id, pm_id in rows:
+        for kind, local_id, pm_id in sorted(rows):
             if kind not in counts:
                 raise ValueError(f"unknown anchor kind {kind!r}; expected one of {sorted(counts)}")
             writer.writerow([kind, local_id, pm_id])

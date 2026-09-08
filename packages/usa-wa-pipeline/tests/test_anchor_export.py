@@ -1,11 +1,13 @@
 """The PM anchor export (#312): base32 crosswalk seed for power-map cutover."""
 
 import csv
+import hashlib
 import io
 import json
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 import pytest
 from ulid import ULID
 
@@ -159,3 +161,51 @@ def test_materialize_rejects_a_row_that_does_not_match_the_columns(tmp_path) -> 
     """A short/long row is a caller bug, not something to pad or truncate."""
     with pytest.raises(ValueError, match="does not match columns"):
         materialize_anchors([("person", "01A")], tmp_path / "pipeline.duckdb")
+
+
+def test_local_export_is_byte_identical_to_the_published_csv(tmp_path) -> None:
+    """One dataset, one sha256. The local `--out` artifact and the published
+    `data.csv` are two deliveries of the same rows, so a client cross-checking
+    `manifest.json` against the catalog entry must not see two digests and be
+    left unable to tell a serialisation difference from corruption.
+
+    Both halves are load-bearing: `csv`'s excel dialect writes CRLF where
+    duckdb's COPY writes LF (one byte per row — 12,462 on the real export), and
+    the publisher orders `by all` where a kind-grouped read does not."""
+    rows = [
+        ("person", "01B", "01Q"),
+        ("assignment", "01A", "01P"),
+        ("role", "01C", "01D"),
+        ("organization", "01E", "01F"),
+    ]
+    write_export(rows, tmp_path / "export")
+    ours = (tmp_path / "export" / "anchors.csv").read_bytes()
+
+    # exactly how publish.py materialises a dataset: order by all, header, comma
+    con = duckdb.connect()
+    try:
+        con.register("frame", pd.DataFrame(rows, columns=list(ANCHOR_COLUMNS), dtype="string"))
+        con.execute(f'create or replace table "{ANCHOR_TABLE}" as select * from frame')
+        published = tmp_path / "published.csv"
+        con.execute(
+            f'copy (select * from "{ANCHOR_TABLE}" order by all) '
+            f"to '{published}' (header, delimiter ',')"
+        )
+    finally:
+        con.close()
+
+    assert ours == published.read_bytes()
+    manifest = json.loads((tmp_path / "export" / "manifest.json").read_text())
+    assert manifest["sha256"] == hashlib.sha256(published.read_bytes()).hexdigest()
+
+
+def test_write_export_imposes_publication_order_on_any_input(tmp_path) -> None:
+    """The byte-equality above rests on row order, so `write_export` sorts rather
+    than trusting its caller — otherwise a future caller passing rows in query
+    order silently reintroduces a second digest for the same dataset."""
+    unsorted = [("person", "01B", "01Q"), ("assignment", "01A", "01P")]
+    write_export(unsorted, tmp_path / "export")
+
+    lines = (tmp_path / "export" / "anchors.csv").read_text().splitlines()
+    assert lines[0] == ",".join(ANCHOR_COLUMNS)
+    assert lines[1:] == sorted(lines[1:])

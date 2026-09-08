@@ -237,6 +237,16 @@ spec **positionally**: a header it merely trusted would have swapped
 `usa_wa_id` and `pm_id` silently, since both are 26-char base32 and every
 downstream shape check still passes.
 
+**One dataset, one sha256.** The local `anchors.csv` is byte-identical to the
+published `data.csv`, so `manifest.json`'s `sha256` equals the catalog entry's
+`hash`. That is not free: `write_export` sorts into the publisher's `order by
+all` order and writes bare `\n`, because `csv`'s default excel dialect emits
+`\r\n` — one byte per row, 12,462 on the real export, and a second digest for
+identical content. A client cross-checking the two artifacts would have had no
+way to tell a serialisation difference from corruption, which is a guard no
+consumer should carry. Pinned by a test that diffs `write_export`'s bytes
+against duckdb's own `COPY` output.
+
 **The job writes.** It is read-only on Postgres but *replaces* `pm_anchors` in
 the duckdb named by `--db`, which defaults to production independently of
 `--out` — point both at scratch, never just one.
