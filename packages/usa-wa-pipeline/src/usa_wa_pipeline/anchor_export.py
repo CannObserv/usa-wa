@@ -42,7 +42,9 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
+import os
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -82,10 +84,11 @@ _KINDS = (
 async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
     """Every anchored entity as ``(kind, usa_wa_id, pm_id)``, both ids base32.
 
-    The single read both sinks are built from. Ordered by kind (in
-    :data:`_KINDS` order) then local id, so the read is deterministic across
-    runs; :func:`write_export` imposes publication order itself rather than
-    trusting a caller to have done it.
+    The single read both sinks are built from. The order rows come back in is
+    incidental — a by-product of walking :data:`_KINDS` — and nothing depends on
+    it: :func:`write_export` imposes canonical publication order itself, and
+    :func:`materialize_anchors` is order-indifferent because the publisher sorts
+    on export. Do not build a coupling on it.
     """
     rows: list[tuple[str, str, str]] = []
     for kind, model, anchor_col in _KINDS:
@@ -96,6 +99,16 @@ async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
         ).all()
         rows.extend((kind, str(local_id), str(pm_id)) for local_id, pm_id in result)
     return rows
+
+
+def _replace(path: Path, payload: bytes) -> None:
+    """Land ``payload`` at ``path`` atomically — a reader sees old bytes or new."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_bytes(payload)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def write_export(rows: Sequence[tuple[str, str, str]], out_dir: Path | str) -> dict[str, int]:
@@ -114,21 +127,33 @@ def write_export(rows: Sequence[tuple[str, str, str]], out_dir: Path | str) -> d
     LF, and that difference alone was 12,462 bytes and a second, conflicting
     digest for the same 12,461 rows. Pinned by
     ``test_local_export_is_byte_identical_to_the_published_csv``.
+
+    **The pair is never observably inconsistent.** Rows are validated, then
+    serialized in memory, then both files are landed by ``os.replace`` — the
+    same tmp+rename discipline :mod:`usa_wa_pipeline.publish` uses, and for the
+    same reason. Streaming into the CSV left a truncated file beside the
+    *previous* run's manifest whenever a row was rejected or the process died:
+    a hash mismatch indistinguishable from corruption, which is the exact
+    failure this module was just fixed to stop producing (#357).
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = out_dir / CSV_NAME
     counts: dict[str, int] = {kind: 0 for kind, _, _ in _KINDS}
-    with csv_path.open("w", newline="") as fh:
-        writer = csv.writer(fh, lineterminator="\n")
-        writer.writerow(list(ANCHOR_COLUMNS))
-        for kind, local_id, pm_id in sorted(rows):
-            if kind not in counts:
-                raise ValueError(f"unknown anchor kind {kind!r}; expected one of {sorted(counts)}")
-            writer.writerow([kind, local_id, pm_id])
-            counts[kind] += 1
-    digest = hashlib.sha256(csv_path.read_bytes()).hexdigest()
-    (out_dir / "manifest.json").write_text(
+    for kind, _, _ in sorted(rows):
+        if kind not in counts:
+            raise ValueError(f"unknown anchor kind {kind!r}; expected one of {sorted(counts)}")
+        counts[kind] += 1
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(list(ANCHOR_COLUMNS))
+    writer.writerows(sorted(rows))
+    payload = buffer.getvalue().encode()
+    digest = hashlib.sha256(payload).hexdigest()
+
+    _replace(out_dir / CSV_NAME, payload)
+    _replace(
+        out_dir / "manifest.json",
         json.dumps(
             {
                 "exported_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
@@ -137,8 +162,8 @@ def write_export(rows: Sequence[tuple[str, str, str]], out_dir: Path | str) -> d
                 "encoding": "ulid-base32",
             },
             indent=2,
-        )
-        + "\n"
+        ).encode()
+        + b"\n",
     )
     logger.info("anchor_export_complete", extra={"counts": counts, "sha256": digest})
     return counts

@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 
 import duckdb
-import pandas as pd
 import pytest
 from ulid import ULID
 
@@ -169,9 +168,10 @@ def test_local_export_is_byte_identical_to_the_published_csv(tmp_path) -> None:
     `manifest.json` against the catalog entry must not see two digests and be
     left unable to tell a serialisation difference from corruption.
 
-    Both halves are load-bearing: `csv`'s excel dialect writes CRLF where
-    duckdb's COPY writes LF (one byte per row — 12,462 on the real export), and
-    the publisher orders `by all` where a kind-grouped read does not."""
+    Driven through `publish.publish()` rather than a hand-copied COPY (CR 117):
+    restating the publisher's serialisation here would be two literals with a
+    comment claiming they agree — the very defect this test exists to catch, and
+    it would keep passing while the real artifacts drifted apart."""
     rows = [
         ("person", "01B", "01Q"),
         ("assignment", "01A", "01P"),
@@ -179,24 +179,29 @@ def test_local_export_is_byte_identical_to_the_published_csv(tmp_path) -> None:
         ("organization", "01E", "01F"),
     ]
     write_export(rows, tmp_path / "export")
+    materialize_anchors(rows, tmp_path / "pipeline.duckdb")
+    manifest_path = tmp_path / "dbt-manifest.json"
+    manifest_path.write_text(json.dumps({"nodes": {}}))
+
+    publish.publish(
+        tmp_path / "pipeline.duckdb",
+        tmp_path / "datasets",
+        manifest_path,
+        datasets=[(ANCHOR_TABLE, "cutover")],
+    )
+
+    entry = next(
+        d
+        for d in json.loads((tmp_path / "datasets" / "catalog.json").read_text())["datasets"]
+        if d["name"] == ANCHOR_TABLE
+    )
+    published = tmp_path / "datasets" / ANCHOR_TABLE / entry["latest_version"] / "data.csv"
     ours = (tmp_path / "export" / "anchors.csv").read_bytes()
 
-    # exactly how publish.py materialises a dataset: order by all, header, comma
-    con = duckdb.connect()
-    try:
-        con.register("frame", pd.DataFrame(rows, columns=list(ANCHOR_COLUMNS), dtype="string"))
-        con.execute(f'create or replace table "{ANCHOR_TABLE}" as select * from frame')
-        published = tmp_path / "published.csv"
-        con.execute(
-            f'copy (select * from "{ANCHOR_TABLE}" order by all) '
-            f"to '{published}' (header, delimiter ',')"
-        )
-    finally:
-        con.close()
-
     assert ours == published.read_bytes()
-    manifest = json.loads((tmp_path / "export" / "manifest.json").read_text())
-    assert manifest["sha256"] == hashlib.sha256(published.read_bytes()).hexdigest()
+    local_manifest = json.loads((tmp_path / "export" / "manifest.json").read_text())
+    assert f"sha256:{local_manifest['sha256']}" == entry["hash"]
+    assert local_manifest["sha256"] == hashlib.sha256(ours).hexdigest()
 
 
 def test_write_export_imposes_publication_order_on_any_input(tmp_path) -> None:
@@ -206,6 +211,25 @@ def test_write_export_imposes_publication_order_on_any_input(tmp_path) -> None:
     unsorted = [("person", "01B", "01Q"), ("assignment", "01A", "01P")]
     write_export(unsorted, tmp_path / "export")
 
-    lines = (tmp_path / "export" / "anchors.csv").read_text().splitlines()
-    assert lines[0] == ",".join(ANCHOR_COLUMNS)
-    assert lines[1:] == sorted(lines[1:])
+    reader = csv.reader(io.StringIO((tmp_path / "export" / "anchors.csv").read_text()))
+    assert next(reader) == list(ANCHOR_COLUMNS)
+    # tuples, not rendered lines (CR 119): the property is about row ordering
+    assert [tuple(row) for row in reader] == sorted(unsorted)
+
+
+def test_a_rejected_row_leaves_the_previous_export_intact(tmp_path) -> None:
+    """CR 118: streaming into the CSV left it truncated beside the PREVIOUS run's
+    manifest — a hash mismatch a client cannot tell from corruption, which is the
+    failure #357 is about. Validate, serialise, then land both atomically."""
+    out = tmp_path / "export"
+    write_export([("person", "01A", "01P")], out)
+    good_csv = (out / "anchors.csv").read_bytes()
+    good_manifest = json.loads((out / "manifest.json").read_text())
+
+    with pytest.raises(ValueError, match="unknown anchor kind"):
+        write_export([("person", "01B", "01Q"), ("bogus", "01C", "01D")], out)
+
+    assert (out / "anchors.csv").read_bytes() == good_csv
+    assert json.loads((out / "manifest.json").read_text()) == good_manifest
+    assert hashlib.sha256((out / "anchors.csv").read_bytes()).hexdigest() == good_manifest["sha256"]
+    assert list(out.glob(".*.tmp")) == []
