@@ -40,15 +40,25 @@
 -- that is worked, which is the guard #358 showed was absent.
 --
 -- The ratchet, in dbt's own semantics rather than a hand-rolled one:
---   >91  error — a new conflict; the thing this test exists to catch
---   !=91 warn  — including FEWER than 91: the baseline is stale, ratchet it down
+--   >BASELINE  error — a new conflict; the thing this test exists to catch
+--   !=BASELINE warn  — including FEWER: the baseline is stale, ratchet it down
 -- so a fix that removes a conflict is as loud as a regression that adds one.
+--
+-- The baseline is mode-aware, and that is load-bearing rather than tidy. The
+-- hermetic build materializes conformed models EMPTY on purpose, so its correct
+-- expectation is 0 — with a flat 91 the gate warned `Got 0 results` on every
+-- pre-commit and every CI run. That noise costs the ratchet its whole point:
+-- the day the real count drops to 85, "ratchet me down" would arrive looking
+-- exactly like the warning everyone had already learned to scroll past. Alert
+-- fatigue is how #49 alerting dies, and a gate that cries wolf in the inner
+-- loop is the fastest route to it.
 --
 -- Known weakness, stated rather than papered over: a count baseline can mask
 -- one new conflict behind one repaired elsewhere. Acceptable while the set is
 -- being actively drained in #360; if that stalls, the upgrade is a named-pair
 -- baseline in the `parity_wsl.ACCEPTED` idiom.
-{{ config(severity='error', error_if='>91', warn_if='!=91') }}
+{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 91 %}
+{{ config(severity='error', error_if='>' ~ baseline, warn_if='!=' ~ baseline) }}
 select
     a.role_key,
     a.entity_id as entity_a,

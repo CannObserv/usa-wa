@@ -5,6 +5,12 @@ and running it against synthetic rows, never by restating it here. A test that
 retypes the SQL it checks is two literals with a comment claiming they agree —
 the defect CR 117 caught one level up, and the reason #358's phantom could have
 returned unnoticed.
+
+**Its logic, not its schema** (CR 124). The synthetic table declares its own
+columns, so a rename in the `assignments` model leaves these green; the dbt run
+is what couples the predicate to the real shape. The split is deliberate — these
+cases would otherwise need a built duckdb to run — but it means green here and
+a passing `dbt build` say different things, and both are needed.
 """
 
 import re
@@ -19,11 +25,19 @@ COLUMNS = "entity_id varchar, role_key varchar, span_kind varchar, valid_from da
 
 
 def _predicate() -> str:
-    """The shipped test SQL with dbt's jinja resolved against a local table."""
+    """The shipped test SQL with dbt's jinja resolved against a local table.
+
+    Statement tags (`{% set %}`) and expression tags (`{{ config }}`) both have
+    to go: they configure the gate rather than select rows, and duckdb would
+    choke on either. The assertion at the end is the point — if a future edit
+    introduces jinja this does not understand, these tests must fail loudly
+    rather than quietly run a mangled query.
+    """
     sql = TEST_SQL.read_text()
-    sql = re.sub(r"\{\{\s*config\([^}]*\)\s*\}\}", "", sql)
+    sql = re.sub(r"\{%.*?%\}", "", sql, flags=re.DOTALL)
+    sql = re.sub(r"\{\{\s*config\(.*?\)\s*\}\}", "", sql, flags=re.DOTALL)
     sql = re.sub(r"\{\{\s*ref\('assignments'\)\s*\}\}", "assignments", sql)
-    assert "{{" not in sql, f"unresolved jinja in {TEST_SQL.name}"
+    assert "{{" not in sql and "{%" not in sql, f"unresolved jinja in {TEST_SQL.name}"
     return sql
 
 
@@ -37,11 +51,26 @@ def _conflicts(rows: list[tuple]) -> int:
         con.close()
 
 
-def test_the_shipped_sql_is_the_thing_under_test() -> None:
-    """If the file moves or stops being a singular test, fail here rather than
-    silently exercising nothing."""
+def test_the_shipped_sql_carries_a_real_ratchet() -> None:
+    """If the file moves, or the ratchet decays into a threshold that can never
+    fire, fail here rather than silently exercising nothing.
+
+    CR 123: asserting `"error_if" in text` passed for `error_if='>99999'` too —
+    it read as a guard on the teeth while only proving the word was present.
+    """
     assert TEST_SQL.is_file()
-    assert "error_if" in TEST_SQL.read_text(), "the ratchet config is the gate's teeth"
+    sql = TEST_SQL.read_text()
+
+    error_if = re.search(r"error_if\s*=\s*'>'\s*~\s*(\w+)", sql)
+    warn_if = re.search(r"warn_if\s*=\s*'!='\s*~\s*(\w+)", sql)
+    assert error_if and warn_if, "both thresholds must be present and interpolated"
+    assert error_if.group(1) == warn_if.group(1), "the two thresholds must track one baseline"
+
+    # the baseline is a plain integer per mode — not an expression that could
+    # quietly become unreachable
+    baselines = re.findall(r"set\s+" + error_if.group(1) + r"\s*=\s*(\d+) if .* else (\d+)", sql)
+    assert baselines, "the baseline must resolve to literal integers"
+    assert all(part.isdigit() for pair in baselines for part in pair)
 
 
 def test_catches_the_wynne_shape() -> None:

@@ -272,12 +272,25 @@ It ships **baselined at 91**, the succession-boundary artifacts catalogued in
 #360, via dbt's own thresholds:
 
 ```
-{{ config(severity='error', error_if='>91', warn_if='!=91') }}
+{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 91 %}
+{{ config(severity='error', error_if='>' ~ baseline, warn_if='!=' ~ baseline) }}
 ```
 
-`>91` errors on a new conflict; `!=91` warns on *fewer* too, so repairing one is
-as loud as introducing one and the baseline announces its own staleness. Drain
-to zero, then drop the thresholds for a plain `error`.
+`>baseline` errors on a new conflict; `!=baseline` warns on *fewer* too, so
+repairing one is as loud as introducing one and the baseline announces its own
+staleness. Drain to zero, then drop the thresholds for a plain `error`.
+
+The baseline is **mode-aware on purpose**: the hermetic build materializes
+conformed models empty, so its correct expectation is 0. A flat 91 made the gate
+warn `Got 0 results` on every pre-commit and every CI run — noise that would
+have cost the ratchet its point, since the day the real count drops the "ratchet
+me down" warning would look exactly like the one everyone had learned to ignore.
+
+A companion test, `assignments_seat_kinds_covered.sql`, fails if any `seat:*`
+role carries a `span_kind` the occupancy gate does not cover. The gate is scoped
+by an allow-list, and an allow-list narrows silently — a new seat family would
+be ungated with every test still green, which is how `succession-invariants`
+came to check only the current cohort without anyone noticing.
 
 Party and committee roles are excluded by `span_kind` rather than by an
 exception list — they are legitimately multi-holder. One caveat if House
