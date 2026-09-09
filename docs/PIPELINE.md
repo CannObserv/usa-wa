@@ -260,6 +260,31 @@ dropping the `pm_*` columns without also removing the `PUBLISHED_DATASETS`
 entry wedges the nightly publish for every other dataset. The entry says so at
 the point where it becomes due.
 
+### Seat occupancy is gated (#359)
+
+`dbt/tests/assignments_seat_occupancy.sql` asserts that no two entities hold one
+`seat:*` role over overlapping validity. Nothing else did: `assignments_key`
+tests span *identity* (one tenure start per entity), which two different holders
+of one seat pass cleanly, and the daily `succession-invariants` gate scopes to
+`is_active` rows — the current cohort only, never history.
+
+It ships **baselined at 91**, the succession-boundary artifacts catalogued in
+#360, via dbt's own thresholds:
+
+```
+{{ config(severity='error', error_if='>91', warn_if='!=91') }}
+```
+
+`>91` errors on a new conflict; `!=91` warns on *fewer* too, so repairing one is
+as loud as introducing one and the baseline announces its own staleness. Drain
+to zero, then drop the thresholds for a plain `error`.
+
+Party and committee roles are excluded by `span_kind` rather than by an
+exception list — they are legitimately multi-holder. One caveat if House
+coverage deepens past 1965: pre-1965 House seats were at-large, two per district
+with no Position, so a position-less `seat:house:ld-N` would legitimately carry
+two holders.
+
 ### The serialisation is part of the contract (#357)
 
 The bytes are the product: a `hash` only means something once what it hashes is
