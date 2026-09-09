@@ -22,6 +22,7 @@ import pytest
 TEST_SQL = Path(__file__).resolve().parents[1] / "dbt" / "tests" / "assignments_seat_occupancy.sql"
 
 COLUMNS = "entity_id varchar, role_key varchar, span_kind varchar, valid_from date, valid_to date"
+ROSTER_COLUMNS = "district integer, chamber varchar, year integer, name varchar, annotation varchar"
 
 
 def _predicate() -> str:
@@ -37,15 +38,24 @@ def _predicate() -> str:
     sql = re.sub(r"\{%.*?%\}", "", sql, flags=re.DOTALL)
     sql = re.sub(r"\{\{\s*config\(.*?\)\s*\}\}", "", sql, flags=re.DOTALL)
     sql = re.sub(r"\{\{\s*ref\('assignments'\)\s*\}\}", "assignments", sql)
+    sql = re.sub(r"\{\{\s*ref\('stg_roster_members'\)\s*\}\}", "stg_roster_members", sql)
     assert "{{" not in sql and "{%" not in sql, f"unresolved jinja in {TEST_SQL.name}"
     return sql
 
 
-def _conflicts(rows: list[tuple]) -> int:
+def _conflicts(rows: list[tuple], roster: list[tuple] | None = None) -> int:
+    """Run the shipped predicate over synthetic spans, with an optional roster.
+
+    The roster drives the multi-member exclusion, so most cases pass none and
+    get the default single-member reading — which is the conservative one.
+    """
     con = duckdb.connect()
     try:
         con.execute(f"create table assignments ({COLUMNS})")
         con.executemany("insert into assignments values (?, ?, ?, ?, ?)", rows)
+        con.execute(f"create table stg_roster_members ({ROSTER_COLUMNS})")
+        if roster:
+            con.executemany("insert into stg_roster_members values (?, ?, ?, ?, ?)", roster)
         return len(con.execute(_predicate()).fetchall())
     finally:
         con.close()
@@ -145,3 +155,59 @@ def test_one_person_two_spans_in_one_seat_is_not_a_conflict() -> None:
         )
         == 0
     )
+
+
+def test_a_bare_multi_member_district_year_is_not_a_conflict() -> None:
+    """#360: WA's 1889 legislature seated multi-member senate districts — LD-19
+    carried five, all unannotated. `seat:senate:ld-N` collapses them into one
+    role_key, so without this the gate reads five lawful senators as a fight."""
+    spans = [
+        ("a", "seat:senate:ld-19", "chamber-senate", "1889-01-01", "1890-12-31"),
+        ("b", "seat:senate:ld-19", "chamber-senate", "1889-01-01", "1890-12-31"),
+    ]
+    roster = [(19, "senate", 1889, f"Senator {n}", None) for n in "ABCDE"]
+
+    assert _conflicts(spans, roster) == 0
+    # the same spans with no roster evidence stay a conflict: absent proof of a
+    # multi-member seat, the conservative reading polices
+    assert _conflicts(spans) == 1
+
+
+def test_an_annotated_extra_row_is_succession_not_capacity() -> None:
+    """An annotation means a SUCCESSOR within one seat, so the district is still
+    single-member and a genuine overlap there must still be caught. Reading it
+    as capacity would license exactly what this gate exists to find."""
+    spans = [
+        ("pelz", "seat:senate:ld-37", "chamber-senate", "1995-01-01", "1996-12-31"),
+        ("kline", "seat:senate:ld-37", "chamber-senate", "1995-06-01", "1996-12-31"),
+    ]
+    roster = [
+        (37, "senate", 1995, "Dwight Pelz", "Resigned January 13, 1997"),
+        (37, "senate", 1995, "Adam Kline", "Appointed January 20, 1997"),
+    ]
+    assert _conflicts(spans, roster) == 1
+
+
+def test_a_partly_annotated_district_year_is_not_multi_member() -> None:
+    """One annotation explains the extra row. Ambiguity resolves toward
+    policing, never toward excusing."""
+    spans = [
+        ("mccutcheon", "seat:senate:ld-29", "chamber-senate", "1971-01-01", "1972-12-31"),
+        ("rasmussen", "seat:senate:ld-29", "chamber-senate", "1971-06-01", "1972-12-31"),
+    ]
+    roster = [
+        (29, "senate", 1971, "John T. McCutcheon", "Deceased Aug. 9, 1971"),
+        (29, "senate", 1971, "A. L. Rasmussen", None),
+    ]
+    assert _conflicts(spans, roster) == 1
+
+
+def test_capacity_must_cover_the_overlap_not_merely_exist() -> None:
+    """A district that was multi-member in 1889 is not licensed forever. The
+    exclusion applies only where the bare biennium actually covers the overlap."""
+    roster = [(19, "senate", 1889, f"Senator {n}", None) for n in "ABCDE"]
+    later = [
+        ("a", "seat:senate:ld-19", "chamber-senate", "1975-01-01", "1978-12-31"),
+        ("b", "seat:senate:ld-19", "chamber-senate", "1976-01-01", "1978-12-31"),
+    ]
+    assert _conflicts(later, roster) == 1

@@ -30,14 +30,37 @@
 -- the hermetic build materializes an empty `assignments` with an INTEGER
 -- `valid_to`, and coalescing that against a DATE literal fails to bind at all.
 --
--- BASELINE 91 — the corpus is not clean, and `error` would wedge the nightly
--- chain on day one. All 91 are succession-boundary artifacts between genuinely
--- different people (zero are the same person under two entity ids, so none are
--- matching failures): a successor floored to the biennium start instead of the
--- seating date (Herman D. Crow 1897-01-01 where H. E. Houghton left 1897-08-25),
--- or a predecessor run to the biennium ceiling instead of the departure date.
--- They are catalogued in #360; this test exists to stop the count GROWING while
--- that is worked, which is the guard #358 showed was absent.
+-- MULTI-MEMBER DISTRICTS are excluded, because they are not conflicts (#360).
+-- Washington's 1889 legislature seated multi-member senate districts — 35
+-- senators across 24 districts, LD-19 alone carrying five — so `seat:senate:ld-N`
+-- collapses genuinely distinct seats into one role_key and this gate would read
+-- five lawful senators as a five-way fight.
+--
+-- The roster draws the distinction itself, which is what makes capacity
+-- checkable rather than guessed: of 156 district-years with more than one senate
+-- row, 151 carry succession annotations ("Resigned January 13, 1997", "Deceased
+-- Aug. 9, 1971") and 5 are bare — all 1889. An annotated extra row is a
+-- SUCCESSOR within one seat; a bare extra row is a SEAT.
+--
+-- The reading is deliberately conservative: ANY annotation in a district-year
+-- means capacity 1. Treating a partly-annotated year as multi-member would
+-- license exactly the conflict this gate exists to catch, so ambiguity resolves
+-- toward policing rather than excusing.
+--
+-- NOT keyed on the roster's `order` column, which looks like a seat index and is
+-- not: it is alphabetical by surname within a district-year, and 101 of 417
+-- people change order between bienniums. Keying on it would mint seat identities
+-- that never existed, make ordinary succession look like seat-hopping, and move
+-- historical `role_key` values — power-map's seat match key.
+--
+-- BASELINE 71 — the corpus is not clean, and `error` would wedge the nightly
+-- chain on day one. The residue after multi-member districts are excluded, and
+-- it is NOT one shape (#360): ~53 are successions whose dated boundary exists in
+-- the roster but could not be applied because the annotation carries no day
+-- ("Appointed Oct. 1971" — 60 of 1,046 annotations are month-only, 69 year-only,
+-- 173 undated), and ~18 have no roster explanation at all and need case-by-case
+-- adjudication. This test exists to stop the count GROWING while that is worked,
+-- which is the guard #358 showed was absent.
 --
 -- The ratchet, in dbt's own semantics rather than a hand-rolled one:
 --   >BASELINE  error — a new conflict; the thing this test exists to catch
@@ -57,7 +80,7 @@
 -- one new conflict behind one repaired elsewhere. Acceptable while the set is
 -- being actively drained in #360; if that stalls, the upgrade is a named-pair
 -- baseline in the `parity_wsl.ACCEPTED` idiom.
-{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 91 %}
+{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 71 %}
 {{ config(severity='error', error_if='>' ~ baseline, warn_if='!=' ~ baseline) }}
 select
     a.role_key,
@@ -77,3 +100,24 @@ where a.span_kind in ('chamber-senate', 'chamber-house')
   and (a.valid_to is null or b.valid_from <= a.valid_to)
   and a.valid_to is distinct from b.valid_from
   and b.valid_to is distinct from a.valid_from
+  and not exists (
+      select 1
+      from {{ ref('stg_roster_members') }} r
+      where cast(r.chamber as varchar) = regexp_extract(cast(a.role_key as varchar), 'seat:(\w+):', 1)
+        and cast(r.district as varchar) = regexp_extract(cast(a.role_key as varchar), 'ld-(\d+)', 1)
+      group by r.chamber, r.district, r.year
+      having count(*) > 1
+         and count(r.annotation) = 0
+         -- the multi-member biennium must cover the overlap, not merely exist
+         -- casts throughout: the hermetic build types an empty `assignments`
+         -- INTEGER, so a bare DATE comparison fails to BIND there (#361)
+         and make_date(cast(min(r.year) as integer) + 1, 12, 31)
+             >= greatest(cast(a.valid_from as date), cast(b.valid_from as date))
+         and (
+             (a.valid_to is null and b.valid_to is null)
+             or make_date(cast(min(r.year) as integer), 1, 1) <= least(
+                 coalesce(cast(a.valid_to as date), cast(b.valid_to as date)),
+                 coalesce(cast(b.valid_to as date), cast(a.valid_to as date))
+             )
+         )
+  )

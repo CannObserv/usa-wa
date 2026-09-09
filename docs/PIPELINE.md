@@ -268,11 +268,10 @@ tests span *identity* (one tenure start per entity), which two different holders
 of one seat pass cleanly, and the daily `succession-invariants` gate scopes to
 `is_active` rows — the current cohort only, never history.
 
-It ships **baselined at 91**, the succession-boundary artifacts catalogued in
-#360, via dbt's own thresholds:
+It ships **baselined at 71** (#360), via dbt's own thresholds:
 
 ```
-{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 91 %}
+{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 71 %}
 {{ config(severity='error', error_if='>' ~ baseline, warn_if='!=' ~ baseline) }}
 ```
 
