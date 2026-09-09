@@ -1,5 +1,6 @@
 """The PM anchor export (#312): base32 crosswalk seed for power-map cutover."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
@@ -36,6 +37,45 @@ async def test_anchor_rows_are_base32_pairs(db_session) -> None:
     assert len(pm) == 26
     assert "-" not in pm
     assert str(unanchored.id) not in {row[1] for row in rows}
+
+
+@pytest.mark.db
+async def test_retired_rows_are_absent_from_the_crosswalk(db_session) -> None:
+    """#356: the crosswalk asserts a LIVE mapping, so a locally archived or
+    deleted row must not appear — retraction-as-absence, the #302 publication
+    contract, applied to the one dataset that was ignoring it.
+
+    It leaked 34 rows to PM: 32 narrow spans their newer deepened anchors
+    already supersede, plus the two John Wynne LD-39 claims both sides archived
+    on 2026-08-05. Each one asked a human to adjudicate a row neither side
+    believes."""
+    live = Person(
+        source="usa_wa_legislature", source_id="live", name_full="Live", pm_person_id=ULID()
+    )
+    archived = Person(
+        source="usa_wa_legislature",
+        source_id="arch",
+        name_full="Archived",
+        pm_person_id=ULID(),
+        archived_at=datetime.now(UTC),
+    )
+    deleted = Person(
+        source="usa_wa_legislature",
+        source_id="del",
+        name_full="Deleted",
+        pm_person_id=ULID(),
+        deleted_at=datetime.now(UTC),
+    )
+    db_session.add_all([live, archived, deleted])
+    await db_session.flush()
+
+    rows = await anchor_rows(db_session)
+
+    exported = {row[1] for row in rows}
+    assert str(live.id) in exported
+    assert str(archived.id) not in exported
+    assert str(deleted.id) not in exported
+    assert kind_counts(rows)["person"] == 1
 
 
 ROWS = [("person", "01A", "01P"), ("role", "01C", "01D")]

@@ -227,6 +227,12 @@ reads the `pm_*` anchor columns out of Postgres and materializes them into the
 pipeline duckdb (`--db`) as `pm_anchors`, which the publisher picks up with no
 special-casing (`derived_from` is legitimately `[]`).
 
+**Live rows only** (#356): a locally archived or deleted row is one this
+deployment has stopped asserting, so naming it in the crosswalk hands PM a
+mapping to a row nothing should write to. The dataset was quietly exempt from
+retraction-as-absence and leaked 34 — 32 narrow tenure spans PM's own newer
+anchors supersede, plus two disputed claims both sides had archived.
+
 The `data/anchor-export/` tree this job used to write is **retired** (#354). It
 was never HTTP-reachable — it moved by manual copy — and running it beside the
 publisher meant two writers for one dataset, which is how the divergent-digest

@@ -67,7 +67,17 @@ _KINDS = (
 async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
     """Every anchored entity as ``(kind, usa_wa_id, pm_id)``, both ids base32.
 
-    The single read both sinks are built from. The order rows come back in is
+    **Live rows only** (#356). A locally archived or deleted row is one this
+    deployment has stopped asserting, so a crosswalk that still names it hands
+    PM a mapping to a row nothing should write to — retraction-as-absence, the
+    #302 publication contract, which this dataset was quietly exempt from.
+
+    It leaked 34: 32 narrow tenure spans that PM's own newer anchors already
+    supersede (the deepened spans the registry minted in August), plus the two
+    John Wynne LD-39 claims both sides archived on 2026-08-05. Every one of them
+    put a row on a human's worklist that neither side believes.
+
+    The order rows come back in is
     incidental — a by-product of walking :data:`_KINDS` — and nothing depends on
     it: :func:`write_export` imposes canonical publication order itself, and
     :func:`materialize_anchors` is order-indifferent because the publisher sorts
@@ -77,7 +87,13 @@ async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
     for kind, model, anchor_col in _KINDS:
         result = (
             await session.execute(
-                select(model.id, anchor_col).where(anchor_col.isnot(None)).order_by(model.id)
+                select(model.id, anchor_col)
+                .where(
+                    anchor_col.isnot(None),
+                    model.archived_at.is_(None),
+                    model.deleted_at.is_(None),
+                )
+                .order_by(model.id)
             )
         ).all()
         rows.extend((kind, str(local_id), str(pm_id)) for local_id, pm_id in result)
