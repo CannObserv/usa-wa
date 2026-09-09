@@ -400,3 +400,38 @@ class TestStatedWindow:
         parsed = succession._parse_date("Resigned February 31, 1931")
         assert parsed.value is None
         assert parsed.window == (date(1931, 2, 1), date(1931, 2, 28))
+
+    def test_an_out_of_range_year_states_no_date_at_all(self) -> None:
+        """CR 125/126: the `_YEAR` regex admits 1800-1888 and 2050-2099, which
+        the day and month branches reject. Washington was not a state before
+        1889, so a stray year in a clerk's prose must not become a confident
+        bound just because it reached the coarsest branch."""
+        for text in ("Resigned 1850", "Resigned 1888", "Elected 2099"):
+            parsed = succession._parse_date(text)
+            assert parsed.precision == "none", text
+            assert parsed.window is None, text
+
+        for text in ("Resigned 1889", "Elected 2049"):
+            assert succession._parse_date(text).window is not None, text
+
+    def test_an_out_of_range_month_states_no_date_either(self) -> None:
+        """The same rule one branch up: `Oct. 1066` used to return month
+        precision with no window, breaking the invariant below."""
+        parsed = succession._parse_date("Appointed Oct. 1066")
+        assert parsed.precision == "none"
+        assert parsed.window is None
+
+    def test_a_window_exists_exactly_when_a_date_was_stated(self) -> None:
+        """The invariant the docstring promises, asserted rather than described:
+        a consumer may branch on either and get the same answer."""
+        cases = [
+            "Resigned January 13, 1997",
+            "Appointed Oct. 1971",
+            "Resigned 1963",
+            "Appointed to State Liquor Control Board",
+            "Appointed Oct. 1066",
+            "Resigned February 31, 1931",
+        ]
+        for text in cases:
+            parsed = succession._parse_date(text)
+            assert (parsed.window is not None) == (parsed.precision != "none"), text

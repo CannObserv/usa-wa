@@ -106,6 +106,8 @@ where a.span_kind in ('chamber-senate', 'chamber-house')
       where cast(r.chamber as varchar) = regexp_extract(cast(a.role_key as varchar), 'seat:(\w+):', 1)
         and cast(r.district as varchar) = regexp_extract(cast(a.role_key as varchar), 'ld-(\d+)', 1)
       group by r.chamber, r.district, r.year
+      -- `year` is a grouping key, so min(r.year) below is identity on it — the
+      -- aggregate is only there to be legal in HAVING (CR 128)
       having count(*) > 1
          and count(r.annotation) = 0
          -- the multi-member biennium must cover the overlap, not merely exist

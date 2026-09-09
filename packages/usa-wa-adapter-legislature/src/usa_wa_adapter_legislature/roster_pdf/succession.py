@@ -118,7 +118,13 @@ class ParsedDate:
 
     ``window`` is the smallest range the source actually bounds the event to —
     ``(the 13th, the 13th)`` for a day, the whole of October for "Oct. 1971",
-    the whole year for a bare year, ``None`` when no date is stated at all. It
+    the whole year for a bare year. **A window exists exactly when a credible
+    date was stated**: ``window is not None`` iff ``precision != "none"``, so a
+    consumer may branch on either and get the same answer (CR 126). A year
+    outside :data:`_YEAR_FLOOR`/:data:`_YEAR_CEILING` states no credible date
+    and reads as ``none`` — the `_YEAR` pattern admits 1800-1888 and 2050-2099,
+    which the day and month branches already refuse, and Washington was not a
+    state before 1889 (CR 125). It
     exists because a month-only date is not *no* date (#360): the parser used to
     keep the precision label and throw the month away, so "Appointed Oct. 1971"
     reached the span builder as nothing and the successor fell back to their
@@ -236,17 +242,17 @@ def _parse_date(text: str) -> ParsedDate:
     if match:
         month = _month_number(match.group(1))
         if month:
-            year_match = re.search(r"\d{4}", match.group(0))
-            if year_match:
-                year = int(year_match.group(0))
-                if _YEAR_FLOOR <= year <= _YEAR_CEILING:
-                    return ParsedDate(None, "month", match.group(0), _month_window(year, month))
-            return ParsedDate(None, "month", match.group(0))
+            # group(2) is the year the pattern already captured (CR 127) —
+            # re-parsing text this regex just matched invites the two to drift.
+            year = int(match.group(2))
+            if _YEAR_FLOOR <= year <= _YEAR_CEILING:
+                return ParsedDate(None, "month", match.group(0), _month_window(year, month))
     match = _YEAR.search(cleaned)
     if match:
-        year = int(match.group(0)[:4])
-        window = (date(year, 1, 1), date(year, 12, 31))
-        return ParsedDate(None, "year", match.group(0), window)
+        year = int(match.group(1))
+        if _YEAR_FLOOR <= year <= _YEAR_CEILING:
+            window = (date(year, 1, 1), date(year, 12, 31))
+            return ParsedDate(None, "year", match.group(0), window)
     return ParsedDate(None, "none", "")
 
 
