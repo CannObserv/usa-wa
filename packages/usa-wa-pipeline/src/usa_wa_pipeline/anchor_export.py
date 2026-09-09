@@ -1,52 +1,38 @@
-"""PM anchor export (#312): the one-time crosswalk seed for power-map cutover.
+"""PM anchor export (#312): the crosswalk seed for power-map cutover.
 
-    python -m usa_wa_pipeline.anchor_export [--out DIR] [--db PATH] [--json]
+    python -m usa_wa_pipeline.anchor_export [--db PATH] [--json]
 
 Exports every local ``pm_*`` anchor as ``(kind, usa_wa_id, pm_id)`` — both ids
 in 26-char Crockford **base32** (the ``::text`` UUID-hex form 404s at PM;
 project memory, spec § publication) — for PM's transition steps 2–4: resolve
 each ``pm_id`` through ``merged_into`` chains to the live survivor, and treat
 unresolvable ids as a blocking report on their side (power-map design doc
-safeguard 1). One CSV (``anchors.csv``) plus ``manifest.json`` carrying
-per-kind counts and the CSV's sha256, so the file's integrity and coverage are
-checkable on arrival. Read-only on Postgres; re-run replaces the output.
+safeguard 1).
 
-**Delivery is the catalog (#354, power-map#495).** The export is a dataset in
-all but name — immutable, deterministically ordered, hash-carrying,
-regenerable — so it reaches PM the way every other dataset does rather than as
-a second ad-hoc path they fetch and integrity-check differently.
+**Delivery is the catalog, and only the catalog (#354, power-map#495).**
+:func:`anchor_rows` reads the anchors; :func:`materialize_anchors` builds
+``pm_anchors`` in the pipeline duckdb; :mod:`usa_wa_pipeline.publish` publishes
+it with no special-casing at all, which is what makes its hash, its dialect and
+its version the same contract every other dataset gets.
 
-One query, two independent sinks. :func:`anchor_rows` reads the anchors once;
-:func:`write_export` writes the local ``--out`` tree and :func:`materialize_anchors`
-builds ``pm_anchors`` in the pipeline duckdb, which :mod:`usa_wa_pipeline.publish`
-then picks up with no special-casing at all. Neither sink reads the other's
-output, which buys two things (CR round 12): retiring the local tree once PM's
-puller reads the catalog entry stays a deletion rather than a rewrite (#314
-sweeps it), and the two cannot disagree about which id is which — they take
-their column order from :data:`ANCHOR_COLUMNS`, and duckdb maps an explicit
-``columns=`` spec **positionally**, so a header the loader merely trusted would
-have swapped ``usa_wa_id`` and ``pm_id`` silently. Both are 26-char base32:
-every downstream shape check would still have passed.
-
-Per-kind counts live only in ``manifest.json`` — the catalog carries a single
-``rows`` total, the way every other entry does — but stay derivable from the
+The local ``data/anchor-export/`` tree this job used to write is **retired**.
+It was never HTTP-reachable — it moved by manual copy — and running it beside
+the publisher meant two writers for one dataset: they disagreed on line endings
+and row order, giving identical content two sha256 values and a consumer no way
+to tell a serialisation difference from corruption (#357). One writer per
+dataset is now the rule (``docs/ARCHITECTURE.md``), and this module keeps it.
+Per-kind counts moved to the job's counters, and stay derivable from the
 published ``kind`` column.
 
 **This job writes.** Read-only on Postgres, but it replaces ``pm_anchors`` in
 the duckdb named by ``--db``, which defaults to the production pipeline
-database independently of ``--out``.
+database.
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
-import hashlib
-import io
-import json
-import os
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
@@ -69,9 +55,6 @@ JOB_SLUG = "pm-anchor-export"
 #: a positional mismatch would cost.
 ANCHOR_TABLE = "pm_anchors"
 ANCHOR_COLUMNS = ("kind", "usa_wa_id", "pm_id")
-
-#: Filename of the local CSV artifact, named once so the writer and the job agree.
-CSV_NAME = "anchors.csv"
 
 _KINDS = (
     ("person", Person, Person.pm_person_id),
@@ -99,79 +82,6 @@ async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
         ).all()
         rows.extend((kind, str(local_id), str(pm_id)) for local_id, pm_id in result)
     return rows
-
-
-def _replace(path: Path, payload: bytes) -> None:
-    """Land ``payload`` at ``path`` atomically — a reader sees old bytes or new."""
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    try:
-        tmp.write_bytes(payload)
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
-
-
-def write_export(rows: Sequence[tuple[str, str, str]], out_dir: Path | str) -> dict[str, int]:
-    """Write ``anchors.csv`` + ``manifest.json`` under ``out_dir``. Returns per-kind counts.
-
-    The manifest is the only place the per-kind split survives: a catalog entry
-    carries one ``rows`` total, like every other dataset.
-
-    **Byte-identical to the published ``data.csv``**, so ``manifest.json``'s
-    ``sha256`` equals the catalog entry's ``hash`` and a client cross-checking
-    the two artifacts always gets agreement. Two things buy that, and both are
-    load-bearing: rows are sorted here into the publisher's ``order by all``
-    order — enforced at the sink that makes the promise, not assumed of the
-    caller — and the terminator is ``\n`` rather than
-    :mod:`csv`'s ``excel``-dialect ``\r\n`` — duckdb's ``COPY`` writes bare
-    LF, and that difference alone was 12,462 bytes and a second, conflicting
-    digest for the same 12,461 rows. Pinned by
-    ``test_local_export_is_byte_identical_to_the_published_csv``.
-
-    **The pair is never observably inconsistent.** Rows are validated, then
-    serialized in memory, then both files are landed by ``os.replace`` — the
-    same tmp+rename discipline :mod:`usa_wa_pipeline.publish` uses, and for the
-    same reason. Streaming into the CSV left a truncated file beside the
-    *previous* run's manifest whenever a row was rejected or the process died:
-    a hash mismatch indistinguishable from corruption, which is the exact
-    failure this module was just fixed to stop producing (#357).
-    """
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    counts: dict[str, int] = {kind: 0 for kind, _, _ in _KINDS}
-    for kind, _, _ in sorted(rows):
-        if kind not in counts:
-            raise ValueError(f"unknown anchor kind {kind!r}; expected one of {sorted(counts)}")
-        counts[kind] += 1
-
-    buffer = io.StringIO()
-    writer = csv.writer(buffer, lineterminator="\n")
-    writer.writerow(list(ANCHOR_COLUMNS))
-    writer.writerows(sorted(rows))
-    payload = buffer.getvalue().encode()
-    digest = hashlib.sha256(payload).hexdigest()
-
-    _replace(out_dir / CSV_NAME, payload)
-    _replace(
-        out_dir / "manifest.json",
-        json.dumps(
-            {
-                "exported_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                "counts": counts,
-                "sha256": digest,
-                "encoding": "ulid-base32",
-            },
-            indent=2,
-        ).encode()
-        + b"\n",
-    )
-    logger.info("anchor_export_complete", extra={"counts": counts, "sha256": digest})
-    return counts
-
-
-async def export_anchors(session: AsyncSession, out_dir: Path | str) -> dict[str, int]:
-    """Read the anchors and write the local export tree. Returns per-kind counts."""
-    return write_export(await anchor_rows(session), out_dir)
 
 
 def materialize_anchors(rows: Sequence[tuple[str, str, str]], db_path: Path | str) -> int:
@@ -220,13 +130,22 @@ def materialize_anchors(rows: Sequence[tuple[str, str, str]], db_path: Path | st
     return int(written)
 
 
+def kind_counts(rows: Sequence[tuple[str, str, str]]) -> dict[str, int]:
+    """Per-kind totals, every kind present even at zero.
+
+    The catalog carries one ``rows`` total like every other dataset, so this is
+    where the split PM verifies against now lives: the job's counters, and the
+    published ``kind`` column.
+    """
+    counts: dict[str, int] = {kind: 0 for kind, _, _ in _KINDS}
+    for kind, _, _ in rows:
+        if kind not in counts:
+            raise ValueError(f"unknown anchor kind {kind!r}; expected one of {sorted(counts)}")
+        counts[kind] += 1
+    return counts
+
+
 def _add_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--out",
-        default="data/anchor-export",
-        help="Local CSV/manifest directory (default data/anchor-export). Does NOT "
-        "redirect the duckdb write — see --db.",
-    )
     parser.add_argument(
         "--db",
         default=None,
@@ -238,7 +157,7 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 
 async def _export_job(ctx: JobContext) -> JobResult:
     rows = await anchor_rows(ctx.require_session())
-    counts = write_export(rows, Path(ctx.args.out))
+    counts = kind_counts(rows)
     # The db path is logged, not counted: the run ledger's counters are published
     # verbatim by `GET /api/v1/health/jobs`, and a filesystem path is neither a
     # counter nor something to put on a read surface (CR 113).
@@ -247,10 +166,10 @@ async def _export_job(ctx: JobContext) -> JobResult:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Export the PM anchor crosswalk seed.
+    """Export the PM anchor crosswalk seed into the pipeline duckdb.
 
-    Read-only on Postgres, but it REPLACES ``pm_anchors`` in the pipeline duckdb
-    (``--db``, defaulting to production independently of ``--out``).
+    Read-only on Postgres; REPLACES ``pm_anchors`` in the duckdb named by
+    ``--db``, which defaults to production.
     """
     return run_job(
         JOB_SLUG,

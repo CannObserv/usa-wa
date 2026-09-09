@@ -223,13 +223,16 @@ tier is published rather than inferred:
 `pm_anchors` is the PM crosswalk seed (#312) delivered as a dataset (#354,
 power-map#495) instead of as a second ad-hoc file path. It is the one published
 table with no dbt model behind it. `python -m usa_wa_pipeline.anchor_export`
-reads the `pm_*` anchor columns out of Postgres **once**, then feeds two
-independent sinks: `anchors.csv` + `manifest.json` under `--out`, and the
-`pm_anchors` table in the pipeline duckdb (`--db`), which the publisher picks
-up with no special-casing (`derived_from` is legitimately `[]`). Neither sink
-reads the other's output, so retiring the local tree is a deletion rather than
-a rewrite, and the two cannot disagree about which id is which — they take
-their column order from one constant.
+reads the `pm_*` anchor columns out of Postgres and materializes them into the
+pipeline duckdb (`--db`) as `pm_anchors`, which the publisher picks up with no
+special-casing (`derived_from` is legitimately `[]`).
+
+The `data/anchor-export/` tree this job used to write is **retired** (#354). It
+was never HTTP-reachable — it moved by manual copy — and running it beside the
+publisher meant two writers for one dataset, which is how the divergent-digest
+bug happened (#357). Per-kind counts moved to the job's counters, where
+`/api/v1/health/jobs` surfaces them, and stay derivable from the published
+`kind` column.
 
 Both id columns are carried as text. An all-digit Crockford ULID typed
 numerically is an id that 404s at PM, and duckdb maps an explicit `columns=`
@@ -237,19 +240,14 @@ spec **positionally**: a header it merely trusted would have swapped
 `usa_wa_id` and `pm_id` silently, since both are 26-char base32 and every
 downstream shape check still passes.
 
-**One dataset, one sha256.** The local `anchors.csv` is byte-identical to the
-published `data.csv`, so `manifest.json`'s `sha256` equals the catalog entry's
-`hash`. That is not free: `write_export` sorts into the publisher's `order by
-all` order and writes bare `\n`, because `csv`'s default excel dialect emits
-`\r\n` — one byte per row, 12,462 on the real export, and a second digest for
-identical content. A client cross-checking the two artifacts would have had no
-way to tell a serialisation difference from corruption, which is a guard no
-consumer should carry. Pinned by a test that diffs `write_export`'s bytes
-against duckdb's own `COPY` output.
+**One dataset, one sha256** — now structurally, because there is only one
+writer. The interim fix made the two artifacts byte-identical; retiring the
+second one removes the question. See
+[ARCHITECTURE.md § Publishing bytes](ARCHITECTURE.md#publishing-bytes-one-writer-landed-atomically-357).
 
 **The job writes.** It is read-only on Postgres but *replaces* `pm_anchors` in
-the duckdb named by `--db`, which defaults to production independently of
-`--out` — point both at scratch, never just one.
+the duckdb named by `--db`, which defaults to production — point `--db` at a
+scratch file for any ad-hoc run.
 
 **It retires in #314.** The publisher refuses a run whose table is missing, so
 dropping the `pm_*` columns without also removing the `PUBLISHED_DATASETS`
