@@ -30,6 +30,7 @@ Three rules the corpus forces, each of which is a refusal rather than a guess:
 from __future__ import annotations
 
 import re
+from calendar import monthrange
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -109,12 +110,27 @@ _MOVE = re.compile(
 
 @dataclass(frozen=True)
 class ParsedDate:
-    """A date and how precisely the source stated it. ``precision`` is ``day``/``month``/
-    ``year``/``none``; only ``day`` is ever emitted as an effective date."""
+    """A date and how precisely the source stated it.
+
+    ``precision`` is ``day``/``month``/``year``/``none``; only ``day`` is ever
+    emitted as an effective date, and widening that would silently start seating
+    people on the 1st of a month the clerk never wrote.
+
+    ``window`` is the smallest range the source actually bounds the event to —
+    ``(the 13th, the 13th)`` for a day, the whole of October for "Oct. 1971",
+    the whole year for a bare year, ``None`` when no date is stated at all. It
+    exists because a month-only date is not *no* date (#360): the parser used to
+    keep the precision label and throw the month away, so "Appointed Oct. 1971"
+    reached the span builder as nothing and the successor fell back to their
+    biennium floor — overlapping a predecessor whose own exit the roster dated
+    precisely. A window lets a consumer say "certainly after" without inventing
+    a day.
+    """
 
     value: date | None
     precision: str
     raw: str
+    window: tuple[date, date] | None = None
 
 
 @dataclass(frozen=True)
@@ -195,6 +211,11 @@ def _month_number(token: str) -> int | None:
 _YEAR_FLOOR, _YEAR_CEILING = 1889, 2049
 
 
+def _month_window(year: int, month: int) -> tuple[date, date]:
+    """First and last day of a month — leap years included, via the calendar."""
+    return (date(year, month, 1), date(year, month, monthrange(year, month)[1]))
+
+
 def _parse_date(text: str) -> ParsedDate:
     """Extract the most precise date the clause actually states. Session references stripped."""
     cleaned = _SESSION_NOISE.sub(" ", text)
@@ -202,20 +223,30 @@ def _parse_date(text: str) -> ParsedDate:
     if match:
         month = _month_number(match.group(1))
         if month and _YEAR_FLOOR <= int(match.group(3)) <= _YEAR_CEILING:
+            year = int(match.group(3))
             try:
-                return ParsedDate(
-                    date(int(match.group(3)), month, int(match.group(2))), "day", match.group(0)
-                )
+                exact = date(year, month, int(match.group(2)))
             except ValueError:
-                pass  # an impossible day (Feb 31) is not a date; fall through to coarser
+                # An impossible day (Feb 31) is not a date — but the MONTH it
+                # names still bounds the event, and falling through to `_YEAR`
+                # would throw that away with the day.
+                return ParsedDate(None, "month", match.group(0), _month_window(year, month))
+            return ParsedDate(exact, "day", match.group(0), (exact, exact))
     match = _MONTH_DATE.search(cleaned)
     if match:
         month = _month_number(match.group(1))
         if month:
+            year_match = re.search(r"\d{4}", match.group(0))
+            if year_match:
+                year = int(year_match.group(0))
+                if _YEAR_FLOOR <= year <= _YEAR_CEILING:
+                    return ParsedDate(None, "month", match.group(0), _month_window(year, month))
             return ParsedDate(None, "month", match.group(0))
     match = _YEAR.search(cleaned)
     if match:
-        return ParsedDate(None, "year", match.group(0))
+        year = int(match.group(0)[:4])
+        window = (date(year, 1, 1), date(year, 12, 31))
+        return ParsedDate(None, "year", match.group(0), window)
     return ParsedDate(None, "none", "")
 
 

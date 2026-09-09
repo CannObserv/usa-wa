@@ -10,6 +10,7 @@ from datetime import date
 
 import pytest
 
+from usa_wa_adapter_legislature.roster_pdf import succession
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 from usa_wa_adapter_legislature.roster_pdf.succession import (
     DEFER_NO_DAY_PRECISION,
@@ -347,3 +348,55 @@ def test_millennium_off_year_is_not_a_day_precision_date() -> None:
         "Elected in special election January 7, 2921 to serve unexpired term"
     )
     assert all(c.parsed.precision != "day" for c in clauses)
+
+
+class TestStatedWindow:
+    """#360: a month-only date is not *no* date — it is a date we know to a month.
+
+    `_parse_date` parsed the month and year and then dropped both, so
+    "Appointed Oct. 1971" reached the span builder as nothing and the successor
+    fell back to the biennium floor — overlapping a predecessor whose own exit
+    the roster dated precisely. The window is the smallest honest thing to keep:
+    it lets a consumer say "certainly after" without inventing a day.
+    """
+
+    def test_a_day_precise_date_is_a_single_day_window(self) -> None:
+        parsed = succession._parse_date("Resigned January 13, 1997")
+        assert parsed.precision == "day"
+        assert parsed.value == date(1997, 1, 13)
+        assert parsed.window == (date(1997, 1, 13), date(1997, 1, 13))
+
+    def test_a_month_only_date_keeps_its_month_as_a_window(self) -> None:
+        parsed = succession._parse_date("Appointed Oct. 1971")
+        assert parsed.precision == "month"
+        # `value` stays None: only a day-precise date is ever an effective date,
+        # and widening that would silently start seating people on the 1st
+        assert parsed.value is None
+        assert parsed.window == (date(1971, 10, 1), date(1971, 10, 31))
+
+    def test_february_window_respects_leap_years(self) -> None:
+        assert succession._parse_date("Appointed Feb. 1972").window == (
+            date(1972, 2, 1),
+            date(1972, 2, 29),
+        )
+        assert succession._parse_date("Appointed Feb. 1971").window == (
+            date(1971, 2, 1),
+            date(1971, 2, 28),
+        )
+
+    def test_a_year_only_date_keeps_the_year_as_a_window(self) -> None:
+        parsed = succession._parse_date("Resigned 1963; Appointed District Dir.")
+        assert parsed.precision == "year"
+        assert parsed.window == (date(1963, 1, 1), date(1963, 12, 31))
+
+    def test_no_date_has_no_window(self) -> None:
+        parsed = succession._parse_date("Appointed to State Liquor Control Board")
+        assert parsed.precision == "none"
+        assert parsed.window is None
+
+    def test_an_impossible_day_falls_back_to_its_month_window(self) -> None:
+        """Feb 31 is not a date, but "February 1931" still bounds it — the
+        fallback should not throw the month away with the day."""
+        parsed = succession._parse_date("Resigned February 31, 1931")
+        assert parsed.value is None
+        assert parsed.window == (date(1931, 2, 1), date(1931, 2, 28))
