@@ -1,12 +1,19 @@
 """The dataset publisher (#311): built duckdb → immutable versions + catalog."""
 
+import csv
+import io
 import json
 
 import duckdb
 import pytest
 
 from usa_wa_pipeline import publish as publish_mod
-from usa_wa_pipeline.publish import PUBLISHED_DATASETS, PublishRefused, publish
+from usa_wa_pipeline.publish import (
+    CSV_DIALECT,
+    PUBLISHED_DATASETS,
+    PublishRefused,
+    publish,
+)
 
 
 @pytest.fixture
@@ -233,3 +240,65 @@ def test_unchanged_dataset_keeps_its_prior_schema_version(built_db, tmp_path, mo
     entries = {d["name"]: d for d in json.loads((out / "catalog.json").read_text())["datasets"]}
     assert entries["persons"]["schema_version"] == "9.1.0"
     assert entries["person_crosswalk"]["schema_version"] == "9.0.0"
+
+
+def test_datapackage_declares_the_csv_dialect(built_db, tmp_path) -> None:
+    """#357: the serialisation was an emergent property of publish.py that a
+    consumer had to infer by sniffing bytes. A strict parser was guessing, and
+    a second producer had nothing to conform to. It ships in the datapackage."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+    entry = next(
+        d
+        for d in json.loads((out / "catalog.json").read_text())["datasets"]
+        if d["name"] == "persons"
+    )
+    package = json.loads(
+        (out / "persons" / entry["latest_version"] / "datapackage.json").read_text()
+    )
+    [resource] = package["resources"]
+
+    assert resource["dialect"] == CSV_DIALECT
+    assert resource["dialect"]["lineTerminator"] == "\n"
+    assert resource["dialect"]["delimiter"] == ","
+    assert resource["dialect"]["header"] is True
+
+
+def test_published_bytes_obey_the_declared_dialect(built_db, tmp_path) -> None:
+    """The declaration is worth nothing unless it is checked against the bytes.
+    Parses every published data.csv back with the dialect the datapackage
+    declares and confirms it round-trips to the promised shape."""
+    out = tmp_path / "datasets"
+    con = duckdb.connect(str(built_db))
+    con.execute("insert into persons select '01B', 'Quote \"Me\", Please'")  # forces quoting
+    con.close()
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+    for entry in json.loads((out / "catalog.json").read_text())["datasets"]:
+        version_dir = out / entry["name"] / entry["latest_version"]
+        raw = (version_dir / "data.csv").read_bytes()
+        dialect = json.loads((version_dir / "datapackage.json").read_text())["resources"][0][
+            "dialect"
+        ]
+        assert b"\r\n" not in raw, f"{entry['name']}: CRLF contradicts the declared lineTerminator"
+
+        rows = list(
+            csv.reader(
+                io.StringIO(raw.decode()),
+                delimiter=dialect["delimiter"],
+                quotechar=dialect["quoteChar"],
+                doublequote=dialect["doubleQuote"],
+            )
+        )
+        fields = [
+            f["name"]
+            for f in json.loads((version_dir / "datapackage.json").read_text())["resources"][0][
+                "schema"
+            ]["fields"]
+        ]
+        assert rows[0] == fields, f"{entry['name']}: header row must match the declared schema"
+        assert len(rows) - 1 == entry["rows"]
+        assert rows[1:] == sorted(rows[1:]), (
+            f"{entry['name']}: rows must be in `order by all` order"
+        )

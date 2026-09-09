@@ -219,6 +219,30 @@ sometimes differing between the two seats of one district in one file; a toleran
 office, take the trailing position digit) is mandatory, and an exact-match parser silently drops
 real seats.
 
+## Publishing bytes: one writer, landed atomically (#357)
+
+Two rules for any code that writes a **published dataset's bytes**, both learned
+the same way — by writing a second producer and watching it reinvent the gaps.
+
+**One writer per dataset.** `publish.py` is it. A second producer of the same
+rows is not a shortcut; it is a promise that two independent code paths will
+serialize identically forever. They will not. The PM crosswalk shipped through
+both the publisher and a hand-rolled export, and they disagreed on line endings
+and row order — identical content, two sha256 values, and a consumer with no way
+to tell a serialisation difference from corruption (#354). If a dataset must
+also exist somewhere else, derive that copy from the published bytes or make the
+second writer conform to [the declared dialect](PIPELINE.md#the-serialisation-is-part-of-the-contract-357)
+and prove it with a test that runs the real publisher — never one that restates
+the publisher's options and asserts they match.
+
+**Land it atomically.** Write to a temp path and `os.replace`; never stream into
+the file a reader may be holding. `publish.py` has done tmp+rename since #311 so
+a crash leaves unlisted orphans rather than a listed partial. The crosswalk
+export was written without it and streamed rows directly, so a rejected row left
+a truncated CSV beside the *previous* run's manifest — again a hash mismatch
+indistinguishable from tampering. An artifact and its integrity metadata must
+never be observable in disagreement, including mid-write.
+
 ## Checklist — adding a source to an existing target package
 
 1. New `<source>/` subpackage: `transport` (+ offline re-parser, courtesy limiter), `adapter`

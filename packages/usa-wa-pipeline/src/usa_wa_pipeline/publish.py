@@ -126,7 +126,33 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
 #: - 1.5.0 (#354): `pm_anchors` joined the published set, in a new `cutover`
 #:   tier. A dataset joining is additive — no existing dataset changed shape —
 #:   hence minor.
-SCHEMA_VERSION = "1.5.0"
+#: - 1.6.0 (#357): each resource declares its `dialect`. Additive metadata, no
+#:   change to any data.csv — so by the carry-forward rule above it reaches a
+#:   dataset only when that dataset next mints. Existing version dirs are
+#:   immutable and keep the datapackage they shipped with; PIPELINE.md carries
+#:   the declaration for those.
+SCHEMA_VERSION = "1.6.0"
+
+#: The CSV serialisation every published dataset uses, declared rather than
+#: left for a consumer to sniff (#357). These are duckdb ``COPY``'s defaults,
+#: verified against its output rather than assumed — the point is that the
+#: contract now says so out loud, in the datapackage a client already reads.
+#:
+#: It exists because the bytes are the product: two producers of the same rows
+#: diverged on line endings alone (#354), which cost 12,462 bytes and a second,
+#: conflicting sha256 for identical content. A digest is only meaningful once
+#: the serialisation behind it is pinned.
+#:
+#: ``nullSequence`` is worth stating: duckdb writes NULL as a bare empty field
+#: and an empty string as ``""``, so the two remain distinguishable on the wire.
+CSV_DIALECT: dict[str, object] = {
+    "delimiter": ",",
+    "lineTerminator": "\n",
+    "quoteChar": '"',
+    "doubleQuote": True,
+    "nullSequence": "",
+    "header": True,
+}
 
 DEFAULT_MAX_SHRINK = 0.10
 
@@ -294,6 +320,7 @@ def publish(
                     "hash": f"sha256:{item['hash']}",
                     "bytes": item["bytes"],
                     "rows": item["rows"],
+                    "dialect": CSV_DIALECT,
                     "schema": {"fields": item["fields"]},
                 }
             ],

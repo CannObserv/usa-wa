@@ -256,6 +256,38 @@ dropping the `pm_*` columns without also removing the `PUBLISHED_DATASETS`
 entry wedges the nightly publish for every other dataset. The entry says so at
 the point where it becomes due.
 
+### The serialisation is part of the contract (#357)
+
+The bytes are the product: a `hash` only means something once what it hashes is
+pinned. Every published `data.csv` is written by duckdb `COPY` and obeys one
+dialect, now declared in each resource's `dialect` (Frictionless) as well as
+here, so a strict parser does not have to sniff and a second producer has
+something to conform to:
+
+| Property | Value |
+|---|---|
+| encoding | UTF-8 |
+| delimiter | `,` |
+| line terminator | `\n` — **not** CRLF |
+| header | present, matching `schema.fields` in order |
+| quoting | `"`, doubled to escape (`""`) |
+| NULL | bare empty field; an empty *string* is `""`, so the two stay distinct |
+| row order | `order by all` — every column, left to right, ascending |
+
+Row order is load-bearing twice over: it is what makes skip-if-unchanged mean
+"nothing moved" rather than "duckdb returned rows differently", and it is half
+of why the local `pm_anchors` artifact is byte-identical to the published one.
+Line endings are the other half — `csv`'s default excel dialect writes CRLF,
+one byte per row, which was 12,462 bytes and a second conflicting digest for
+identical content (#354).
+
+`SCHEMA_VERSION` 1.6.0 added `dialect`, and by the carry-forward rule a bump
+reaches a dataset only when it next mints — so version dirs published before
+1.6.0 keep the datapackage they shipped with. They obey the table above
+regardless; this document is the declaration for them. `test_published_bytes_obey_the_declared_dialect` parses every published CSV back with its own
+declared dialect and checks the shape, so the table is enforced rather than
+aspirational.
+
 A dev/CI build with NO database must say so: `USA_WA_PIPELINE_HERMETIC=1`
 (set by `scripts/dbt-gate.sh` and the dbt tests) is the only thing that lets
 the conformed crosswalk models materialize empty — otherwise a missing

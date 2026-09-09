@@ -31,7 +31,7 @@ edges with `grep`. Goal→tool table, evidence, and the session-start `ToolSearc
 
 `uv` workspace. Four-layer clearinghouse split — framework + domain shared across deployments; adapters + API per jurisdiction. See [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](docs/specs/2026-05-25-usa-wa-mvp-design.md).
 
-**Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder** — the reusable Layer-3 pattern, in full, with the worked example. Two rules bind whatever you are building: audit a source's coverage before building on it, and never key a parser on an exact upstream string. Inside a package (#183), **`harvest.py` = Phase A, `build.py` = Phase B**.
+**Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder** — the reusable Layer-3 pattern, in full, with the worked example. Two rules bind whatever you are building: audit a source's coverage before building on it, and never key a parser on an exact upstream string. Writing a published dataset's bytes adds two more — one writer per dataset, landed atomically (#357). Inside a package (#183), **`harvest.py` = Phase A, `build.py` = Phase B**.
 
 **Six layers since #189 (AR-14), enforced by `import-linter`** — `uv run lint-imports`, wired into the pre-commit gate beside ruff, contracts + rationale in the root `pyproject.toml`:
 
