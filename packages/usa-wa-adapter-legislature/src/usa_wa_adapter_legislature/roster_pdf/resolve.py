@@ -40,6 +40,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 
+from clearinghouse_domain_legislative.operator_events import ENDING_KINDS
 from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 from usa_wa_adapter_legislature.roster_pdf.succession import EventProposal
 from usa_wa_common.names import (
@@ -89,7 +90,8 @@ class Seating:
 POSITION_LOOKBACK_YEARS = 1
 
 #: The mirror of :data:`POSITION_LOOKBACK_YEARS`, for the other end of a tenure
-#: (usa-wa#363). A quantized span misses the partial biennium at BOTH ends: the
+#: (usa-wa#363) — and for a CLOSING only (CR 138): see :meth:`PositionTenure.covers`.
+#: A quantized span misses the partial biennium at BOTH ends: the
 #: one a mid-biennium appointee was appointed into, and the one a mid-biennium
 #: leaver resigned in. Derek Stanford held LD-1 Position 1 from 2011 and resigned
 #: it on 2019-07-01 to take a Senate seat; the 2019-20 House roster no longer
@@ -142,10 +144,11 @@ class PositionTenure:
 
     **This index answers "which Position digit", not "which span".** Span selection belongs to
     the overlay at apply time. Because the question is only 1-or-2 — a value that is stable
-    across a member's continuous tenure in one LD — the match window can reach one year either
-    side of the span (:data:`POSITION_LOOKBACK_YEARS`, :data:`POSITION_LOOKFORWARD_YEARS`)
-    without asserting anything about the span itself. A member showing *two different*
-    Positions in that window is refused, not picked.
+    across a member's continuous tenure in one LD — the match window can reach one year before
+    the span for any boundary, and one year after it for a closing
+    (:data:`POSITION_LOOKBACK_YEARS`, :data:`POSITION_LOOKFORWARD_YEARS`), without asserting
+    anything about the span itself. A member showing *two different* Positions in that window is
+    refused, not picked.
     """
 
     member_id: str
@@ -159,17 +162,20 @@ class PositionTenure:
         """The span discriminator the House builder keys on."""
         return f"ld-{self.district}-position-{self.position}"
 
-    def covers(self, year: int) -> bool:
+    def covers(self, year: int, *, closing: bool) -> bool:
         """Whether a boundary in ``year`` can take its Position from this tenure.
 
-        Reaches one year past each quantized bound, because a tenure's opening and
-        its closing both fall outside the span — at opposite ends.
+        Reaches one year BEFORE the span for any boundary: a mid-biennium appointee
+        is absent from the roster of the biennium they were appointed into, so the
+        tenure their seating opens starts one biennium late. Reaches one year AFTER
+        it only for a ``closing`` (CR 138): a mid-biennium leaver is absent from the
+        roster of the biennium they left in, so the tenure their departure ends
+        stopped one biennium early. A SEATING dated after a span ended is the
+        opposite shape — a return, which may well be to the other Position — and
+        must not inherit from the tenure that ended.
         """
-        return (
-            self.first_year - POSITION_LOOKBACK_YEARS
-            <= year
-            <= self.last_year + POSITION_LOOKFORWARD_YEARS
-        )
+        reach_forward = POSITION_LOOKFORWARD_YEARS if closing else 0
+        return self.first_year - POSITION_LOOKBACK_YEARS <= year <= self.last_year + reach_forward
 
 
 @dataclass(frozen=True)
@@ -274,10 +280,11 @@ class SuccessionResolver:
     def _position(self, member_id: str, proposal: EventProposal) -> set[str]:
         """The Position discriminators covering this member's LD at the boundary's year."""
         year = proposal.effective_date.year
+        closing = proposal.kind in ENDING_KINDS
         return {
             tenure.discriminator
             for tenure in self._positions.get(member_id, ())
-            if tenure.district == proposal.district and tenure.covers(year)
+            if tenure.district == proposal.district and tenure.covers(year, closing=closing)
         }
 
     def resolve(self, proposal: EventProposal) -> ResolvedEvent | Unresolved:

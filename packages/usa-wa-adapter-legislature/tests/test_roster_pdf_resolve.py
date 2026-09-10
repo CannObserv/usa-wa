@@ -252,6 +252,28 @@ class TestHousePositions:
         assert isinstance(resolved, ResolvedEvent)
         assert resolved.seat_discriminator == "ld-1-position-1"
 
+    def test_a_seating_the_year_after_a_span_ended_is_a_return_not_that_tenure(self) -> None:
+        """CR 138. The reach forward exists for a CLOSING: a mid-biennium leaver is
+        absent from the roster of the biennium they left in. A seating dated the
+        year after a Position span ended is the opposite shape — a member coming
+        back, who may well return to the other Position — so it must not take its
+        Position from the tenure that ended.
+        """
+        proposal = _proposal("Appointed January 17, 2017 to serve unexpired term", year=2017)
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(member_id="21234", chamber="house", district=2, year=2017, surname="Hunt")
+            ],
+            positions=[
+                PositionTenure(
+                    member_id="21234", district=2, position="2", first_year=2013, last_year=2016
+                )
+            ],
+        )
+        resolved = resolver.resolve(proposal)
+        assert isinstance(resolved, Unresolved)
+        assert resolved.reason == UNRESOLVED_NO_POSITION
+
     def test_a_departure_two_years_after_the_span_does_not_reach_it(self) -> None:
         """The reach forward is one year, the same bound as the reach back. Two
         bienniums out is a different tenure, and a member who returns to an LD may
