@@ -54,6 +54,13 @@ def _name(value: Any) -> str | None:
     Second, real names arrive untrimmed (WSL's ``'Marlo Braun '``, PDC's
     ``'MICHAEL JAMES BAUMGARTNER '``), and the stored name is the name.
 
+    Third, a pandas NaN is absent, not the string ``'nan'`` (CR 1). These rows
+    come from ``.df().to_dict("records")``, and a null in a non-object column
+    arrives as float NaN — which ``str()`` renders as a perfectly plausible
+    name. Today's name columns are VARCHAR, so nulls arrive as ``None`` and
+    this cannot fire; it is guarded because the failure it would produce is
+    silent, and a silent wrong name is what #364 exists to end.
+
     Applied to all three sources, not just WSL's. Precedence is a chain, so a
     blank winning at any link publishes whitespace just the same; and skipping
     it here rather than dropping the row keeps survivorship's meaning — a
@@ -65,7 +72,7 @@ def _name(value: Any) -> str | None:
     with one. What a name IS is a survivorship question, and this is where
     survivorship lives.
     """
-    if value is None:
+    if value is None or value != value:  # NaN is the only value unequal to itself
         return None
     text = str(value).strip()
     return text or None

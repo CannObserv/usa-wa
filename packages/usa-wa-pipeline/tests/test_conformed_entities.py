@@ -204,6 +204,19 @@ def test_a_blank_roster_or_pdc_name_falls_through_to_the_next_source() -> None:
     assert by_id["01B"]["name_full"] is None  # PDC blank → no name at all
 
 
+def test_a_pandas_null_is_absent_not_the_string_nan() -> None:
+    """CR 1: `person_rows` reads pandas records, where a null in a non-object
+    column arrives as float NaN. `str(nan)` is `'nan'` — a name, as far as
+    everything downstream is concerned, and exactly the silent-wrong-name shape
+    #364 exists to end. Today's name columns are VARCHAR so this cannot fire;
+    what it must never do is fire QUIETLY if that changes."""
+    nan = float("nan")
+    sponsors = [dict(STUB, name=nan, biennium="2029-30")]
+    crosswalk = [c for c in CROSSWALK if c["key_namespace"] == "usa_wa_legislature"]
+    [row] = person_rows(crosswalk, sponsors=sponsors, roster=[], pdc=[])
+    assert row["name_full"] is None
+
+
 def test_a_published_name_is_trimmed(monkeypatch) -> None:
     """Real names arrive with trailing whitespace too — `'Marlo Braun '` from
     WSL, `'MICHAEL JAMES BAUMGARTNER '` from PDC. The stored name is the name."""
