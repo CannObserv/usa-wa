@@ -193,8 +193,9 @@ def _resolve_pair(work: list[TenureSpan], i: int, j: int) -> str | None:
         # predecessor that outlives the successor is one row covering two
         # tenures. Closing it at the handoff would discard the second.
         return UNCLIPPED_PREDECESSOR_OUTLIVES
-    if boundary < pred.valid_from:
-        return UNCLIPPED_DEGENERATE
+    # No `boundary < pred.valid_from` guard: `_tenure_order` already ranks the
+    # predecessor's start no later than the successor's, and `boundary` IS the
+    # successor's start — the inversion it would catch cannot be constructed.
     work[pred_pos] = replace(pred, valid_to=boundary, is_active=False)
     return None
 
