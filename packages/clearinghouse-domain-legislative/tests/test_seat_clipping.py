@@ -417,6 +417,13 @@ class TestNoDerivedBoundaryIsEvidence:
         bradburn = _by_member(result)["bradburn"]
         assert bradburn.valid_from == date(1979, 12, 31)
         assert bradburn.valid_to == date(1982, 12, 31)
+        # The assertion that discriminates (CR 141): with Charnley's clipped start
+        # read back as a stated date, this pair was CLIPPED — Bradburn closed at his
+        # own opening, zero length — and left no residue at all. Read as derived,
+        # the pair is refused, and refused for the right reason.
+        assert [(u.member_a, u.member_b, u.reason) for u in result.unclipped] == [
+            ("charnley", "bradburn", "degenerate")
+        ]
 
     def test_no_span_is_collapsed_to_zero_length(self):
         for span in clip_seat_counterparts(list(self._ld44_1979())).spans:
