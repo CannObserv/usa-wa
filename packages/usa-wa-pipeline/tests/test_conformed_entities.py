@@ -142,8 +142,18 @@ def test_org_rows_structural_branch_uses_verbatim_vocabulary() -> None:
 
 
 def test_org_rows_drop_tombstoned_entities() -> None:
+    """A tombstoned id is never published under its own ULID.
+
+    #366 narrowed what this test may assert. It used to demand the row vanish
+    ENTIRELY, which encoded the drop that cost Denny Heck his name: the keys go
+    to the survivor now, so a merge whose survivor is otherwise keyless
+    publishes under the survivor's id. What the guard is actually for — that
+    the retired id stops being addressable — is unchanged, and stated directly.
+    """
     merged = [dict(ORG_CROSSWALK[0], merged_into="09Z")]
-    assert org_rows(merged, committees=COMMITTEES, meetings=[]) == []
+    rows = org_rows(merged, committees=COMMITTEES, meetings=[])
+    assert [r["entity_id"] for r in rows] == ["09Z"]
+    assert not [r for r in rows if r["entity_id"] == "02A"]
 
 
 # --- #364: a blank is not a name -------------------------------------------
@@ -253,3 +263,78 @@ def test_org_names_get_the_same_blank_screen(monkeypatch) -> None:
     crosswalk = [dict(ORG_CROSSWALK[0], entity_id="02B", key_value="-5")]
     [ref_row] = org_rows(crosswalk, committees=[], meetings=meetings)
     assert ref_row["name"] is None
+
+
+# --- #366: a merge re-points, it does not delete ----------------------------
+#
+# The published crosswalk's tombstone is its only re-point signal, and two of
+# the three conformed consumers already say so out loud: `spans.entity_index`
+# ("an assignment must follow a merge rather than vanish with it") and
+# `citations._key_index` both resolve to the survivor. `_live_entities` alone
+# dropped the loser's rows, so the FIRST real merge (Denny Heck, #366) moved his
+# 1977-85 party span and his roster citation onto the survivor and left the name
+# behind — `persons` went from publishing "Dennis L. Heck" on one entity to
+# publishing no name at all.
+
+MERGED_CROSSWALK = [
+    {
+        "entity_id": "01WSL",
+        "key_namespace": "usa_wa_legislature",
+        "key_value": "31656",
+        "merged_into": None,
+    },
+    {
+        "entity_id": "01ROSTER",
+        "key_namespace": "usa_wa_legislature_roster",
+        "key_value": "danawhitfield:1977",
+        "merged_into": "01WSL",
+    },
+]
+
+
+def test_a_merged_entitys_keys_belong_to_the_survivor(monkeypatch) -> None:
+    """The survivor is named by the loser's roster key, not left nameless."""
+    monkeypatch.setattr(mod, "identity_fold", lambda name: "danawhitfield")
+    roster = [{"year": 1977, "name": "Dana Whitfield", "district": 17, "chamber": "house"}]
+    rows = person_rows(MERGED_CROSSWALK, sponsors=[], roster=roster, pdc=[])
+    assert [r["entity_id"] for r in rows] == ["01WSL"]
+    assert rows[0]["name_full"] == "Dana Whitfield"
+    assert rows[0]["name_source"] == "roster"
+
+
+def test_a_merge_chain_resolves_to_the_last_survivor(monkeypatch) -> None:
+    """A→B→C: the name lands on C. The merge verb refuses a tombstoned survivor
+    so a cycle cannot arise, but the walk is bounded the way the other two
+    consumers bound theirs."""
+    monkeypatch.setattr(mod, "identity_fold", lambda name: "danawhitfield")
+    chain = [
+        *MERGED_CROSSWALK,
+        dict(MERGED_CROSSWALK[0], merged_into="01FINAL"),
+        {
+            "entity_id": "01FINAL",
+            "key_namespace": "usa_wa_legislature",
+            "key_value": "999",
+            "merged_into": None,
+        },
+    ]
+    roster = [{"year": 1977, "name": "Dana Whitfield", "district": 17, "chamber": "house"}]
+    rows = person_rows(chain, sponsors=[], roster=roster, pdc=[])
+    assert [r["entity_id"] for r in rows] == ["01FINAL"]
+    assert rows[0]["name_full"] == "Dana Whitfield"
+
+
+def test_org_rows_follow_a_merge_too() -> None:
+    """Same function, same rule: a merged committee's attributes are the
+    survivor's."""
+    crosswalk = [
+        {
+            "entity_id": "02NEW",
+            "key_namespace": "usa_wa_legislature",
+            "key_value": "9999",
+            "merged_into": None,
+        },
+        dict(ORG_CROSSWALK[0], merged_into="02NEW"),
+    ]
+    [row] = org_rows(crosswalk, committees=COMMITTEES, meetings=[])
+    assert row["entity_id"] == "02NEW"
+    assert row["name"] == "Ag & Water"

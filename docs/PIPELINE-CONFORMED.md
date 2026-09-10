@@ -24,9 +24,11 @@ An organization's name goes through the same blank screen as a person's
 (#364 CR 5); its `acronym` deliberately does not, because 35 are space-padded
 in the wire and trimming them would restate 35 published values.
 `profiles.yml` pins `threads: 1`: threaded Python models race first-imports of
-the workspace packages. Verified on the real archive 2026-09-03: 3,135 persons
-(2,999 roster-named / 135 WSL / 1 known gap — the Heck acceptance) and 219
-orgs, type distribution matching canonical exactly. Assignments (the span
+the workspace packages. Verified on the real archive 2026-09-10: 3,134 persons
+(2,999 roster-named / 135 WSL / **no gap**) and 219 orgs, type distribution
+matching canonical exactly. Was 3,135 with one nameless entity — #366 merged
+Denny Heck's WSL id with the roster identity his 1977-85 listings minted, which
+is the registry's first real merge tombstone. Assignments (the span
 engine as a Python model) landed next — see below; roles/seats complete the
 layer.
 
@@ -50,12 +52,20 @@ one.
 The guard that outlives the fix is `tests/persons_named.sql`, gated at zero:
 blank, untrimmed, or a `name_full`/`name_source` pair with one side missing
 fails `dbt build`. It is deliberately NOT a `not_null` test on `name_full` nor a
-`required` constraint in the published datapackage — the question #364 raises —
-because the Heck acceptance is real: registered, anchored in power-map's
-crosswalk, attested by no staging row at all, so no source can name him.
-Requiring a name would wedge the nightly on a documented gap; requiring that a
-name never be blank loses nothing. Measured after the fix on the 2026-09-10
-archive: the same 3,135 / 2,999 / 135 / 1 split, with the four names restored.
+`required` constraint in the published datapackage — the question #364 raises.
+The instance that first proved the point is gone (#366 named Denny Heck through
+a merge), but the SHAPE is not: a registry entity no source attests is one
+adjudication or one retired wire away at any time, and requiring a name would
+wedge the nightly the day it recurs. Permitting a null costs the gate nothing —
+it still refuses every blank.
+
+**A merge re-points, it does not delete** (#366). `_live_entities` attributes a
+tombstoned entity's keys to its survivor, so the survivor is named by them; the
+rule `spans.entity_index` and `citations._key_index` already applied, and this
+was the one consumer that did not. The first real merge is what showed the
+cost — Denny Heck's party span and his roster citation followed the merge while
+his name did not, so `persons` briefly published no name for him at all, which
+is worse than the duplicate the merge was resolving.
 
 ## Conformed: tenure spans (#309 part 2)
 
@@ -297,9 +307,10 @@ no ULID has nothing to be cited *by*. Gating that at zero would have failed the
 nightly and emailed the operator every time a committee was created. Those roles
 are counted apart as `unregistered_roles` and reported, not gated; the
 **persistent** case is caught by `parity_spans`, which re-reads the registry
-after the registrar rather than the artifact built before it. Ratcheted — `uncited_persons`, baseline **3**: one
-registered WSL member no wire names, plus the two Elmer E. Johnstons sharing the
-fold `elmerejohnston`, which the citer refuses to guess between. Counted only —
+after the registrar rather than the artifact built before it. Ratcheted — `uncited_persons`, baseline **2**: the two Elmer E.
+Johnstons sharing the fold `elmerejohnston`, which the citer refuses to guess
+between. Was 3 — the registered WSL member no wire names left the count when
+#366 merged him with the roster entity that cites him. Counted only —
 `structural_organizations` (11: the Legislature, both chambers, eight parties),
 definitional rows from `usa_wa_common.orgs` that no wire could attest, kept out
 of `uncited_organizations` so a zero gate stays meaningful. Measured clean

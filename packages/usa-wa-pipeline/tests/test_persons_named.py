@@ -84,11 +84,14 @@ def test_catches_a_tab_padded_name() -> None:
 
 
 def test_a_nameless_person_passes() -> None:
-    """The Heck acceptance: WSL member 31656 (Lt. Governor, an ex-officio Senate
-    Rules seat minted from the retired `committee-members:` archive) has NO
-    staging attestation at all, so no source can name him. Null on both columns
-    is the honest reading and the one the gate must allow — the alternative is a
-    `required` constraint that would wedge the nightly on a documented gap."""
+    """A registry entity no source attests has no name, and null on both columns
+    is the honest reading — the alternative is a `required` constraint that
+    wedges the nightly the day such an entity exists.
+
+    It did: WSL member 31656 (Denny Heck, an ex-officio Senate Rules seat minted
+    from the retired `committee-members:` archive) had no staging attestation at
+    all until #366 merged him with his roster identity. The instance is closed;
+    the shape it proved is why this case stays green."""
     assert _violations([("01A", None, None)]) == 0
 
 

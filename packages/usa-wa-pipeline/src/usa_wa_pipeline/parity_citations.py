@@ -73,17 +73,20 @@ INTEGRITY_COUNTERS = (
     "uncited_organizations",
 )
 
-#: Persons no staging row names, measured 2026-09-04 against the live corpus:
+#: Persons no staging row names, measured 2026-09-10 against the live corpus:
 #:
-#: - ``usa_wa_legislature:31656`` — registered, but no sponsor or committee
-#:   wire in the archive names them;
 #: - the two **Elmer E. Johnston** entities (1899 and 1947), which share the
 #:   fold ``elmerejohnston``. The citer refuses an ambiguous fold rather than
 #:   attributing one man's career to the other — the Jr/Sr guard doing its job.
 #:
+#: Was 3. ``usa_wa_legislature:31656`` — registered, and still named by no
+#: sponsor or committee wire — left this count when #366 merged him with the
+#: roster entity that his 1977-85 listings had minted: the merged entity is
+#: cited at the roster wire, so the cause was resolved rather than excused.
+#:
 #: A ceiling, not an expectation: citing more than this is progress. Lower it
 #: when the causes are fixed; never raise it without naming the new one.
-BASELINE_UNCITED_PERSONS = 3
+BASELINE_UNCITED_PERSONS = 2
 
 
 class ArtifactMissing(RuntimeError):

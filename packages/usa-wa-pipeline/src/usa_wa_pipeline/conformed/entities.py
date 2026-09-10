@@ -86,12 +86,40 @@ def _name(value: Any) -> str | None:
 
 
 def _live_entities(crosswalk: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    """entity_id → its keys, live entities only."""
+    """entity_id → its keys, tombstones RESOLVED to the survivor (#366).
+
+    A merge re-points, it does not delete: the loser's keys still name the same
+    real person or body, now under the survivor's ULID, and the tombstone is the
+    published crosswalk's only re-point signal. So the loser's rows are
+    attributed to whoever it merged into rather than dropped — otherwise the
+    survivor is published stripped of exactly the identity the merge gave it.
+
+    This is the rule `spans.entity_index` and `citations._key_index` already
+    apply; this function was the one consumer that did not, and the first real
+    merge showed what that costs. Denny Heck's 1977-85 party span and his roster
+    citation followed the merge; his NAME did not, because his roster key lived
+    on the tombstoned row — so `persons` stopped publishing "Dennis L. Heck" and
+    published nothing for him instead, which is worse than the duplicate the
+    merge was resolving.
+
+    Chains resolve transitively. The merge verb refuses a tombstoned survivor,
+    so a cycle cannot arise, but the walk is bounded anyway — the same belt the
+    other two consumers wear.
+    """
+    merged = {
+        row["entity_id"]: row["merged_into"] for row in crosswalk if row["merged_into"] is not None
+    }
+
+    def resolve(entity_id: str) -> str:
+        seen: set[str] = set()
+        while entity_id in merged and entity_id not in seen:
+            seen.add(entity_id)
+            entity_id = merged[entity_id]
+        return entity_id
+
     out: dict[str, list[dict[str, Any]]] = {}
     for row in crosswalk:
-        if row["merged_into"] is not None:
-            continue
-        out.setdefault(row["entity_id"], []).append(row)
+        out.setdefault(resolve(row["entity_id"]), []).append(row)
     return out
 
 

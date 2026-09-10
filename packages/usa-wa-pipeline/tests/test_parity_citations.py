@@ -125,19 +125,20 @@ def test_a_sourced_org_with_no_citation_fails(tmp_path) -> None:
 
 
 def test_uncited_persons_are_ratcheted_not_gated(tmp_path) -> None:
-    """Three today, each understood: one WSL member no staging row names, and
-    the two Elmer E. Johnstons whose shared fold the citer refuses to guess at.
-    A zero gate would be a lie; an unwatched counter would let the number grow."""
-    path = _db(tmp_path, citations=[], fetches=[], persons=["01A", "01B", "01C"])
+    """Two today, both understood: the Elmer E. Johnstons whose shared fold the
+    citer refuses to guess at. A zero gate would be a lie; an unwatched counter
+    would let the number grow. Was three — #366 merged the WSL member no
+    staging row named into the roster entity that does cite him."""
+    path = _db(tmp_path, citations=[], fetches=[], persons=["01A", "01B"])
     counters, failures = parity_citations.audit(path)
-    assert counters["uncited_persons"] == 3
+    assert counters["uncited_persons"] == 2
     assert failures == []
 
 
 def test_a_person_gap_past_the_baseline_fails(tmp_path) -> None:
-    path = _db(tmp_path, citations=[], fetches=[], persons=["01A", "01B", "01C", "01D"])
+    path = _db(tmp_path, citations=[], fetches=[], persons=["01A", "01B", "01C"])
     counters, failures = parity_citations.audit(path)
-    assert counters["uncited_persons"] == 4
+    assert counters["uncited_persons"] == 3
     assert "uncited_persons" in failures
 
 

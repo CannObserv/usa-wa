@@ -48,14 +48,19 @@
 -- ratchets because its corpus was not clean on day one.
 --
 -- NOT expressed as a `not_null` column test on `name_full`, nor as a `required`
--- constraint in the published datapackage (the question #364 raises): one live
--- entity legitimately has no name. WSL member 31656 — Denny Heck, Lt. Governor,
--- an ex-officio Senate Rules seat minted from the retired `committee-members:`
--- archive whose live vocabulary excludes non-legislator ex-officio members — is
--- registered, anchored in power-map's crosswalk, and attested by NO staging row
--- at all, so no source can name him (`parity_wsl.ACCEPTED` carries the same
--- acceptance for the same member). Requiring a name would wedge the nightly on
--- a documented gap; requiring that a name never be BLANK loses nothing.
+-- constraint in the published datapackage (the question #364 raises), because a
+-- live entity CAN legitimately have no name. The instance that proved it —
+-- WSL member 31656, Denny Heck, an ex-officio Senate Rules seat minted from the
+-- retired `committee-members:` archive, registered and anchored in power-map
+-- but attested by NO staging row at all — is gone: #366 merged him with the
+-- roster identity his 1977-85 listings minted, and the merged entity is named
+-- from that roster key. `parity_wsl.ACCEPTED` still carries the staging↔
+-- canonical divergence for the same member; a registry merge does not touch it.
+--
+-- The SHAPE outlives the instance, which is why this stays a blank check rather
+-- than becoming a null check: a registry entity no source attests is one
+-- adjudication or one retired wire away at any time, and `required` would wedge
+-- the nightly the day it recurs. Permitting a null costs this gate nothing.
 --
 -- Casts to varchar throughout: the hermetic build materializes `persons` empty,
 -- and an empty object column can bind as something other than VARCHAR (#361).
