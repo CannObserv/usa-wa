@@ -53,14 +53,26 @@
 -- that never existed, make ordinary succession look like seat-hopping, and move
 -- historical `role_key` values — power-map's seat match key.
 --
--- BASELINE 71 — the corpus is not clean, and `error` would wedge the nightly
--- chain on day one. The residue after multi-member districts are excluded, and
--- it is NOT one shape (#360): ~53 are successions whose dated boundary exists in
--- the roster but could not be applied because the annotation carries no day
--- ("Appointed Oct. 1971" — 60 of 1,046 annotations are month-only, 69 year-only,
--- 173 undated), and ~18 have no roster explanation at all and need case-by-case
--- adjudication. This test exists to stop the count GROWING while that is worked,
--- which is the guard #358 showed was absent.
+-- BASELINE 34 — the corpus is not clean, and `error` would wedge the nightly
+-- chain on day one. What remains after multi-member districts are excluded (the
+-- 20) and counterpart clipping resolves the dated handoffs (the 37): every pair
+-- here is one the #360 rule DECLINES to resolve, and each refusal reason is a
+-- different kind of unknown, not a backlog of the same one:
+--
+--   19  neither side dated  — both edges are biennium-derived, so there is no
+--                             stated boundary to clip either one to
+--    9  merged return       — the predecessor outlives the successor, so its row
+--                             is two tenures (usa-wa#267) and clipping would
+--                             discard the second; needs a split, not a clip
+--    4  crosses a biennium  — the roster listed the successor biennia BEFORE the
+--                             predecessor's dated exit; the sources contradict
+--                             each other, and the clip would move valid_from out
+--                             of the biennium its own source_id is keyed on
+--    2  both sides dated    — two stated dates that still overlap: bad upstream
+--                             data, the #358 shape, for case-by-case adjudication
+--
+-- This test exists to stop the count GROWING while that is worked, which is the
+-- guard #358 showed was absent.
 --
 -- The ratchet, in dbt's own semantics rather than a hand-rolled one:
 --   >BASELINE  error — a new conflict; the thing this test exists to catch
@@ -71,8 +83,9 @@
 -- hermetic build materializes conformed models EMPTY on purpose, so its correct
 -- expectation is 0 — with a flat 91 the gate warned `Got 0 results` on every
 -- pre-commit and every CI run. That noise costs the ratchet its whole point:
--- the day the real count drops to 85, "ratchet me down" would arrive looking
--- exactly like the warning everyone had already learned to scroll past. Alert
+-- the day the real count drops below the baseline, "ratchet me down" would
+-- arrive looking exactly like the warning everyone had learned to scroll past.
+-- Alert
 -- fatigue is how #49 alerting dies, and a gate that cries wolf in the inner
 -- loop is the fastest route to it.
 --
@@ -80,7 +93,7 @@
 -- one new conflict behind one repaired elsewhere. Acceptable while the set is
 -- being actively drained in #360; if that stalls, the upgrade is a named-pair
 -- baseline in the `parity_wsl.ACCEPTED` idiom.
-{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 71 %}
+{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 34 %}
 {{ config(severity='error', error_if='>' ~ baseline, warn_if='!=' ~ baseline) }}
 select
     a.role_key,

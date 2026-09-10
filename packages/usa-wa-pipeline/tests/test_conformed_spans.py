@@ -17,6 +17,7 @@ from clearinghouse_domain_legislative.span_kinds import (
     KIND_PARTY,
     KIND_SENATE,
 )
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 from usa_wa_pipeline.conformed.spans import (
     ROSTER_SOURCE,
     SOURCE,
@@ -447,3 +448,69 @@ def test_assignment_rows_tag_each_family_with_its_own_source() -> None:
     assert {r["entity_id"] for r in rows if r["source"] == ROSTER_SOURCE} == {"01ROSTERENTITY"}
     assert counters["unregistered_spans"] == 0
     assert counters["published"] == len(rows) == len(wsl) + len(roster_spans)
+
+
+def _seat_span(member, *, start, end, frm, to, source_kind=KIND_SENATE):
+    return TenureSpan(
+        member_id=member,
+        kind=source_kind,
+        discriminator="4",
+        start_biennium=start,
+        end_biennium=end,
+        valid_from=frm,
+        valid_to=to,
+        is_active=False,
+    )
+
+
+def test_assignment_rows_clip_a_dated_handoff_across_the_family_seam() -> None:
+    """#360: the two holders of one seat routinely come from different families —
+    a WSL-joined incumbent and a minted pre-1991 successor. Clipping per family
+    would be blind across exactly the seam the handoff crosses."""
+    incumbent = _seat_span(
+        "100", start="1897-98", end="1897-98", frm=date(1897, 1, 1), to=date(1897, 8, 25)
+    )
+    successor = _seat_span(
+        "crow:1897", start="1897-98", end="1903-04", frm=date(1897, 1, 1), to=date(1904, 12, 31)
+    )
+    rows, counters = assignment_rows(
+        {SOURCE: [incumbent], ROSTER_SOURCE: [successor]},
+        {f"{SOURCE}:100": "01A", f"{ROSTER_SOURCE}:crow:1897": "01B"},
+    )
+    by_entity = {r["entity_id"]: r for r in rows}
+    assert by_entity["01B"]["valid_from"] == date(1897, 8, 25)
+    assert by_entity["01A"]["valid_to"] == date(1897, 8, 25)
+    assert counters["seat_overlaps_unclipped"] == 0
+
+
+def test_assignment_rows_count_the_overlaps_the_rule_declines() -> None:
+    """Neither side dated: nothing to clip to, so the pair stands and is counted
+    rather than resolved by guessing which biennium edge to believe."""
+    a = _seat_span(
+        "100", start="1895-96", end="1901-02", frm=date(1895, 1, 1), to=date(1902, 12, 31)
+    )
+    b = _seat_span(
+        "101", start="1899-00", end="1901-02", frm=date(1899, 1, 1), to=date(1902, 12, 31)
+    )
+    rows, counters = assignment_rows(
+        {SOURCE: [a, b]}, {f"{SOURCE}:100": "01A", f"{SOURCE}:101": "01B"}
+    )
+    assert {r["valid_from"] for r in rows} == {date(1895, 1, 1), date(1899, 1, 1)}
+    assert counters["seat_overlaps_unclipped"] == 1
+
+
+def test_assignment_rows_do_not_drop_or_reorder_spans_when_clipping() -> None:
+    """The clip corrects boundaries only — a published row must never disappear
+    because two tenures overlapped."""
+    a = _seat_span(
+        "100", start="1897-98", end="1897-98", frm=date(1897, 1, 1), to=date(1897, 8, 25)
+    )
+    b = _seat_span(
+        "101", start="1897-98", end="1903-04", frm=date(1897, 1, 1), to=date(1904, 12, 31)
+    )
+    rows, counters = assignment_rows(
+        {SOURCE: [a, b]}, {f"{SOURCE}:100": "01A", f"{SOURCE}:101": "01B"}
+    )
+    assert [r["member_id"] for r in rows] == ["100", "101"]
+    assert counters["spans"] == 2
+    assert counters["published"] == 2

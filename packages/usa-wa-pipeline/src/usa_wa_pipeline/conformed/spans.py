@@ -48,6 +48,7 @@ from clearinghouse_domain_legislative.operator_overlay import (
     latest_event_biennium_by_member,
     stale_exempt_members,
 )
+from clearinghouse_domain_legislative.seat_clipping import clip_seat_families
 from clearinghouse_domain_legislative.span_kinds import (
     KIND_COMMITTEE,
     KIND_PARTY,
@@ -484,7 +485,16 @@ def entity_index(crosswalk: list[dict[str, Any]]) -> dict[str, str]:
 def assignment_rows(
     spans_by_source: dict[str, list[TenureSpan]], entity_by_key: dict[str, str]
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Span families ⨝ the person crosswalk → published rows + counters.
+    """Span families → counterpart-clipped, ⨝ the person crosswalk → published rows.
+
+    The clip (#360) runs **here**, not in either builder, for two reasons. It
+    needs the union: one Senate seat's two holders routinely come from different
+    families, so a per-family clip is blind across the seam the handoff crosses.
+    And this is the single door every publication path goes through, so the
+    one-holder-per-seat invariant cannot be skipped by a caller that forgets it.
+    Boundaries move; no row is ever dropped, added or reordered. The overlaps the
+    rule declines — both sides dated, neither dated, a merged return tenure — are
+    counted here and listed as rows by the `assignments_seat_occupancy` gate.
 
     Keyed by source because the two families live in **disjoint identity
     spaces** and share one table: the WSL family's member ids are the archive's
@@ -505,7 +515,9 @@ def assignment_rows(
         "spans": sum(len(spans) for spans in spans_by_source.values()),
         "unregistered_spans": 0,
     }
-    for source, spans in spans_by_source.items():
+    clipped, unclipped = clip_seat_families(spans_by_source)
+    counters["seat_overlaps_unclipped"] = len(unclipped)
+    for source, spans in clipped.items():
         for span in spans:
             entity_id = entity_by_key.get(f"{source}:{span.member_id}")
             if entity_id is None:

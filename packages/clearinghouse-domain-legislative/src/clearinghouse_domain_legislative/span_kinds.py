@@ -29,6 +29,14 @@ KIND_HOUSE = "chamber-house"
 #: tenure *tracks*.
 KIND_COMMITTEE = "committee"
 
+#: The seats a **single** person holds at a time — the chamber seats. Party
+#: affiliation and committee membership are legitimately multi-holder, so the
+#: one-holder-at-a-time invariant is stated by KIND rather than assumed of every
+#: seat (#359, #360). The conformed gate `assignments_seat_occupancy` scopes to
+#: exactly this set; `assignments_seat_kinds_covered` fails if a `seat:*` role
+#: ever carries a kind outside it, so the two cannot drift apart silently.
+SINGLE_HOLDER_KINDS = (KIND_SENATE, KIND_HOUSE)
+
 #: The seat-scoped span kinds — the seats the builders own (Senate, House, committee).
 #: A seat-scoped operator event MUST name one of these (see ``operator_events``); a
 #: typo would otherwise record an event the overlay silently no-ops in every builder.
