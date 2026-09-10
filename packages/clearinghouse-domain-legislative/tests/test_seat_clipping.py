@@ -112,6 +112,21 @@ class TestClipPredecessorEnd:
         assert _by_member(result)["returner"].valid_to == date(1992, 12, 31)
         assert [u.reason for u in result.unclipped] == ["predecessor_outlives_successor"]
 
+    def test_a_nested_successor_is_the_same_refusal_from_the_other_side(self):
+        """The predecessor's own exit is the dated one here, so the pair enters
+        the opposite branch — but the geometry is identical (the successor sits
+        wholly inside the predecessor's window) and so must the reason be, or the
+        residue taxonomy counts one shape under two labels."""
+        pred = _span(
+            "returner", start="1955-56", end="1957-58", frm=date(1955, 1, 1), to=date(1957, 6, 21)
+        )
+        succ = _span(
+            "interlude", start="1957-58", end="1957-58", frm=date(1957, 1, 1), to=date(1957, 3, 1)
+        )
+        result = clip_seat_counterparts([pred, succ])
+        assert _by_member(result)["interlude"].valid_from == date(1957, 1, 1)
+        assert [u.reason for u in result.unclipped] == ["predecessor_outlives_successor"]
+
     def test_an_open_predecessor_outlives_a_closed_successor(self):
         """`valid_to is None` reads as unbounded, not as a quantized ceiling."""
         pred = _span(

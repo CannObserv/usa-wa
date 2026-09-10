@@ -324,9 +324,9 @@ entities before and after; 34 rows with moved boundaries).
 The rule refuses more than it applies, and the refusals are the interesting part
 — each is a different kind of unknown rather than a backlog of the same one. The
 counts are on the baseline comment in the gate; the shapes are: **neither side
-dated** (no stated boundary to clip to), **merged return** (the predecessor
-outlives the successor, so its row is two tenures — usa-wa#267 — and clipping
-would discard the second; it needs a split), **crosses a biennium** (the roster
+dated** (no stated boundary to clip to), **merged return** (the successor is nested
+inside the predecessor, whose row is therefore two tenures — usa-wa#267 — so
+clipping either side discards one of them; it needs a split), **crosses a biennium** (the roster
 listed the successor *before* the predecessor's dated exit — the sources
 contradict each other), and **both sides dated** (two stated dates that still
 overlap: the #358 shape, for adjudication).

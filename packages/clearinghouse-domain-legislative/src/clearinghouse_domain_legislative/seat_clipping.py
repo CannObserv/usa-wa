@@ -48,9 +48,11 @@ from clearinghouse_domain_legislative.terms import parse_biennium
 #: silent one — the conformed gate lists the rows these correspond to.
 UNCLIPPED_BOTH_DATED = "both_dated"
 UNCLIPPED_NEITHER_DATED = "neither_dated"
+#: One shape, one name, whichever branch reaches it: the successor's tenure sits
+#: wholly inside the predecessor's, so the predecessor's row is two tenures
+#: merged (usa-wa#267) and either clip would discard one of them.
 UNCLIPPED_PREDECESSOR_OUTLIVES = "predecessor_outlives_successor"
 UNCLIPPED_START_LEAVES_BIENNIUM = "start_leaves_biennium"
-UNCLIPPED_DEGENERATE = "degenerate"
 
 #: Sentinel for an open span in an ordering comparison — an unbounded end sorts
 #: last and outlives every closed counterpart.
@@ -183,7 +185,11 @@ def _resolve_pair(work: list[TenureSpan], i: int, j: int) -> str | None:
             # the biennium its own `source_id` is keyed on.
             return UNCLIPPED_START_LEAVES_BIENNIUM
         if succ.valid_to is not None and boundary > succ.valid_to:
-            return UNCLIPPED_DEGENERATE
+            # Same geometry as the branch below, reached from the other side:
+            # the successor is nested inside the predecessor. Counting it under
+            # its own name would split one shape across two rows of the residue
+            # taxonomy the gate comment and PIPELINE.md both publish.
+            return UNCLIPPED_PREDECESSOR_OUTLIVES
         work[succ_pos] = replace(succ, valid_from=boundary)
         return None
 
