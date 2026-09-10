@@ -65,6 +65,16 @@ KINDS = (KIND_DEPARTED, KIND_VACATED, KIND_SEATED)
 #: The seat-scoped kinds carry a ``(seat_kind, seat_discriminator)``; ``departed`` does not.
 SEAT_SCOPED_KINDS = (KIND_VACATED, KIND_SEATED)
 
+#: The kinds that CLOSE a tenure. A correction may restate which of these a boundary
+#: was — ``departed`` and ``vacated`` are two readings of one roster annotation, "the
+#: member left the legislature" against "the member moved seats within it"
+#: (usa-wa#363) — but never turn an ending into a beginning, which is a different
+#: fact rather than a better reading of the same one. Defined here beside the kinds
+#: it partitions so the store (which enforces the rule), the backfill (which reads a
+#: ``departed`` as the contradiction of a ``vacated``) and the resolver (which
+#: reaches forward only for a closing) agree by construction rather than by copy.
+ENDING_KINDS = frozenset({KIND_DEPARTED, KIND_VACATED})
+
 # ``SEAT_KINDS`` — the valid ``seat_kind`` values a seat-scoped event may name — is the
 # canonical span-kind subset owned by the builders. It is re-exported from
 # :mod:`clearinghouse_domain_legislative.span_kinds` (imported above) so the domain guard

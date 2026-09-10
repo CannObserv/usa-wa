@@ -36,9 +36,9 @@ from clearinghouse_core.provenance import (
 )
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.operator_events import (
+    ENDING_KINDS,
     KIND_DEPARTED,
     KIND_SEATED,
-    KIND_VACATED,
     OPERATOR_SOURCE_SLUG,
     OperatorEvent,
     event_source_id,
@@ -206,14 +206,6 @@ async def record_operator_event(
     session.add(row)
     await session.flush()
     return row
-
-
-#: The event kinds that close a tenure. A correction may restate which of these a
-#: boundary was — ``departed`` and ``vacated`` are two readings of one annotation,
-#: "the member left the legislature" against "the member moved seats within it"
-#: (usa-wa#363) — but never turn an ending into a beginning, which is a different
-#: fact rather than a better reading of the same one.
-ENDING_KINDS = frozenset({KIND_DEPARTED, KIND_VACATED})
 
 
 async def supersede_event(
