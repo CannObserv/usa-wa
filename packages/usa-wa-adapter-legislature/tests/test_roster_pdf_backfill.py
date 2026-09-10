@@ -518,3 +518,77 @@ class TestSupersedingLeavesNoStaleIndexEntry:
             date(1979, 7, 25),
             date(1979, 6, 15),
         ]
+
+
+class TestDepartedContradictsVacated:
+    """usa-wa#363. A member either left the legislature or moved seats within it.
+    Both assertions for one boundary cannot stand: the stale person-scoped
+    `departed` closes every span the seat-scoped `vacated` exists to preserve.
+    """
+
+    async def _stale_departed(self, db_session, source, *, entered_by=BACKFILL_ENTERED_BY):
+        return await record_operator_event(
+            db_session,
+            source,
+            member_id="18517",
+            kind="departed",
+            reason="resigned",
+            effective_date=date(1979, 6, 15),
+            evidence_url="https://example.gov/roster",
+            entered_by=entered_by,
+        )
+
+    def _move(self):
+        return _resolved(
+            "Resigned June 15, 1979; Appointed to the Senate",
+            chamber="house",
+            seat_discriminator="ld-2-position-1",
+        )
+
+    async def test_a_move_conflicts_with_a_live_departure(self, db_session, usa_wa) -> None:
+        source = await _source(db_session)
+        await self._stale_departed(db_session, source)
+        summary = await write_events(db_session, source, [self._move()])
+        assert summary.written == 0
+        assert summary.skipped[SKIP_CONFLICTS_WITH_ATTESTATION] == 1
+
+    async def test_the_move_supersedes_the_departure_when_asked(self, db_session, usa_wa) -> None:
+        source = await _source(db_session)
+        prior = await self._stale_departed(db_session, source)
+        summary = await write_events(db_session, source, [self._move()], supersede_conflicts=True)
+        assert summary.superseded == 1
+        assert prior.superseded_by_id is not None
+        live = [
+            r
+            for r in (await db_session.execute(select(OperatorEvent))).scalars().all()
+            if r.superseded_by_id is None
+        ]
+        assert [(r.kind, r.seat_discriminator) for r in live] == [("vacated", "ld-2-position-1")]
+
+    async def test_a_hand_entered_departure_is_never_superseded(self, db_session, usa_wa) -> None:
+        """The safe reading of a disagreement stays: a human knew something the
+        roster does not."""
+        source = await _source(db_session)
+        prior = await self._stale_departed(db_session, source, entered_by="gregoryfoster")
+        summary = await write_events(db_session, source, [self._move()], supersede_conflicts=True)
+        assert summary.superseded == 0
+        assert prior.superseded_by_id is None
+
+    async def test_a_departure_in_another_biennium_is_not_a_contradiction(
+        self, db_session, usa_wa
+    ) -> None:
+        """A member who moved seats in 1979 and left the legislature in 1985 did
+        both — the contradiction is only within one boundary's biennium."""
+        source = await _source(db_session)
+        await record_operator_event(
+            db_session,
+            source,
+            member_id="18517",
+            kind="departed",
+            reason="resigned",
+            effective_date=date(1985, 3, 1),
+            evidence_url="https://example.gov/roster",
+            entered_by=BACKFILL_ENTERED_BY,
+        )
+        summary = await write_events(db_session, source, [self._move()])
+        assert summary.written == 1

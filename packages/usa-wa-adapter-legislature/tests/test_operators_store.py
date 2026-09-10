@@ -3,6 +3,7 @@
 import hashlib
 from datetime import date
 
+import pytest
 from sqlalchemy import func, select
 
 from clearinghouse_core.provenance import Citation, FetchEvent, RawPayload, Source
@@ -216,3 +217,87 @@ async def test_cite_operator_events_adds_field_citation(db_session, usa_wa):
         confidence=1.0,
     )
     assert again == 0
+
+
+class TestSupersedeReclassifies:
+    """usa-wa#363. A correction may restate WHICH KIND of ending a boundary was.
+
+    `departed` and `vacated` are two readings of one roster annotation — the member
+    left the legislature, or moved seats within it. When the projection changes its
+    mind, the correction has to be able to say so; without it the only recourse is
+    editing provenance by hand, which #54 exists to forbid.
+    """
+
+    async def test_a_departure_can_be_corrected_to_a_seat_vacancy(self, db_session, usa_wa) -> None:
+        source = await _source(db_session)
+        prior = await record_operator_event(
+            db_session,
+            source,
+            member_id="15809",
+            kind="departed",
+            reason="resigned",
+            effective_date=date(2019, 7, 1),
+            evidence_url="https://example.gov/roster#page=22",
+        )
+        corrected = await supersede_event(
+            db_session,
+            source,
+            prior,
+            kind="vacated",
+            reason="moved",
+            effective_date=date(2019, 7, 1),
+            evidence_url="https://example.gov/roster#page=22",
+            seat_kind="chamber-house",
+            seat_discriminator="ld-1-position-1",
+        )
+        assert corrected.kind == "vacated"
+        assert corrected.seat_discriminator == "ld-1-position-1"
+        assert prior.superseded_by_id == corrected.id
+
+    async def test_a_beginning_can_never_correct_an_ending(self, db_session, usa_wa) -> None:
+        """The latitude is within one direction. Turning a departure into a seating
+        is not a reclassification, it is a different fact."""
+        source = await _source(db_session)
+        prior = await record_operator_event(
+            db_session,
+            source,
+            member_id="15809",
+            kind="departed",
+            reason="resigned",
+            effective_date=date(2019, 7, 1),
+            evidence_url="https://example.gov/roster",
+        )
+        with pytest.raises(ValueError, match="ending"):
+            await supersede_event(
+                db_session,
+                source,
+                prior,
+                kind="seated",
+                reason="appointed",
+                effective_date=date(2019, 7, 1),
+                evidence_url="https://example.gov/roster",
+                seat_kind="chamber-senate",
+                seat_discriminator="1",
+            )
+
+    async def test_the_kind_still_defaults_to_the_prior(self, db_session, usa_wa) -> None:
+        source = await _source(db_session)
+        prior = await record_operator_event(
+            db_session,
+            source,
+            member_id="29091",
+            kind="departed",
+            reason="died",
+            effective_date=date(2025, 4, 19),
+            evidence_url="https://example.gov/a",
+        )
+        corrected = await supersede_event(
+            db_session,
+            source,
+            prior,
+            reason="died",
+            effective_date=date(2025, 4, 20),
+            evidence_url="https://example.gov/b",
+        )
+        assert corrected.kind == "departed"
+        assert corrected.seat_kind is None

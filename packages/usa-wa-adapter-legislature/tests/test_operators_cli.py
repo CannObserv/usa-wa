@@ -134,22 +134,55 @@ async def test_unknown_seat_kind_rejected(db_session, usa_wa):
         await validate_and_record(db_session, source, bad)
 
 
-async def test_supersede_with_mismatched_kind_rejected(db_session, usa_wa):
+async def test_supersede_may_reclassify_one_ending_as_another(db_session, usa_wa):
+    """usa-wa#363. `departed` and `vacated` are two readings of one boundary — the
+    member left the legislature, or moved seats within it. A projection that
+    changes its mind has no other way to say so: provenance is append-only (#54),
+    so the correction IS the supersede. The seat travels with the new kind.
+    """
     await _person(db_session, "100")
     source = await _source(db_session)
     prior = await validate_and_record(db_session, source, _departed(d=date(2025, 4, 19)))
-    mismatched = EventSpec(
-        member_id="100",
-        kind="vacated",  # differs from prior's departed — would silently apply reason to prior.kind
-        reason="moved",
-        effective_date=date(2025, 4, 20),
-        evidence_url="https://x",
-        seat_kind="chamber-senate",
-        seat_discriminator="5",
-        supersede_id=str(prior.id),
+    corrected = await validate_and_record(
+        db_session,
+        source,
+        EventSpec(
+            member_id="100",
+            kind="vacated",
+            reason="moved",
+            effective_date=date(2025, 4, 19),
+            evidence_url="https://x",
+            seat_kind="chamber-house",
+            seat_discriminator="ld-5-position-1",
+            supersede_id=str(prior.id),
+        ),
     )
-    with pytest.raises(OperatorEventError, match="differs from the prior"):
-        await validate_and_record(db_session, source, mismatched)
+    assert corrected.kind == "vacated"
+    assert corrected.seat_discriminator == "ld-5-position-1"
+    assert prior.superseded_by_id == corrected.id
+
+
+async def test_supersede_cannot_turn_an_ending_into_a_beginning(db_session, usa_wa):
+    """The latitude stops at the boundary's direction. A seating is a different
+    fact, not a better reading of a departure."""
+    await _person(db_session, "100")
+    source = await _source(db_session)
+    prior = await validate_and_record(db_session, source, _departed(d=date(2025, 4, 19)))
+    with pytest.raises(ValueError, match="ending"):
+        await validate_and_record(
+            db_session,
+            source,
+            EventSpec(
+                member_id="100",
+                kind="seated",
+                reason="appointed",
+                effective_date=date(2025, 4, 20),
+                evidence_url="https://x",
+                seat_kind="chamber-senate",
+                seat_discriminator="5",
+                supersede_id=str(prior.id),
+            ),
+        )
 
 
 async def test_supersede_with_mismatched_seat_rejected(db_session, usa_wa):

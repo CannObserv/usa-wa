@@ -61,6 +61,8 @@ from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
 from clearinghouse_domain_legislative.identity import Assignment, Person
 from clearinghouse_domain_legislative.operator_events import (
+    KIND_DEPARTED,
+    KIND_VACATED,
     OPERATOR_SOURCE_SLUG,
     OperatorEvent,
     event_source_id,
@@ -238,6 +240,26 @@ def _scope(event: ResolvedEvent | OperatorEvent) -> Scope:
     return (event.member_id, event.kind, event.seat_kind, event.seat_discriminator)
 
 
+def _contradicting_scopes(event: ResolvedEvent) -> tuple[Scope, ...]:
+    """Every scope whose live attestation contradicts ``event``.
+
+    Its own tenure always. And a ``vacated`` additionally contradicts the
+    person-scoped ``departed`` for the same member (usa-wa#363): one says the
+    member moved seats and kept serving, the other that they left the legislature
+    entirely. They are two readings of ONE roster annotation, and they cannot both
+    stand — a stale ``departed`` beside a fresh ``vacated`` closes every span the
+    move exists to preserve, which is how Derek Stanford lost 18 months of party
+    and committee tenure while his Senate seat read correctly.
+
+    Scoped by biennium at the call site, so a member who moved seats in one
+    biennium and genuinely left in another is not caught by this.
+    """
+    own = _scope(event)
+    if event.kind != KIND_VACATED:
+        return (own,)
+    return (own, (event.member_id, KIND_DEPARTED, None, None))
+
+
 async def _live_attestations(
     session: AsyncSession,
 ) -> tuple[set[str], dict[Scope, list[_Attested]]]:
@@ -304,7 +326,8 @@ async def write_events(
         biennium = biennium_for_date(event.effective_date)
         prior = [
             row
-            for row in by_scope.get(_scope(event), ())
+            for scope in _contradicting_scopes(event)
+            for row in by_scope.get(scope, ())
             if biennium_for_date(row.effective_date) == biennium
         ]
         if prior:
@@ -340,6 +363,14 @@ async def write_events(
                     session,
                     source,
                     attested.row,
+                    # The roster may now read this boundary as a different KIND of
+                    # ending — a move rather than a departure (usa-wa#363) — so the
+                    # correction carries the event's own kind and seat, not the
+                    # prior's. Reclassification is bounded to endings inside
+                    # `supersede_event`; a beginning still cannot correct an ending.
+                    kind=event.kind,
+                    seat_kind=event.seat_kind,
+                    seat_discriminator=event.seat_discriminator,
                     reason=event.reason,
                     effective_date=event.effective_date,
                     evidence_url=roster_evidence_url(

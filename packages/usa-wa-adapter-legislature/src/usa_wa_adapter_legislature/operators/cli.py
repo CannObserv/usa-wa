@@ -136,22 +136,24 @@ async def validate_and_record(session: AsyncSession, source, spec: EventSpec) ->
         ).scalar_one_or_none()
         if prior is None:
             raise OperatorEventError(f"--supersede id {spec.supersede_id!r} not found")
-        # supersede_event derives kind/member/seat from `prior` and applies only the new
-        # reason/date/url — so a passed --kind/--member-id/--seat-* that disagrees with prior
-        # would be silently ignored, and (worse) spec.reason validated against spec.kind would
-        # be written under prior.kind, breaking the kind↔reason pairing (no DB constraint on
-        # reason). Reject a mismatch rather than silently mis-apply.
-        if spec.kind != prior.kind:
-            raise OperatorEventError(
-                f"--supersede: kind {spec.kind!r} differs from the prior event's {prior.kind!r} "
-                "(a supersede corrects the date/reason/url, not the kind)"
-            )
+        # The kind MAY change, within endings only (usa-wa#363): `departed` and
+        # `vacated` are two readings of one boundary, and provenance is append-only,
+        # so a supersede is the only way a projection can say it changed its mind.
+        # `supersede_event` is the arbiter — it refuses anything wider. Turning an
+        # ending into a beginning is a different fact, not a better reading.
+        #
+        # The spec's kind and seat are passed through rather than derived from
+        # `prior`, which is what keeps the kind↔reason pairing intact: the CLI
+        # validates `reason` against `spec.kind`, so writing it under `prior.kind`
+        # would break a pairing no DB constraint enforces.
         if spec.member_id != prior.member_id:
             raise OperatorEventError(
                 f"--supersede: member_id {spec.member_id!r} differs from the prior event's "
                 f"{prior.member_id!r}"
             )
-        if spec.seat_kind != prior.seat_kind or spec.seat_discriminator != prior.seat_discriminator:
+        if spec.kind == prior.kind and (
+            spec.seat_kind != prior.seat_kind or spec.seat_discriminator != prior.seat_discriminator
+        ):
             raise OperatorEventError(
                 "--supersede: seat differs from the prior event's "
                 f"{prior.seat_kind}:{prior.seat_discriminator}"
@@ -160,6 +162,9 @@ async def validate_and_record(session: AsyncSession, source, spec: EventSpec) ->
             session,
             source,
             prior,
+            kind=spec.kind,
+            seat_kind=spec.seat_kind,
+            seat_discriminator=spec.seat_discriminator,
             reason=spec.reason,
             effective_date=spec.effective_date,
             evidence_url=spec.evidence_url,

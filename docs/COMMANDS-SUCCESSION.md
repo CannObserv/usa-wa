@@ -96,6 +96,10 @@ each write appends a hashed `FetchEvent` + `RawPayload` under the `usa_wa_operat
 # App-role DML (writes operator_events + provenance); shell access is the trust boundary,
 # as with the redrive CLI. Provenance is append-only — a date-correction is --supersede
 # (a NEW row stamping the prior one's superseded_by_id), never a mutation (#54).
+# A supersede may also RECLASSIFY, within endings only (#363): departed <-> vacated are
+# two readings of one boundary (left the legislature / moved seats within it), and
+# append-only provenance leaves no other way to say the projection changed its mind.
+# An ending can never become a beginning — that is a different fact.
 # --dry-run validates + writes, then rolls back — but --list is read-only and commits even
 # under --dry-run, which is why this job keeps its own transaction on the #179b harness.
 # Exit 2 on a validation failure (unchanged).

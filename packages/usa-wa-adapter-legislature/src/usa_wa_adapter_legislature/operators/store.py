@@ -38,6 +38,7 @@ from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.operator_events import (
     KIND_DEPARTED,
     KIND_SEATED,
+    KIND_VACATED,
     OPERATOR_SOURCE_SLUG,
     OperatorEvent,
     event_source_id,
@@ -207,6 +208,14 @@ async def record_operator_event(
     return row
 
 
+#: The event kinds that close a tenure. A correction may restate which of these a
+#: boundary was — ``departed`` and ``vacated`` are two readings of one annotation,
+#: "the member left the legislature" against "the member moved seats within it"
+#: (usa-wa#363) — but never turn an ending into a beginning, which is a different
+#: fact rather than a better reading of the same one.
+ENDING_KINDS = frozenset({KIND_DEPARTED, KIND_VACATED})
+
+
 async def supersede_event(
     session: AsyncSession,
     source: Source,
@@ -216,20 +225,38 @@ async def supersede_event(
     effective_date: date,
     evidence_url: str,
     entered_by: str | None = None,
+    kind: str | None = None,
+    seat_kind: str | None = None,
+    seat_discriminator: str | None = None,
 ) -> OperatorEvent:
-    """Record a correction of ``prior`` (same member + seat, new date/reason/url) and stamp
+    """Record a correction of ``prior`` (same member, new date/reason/url) and stamp
     ``prior.superseded_by_id``. A same-date "correction" resolves to ``prior`` itself (a plain
-    idempotent update) and is *not* self-superseded."""
+    idempotent update) and is *not* self-superseded.
+
+    ``kind`` and the seat default to ``prior``'s, which is the ordinary case: a
+    correction restates *when* a boundary was, not *what* it was. Passing them
+    **reclassifies** the boundary, which is legal only within
+    :data:`ENDING_KINDS` — the whole point being that a projection can change its
+    mind about whether a resignation ended a career or only a seat, and provenance
+    is append-only (#54), so there is no other way to say so.
+    """
+    new_kind = kind or prior.kind
+    if new_kind != prior.kind and not {new_kind, prior.kind} <= ENDING_KINDS:
+        raise ValueError(
+            f"supersede cannot change kind {prior.kind!r} -> {new_kind!r}: a correction may "
+            "restate which ending a boundary was, never turn an ending into a beginning"
+        )
+    reclassified = new_kind != prior.kind
     corrected = await record_operator_event(
         session,
         source,
         member_id=prior.member_id,
-        kind=prior.kind,
+        kind=new_kind,
         reason=reason,
         effective_date=effective_date,
         evidence_url=evidence_url,
-        seat_kind=prior.seat_kind,
-        seat_discriminator=prior.seat_discriminator,
+        seat_kind=seat_kind if reclassified else prior.seat_kind,
+        seat_discriminator=seat_discriminator if reclassified else prior.seat_discriminator,
         entered_by=entered_by,
     )
     if corrected.id != prior.id:
