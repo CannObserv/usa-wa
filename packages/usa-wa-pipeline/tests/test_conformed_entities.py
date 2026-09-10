@@ -226,3 +226,24 @@ def test_a_published_name_is_trimmed(monkeypatch) -> None:
     by_id = {r["entity_id"]: r for r in person_rows(CROSSWALK, sponsors=[], roster=roster, pdc=pdc)}
     assert by_id["01A"]["name_full"] == "Dana Whitfield-Lee"
     assert by_id["01B"]["name_full"] == "Doe Jane"
+
+
+def test_org_names_get_the_same_blank_screen(monkeypatch) -> None:
+    """CR 5: the same defect class one function over. A committee wire has never
+    answered blank — measured zero across `stg_wsl_committees` and
+    `stg_wsl_meetings` on the 2026-09-10 archive — but `organizations.name` is
+    published under the same producer-owns-the-name contract as a person's, and
+    nothing screened it. A no-op on today's corpus, by construction."""
+    committees = [
+        dict(COMMITTEES[0], biennium="2025-26", name=" ", long_name=" Agriculture ", acronym="AG  ")
+    ]
+    [row] = org_rows(ORG_CROSSWALK, committees=committees, meetings=[])
+    assert row["name"] is None
+    assert row["long_name"] == "Agriculture"
+    # the acronym is deliberately NOT screened — CR 8, held
+    assert row["acronym"] == "AG  "
+
+    meetings = [{"committee_id": "-5", "committee_agency": "Joint", "committee_name": "  "}]
+    crosswalk = [dict(ORG_CROSSWALK[0], entity_id="02B", key_value="-5")]
+    [ref_row] = org_rows(crosswalk, committees=[], meetings=meetings)
+    assert ref_row["name"] is None

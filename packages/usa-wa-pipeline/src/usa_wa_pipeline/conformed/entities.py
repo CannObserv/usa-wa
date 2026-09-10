@@ -11,7 +11,9 @@ Stateless joins of the registry crosswalk against staging attributes:
   carry a name (:func:`_name`, #364).
 - **organizations** — committee attributes from the newest biennium's roster
   wire; bodies only ever seen in meeting wires (Joint/`Other`, #39) fall back
-  to their meeting ref names.
+  to their meeting ref names. Names go through the same :func:`_name` screen as
+  a person's (CR 5): a committee wire has never answered blank, but an
+  organization's name is published under the same contract.
 """
 
 from __future__ import annotations
@@ -195,8 +197,12 @@ def org_rows(
             rows.append(
                 {
                     "entity_id": entity_id,
-                    "name": latest.get("name"),
-                    "long_name": latest.get("long_name"),
+                    "name": _name(latest.get("name")),
+                    "long_name": _name(latest.get("long_name")),
+                    # NOT screened (CR 8): 35 committee acronyms are space-padded
+                    # in the wire (`'AG  '`), so trimming here would change 35
+                    # published values in a column this review never looked at.
+                    # An acronym is not a name; that is its own decision.
                     "acronym": latest.get("acronym"),
                     "agency": latest.get("agency"),
                     "org_type": _COMMITTEE_TYPES.get(latest.get("agency"), "other"),
@@ -209,7 +215,7 @@ def org_rows(
         rows.append(
             {
                 "entity_id": entity_id,
-                "name": ref.get("committee_name") if ref else None,
+                "name": _name(ref.get("committee_name")) if ref else None,
                 "long_name": None,
                 "acronym": None,
                 "agency": ref.get("committee_agency") if ref else None,
