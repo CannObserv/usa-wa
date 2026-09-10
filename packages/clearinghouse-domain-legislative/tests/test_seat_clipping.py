@@ -159,6 +159,27 @@ class TestRefusals:
         assert result.spans == (a, b)
         assert [u.reason for u in result.unclipped] == ["both_dated"]
 
+    def test_members_are_reported_predecessor_first(self):
+        """`member_a` is the earlier tenure whatever order the input arrived in,
+        so a reader can tell which side of the handoff each member is on."""
+        pred = _span(
+            "earlier",
+            start="1895-96",
+            end="1901-02",
+            frm=date(1895, 1, 1),
+            to=date(1902, 12, 31),
+        )
+        succ = _span(
+            "later",
+            start="1899-00",
+            end="1901-02",
+            frm=date(1899, 1, 1),
+            to=date(1902, 12, 31),
+        )
+        for spans in ([pred, succ], [succ, pred]):
+            (unclipped,) = clip_seat_counterparts(spans).unclipped
+            assert (unclipped.member_a, unclipped.member_b) == ("earlier", "later")
+
     def test_reports_the_seat_and_both_members(self):
         a = _span(
             "a",
