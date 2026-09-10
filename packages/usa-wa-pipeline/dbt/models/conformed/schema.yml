@@ -24,6 +24,18 @@ models:
     columns:
       - name: entity_id
         data_tests: [not_null, unique]
+      # The survivorship's own vocabulary, gated the way every other enum-shaped
+      # column in this file is (CR 4). persons_named.sql proves a name HAS a
+      # source; this proves the source is one the chain can actually produce, so
+      # a typo or a fourth source added without a decision cannot publish
+      # unremarked into a column consumers branch on. No not_null beside it:
+      # null is the Heck acceptance, and dbt's predicate is `not in`, which
+      # nulls pass.
+      - name: name_source
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["roster", "wsl", "pdc"]
   - name: organizations
     description: One row per LIVE org entity; newest-biennium committee attributes.
     columns:
