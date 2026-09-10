@@ -53,23 +53,36 @@
 -- that never existed, make ordinary succession look like seat-hopping, and move
 -- historical `role_key` values — power-map's seat match key.
 --
--- BASELINE 34 — the corpus is not clean, and `error` would wedge the nightly
--- chain on day one. What remains after multi-member districts are excluded (the
--- 20) and counterpart clipping resolves the dated handoffs (the 37): every pair
--- here is one the #360 rule DECLINES to resolve, and each refusal reason is a
--- different kind of unknown, not a backlog of the same one:
+-- BASELINE 35 — the corpus is not clean, and `error` would wedge the nightly
+-- chain on day one. What remains after multi-member districts are excluded and
+-- counterpart clipping resolves the dated handoffs: every pair here is one the
+-- #360 rule DECLINES to resolve.
 --
---   19  neither side dated  — both edges are biennium-derived, so there is no
---                             stated boundary to clip either one to
---    9  merged return       — the predecessor outlives the successor, so its row
---                             is two tenures (usa-wa#267) and clipping would
---                             discard the second; needs a split, not a clip
---    4  crosses a biennium  — the roster listed the successor biennia BEFORE the
+-- The refusal reasons are reported by the rule itself, in
+-- `seat_overlaps_unclipped` (`clearinghouse_domain_legislative.seat_clipping`).
+-- Measured 2026-09-10, PRE-exclusion, which is why they total more than the 35
+-- rows this gate lists — the counter and the gate count different sets, and
+-- `assignment_rows` says why:
+--
+--   39  neither side dated  — both edges biennium-derived, so there is no stated
+--                             boundary to clip either one to. ~20 of these are
+--                             the 1889 multi-member Senate, which this gate
+--                             excludes and the rule cannot see (usa-wa#362)
+--    8  nested tenure       — the successor sits wholly inside the predecessor,
+--                             whose row is therefore two tenures merged
+--                             (usa-wa#267); clipping either side discards one.
+--                             Two are NOT defects: Jon Wyss (LD-6, 2005) and
+--                             Marlo Braun (LD-20, 2017) are military substitutes
+--                             serving under a principal on leave — a true
+--                             overlap the model cannot express yet (usa-wa#362)
+--    4  crosses a biennium  — the roster listed the successor BEFORE the
 --                             predecessor's dated exit; the sources contradict
 --                             each other, and the clip would move valid_from out
 --                             of the biennium its own source_id is keyed on
---    2  both sides dated    — two stated dates that still overlap: bad upstream
+--    1  both sides dated    — two stated dates that still overlap: bad upstream
 --                             data, the #358 shape, for case-by-case adjudication
+--    1  degenerate          — two holders opening on the very same day, so any
+--                             clip would leave one of them no duration at all
 --
 -- This test exists to stop the count GROWING while that is worked, which is the
 -- guard #358 showed was absent.
@@ -93,7 +106,7 @@
 -- one new conflict behind one repaired elsewhere. Acceptable while the set is
 -- being actively drained in #360; if that stalls, the upgrade is a named-pair
 -- baseline in the `parity_wsl.ACCEPTED` idiom.
-{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 34 %}
+{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 35 %}
 {{ config(severity='error', error_if='>' ~ baseline, warn_if='!=' ~ baseline) }}
 select
     a.role_key,

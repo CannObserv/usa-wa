@@ -64,6 +64,11 @@ UNCLIPPED_NEITHER_DATED = "neither_dated"
 UNCLIPPED_PREDECESSOR_OUTLIVES = "predecessor_outlives_successor"
 UNCLIPPED_START_LEAVES_BIENNIUM = "start_leaves_biennium"
 
+#: The clip would leave a span with no duration at all. Reachable only when two
+#: holders share a boundary date exactly; a zero-length tenure is never a fact
+#: about the world, so the overlap stands instead.
+UNCLIPPED_DEGENERATE = "degenerate"
+
 #: Sentinel for an open span in an ordering comparison — an unbounded end sorts
 #: last and outlives every closed counterpart.
 _OPEN = date(9999, 12, 31)
@@ -88,19 +93,6 @@ class SeatClipResult:
     unclipped: tuple[UnclippedOverlap, ...]
 
 
-def _quantized_start(span: TenureSpan) -> bool:
-    """``valid_from`` sits on the span's own ``start_biennium`` floor — derived, not stated."""
-    return span.valid_from == date(parse_biennium(span.start_biennium)[0], 1, 1)
-
-
-def _quantized_end(span: TenureSpan) -> bool:
-    """``valid_to`` sits on the span's own ``end_biennium`` ceiling. An open span is
-    neither quantized nor dated — it is unbounded, and handled by the caller."""
-    return span.valid_to is not None and span.valid_to == date(
-        parse_biennium(span.end_biennium)[1], 12, 31
-    )
-
-
 def _overlaps(a: TenureSpan, b: TenureSpan) -> bool:
     """The gate's own predicate, including its touch exclusion: two tenures that
     share a boundary (``a.valid_to == b.valid_from``) are a handoff, not an overlap."""
@@ -109,6 +101,31 @@ def _overlaps(a: TenureSpan, b: TenureSpan) -> bool:
     if a.valid_to is not None and b.valid_from > a.valid_to:
         return False
     return a.valid_to != b.valid_from and b.valid_to != a.valid_from
+
+
+def _stated_start(span: TenureSpan, position: int, derived: set[tuple[int, str]]) -> bool:
+    """The span's ``valid_from`` is a date some source stated, rather than the
+    biennium floor the builder derived — or an edge this pass has already moved.
+
+    The second half is what stops a cascade. Clipping Charnley's LD-44 start onto
+    North's dated 1979-12-31 exit gave him a ``valid_from`` that is not his own
+    biennium floor; read back as evidence, it then "dated" Bradburn — who opened
+    on that very day — and closed his tenure at its own opening, a zero-length
+    span (usa-wa#360 follow-up). A derived boundary is an inference, not a fact.
+    """
+    if (position, "start") in derived:
+        return False
+    return span.valid_from != date(parse_biennium(span.start_biennium)[0], 1, 1)
+
+
+def _stated_exit(span: TenureSpan, position: int, derived: set[tuple[int, str]]) -> date | None:
+    """The span's stated end, or ``None`` when it has none: an open span, one
+    sitting on its own biennium ceiling, or one this pass already clipped."""
+    if span.valid_to is None or (position, "end") in derived:
+        return None
+    if span.valid_to == date(parse_biennium(span.end_biennium)[1], 12, 31):
+        return None
+    return span.valid_to
 
 
 def _tenure_order(span: TenureSpan) -> tuple[date, date]:
@@ -133,6 +150,10 @@ def clip_seat_counterparts(spans: Iterable[TenureSpan]) -> SeatClipResult:
     """
     work = list(spans)
     unclipped: list[UnclippedOverlap] = []
+    # Positions whose boundary this pass moved. A clipped edge is DERIVED, and
+    # must never be read back as a stated date by a later pair on the same seat
+    # — see `_stated_start`/`_stated_exit`.
+    derived: set[tuple[int, str]] = set()
     seats: dict[tuple[str, str], list[int]] = defaultdict(list)
     for i, span in enumerate(work):
         if span.kind in SINGLE_HOLDER_KINDS:
@@ -144,7 +165,7 @@ def clip_seat_counterparts(spans: Iterable[TenureSpan]) -> SeatClipResult:
         ordered = sorted(positions, key=lambda p: (*_tenure_order(work[p]), work[p].member_id))
         for outer, i in enumerate(ordered):
             for j in ordered[outer + 1 :]:
-                reason = _resolve_pair(work, i, j)
+                reason = _resolve_pair(work, i, j, derived)
                 if reason is not None:
                     a, b = work[i], work[j]
                     unclipped.append(
@@ -159,7 +180,9 @@ def clip_seat_counterparts(spans: Iterable[TenureSpan]) -> SeatClipResult:
     return SeatClipResult(spans=tuple(work), unclipped=tuple(unclipped))
 
 
-def _resolve_pair(work: list[TenureSpan], i: int, j: int) -> str | None:
+def _resolve_pair(
+    work: list[TenureSpan], i: int, j: int, derived: set[tuple[int, str]]
+) -> str | None:
     """Clip one overlapping pair in place. Returns the refusal reason, or ``None``
     when the pair needed no action or was resolved."""
     a, b = work[i], work[j]
@@ -180,8 +203,8 @@ def _resolve_pair(work: list[TenureSpan], i: int, j: int) -> str | None:
 
     # Bound as an Optional rather than a bool so the date narrows on the branch:
     # an open span has no exit to clip to, and a quantized one states no date.
-    pred_exit = pred.valid_to if not _quantized_end(pred) else None
-    succ_dated_start = not _quantized_start(succ)
+    pred_exit = _stated_exit(pred, pred_pos, derived)
+    succ_dated_start = _stated_start(succ, succ_pos, derived)
 
     if (pred_exit is not None) and succ_dated_start:
         return UNCLIPPED_BOTH_DATED
@@ -196,13 +219,15 @@ def _resolve_pair(work: list[TenureSpan], i: int, j: int) -> str | None:
             # quantization artifact, and moving the start would put it outside
             # the biennium its own `source_id` is keyed on.
             return UNCLIPPED_START_LEAVES_BIENNIUM
-        if succ.valid_to is not None and boundary > succ.valid_to:
-            # Same geometry as the branch below, reached from the other side:
+        if succ.valid_to is not None and boundary >= succ.valid_to:
+            # `>=`, not `>`: at equality the clip leaves the successor no duration
+            # at all. Same geometry as the branch below, reached from the other side:
             # the successor is nested inside the predecessor. Counting it under
             # its own name would split one shape across two rows of the residue
             # taxonomy the gate comment and PIPELINE.md both publish.
             return UNCLIPPED_PREDECESSOR_OUTLIVES
         work[succ_pos] = replace(succ, valid_from=boundary)
+        derived.add((succ_pos, "start"))
         return None
 
     boundary = succ.valid_from
@@ -211,10 +236,15 @@ def _resolve_pair(work: list[TenureSpan], i: int, j: int) -> str | None:
         # predecessor that outlives the successor is one row covering two
         # tenures. Closing it at the handoff would discard the second.
         return UNCLIPPED_PREDECESSOR_OUTLIVES
-    # No `boundary < pred.valid_from` guard: `_tenure_order` already ranks the
-    # predecessor's start no later than the successor's, and `boundary` IS the
-    # successor's start — the inversion it would catch cannot be constructed.
+    if boundary <= pred.valid_from:
+        # `_tenure_order` rules out `<` — the predecessor starts no later than the
+        # successor — but NOT `==`, and equality is the live case: two holders
+        # opening on the same day. Closing the predecessor there would give it no
+        # duration. CR 130 removed a `<`-only guard as unreachable, which was true
+        # and beside the point; the boundary condition is where the hazard was.
+        return UNCLIPPED_DEGENERATE
     work[pred_pos] = replace(pred, valid_to=boundary, is_active=False)
+    derived.add((pred_pos, "end"))
     return None
 
 

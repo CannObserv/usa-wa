@@ -370,3 +370,80 @@ class TestClipSeatFamilies:
         out, _ = clip_seat_families({"one": [a], "empty": []})
         assert out["empty"] == []
         assert [s.member_id for s in out["one"]] == ["a"]
+
+
+class TestNoDerivedBoundaryIsEvidence:
+    """usa-wa#360 follow-up: a boundary the clip itself moved is DERIVED. Reading
+    it back as a stated date on a later pair cascades one clip into another and
+    can collapse a tenure to nothing (Donn Charnley, senate LD-44, 1979)."""
+
+    def _ld44_1979(self):
+        # North's exit is dated; Charnley opens on the biennium floor; Bradburn
+        # opens on the same day North leaves. Three holders, one seat.
+        north = _span(
+            "north",
+            start="1975-76",
+            end="1979-80",
+            disc="44",
+            frm=date(1975, 1, 1),
+            to=date(1979, 12, 31),
+        )
+        charnley = _span(
+            "charnley",
+            start="1979-80",
+            end="1981-82",
+            disc="44",
+            frm=date(1979, 1, 1),
+            to=date(1982, 12, 31),
+        )
+        bradburn = _span(
+            "bradburn",
+            start="1979-80",
+            end="1981-82",
+            disc="44",
+            frm=date(1979, 12, 31),
+            to=date(1982, 12, 31),
+        )
+        return north, charnley, bradburn
+
+    def test_the_stated_handoff_still_applies(self):
+        result = clip_seat_counterparts(list(self._ld44_1979()))
+        assert _by_member(result)["charnley"].valid_from == date(1979, 12, 31)
+
+    def test_the_clipped_start_does_not_then_date_a_third_holder(self):
+        """Charnley's new start came from North, not from the roster. Treating it
+        as stated evidence closes Bradburn at his own opening day."""
+        result = clip_seat_counterparts(list(self._ld44_1979()))
+        bradburn = _by_member(result)["bradburn"]
+        assert bradburn.valid_from == date(1979, 12, 31)
+        assert bradburn.valid_to == date(1982, 12, 31)
+
+    def test_no_span_is_collapsed_to_zero_length(self):
+        for span in clip_seat_counterparts(list(self._ld44_1979())).spans:
+            assert span.valid_to is None or span.valid_to > span.valid_from
+
+
+class TestNeverDegenerate:
+    def test_a_clip_that_would_empty_the_predecessor_is_refused(self):
+        pred = _span(
+            "pred", start="1979-80", end="1981-82", frm=date(1979, 12, 31), to=date(1982, 12, 31)
+        )
+        succ = _span(
+            "succ", start="1979-80", end="1981-82", frm=date(1979, 12, 31), to=date(1982, 12, 31)
+        )
+        # succ's start is dated (not its biennium floor), so branch B applies and
+        # would set pred.valid_to = pred.valid_from.
+        result = clip_seat_counterparts([pred, succ])
+        assert _by_member(result)["pred"].valid_to == date(1982, 12, 31)
+        assert [u.reason for u in result.unclipped] == ["degenerate"]
+
+    def test_a_clip_that_would_empty_the_successor_is_refused(self):
+        pred = _span(
+            "pred", start="1955-56", end="1957-58", frm=date(1955, 1, 1), to=date(1957, 3, 1)
+        )
+        succ = _span(
+            "succ", start="1957-58", end="1957-58", frm=date(1957, 1, 1), to=date(1957, 3, 1)
+        )
+        result = clip_seat_counterparts([pred, succ])
+        assert _by_member(result)["succ"].valid_from == date(1957, 1, 1)
+        assert result.unclipped[0].reason == "predecessor_outlives_successor"
