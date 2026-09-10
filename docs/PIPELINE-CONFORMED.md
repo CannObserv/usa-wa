@@ -23,6 +23,20 @@ legislature, chambers, parties — from `usa_wa_common.orgs.STRUCTURAL_ORGS`).
 An organization's name goes through the same blank screen as a person's
 (#364 CR 5); its `acronym` deliberately does not, because 35 are space-padded
 in the wire and trimming them would restate 35 published values.
+
+**A merge re-points, it does not delete** (#366). Every conformed reader of the
+crosswalk attributes a tombstoned entity's keys to its survivor — the tombstone
+is the published crosswalk's only re-point signal — through one shared walk,
+`conformed.crosswalk` over `clearinghouse_core.registry.resolve_merged`. It is
+one walk because it used to be four, and the divergence between them IS #366:
+the spans and citations readers followed the tombstone, `_live_entities` dropped
+the loser's rows, and the registry's first real merge published Denny Heck's
+tenure span and his roster citation under the survivor while leaving his NAME
+behind — `persons` carried no name for him at all, worse than the duplicate the
+merge was resolving. `merge_map` also screens a tombstone as a non-blank string
+rather than `is not None`, because the crosswalk models pin `merged_into` to
+pandas' `string` dtype and its null is `pd.NA`.
+
 `profiles.yml` pins `threads: 1`: threaded Python models race first-imports of
 the workspace packages. Verified on the real archive 2026-09-10: 3,134 persons
 (2,999 roster-named / 135 WSL / **no gap**) and 219 orgs, type distribution
@@ -58,14 +72,6 @@ a merge), but the SHAPE is not: a registry entity no source attests is one
 adjudication or one retired wire away at any time, and requiring a name would
 wedge the nightly the day it recurs. Permitting a null costs the gate nothing —
 it still refuses every blank.
-
-**A merge re-points, it does not delete** (#366). `_live_entities` attributes a
-tombstoned entity's keys to its survivor, so the survivor is named by them; the
-rule `spans.entity_index` and `citations._key_index` already applied, and this
-was the one consumer that did not. The first real merge is what showed the
-cost — Denny Heck's party span and his roster citation followed the merge while
-his name did not, so `persons` briefly published no name for him at all, which
-is worse than the duplicate the merge was resolving.
 
 ## Conformed: tenure spans (#309 part 2)
 
