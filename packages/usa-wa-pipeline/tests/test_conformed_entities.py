@@ -1,5 +1,7 @@
 """Conformed persons/orgs survivorship (#309): registry ⨝ staging, pure."""
 
+import pandas as pd
+
 import usa_wa_pipeline.conformed.entities as mod
 from usa_wa_pipeline.conformed.entities import org_rows, person_rows
 
@@ -210,11 +212,15 @@ def test_a_pandas_null_is_absent_not_the_string_nan() -> None:
     everything downstream is concerned, and exactly the silent-wrong-name shape
     #364 exists to end. Today's name columns are VARCHAR so this cannot fire;
     what it must never do is fire QUIETLY if that changes."""
-    nan = float("nan")
-    sponsors = [dict(STUB, name=nan, biennium="2029-30")]
     crosswalk = [c for c in CROSSWALK if c["key_namespace"] == "usa_wa_legislature"]
-    [row] = person_rows(crosswalk, sponsors=sponsors, roster=[], pdc=[])
-    assert row["name_full"] is None
+    # CR 9: all three of pandas' nulls, not just the float one. `pd.NA` broke the
+    # first cut of this guard outright — `pd.NA != pd.NA` is `pd.NA`, and its
+    # truth value RAISES — so a fix aimed at one silent wrong name had bought an
+    # uncaught abort of the whole nightly build in its place.
+    for null in (float("nan"), pd.NA, pd.NaT):
+        sponsors = [dict(STUB, name=null, biennium="2029-30")]
+        [row] = person_rows(crosswalk, sponsors=sponsors, roster=[], pdc=[])
+        assert row["name_full"] is None, null
 
 
 def test_a_published_name_is_trimmed(monkeypatch) -> None:

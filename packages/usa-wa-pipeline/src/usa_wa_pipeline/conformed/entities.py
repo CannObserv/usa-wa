@@ -56,12 +56,17 @@ def _name(value: Any) -> str | None:
     Second, real names arrive untrimmed (WSL's ``'Marlo Braun '``, PDC's
     ``'MICHAEL JAMES BAUMGARTNER '``), and the stored name is the name.
 
-    Third, a pandas NaN is absent, not the string ``'nan'`` (CR 1). These rows
-    come from ``.df().to_dict("records")``, and a null in a non-object column
-    arrives as float NaN — which ``str()`` renders as a perfectly plausible
-    name. Today's name columns are VARCHAR, so nulls arrive as ``None`` and
-    this cannot fire; it is guarded because the failure it would produce is
-    silent, and a silent wrong name is what #364 exists to end.
+    Third, a value that is not a string is not a name (CR 1, CR 9). These rows
+    come from ``.df().to_dict("records")``, where a null in a non-object column
+    arrives as one of pandas' three null objects — and ``str()`` renders them
+    ``'nan'``, ``'<NA>'``, ``'NaT'``, each a perfectly plausible name. Screening
+    on the TYPE rather than testing for each of them is what makes this total:
+    the identity trick ``value != value`` catches ``NaN`` and then RAISES on
+    ``pd.NA`` (its truth value is ambiguous), which traded a silent wrong name
+    for an uncaught abort of the nightly build. Every name field in all three
+    sources is VARCHAR by construction, so nothing legitimate is turned away.
+    Today's nulls arrive as ``None`` and none of this can fire; it is guarded
+    because a silent wrong name is what #364 exists to end.
 
     Applied to all three sources, not just WSL's. Precedence is a chain, so a
     blank winning at any link publishes whitespace just the same; and skipping
@@ -74,9 +79,9 @@ def _name(value: Any) -> str | None:
     with one. What a name IS is a survivorship question, and this is where
     survivorship lives.
     """
-    if value is None or value != value:  # NaN is the only value unequal to itself
+    if not isinstance(value, str):
         return None
-    text = str(value).strip()
+    text = value.strip()
     return text or None
 
 
