@@ -79,9 +79,11 @@ async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
 
     The order rows come back in is
     incidental — a by-product of walking :data:`_KINDS` — and nothing depends on
-    it: :func:`write_export` imposes canonical publication order itself, and
-    :func:`materialize_anchors` is order-indifferent because the publisher sorts
-    on export. Do not build a coupling on it.
+    it: :func:`materialize_anchors` is order-indifferent, and the publisher
+    sorts on export, so the bytes are stable whatever order arrives here. (This
+    sentence used to credit `write_export`, the second writer #357 retired —
+    the publisher's sort is what actually does the work.) Do not build a
+    coupling on it.
     """
     rows: list[tuple[str, str, str]] = []
     for kind, model, anchor_col in _KINDS:
