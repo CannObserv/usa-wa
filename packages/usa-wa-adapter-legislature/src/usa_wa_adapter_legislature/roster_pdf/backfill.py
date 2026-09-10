@@ -253,6 +253,12 @@ def _contradicting_scopes(event: ResolvedEvent) -> tuple[Scope, ...]:
 
     Scoped by biennium at the call site, so a member who moved seats in one
     biennium and genuinely left in another is not caught by this.
+
+    One direction only, on purpose (CR 144). A stale ``vacated`` beside a fresh
+    ``departed`` is redundant rather than destructive — the departure closes that
+    seat along with everything else — so the reverse is not a contradiction worth
+    superseding over. A stale ``departed`` beside a fresh ``vacated`` is the one
+    that destroys something, and it is the only one encoded.
     """
     own = _scope(event)
     if event.kind != KIND_VACATED:
