@@ -108,11 +108,32 @@ SOS_SOURCE = "usa_wa_sos_results"
 #: brought `chamber-house` (the WSL roster x SOS ballot join).
 OWNED_KINDS = ("party", "chamber-senate", "committee", "chamber-house")
 
-#: Known stale-oracle rows, measured 2026-09-03 (see the module docstring):
-#: 42 + 37 missing (WSL shallow keys and their roster-minted twins, one
-#: pre-#277 identity split each), 2 extra, 1 dated. Lower this the moment a
-#: Postgres-tier rebuild lands — the number dying is the point.
-BASELINE_DIVERGENCE = 82
+#: Known stale-oracle rows. Lower this the moment a Postgres-tier rebuild lands
+#: — the number dying is the point.
+#:
+#: 82 measured 2026-09-03 (see the module docstring): 42 + 37 missing (WSL
+#: shallow keys and their roster-minted twins, one pre-#277 identity split
+#: each), 2 extra, 1 dated.
+#:
+#: **96 since 2026-09-10 (#363).** The added 14 are not drift, they are the
+#: fix: correcting four chamber moves changed the OPERATOR EVENTS, and the
+#: Postgres tier's spans were built against the old ones and never rebuilt. The
+#: conformed tier recomputes spans from the events on every build, so it moved
+#: and the oracle did not. Every one of the 14 diverging keys belongs to a
+#: member whose events changed — verified key by key, not assumed:
+#:
+#:   15809 Derek Stanford — a `departed` reclassified to `vacated`; his party,
+#:         committee and Senate spans stop being cut at 2019-07-01, and the
+#:         spurious 2021-22 re-entry tails the oracle still carries disappear
+#:   26176 Mike Chapman   — the same reclassification, 2024-12-05
+#:   14208 Jan Angel      — a House exit that had no date now has one, adding
+#:         her final 2013-14 House span
+#:   27504 Vandana Slatter — event corrected, spans unchanged
+#:
+#: This is a raise, which is the move to be suspicious of. What justifies it is
+#: that the oracle is stale BY CONSTRUCTION here — the events it was built from
+#: no longer exist — and the ratchet above 96 still catches everything else.
+BASELINE_DIVERGENCE = 96
 
 #: The role dimension's own ratchet, measured 2026-09-03: **0** — 312 conformed
 #: role keys against 312 in ``canonical.roles``, exact in both directions, with
