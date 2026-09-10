@@ -40,6 +40,7 @@ from clearinghouse_domain_legislative.operator_events import (
     KIND_DEPARTED,
     KIND_SEATED,
     OPERATOR_SOURCE_SLUG,
+    SEAT_SCOPED_KINDS,
     OperatorEvent,
     event_source_id,
 )
@@ -118,6 +119,33 @@ async def _provenance_recorded(
     return hit is not None
 
 
+def _check_seat_scope(kind: str, seat_kind: str | None, seat_discriminator: str | None) -> None:
+    """``kind in SEAT_SCOPED_KINDS`` iff both seat parts are present (CR 147).
+
+    Enforced here, at the one place every write path meets — a fresh record, a
+    supersede, the roster backfill — rather than at the CLI boundary alone. A
+    seat-scoped event with no seat is not malformed on the way in:
+    ``event_source_id`` substitutes ``-`` for each missing part, so the row lands
+    well-formed and simply matches nothing in any overlay, forever. Half a seat is
+    no seat, and a person-scoped kind handed a seat is a different event than the
+    caller thinks it is recording.
+    """
+    seat_scoped = kind in SEAT_SCOPED_KINDS
+    has_seat = seat_kind is not None and seat_discriminator is not None
+    any_seat = seat_kind is not None or seat_discriminator is not None
+    if seat_scoped and not has_seat:
+        raise ValueError(
+            f"{kind!r} is seat-scoped and needs both seat_kind and seat_discriminator; got "
+            f"{seat_kind}:{seat_discriminator} — a seat-less {kind!r} keys on placeholders and "
+            "no overlay can ever match it"
+        )
+    if not seat_scoped and any_seat:
+        raise ValueError(
+            f"{kind!r} is person-scoped and must not carry a seat; got "
+            f"{seat_kind}:{seat_discriminator}"
+        )
+
+
 async def record_operator_event(
     session: AsyncSession,
     source: Source,
@@ -136,6 +164,7 @@ async def record_operator_event(
     Returns the projection row. A byte-identical re-ingest neither duplicates the
     FetchEvent/RawPayload nor changes the row; a changed evidence_url/reason updates the
     row and appends fresh provenance (a new content_hash)."""
+    _check_seat_scope(kind, seat_kind, seat_discriminator)
     sid = event_source_id(
         member_id,
         kind,

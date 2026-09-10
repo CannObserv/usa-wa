@@ -311,6 +311,63 @@ class TestSupersedeReclassifies:
                 seat_discriminator="7",
             )
 
+    async def test_reclassifying_to_a_seat_scoped_kind_needs_a_seat(
+        self, db_session, usa_wa
+    ) -> None:
+        """CR 147. A `vacated` names the one seat it closes. Without one,
+        `event_source_id` keys the row on placeholders and no overlay can ever
+        match it — a silent, unmatchable event on the provenance surface."""
+        source = await _source(db_session)
+        prior = await record_operator_event(
+            db_session,
+            source,
+            member_id="15809",
+            kind="departed",
+            reason="resigned",
+            effective_date=date(2019, 7, 1),
+            evidence_url="https://example.gov/roster",
+        )
+        with pytest.raises(ValueError, match="seat"):
+            await supersede_event(
+                db_session,
+                source,
+                prior,
+                kind="vacated",
+                reason="moved",
+                effective_date=date(2019, 7, 1),
+                evidence_url="https://example.gov/roster",
+            )
+
+    async def test_reclassifying_to_a_person_scoped_kind_refuses_a_seat(
+        self, db_session, usa_wa
+    ) -> None:
+        """The mirror: a `departed` is person-scoped, and a seat handed to it is
+        refused rather than written onto a row whose semantics ignore it."""
+        source = await _source(db_session)
+        prior = await record_operator_event(
+            db_session,
+            source,
+            member_id="15809",
+            kind="vacated",
+            reason="moved",
+            effective_date=date(2019, 7, 1),
+            evidence_url="https://example.gov/roster",
+            seat_kind="chamber-house",
+            seat_discriminator="ld-1-position-1",
+        )
+        with pytest.raises(ValueError, match="seat"):
+            await supersede_event(
+                db_session,
+                source,
+                prior,
+                kind="departed",
+                reason="resigned",
+                effective_date=date(2019, 7, 1),
+                evidence_url="https://example.gov/roster",
+                seat_kind="chamber-house",
+                seat_discriminator="ld-1-position-1",
+            )
+
     async def test_a_retracted_row_cannot_be_superseded_again(self, db_session, usa_wa) -> None:
         """CR 148, the invariant under the batch fix: `superseded_by_id` is a chain
         link, and re-stamping it orphans the correction it pointed at. A caller
@@ -365,3 +422,54 @@ class TestSupersedeReclassifies:
         )
         assert corrected.kind == "departed"
         assert corrected.seat_kind is None
+
+
+class TestSeatScopeInvariant:
+    """CR 147. kind in SEAT_SCOPED_KINDS <=> both seat parts present, enforced
+    where every write path meets: `record_operator_event`. The CLI validates the
+    same shape at its boundary; this is the layer that holds when a caller is
+    not the CLI."""
+
+    async def test_a_seat_scoped_event_cannot_be_recorded_without_a_seat(
+        self, db_session, usa_wa
+    ) -> None:
+        source = await _source(db_session)
+        with pytest.raises(ValueError, match="seat"):
+            await record_operator_event(
+                db_session,
+                source,
+                member_id="35410",
+                kind="seated",
+                reason="appointed",
+                effective_date=date(2025, 6, 3),
+                evidence_url="https://example.gov/a",
+            )
+
+    async def test_half_a_seat_is_no_seat(self, db_session, usa_wa) -> None:
+        source = await _source(db_session)
+        with pytest.raises(ValueError, match="seat"):
+            await record_operator_event(
+                db_session,
+                source,
+                member_id="35410",
+                kind="seated",
+                reason="appointed",
+                effective_date=date(2025, 6, 3),
+                evidence_url="https://example.gov/a",
+                seat_kind="chamber-senate",
+            )
+
+    async def test_a_person_scoped_event_cannot_carry_a_seat(self, db_session, usa_wa) -> None:
+        source = await _source(db_session)
+        with pytest.raises(ValueError, match="seat"):
+            await record_operator_event(
+                db_session,
+                source,
+                member_id="29091",
+                kind="departed",
+                reason="died",
+                effective_date=date(2025, 4, 19),
+                evidence_url="https://example.gov/a",
+                seat_kind="chamber-senate",
+                seat_discriminator="5",
+            )
