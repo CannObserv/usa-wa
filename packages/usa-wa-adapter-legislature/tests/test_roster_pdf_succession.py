@@ -435,3 +435,158 @@ class TestStatedWindow:
         for text in cases:
             parsed = succession._parse_date(text)
             assert (parsed.window is not None) == (parsed.precision != "none"), text
+
+
+class TestChamberMoveAcrossRecords:
+    """usa-wa#363. A resignation vacates ONE seat when the member is moving; it
+    departs the person only when they are leaving the legislature. The roster
+    states a move across two rows — the resignation on the chamber being left,
+    the seating on the chamber being joined — and `_MOVE` only ever read the
+    single row in front of it.
+    """
+
+    STANFORD = [
+        _record(
+            "Resigned July 1, 2019", chamber="house", district=1, year=2019, name="Derek Stanford"
+        ),
+        _record(
+            "Appointed July 1, 2019 to serve unexpired term",
+            chamber="senate",
+            district=1,
+            year=2017,
+            name="Derek Stanford",
+        ),
+    ]
+    CHAPMAN = [
+        _record(
+            "Resigned December 5, 2024",
+            chamber="house",
+            district=24,
+            year=2023,
+            name="Mike Chapman",
+        ),
+        _record(
+            "Elected Nov. 5, 2024; Sworn in December 6., 2024 to serve unexpired term",
+            chamber="senate",
+            district=24,
+            year=2025,
+            name="Mike Chapman",
+        ),
+    ]
+
+    def _ends(self, records):
+        report = propose_events(records)
+        return {
+            (p.kind, p.reason)
+            for p in report.proposals + report.unseated
+            if p.kind in ("departed", "vacated")
+        }
+
+    def test_a_same_day_move_vacates_rather_than_departs(self):
+        assert self._ends(self.STANFORD) == {("vacated", "moved")}
+
+    def test_a_next_day_move_vacates_too(self):
+        """Chapman resigned the House on the 5th and was sworn into the Senate on
+        the 6th. One day is still one move."""
+        assert self._ends(self.CHAPMAN) == {("vacated", "moved")}
+
+    def test_the_vacated_names_the_seat_being_left(self):
+        (vacated,) = [p for p in propose_events(self.STANFORD).unseated if p.kind == "vacated"]
+        assert vacated.seat_kind == "chamber-house"
+        assert vacated.chamber == "house"
+
+    def test_a_seating_in_the_same_chamber_is_not_a_move(self):
+        """The roster mangles a successor's appointment into the incumbent's own
+        cell — Christine Rolfes resigned for the Kitsap County Commission and the
+        cell also carries her successor's seating. Same chamber, same row: she
+        left the legislature, and `departed` is correct.
+        """
+        rolfes = [
+            _record(
+                "Resigned August 15, 2023, Appointed to Kitsap County Commission) "
+                "(Appointed August 23, 2023; D Sworn in Aug. 28, 2023 to serve unexpired term)",
+                chamber="senate",
+                district=23,
+                year=2021,
+                name="Christine Rolfes",
+            )
+        ]
+        assert self._ends(rolfes) == {("departed", "resigned")}
+
+    def test_an_unrelated_member_seating_does_not_move_anyone(self):
+        records = [
+            _record(
+                "Resigned July 1, 2019",
+                chamber="house",
+                district=1,
+                year=2019,
+                name="Derek Stanford",
+            ),
+            _record(
+                "Appointed July 1, 2019 to serve unexpired term",
+                chamber="senate",
+                district=9,
+                year=2017,
+                name="Somebody Else",
+            ),
+        ]
+        assert self._ends(records) == {("departed", "resigned")}
+
+    def test_a_seating_long_after_the_resignation_is_not_a_move(self):
+        """A member who leaves and is appointed to the other chamber years later
+        did depart in between; only a handoff within the window is one move."""
+        records = [
+            _record(
+                "Resigned July 1, 2019",
+                chamber="house",
+                district=1,
+                year=2019,
+                name="Derek Stanford",
+            ),
+            _record(
+                "Appointed March 4, 2021 to serve unexpired term",
+                chamber="senate",
+                district=1,
+                year=2021,
+                name="Derek Stanford",
+            ),
+        ]
+        assert self._ends(records) == {("departed", "resigned")}
+
+    def test_a_seating_well_before_the_resignation_is_not_a_move(self):
+        records = [
+            _record(
+                "Resigned July 1, 2019",
+                chamber="house",
+                district=1,
+                year=2019,
+                name="Derek Stanford",
+            ),
+            _record(
+                "Appointed January 9, 2019 to serve unexpired term",
+                chamber="senate",
+                district=1,
+                year=2019,
+                name="Derek Stanford",
+            ),
+        ]
+        assert self._ends(records) == {("departed", "resigned")}
+
+    def test_a_death_is_never_a_move(self):
+        records = [
+            _record(
+                "Deceased July 1, 2019",
+                chamber="house",
+                district=1,
+                year=2019,
+                name="Derek Stanford",
+            ),
+            _record(
+                "Appointed July 1, 2019 to serve unexpired term",
+                chamber="senate",
+                district=1,
+                year=2017,
+                name="Derek Stanford",
+            ),
+        ]
+        assert self._ends(records) == {("departed", "died")}

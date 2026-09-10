@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import re
 from calendar import monthrange
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -336,18 +336,27 @@ def _start_boundary(clauses: Sequence[Clause]) -> tuple[str, date] | None:
     return None
 
 
-def _end_boundary(clauses: Sequence[Clause], *, moved: bool) -> tuple[str, str, date] | None:
+def _end_boundary(
+    clauses: Sequence[Clause], *, moved: Callable[[date], bool]
+) -> tuple[str, str, date] | None:
     """The single tenure **end** as ``(kind, reason, date)``, or ``None``.
 
     A move keeps the member serving, so it vacates one seat rather than closing every span —
     closing everything would wrongly end their party tenure too.
+
+    ``moved`` takes the resignation's own date because the evidence for a move is
+    not always on the row being read: the roster states a chamber change across
+    *two* rows, and only the destination one says where they went (usa-wa#363).
+
+    A death is never a move, whatever the rest of the corpus says — checked first
+    for that reason.
     """
     value = _dated(clauses, "deceased")
     if value is not None:
         return "departed", "died", value
     value = _dated(clauses, "resigned")
     if value is not None:
-        return ("vacated", "moved", value) if moved else ("departed", "resigned", value)
+        return ("vacated", "moved", value) if moved(value) else ("departed", "resigned", value)
     return None
 
 
@@ -368,8 +377,58 @@ def _temporary_end(clauses: Sequence[Clause]) -> date | None:
     return None
 
 
+#: How far a seating may sit from a resignation and still be the same handoff.
+#: The corpus's two chamber moves are 0 days (Derek Stanford, House LD-1 to
+#: Senate LD-1, 2019) and 1 day (Mike Chapman, House LD-24 to Senate LD-24,
+#: 2024). A month is generous enough for a slower swearing-in and far short of
+#: the years that separate a genuine departure from a later return.
+MOVE_WINDOW_DAYS = 31
+
+
+def _dated_seatings(records: Iterable[RosterRecord]) -> dict[str, list[tuple[str, date]]]:
+    """Every dated seating the roster states, as ``name -> [(chamber, date)]``.
+
+    The index a single row cannot build for itself. Keyed on the roster's own
+    name string rather than a folded form: this runs before identity resolution,
+    and one document spells one person consistently.
+    """
+    index: dict[str, list[tuple[str, date]]] = {}
+    for record in records:
+        if not record.annotation:
+            continue
+        clauses = [c for c in parse_annotation(record.annotation) if not _MOVE.search(c.text)]
+        start = _start_boundary(clauses)
+        if start is not None:
+            index.setdefault(record.name, []).append((record.chamber, start[1]))
+    return index
+
+
+def _moved_chambers(
+    record: RosterRecord, seatings: dict[str, list[tuple[str, date]]], resigned_on: date
+) -> bool:
+    """The roster seats this member in the OTHER chamber, around this resignation.
+
+    Both halves matter. **Other chamber**, because the roster routinely mangles a
+    successor's appointment into the incumbent's own cell — Christine Rolfes
+    resigned for the Kitsap County Commission and her row also carries her
+    successor's seating, on the same Senate seat. Reading that as a move would
+    keep a departed member's party tenure open forever. A genuine move states its
+    destination on the destination chamber's row, so a same-chamber seating is
+    never evidence of one.
+
+    **Around**, because a resignation and the swearing-in that follows it are one
+    handoff only when they are days apart; years apart is a departure and a later
+    return, which is a different fact.
+    """
+    return any(
+        chamber != record.chamber and 0 <= (seated_on - resigned_on).days <= MOVE_WINDOW_DAYS
+        for chamber, seated_on in seatings.get(record.name, ())
+    )
+
+
 def _propose_one(
     record: RosterRecord,
+    seatings: dict[str, list[tuple[str, date]]] | None = None,
 ) -> tuple[list[EventProposal], list[EventProposal], list[Deferred]]:
     """Derive every dated boundary the annotation states — at most one start and one end.
 
@@ -378,7 +437,12 @@ def _propose_one(
     """
     annotation = record.annotation or ""
     clauses = parse_annotation(annotation)
-    moved = bool(_MOVE.search(annotation))
+    says_move = bool(_MOVE.search(annotation))
+    index = seatings or {}
+
+    def moved(resigned_on: date) -> bool:
+        return says_move or _moved_chambers(record, index, resigned_on)
+
     # ``Appointed to the Senate`` names a move *destination*, not a dated seating.
     seating_clauses = [c for c in clauses if not _MOVE.search(c.text)]
 
@@ -430,13 +494,17 @@ def _propose_one(
 
 def propose_events(records: Iterable[RosterRecord]) -> SuccessionReport:
     """Derive event proposals from annotated roster records. Pure; every input is accounted for."""
+    records = list(records)
+    # Built over the WHOLE corpus first: a chamber move is stated across two rows,
+    # and the row being read is never the one that says where the member went.
+    seatings = _dated_seatings(records)
     proposals: list[EventProposal] = []
     unseated: list[EventProposal] = []
     deferred: list[Deferred] = []
     for record in records:
         if not record.annotation:
             continue
-        record_proposals, record_unseated, record_deferred = _propose_one(record)
+        record_proposals, record_unseated, record_deferred = _propose_one(record, seatings)
         proposals.extend(record_proposals)
         unseated.extend(record_unseated)
         deferred.extend(record_deferred)
