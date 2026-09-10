@@ -20,6 +20,9 @@ under `USA_WA_PIPELINE_HERMETIC=1` — a missing `DATABASE_URL` fails the build,
 newest-attestation-wins, org attributes from the newest biennium's roster wire,
 meeting-ref fallback for Joint/`Other`, and the synthesized structural orgs —
 legislature, chambers, parties — from `usa_wa_common.orgs.STRUCTURAL_ORGS`).
+An organization's name goes through the same blank screen as a person's
+(#364 CR 5); its `acronym` deliberately does not, because 35 are space-padded
+in the wire and trimming them would restate 35 published values.
 `profiles.yml` pins `threads: 1`: threaded Python models race first-imports of
 the workspace packages. Verified on the real archive 2026-09-03: 3,135 persons
 (2,999 roster-named / 135 WSL / 1 known gap — the Heck acceptance) and 219
