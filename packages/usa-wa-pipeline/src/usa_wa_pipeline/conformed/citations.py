@@ -72,6 +72,7 @@ from clearinghouse_domain_legislative.span_kinds import KIND_COMMITTEE
 from clearinghouse_domain_legislative.terms import bienniums_in_range
 from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold
 from usa_wa_common.orgs import STRUCTURAL_ORGS
+from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
 
 #: The published shape. ``entity_id`` is a registry ULID for person/organization
 #: /role and a span ``source_id`` for assignment — see the module docstring.
@@ -133,21 +134,13 @@ def _wire(row: dict[str, Any], *, what: str) -> tuple[str, str]:
 
 
 def _resolve_tombstones(crosswalk: Iterable[dict[str, Any]]) -> dict[str, str]:
-    """``entity_id → the entity it now resolves to``, following merges to a fixed point."""
-    merged = {
-        row["entity_id"]: _text(row.get("merged_into"))
-        for row in crosswalk
-        if _text(row.get("merged_into"))
-    }
-    resolved: dict[str, str] = {}
-    for entity_id in merged:
-        seen = {entity_id}
-        current = entity_id
-        while (nxt := merged.get(current)) and nxt not in seen:
-            seen.add(nxt)
-            current = nxt
-        resolved[entity_id] = current
-    return resolved
+    """``entity_id → the entity it now resolves to``, following merges to a fixed point.
+
+    The walk is the shared one (CR 12): this module's own copy was one of four,
+    and the divergence between them is what #366 was.
+    """
+    merges = merge_map(list(crosswalk))
+    return {entity_id: resolve_merged(merges, entity_id) for entity_id in merges}
 
 
 def _key_index(crosswalk: list[dict[str, Any]]) -> dict[str, str]:

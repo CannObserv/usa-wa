@@ -83,6 +83,7 @@ from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
     stale_exclusions_by_biennium,
 )
 from usa_wa_common.seats import district_number
+from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
 from usa_wa_pipeline.conformed.house import build_house_spans
 from usa_wa_pipeline.conformed.roles import role_for_span
 from usa_wa_pipeline.conformed.wire import committee_rosters, sponsor_wire_rows
@@ -464,22 +465,10 @@ def entity_index(crosswalk: list[dict[str, Any]]) -> dict[str, str]:
     keys still name a real person, now under the survivor's ULID (the merge
     tombstone is the published crosswalk's only re-point signal). Chains
     resolve transitively; a cycle cannot occur (the merge verb refuses a
-    tombstoned survivor) but the walk is bounded anyway.
+    tombstoned survivor) but the shared walk is bounded anyway (CR 12).
     """
-    merged: dict[str, str] = {}
-    for row in crosswalk:
-        target = row.get("merged_into")
-        if target is not None:
-            merged[str(row["entity_id"])] = str(target)
-
-    def resolve(entity_id: str) -> str:
-        seen: set[str] = set()
-        while entity_id in merged and entity_id not in seen:
-            seen.add(entity_id)
-            entity_id = merged[entity_id]
-        return entity_id
-
-    return {row["natural_key"]: resolve(str(row["entity_id"])) for row in crosswalk}
+    merges = merge_map(crosswalk)
+    return {row["natural_key"]: resolve_merged(merges, str(row["entity_id"])) for row in crosswalk}
 
 
 def assignment_rows(

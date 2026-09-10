@@ -22,6 +22,7 @@ from typing import Any
 
 from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold
 from usa_wa_common.orgs import STRUCTURAL_ORGS
+from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
 
 PERSON_COLUMNS = ["entity_id", "name_full", "name_source"]
 ORG_COLUMNS = [
@@ -102,24 +103,14 @@ def _live_entities(crosswalk: list[dict[str, Any]]) -> dict[str, list[dict[str, 
     published nothing for him instead, which is worse than the duplicate the
     merge was resolving.
 
-    Chains resolve transitively. The merge verb refuses a tombstoned survivor,
-    so a cycle cannot arise, but the walk is bounded anyway — the same belt the
-    other two consumers wear.
+    Chains resolve transitively, through the one shared walk
+    (:mod:`usa_wa_pipeline.conformed.crosswalk`) rather than a local copy — four
+    copies of this rule is what #366 WAS.
     """
-    merged = {
-        row["entity_id"]: row["merged_into"] for row in crosswalk if row["merged_into"] is not None
-    }
-
-    def resolve(entity_id: str) -> str:
-        seen: set[str] = set()
-        while entity_id in merged and entity_id not in seen:
-            seen.add(entity_id)
-            entity_id = merged[entity_id]
-        return entity_id
-
+    merges = merge_map(crosswalk)
     out: dict[str, list[dict[str, Any]]] = {}
     for row in crosswalk:
-        out.setdefault(resolve(row["entity_id"]), []).append(row)
+        out.setdefault(resolve_merged(merges, str(row["entity_id"])), []).append(row)
     return out
 
 
