@@ -385,6 +385,15 @@ def _temporary_end(clauses: Sequence[Clause]) -> date | None:
 MOVE_WINDOW_DAYS = 31
 
 
+def _seating_clauses(clauses: Sequence[Clause]) -> list[Clause]:
+    """The clauses that can date a seating. ``Appointed to the Senate`` names a move
+    *destination*, not a dated seating, so a clause the move pattern matches is out.
+    One rule for both readers of it (CR 145): the corpus-wide seating index and the
+    per-row proposal must agree on what a seating clause is, or a move detected by
+    one is invisible to the other."""
+    return [c for c in clauses if not _MOVE.search(c.text)]
+
+
 def _dated_seatings(records: Iterable[RosterRecord]) -> dict[str, list[tuple[str, date]]]:
     """Every dated seating the roster states, as ``name -> [(chamber, date)]``.
 
@@ -396,8 +405,7 @@ def _dated_seatings(records: Iterable[RosterRecord]) -> dict[str, list[tuple[str
     for record in records:
         if not record.annotation:
             continue
-        clauses = [c for c in parse_annotation(record.annotation) if not _MOVE.search(c.text)]
-        start = _start_boundary(clauses)
+        start = _start_boundary(_seating_clauses(parse_annotation(record.annotation)))
         if start is not None:
             index.setdefault(record.name, []).append((record.chamber, start[1]))
     return index
@@ -443,8 +451,7 @@ def _propose_one(
     def moved(resigned_on: date) -> bool:
         return says_move or _moved_chambers(record, index, resigned_on)
 
-    # ``Appointed to the Senate`` names a move *destination*, not a dated seating.
-    seating_clauses = [c for c in clauses if not _MOVE.search(c.text)]
+    seating_clauses = _seating_clauses(clauses)
 
     proposals: list[EventProposal] = []
     unseated: list[EventProposal] = []
