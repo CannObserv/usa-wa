@@ -232,6 +232,14 @@ async def supersede_event(
     mind about whether a resignation ended a career or only a seat, and provenance
     is append-only (#54), so there is no other way to say so.
     """
+    if prior.superseded_by_id is not None:
+        # `superseded_by_id` is a chain link (CR 148). Re-stamping it orphans the
+        # correction it already points at; a caller here is looking at a retracted
+        # row and should be told, not accommodated.
+        raise ValueError(
+            f"event {prior.id} is already superseded by {prior.superseded_by_id}; correct the "
+            "live row, never re-stamp a retracted one"
+        )
     new_kind = kind or prior.kind
     if new_kind != prior.kind and not {new_kind, prior.kind} <= ENDING_KINDS:
         raise ValueError(

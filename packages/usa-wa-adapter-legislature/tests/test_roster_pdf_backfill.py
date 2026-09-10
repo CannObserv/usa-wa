@@ -565,6 +565,33 @@ class TestDepartedContradictsVacated:
         ]
         assert [(r.kind, r.seat_discriminator) for r in live] == [("vacated", "ld-2-position-1")]
 
+    async def test_a_second_move_in_the_batch_does_not_see_the_retracted_departure(
+        self, db_session, usa_wa
+    ) -> None:
+        """CR 148. The superseded `departed` lived under the CONTRADICTING scope,
+        which the post-supersede prune did not touch — so a second `vacated` for the
+        same member in the same biennium, later in the same batch, found it still
+        "live": a phantom conflict against a retracted row, and a second supersede
+        that re-stamped its `superseded_by_id` and orphaned the first correction."""
+        source = await _source(db_session)
+        prior = await self._stale_departed(db_session, source)
+        second = _resolved(
+            "Resigned August 1, 1979; Appointed to the Senate",
+            chamber="house",
+            seat_discriminator="ld-2-position-2",
+        )
+        summary = await write_events(
+            db_session, source, [self._move(), second], supersede_conflicts=True
+        )
+        assert summary.superseded == 1
+        assert summary.written == 1
+        assert len(summary.conflicts) == 1
+        rows = (await db_session.execute(select(OperatorEvent))).scalars().all()
+        live = sorted((r.kind, r.seat_discriminator) for r in rows if r.superseded_by_id is None)
+        assert live == [("vacated", "ld-2-position-1"), ("vacated", "ld-2-position-2")]
+        first = next(r for r in rows if r.seat_discriminator == "ld-2-position-1")
+        assert prior.superseded_by_id == first.id
+
     async def test_a_hand_entered_departure_is_never_superseded(self, db_session, usa_wa) -> None:
         """The safe reading of a disagreement stays: a human knew something the
         roster does not."""

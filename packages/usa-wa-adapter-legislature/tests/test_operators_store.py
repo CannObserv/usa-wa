@@ -311,6 +311,39 @@ class TestSupersedeReclassifies:
                 seat_discriminator="7",
             )
 
+    async def test_a_retracted_row_cannot_be_superseded_again(self, db_session, usa_wa) -> None:
+        """CR 148, the invariant under the batch fix: `superseded_by_id` is a chain
+        link, and re-stamping it orphans the correction it pointed at. A caller
+        that reaches a retracted row is looking at the wrong row."""
+        source = await _source(db_session)
+        prior = await record_operator_event(
+            db_session,
+            source,
+            member_id="29091",
+            kind="departed",
+            reason="died",
+            effective_date=date(2025, 4, 19),
+            evidence_url="https://example.gov/a",
+        )
+        first = await supersede_event(
+            db_session,
+            source,
+            prior,
+            reason="died",
+            effective_date=date(2025, 4, 20),
+            evidence_url="https://example.gov/b",
+        )
+        with pytest.raises(ValueError, match="already superseded"):
+            await supersede_event(
+                db_session,
+                source,
+                prior,
+                reason="died",
+                effective_date=date(2025, 4, 21),
+                evidence_url="https://example.gov/c",
+            )
+        assert prior.superseded_by_id == first.id
+
     async def test_the_kind_still_defaults_to_the_prior(self, db_session, usa_wa) -> None:
         source = await _source(db_session)
         prior = await record_operator_event(

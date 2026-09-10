@@ -389,9 +389,16 @@ async def write_events(
             # this same batch must collide with that, not with a row we just retracted. Every
             # prior is dropped, not just the first — leaving the rest produced a phantom
             # conflict against an already-superseded row (CR-5 finding 31).
-            by_scope[_scope(event)] = [
-                a for a in by_scope.get(_scope(event), ()) if a not in prior
-            ] + [_Attested(effective_date=event.effective_date, entered_by=entered_by)]
+            # Every scope this event contradicts is pruned, not only its own (CR 148):
+            # the superseded `departed` lived under the CONTRADICTING scope, and left
+            # there it is a phantom conflict for the next `vacated` of this member in
+            # the batch — and a second supersede would re-stamp its superseded_by_id,
+            # orphaning the correction it already points at.
+            for scope in _contradicting_scopes(event):
+                by_scope[scope] = [a for a in by_scope.get(scope, ()) if a not in prior]
+            by_scope.setdefault(_scope(event), []).append(
+                _Attested(effective_date=event.effective_date, entered_by=entered_by)
+            )
             superseded += 1
             continue
         await record_operator_event(
