@@ -63,6 +63,17 @@ def test_catches_an_untrimmed_name() -> None:
     assert _violations([("01A", "Marlo Braun ", "wsl")]) == 1
 
 
+def test_catches_a_tab_padded_name() -> None:
+    """CR 2: duckdb's one-argument `trim` strips SPACES only, so a tab- or
+    newline-padded name walked straight past the first cut of this gate.
+
+    `_name` strips every whitespace class, so such a name cannot come from the
+    survivorship — it could only come from some OTHER writer into `persons`,
+    which is the case a gate exists for. A guard blind to everything but the
+    one defect that is already fixed upstream is not a guard."""
+    assert _violations([("01A", "\tTina Orwall\n", "wsl")]) == 1
+
+
 def test_a_nameless_person_passes() -> None:
     """The Heck acceptance: WSL member 31656 (Lt. Governor, an ex-officio Senate
     Rules seat minted from the retired `committee-members:` archive) has NO
