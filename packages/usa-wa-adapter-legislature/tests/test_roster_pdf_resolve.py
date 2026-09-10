@@ -276,8 +276,10 @@ class TestHousePositions:
 
     def test_a_departure_two_years_after_the_span_does_not_reach_it(self) -> None:
         """The reach forward is one year, the same bound as the reach back. Two
-        bienniums out is a different tenure, and a member who returns to an LD may
-        return to the other Position."""
+        bienniums out is a different tenure, and a closing dated that far past a
+        span's end is a boundary that does not belong to it. The "a member who
+        returns may return to the other Position" argument is the SEATING one — and
+        a seating no longer reaches forward at all (CR 138, CR 150)."""
         proposal = _proposal(
             "Resigned July 1, 2019; Appointed to the Senate",
             year=2019,
