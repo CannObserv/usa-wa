@@ -88,6 +88,20 @@ class Seating:
 #: two bienniums away supply a Position the member may not have held then.
 POSITION_LOOKBACK_YEARS = 1
 
+#: The mirror of :data:`POSITION_LOOKBACK_YEARS`, for the other end of a tenure
+#: (usa-wa#363). A quantized span misses the partial biennium at BOTH ends: the
+#: one a mid-biennium appointee was appointed into, and the one a mid-biennium
+#: leaver resigned in. Derek Stanford held LD-1 Position 1 from 2011 and resigned
+#: it on 2019-07-01 to take a Senate seat; the 2019-20 House roster no longer
+#: lists him, so his Position span stops at 2017-18 and the boundary recording
+#: his exit fell outside its own span by one year.
+#:
+#: Safe for the same reason the reach back is: this index answers "which Position
+#: digit", a value stable across a member's continuous tenure in one LD, and it
+#: is keyed by member. A member showing two different Positions anywhere in the
+#: widened window is still refused rather than picked.
+POSITION_LOOKFORWARD_YEARS = 1
+
 
 #: How many bienniums either side of a boundary's own the seating index is searched (#277).
 #:
@@ -128,9 +142,10 @@ class PositionTenure:
 
     **This index answers "which Position digit", not "which span".** Span selection belongs to
     the overlay at apply time. Because the question is only 1-or-2 — a value that is stable
-    across a member's continuous tenure in one LD — the match window can reach one year before
-    the span (see :data:`POSITION_LOOKBACK_YEARS`) without asserting anything about the span
-    itself. A member showing *two different* Positions in that window is refused, not picked.
+    across a member's continuous tenure in one LD — the match window can reach one year either
+    side of the span (:data:`POSITION_LOOKBACK_YEARS`, :data:`POSITION_LOOKFORWARD_YEARS`)
+    without asserting anything about the span itself. A member showing *two different*
+    Positions in that window is refused, not picked.
     """
 
     member_id: str
@@ -145,8 +160,16 @@ class PositionTenure:
         return f"ld-{self.district}-position-{self.position}"
 
     def covers(self, year: int) -> bool:
-        """Whether a boundary in ``year`` can take its Position from this tenure."""
-        return self.first_year - POSITION_LOOKBACK_YEARS <= year <= self.last_year
+        """Whether a boundary in ``year`` can take its Position from this tenure.
+
+        Reaches one year past each quantized bound, because a tenure's opening and
+        its closing both fall outside the span — at opposite ends.
+        """
+        return (
+            self.first_year - POSITION_LOOKBACK_YEARS
+            <= year
+            <= self.last_year + POSITION_LOOKFORWARD_YEARS
+        )
 
 
 @dataclass(frozen=True)

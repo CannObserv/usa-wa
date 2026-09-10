@@ -219,6 +219,63 @@ class TestHousePositions:
         )
         assert isinstance(resolver.resolve(proposal), Unresolved)
 
+    def test_a_departure_reaches_the_year_after_the_span_it_closes(self) -> None:
+        """usa-wa#363, the Derek Stanford case. He held LD-1 Position 1 from 2011
+        and resigned it on 2019-07-01 to take a Senate seat — but the quantized
+        corpus stops at 2017-18, because the 2019-20 House roster no longer lists
+        him. The Position is dated in a year his own span does not cover, so
+        requiring containment refuses the boundary that records his exit.
+
+        The mirror of the reach BACK a mid-biennium appointee needs: a tenure's
+        opening and its closing both fall outside the quantized span, at opposite
+        ends.
+        """
+        proposal = _proposal(
+            "Resigned July 1, 2019; Appointed to the Senate",
+            year=2019,
+            district=1,
+            name="Derek Stanford",
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="15809", chamber="house", district=1, year=2019, surname="Stanford"
+                )
+            ],
+            positions=[
+                PositionTenure(
+                    member_id="15809", district=1, position="1", first_year=2011, last_year=2018
+                )
+            ],
+        )
+        resolved = resolver.resolve(proposal)
+        assert isinstance(resolved, ResolvedEvent)
+        assert resolved.seat_discriminator == "ld-1-position-1"
+
+    def test_a_departure_two_years_after_the_span_does_not_reach_it(self) -> None:
+        """The reach forward is one year, the same bound as the reach back. Two
+        bienniums out is a different tenure, and a member who returns to an LD may
+        return to the other Position."""
+        proposal = _proposal(
+            "Resigned July 1, 2019; Appointed to the Senate",
+            year=2019,
+            district=1,
+            name="Derek Stanford",
+        )
+        resolver = SuccessionResolver(
+            seatings=[
+                Seating(
+                    member_id="15809", chamber="house", district=1, year=2019, surname="Stanford"
+                )
+            ],
+            positions=[
+                PositionTenure(
+                    member_id="15809", district=1, position="1", first_year=2011, last_year=2016
+                )
+            ],
+        )
+        assert isinstance(resolver.resolve(proposal), Unresolved)
+
     def test_two_positions_covering_one_year_are_ambiguous(self) -> None:
         """Holding both Positions of one LD at once is impossible, so the corpus is telling
         us something is wrong. Writing either would assert a seat on that bad footing."""
