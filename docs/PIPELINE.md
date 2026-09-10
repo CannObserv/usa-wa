@@ -268,10 +268,10 @@ tests span *identity* (one tenure start per entity), which two different holders
 of one seat pass cleanly, and the daily `succession-invariants` gate scopes to
 `is_active` rows — the current cohort only, never history.
 
-It ships **baselined at 34** (#360), via dbt's own thresholds:
+It ships **baselined at 35** (#360), via dbt's own thresholds:
 
 ```
-{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 34 %}
+{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 35 %}
 {{ config(severity='error', error_if='>' ~ baseline, warn_if='!=' ~ baseline) }}
 ```
 
@@ -318,8 +318,12 @@ blind across exactly the seam the handoff crosses. And that join is the single
 door every publication path goes through, so no caller can skip the invariant.
 
 Boundaries move; **no row is dropped, added or reordered**, and no `is_active`
-flips (verified against the production catalog: 8,772 rows, 773 active, 3,111
-entities before and after; 34 rows with moved boundaries).
+flips. A clipped edge is **derived**, and is never read back as a stated date by
+a later pair on the same seat: clipping one holder's start onto a predecessor's
+dated exit and then treating that new start as evidence cascades one clip into
+the next, and collapsed Donn Charnley's LD-44 tenure to a single day in the first
+cut. No clip may leave a span without duration — `assignments_span_duration`
+(#363) asserts that independently, for the whole table.
 
 The rule refuses more than it applies, and the refusals are the interesting part
 — each is a different kind of unknown rather than a backlog of the same one. The
@@ -330,6 +334,26 @@ clipping either side discards one of them; it needs a split), **crosses a bienni
 listed the successor *before* the predecessor's dated exit — the sources
 contradict each other), and **both sides dated** (two stated dates that still
 overlap: the #358 shape, for adjudication).
+
+### A tenure has duration (#363)
+
+`dbt/tests/assignments_span_duration.sql` asserts `valid_to is null or valid_to >
+valid_from`. A plain `error`, no baseline — the corpus is clean on this, so a
+threshold would only be somewhere for a regression to hide.
+
+It exists because the occupancy gate above cannot see a single span. That gate
+needs **two distinct holders** overlapping on one seat; `assignments_key` tests
+span identity, which one degenerate span passes cleanly. So a tenure collapsed to
+a point was invisible to the whole conformed tier — and one was: Derek Stanford's
+LD-1 Senate seat, closed by a person-scoped `departed` at the instant a `seated`
+opened it, taking 18 months of a sitting senator's service out of the published
+record. The overlay now refuses to let a departure end a tenure that began at the
+same instant (a chamber move is not an exit), and this gate is the independent
+check that would have caught it without anyone triaging #360.
+
+Short is not empty. Washington seats military substitutes for days at a time — Jon
+Wyss held LD-6 for two days in 2005 while Brad Benson was on military leave — so
+the gate asserts duration, never a minimum (#362).
 
 Party and committee roles are excluded by `span_kind` rather than by an
 exception list — they are legitimately multi-holder. One caveat if House
