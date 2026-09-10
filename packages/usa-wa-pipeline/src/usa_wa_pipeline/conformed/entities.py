@@ -7,7 +7,8 @@ Stateless joins of the registry crosswalk against staging attributes:
   roster > WSL > PDC — the roster's display names are curated print, WSL's
   are live-web, PDC's are filing-office ALLCAPS (title-cased as a last
   resort). Within a source, the newest attestation wins (a marriage rename
-  takes the latest roster/biennium form).
+  takes the latest roster/biennium form) — but only among rows that actually
+  carry a name (:func:`_name`, #364).
 - **organizations** — committee attributes from the newest biennium's roster
   wire; bodies only ever seen in meeting wires (Joint/`Other`, #39) fall back
   to their meeting ref names.
@@ -38,6 +39,38 @@ ORG_COLUMNS = [
 _COMMITTEE_TYPES = {"House": "committee", "Senate": "committee"}
 
 
+def _name(value: Any) -> str | None:
+    """A source's name field as a NAME, or ``None`` — blank is absent (#364).
+
+    Two upstream shapes, one rule. `GetSponsors` returns a name-blanked STUB
+    for a superseded / departed (member, chamber-tenure) — a real ``Id``, a
+    single-space ``Name``, no first/last, no district (the shape
+    `normalize.members.is_person` has always screened on the canonical path).
+    Truthiness does not screen it: ``' '`` is truthy, so the stub read as the
+    member's newest attestation and four sitting legislators — Tina Orwall,
+    Tim Sheldon, Robert Sutherland, Simon Sefzik — published ``' '`` as their
+    legal name until power-map#497 found it downstream (#364).
+
+    Second, real names arrive untrimmed (WSL's ``'Marlo Braun '``, PDC's
+    ``'MICHAEL JAMES BAUMGARTNER '``), and the stored name is the name.
+
+    Applied to all three sources, not just WSL's. Precedence is a chain, so a
+    blank winning at any link publishes whitespace just the same; and skipping
+    it here rather than dropping the row keeps survivorship's meaning — a
+    source that has no name for someone does not veto the sources below it.
+
+    Deliberately at the conformed tier, not in staging: staging re-parses the
+    archive and holds no policy (`staging.wsl.meeting_rows` says so out loud),
+    and nulling the stub there would erase the evidence that the wire answered
+    with one. What a name IS is a survivorship question, and this is where
+    survivorship lives.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def _live_entities(crosswalk: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """entity_id → its keys, live entities only."""
     out: dict[str, list[dict[str, Any]]] = {}
@@ -58,7 +91,7 @@ def person_rows(
     """One conformed person per live registry entity."""
     wsl_latest: dict[str, tuple[str, str]] = {}
     for row in sponsors:
-        member_id, name = row.get("member_id"), row.get("name")
+        member_id, name = row.get("member_id"), _name(row.get("name"))
         if member_id and name:
             current = wsl_latest.get(member_id)
             if current is None or row["biennium"] > current[0]:
@@ -67,7 +100,7 @@ def person_rows(
     roster_latest: dict[str, tuple[int, str]] = {}
     roster_first_year: dict[str, int] = {}
     for row in roster:
-        name = row.get("name")
+        name = _name(row.get("name"))
         if not name:
             continue
         fold = identity_fold(name)
@@ -77,7 +110,9 @@ def person_rows(
         if current is None or year > current[0]:
             roster_latest[fold] = (year, name)
 
-    pdc_names = {row["person_id"]: row.get("filer_name") for row in pdc if row.get("person_id")}
+    pdc_names = {
+        row["person_id"]: _name(row.get("filer_name")) for row in pdc if row.get("person_id")
+    }
 
     rows = []
     for entity_id, keys in sorted(_live_entities(crosswalk).items()):

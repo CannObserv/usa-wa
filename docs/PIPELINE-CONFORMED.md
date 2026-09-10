@@ -27,6 +27,32 @@ orgs, type distribution matching canonical exactly. Assignments (the span
 engine as a Python model) landed next — see below; roles/seats complete the
 layer.
 
+**A blank is not a name** (#364). `GetSponsors` answers with a name-blanked
+STUB for a superseded / departed (member, chamber-tenure) — a real `Id`, `Name`
+a single space, no first/last — the shape `normalize.members.is_person` has
+always screened on the canonical path. Survivorship did not: `' '` is truthy,
+so the stub read as the member's newest attestation and Tina Orwall, Tim
+Sheldon, Robert Sutherland and Simon Sefzik published `' '` as their legal name.
+Nothing here noticed; power-map#497 found it downstream three weeks later, and
+under the #490 contract the producer owns a person's legal name. `entities._name`
+now strips every source's name field and reads blank as ABSENT — falling through
+to the next link rather than stopping there, since a source that cannot name
+someone does not veto the ones below it. It trims real names too (`'Marlo
+Braun '` from WSL, `'MICHAEL JAMES BAUMGARTNER '` from PDC). Deliberately at
+this tier, not in staging: staging re-parses the archive and holds no policy,
+and nulling the stub there would erase the evidence that the wire answered with
+one.
+
+The guard that outlives the fix is `tests/persons_named.sql`, gated at zero:
+blank, untrimmed, or a `name_full`/`name_source` pair with one side missing
+fails `dbt build`. It is deliberately NOT a `not_null` test on `name_full` nor a
+`required` constraint in the published datapackage — the question #364 raises —
+because the Heck acceptance is real: registered, anchored in power-map's
+crosswalk, attested by no staging row at all, so no source can name him.
+Requiring a name would wedge the nightly on a documented gap; requiring that a
+name never be blank loses nothing. Measured after the fix on the 2026-09-10
+archive: the same 3,135 / 2,999 / 135 / 1 split, with the four names restored.
+
 ## Conformed: tenure spans (#309 part 2)
 
 `models/conformed/assignments.py` is a thin binder over

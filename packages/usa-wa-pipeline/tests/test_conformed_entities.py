@@ -142,3 +142,74 @@ def test_org_rows_structural_branch_uses_verbatim_vocabulary() -> None:
 def test_org_rows_drop_tombstoned_entities() -> None:
     merged = [dict(ORG_CROSSWALK[0], merged_into="09Z")]
     assert org_rows(merged, committees=COMMITTEES, meetings=[]) == []
+
+
+# --- #364: a blank is not a name -------------------------------------------
+#
+# `GetSponsors` returns a name-blanked STUB for a superseded / departed (member,
+# chamber-tenure): a real `Id`, `Name` a single space, no first/last, no
+# district, no party. The canonical path has always screened those
+# (`normalize.members.is_person`); the conformed survivorship did not, so four
+# sitting legislators published `' '` as their legal name — found downstream by
+# power-map#497, not here.
+
+STUB = {
+    "biennium": "2027-28",
+    "member_id": "27992",
+    "name": " ",
+    "first_name": None,
+    "last_name": None,
+    "agency": "House",
+}
+
+
+def test_a_name_blanked_wsl_stub_never_wins_the_name() -> None:
+    """The departed-member stub is the LATEST attestation and still loses.
+
+    Newest-attestation-wins is a rule about names; a stub carries none, so it
+    is not an attestation to be newest among. This is Tim Sheldon's shape
+    exactly — real names through 2021-22, a blank in 2023-24 — and Robert
+    Sutherland's and Simon Sefzik's; all three published as `' '`.
+    """
+    crosswalk = [c for c in CROSSWALK if c["key_namespace"] != "usa_wa_legislature_roster"]
+    rows = person_rows(crosswalk, sponsors=[*SPONSORS, STUB], roster=[], pdc=PDC)
+    by_id = {r["entity_id"]: r for r in rows}
+    assert by_id["01A"]["name_full"] == "Dana Whitfield"
+    assert by_id["01A"]["name_source"] == "wsl"
+
+
+def test_a_blank_is_absent_not_a_name() -> None:
+    """With nothing but stubs, the person has NO name — null, never `' '`.
+
+    Null is the honest reading and the one the #490 contract needs: a consumer
+    applying a producer-owned legal name naively must not be handed whitespace.
+    """
+    crosswalk = [c for c in CROSSWALK if c["key_namespace"] == "usa_wa_legislature"]
+    [row] = person_rows(crosswalk, sponsors=[STUB], roster=[], pdc=[])
+    assert row["name_full"] is None
+    assert row["name_source"] is None
+
+
+def test_a_blank_roster_or_pdc_name_falls_through_to_the_next_source() -> None:
+    """Survivorship skips a blank rather than stopping at it.
+
+    The bug was WSL's, but precedence is a chain: a blank winning at any link
+    would publish whitespace just the same, so all three clean identically.
+    """
+    roster = [{"year": 2025, "name": "  ", "district": 14, "chamber": "house"}]
+    pdc = [{"person_id": "999", "filer_name": " ", "election_year": 2024}]
+    rows = person_rows(CROSSWALK, sponsors=SPONSORS, roster=roster, pdc=pdc)
+    by_id = {r["entity_id"]: r for r in rows}
+    assert by_id["01A"]["name_source"] == "wsl"  # roster blank → next link
+    assert by_id["01B"]["name_full"] is None  # PDC blank → no name at all
+
+
+def test_a_published_name_is_trimmed(monkeypatch) -> None:
+    """Real names arrive with trailing whitespace too — `'Marlo Braun '` from
+    WSL, `'MICHAEL JAMES BAUMGARTNER '` from PDC. The stored name is the name."""
+    monkeypatch.setattr(mod, "identity_fold", lambda name: "danawhitfield")
+    roster = [{"year": 2025, "name": " Dana Whitfield-Lee ", "district": 14, "chamber": "house"}]
+    pdc = [{"person_id": "999", "filer_name": "DOE JANE ", "election_year": 2024}]
+    by_id = {r["entity_id"]: r for r in person_rows(CROSSWALK, sponsors=[], roster=roster, pdc=pdc)}
+    assert by_id["01A"]["name_full"] == "Dana Whitfield-Lee"
+    assert by_id["01B"]["name_full"] == "Doe Jane"
