@@ -70,9 +70,11 @@ SEAT_SCOPED_KINDS = (KIND_VACATED, KIND_SEATED)
 #: member left the legislature" against "the member moved seats within it"
 #: (usa-wa#363) — but never turn an ending into a beginning, which is a different
 #: fact rather than a better reading of the same one. Defined here beside the kinds
-#: it partitions so the store (which enforces the rule), the backfill (which reads a
-#: ``departed`` as the contradiction of a ``vacated``) and the resolver (which
-#: reaches forward only for a closing) agree by construction rather than by copy.
+#: it partitions so the store (which enforces the rule) and the resolver (which
+#: reaches forward only for a closing) read one definition rather than a copy. The
+#: backfill's ``_contradicting_scopes`` is deliberately NOT a consumer: it names the
+#: one pair — a ``vacated`` against a live ``departed`` — and needs those specific
+#: kinds, not the set (CR 146).
 ENDING_KINDS = frozenset({KIND_DEPARTED, KIND_VACATED})
 
 # ``SEAT_KINDS`` — the valid ``seat_kind`` values a seat-scoped event may name — is the
