@@ -670,3 +670,71 @@ def test_a_seating_one_biennium_early_still_dates_its_tenure():
         owned_kinds={"chamber-house"},
     )
     assert out[0].valid_from == date(2014, 1, 17)
+
+
+def test_a_same_day_departure_does_not_close_the_seating_it_follows():
+    """usa-wa#363, the Derek Stanford case. The roster attests both halves of a
+    chamber move on one date — `Resigned July 1, 2019` on the House row, `Appointed
+    July 1, 2019 to serve unexpired term` on the Senate row — and the backfill
+    projects the resignation as a person-scoped `departed`. Seat-scoped events run
+    first, so the seating opens the Senate span and the sweep immediately closes it
+    at the same instant: `_close` yields `valid_to = max(d, d)`, a zero-length span,
+    and 18 months of a sitting senator's tenure leaves the published record.
+
+    A departure cannot end a tenure that began at the same instant. The member did
+    not leave; they moved.
+    """
+    spans = [
+        _span("15809", "chamber-house", "1-position-1", start="2011-12", frm=date(2011, 1, 1)),
+        _span("15809", "chamber-senate", "1", start="2019-20", frm=date(2019, 1, 1)),
+    ]
+    events = [
+        SuccessionEvent("15809", "seated", date(2019, 7, 1), "chamber-senate", "1"),
+        SuccessionEvent("15809", "departed", date(2019, 7, 1)),
+    ]
+    out = _by_key(
+        apply_operator_events(
+            spans,
+            events,
+            current_biennium=CURRENT,
+            owned_kinds={"chamber-senate", "chamber-house"},
+        )
+    )
+    senate = out[("15809", "chamber-senate", "1")]
+    assert senate.valid_from == date(2019, 7, 1)
+    assert senate.valid_to is None, "the seat he moved INTO must not close on arrival"
+    assert senate.is_active is True
+    # the seat he moved OUT of still closes — that is what the departure states
+    assert out[("15809", "chamber-house", "1-position-1")].valid_to == date(2019, 7, 1)
+
+
+def test_a_later_departure_still_closes_a_seated_span():
+    """The exemption is same-instant only. A member seated in June and gone in
+    August genuinely departed the seat, and that tenure must close."""
+    spans = [_span("15809", "chamber-senate", "1", start="2025-26")]
+    events = [
+        SuccessionEvent("15809", "seated", date(2025, 6, 3), "chamber-senate", "1"),
+        SuccessionEvent("15809", "departed", date(2025, 8, 15)),
+    ]
+    (senate,) = apply_operator_events(
+        spans, events, current_biennium=CURRENT, owned_kinds={"chamber-senate"}
+    )
+    assert senate.valid_to == date(2025, 8, 15)
+    assert senate.is_active is False
+
+
+def test_a_same_day_departure_spares_a_synthesized_seating():
+    """A current-biennium appointee the wire built no span for is synthesized by
+    the seating. It opens at the event date, so the same-instant sweep would close
+    it too — and a synthesized span is exactly the one with no wire row to rebuild
+    it next run."""
+    events = [
+        SuccessionEvent("35410", "seated", date(2025, 6, 3), "chamber-senate", "5"),
+        SuccessionEvent("35410", "departed", date(2025, 6, 3)),
+    ]
+    (senate,) = apply_operator_events(
+        [], events, current_biennium=CURRENT, owned_kinds={"chamber-senate"}
+    )
+    assert senate.valid_from == date(2025, 6, 3)
+    assert senate.valid_to is None
+    assert senate.is_active is True

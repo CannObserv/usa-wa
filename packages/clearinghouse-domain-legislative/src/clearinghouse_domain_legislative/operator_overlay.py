@@ -235,7 +235,10 @@ def apply_operator_events(
     # produced for Christine Rolfes — a successor's seating mis-resolved onto the incumbent.
     # Applying it would re-date a twelve-year tenure to its last day. Per SPAN, not per seat:
     # a gap-and-return member holds one seat twice and each tenure takes its own seating.
-    seated_spans: set[tuple[str, str, str, str]] = set()
+    # Keyed span -> the date a `seated` opened or re-dated it. A set would answer
+    # the duplicate-seating question alone; the date is what lets the `departed`
+    # sweep below tell a chamber move from a departure (usa-wa#363).
+    seated_spans: dict[tuple[str, str, str, str], date] = {}
     for event in ordered:
         _warn_if_predates(result, event)
         if event.kind == KIND_DEPARTED:
@@ -244,6 +247,29 @@ def apply_operator_events(
                 if span.member_id == event.member_id and _is_open_through(
                     span, event.effective_date
                 ):
+                    if _seated_at_this_instant(seated_spans, span, event.effective_date):
+                        # The member did not leave; they MOVED. The roster attests
+                        # both halves of a chamber move on one date (Derek Stanford:
+                        # `Resigned July 1, 2019` on the House row, `Appointed July
+                        # 1, 2019 to serve unexpired term` on the Senate row), and
+                        # the backfill projects the resignation as a person-scoped
+                        # `departed`. Closing the tenure the seating just opened
+                        # yields `valid_to = max(d, d)` — a zero-length span, which
+                        # is never a fact about the world, and which no gate can see
+                        # because occupancy needs two distinct holders. Stanford lost
+                        # 18 months of Senate tenure to it (usa-wa#363). The seat he
+                        # moved OUT of still closes: that is what the event states.
+                        hit = True
+                        logger.info(
+                            "operator_departed_spares_same_instant_seating",
+                            extra={
+                                "member_id": event.member_id,
+                                "effective_date": event.effective_date.isoformat(),
+                                "span_kind": span.kind,
+                                "span_discriminator": span.discriminator,
+                            },
+                        )
+                        continue
                     # A span the member re-enters is the merged row of TWO tenures, so
                     # closing it at the departure discards the second (usa-wa#267: Huntley
                     # resigned 1965 and was appointed to the Senate in 1967, leaving him
@@ -358,7 +384,7 @@ def apply_operator_events(
                         )
                         hit = True
                         continue
-                    seated_spans.add(key)
+                    seated_spans[key] = event.effective_date
                     result[i] = replace(span, valid_from=event.effective_date)
                     hit = True
             if not hit:
@@ -371,7 +397,20 @@ def apply_operator_events(
                 # unrestricted backfill DOES build their span, so this event matches there and
                 # never reaches synthesis. Skip + log rather than mint a false seat.
                 if _in_biennium(event.effective_date, current_biennium):
-                    result.append(_synthesize(event, current_biennium))
+                    synthesized = _synthesize(event, current_biennium)
+                    result.append(synthesized)
+                    # Registered like a matched seating, so a same-instant
+                    # `departed` spares it too (usa-wa#363). A synthesized span is
+                    # the one case with no wire row to rebuild it next run, so
+                    # closing it here loses the tenure outright.
+                    seated_spans[
+                        (
+                            synthesized.member_id,
+                            synthesized.kind,
+                            synthesized.discriminator,
+                            synthesized.start_biennium,
+                        )
+                    ] = event.effective_date
                 else:
                     logger.info(
                         "operator_seated_no_span_out_of_biennium",
@@ -383,6 +422,19 @@ def apply_operator_events(
                         },
                     )
     return result
+
+
+def _seated_at_this_instant(
+    seated_spans: dict[tuple[str, str, str, str], date], span: TenureSpan, effective_date: date
+) -> bool:
+    """``span`` is a tenure a ``seated`` event opened at exactly ``effective_date``.
+
+    The exemption is same-instant on purpose. A member seated in June and departed
+    in August genuinely left that seat, and the sweep must still close it; only a
+    departure that coincides with the seating describes a move rather than an exit.
+    """
+    key = (span.member_id, span.kind, span.discriminator, span.start_biennium)
+    return seated_spans.get(key) == effective_date
 
 
 def _in_biennium(effective_date: date, biennium: str) -> bool:
