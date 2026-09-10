@@ -229,6 +229,14 @@ had been dated to the successor's seating date**, collapsing "incumbent departed
 elapsed. Superseding appends the correction and stamps `superseded_by_id`; nothing is mutated,
 so the retracted attestation stays auditable.
 
+Since #363 a conflict is not only a date disagreement on one tenure. A `vacated` also
+contradicts a live person-scoped `departed` for the same member in the same biennium — the
+member either left the legislature or moved seats within it, and a stale `departed` beside a
+fresh `vacated` closes every span the move preserves — so `--supersede-conflicts` retires that
+too, **reclassifying** rather than re-dating (`written=2 superseded=2` on 2026-09-10: Stanford
+and Chapman). It never runs the other way: a stale `vacated` beside a fresh `departed` is
+redundant, not destructive.
+
 Measured on the 2025-06-05 edition: **155 written, 17 superseded, 81 already attested**.
 
 ## Historical backfill (epic #76 / sub-project 3 / #100)
