@@ -120,7 +120,8 @@ def _validate(spec: EventSpec) -> None:
 async def validate_and_record(session: AsyncSession, source, spec: EventSpec) -> OperatorEvent:
     """Validate ``spec`` (shape + member existence) and persist it; return the row.
 
-    A ``supersede_id`` records a date-correction of that prior event. Raises
+    A ``supersede_id`` records a correction of that prior event — a new date, or a
+    reclassification within endings (``departed`` <-> ``vacated``, #363). Raises
     :class:`OperatorEventError` on any validation failure (no partial write)."""
     _validate(spec)
     person = await resolve_person(session, spec.member_id)
@@ -290,7 +291,11 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--seat-discriminator", help="LD | ld-{n}-position-{p} | committee id")
     parser.add_argument("--effective-date", help="YYYY-MM-DD, the succession boundary")
     parser.add_argument("--evidence-url", help="operator-cited source (news/official)")
-    parser.add_argument("--supersede", help="prior event id to correct (a date change)")
+    parser.add_argument(
+        "--supersede",
+        help="prior event id to correct: a date change, or a reclassification within "
+        "endings (departed <-> vacated); never an ending into a beginning",
+    )
     parser.add_argument("--file", help="JSON array of event objects (batch)")
     parser.add_argument("--list", action="store_true", help="list current operator events")
 
