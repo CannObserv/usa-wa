@@ -9,7 +9,7 @@ predicate to the real `persons` shape.
 The gate is the half of #364 that outlives the fix. `conformed.entities._name`
 is why no blank is built today; this is why a build that starts producing one
 again fails HERE, in the nightly, rather than in a consumer's staging models
-three weeks later (which is how power-map#497 found the first four).
+a week later (which is how power-map#497 found the first four).
 """
 
 import re

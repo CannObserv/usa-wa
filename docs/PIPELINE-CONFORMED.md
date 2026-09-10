@@ -33,7 +33,8 @@ a single space, no first/last — the shape `normalize.members.is_person` has
 always screened on the canonical path. Survivorship did not: `' '` is truthy,
 so the stub read as the member's newest attestation and Tina Orwall, Tim
 Sheldon, Robert Sutherland and Simon Sefzik published `' '` as their legal name.
-Nothing here noticed; power-map#497 found it downstream three weeks later, and
+Nothing here noticed; power-map#497 found it downstream a week later (the
+snapshot it read, `v20260903T085702Z`, against a 2026-09-10 report), and
 under the #490 contract the producer owns a person's legal name. `entities._name`
 now strips every source's name field and reads blank as ABSENT — falling through
 to the next link rather than stopping there, since a source that cannot name

@@ -5,7 +5,8 @@
 -- space, no first/last. Survivorship read that as the member's newest
 -- attestation, and Tina Orwall, Tim Sheldon, Robert Sutherland and Simon Sefzik
 -- shipped `' '` as their legal name. Nothing here noticed; power-map#497 found
--- it three weeks later while building mapping models against `persons`, and
+-- it a week later while building mapping models against `persons` — the
+-- snapshot it read was `v20260903T085702Z`, the report came 2026-09-10 — and
 -- under the #490 contract the producer owns a person's legal name — a consumer
 -- applying that naively would have asserted whitespace as four names.
 --
