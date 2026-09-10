@@ -494,7 +494,17 @@ def assignment_rows(
     one-holder-per-seat invariant cannot be skipped by a caller that forgets it.
     Boundaries move; no row is ever dropped, added or reordered. The overlaps the
     rule declines — both sides dated, neither dated, a merged return tenure — are
-    counted here and listed as rows by the `assignments_seat_occupancy` gate.
+    counted in ``seat_overlaps_unclipped``.
+
+    That counter is deliberately **larger** than the gate's row count, and the
+    two are not interchangeable. The clip is jurisdiction-agnostic and sees only
+    span geometry, so it declines every overlap it cannot resolve; the gate
+    additionally *excludes* the district-years the WA roster lists with more than
+    one member and no annotations, which are legitimately multi-holder rather
+    than defective (the 1889 multi-member Senate). At the 2026-09-10 measurement
+    that is 54 counted here against 34 listed by the gate. The gate is the
+    authority on what is publishable; this counter is the authority on how much
+    the rule left on the table.
 
     Keyed by source because the two families live in **disjoint identity
     spaces** and share one table: the WSL family's member ids are the archive's
