@@ -130,10 +130,18 @@ OWNED_KINDS = ("party", "chamber-senate", "committee", "chamber-house")
 #:         her final 2013-14 House span
 #:   27504 Vandana Slatter — event corrected, spans unchanged
 #:
-#: This is a raise, which is the move to be suspicious of. What justifies it is
-#: that the oracle is stale BY CONSTRUCTION here — the events it was built from
-#: no longer exist — and the ratchet above 96 still catches everything else.
-BASELINE_DIVERGENCE = 96
+#: That was a raise, which is the move to be suspicious of. What justified it is
+#: that the oracle was stale BY CONSTRUCTION — the events it was built from no
+#: longer existed — and the ratchet above it still caught everything else.
+#:
+#: **90 since the 2026-09-10 nightly.** The 06:xx daily refreshes re-drove the
+#: Postgres tier's CURRENT-biennium spans against the corrected events, so the
+#: oracle caught up on 6 of the 14 (`extra` 2 → 0, `dated` 12 → 8). The 8 that
+#: remain are Stanford's and Chapman's HISTORICAL committee rows (2011-12 through
+#: 2023-24), which the daily refresh never rebuilds — verified key by key. This
+#: probe fails only on `>`, so a stale-high baseline announces nothing; the
+#: number was read off the run and brought down by hand.
+BASELINE_DIVERGENCE = 90
 
 #: The role dimension's own ratchet, measured 2026-09-03: **0** — 312 conformed
 #: role keys against 312 in ``canonical.roles``, exact in both directions, with
