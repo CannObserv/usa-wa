@@ -249,6 +249,15 @@ async def run_parity(
 
     # Keyed by (source, source_id): the two families are disjoint identity
     # spaces sharing one table, and only the pair is unique by construction.
+    #
+    # Read from `families`, i.e. the spans BEFORE counterpart clipping (#360),
+    # and deliberately so — do not "fix" this to read the published rows. This
+    # probe measures whether the conformed tier BUILDS the same spans as the
+    # Postgres tier it replaces; the clip is a publication-stage correction the
+    # Postgres tier does not have, so comparing clipped spans against that
+    # oracle would report ~34 deliberate improvements as drift, blow
+    # BASELINE_DIVERGENCE, and mask the real drift the baseline exists to catch.
+    # What publishes is gated by `assignments_seat_occupancy` instead.
     ours = {
         (source, s.source_id): (s.valid_from, s.valid_to, s.is_active)
         for source, family in families.items()
