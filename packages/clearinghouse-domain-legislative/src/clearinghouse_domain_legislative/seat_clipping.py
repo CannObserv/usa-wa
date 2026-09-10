@@ -31,6 +31,16 @@ Pure, idempotent, order- and length-preserving: it runs over the **union** of
 every span family, because a seat's two holders routinely come from different
 builders (a WSL-joined incumbent and a minted pre-1991 successor), and a clip
 scoped to one family is blind across exactly the seam the handoff crosses.
+
+**Known gap — usa-wa#362.** This module sees only span geometry, so it has no
+notion of a seat that legitimately holds more than one person. The 1889 Senate
+had multi-member districts; the `assignments_seat_occupancy` gate excludes those
+district-years, and this does not. Harmless today only because the exclusion is
+conditioned on the district-year carrying no annotations, so no 1889 span is
+dated and the clip's precondition is never met — but the day one is parsed, the
+clip would resolve a legitimate two-holder seat into a succession *and* the
+gate's exclusion would lift, leaving nothing to report it. The fix is a
+per-district-year capacity passed in from Layer 3.
 """
 
 from __future__ import annotations
