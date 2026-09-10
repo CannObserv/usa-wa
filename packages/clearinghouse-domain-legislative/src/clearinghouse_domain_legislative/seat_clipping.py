@@ -108,6 +108,8 @@ def _tenure_order(span: TenureSpan) -> tuple[date, date]:
 
 
 def _in_biennium(day: date, biennium: str) -> bool:
+    """``day`` falls in ``biennium``'s two calendar years — the bound a clipped
+    ``valid_from`` must respect, since ``source_id`` is keyed on the biennium."""
     start, end = parse_biennium(biennium)
     return start <= day.year <= end
 
