@@ -307,9 +307,14 @@ def test_a_merge_chain_resolves_to_the_last_survivor(monkeypatch) -> None:
     so a cycle cannot arise, but the walk is bounded the way the other two
     consumers bound theirs."""
     monkeypatch.setattr(mod, "identity_fold", lambda name: "danawhitfield")
+    # CR 13: `merged_into` is a property of the ENTITY, so every row of an
+    # entity carries the same value — `registry_read` cannot emit `01WSL` as
+    # live on one row and tombstoned on another. The first cut of this test did
+    # exactly that, and a chain test built on input the registry cannot produce
+    # is not evidence that chains resolve.
     chain = [
-        *MERGED_CROSSWALK,
-        dict(MERGED_CROSSWALK[0], merged_into="01FINAL"),
+        {**MERGED_CROSSWALK[0], "merged_into": "01FINAL"},
+        MERGED_CROSSWALK[1],
         {
             "entity_id": "01FINAL",
             "key_namespace": "usa_wa_legislature",
