@@ -63,6 +63,15 @@ def test_catches_an_untrimmed_name() -> None:
     assert _violations([("01A", "Marlo Braun ", "wsl")]) == 1
 
 
+def test_catches_a_non_breaking_space_padded_name() -> None:
+    """CR 10: the roster is a PDF, and NBSP padding is a routine text-extraction
+    artifact of one. Python's `str.strip()` strips it, so `_name` cleans it and
+    an enumerated SQL character set does not — the same asymmetry as CR 2,
+    narrowed rather than closed. Enumerating whitespace is a losing game; the
+    predicate names the unicode class instead."""
+    assert _violations([("01A", "\u00a0Tina Orwall\u00a0", "wsl")]) == 1
+
+
 def test_catches_a_tab_padded_name() -> None:
     """CR 2: duckdb's one-argument `trim` strips SPACES only, so a tab- or
     newline-padded name walked straight past the first cut of this gate.

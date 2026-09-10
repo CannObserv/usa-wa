@@ -14,22 +14,31 @@
 -- that makes the next one a BUILD FAILURE here rather than a discovery
 -- downstream, which is what the issue asked for.
 --
--- Spelled `is distinct from nullif(trim(...), WS)`, which is one predicate for
--- three defects: `' '` and `''` both fold to null and mismatch a non-null name;
--- `'Marlo Braun '` (a real WSL value, as is PDC's
--- `'MICHAEL JAMES BAUMGARTNER '`) mismatches its own trimmed form; and a null
--- name matches null and passes. `is distinct from` rather than `<>` for the
--- usual reason — `NULL <> NULL` is NULL, which SQL drops, so the plain form
--- would be blind to exactly the null-side rows the pair check below is about.
+-- Two predicates, because a blank and an edge are different shapes: `''` has no
+-- characters to match, and everything else — `' '`, `'Marlo Braun '` (a real
+-- WSL value, as is PDC's `'MICHAEL JAMES BAUMGARTNER '`) — is a name carrying
+-- whitespace on an edge.
 --
--- WS is spelled out because duckdb's ONE-ARGUMENT `trim` strips SPACES ONLY
--- (CR 2): `trim(chr(9) || 'a' || chr(9))` returns the tabs untouched, so a
--- tab- or newline-padded name walked past the first cut of this gate. Python's
--- `str.strip()` — what `entities._name` applies — strips every whitespace
--- class, so such a name cannot come from the survivorship at all. It could only
--- come from some OTHER writer into `persons`, which is precisely the case a
--- gate exists for; one blind to everything but the defect already fixed
--- upstream is not a guard.
+-- The edge test names the unicode SEPARATOR CLASS rather than enumerating
+-- characters (CR 10), because enumerating them is a losing game. duckdb's
+-- one-argument `trim` strips SPACES ONLY, so a tab-padded name walked past the
+-- first cut of this gate (CR 2); spelling out space/tab/LF/CR then still missed
+-- the NON-BREAKING SPACE, and NBSP padding is a routine text-extraction
+-- artifact of a PDF — which the roster, one of the three name sources, is.
+-- `[\pZ\s]` is RE2's separator class plus the ASCII whitespace: verified in
+-- duckdb to flag NBSP-, space- and tab-padded values and to pass a clean one.
+--
+-- The point of matching Python's `str.strip()` — what `entities._name`
+-- applies — is that a name it would have cleaned cannot come from the
+-- survivorship at all. Such a row could only come from some OTHER writer into
+-- `persons`, which is precisely the case a gate exists for; one blind to
+-- everything but the defect already fixed upstream is not a guard.
+--
+-- NULL passes both edge tests: `NULL = ''` and `regexp_matches(NULL, …)` are
+-- both NULL, which SQL drops. The pair check is where the null side is judged,
+-- and it is spelled `is distinct from` rather than `<>` for the usual reason —
+-- `NULL <> NULL` is NULL, so the plain form would be blind to exactly the rows
+-- it exists to catch.
 --
 -- The pair travels together: a name with no source, or a source with no name,
 -- is a survivorship bug even when neither value is blank.
@@ -51,8 +60,8 @@
 -- Casts to varchar throughout: the hermetic build materializes `persons` empty,
 -- and an empty object column can bind as something other than VARCHAR (#361).
 --
--- The character set is written out inline rather than hoisted into a jinja
--- variable, for two reasons that both bite. `test_persons_named` runs this file
+-- Nothing here is hoisted into a jinja variable, for two reasons that both
+-- bite. `test_persons_named` runs this file
 -- with jinja stripped and refuses outright on any expression tag it does not
 -- understand — deliberately, so the unit half can never quietly exercise a
 -- mangled query; it knows `ref`, not a hand-rolled name. And dbt parses jinja
@@ -60,8 +69,7 @@
 -- project's compile until this sentence stopped spelling it out.
 select entity_id, name_full, name_source
 from {{ ref('persons') }}
-where cast(name_full as varchar) is distinct from nullif(
-          trim(cast(name_full as varchar), ' ' || chr(9) || chr(10) || chr(13)), ''
-      )
+where cast(name_full as varchar) = ''
+   or regexp_matches(cast(name_full as varchar), '^[\pZ\s]|[\pZ\s]$')
    or (cast(name_full as varchar) is null)
       is distinct from (cast(name_source as varchar) is null)
