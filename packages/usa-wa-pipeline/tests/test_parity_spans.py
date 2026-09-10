@@ -421,6 +421,20 @@ async def test_unregistered_spans_are_reported(db_session, tmp_path) -> None:
     assert result.counters["registered_spans"] == 0
 
 
+async def test_seat_overlaps_the_clip_declined_are_reported(db_session, tmp_path) -> None:
+    """CR 132: `assignment_rows` counts the overlaps counterpart clipping (#360)
+    could not resolve, but the dbt model discards its counters entirely. The
+    probe is the only thing that runs under the job harness, so it is the only
+    place that number can reach an operator — it was being computed on every
+    build and thrown away.
+    """
+    role = await _seed_role(db_session)
+    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
+    await _bind_key(db_session, f"{SOURCE}:100")
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=2)
+    assert result.counters["seat_overlaps_unclipped"] == 0
+
+
 async def test_a_malformed_oracle_key_is_counted(db_session, tmp_path) -> None:
     """CR 70: a canonical key too short to carry a kind shrinks the comparison
     set. Excluding it is right; excluding it silently is the vacuous-parity

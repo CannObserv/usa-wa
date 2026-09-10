@@ -314,6 +314,11 @@ async def run_parity(
         "baseline": baseline,
         "registered_spans": join["published"],
         "unregistered_spans": join["unregistered_spans"],
+        # Counterpart clipping's residue (#360). The dbt model discards its
+        # counters, so without this the number is computed on every build and
+        # reaches nobody. Pre-exclusion, and therefore larger than the
+        # `assignments_seat_occupancy` row count — see `assignment_rows`.
+        "seat_overlaps_unclipped": join["seat_overlaps_unclipped"],
         "malformed_roster_rows": malformed_roster_rows,
         "unparsable_canonical_keys": unparsable,
     }
