@@ -41,6 +41,7 @@ from clearinghouse_core.job import (
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.operator_events import (
     DEPARTED_REASONS,
+    ENDING_KINDS,
     KIND_DEPARTED,
     KIND_SEATED,
     KIND_VACATED,
@@ -139,8 +140,17 @@ async def validate_and_record(session: AsyncSession, source, spec: EventSpec) ->
         # The kind MAY change, within endings only (usa-wa#363): `departed` and
         # `vacated` are two readings of one boundary, and provenance is append-only,
         # so a supersede is the only way a projection can say it changed its mind.
-        # `supersede_event` is the arbiter — it refuses anything wider. Turning an
-        # ending into a beginning is a different fact, not a better reading.
+        # Turning an ending into a beginning is a different fact, not a better
+        # reading. `supersede_event` refuses that for every caller; it is checked
+        # here as well (CR 139) so the refusal takes the CLI's own error path —
+        # the `error:` line, the rollback, EXIT_CONFIG — rather than escaping as a
+        # bare ValueError the handler below does not catch.
+        if spec.kind != prior.kind and not {spec.kind, prior.kind} <= ENDING_KINDS:
+            raise OperatorEventError(
+                f"--supersede: cannot change kind {prior.kind!r} -> {spec.kind!r}: a "
+                "correction may restate which ending a boundary was, never turn an ending "
+                "into a beginning"
+            )
         #
         # The spec's kind and seat are passed through rather than derived from
         # `prior`, which is what keeps the kind↔reason pairing intact: the CLI

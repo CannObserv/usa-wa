@@ -168,7 +168,9 @@ async def test_supersede_cannot_turn_an_ending_into_a_beginning(db_session, usa_
     await _person(db_session, "100")
     source = await _source(db_session)
     prior = await validate_and_record(db_session, source, _departed(d=date(2025, 4, 19)))
-    with pytest.raises(ValueError, match="ending"):
+    # OperatorEventError, not a bare ValueError (CR 139): this is the path that prints
+    # `error:`, rolls back and exits EXIT_CONFIG. The library check stays the arbiter.
+    with pytest.raises(OperatorEventError, match="ending"):
         await validate_and_record(
             db_session,
             source,
