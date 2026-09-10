@@ -280,6 +280,37 @@ class TestSupersedeReclassifies:
                 seat_discriminator="1",
             )
 
+    async def test_a_disagreeing_seat_without_a_kind_change_is_refused(
+        self, db_session, usa_wa
+    ) -> None:
+        """CR 140. Without a kind change the seat is the prior's by contract. A caller
+        that passes a different one is not silently corrected to the prior's — that
+        is the "silently ignored" hazard the CLI guard exists for, and the library
+        must not be the layer where it survives."""
+        source = await _source(db_session)
+        prior = await record_operator_event(
+            db_session,
+            source,
+            member_id="35410",
+            kind="seated",
+            reason="appointed",
+            effective_date=date(2025, 6, 3),
+            evidence_url="https://example.gov/a",
+            seat_kind="chamber-senate",
+            seat_discriminator="5",
+        )
+        with pytest.raises(ValueError, match="seat"):
+            await supersede_event(
+                db_session,
+                source,
+                prior,
+                reason="appointed",
+                effective_date=date(2025, 6, 10),
+                evidence_url="https://example.gov/b",
+                seat_kind="chamber-senate",
+                seat_discriminator="7",
+            )
+
     async def test_the_kind_still_defaults_to_the_prior(self, db_session, usa_wa) -> None:
         source = await _source(db_session)
         prior = await record_operator_event(

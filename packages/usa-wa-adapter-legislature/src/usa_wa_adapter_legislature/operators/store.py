@@ -239,6 +239,18 @@ async def supersede_event(
             "restate which ending a boundary was, never turn an ending into a beginning"
         )
     reclassified = new_kind != prior.kind
+    if not reclassified:
+        passed = (seat_kind, seat_discriminator)
+        held = (prior.seat_kind, prior.seat_discriminator)
+        if any(v is not None for v in passed) and passed != held:
+            # Not silently the prior's (CR 140): a correction restates WHEN a
+            # boundary was and, within endings, WHICH ending — never which seat.
+            # A caller that disagrees about the seat is describing a different
+            # event, and a refusal is the only honest answer to that.
+            raise ValueError(
+                f"supersede of a {prior.kind!r} keeps its seat {held[0]}:{held[1]}; got "
+                f"{passed[0]}:{passed[1]} — a correction never moves a boundary to another seat"
+            )
     corrected = await record_operator_event(
         session,
         source,
