@@ -154,9 +154,16 @@ def merge_party_continuity(spans: list[TenureSpan]) -> list[TenureSpan]:
     attribute of the person, not an office they occupy, so the thing the gap is
     evidence OF (they stopped holding that seat) says nothing about it.
 
-    Keyed on the EARLIEST span's start, so the surviving ``source_id`` is the
-    one already published and the later tenures are what retract — the merge
-    costs a consumer nothing on the row it keeps.
+    Keyed on the earliest-**dated** span's start — the run head is chosen by
+    ``valid_from``, and the merged span takes that head's ``valid_from`` and
+    ``start_biennium`` together. Usually the earliest-dated span is also the
+    earliest-keyed one; a ``seated`` that back-dates a span below its own
+    biennium floor (#272, Graham Hunt: keyed ``2015-16``, dated 2014-01-17)
+    makes them different rows, and dated is the one to follow — it keeps the
+    surviving key and the surviving start consistent, which is the pair
+    ``misdated_tenures()`` checks. Either way the surviving ``source_id`` is one
+    already published and the later tenures are what retract, so the merge costs
+    a consumer nothing on the row it keeps.
     """
     by_member: dict[str, list[TenureSpan]] = defaultdict(list)
     passthrough: list[TenureSpan] = []
@@ -211,7 +218,8 @@ def _extend(run: TenureSpan, later: TenureSpan) -> TenureSpan:
     party span whichever half of the run is the open one.
 
     ``valid_from`` and ``start_biennium`` are the run's, untouched by ``replace``
-    — that is what keys the merged span on the earliest start.
+    — taken together, which is what keys the merged span on its earliest-dated
+    start without misdating it.
     """
     is_active = run.is_active or later.is_active
     return replace(
