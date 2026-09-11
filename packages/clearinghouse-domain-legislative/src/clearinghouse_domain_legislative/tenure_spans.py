@@ -24,6 +24,17 @@ builder. It knows only biennium arithmetic:
   biennium's even year.
 - The `source_id` keys on the tenure **start** biennium, so an extending span keeps its id
   (idempotent upsert updates `valid_to`) while a post-gap tenure opens a new-start span.
+
+**One kind is exempt from the dormancy rule, and the module knows its name** (#289):
+`merge_party_continuity` rejoins a member's same-party spans across ANY gap. This is the
+single place the generic-over-kind claim above is qualified, and it is qualified
+deliberately rather than pushed to a caller — the dormancy split and its one exemption are
+the same decision, and splitting them across layers is how the two tiers would come to
+disagree about it. The rule: a seat someone stopped holding is a tenure that ended, but a
+party affiliation is an attribute of the *person*, not an office they occupy, so a break in
+elected service is no evidence about it. Only an attested span of a **different** party in
+between breaks a run — a documented switch. `KIND_PARTY` is the sole span-kind constant
+this module imports; any other kind-specific rule belongs to its caller.
 """
 
 from __future__ import annotations
