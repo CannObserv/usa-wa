@@ -1,14 +1,21 @@
 """The PM anchor export (#312): base32 crosswalk seed for power-map cutover."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import duckdb
 import pytest
 from ulid import ULID
 
-from clearinghouse_domain_legislative.identity import Person
+from clearinghouse_core.registry import KIND_PERSON, apply_decision, decide
+from clearinghouse_domain_legislative.identity import (
+    Assignment,
+    Organization,
+    Person,
+    Role,
+)
 from usa_wa_pipeline import anchor_export, publish
+from usa_wa_pipeline.adjudicate import adjudicate_merge
 from usa_wa_pipeline.anchor_export import (
     ANCHOR_COLUMNS,
     ANCHOR_TABLE,
@@ -16,6 +23,48 @@ from usa_wa_pipeline.anchor_export import (
     kind_counts,
     materialize_anchors,
 )
+
+
+async def _register(db_session, person) -> None:
+    """Bind the canonical row's own ULID as its registry entity — what
+    `registry_seed` does, and what lets the two stores be joined by id."""
+    await apply_decision(
+        db_session,
+        KIND_PERSON,
+        decide(frozenset({f"usa_wa_legislature:{person.source_id}"}), {}),
+        registered_by="test",
+        entity_id=str(person.id),
+    )
+
+
+async def _anchored_assignment(db_session, person) -> Assignment:
+    org = Organization(
+        source="usa_wa_legislature", source_id="org-1", name="Org", org_type="chamber"
+    )
+    db_session.add(org)
+    await db_session.flush()
+    role = Role(
+        source="usa_wa_legislature",
+        source_id="role-1",
+        organization_id=org.id,
+        name="Member",
+        role_type="party_member",
+    )
+    db_session.add(role)
+    await db_session.flush()
+    assignment = Assignment(
+        source="usa_wa_legislature",
+        source_id="a-1",
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(1977, 1, 1),
+        valid_to=date(1985, 1, 11),
+        is_active=False,
+        pm_assignment_id=ULID(),
+    )
+    db_session.add(assignment)
+    await db_session.flush()
+    return assignment
 
 
 @pytest.mark.db
@@ -172,3 +221,64 @@ def test_kind_counts_reports_every_kind_and_rejects_unknown_ones() -> None:
     }
     with pytest.raises(ValueError, match="unknown anchor kind"):
         kind_counts([("bogus", "01C", "01D")])
+
+
+@pytest.mark.db
+async def test_a_tombstoned_entitys_anchor_is_not_exported(db_session) -> None:
+    """#368: a merge retires an id, and a retired id stops being addressable.
+
+    `archived_at`/`deleted_at` (#356) are the LOCAL retraction signals; a
+    registry tombstone is a third, and this export saw none of it. The #366 Heck
+    merge was the first case: the loser's canonical row is neither archived nor
+    deleted — nothing happened to it locally — so its anchor kept shipping and
+    pointed at a PM row #514 then deleted. Re-seeding PM's crosswalk from that
+    export blocks twice over: two usa-wa ids landing on one PM row reads as "PM
+    merged what the producer holds apart", and once PM's tombstone retention
+    lapses the id resolves as `missing`, which is unresolvable.
+    """
+    survivor = Person(
+        source="usa_wa_legislature", source_id="live", name_full="Survivor", pm_person_id=ULID()
+    )
+    loser = Person(
+        source="usa_wa_legislature", source_id="merged", name_full="Loser", pm_person_id=ULID()
+    )
+    db_session.add_all([survivor, loser])
+    await db_session.flush()
+
+    # the registry's own tombstone — the ids ARE the canonical ULIDs (the seed
+    # preserved them), which is what lets this filter join the two stores at all
+    for person in (survivor, loser):
+        await _register(db_session, person)
+    await adjudicate_merge(
+        db_session, KIND_PERSON, loser=str(loser.id), survivor=str(survivor.id), note="#368 test"
+    )
+
+    rows = await anchor_rows(db_session)
+
+    assert str(survivor.id) in {row[1] for row in rows}
+    assert str(loser.id) not in {row[1] for row in rows}
+
+
+@pytest.mark.db
+async def test_the_losers_assignment_anchor_survives_the_merge(db_session) -> None:
+    """Only the ENTITY id retires. PM's merge keeps an assignment's own id and
+    only changes whose it is, so that anchor still resolves and dropping it
+    would retract a mapping both sides still believe (#368)."""
+    survivor = Person(
+        source="usa_wa_legislature", source_id="live", name_full="Survivor", pm_person_id=ULID()
+    )
+    loser = Person(
+        source="usa_wa_legislature", source_id="merged", name_full="Loser", pm_person_id=ULID()
+    )
+    db_session.add_all([survivor, loser])
+    await db_session.flush()
+    for person in (survivor, loser):
+        await _register(db_session, person)
+    await adjudicate_merge(
+        db_session, KIND_PERSON, loser=str(loser.id), survivor=str(survivor.id), note="#368 test"
+    )
+    assignment = await _anchored_assignment(db_session, loser)
+
+    rows = await anchor_rows(db_session)
+
+    assert (("assignment", str(assignment.id), str(assignment.pm_assignment_id))) in rows

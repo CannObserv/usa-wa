@@ -233,6 +233,18 @@ mapping to a row nothing should write to. The dataset was quietly exempt from
 retraction-as-absence and leaked 34 — 32 narrow tenure spans PM's own newer
 anchors supersede, plus two disputed claims both sides had archived.
 
+**And no tombstoned entity** (#368). A registry merge is a third retraction
+signal and this export saw neither of the first two in it — the loser's
+canonical row is not archived and not deleted, nothing happened to it locally —
+so its anchor kept shipping. The #366 Heck merge was the first case, pointing at
+a PM row power-map#514 then deleted; re-seeding PM's crosswalk from that export
+blocks twice, first on two usa-wa ids landing on one PM row ("PM merged what the
+producer holds apart") and later on the id resolving as `missing` once PM's
+tombstone retention lapses. Only the ENTITY retires: the loser's **assignment**
+anchors stay, since PM's merge keeps an assignment's id and changes only whose
+it is. That falls out of the filter rather than being special-cased — a registry
+entity is a canonical person/org/role ULID, an assignment's id is not.
+
 The `data/anchor-export/` tree this job used to write is **retired** (#354). It
 was never HTTP-reachable — it moved by manual copy — and running it beside the
 publisher meant two writers for one dataset, which is how the divergent-digest

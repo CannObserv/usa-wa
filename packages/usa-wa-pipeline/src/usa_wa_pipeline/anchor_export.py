@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
+from clearinghouse_core.registry import KIND_ORG, KIND_PERSON, KIND_ROLE, merge_map
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from usa_wa_pipeline.publish import pipeline_db_path
 
@@ -77,6 +78,25 @@ async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
     John Wynne LD-39 claims both sides archived on 2026-08-05. Every one of them
     put a row on a human's worklist that neither side believes.
 
+    **And no tombstoned entity** (#368). A registry merge is a THIRD retraction
+    signal, and this export saw neither of the first two in it: the loser's
+    canonical row is not archived and not deleted — nothing happened to it
+    locally — so its anchor kept shipping. The #366 Heck merge was the first
+    case, and the export pointed at a PM row power-map#514 then deleted. Re-
+    seeding PM's crosswalk from that blocks twice: two usa-wa ids landing on one
+    PM row reads as "PM merged what the producer holds apart", and once PM's
+    tombstone retention lapses the id resolves as `missing`, which is
+    unresolvable. Same rule the conformed tier settled in #366 — a retired id
+    stops being addressable.
+
+    Only the ENTITY retires. The loser's ASSIGNMENT anchors stay, because PM's
+    merge keeps an assignment's own id and changes only whose it is, so those
+    still resolve; dropping them would retract a mapping both sides believe.
+    That falls out of the filter rather than being special-cased: a registry
+    entity is a canonical person/org/role ULID (the seed preserved them, which
+    is the only reason these two stores can be joined by id at all), and an
+    assignment's id is from a different table, so it is never in the set.
+
     The order rows come back in is
     incidental — a by-product of walking :data:`_KINDS` — and nothing depends on
     it: :func:`materialize_anchors` is order-indifferent, and the publisher
@@ -85,6 +105,10 @@ async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
     the publisher's sort is what actually does the work.) Do not build a
     coupling on it.
     """
+    merged: set[str] = set()
+    for registry_kind in (KIND_PERSON, KIND_ORG, KIND_ROLE):
+        merged |= set(await merge_map(session, registry_kind))
+
     rows: list[tuple[str, str, str]] = []
     for kind, model, anchor_col in _KINDS:
         result = (
@@ -98,7 +122,11 @@ async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
                 .order_by(model.id)
             )
         ).all()
-        rows.extend((kind, str(local_id), str(pm_id)) for local_id, pm_id in result)
+        rows.extend(
+            (kind, str(local_id), str(pm_id))
+            for local_id, pm_id in result
+            if str(local_id) not in merged
+        )
     return rows
 
 
