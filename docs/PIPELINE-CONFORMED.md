@@ -256,6 +256,20 @@ for.
 Any growth past the baseline is a regression; a Postgres-tier rebuild would
 take the baseline to zero, and lowering it then is the point.
 
+**#289 raised it to 785, and that is a real cost worth naming.** Party
+membership no longer breaks when a seat does, so 374 party tails the oracle
+still holds are no longer asserted and 321 survivors end later than it records —
+695, exactly the rise, and decomposed by kind on 2026-09-11 the NON-party
+divergence is identical before and after (missing: committee 4, senate 1;
+dated: senate 34, committee 8). That identity is the evidence the rule touched
+party alone. The oracle is stale by construction — the stored rows were built
+under the old rule and the daily refresh re-drives only the current biennium —
+and a rebuild is deliberately not the answer today, because it would push 695
+span changes through the legacy PM sidecar mid-cutover while power-map takes
+the corrected spans from the published dataset anyway. At 785 this ratchet no
+longer meaningfully guards party spans; the other kinds stay tightly held, and
+the number dies with #314.
+
 ## Conformed: the citations chain (#313)
 
 `models/conformed/citations.py` answers *how do we know this?* for every

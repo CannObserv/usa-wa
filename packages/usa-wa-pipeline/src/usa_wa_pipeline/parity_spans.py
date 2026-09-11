@@ -141,7 +141,29 @@ OWNED_KINDS = ("party", "chamber-senate", "committee", "chamber-house")
 #: 2023-24), which the daily refresh never rebuilds — verified key by key. This
 #: probe fails only on `>`, so a stale-high baseline announces nothing; the
 #: number was read off the run and brought down by hand.
-BASELINE_DIVERGENCE = 90
+#:
+#: **785 since #289**, and this raise is the suspicious move done deliberately.
+#: Party membership no longer breaks when a seat does, so 374 party tails the
+#: oracle still holds are no longer asserted (`missing`) and 321 survivors now
+#: end later than it records (`dated_differently`) — 695, which is exactly the
+#: rise. Measured against `canonical.assignments` on 2026-09-11, decomposed by
+#: kind: the NON-party divergence is unchanged in both directions (`missing`
+#: committee 4 / senate 1, `dated` senate 34 / committee 8, identical before and
+#: after), which is the evidence that the rule touched party alone.
+#:
+#: The oracle is stale BY CONSTRUCTION here, exactly as it was for the raise
+#: above: the stored rows were built by the old rule and the daily refresh
+#: re-drives only the current biennium, so history keeps the split shape until
+#: the Postgres tier is rebuilt or retires (#314). A rebuild is deliberately NOT
+#: the answer today — it would push 695 span changes through the legacy PM
+#: sidecar mid-cutover, while power-map takes the corrected spans from the
+#: published dataset anyway.
+#:
+#: **The cost, stated plainly:** at 785 this ratchet no longer guards party
+#: spans in any useful way — 695 of it is one explained event, and a real party
+#: regression could hide inside that number. The non-party kinds are still
+#: guarded tightly, and the number dies with #314.
+BASELINE_DIVERGENCE = 785
 
 #: The role dimension's own ratchet, measured 2026-09-03: **0** — 312 conformed
 #: role keys against 312 in ``canonical.roles``, exact in both directions, with

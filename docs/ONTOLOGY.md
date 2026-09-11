@@ -100,6 +100,12 @@ A **tenure span** is a contiguous run of biennia in which one member held one th
 seat, a House seat+Position, a committee membership, a party affiliation — collapsed into a single
 dated record. A 12-year senator is one span, not six per-biennium rows.
 
+**Party is the one kind a gap does not break** (#289). A seat someone stopped holding is a tenure
+that ended, so dormancy splits it; a party affiliation is an attribute of the person, not an office
+they occupy, and a break in elected service is no evidence about it. `merge_party_continuity`
+therefore rejoins a member's same-party spans however long the gap — the only thing that breaks
+one is being attested under a *different* party in between, which is a documented switch.
+
 ### Why there is no `spans` table
 
 There is no span table because a span **is already an Assignment**. `TenureSpan` is a frozen

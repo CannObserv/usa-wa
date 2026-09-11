@@ -41,7 +41,7 @@ from clearinghouse_domain_legislative.operator_events import (
     KIND_SEATED,
     KIND_VACATED,
 )
-from clearinghouse_domain_legislative.tenure_spans import TenureSpan
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan, merge_party_continuity
 from clearinghouse_domain_legislative.terms import biennium_for_date, parse_biennium
 
 logger = get_logger(__name__)
@@ -219,7 +219,16 @@ def apply_operator_events(
     dropped from that biennium's House roster. A ``vacated`` event matching no built span
     **synthesizes** the mover's closed House tenure iff the member is a mover *that biennium* —
     the House builder passes this so a chamber-mover's House span is dated without re-including
-    them in the roster (which perturbs the #103 elimination). Senate/committee builders omit it."""
+    them in the roster (which perturbs the #103 elimination). Senate/committee builders omit it.
+
+    **Party continuity is restored last** (#289, :func:`merge_party_continuity`): everything
+    above is about seats, and the seat boundaries were leaking into the member's party span —
+    both from `build_tenure_spans`'s dormancy split and from the `departed` split just applied.
+    It runs HERE rather than in each builder because this is the one funnel every party-span
+    producer already passes through (the sponsor build in both tiers, and the roster-family
+    build); five call sites would be five chances for the two tiers to disagree, which is the
+    shape #366 CR 12 had just finished removing elsewhere. A builder that owns no party spans
+    passes none, so the pass is a no-op for it."""
     owned = set(owned_kinds)
     movers = movers_by_biennium or {}
     context = list(context_spans)
@@ -421,7 +430,7 @@ def apply_operator_events(
                             "current_biennium": current_biennium,
                         },
                     )
-    return result
+    return merge_party_continuity(result)
 
 
 def _seated_at_this_instant(

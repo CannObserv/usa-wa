@@ -360,14 +360,25 @@ def test_departed_still_closes_when_the_member_never_returns():
 
 
 # ---------------------------------------------------------------------------
-# usa-wa#267 — the split. The guard in #268 kept a re-entered span whole, which is the
-# pre-#226 shape and not a regression, but it asserts party membership across a gap the
-# member did not serve. Splitting is the faithful model: close at the departure, reopen at
-# the return, keyed on the return biennium so the new `source_id` is stable across re-drives.
+# usa-wa#267 — the split, as #289 leaves it. #267 made a `departed` close a re-entered span
+# at the departure and reopen it at the return, rather than truncating the member's whole
+# tenure; #289 then decided that a gap in elected service is no evidence at all about PARTY
+# membership, so the two halves are rejoined by `merge_party_continuity` on the way out.
+#
+# The machinery below is still load-bearing, which is why these tests still drive it: the
+# merge can only rejoin spans that EXIST, and without the split the departure truncates the
+# party tenure and nothing reopens it. What changed is the assertion — for party the observable
+# end state is one span across the gap; for a SEAT it is still two tenures, because a seat
+# someone stopped holding is a tenure that ended.
 
 
-def test_departed_splits_a_re_entered_span():
-    """Huntley: resigned 1965-03-26, appointed to Senate LD9 1967-04-24, served to 1972."""
+def test_a_re_entered_party_tenure_survives_the_gap_whole():
+    """Huntley: resigned 1965-03-26, appointed to Senate LD9 1967-04-24, served to 1972.
+
+    759 days without a seat, and a Republican throughout (#289). The span the
+    member re-enters is closed and reopened here and rejoined on the way out —
+    what must never happen is the pre-#267 truncation, which left him holding a
+    Senate seat with no party span under it for five years."""
     party = _span(
         "huntley",
         "party",
@@ -392,20 +403,20 @@ def test_departed_splits_a_re_entered_span():
         current_biennium=CURRENT,
         owned_kinds={"party", "chamber-senate"},
     )
-    parties = sorted((s for s in out if s.kind == "party"), key=lambda s: s.valid_from)
-    assert len(parties) == 2, "the tenure either side of the gap is two spans, not one"
-    first, second = parties
-    assert (first.valid_from, first.valid_to) == (date(1957, 1, 1), date(1965, 3, 26))
-    assert first.is_active is False
-    assert (second.valid_from, second.valid_to) == (date(1967, 4, 24), date(1972, 12, 31))
-    # Keyed on the return biennium, so the second tenure has its own stable source_id.
-    assert second.start_biennium == "1967-68"
-    assert second.source_id != first.source_id
+    parties = [s for s in out if s.kind == "party"]
+    assert len(parties) == 1, "one affiliation, not one per seat tenure"
+    [party_span] = parties
+    assert (party_span.valid_from, party_span.valid_to) == (date(1957, 1, 1), date(1972, 12, 31))
+    # keyed on the EARLIER start, so the surviving source_id is the shipped one
+    assert party_span.start_biennium == "1957-58"
+    # the SEAT is untouched by the merge — that tenure really did end and restart
+    assert [s for s in out if s.kind == "chamber-senate"] == [senate]
 
 
-def test_departed_split_reopens_an_open_span():
-    """Chapman: a sitting senator who moved House->Senate. The second half must stay OPEN —
-    closing it would retire a serving member's party affiliation."""
+def test_a_sitting_members_party_tenure_stays_open_across_the_move():
+    """Chapman: a sitting senator who moved House->Senate. The tenure must stay OPEN —
+    closing it would retire a serving member's party affiliation, which is what
+    power-map's public view showed him as (#289)."""
     party = _span(
         "26176",
         "party",
@@ -430,17 +441,22 @@ def test_departed_split_reopens_an_open_span():
         current_biennium=CURRENT,
         owned_kinds={"party", "chamber-senate"},
     )
-    parties = sorted((s for s in out if s.kind == "party"), key=lambda s: s.valid_from)
-    assert len(parties) == 2
-    assert parties[0].valid_to == date(2024, 12, 5) and parties[0].is_active is False
-    assert parties[1].valid_from == date(2025, 1, 1)
-    assert parties[1].valid_to is None and parties[1].is_active is True
+    parties = [s for s in out if s.kind == "party"]
+    assert len(parties) == 1
+    [party_span] = parties
+    assert party_span.valid_from == date(2017, 1, 1)
+    assert party_span.valid_to is None and party_span.is_active is True
 
 
 def test_departed_split_sees_a_return_another_builder_owns():
     """Pike: returned to a HOUSE seat, which `usa_wa_facts_seats.house.build` owns — invisible
     to the sponsor builder's own span list (#268's structural limit). ``context_spans`` supplies
-    it read-only: it informs the split and never appears in the output."""
+    it read-only: it informs the split and never appears in the output.
+
+    Still load-bearing under #289, and this is the test that shows why: without the
+    context the departure TRUNCATES her party tenure at 2012-12-07 and no second
+    half is ever created, so there is nothing for the merge to rejoin and she
+    loses six years of Republican membership."""
     party = _span(
         "17158",
         "party",
@@ -467,16 +483,19 @@ def test_departed_split_sees_a_return_another_builder_owns():
         context_spans=[house],
     )
     assert all(s.kind == "party" for s in out), "context spans must not be emitted"
-    parties = sorted(out, key=lambda s: s.valid_from)
-    assert len(parties) == 2
-    assert parties[0].valid_to == date(2012, 12, 7)
-    assert (parties[1].valid_from, parties[1].start_biennium) == (date(2013, 1, 1), "2013-14")
+    [party_span] = sorted(out, key=lambda s: s.valid_from)
+    assert (party_span.valid_from, party_span.valid_to) == (date(2011, 1, 1), date(2018, 12, 31))
+    assert party_span.start_biennium == "2011-12"
 
 
-def test_departed_split_uses_the_seated_date_not_the_biennium_floor():
-    """Seat-scoped events apply BEFORE person-scoped ones, so the return date is the precise
-    `seated` date rather than the span's biennium floor. Ordering the other way reopens the
-    party tenure months before the member was actually sworn in."""
+def test_a_seated_event_dates_the_seat_it_names():
+    """Seat-scoped events apply BEFORE person-scoped ones, so a return is read at the precise
+    `seated` date rather than a span's biennium floor.
+
+    #289 removed the party-side consequence — the party tenure is one span across
+    the gap either way — so what this pins now is the seat: Huntley's Senate
+    tenure opens the day he was sworn in, not on the biennium floor the wire
+    built it at."""
     party = _span(
         "huntley",
         "party",
@@ -505,8 +524,10 @@ def test_departed_split_uses_the_seated_date_not_the_biennium_floor():
         current_biennium=CURRENT,
         owned_kinds={"party", "chamber-senate"},
     )
-    second = max((s for s in out if s.kind == "party"), key=lambda s: s.valid_from)
-    assert second.valid_from == date(1967, 4, 24)
+    [seat] = [s for s in out if s.kind == "chamber-senate"]
+    assert seat.valid_from == date(1967, 4, 24)
+    [party_span] = [s for s in out if s.kind == "party"]
+    assert (party_span.valid_from, party_span.valid_to) == (date(1957, 1, 1), date(1972, 12, 31))
 
 
 def test_departed_does_not_split_within_one_biennium():

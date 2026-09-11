@@ -30,9 +30,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 
+from clearinghouse_domain_legislative.span_kinds import KIND_PARTY
 from clearinghouse_domain_legislative.terms import parse_biennium
 
 
@@ -115,3 +116,82 @@ def build_tenure_spans(
             )
     spans.sort(key=lambda s: (s.member_id, s.kind, s.discriminator, s.start_biennium))
     return spans
+
+
+def merge_party_continuity(spans: list[TenureSpan]) -> list[TenureSpan]:
+    """Collapse each member's same-party spans into one, whatever the gap (#289).
+
+    Party membership is derived alongside seat tenure, so it inherits the seat's
+    boundaries: a member who moves between seats, or leaves and returns, gets
+    their party span closed with the old seat and reopened with the new one. We
+    then assert two facts where there is one. Mike Chapman was a Democrat across
+    the 27 days between his House seat and his Senate seat; Margaret Hurley was
+    a Democrat across the 400 days between them; Elmer Huntley was a Republican
+    across 759.
+
+    **There is no upper bound on the gap, deliberately.** A break in elected
+    service is not evidence about party membership — only an attested change of
+    affiliation is, and that is exactly what the guard below preserves: two
+    spans of one party do NOT merge across a span of a different one, because
+    the member is attested under the other party in between and merging would
+    both erase the switch and assert two affiliations at once.
+
+    This is the one place the dormancy rule does not apply. Everywhere else it
+    is right — ``build_tenure_spans`` splits a seat tenure on a biennium gap
+    because a seat someone stopped holding is a tenure that ended, and we do not
+    observe them while they are gone. Party is different in kind: it is an
+    attribute of the person, not an office they occupy, so the thing the gap is
+    evidence OF (they stopped holding that seat) says nothing about it.
+
+    Keyed on the EARLIEST span's start, so the surviving ``source_id`` is the
+    one already published and the later tenures are what retract — the merge
+    costs a consumer nothing on the row it keeps.
+    """
+    by_member: dict[str, list[TenureSpan]] = defaultdict(list)
+    passthrough: list[TenureSpan] = []
+    for span in spans:
+        if span.kind == KIND_PARTY:
+            by_member[span.member_id].append(span)
+        else:
+            passthrough.append(span)
+
+    merged: list[TenureSpan] = []
+    for member_spans in by_member.values():
+        ordered = sorted(member_spans, key=lambda s: (s.valid_from, s.start_biennium))
+        run: TenureSpan | None = None
+        for span in ordered:
+            if run is None:
+                run = span
+                continue
+            if span.discriminator == run.discriminator:
+                run = _extend(run, span)
+                continue
+            # A different affiliation: close the run and start a new one. Any
+            # later span of the first party opens its own run rather than
+            # rejoining this one — the switch is the documented break.
+            merged.append(run)
+            run = span
+        if run is not None:
+            merged.append(run)
+
+    return sorted(
+        [*passthrough, *merged],
+        key=lambda s: (s.member_id, s.kind, s.discriminator, s.start_biennium),
+    )
+
+
+def _extend(run: TenureSpan, later: TenureSpan) -> TenureSpan:
+    """``run`` widened to cover ``later``; the tail's end and openness win.
+
+    ``valid_to`` takes the later span's, not the maximum: spans arrive ordered by
+    start, and an open tail means the member is still serving, which is the
+    sitting-legislator case that must stay open.
+    """
+    return replace(
+        run,
+        end_biennium=max(run.end_biennium, later.end_biennium, key=lambda b: parse_biennium(b)[0]),
+        valid_to=later.valid_to
+        if later.is_active or later.valid_to is None
+        else max(filter(None, (run.valid_to, later.valid_to)), default=None),
+        is_active=later.is_active,
+    )
