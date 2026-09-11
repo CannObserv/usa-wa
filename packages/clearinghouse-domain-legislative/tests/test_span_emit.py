@@ -728,3 +728,34 @@ async def test_load_context_spans_is_empty_without_members(db_session):
     """No member carries a `departed`, so there is nothing to look up — and the loader must
     not scan the whole assignment table to discover that."""
     assert await load_context_spans(db_session, member_ids=set(), exclude_kinds={"party"}) == []
+
+
+async def test_close_stale_spans_still_closes_an_anchored_row_it_can_close(db_session, usa_wa):
+    """CR 11: the anchor guard is scoped to the DEGENERATE branch, and only it.
+
+    A close is reversible — `valid_to` moves, `deleted_at` stays NULL — so an anchored row
+    with a valid past close date is closed like any other, and the sidecar carries the new
+    end upstream. Hoisting the `pm_assignment_id` check above the degenerate test would
+    spare every anchored stale row instead, which is the whole #83 sweep: a span Assignment
+    is anchored the moment the sidecar has seen it, so a departed member's open row would
+    stay `is_active` forever with the suite still green.
+    """
+    row = await _open_assignment(
+        db_session, usa_wa, "100:party:democratic:2021-22", frm=date(2021, 1, 1)
+    )
+    row.pm_assignment_id = _ULID()
+    await db_session.flush()
+
+    result = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"party"},
+        asserted_source_ids={"other:party:democratic:2021-22"},
+        current_biennium="2027-28",
+    )
+
+    assert result.closed == 1
+    assert result.anchored == 0
+    assert row.is_active is False
+    assert row.valid_to == date(2026, 12, 31)
+    assert row.deleted_at is None  # a close never tombstones, anchored or not
