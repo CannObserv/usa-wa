@@ -168,7 +168,13 @@ def merge_party_continuity(spans: list[TenureSpan]) -> list[TenureSpan]:
 
     merged: list[TenureSpan] = []
     for member_spans in by_member.values():
-        ordered = sorted(member_spans, key=lambda s: (s.valid_from, s.start_biennium))
+        # Through `parse_biennium`, like every other biennium comparison in this module
+        # (CR 5): a label is `YYYY-YY`, so string order happens to agree today, but the
+        # tiebreak decides which span the run keys on — and therefore which `source_id`
+        # survives the merge. Too load-bearing to rest on a label's spelling.
+        ordered = sorted(
+            member_spans, key=lambda s: (s.valid_from, parse_biennium(s.start_biennium)[0])
+        )
         run: TenureSpan | None = None
         for span in ordered:
             if run is None:
