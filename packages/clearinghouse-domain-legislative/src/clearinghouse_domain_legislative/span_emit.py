@@ -212,7 +212,8 @@ async def close_stale_spans(
     ``anchored`` (CR 1) — the same guard :func:`retire_unasserted_spans` applies on the
     closed-row side, and for the same reason: both anchor-recovery paths filter
     ``deleted_at IS NULL``, so soft-deleting one strands the PM assignment for good. Treat
-    ``anchored > 0`` as "run the collapse", not as work completed.
+    ``anchored > 0`` as "run the collapse", not as work completed — usa-wa#370 is the
+    standing item for the 70 party tails #289 left in that state.
 
     The valid_to derivation rests on the daily cadence: a member's last rebuilt biennium is
     ``current - 1``. If the re-drive skipped a boundary, the close date lands late — the next
