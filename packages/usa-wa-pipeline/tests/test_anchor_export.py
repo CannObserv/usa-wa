@@ -22,6 +22,7 @@ from usa_wa_pipeline.anchor_export import (
     anchor_rows,
     kind_counts,
     materialize_anchors,
+    withheld_for_tombstones,
 )
 
 
@@ -327,3 +328,53 @@ async def test_a_tombstoned_organizations_anchor_is_not_exported(db_session) -> 
 
     assert str(survivor.id) in {row[1] for row in rows}
     assert str(loser.id) not in {row[1] for row in rows}
+
+
+@pytest.mark.db
+async def test_the_withheld_tombstones_are_counted(db_session) -> None:
+    """CR 17: the export withholds silently, and this is what names the cause.
+
+    A bulk adjudication shrinks `pm_anchors`; a shrink past `max_shrink` refuses
+    the publish, and a refused publish mints nothing at all. The refusal names
+    this dataset's before/after counts, so it is findable — this counter is what
+    tells the operator the rows went to MERGES rather than to the #356 archival
+    screen.
+    """
+    survivor = Person(
+        source="usa_wa_legislature", source_id="live", name_full="Survivor", pm_person_id=ULID()
+    )
+    loser = Person(
+        source="usa_wa_legislature", source_id="merged", name_full="Loser", pm_person_id=ULID()
+    )
+    db_session.add_all([survivor, loser])
+    await db_session.flush()
+    assert await withheld_for_tombstones(db_session) == 0
+
+    for person in (survivor, loser):
+        await _register(db_session, person)
+    await adjudicate_merge(
+        db_session, KIND_PERSON, loser=str(loser.id), survivor=str(survivor.id), note="#368 CR 17"
+    )
+
+    assert await withheld_for_tombstones(db_session) == 1
+    # and it counts the SAME rows the export dropped, which is the only claim
+    # that makes the counter worth reading
+    assert len(await anchor_rows(db_session)) == 1
+
+
+@pytest.mark.db
+async def test_a_locally_retired_row_is_not_counted_as_a_tombstone(db_session) -> None:
+    """The two screens stay distinguishable: an archived row is #356's, not
+    #368's, and conflating them would make the counter lie about the cause."""
+    archived = Person(
+        source="usa_wa_legislature",
+        source_id="arch",
+        name_full="Archived",
+        pm_person_id=ULID(),
+        archived_at=datetime.now(UTC),
+    )
+    db_session.add(archived)
+    await db_session.flush()
+    await _register(db_session, archived)
+
+    assert await withheld_for_tombstones(db_session) == 0

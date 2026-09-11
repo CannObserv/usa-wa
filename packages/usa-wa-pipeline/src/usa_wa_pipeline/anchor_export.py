@@ -65,6 +65,49 @@ _KINDS = (
 )
 
 
+def _anchored_and_live(model, anchor_col):
+    """The predicate both readers below share: anchored, and not locally retired.
+
+    One definition, because two copies of it could disagree — and the whole
+    point of the counter is that it names the same rows the export withheld.
+    """
+    return (anchor_col.isnot(None), model.archived_at.is_(None), model.deleted_at.is_(None))
+
+
+async def _merged_entity_ids(session: AsyncSession) -> set[str]:
+    """Every tombstoned registry entity id, across all three kinds."""
+    merged: set[str] = set()
+    for registry_kind in (KIND_PERSON, KIND_ORG, KIND_ROLE):
+        merged |= set(await merge_map(session, registry_kind))
+    return merged
+
+
+async def withheld_for_tombstones(session: AsyncSession) -> int:
+    """How many otherwise-exportable anchors :func:`anchor_rows` withholds (CR 17).
+
+    Withholding is otherwise invisible: the counters name what shipped, and a
+    dataset quietly getting smaller is the one shape the publisher reacts to
+    without explaining. A bulk adjudication shrinks this export, a shrink past
+    ``max_shrink`` refuses the publish, and a refused publish mints NOTHING —
+    every other dataset included. The refusal does name this dataset and its
+    before/after counts, so the cause is findable; this counter is what makes it
+    attributable to merges rather than to the #356 archival screen, without
+    anyone re-deriving it by hand mid-incident.
+    """
+    merged = await _merged_entity_ids(session)
+    if not merged:
+        return 0
+    total = 0
+    for _, model, anchor_col in _KINDS:
+        ids = (
+            (await session.execute(select(model.id).where(*_anchored_and_live(model, anchor_col))))
+            .scalars()
+            .all()
+        )
+        total += sum(1 for local_id in ids if str(local_id) in merged)
+    return total
+
+
 async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
     """Every anchored entity as ``(kind, usa_wa_id, pm_id)``, both ids base32.
 
@@ -105,20 +148,13 @@ async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
     the publisher's sort is what actually does the work.) Do not build a
     coupling on it.
     """
-    merged: set[str] = set()
-    for registry_kind in (KIND_PERSON, KIND_ORG, KIND_ROLE):
-        merged |= set(await merge_map(session, registry_kind))
-
+    merged = await _merged_entity_ids(session)
     rows: list[tuple[str, str, str]] = []
     for kind, model, anchor_col in _KINDS:
         result = (
             await session.execute(
                 select(model.id, anchor_col)
-                .where(
-                    anchor_col.isnot(None),
-                    model.archived_at.is_(None),
-                    model.deleted_at.is_(None),
-                )
+                .where(*_anchored_and_live(model, anchor_col))
                 .order_by(model.id)
             )
         ).all()
@@ -202,13 +238,15 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 
 
 async def _export_job(ctx: JobContext) -> JobResult:
-    rows = await anchor_rows(ctx.require_session())
+    session = ctx.require_session()
+    rows = await anchor_rows(session)
     counts = kind_counts(rows)
+    withheld = await withheld_for_tombstones(session)
     # The db path is logged, not counted: the run ledger's counters are published
     # verbatim by `GET /api/v1/health/jobs`, and a filesystem path is neither a
     # counter nor something to put on a read surface (CR 113).
     written = materialize_anchors(rows, pipeline_db_path(ctx.args.db))
-    return JobResult.ok({**counts, "pm_anchors_rows": written})
+    return JobResult.ok({**counts, "pm_anchors_rows": written, "withheld_tombstoned": withheld})
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -245,6 +245,14 @@ anchors stay, since PM's merge keeps an assignment's id and changes only whose
 it is. That falls out of the filter rather than being special-cased — a registry
 entity is a canonical person/org/role ULID, an assignment's id is not.
 
+The withheld rows are counted (`withheld_tombstoned`, beside the per-kind
+counts at `/api/v1/health/jobs`), because withholding is otherwise invisible
+and this screen puts a bulk adjudication upstream of the publish gate: a merge
+of many entities shrinks this dataset, a shrink past `--max-shrink` refuses the
+publish, and **a refused publish mints nothing at all** — every other dataset
+included. The refusal names this dataset and its before/after counts; the
+counter is what attributes them to merges rather than to the #356 screen.
+
 The `data/anchor-export/` tree this job used to write is **retired** (#354). It
 was never HTTP-reachable — it moved by manual copy — and running it beside the
 publisher meant two writers for one dataset, which is how the divergent-digest
