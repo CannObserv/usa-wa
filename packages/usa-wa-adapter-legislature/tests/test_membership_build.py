@@ -333,11 +333,15 @@ def test_main_forwards_the_guard_flag_and_ledgers_the_result(monkeypatch, capsys
     payload = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert payload["job"] == build_module.JOB_SLUG
     # `anchored` joins the ledgered counters at CR 9 (see sponsors.build).
+    # The committee builder runs no closed-row sweep (its spans are not historical), so
+    # its `spans_retired` stays 0 — the field is on the shared result, not its behaviour.
     assert payload["counters"] == {
         "emitted": 9,
         "closed_stale": 2,
         "anchored": 0,
         "sweep_aborted": False,
+        "spans_retired": 0,
+        "retire_aborted": False,
     }
 
 

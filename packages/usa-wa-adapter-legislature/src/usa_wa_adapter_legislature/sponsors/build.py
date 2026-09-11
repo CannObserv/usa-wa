@@ -33,10 +33,12 @@ from clearinghouse_domain_legislative.span_emit import (
     MAX_CLOSE_FRACTION_DEFAULT,
     SOURCE,
     CitationTarget,
+    RetireSweepOutcome,
     SpanBuildResult,
     close_fraction,
     close_stale_spans,
     load_context_spans,
+    retire_unasserted_spans,
 )
 from clearinghouse_domain_legislative.tenure_spans import Observation, build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
@@ -220,6 +222,25 @@ async def build_spans(
         current_biennium=current,
         max_close_fraction=max_close_fraction,
     )
+    # The CLOSED-row counterpart (usa-wa#370), the pairing the roster build has run since
+    # #228. `close_stale_spans` reads `is_active` rows, so a closed span the rebuild stopped
+    # asserting is invisible to it and keeps its old shape in every read and in sync —
+    # which is what `merge_party_continuity` (#289) produces 60 of, by collapsing a member's
+    # party tails into the earliest run.
+    #
+    # **Unrestricted builds only.** A restricted re-drive asserts just the current cohort's
+    # spans, so every other member's historical row is unasserted by construction and this
+    # sweep would soft-delete the archive the refresh is refreshing. `close_stale_spans` is
+    # safe there because a departed member has no open rows; this one reads them all.
+    retire = RetireSweepOutcome()
+    if restrict_to_biennium is None:
+        retire = await retire_unasserted_spans(
+            session,
+            assignment_source=SOURCE,
+            kinds={KIND_PARTY, KIND_SENATE},
+            asserted_source_ids={s.source_id for s in spans},
+            max_close_fraction=max_close_fraction,
+        )
     logger.info(
         "sponsor_span_build_complete",
         extra={
@@ -228,6 +249,9 @@ async def build_spans(
             "emitted": emitted,
             "closed_stale": sweep.closed,
             "anchored_not_tombstoned": sweep.anchored,
+            "spans_retired": retire.retired,
+            "retire_anchored": retire.anchored,
+            "retire_aborted": retire.aborted,
             "operator_events": len(events),
             "operator_cites": operator_cites,
             "sweep_aborted": sweep.aborted,
@@ -237,8 +261,12 @@ async def build_spans(
     return SpanBuildResult(
         emitted=emitted,
         closed_stale=sweep.closed,
-        anchored=sweep.anchored,
+        # Both sweeps' declined rows land in ONE count: the caller's question is "is there
+        # an anchor still to settle?", not which sweep met it (usa-wa#370).
+        anchored=sweep.anchored + retire.anchored,
         sweep_aborted=sweep.aborted,
+        spans_retired=retire.retired,
+        retire_aborted=retire.aborted,
     )
 
 

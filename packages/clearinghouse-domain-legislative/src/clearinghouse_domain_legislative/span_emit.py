@@ -96,6 +96,10 @@ class SpanBuildResult:
     closed_stale: int = 0
     anchored: int = 0
     sweep_aborted: bool = False
+    #: The closed-row sweep's half (usa-wa#370), for a builder that runs both.
+    #: ``retire_aborted`` is its own mass-retire guard, distinct from ``sweep_aborted``.
+    spans_retired: int = 0
+    retire_aborted: bool = False
 
 
 def close_fraction(value: str) -> float:

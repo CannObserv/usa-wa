@@ -644,6 +644,9 @@ def test_main_forwards_its_guard_flags_and_ledgers_the_result(monkeypatch, capsy
         "closed_stale": 1,
         "anchored": 0,
         "sweep_aborted": False,
+        # the closed-row sweep's half joins at usa-wa#370
+        "spans_retired": 0,
+        "retire_aborted": False,
     }
 
 
@@ -807,3 +810,112 @@ async def test_unrestricted_build_self_includes_the_roster_cohort(
         include_roster=False,
     )
     assert calls == ["derived"]
+
+
+async def _closed_party_row(db_session, usa_wa, member_id, source_id):
+    """A CLOSED party span row for `member_id`, as an earlier build left it — the shape a
+    merged-away tail becomes once `merge_party_continuity` stops asserting its key."""
+    org = (
+        await db_session.execute(
+            select(Organization).where(Organization.source_id == "stranded-party-org")
+        )
+    ).scalar_one_or_none()
+    if org is None:
+        org = Organization(
+            source="usa_wa_legislature",
+            source_id="stranded-party-org",
+            jurisdiction_id=usa_wa.id,
+            name="Test Party",
+            org_type="party",
+        )
+        db_session.add(org)
+        await db_session.flush()
+        db_session.add(
+            Role(
+                source="usa_wa_legislature",
+                source_id="stranded-party-role",
+                organization_id=org.id,
+                name="Member",
+                role_type="member",
+            )
+        )
+        await db_session.flush()
+    role = (
+        await db_session.execute(select(Role).where(Role.source_id == "stranded-party-role"))
+    ).scalar_one()
+    person = (
+        await db_session.execute(select(Person).where(Person.source_id == str(member_id)))
+    ).scalar_one()
+    row = Assignment(
+        source="usa_wa_legislature",
+        source_id=source_id,
+        person_id=person.id,
+        role_id=role.id,
+        valid_from=date(2019, 1, 1),
+        valid_to=date(2020, 12, 31),
+        is_active=False,
+    )
+    db_session.add(row)
+    await db_session.flush()
+    return row
+
+
+async def test_unrestricted_rebuild_retires_a_stranded_closed_span(db_session, usa_wa, wsl_source):
+    """usa-wa#370: the sponsor family gets the closed-row sweep the roster family has.
+
+    `close_stale_spans` reads `is_active` rows, so a CLOSED span the rebuild no longer
+    asserts is invisible to it — it keeps its old shape in every read and keeps syncing.
+    That is exactly what #289 created 60 of: merging a member's party tails into the
+    earliest run un-asserts closed historical keys. Same pairing the roster build has run
+    since #228, and the asserted set comes from the builder, so the merge rule is consulted
+    rather than re-derived.
+    """
+    await _add_ld(db_session, usa_wa, 5)
+    db_session.add(Person(source="usa_wa_legislature", source_id="100", name_full="Member 100"))
+    await db_session.flush()
+    await _archive(db_session, wsl_source, "2025-26", b"<b:2025-26>")
+    client = _WireMappingSponsorClient({"2025-26": [_member(100, district="5")]})
+    # A closed party row under a key the rebuild will not assert — the shape a merged-away
+    # tail leaves behind. Unanchored, so the sweep may retire it.
+    stranded = await _closed_party_row(db_session, usa_wa, 100, "100:party:democratic:2019-20")
+
+    result = await build_spans(
+        db_session,
+        sponsor_client=client,
+        current_biennium="2025-26",
+        include_roster=False,
+        extra_observations=[],
+    )
+
+    assert result.spans_retired == 1
+    assert stranded.deleted_at is not None
+
+
+async def test_a_restricted_rebuild_never_runs_the_retire_sweep(db_session, usa_wa, wsl_source):
+    """The guard that makes usa-wa#370's sweep safe to add at all.
+
+    A restricted re-drive asserts only the current cohort's spans, so EVERY other member's
+    historical row is "unasserted" by construction. Running the closed-row sweep there would
+    soft-delete the archive — the daily refresh would retire the corpus it is refreshing.
+    `close_stale_spans` survives a restricted run because it reads open rows and a departed
+    member has none; this one reads them all, so it is gated on the unrestricted build.
+    """
+    await _add_ld(db_session, usa_wa, 5)
+    for mid in (100, 200):
+        db_session.add(
+            Person(source="usa_wa_legislature", source_id=str(mid), name_full=f"Member {mid}")
+        )
+    await db_session.flush()
+    await _archive(db_session, wsl_source, "2025-26", b"<b:2025-26>")
+    client = _WireMappingSponsorClient({"2025-26": [_member(100, district="5")]})
+    untouchable = await _closed_party_row(db_session, usa_wa, 200, "200:party:democratic:2019-20")
+
+    result = await build_spans(
+        db_session,
+        sponsor_client=client,
+        current_biennium="2025-26",
+        restrict_to_biennium="2025-26",
+    )
+
+    assert result.spans_retired == 0
+    assert untouchable.deleted_at is None
