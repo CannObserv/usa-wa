@@ -388,6 +388,7 @@ async def build_house_position_spans(
             "bienniums": result.bienniums,
             "house_spans": result.house_spans,
             "closed_stale": sweep.closed,
+            "anchored_not_tombstoned": sweep.anchored,
             "sweep_aborted": sweep.aborted,
             "restricted": restrict_to_biennium,
         },

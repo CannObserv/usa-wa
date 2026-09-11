@@ -143,6 +143,7 @@ async def build_committee_member_spans(
             "emitted": emitted,
             "operator_events": len(events),
             "closed_stale": sweep.closed,
+            "anchored_not_tombstoned": sweep.anchored,
             "sweep_aborted": sweep.aborted,
             "restricted": restrict_to_biennium,
         },

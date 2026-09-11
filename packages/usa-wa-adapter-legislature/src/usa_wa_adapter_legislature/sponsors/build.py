@@ -227,6 +227,7 @@ async def build_spans(
             "spans": len(spans),
             "emitted": emitted,
             "closed_stale": sweep.closed,
+            "anchored_not_tombstoned": sweep.anchored,
             "operator_events": len(events),
             "operator_cites": operator_cites,
             "sweep_aborted": sweep.aborted,

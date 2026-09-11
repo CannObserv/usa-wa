@@ -316,6 +316,44 @@ async def test_close_stale_spans_tombstones_degenerate_single_biennium_span(db_s
     assert row.valid_to is None  # never a one-day span
 
 
+async def test_close_stale_spans_leaves_an_anchored_degenerate_row_for_the_collapse(
+    db_session, usa_wa
+):
+    """CR 1: the tombstone branch must spare an ANCHORED row, exactly as the closed-row
+    counterpart does (``retire_unasserted_spans``, CR #95).
+
+    Both recovery paths for a PM anchor filter on ``deleted_at IS NULL`` — the #97 collapse
+    and the retraction producer — so soft-deleting an anchored row strands the PM assignment
+    with no local row and no way back. #289 made this reachable in bulk: a sitting member's
+    party tail is merged into the earlier run, so the tail's ``source_id`` goes unasserted
+    while its row is still open and still anchored (Rob Chase and Jeremie Dufault, both
+    keyed ``2025-26``). Closing is not an option either — the prior-biennium end precedes
+    the row's own ``valid_from`` — so the row is COUNTED and left standing.
+    """
+    anchored = await _open_assignment(
+        db_session, usa_wa, "31521:party:republican:2027-28", frm=date(2027, 1, 1)
+    )
+    anchored.pm_assignment_id = _ULID()
+    unanchored = await _open_assignment(
+        db_session, usa_wa, "29098:party:republican:2027-28", frm=date(2027, 1, 1)
+    )
+    await db_session.flush()
+
+    result = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"party"},
+        asserted_source_ids={"other:party:democratic:2027-28"},
+        current_biennium="2027-28",
+    )
+
+    assert result.anchored == 1
+    assert anchored.deleted_at is None  # left for the collapse
+    assert anchored.is_active is True  # still asserted, not half-retired
+    assert result.tombstoned == 1  # the unanchored one still goes
+    assert unanchored.deleted_at is not None
+
+
 async def test_close_stale_spans_empty_assertion_set_is_a_guarded_noop(db_session, usa_wa):
     """An empty asserted set means the rebuild saw nothing — an anomaly that must not read
     as mass departure. The sweep declines to close anything."""

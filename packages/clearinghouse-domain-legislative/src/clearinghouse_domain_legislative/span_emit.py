@@ -57,10 +57,14 @@ class StaleSweepOutcome:
     """What :func:`close_stale_spans` did — ``aborted`` distinguishes a mass-close abort
     from a clean nothing-to-close run (#83 CR: the builders surface it in their logs).
     ``tombstoned`` counts the degenerate single-biennium spans soft-deleted instead of
-    closed (#107) — a subset acted-on distinct from the real ``closed`` count."""
+    closed (#107) — a subset acted-on distinct from the real ``closed`` count.
+    ``anchored`` counts the degenerate rows the sweep **left standing** because they carry
+    a PM anchor (CR 1) — same contract as :class:`RetireSweepOutcome`: unfinished business
+    for the caller, not a completed action."""
 
     closed: int = 0
     tombstoned: int = 0
+    anchored: int = 0
     aborted: bool = False
 
 
@@ -204,6 +208,12 @@ async def close_stale_spans(
     mismatched pair would close everything outside the wrong cohort. The key is parsed by
     :func:`span_key_parts` (right-split), so a member id containing a colon is in scope.
 
+    A degenerate row carrying a ``pm_assignment_id`` is **left standing**, counted in
+    ``anchored`` (CR 1) — the same guard :func:`retire_unasserted_spans` applies on the
+    closed-row side, and for the same reason: both anchor-recovery paths filter
+    ``deleted_at IS NULL``, so soft-deleting one strands the PM assignment for good. Treat
+    ``anchored > 0`` as "run the collapse", not as work completed.
+
     The valid_to derivation rests on the daily cadence: a member's last rebuilt biennium is
     ``current - 1``. If the re-drive skipped a boundary, the close date lands late — the next
     unrestricted rebuild self-corrects (spans upsert on ``source_id``). Non-4-part (legacy)
@@ -261,18 +271,37 @@ async def close_stale_spans(
     now = datetime.now(UTC)
     closed = 0
     tombstoned = 0
+    anchored = 0
     for row in stale:
-        row.is_active = False
         if row.valid_from > prior_end:
             # Degenerate: the span's only asserted biennium is the current one, so there is
             # no valid past close date (prior_end precedes valid_from). A one-day
             # valid_from == valid_to window reads as "served one day"; instead soft-delete the
             # row (#107) — hidden from live reads + dropped from sync. PM convergence for such
             # a row comes later from the operator-succession overlay, not this sweep.
+            if row.pm_assignment_id is not None:
+                # …unless it is ANCHORED (CR 1). Both recovery paths for the anchor filter
+                # `deleted_at IS NULL` — the #97 collapse and `retract_assignments` — so a
+                # soft-delete strands the PM assignment permanently, the same hazard
+                # `retire_unasserted_spans` already guards on the closed-row side. Leave the
+                # row exactly as it stands (open, not half-retired) and count it: #289 made
+                # this the common case, since merging a sitting member's party tail into the
+                # earlier run un-asserts a current-biennium key whose row PM already holds.
+                anchored += 1
+                logger.warning(
+                    "stale_span_anchored_not_tombstoned",
+                    extra={
+                        "source_id": row.source_id,
+                        "pm_assignment_id": str(row.pm_assignment_id),
+                    },
+                )
+                continue
+            row.is_active = False
             row.deleted_at = now
             tombstoned += 1
             logger.info("stale_span_tombstoned", extra={"source_id": row.source_id})
             continue
+        row.is_active = False
         row.valid_to = prior_end
         closed += 1
         logger.info(
@@ -281,7 +310,7 @@ async def close_stale_spans(
         )
     if stale:
         await session.flush()
-    return StaleSweepOutcome(closed=closed, tombstoned=tombstoned)
+    return StaleSweepOutcome(closed=closed, tombstoned=tombstoned, anchored=anchored)
 
 
 async def resolve_person(
