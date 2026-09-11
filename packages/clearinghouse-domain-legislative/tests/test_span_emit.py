@@ -759,3 +759,64 @@ async def test_close_stale_spans_still_closes_an_anchored_row_it_can_close(db_se
     assert row.is_active is False
     assert row.valid_to == date(2026, 12, 31)
     assert row.deleted_at is None  # a close never tombstones, anchored or not
+
+
+async def test_close_stale_spans_tombstones_a_retracted_anchored_row(db_session, usa_wa):
+    """usa-wa#370: the anchor guard holds only while there is an anchor to strand.
+
+    Once the retraction producer has run, the PM assignment is archived upstream and the
+    local row carries ``archived_at``. Sparing it after that is not caution, it is a
+    deadlock: the row can never be asserted again (the merge collapsed it), so the sweep
+    would report ``anchored`` forever and the refresh would stay degraded with nothing left
+    to do about it. A retracted anchor is a settled one — tombstone the row.
+    """
+    retracted = await _open_assignment(
+        db_session, usa_wa, "31521:party:republican:2027-28", frm=date(2027, 1, 1)
+    )
+    retracted.pm_assignment_id = _ULID()
+    retracted.archived_at = datetime.now(UTC)
+    still_live = await _open_assignment(
+        db_session, usa_wa, "29098:party:republican:2027-28", frm=date(2027, 1, 1)
+    )
+    still_live.pm_assignment_id = _ULID()
+    await db_session.flush()
+
+    result = await close_stale_spans(
+        db_session,
+        assignment_source="usa_wa_legislature",
+        kinds={"party"},
+        asserted_source_ids={"other:party:democratic:2027-28"},
+        current_biennium="2027-28",
+    )
+
+    assert result.tombstoned == 1
+    assert retracted.deleted_at is not None
+    assert result.anchored == 1  # the un-retracted one is still spared
+    assert still_live.deleted_at is None
+
+
+async def test_retire_unasserted_spans_retires_a_retracted_anchored_row(db_session, usa_wa):
+    """usa-wa#370, the closed-row half: same rule, same reason.
+
+    `retract_assignments` sets `archived_at` on whatever it retracted, open or closed, so
+    both sweeps have to recognise a settled anchor or the 70 party tails #289 stranded
+    would be un-retirable after the very migration that settles them."""
+    retracted = await _closed_assignment(db_session, usa_wa, "abcarver:party:republican:1899-00")
+    retracted.pm_assignment_id = _ULID()
+    retracted.archived_at = datetime.now(UTC)
+    still_live = await _closed_assignment(db_session, usa_wa, "abcarver:party:republican:1893-94")
+    still_live.pm_assignment_id = _ULID()
+    await _closed_assignment(db_session, usa_wa, "abcarver:party:republican:1897-98")
+    await db_session.flush()
+
+    result = await retire_unasserted_spans(
+        db_session,
+        assignment_source="usa_wa_legislature_roster",
+        kinds={"party"},
+        asserted_source_ids={"abcarver:party:republican:1897-98"},
+    )
+
+    assert result.retired == 1
+    assert retracted.deleted_at is not None
+    assert result.anchored == 1
+    assert still_live.deleted_at is None

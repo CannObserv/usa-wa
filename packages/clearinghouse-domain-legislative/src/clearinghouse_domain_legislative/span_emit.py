@@ -122,6 +122,23 @@ RoleResolver = Callable[[AsyncSession, TenureSpan], Awaitable[Role | None]]
 CitationLocator = Callable[[TenureSpan, str], CitationTarget | None]
 
 
+def _anchor_would_strand(row: Assignment) -> bool:
+    """Would removing this row from live reads strand its PM assignment? (usa-wa#370)
+
+    True only while the row carries an anchor that is still **live** upstream. Both sweeps
+    spare such a row rather than setting ``deleted_at``, because every anchor-recovery path
+    filters ``deleted_at IS NULL`` — the #97 collapse and ``retract_assignments`` alike — so
+    a tombstone puts the PM assignment beyond reach for good.
+
+    An ``archived_at`` row is the case that ends the guard: the retraction producer has run,
+    PM has archived the assignment, and there is nothing left to strand. Sparing it after
+    that is not caution but deadlock — a row the rebuild will never assert again (the #289
+    merge collapsed it into an earlier run) would be reported ``anchored`` on every run
+    forever, degrading the refresh with no action left that could clear it.
+    """
+    return row.pm_assignment_id is not None and row.archived_at is None
+
+
 def span_key_parts(source_id: str) -> tuple[str, str, str, str] | None:
     """``(member, kind, discriminator, start_biennium)``, or ``None`` if not a span key.
 
@@ -213,10 +230,10 @@ async def close_stale_spans(
     mismatched pair would close everything outside the wrong cohort. The key is parsed by
     :func:`span_key_parts` (right-split), so a member id containing a colon is in scope.
 
-    A degenerate row carrying a ``pm_assignment_id`` is **left standing**, counted in
-    ``anchored`` (CR 1) — the same guard :func:`retire_unasserted_spans` applies on the
-    closed-row side, and for the same reason: both anchor-recovery paths filter
-    ``deleted_at IS NULL``, so soft-deleting one strands the PM assignment for good.
+    A degenerate row whose anchor is still live is **left standing**, counted in
+    ``anchored`` (CR 1) — :func:`_anchor_would_strand` is the shared rule, applied here and
+    by :func:`retire_unasserted_spans` on the closed-row side. Once the anchor is settled
+    the row tombstones normally, which is how ``anchored`` reaches zero (usa-wa#370).
 
     **What that leaves is visible, not neutral** (CR 10). The row stays open and asserted
     while the rebuild's own span is emitted alongside it, so the member publishes TWO
@@ -293,14 +310,13 @@ async def close_stale_spans(
             # valid_from == valid_to window reads as "served one day"; instead soft-delete the
             # row (#107) — hidden from live reads + dropped from sync. PM convergence for such
             # a row comes later from the operator-succession overlay, not this sweep.
-            if row.pm_assignment_id is not None:
-                # …unless it is ANCHORED (CR 1). Both recovery paths for the anchor filter
-                # `deleted_at IS NULL` — the #97 collapse and `retract_assignments` — so a
-                # soft-delete strands the PM assignment permanently, the same hazard
-                # `retire_unasserted_spans` already guards on the closed-row side. Leave the
-                # row exactly as it stands (open, not half-retired) and count it: #289 made
-                # this the common case, since merging a sitting member's party tail into the
-                # earlier run un-asserts a current-biennium key whose row PM already holds.
+            if _anchor_would_strand(row):
+                # …unless it is ANCHORED and not yet retracted (CR 1, narrowed by usa-wa#370).
+                # Leave the row exactly as it stands (open, not half-retired) and count it:
+                # #289 made this the common case, since merging a sitting member's party tail
+                # into the earlier run un-asserts a current-biennium key whose row PM already
+                # holds. Once the retraction has settled that anchor the row tombstones here
+                # like any other — which is what lets `anchored` reach zero.
                 anchored += 1
                 logger.warning(
                     "stale_span_anchored_not_tombstoned",
@@ -512,12 +528,10 @@ async def retire_unasserted_spans(
     in-scope rows aborts and changes nothing — a truncated re-parse reads as mass strandings.
     A wrongly-aborted sweep self-heals on the next complete run.
 
-    A stranded row carrying a ``pm_assignment_id`` is **skipped**, counted in ``anchored``
-    and warned (CR #95). Retiring it would strand the PM assignment for good: both recovery
-    paths filter ``deleted_at IS NULL`` — the #97 collapse, which would transfer the anchor
-    onto the successor span, and the retraction producer, which treats a tombstone as
-    already gone. So the row stays until the collapse has moved its anchor, and the next
-    sweep retires it. Callers should treat ``anchored > 0`` as "run the collapse"."""
+    A stranded row whose anchor is still live is **skipped**, counted in ``anchored`` and
+    warned (CR #95) — see :func:`_anchor_would_strand`. So the row stays until the anchor is
+    settled (the #97 collapse moves it, or ``retract_assignments`` archives it), and the
+    next sweep retires it. Callers should treat ``anchored > 0`` as unfinished business."""
     if not asserted_source_ids:
         logger.warning(
             "span_retire_sweep_skipped_empty_assertion",
@@ -563,7 +577,7 @@ async def retire_unasserted_spans(
     now = datetime.now(UTC)
     retired = anchored = 0
     for row in stranded:
-        if row.pm_assignment_id is not None:
+        if _anchor_would_strand(row):
             anchored += 1
             logger.warning(
                 "span_retire_skipped_pm_anchor",
