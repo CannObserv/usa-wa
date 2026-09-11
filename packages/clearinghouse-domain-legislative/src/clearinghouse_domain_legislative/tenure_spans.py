@@ -181,11 +181,20 @@ def merge_party_continuity(spans: list[TenureSpan]) -> list[TenureSpan]:
 
 
 def _extend(run: TenureSpan, later: TenureSpan) -> TenureSpan:
-    """``run`` widened to cover ``later``; the tail's end and openness win.
+    """``run`` widened to cover ``later`` — the merged window is their **union**.
 
-    ``valid_to`` takes the later span's, not the maximum: spans arrive ordered by
-    start, and an open tail means the member is still serving, which is the
-    sitting-legislator case that must stay open.
+    So the end is the MAXIMUM of the two, never the tail's: spans arrive ordered
+    by ``valid_from``, which says nothing about where they end, and a later span
+    nested inside the run would otherwise discard the years the run already
+    covered past it.
+
+    Openness is part of that same maximum — an open span has no end at all — so
+    ``is_active`` survives from either side and ``valid_to`` derives from it.
+    That is the sitting-legislator case: a member still serving keeps an open
+    party span whichever half of the run is the open one.
+
+    ``valid_from`` and ``start_biennium`` are the run's, untouched by ``replace``
+    — that is what keys the merged span on the earliest start.
     """
     is_active = run.is_active or later.is_active
     return replace(
