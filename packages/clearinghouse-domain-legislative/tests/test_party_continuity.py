@@ -181,3 +181,20 @@ def test_an_open_run_is_not_closed_by_a_later_closed_span() -> None:
     assert merged.valid_to is None
     assert merged.is_active is True
     assert merged.end_biennium == "2025-26"
+
+
+def test_a_nested_later_span_does_not_shorten_the_run() -> None:
+    """CR 6: the branch the merged end being a `max` exists for — a later span
+    that ends EARLIER than the run it joins. Taking the tail's end would discard
+    the years the run already covered past it."""
+    run = _span(
+        KIND_PARTY, "republican", "2011-12", "2017-18", date(2011, 1, 1), date(2018, 12, 31)
+    )
+    nested = _span(
+        KIND_PARTY, "republican", "2013-14", "2013-14", date(2013, 1, 1), date(2014, 12, 31)
+    )
+
+    [merged] = merge_party_continuity([run, nested])
+
+    assert merged.valid_to == date(2018, 12, 31)
+    assert merged.end_biennium == "2017-18"
