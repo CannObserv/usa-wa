@@ -234,7 +234,12 @@ async def build_spans(
             "restricted": restrict_to_biennium,
         },
     )
-    return SpanBuildResult(emitted=emitted, closed_stale=sweep.closed, sweep_aborted=sweep.aborted)
+    return SpanBuildResult(
+        emitted=emitted,
+        closed_stale=sweep.closed,
+        anchored=sweep.anchored,
+        sweep_aborted=sweep.aborted,
+    )
 
 
 def _add_args(parser: argparse.ArgumentParser) -> None:

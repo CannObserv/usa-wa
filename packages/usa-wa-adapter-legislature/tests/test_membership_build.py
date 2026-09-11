@@ -332,7 +332,13 @@ def test_main_forwards_the_guard_flag_and_ledgers_the_result(monkeypatch, capsys
     assert seen["max_close_fraction"] == 1.0
     payload = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert payload["job"] == build_module.JOB_SLUG
-    assert payload["counters"] == {"emitted": 9, "closed_stale": 2, "sweep_aborted": False}
+    # `anchored` joins the ledgered counters at CR 9 (see sponsors.build).
+    assert payload["counters"] == {
+        "emitted": 9,
+        "closed_stale": 2,
+        "anchored": 0,
+        "sweep_aborted": False,
+    }
 
 
 def test_main_dry_run_rolls_back(monkeypatch):

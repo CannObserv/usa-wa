@@ -86,10 +86,15 @@ class RetireSweepOutcome:
 @dataclass(frozen=True)
 class SpanBuildResult:
     """A span builder's run summary — emitted spans plus the stale-sweep outcome, so the
-    CLIs can print what the sweep did (#83 CR round 3) and the refresh can count spans."""
+    CLIs can print what the sweep did (#83 CR round 3) and the refresh can count spans.
+
+    ``anchored`` is :attr:`StaleSweepOutcome.anchored` carried up (CR 9): a count of rows
+    the sweep declined to act on, which a caller must be able to *gate* on and not merely
+    log — the roster build has degraded its outcome on the equivalent since #228 CR #95."""
 
     emitted: int
     closed_stale: int = 0
+    anchored: int = 0
     sweep_aborted: bool = False
 
 

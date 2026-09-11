@@ -151,6 +151,11 @@ class HouseSpanResult:
     house_spans: int = 0
     bienniums: int = 0
     closed_stale: int = 0
+    #: Rows the sweep left standing because they are anchored (CR 9). Carried, and
+    #: logged, but not gated on here: this builder owns `chamber-house` spans only, and
+    #: the merge that made anchored rows routine (#289) touches `party` alone. Gating
+    #: lives on the WSL refresh, where the party spans are built.
+    sweep_anchored: int = 0
     sweep_aborted: bool = False
     coverage: dict[str, dict[str, int]] = field(default_factory=dict)
 
@@ -381,6 +386,7 @@ async def build_house_position_spans(
         max_close_fraction=max_close_fraction,
     )
     result.closed_stale = sweep.closed
+    result.sweep_anchored = sweep.anchored
     result.sweep_aborted = sweep.aborted
     logger.info(
         "house_span_build_complete",

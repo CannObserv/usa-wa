@@ -793,3 +793,38 @@ def test_the_refresh_declines_the_dry_run_flag():
     with pytest.raises(SystemExit) as excinfo:
         refresh_module.main(["--dry-run"])
     assert excinfo.value.code == 2
+
+
+def test_main_degrades_when_the_sweep_left_an_anchored_row_standing(monkeypatch, capsys):
+    """CR 9: `spans_anchored` is work the sweep DECLINED to do, so the run must not
+    report clean.
+
+    `close_stale_spans` leaves a stale-but-anchored current-biennium row alive rather
+    than soft-deleting it, because a `deleted_at` puts its PM anchor beyond both
+    recovery paths (#289 CR 1). That row is unfinished business — the person carries a
+    duplicate open assignment until the collapse moves the anchor (usa-wa#370) — and a
+    WARNING in journald is not how an operator finds out. Same contract the roster
+    build has had since #228 CR #95: degraded, not failed. The refresh landed its work;
+    this part of it did not.
+    """
+    patch_job_runtime(monkeypatch)
+
+    async def _anchored(*_args, **_kwargs):
+        return RefreshOutcome(
+            committees=RunSummary(
+                discovered=5, fetched=5, skipped_cache_hit=0, upserted_entities=5, errors=0
+            ),
+            meetings_upserted=2,
+            members_upserted=3,
+            member_spans=1,
+            committee_spans=1,
+            spans_anchored=2,
+        )
+
+    with patch.object(refresh_module, "run_refresh", _anchored):
+        code = refresh_module.main(["--json"])
+
+    payload = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert payload["outcome"] == "degraded"
+    assert payload["counters"]["spans_anchored"] == 2
+    assert code != 0

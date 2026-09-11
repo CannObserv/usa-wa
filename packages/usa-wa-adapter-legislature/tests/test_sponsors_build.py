@@ -637,7 +637,14 @@ def test_main_forwards_its_guard_flags_and_ledgers_the_result(monkeypatch, capsy
     assert seen["stale_min_coverage"] == 0.25
     payload = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert payload["job"] == build_module.JOB_SLUG
-    assert payload["counters"] == {"emitted": 4, "closed_stale": 1, "sweep_aborted": False}
+    # `anchored` joins the ledgered counters at CR 9 — the sweep's declined work has to
+    # be visible to an operator reading a run, not only to journald.
+    assert payload["counters"] == {
+        "emitted": 4,
+        "closed_stale": 1,
+        "anchored": 0,
+        "sweep_aborted": False,
+    }
 
 
 def test_main_dry_run_rolls_back(monkeypatch):

@@ -37,6 +37,7 @@ from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import Citation, FetchEvent
 from clearinghouse_core.runner import AdapterRunner, RunSummary
 from clearinghouse_domain_legislative.identity import Organization
+from clearinghouse_domain_legislative.span_emit import SpanBuildResult
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.adapter import (
     COMMITTEES_RESOURCE_PREFIX,
@@ -70,6 +71,10 @@ class RefreshOutcome:
     members_upserted: int = 0
     member_spans: int = 0
     committee_spans: int = 0
+    #: Stale rows both span sweeps left standing because they carry a PM anchor
+    #: (#289 CR 1/CR 9). Non-zero is work the refresh declined to do, not work it
+    #: finished — it degrades the run.
+    spans_anchored: int = 0
 
 
 async def run_refresh(
@@ -149,18 +154,19 @@ async def run_refresh(
     member_cohort = CommitteeMemberCohortProvider(
         member_client or WSLClient("CommitteeService"), session=session, source_id=source.id
     )
-    member_spans = await _rebuild_member_spans(
+    member_result = await _rebuild_member_spans(
         session, biennium, current, sponsor_client, member_cohort
     )
-    committee_spans = await _rebuild_committee_member_spans(
+    committee_result = await _rebuild_committee_member_spans(
         session, biennium, current, member_cohort
     )
     return RefreshOutcome(
         committees=summary,
         meetings_upserted=meetings_upserted,
         members_upserted=members_upserted,
-        member_spans=member_spans,
-        committee_spans=committee_spans,
+        member_spans=member_result.emitted,
+        committee_spans=committee_result.emitted,
+        spans_anchored=member_result.anchored + committee_result.anchored,
     )
 
 
@@ -169,7 +175,7 @@ async def _rebuild_committee_member_spans(
     biennium: str,
     current: str,
     member_cohort: CommitteeMemberCohortProvider,
-) -> int:
+) -> SpanBuildResult:
     """Re-drive the committee-membership span builder (#82) so the daily refresh materializes
     merged membership **spans** from the roster archive — the current biennium is a span's
     open end. The per-biennium inline emission the committee-member normalizer used to carry
@@ -177,21 +183,23 @@ async def _rebuild_committee_member_spans(
 
     Scoped to the current cohort (``restrict_to_biennium``) so it re-asserts only today's
     (member, committee) pairs — each with their full history — not every membership in the
-    archive. Same gating + best-effort SAVEPOINT contract as :func:`_rebuild_member_spans`."""
+    archive. Same gating + best-effort SAVEPOINT contract as :func:`_rebuild_member_spans`.
+
+    Returns the whole :class:`SpanBuildResult`, not the emitted count (CR 9): the sweep's
+    ``anchored`` rows have to reach the job's outcome, and a bare int drops them."""
     if biennium != current:
-        return 0
+        return SpanBuildResult(emitted=0)
     try:
         async with session.begin_nested():
-            result = await build_committee_member_spans(
+            return await build_committee_member_spans(
                 session,
                 member_cohort=member_cohort,
                 current_biennium=current,
                 restrict_to_biennium=current,
             )
-            return result.emitted
     except Exception:
         logger.exception("wsl_committee_span_rebuild_failed", extra={"biennium": biennium})
-        return 0
+        return SpanBuildResult(emitted=0)
 
 
 async def _rebuild_member_spans(
@@ -200,7 +208,7 @@ async def _rebuild_member_spans(
     current: str,
     sponsor_client: WSLClient | None,
     member_cohort: CommitteeMemberCohortProvider,
-) -> int:
+) -> SpanBuildResult:
     """Re-drive the Phase B span builder (#78-2c) so the daily refresh materializes merged
     party/Senate-seat Assignment **spans** from the sponsor archive — the current biennium
     is just a span's open end. The per-biennium inline emission the sponsor normalizer used
@@ -211,25 +219,27 @@ async def _rebuild_member_spans(
     the ``sponsors.build`` CLI's job (re-driving here with the wrong "current" would
     mis-open closed tenures). **Best-effort** — wrapped in a SAVEPOINT so a builder failure
     rolls back only the span work and never fails the (primary) committees refresh. Reads the
-    archive the sponsor pull just wrote (archive-first; no extra WSL call). Returns the count.
+    archive the sponsor pull just wrote (archive-first; no extra WSL call).
+
+    Returns the whole :class:`SpanBuildResult`, not the emitted count (CR 9): the sweep's
+    ``anchored`` rows have to reach the job's outcome, and a bare int drops them.
     """
     if biennium != current:
-        return 0
+        return SpanBuildResult(emitted=0)
     try:
         async with session.begin_nested():
             # Scope to the current cohort — rebuild only spans for members in today's pull
             # (their full history), not every member's whole archive every day (#78-2c CR).
-            result = await sponsor_build.build_spans(
+            return await sponsor_build.build_spans(
                 session,
                 sponsor_client=sponsor_client,
                 member_cohort=member_cohort,
                 current_biennium=current,
                 restrict_to_biennium=current,
             )
-            return result.emitted
     except Exception:
         logger.exception("wsl_member_span_rebuild_failed", extra={"biennium": biennium})
-        return 0
+        return SpanBuildResult(emitted=0)
 
 
 async def _discover_members(
@@ -419,10 +429,21 @@ async def _refresh_job(ctx: JobContext) -> JobResult:
         "members_upserted": outcome.members_upserted,
         "member_spans": outcome.member_spans,
         "committee_spans": outcome.committee_spans,
+        "spans_anchored": outcome.spans_anchored,
     }
-    if committees.errors == 0:
-        return JobResult.ok(counters)
-    return JobResult.failed(counters)
+    if committees.errors:
+        return JobResult.failed(counters)
+    if outcome.spans_anchored:
+        # The sweep declined to soft-delete a stale row because it carries a PM anchor
+        # (#289 CR 1) — a `deleted_at` would put that anchor beyond both recovery paths.
+        # The row is still open and still asserted upstream, so the member publishes a
+        # duplicate assignment until the collapse moves the anchor (usa-wa#370). The
+        # refresh landed its work; THIS part of it did not, which is what `degraded` is
+        # for (#178) — the same call the roster build has made on `spans_retired_anchored`
+        # since #228 CR #95. Failing instead would alert on a refresh that is otherwise
+        # clean and would roll nothing back anyway.
+        return JobResult.degraded(counters)
+    return JobResult.ok(counters)
 
 
 def main(argv: list[str] | None = None) -> int:
