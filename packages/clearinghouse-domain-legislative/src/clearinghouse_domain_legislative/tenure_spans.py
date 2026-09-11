@@ -187,11 +187,12 @@ def _extend(run: TenureSpan, later: TenureSpan) -> TenureSpan:
     start, and an open tail means the member is still serving, which is the
     sitting-legislator case that must stay open.
     """
+    is_active = run.is_active or later.is_active
     return replace(
         run,
         end_biennium=max(run.end_biennium, later.end_biennium, key=lambda b: parse_biennium(b)[0]),
-        valid_to=later.valid_to
-        if later.is_active or later.valid_to is None
+        valid_to=None
+        if is_active
         else max(filter(None, (run.valid_to, later.valid_to)), default=None),
-        is_active=later.is_active,
+        is_active=is_active,
     )

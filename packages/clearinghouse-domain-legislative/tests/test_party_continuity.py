@@ -156,3 +156,28 @@ def test_overlapping_same_party_spans_still_collapse_to_one() -> None:
 
     assert merged.valid_from == date(2011, 1, 1)
     assert merged.valid_to == date(2016, 12, 31)
+
+
+def test_an_open_run_is_not_closed_by_a_later_closed_span() -> None:
+    """CR 3: openness is sticky, because an open end IS the maximum end.
+
+    The merged window is the union of the two — that is what makes the end the
+    `max` rather than the tail's. An open span has no end at all, so a merge
+    that took `is_active` from the tail alone could close a run that is still
+    running: the member is still serving and their affiliation would be
+    retired under them, which is the whole defect #289 exists to fix. Ordering
+    by `valid_from` makes this rare, not impossible — the overlay's `seated`
+    back-dates a span's `valid_from` below its own biennium floor (#272).
+    """
+    run = _span(
+        KIND_PARTY, "democratic", "2017-18", "2025-26", date(2017, 1, 1), None, is_active=True
+    )
+    later = _span(
+        KIND_PARTY, "democratic", "2019-20", "2019-20", date(2019, 1, 1), date(2020, 12, 31)
+    )
+
+    [merged] = merge_party_continuity([run, later])
+
+    assert merged.valid_to is None
+    assert merged.is_active is True
+    assert merged.end_biennium == "2025-26"
