@@ -7,7 +7,7 @@ import duckdb
 import pytest
 from ulid import ULID
 
-from clearinghouse_core.registry import KIND_PERSON, apply_decision, decide
+from clearinghouse_core.registry import KIND_ORG, KIND_PERSON, apply_decision, decide
 from clearinghouse_domain_legislative.identity import (
     Assignment,
     Organization,
@@ -282,3 +282,48 @@ async def test_the_losers_assignment_anchor_survives_the_merge(db_session) -> No
     rows = await anchor_rows(db_session)
 
     assert (("assignment", str(assignment.id), str(assignment.pm_assignment_id))) in rows
+
+
+@pytest.mark.db
+async def test_a_tombstoned_organizations_anchor_is_not_exported(db_session) -> None:
+    """CR 16: the rule is not person-only, and nothing pinned the other half.
+
+    `anchor_rows` screens all three registry kinds, but every test covered
+    persons — so narrowing the loop back to `KIND_PERSON` would have left the
+    suite green while re-opening exactly this defect for organizations, which is
+    the half #368 names out loud ("a tombstoned person **or organization**").
+    Committee merges are the live case: the lineage work (#124) retires bodies
+    into their successors.
+    """
+    survivor = Organization(
+        source="usa_wa_legislature",
+        source_id="live-org",
+        name="Survivor",
+        org_type="committee",
+        pm_organization_id=ULID(),
+    )
+    loser = Organization(
+        source="usa_wa_legislature",
+        source_id="merged-org",
+        name="Loser",
+        org_type="committee",
+        pm_organization_id=ULID(),
+    )
+    db_session.add_all([survivor, loser])
+    await db_session.flush()
+    for org in (survivor, loser):
+        await apply_decision(
+            db_session,
+            KIND_ORG,
+            decide(frozenset({f"usa_wa_legislature:{org.source_id}"}), {}),
+            registered_by="test",
+            entity_id=str(org.id),
+        )
+    await adjudicate_merge(
+        db_session, KIND_ORG, loser=str(loser.id), survivor=str(survivor.id), note="#368 CR 16"
+    )
+
+    rows = await anchor_rows(db_session)
+
+    assert str(survivor.id) in {row[1] for row in rows}
+    assert str(loser.id) not in {row[1] for row in rows}
