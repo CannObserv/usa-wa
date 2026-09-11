@@ -216,7 +216,15 @@ async def close_stale_spans(
     A degenerate row carrying a ``pm_assignment_id`` is **left standing**, counted in
     ``anchored`` (CR 1) — the same guard :func:`retire_unasserted_spans` applies on the
     closed-row side, and for the same reason: both anchor-recovery paths filter
-    ``deleted_at IS NULL``, so soft-deleting one strands the PM assignment for good. Treat
+    ``deleted_at IS NULL``, so soft-deleting one strands the PM assignment for good.
+
+    **What that leaves is visible, not neutral** (CR 10). The row stays open and asserted
+    while the rebuild's own span is emitted alongside it, so the member publishes TWO
+    concurrent assignments of the same thing — locally and, through the sidecar, in PM.
+    Nothing catches it: the duplicate-occupancy invariants are seat-scoped, and party is
+    outside ``SINGLE_HOLDER_KINDS`` because a party has many members, which is not the
+    claim that one person holds one membership twice. It is the right trade against an
+    unrecoverable strand and it is still wrong-looking until the anchor moves. Treat
     ``anchored > 0`` as "run the collapse", not as work completed — usa-wa#370 is the
     standing item for the 70 party tails #289 left in that state.
 
