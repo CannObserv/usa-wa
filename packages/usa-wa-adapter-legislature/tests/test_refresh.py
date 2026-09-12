@@ -795,17 +795,24 @@ def test_the_refresh_declines_the_dry_run_flag():
     assert excinfo.value.code == 2
 
 
-def test_main_degrades_when_the_sweep_left_an_anchored_row_standing(monkeypatch, capsys):
-    """CR 9: `spans_anchored` is work the sweep DECLINED to do, so the run must not
-    report clean.
+def test_main_does_not_degrade_on_an_anchored_row_the_cutover_will_settle(monkeypatch, capsys):
+    """`spans_anchored` is counted and ledgered, and does NOT degrade the run (usa-wa#370).
 
-    `close_stale_spans` leaves a stale-but-anchored current-biennium row alive rather
-    than soft-deleting it, because a `deleted_at` puts its PM anchor beyond both
-    recovery paths (#289 CR 1). That row is unfinished business — the person carries a
-    duplicate open assignment until the collapse moves the anchor (usa-wa#370) — and a
-    WARNING in journald is not how an operator finds out. Same contract the roster
-    build has had since #228 CR #95: degraded, not failed. The refresh landed its work;
-    this part of it did not.
+    CR 9 made it degrade, on the roster build's precedent (#228 CR #95): a stranded anchor
+    is unfinished business, and `JobResult.degraded` means "the run completed but its work
+    did not land". That reasoning had a premise this one does not share — the roster build
+    is operator-run, and its remedy (the #97 collapse) is available to whoever reads the
+    exit code.
+
+    The remedy here is not. Settling these anchors means retracting through the PM sync
+    stack, and that stack was deliberately MASKED on 2026-09-08 for the #302/#314 cutover;
+    power-map takes corrected spans from the published dataset now. So a degrade on this
+    timer's daily run would mail `USA_WA_ALERT_EMAIL` every morning about a condition
+    nobody is permitted to clear — the "two meaningless warnings per run, training
+    operators to ignore the exact signal that matters" failure this codebase names
+    elsewhere. The rows die with the tier at #314.
+
+    Counted, ledgered, greppable; not alarmed.
     """
     patch_job_runtime(monkeypatch)
 
@@ -825,6 +832,6 @@ def test_main_degrades_when_the_sweep_left_an_anchored_row_standing(monkeypatch,
         code = refresh_module.main(["--json"])
 
     payload = json.loads(capsys.readouterr().out.splitlines()[-1])
-    assert payload["outcome"] == "degraded"
+    assert payload["outcome"] == "ok"
     assert payload["counters"]["spans_anchored"] == 2
-    assert code != 0
+    assert code == 0

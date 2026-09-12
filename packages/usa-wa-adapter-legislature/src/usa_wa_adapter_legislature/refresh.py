@@ -71,9 +71,9 @@ class RefreshOutcome:
     members_upserted: int = 0
     member_spans: int = 0
     committee_spans: int = 0
-    #: Stale rows both span sweeps left standing because they carry a PM anchor
-    #: (#289 CR 1/CR 9). Non-zero is work the refresh declined to do, not work it
-    #: finished — it degrades the run.
+    #: Stale rows both span sweeps left standing because their PM anchor is still live
+    #: (#289 CR 1). Counted and ledgered, NOT alarmed: settling them needs the masked PM
+    #: sync stack, so they clear at the #302/#314 cutover and not before (usa-wa#370).
     spans_anchored: int = 0
 
 
@@ -433,16 +433,17 @@ async def _refresh_job(ctx: JobContext) -> JobResult:
     }
     if committees.errors:
         return JobResult.failed(counters)
-    if outcome.spans_anchored:
-        # The sweep declined to soft-delete a stale row because it carries a PM anchor
-        # (#289 CR 1) — a `deleted_at` would put that anchor beyond both recovery paths.
-        # The row is still open and still asserted upstream, so the member publishes a
-        # duplicate assignment until the collapse moves the anchor (usa-wa#370). The
-        # refresh landed its work; THIS part of it did not, which is what `degraded` is
-        # for (#178) — the same call the roster build has made on `spans_retired_anchored`
-        # since #228 CR #95. Failing instead would alert on a refresh that is otherwise
-        # clean and would roll nothing back anyway.
-        return JobResult.degraded(counters)
+    # `spans_anchored` is counted and ledgered but deliberately does NOT degrade the run
+    # (usa-wa#370). #289 CR 1 made the sweeps spare a stale row whose PM anchor is still
+    # live, and CR 9 degraded on it the way the roster build degrades on
+    # `spans_retired_anchored` (#228 CR #95). That precedent carries a premise this job does
+    # not share: the roster build is operator-run and its remedy — the #97 collapse — is
+    # available to whoever reads the exit code. Settling THESE anchors means retracting
+    # through the PM sync stack, and that stack was deliberately masked on 2026-09-08 for
+    # the #302/#314 cutover, with power-map taking corrected spans from the published
+    # dataset instead. Degrading here would mail `USA_WA_ALERT_EMAIL` every morning about a
+    # condition nobody is permitted to clear, which is how an alert channel gets ignored.
+    # The rows die with the Postgres tier at #314; until then the count is greppable.
     return JobResult.ok(counters)
 
 
