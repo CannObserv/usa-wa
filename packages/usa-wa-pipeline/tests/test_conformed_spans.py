@@ -18,6 +18,7 @@ from clearinghouse_domain_legislative.span_kinds import (
     KIND_SENATE,
 )
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
+from usa_wa_pipeline.conformed.span_key import span_key
 from usa_wa_pipeline.conformed.spans import (
     ROSTER_SOURCE,
     SOURCE,
@@ -514,3 +515,31 @@ def test_assignment_rows_do_not_drop_or_reorder_spans_when_clipping() -> None:
     assert [r["member_id"] for r in rows] == ["100", "101"]
     assert counters["spans"] == 2
     assert counters["published"] == 2
+
+
+def test_every_assignment_row_carries_its_structural_key() -> None:
+    """usa-wa#370 / power-map#490: the row names itself.
+
+    A published assignment has no identifier of its own — #302 gave assignments
+    deterministic structural keys and no registry. PM's applier measures
+    retraction-as-absence in the dataset's key space, so it needs that tuple as one
+    producer-serialized string rather than re-deriving it from its own rows, whose
+    dates are not the producer's (the duplicate audit deepened hundreds of starts).
+    """
+    inputs = SpanInputs(sponsors=[_sponsor("100", CURRENT)], committee_members=[], events=[])
+    spans = build_all_spans(
+        inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING, house_spans=NO_HOUSE
+    )
+    rows, _ = assignment_rows({SOURCE: spans}, {f"{SOURCE}:100": "01ENTITY"})
+
+    assert rows
+    for row in rows:
+        assert row["span_key"] == span_key(
+            entity_id=row["entity_id"],
+            role_key=row["role_key"],
+            span_kind=row["span_kind"],
+            span_discriminator=row["span_discriminator"],
+            span_start_biennium=row["span_start_biennium"],
+        )
+    # unique across the set, which is what makes it usable as an identity
+    assert len({r["span_key"] for r in rows}) == len(rows)

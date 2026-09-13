@@ -131,7 +131,14 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
 #:   dataset only when that dataset next mints. Existing version dirs are
 #:   immutable and keep the datapackage they shipped with; PIPELINE.md carries
 #:   the declaration for those.
-SCHEMA_VERSION = "1.6.0"
+#: - 1.7.0 (usa-wa#370): `assignments` and `pm_anchors` both gained
+#:   `span_key` — the assignment's five structural fields as one
+#:   producer-serialized string. power-map#490's applier measures
+#:   retraction-as-absence in the dataset's key space, and an assignment
+#:   anchor had nothing to be absent FROM: the crosswalk's `usa_wa_id`
+#:   appears in no published column, so crosswalk- and dataset-membership
+#:   overlapped on 0 of 8,777 assignment rows. Appended, hence minor.
+SCHEMA_VERSION = "1.7.0"
 
 #: The CSV serialisation every published dataset uses, declared rather than
 #: left for a consumer to sniff (#357). These are duckdb ``COPY``'s defaults,

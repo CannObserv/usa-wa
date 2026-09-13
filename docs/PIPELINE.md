@@ -220,6 +220,26 @@ tier is published rather than inferred:
 | `internal` | `citations` | Published bytes, no stability promise; its columns follow the API, not consumers |
 | `cutover` | `pm_anchors` | A migration artifact with a limited life — see below |
 
+**Each assignment anchor carries its published `span_key`** (usa-wa#370,
+power-map#490). A published assignment has no id of its own — #302 gave
+assignments deterministic structural keys and no registry — so PM's applier,
+which measures retraction-as-absence in the dataset's own key space, had
+nothing for an assignment anchor to be absent *from*: the crosswalk's
+`usa_wa_id` appears in no published column, and crosswalk- vs
+dataset-membership overlapped on **0 of 8,777** assignment rows (roles
+coincide at 312/312, which is why roles work as built and assignments do not).
+The column is serialized once by
+[`conformed/span_key.py`](../packages/usa-wa-pipeline/src/usa_wa_pipeline/conformed/span_key.py)
+and published on **both** `assignments` and `pm_anchors`; `anchor_export` does
+not re-derive it but joins each anchored canonical row to the built
+`assignments` table on `(source, member_id, span_kind, span_discriminator,
+span_start_biennium)` and copies the key, so a divergence between the two
+sides is unrepresentable rather than unlikely. An anchor whose row the
+pipeline no longer publishes gets an EMPTY key and is counted
+(`span_key_absent`, 384 on 2026-09-11) — that emptiness is the producer's
+absence signal, and PM keeps such anchors deliberately: an unanchored PM row
+falls outside its applier's row scope and could never be retired.
+
 `pm_anchors` is the PM crosswalk seed (#312) delivered as a dataset (#354,
 power-map#495) instead of as a second ad-hoc file path. It is the one published
 table with no dbt model behind it. `python -m usa_wa_pipeline.anchor_export`

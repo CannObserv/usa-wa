@@ -86,6 +86,7 @@ from usa_wa_common.seats import district_number
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
 from usa_wa_pipeline.conformed.house import build_house_spans
 from usa_wa_pipeline.conformed.roles import role_for_span
+from usa_wa_pipeline.conformed.span_key import span_key
 from usa_wa_pipeline.conformed.wire import committee_rosters, sponsor_wire_rows
 
 logger = get_logger(__name__)
@@ -115,6 +116,10 @@ ASSIGNMENT_COLUMNS = [
     "valid_from",
     "valid_to",
     "is_active",
+    # The row's own name (usa-wa#370): the five structural fields above it,
+    # serialized once by the producer so power-map#490's applier and this tier
+    # cannot disagree about how they become one string.
+    "span_key",
 ]
 
 
@@ -522,6 +527,7 @@ def assignment_rows(
             if entity_id is None:
                 counters["unregistered_spans"] += 1
                 continue
+            role = role_for_span(span.kind, span.discriminator)
             rows.append(
                 {
                     "entity_id": entity_id,
@@ -530,7 +536,7 @@ def assignment_rows(
                     # the slot this tenure fills, as a deterministic structural
                     # key (#309 inc 4) — no ULID mediation, joinable straight
                     # to the `roles` dimension
-                    "role_key": role_for_span(span.kind, span.discriminator).role_key,
+                    "role_key": role.role_key,
                     "span_kind": span.kind,
                     "span_discriminator": span.discriminator,
                     "span_start_biennium": span.start_biennium,
@@ -538,6 +544,13 @@ def assignment_rows(
                     "valid_from": span.valid_from,
                     "valid_to": span.valid_to,
                     "is_active": span.is_active,
+                    "span_key": span_key(
+                        entity_id=entity_id,
+                        role_key=role.role_key,
+                        span_kind=span.kind,
+                        span_discriminator=span.discriminator,
+                        span_start_biennium=span.start_biennium,
+                    ),
                 }
             )
     counters["published"] = len(rows)

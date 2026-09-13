@@ -32,7 +32,7 @@ database.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import duckdb
@@ -44,6 +44,7 @@ from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.registry import KIND_ORG, KIND_PERSON, KIND_ROLE, merge_map
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
+from clearinghouse_domain_legislative.span_emit import span_key_parts
 from usa_wa_pipeline.publish import pipeline_db_path
 
 logger = get_logger(__name__)
@@ -55,7 +56,20 @@ JOB_SLUG = "pm-anchor-export"
 #: sinks take their column order from here — see the module docstring for what
 #: a positional mismatch would cost.
 ANCHOR_TABLE = "pm_anchors"
-ANCHOR_COLUMNS = ("kind", "usa_wa_id", "pm_id")
+ANCHOR_COLUMNS = ("kind", "usa_wa_id", "pm_id", "span_key")
+
+#: The conformed table an assignment anchor takes its `span_key` from, and the
+#: columns the join reads. Derivable on BOTH sides from what each already holds:
+#: canonical carries `source` and a `source_id` that right-splits into the last
+#: three (#259), and the published row carries all five as columns.
+ASSIGNMENTS_TABLE = "assignments"
+ASSIGNMENT_JOIN = (
+    "source",
+    "member_id",
+    "span_kind",
+    "span_discriminator",
+    "span_start_biennium",
+)
 
 _KINDS = (
     ("person", Person, Person.pm_person_id),
@@ -166,6 +180,94 @@ async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
     return rows
 
 
+async def assignment_join_keys(session: AsyncSession) -> dict[str, tuple[str, ...]]:
+    """Local assignment id → the tuple that finds its published row.
+
+    ``(source, member_id, span_kind, span_discriminator, span_start_biennium)``,
+    unique across the conformed set (8,395 / 8,395 on 2026-09-11) and derivable
+    from canonical without touching the registry: the source is a column and the
+    other four right-split out of the span ``source_id`` (:func:`span_key_parts`,
+    right-split since #259 — the roster family's member ids contain colons, so a
+    left-to-right split silently excludes that entire source).
+
+    Deliberately NOT the published key itself. Deriving that here would fork the
+    registry lookup the conformed tier does — including its merge-tombstone
+    resolution — into a second implementation, which is the failure power-map#490
+    asked us to make impossible rather than unlikely.
+    """
+    result = (
+        await session.execute(
+            select(Assignment.id, Assignment.source, Assignment.source_id).where(
+                *_anchored_and_live(Assignment, Assignment.pm_assignment_id)
+            )
+        )
+    ).all()
+    keys: dict[str, tuple[str, ...]] = {}
+    for local_id, source, source_id in result:
+        parts = span_key_parts(str(source_id))
+        if parts is None:
+            continue
+        member_id, span_kind, discriminator, start_biennium = parts
+        keys[str(local_id)] = (str(source), member_id, span_kind, discriminator, start_biennium)
+    return keys
+
+
+def attach_span_keys(
+    rows: Sequence[tuple[str, str, str]],
+    join_keys: Mapping[str, tuple[str, ...]],
+    db_path: Path | str,
+) -> list[tuple[str, str, str, str]]:
+    """``rows`` with each assignment anchor's published ``span_key`` appended.
+
+    The key is **copied from the built ``assignments`` table**, never recomputed
+    (usa-wa#370). power-map#490 needs one producer-serialized string that both
+    sinks agree on; a join makes disagreement unrepresentable, where a second
+    serializer would only make it unlikely.
+
+    An anchor with no published row gets ``""``. That is not a gap, it is the
+    signal: PM keeps such anchors on purpose, because an unanchored PM row falls
+    outside its applier's row scope and could never be retired. 384 of them on
+    2026-09-11, #289's collapsed party tails among them; an empty key is the
+    producer saying "absent", and PM archives on absence.
+
+    Non-assignment kinds carry ``""`` too — the ``kind`` column is what
+    distinguishes "not an assignment" from "an assignment with no published row".
+
+    A missing ``assignments`` table **raises**: a keyless crosswalk is a seed PM
+    cannot re-key from, and exporting one silently would surface the failure on
+    their side at cutover instead of here.
+    """
+    con = duckdb.connect(str(Path(db_path)))
+    try:
+        tables = {name for (name,) in con.execute("show tables").fetchall()}
+        if ASSIGNMENTS_TABLE not in tables:
+            raise RuntimeError(
+                f"{ASSIGNMENTS_TABLE!r} is not in {db_path} — the anchor export takes each "
+                "assignment's span_key from the built conformed table and will not derive "
+                "one. Run `dbt build` (the nightly chain does) before exporting."
+            )
+        columns = ", ".join(f'"{c}"' for c in (*ASSIGNMENT_JOIN, "span_key"))
+        published = {
+            tuple(str(v) for v in row[:-1]): str(row[-1])
+            for row in con.execute(
+                f'select {columns} from "{ASSIGNMENTS_TABLE}"'  # noqa: S608
+            ).fetchall()
+        }
+    finally:
+        con.close()
+    keyed = [(*row, published.get(join_keys.get(row[1], ()), "")) for row in rows]
+    absent = sum(1 for row in keyed if row[0] == "assignment" and not row[3])
+    logger.info(
+        "anchor_span_keys_attached",
+        extra={
+            "published_assignments": len(published),
+            "matched": sum(1 for row in keyed if row[0] == "assignment" and row[3]),
+            "absent": absent,
+        },
+    )
+    return keyed
+
+
 def materialize_anchors(rows: Sequence[tuple[str, str, str]], db_path: Path | str) -> int:
     """Build ``pm_anchors`` in the pipeline duckdb from ``rows``. Returns rows written.
 
@@ -212,7 +314,7 @@ def materialize_anchors(rows: Sequence[tuple[str, str, str]], db_path: Path | st
     return int(written)
 
 
-def kind_counts(rows: Sequence[tuple[str, str, str]]) -> dict[str, int]:
+def kind_counts(rows: Sequence[tuple[str, ...]]) -> dict[str, int]:
     """Per-kind totals, every kind present even at zero.
 
     The catalog carries one ``rows`` total like every other dataset, so this is
@@ -220,7 +322,7 @@ def kind_counts(rows: Sequence[tuple[str, str, str]]) -> dict[str, int]:
     published ``kind`` column.
     """
     counts: dict[str, int] = {kind: 0 for kind, _, _ in _KINDS}
-    for kind, _, _ in rows:
+    for kind, *_ in rows:
         if kind not in counts:
             raise ValueError(f"unknown anchor kind {kind!r}; expected one of {sorted(counts)}")
         counts[kind] += 1
@@ -242,11 +344,24 @@ async def _export_job(ctx: JobContext) -> JobResult:
     rows = await anchor_rows(session)
     counts = kind_counts(rows)
     withheld = await withheld_for_tombstones(session)
+    db_path = pipeline_db_path(ctx.args.db)
+    keyed = attach_span_keys(rows, await assignment_join_keys(session), db_path)
+    absent = sum(1 for row in keyed if row[0] == "assignment" and not row[3])
     # The db path is logged, not counted: the run ledger's counters are published
     # verbatim by `GET /api/v1/health/jobs`, and a filesystem path is neither a
     # counter nor something to put on a read surface (CR 113).
-    written = materialize_anchors(rows, pipeline_db_path(ctx.args.db))
-    return JobResult.ok({**counts, "pm_anchors_rows": written, "withheld_tombstoned": withheld})
+    written = materialize_anchors(keyed, db_path)
+    return JobResult.ok(
+        {
+            **counts,
+            "pm_anchors_rows": written,
+            "withheld_tombstoned": withheld,
+            # The producer's own absence signal, sized for PM's archive threshold
+            # (power-map#490): assignment anchors whose row the pipeline no longer
+            # publishes. Counted here because an empty column is otherwise silent.
+            "span_key_absent": absent,
+        }
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

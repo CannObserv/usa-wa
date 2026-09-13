@@ -128,7 +128,9 @@ async def test_retired_rows_are_absent_from_the_crosswalk(db_session) -> None:
     assert kind_counts(rows)["person"] == 1
 
 
-ROWS = [("person", "01A", "01P"), ("role", "01C", "01D")]
+#: Non-assignment kinds carry an empty `span_key` — the column exists for
+#: assignments (usa-wa#370), and `kind` is what tells the two apart.
+ROWS = [("person", "01A", "01P", ""), ("role", "01C", "01D", "")]
 
 
 def _table(db):
@@ -152,7 +154,7 @@ def test_materialize_builds_the_table_from_rows(tmp_path) -> None:
 
     columns, _, rows = _table(db)
     assert columns == list(ANCHOR_COLUMNS)
-    assert rows == [("person", "01A", "01P"), ("role", "01C", "01D")]
+    assert rows == [("person", "01A", "01P", ""), ("role", "01C", "01D", "")]
 
 
 def test_materialize_replaces_rather_than_appends(tmp_path) -> None:
@@ -171,11 +173,11 @@ def test_materialize_types_every_column_as_text(tmp_path) -> None:
     numeric = "01234567890123456789012345"
     db = tmp_path / "pipeline.duckdb"
 
-    materialize_anchors([("person", numeric, numeric)], db)
+    materialize_anchors([("person", numeric, numeric, numeric)], db)
 
     _, types, rows = _table(db)
     assert set(types) == {"VARCHAR"}
-    assert rows == [("person", numeric, numeric)]
+    assert rows == [("person", numeric, numeric, numeric)]
 
 
 def test_export_and_publish_share_one_db_resolver() -> None:
@@ -378,3 +380,86 @@ async def test_a_locally_retired_row_is_not_counted_as_a_tombstone(db_session) -
     await _register(db_session, archived)
 
     assert await withheld_for_tombstones(db_session) == 0
+
+
+def _assignments_table(db: Path, rows: list[tuple[str, str, str, str, str, str]]) -> None:
+    """The built conformed `assignments`, reduced to the columns the join reads."""
+    con = duckdb.connect(str(db))
+    try:
+        con.execute(
+            "create or replace table assignments (source varchar, member_id varchar, "
+            "span_kind varchar, span_discriminator varchar, span_start_biennium varchar, "
+            "span_key varchar)"
+        )
+        if rows:
+            con.executemany("insert into assignments values (?, ?, ?, ?, ?, ?)", rows)
+    finally:
+        con.close()
+
+
+def test_an_assignment_anchor_copies_the_published_key_rather_than_deriving_it(tmp_path) -> None:
+    """usa-wa#370 / power-map#490: the key is taken FROM the dataset.
+
+    PM asked for one producer-serialized column so the two sides never disagree
+    about how five fields become one string. Re-deriving it here would be a second
+    implementation of that rule — and worse, a second implementation of the
+    registry lookup the conformed tier does, which resolves merge tombstones. A
+    join makes divergence unrepresentable rather than unlikely.
+    """
+    db = tmp_path / "pipeline.duckdb"
+    _assignments_table(
+        db,
+        [
+            (
+                "usa_wa_legislature",
+                "31521",
+                "party",
+                "republican",
+                "2021-22",
+                "01ENT|party-republican-member|party|republican|2021-22",
+            )
+        ],
+    )
+
+    keyed = anchor_export.attach_span_keys(
+        [("assignment", "01LOCAL", "01PM")],
+        {"01LOCAL": ("usa_wa_legislature", "31521", "party", "republican", "2021-22")},
+        db,
+    )
+
+    assert keyed == [
+        ("assignment", "01LOCAL", "01PM", "01ENT|party-republican-member|party|republican|2021-22")
+    ]
+
+
+def test_an_anchor_with_no_published_assignment_gets_an_empty_key(tmp_path) -> None:
+    """The 384 measured on 2026-09-11 — canonical rows the pipeline stopped
+    asserting, #289's collapsed party tails among them.
+
+    PM keeps these anchors deliberately (power-map#490): an unanchored PM row is
+    outside the applier's row scope, so withholding them would leave Rob Chase's
+    and Jeremie Dufault's superseded party assignments open forever. An empty key
+    is the producer saying "absent", which is the archive signal.
+    """
+    db = tmp_path / "pipeline.duckdb"
+    _assignments_table(db, [])
+
+    keyed = anchor_export.attach_span_keys(
+        [("assignment", "01GONE", "01PM"), ("person", "01P", "01PMP")],
+        {"01GONE": ("usa_wa_legislature", "31521", "party", "republican", "2025-26")},
+        db,
+    )
+
+    assert keyed == [("assignment", "01GONE", "01PM", ""), ("person", "01P", "01PMP", "")]
+
+
+def test_a_missing_assignments_table_is_refused(tmp_path) -> None:
+    """Silently exporting a keyless crosswalk would hand PM a seed it cannot
+    re-key from, and the failure would only surface on their side at cutover."""
+    db = tmp_path / "pipeline.duckdb"
+    duckdb.connect(str(db)).close()
+
+    with pytest.raises(RuntimeError, match="assignments"):
+        anchor_export.attach_span_keys(
+            [("assignment", "01A", "01B")], {"01A": ("s", "m", "k", "d", "b")}, db
+        )
