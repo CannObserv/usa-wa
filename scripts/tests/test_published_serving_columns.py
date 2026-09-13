@@ -11,6 +11,13 @@ passed 3,337 tests and `dbt build`, and would have failed the chain. This test
 moves the same assertion to the gate, where a producer-side column addition is
 one edit away from its consumer-side counterpart.
 
+**`assignments` only, and for a reason** (CR 18). Every other served dataset's
+column list lives in a dbt model rather than a Python constant, so there is
+nothing here to compare it against — this rail is as wide as the producer's
+Python surface, not as wide as the contract. The runtime check in
+`verify_contract` still covers all of them; what it does not do is fail early.
+Widen this the day another dataset's columns become importable.
+
 Cross-package by nature (pipeline ⟷ api), which is why it lives here rather than
 in either package's own suite.
 """

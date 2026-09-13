@@ -37,6 +37,7 @@ from typing import Any
 
 from sqlalchemy import Table, delete, insert
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
@@ -293,7 +294,7 @@ async def load_serving(
     return counters
 
 
-def _drop_drifted_tables(connection: Any) -> None:
+def _drop_drifted_tables(connection: Connection) -> None:
     """Drop any serving table whose live columns differ from its model (usa-wa#370).
 
     ``create_all`` creates MISSING tables and never alters an existing one, so a
@@ -307,6 +308,14 @@ def _drop_drifted_tables(connection: Any) -> None:
     SAME transaction, and the app role owns every table it built here, which is
     what makes drop-and-rebuild its own to do (see :func:`create_serving_tables`).
     A rebuild is loud — it discards rows — so it fires on drift and nothing else.
+
+    **Names only, not types** (CR 17). A column whose *type or width* changed —
+    the model widening a ``String(26)`` to ``String(512)``, say — leaves the
+    physical column at its old shape and fails the insert with a value-too-long
+    instead of an undefined-column: the same failure this exists to prevent, one
+    layer down. Deliberate for now, because reflected types do not compare
+    cleanly across dialects and a false positive here discards the tier. Widen
+    the check when a width change actually bites, not before.
     """
     inspector = sa_inspect(connection)
     for table in SERVING_TABLES.values():
