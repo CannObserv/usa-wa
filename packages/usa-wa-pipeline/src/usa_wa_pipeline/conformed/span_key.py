@@ -21,6 +21,16 @@ fields become one string. `anchor_export` does not even re-derive it — it join
 anchored canonical row to the built `assignments` table and copies the key from
 there, so a divergence is not merely unlikely but unrepresentable.
 
+**The key is not stable across a re-segmentation, and that is deliberate** —
+power-map#490 asked for it stated on both sides. ``span_start_biennium`` is part
+of the identity, so a change to where a tenure *begins* mints a new key and
+retires the old one; usa-wa#289, which rejoined a member's split party spans,
+reaches a subscriber as an archive plus a create rather than an update. That is
+the honest shape: the two rows assert different facts about when the membership
+started, and pretending one mutated into the other would hide the correction.
+PM reports the pair as a supersession candidate for triage rather than applying
+both silently.
+
 The separator is ``|`` rather than ``:`` because ``role_key`` already contains
 colons (``committee-member-role:31635``). A value carrying the separator is
 **refused**, not escaped: escaping would make the key unreadable in a report and
