@@ -21,14 +21,16 @@ from usa_wa_api.serving.load import (
     ContractMismatch,
     catalog_entries,
     coerce_row,
+    create_serving_tables,
     dataset_rows,
+    ensure_serving_schema,
     load_serving,
     read_dataset,
     verify_contract,
     verify_header,
     verify_payload,
 )
-from usa_wa_api.serving.schema import SERVING_TABLES, Assignment, LoadState, Person
+from usa_wa_api.serving.schema import SCHEMA, SERVING_TABLES, Assignment, LoadState, Person
 
 FIELDS = {
     "persons": [
@@ -427,3 +429,42 @@ class TestProvenanceChain:
             )
         ).one()
         assert row == ("01A", "abc123", 7503)
+
+
+async def test_a_drifted_serving_table_is_rebuilt_not_left_behind(db_session, tmp_path) -> None:
+    """usa-wa#370: the tier owns no state, so a shape change is a rebuild.
+
+    `create_serving_tables` is `create_all` — it creates MISSING tables and never
+    alters an existing one. So a published dataset that gains a column found the
+    physical table one column short and the insert failed with
+    `UndefinedColumnError`, six hours after a gate that had nothing to catch.
+    Manual DDL on prod for every additive column is not a contract, it is a
+    tripwire; this tier is a projection of the published datasets and the load
+    repopulates it in the same transaction, so dropping is free.
+    """
+    await ensure_serving_schema(db_session)
+    await create_serving_tables(db_session)
+    connection = await db_session.connection()
+    await connection.exec_driver_sql(f'alter table "{SCHEMA}".assignments drop column span_key')
+
+    await create_serving_tables(db_session)
+
+    live = await connection.exec_driver_sql(
+        "select column_name from information_schema.columns "
+        f"where table_schema = '{SCHEMA}' and table_name = 'assignments'"
+    )
+    assert "span_key" in {row[0] for row in live}
+
+
+async def test_an_undrifted_table_is_left_alone(db_session) -> None:
+    """A rebuild drops rows, so it must fire on drift and nothing else — otherwise
+    every load would churn the whole tier for no reason."""
+    await ensure_serving_schema(db_session)
+    await create_serving_tables(db_session)
+    connection = await db_session.connection()
+    await connection.exec_driver_sql(f"insert into \"{SCHEMA}\".roles (role_key) values ('canary')")
+
+    await create_serving_tables(db_session)
+
+    rows = await connection.exec_driver_sql(f'select role_key from "{SCHEMA}".roles')
+    assert [row[0] for row in rows] == ["canary"]

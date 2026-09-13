@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import Table, delete, insert
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
@@ -292,9 +293,46 @@ async def load_serving(
     return counters
 
 
+def _drop_drifted_tables(connection: Any) -> None:
+    """Drop any serving table whose live columns differ from its model (usa-wa#370).
+
+    ``create_all`` creates MISSING tables and never alters an existing one, so a
+    published dataset that gains a column met a physical table one column short
+    and the insert failed with ``UndefinedColumnError`` — in the nightly chain,
+    six hours after a gate that had nothing to catch. Manual DDL on production for
+    every additive column is not a contract, it is a tripwire.
+
+    Dropping is the right answer rather than a scary one: this tier owns no state.
+    It is a projection of the published datasets, the load repopulates it in the
+    SAME transaction, and the app role owns every table it built here, which is
+    what makes drop-and-rebuild its own to do (see :func:`create_serving_tables`).
+    A rebuild is loud — it discards rows — so it fires on drift and nothing else.
+    """
+    inspector = sa_inspect(connection)
+    for table in SERVING_TABLES.values():
+        if not inspector.has_table(table.name, schema=SCHEMA):
+            continue
+        live = {column["name"] for column in inspector.get_columns(table.name, schema=SCHEMA)}
+        modelled = set(table.columns.keys())
+        if live == modelled:
+            continue
+        logger.warning(
+            "serving_table_rebuilt_on_drift",
+            extra={
+                "table": f"{SCHEMA}.{table.name}",
+                "added": sorted(modelled - live),
+                "removed": sorted(live - modelled),
+            },
+        )
+        table.drop(connection)
+
+
 async def create_serving_tables(session: AsyncSession) -> None:
-    """Create any missing serving tables. Idempotent, and NOT a migration —
-    see :mod:`usa_wa_api.serving.schema` on why this tier owns no state.
+    """Create any missing serving table, and REBUILD any whose shape has drifted.
+
+    Idempotent, and NOT a migration — see :mod:`usa_wa_api.serving.schema` on why
+    this tier owns no state, and :func:`_drop_drifted_tables` on why a shape
+    change is a drop rather than an ``ALTER``.
 
     The **schema** is not created here. ``CREATE SCHEMA`` needs CREATE on the
     database, which the app role does not have and should not — that is the #22
@@ -305,6 +343,7 @@ async def create_serving_tables(session: AsyncSession) -> None:
     there, which is what makes drop-and-rebuild its own to do.
     """
     connection = await session.connection()
+    await connection.run_sync(_drop_drifted_tables)
     await connection.run_sync(ServingBase.metadata.create_all)
 
 
