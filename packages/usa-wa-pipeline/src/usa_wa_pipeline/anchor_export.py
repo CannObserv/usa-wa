@@ -32,7 +32,9 @@ database.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Collection, Mapping, Sequence
+from collections import Counter
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import duckdb
@@ -71,6 +73,37 @@ ASSIGNMENT_JOIN = (
     "span_discriminator",
     "span_start_biennium",
 )
+
+
+@dataclass(frozen=True)
+class AssignmentJoin:
+    """What :func:`assignment_join_keys` learned about the anchored assignments.
+
+    ``keys`` finds each one's published row; ``unparseable`` names the ids whose
+    ``source_id`` would not split, which cannot be joined EITHER but for a
+    different reason. They travel together deliberately (CR 20): separated, the
+    unparseable ones fall through to the empty-key default and are counted as
+    dataset absence — the conflation CR 13 removed, and the one number
+    power-map#490 sizes its archive threshold from.
+    """
+
+    keys: Mapping[str, tuple[str, ...]]
+    unparseable: frozenset[str]
+
+
+@dataclass(frozen=True)
+class SpanKeyCounts:
+    """How the assignment anchors resolved against the published set.
+
+    ``matched`` is the positive signal — the seed PM re-keys from is only usable
+    to the extent of this number — so it is ledgered beside the other two rather
+    than left in a log line (CR 21).
+    """
+
+    matched: int = 0
+    absent: int = 0
+    unparseable: int = 0
+
 
 _KINDS = (
     ("person", Person, Person.pm_person_id),
@@ -181,9 +214,7 @@ async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
     return rows
 
 
-async def assignment_join_keys(
-    session: AsyncSession,
-) -> tuple[dict[str, tuple[str, ...]], set[str]]:
+async def assignment_join_keys(session: AsyncSession) -> AssignmentJoin:
     """Local assignment id → the tuple that finds its published row.
 
     ``(source, member_id, span_kind, span_discriminator, span_start_biennium)``,
@@ -198,10 +229,11 @@ async def assignment_join_keys(
     resolution — into a second implementation, which is the failure power-map#490
     asked us to make impossible rather than unlikely.
 
-    Returns the map **and the ids whose ``source_id`` would not parse** (CR 13).
-    Those cannot be joined either, but for a different reason, and collapsing the
-    two would report a local key defect as dataset absence — the one number PM
-    sizes its archive threshold from.
+    Returns both halves as one :class:`AssignmentJoin` — the map, and the ids
+    whose ``source_id`` would not parse (CR 13/20). Those cannot be joined either,
+    but for a different reason, and collapsing the two would report a local key
+    defect as dataset absence, which is the one number PM sizes its archive
+    threshold from.
     """
     result = (
         await session.execute(
@@ -223,16 +255,14 @@ async def assignment_join_keys(
             continue
         member_id, span_kind, discriminator, start_biennium = parts
         keys[str(local_id)] = (str(source), member_id, span_kind, discriminator, start_biennium)
-    return keys, unparseable
+    return AssignmentJoin(keys=keys, unparseable=frozenset(unparseable))
 
 
 def attach_span_keys(
     rows: Sequence[tuple[str, str, str]],
-    join_keys: Mapping[str, tuple[str, ...]],
+    join: AssignmentJoin,
     db_path: Path | str,
-    *,
-    unparseable: Collection[str] = (),
-) -> tuple[list[tuple[str, str, str, str]], dict[str, int]]:
+) -> tuple[list[tuple[str, str, str, str]], SpanKeyCounts]:
     """``rows`` with each assignment anchor's published ``span_key`` appended.
 
     The key is **copied from the built ``assignments`` table**, never recomputed
@@ -256,10 +286,11 @@ def attach_span_keys(
     creates the file it is asked to open, so a typo'd ``--db`` used to mint an
     empty database at that path on the way to reporting the error.
 
-    Returns the keyed rows and the counts that describe them, computed once
-    (CR 15): ``matched``, ``absent``, and ``unparseable`` — an id whose
-    ``source_id`` would not parse cannot be joined either, but that is a local key
-    defect and not the absence signal, so it is counted apart from it.
+    Returns the keyed rows and a :class:`SpanKeyCounts` describing them, computed
+    once (CR 15). ``join`` carries the unparseable ids with the map it belongs to,
+    so the two cannot be passed apart (CR 20) — an id whose ``source_id`` would
+    not parse cannot be joined either, but that is a local key defect and not the
+    absence signal, and it is counted apart from it.
     """
     path = Path(db_path)
     if not path.exists():
@@ -286,21 +317,16 @@ def attach_span_keys(
         }
     finally:
         con.close()
-    unresolved = set(unparseable)
-    keyed = [(*row, published.get(join_keys.get(row[1], ()), "")) for row in rows]
-    counts = {"matched": 0, "absent": 0, "unparseable": 0}
-    for kind, usa_wa_id, _pm_id, key in keyed:
-        if kind != "assignment":
-            continue
-        if key:
-            counts["matched"] += 1
-        elif usa_wa_id in unresolved:
-            counts["unparseable"] += 1
-        else:
-            counts["absent"] += 1
+    keyed = [(*row, published.get(join.keys.get(row[1], ()), "")) for row in rows]
+    tallies = Counter(
+        "matched" if key else "unparseable" if usa_wa_id in join.unparseable else "absent"
+        for kind, usa_wa_id, _pm_id, key in keyed
+        if kind == "assignment"
+    )
+    counts = SpanKeyCounts(**tallies)
     logger.info(
         "anchor_span_keys_attached",
-        extra={"published_assignments": len(published), **counts},
+        extra={"published_assignments": len(published), **asdict(counts)},
     )
     return keyed, counts
 
@@ -382,8 +408,7 @@ async def _export_job(ctx: JobContext) -> JobResult:
     counts = kind_counts(rows)
     withheld = await withheld_for_tombstones(session)
     db_path = pipeline_db_path(ctx.args.db)
-    join_keys, unparseable = await assignment_join_keys(session)
-    keyed, span_key_counts = attach_span_keys(rows, join_keys, db_path, unparseable=unparseable)
+    keyed, span_keys = attach_span_keys(rows, await assignment_join_keys(session), db_path)
     # The db path is logged, not counted: the run ledger's counters are published
     # verbatim by `GET /api/v1/health/jobs`, and a filesystem path is neither a
     # counter nor something to put on a read surface (CR 113).
@@ -398,8 +423,9 @@ async def _export_job(ctx: JobContext) -> JobResult:
             # publishes. Counted here because an empty column is otherwise silent —
             # and `span_key_unparseable` is counted BESIDE it, never inside it, so a
             # local key defect can never read as ordinary cutover absence (CR 13).
-            "span_key_absent": span_key_counts["absent"],
-            "span_key_unparseable": span_key_counts["unparseable"],
+            "span_key_matched": span_keys.matched,
+            "span_key_absent": span_keys.absent,
+            "span_key_unparseable": span_keys.unparseable,
         }
     )
 

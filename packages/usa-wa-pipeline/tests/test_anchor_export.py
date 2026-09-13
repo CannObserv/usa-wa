@@ -423,11 +423,14 @@ def test_an_assignment_anchor_copies_the_published_key_rather_than_deriving_it(t
 
     keyed, counts = anchor_export.attach_span_keys(
         [("assignment", "01LOCAL", "01PM")],
-        {"01LOCAL": ("usa_wa_legislature", "31521", "party", "republican", "2021-22")},
+        anchor_export.AssignmentJoin(
+            keys={"01LOCAL": ("usa_wa_legislature", "31521", "party", "republican", "2021-22")},
+            unparseable=frozenset(),
+        ),
         db,
     )
 
-    assert counts == {"matched": 1, "absent": 0, "unparseable": 0}
+    assert counts == anchor_export.SpanKeyCounts(matched=1)
     assert keyed == [
         ("assignment", "01LOCAL", "01PM", "01ENT|party-republican-member|party|republican|2021-22")
     ]
@@ -447,14 +450,17 @@ def test_an_anchor_with_no_published_assignment_gets_an_empty_key(tmp_path) -> N
 
     keyed, counts = anchor_export.attach_span_keys(
         [("assignment", "01GONE", "01PM"), ("person", "01P", "01PMP")],
-        {"01GONE": ("usa_wa_legislature", "31521", "party", "republican", "2025-26")},
+        anchor_export.AssignmentJoin(
+            keys={"01GONE": ("usa_wa_legislature", "31521", "party", "republican", "2025-26")},
+            unparseable=frozenset(),
+        ),
         db,
     )
 
     assert keyed == [("assignment", "01GONE", "01PM", ""), ("person", "01P", "01PMP", "")]
     # the person row carries an empty key and is NOT counted — `kind` is what
     # separates "not an assignment" from "an assignment with no published row"
-    assert counts == {"matched": 0, "absent": 1, "unparseable": 0}
+    assert counts == anchor_export.SpanKeyCounts(absent=1)
 
 
 def test_a_missing_assignments_table_is_refused(tmp_path) -> None:
@@ -465,7 +471,11 @@ def test_a_missing_assignments_table_is_refused(tmp_path) -> None:
 
     with pytest.raises(RuntimeError, match="assignments"):
         anchor_export.attach_span_keys(
-            [("assignment", "01A", "01B")], {"01A": ("s", "m", "k", "d", "b")}, db
+            [("assignment", "01A", "01B")],
+            anchor_export.AssignmentJoin(
+                keys={"01A": ("s", "m", "k", "d", "b")}, unparseable=frozenset()
+            ),
+            db,
         )
 
 
@@ -483,14 +493,17 @@ def test_an_unparseable_source_id_is_not_counted_as_absent(tmp_path) -> None:
 
     keyed, counts = anchor_export.attach_span_keys(
         [("assignment", "01BAD", "01PM"), ("assignment", "01GONE", "01PM2")],
-        # 01BAD is absent from the join map the way an unparseable key leaves it
-        {"01GONE": ("usa_wa_legislature", "31521", "party", "republican", "2025-26")},
+        # 01BAD is absent from the join map the way an unparseable key leaves it,
+        # and `AssignmentJoin` is what stops the two halves being passed apart
+        anchor_export.AssignmentJoin(
+            keys={"01GONE": ("usa_wa_legislature", "31521", "party", "republican", "2025-26")},
+            unparseable=frozenset({"01BAD"}),
+        ),
         db,
-        unparseable={"01BAD"},
     )
 
     assert [row[3] for row in keyed] == ["", ""]
-    assert counts == {"matched": 0, "absent": 1, "unparseable": 1}
+    assert counts == anchor_export.SpanKeyCounts(absent=1, unparseable=1)
 
 
 def test_a_read_never_creates_the_database(tmp_path) -> None:
@@ -500,6 +513,10 @@ def test_a_read_never_creates_the_database(tmp_path) -> None:
     missing = tmp_path / "not-here.duckdb"
 
     with pytest.raises(RuntimeError, match="does not exist"):
-        anchor_export.attach_span_keys([("assignment", "01A", "01B")], {}, missing)
+        anchor_export.attach_span_keys(
+            [("assignment", "01A", "01B")],
+            anchor_export.AssignmentJoin(keys={}, unparseable=frozenset()),
+            missing,
+        )
 
     assert not missing.exists()
