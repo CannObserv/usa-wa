@@ -32,7 +32,7 @@ database.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 
 import duckdb
@@ -52,9 +52,10 @@ logger = get_logger(__name__)
 #: Stable ledger identity (#178).
 JOB_SLUG = "pm-anchor-export"
 
-#: The table the publisher reads the crosswalk from, and its columns. BOTH
-#: sinks take their column order from here — see the module docstring for what
-#: a positional mismatch would cost.
+#: The table the publisher reads the crosswalk from, and its columns. The
+#: publisher is the ONE sink since #357 retired `write_export` (the `anchor_rows`
+#: docstring records that); a row is built positionally against this tuple, which
+#: is what `materialize_anchors` length-checks rather than trusts.
 ANCHOR_TABLE = "pm_anchors"
 ANCHOR_COLUMNS = ("kind", "usa_wa_id", "pm_id", "span_key")
 
@@ -180,7 +181,9 @@ async def anchor_rows(session: AsyncSession) -> list[tuple[str, str, str]]:
     return rows
 
 
-async def assignment_join_keys(session: AsyncSession) -> dict[str, tuple[str, ...]]:
+async def assignment_join_keys(
+    session: AsyncSession,
+) -> tuple[dict[str, tuple[str, ...]], set[str]]:
     """Local assignment id → the tuple that finds its published row.
 
     ``(source, member_id, span_kind, span_discriminator, span_start_biennium)``,
@@ -194,6 +197,11 @@ async def assignment_join_keys(session: AsyncSession) -> dict[str, tuple[str, ..
     registry lookup the conformed tier does — including its merge-tombstone
     resolution — into a second implementation, which is the failure power-map#490
     asked us to make impossible rather than unlikely.
+
+    Returns the map **and the ids whose ``source_id`` would not parse** (CR 13).
+    Those cannot be joined either, but for a different reason, and collapsing the
+    two would report a local key defect as dataset absence — the one number PM
+    sizes its archive threshold from.
     """
     result = (
         await session.execute(
@@ -203,20 +211,28 @@ async def assignment_join_keys(session: AsyncSession) -> dict[str, tuple[str, ..
         )
     ).all()
     keys: dict[str, tuple[str, ...]] = {}
+    unparseable: set[str] = set()
     for local_id, source, source_id in result:
         parts = span_key_parts(str(source_id))
         if parts is None:
+            unparseable.add(str(local_id))
+            logger.warning(
+                "anchor_span_key_unparseable_source_id",
+                extra={"usa_wa_id": str(local_id), "source_id": str(source_id)},
+            )
             continue
         member_id, span_kind, discriminator, start_biennium = parts
         keys[str(local_id)] = (str(source), member_id, span_kind, discriminator, start_biennium)
-    return keys
+    return keys, unparseable
 
 
 def attach_span_keys(
     rows: Sequence[tuple[str, str, str]],
     join_keys: Mapping[str, tuple[str, ...]],
     db_path: Path | str,
-) -> list[tuple[str, str, str, str]]:
+    *,
+    unparseable: Collection[str] = (),
+) -> tuple[list[tuple[str, str, str, str]], dict[str, int]]:
     """``rows`` with each assignment anchor's published ``span_key`` appended.
 
     The key is **copied from the built ``assignments`` table**, never recomputed
@@ -233,11 +249,26 @@ def attach_span_keys(
     Non-assignment kinds carry ``""`` too — the ``kind`` column is what
     distinguishes "not an assignment" from "an assignment with no published row".
 
-    A missing ``assignments`` table **raises**: a keyless crosswalk is a seed PM
-    cannot re-key from, and exporting one silently would surface the failure on
-    their side at cutover instead of here.
+    A missing database or ``assignments`` table **raises**: a keyless crosswalk is
+    a seed PM cannot re-key from, and exporting one silently would surface the
+    failure on their side at cutover instead of here. The database is opened
+    read-only, and its absence is checked BEFORE connecting (CR 14) — duckdb
+    creates the file it is asked to open, so a typo'd ``--db`` used to mint an
+    empty database at that path on the way to reporting the error.
+
+    Returns the keyed rows and the counts that describe them, computed once
+    (CR 15): ``matched``, ``absent``, and ``unparseable`` — an id whose
+    ``source_id`` would not parse cannot be joined either, but that is a local key
+    defect and not the absence signal, so it is counted apart from it.
     """
-    con = duckdb.connect(str(Path(db_path)))
+    path = Path(db_path)
+    if not path.exists():
+        raise RuntimeError(
+            f"{path} does not exist — the anchor export reads each assignment's span_key "
+            "from the built conformed table and will not create a database to find it "
+            "missing. Run `dbt build` (the nightly chain does) before exporting."
+        )
+    con = duckdb.connect(str(path), read_only=True)
     try:
         tables = {name for (name,) in con.execute("show tables").fetchall()}
         if ASSIGNMENTS_TABLE not in tables:
@@ -255,17 +286,23 @@ def attach_span_keys(
         }
     finally:
         con.close()
+    unresolved = set(unparseable)
     keyed = [(*row, published.get(join_keys.get(row[1], ()), "")) for row in rows]
-    absent = sum(1 for row in keyed if row[0] == "assignment" and not row[3])
+    counts = {"matched": 0, "absent": 0, "unparseable": 0}
+    for kind, usa_wa_id, _pm_id, key in keyed:
+        if kind != "assignment":
+            continue
+        if key:
+            counts["matched"] += 1
+        elif usa_wa_id in unresolved:
+            counts["unparseable"] += 1
+        else:
+            counts["absent"] += 1
     logger.info(
         "anchor_span_keys_attached",
-        extra={
-            "published_assignments": len(published),
-            "matched": sum(1 for row in keyed if row[0] == "assignment" and row[3]),
-            "absent": absent,
-        },
+        extra={"published_assignments": len(published), **counts},
     )
-    return keyed
+    return keyed, counts
 
 
 def materialize_anchors(rows: Sequence[tuple[str, str, str]], db_path: Path | str) -> int:
@@ -345,8 +382,8 @@ async def _export_job(ctx: JobContext) -> JobResult:
     counts = kind_counts(rows)
     withheld = await withheld_for_tombstones(session)
     db_path = pipeline_db_path(ctx.args.db)
-    keyed = attach_span_keys(rows, await assignment_join_keys(session), db_path)
-    absent = sum(1 for row in keyed if row[0] == "assignment" and not row[3])
+    join_keys, unparseable = await assignment_join_keys(session)
+    keyed, span_key_counts = attach_span_keys(rows, join_keys, db_path, unparseable=unparseable)
     # The db path is logged, not counted: the run ledger's counters are published
     # verbatim by `GET /api/v1/health/jobs`, and a filesystem path is neither a
     # counter nor something to put on a read surface (CR 113).
@@ -358,8 +395,11 @@ async def _export_job(ctx: JobContext) -> JobResult:
             "withheld_tombstoned": withheld,
             # The producer's own absence signal, sized for PM's archive threshold
             # (power-map#490): assignment anchors whose row the pipeline no longer
-            # publishes. Counted here because an empty column is otherwise silent.
-            "span_key_absent": absent,
+            # publishes. Counted here because an empty column is otherwise silent —
+            # and `span_key_unparseable` is counted BESIDE it, never inside it, so a
+            # local key defect can never read as ordinary cutover absence (CR 13).
+            "span_key_absent": span_key_counts["absent"],
+            "span_key_unparseable": span_key_counts["unparseable"],
         }
     )
 

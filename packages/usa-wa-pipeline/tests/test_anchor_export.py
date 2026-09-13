@@ -421,12 +421,13 @@ def test_an_assignment_anchor_copies_the_published_key_rather_than_deriving_it(t
         ],
     )
 
-    keyed = anchor_export.attach_span_keys(
+    keyed, counts = anchor_export.attach_span_keys(
         [("assignment", "01LOCAL", "01PM")],
         {"01LOCAL": ("usa_wa_legislature", "31521", "party", "republican", "2021-22")},
         db,
     )
 
+    assert counts == {"matched": 1, "absent": 0, "unparseable": 0}
     assert keyed == [
         ("assignment", "01LOCAL", "01PM", "01ENT|party-republican-member|party|republican|2021-22")
     ]
@@ -444,13 +445,16 @@ def test_an_anchor_with_no_published_assignment_gets_an_empty_key(tmp_path) -> N
     db = tmp_path / "pipeline.duckdb"
     _assignments_table(db, [])
 
-    keyed = anchor_export.attach_span_keys(
+    keyed, counts = anchor_export.attach_span_keys(
         [("assignment", "01GONE", "01PM"), ("person", "01P", "01PMP")],
         {"01GONE": ("usa_wa_legislature", "31521", "party", "republican", "2025-26")},
         db,
     )
 
     assert keyed == [("assignment", "01GONE", "01PM", ""), ("person", "01P", "01PMP", "")]
+    # the person row carries an empty key and is NOT counted — `kind` is what
+    # separates "not an assignment" from "an assignment with no published row"
+    assert counts == {"matched": 0, "absent": 1, "unparseable": 0}
 
 
 def test_a_missing_assignments_table_is_refused(tmp_path) -> None:
@@ -463,3 +467,39 @@ def test_a_missing_assignments_table_is_refused(tmp_path) -> None:
         anchor_export.attach_span_keys(
             [("assignment", "01A", "01B")], {"01A": ("s", "m", "k", "d", "b")}, db
         )
+
+
+def test_an_unparseable_source_id_is_not_counted_as_absent(tmp_path) -> None:
+    """CR 13: `span_key_absent` means one thing, not two.
+
+    An anchor whose `source_id` does not right-split into four parts cannot be
+    joined to a published row — but that is a LOCAL key defect, not the
+    dataset-absence signal power-map#490 sizes its archive threshold from. Left
+    conflated, a key-format or parser regression reaches PM disguised as ordinary
+    cutover absence, on the one number they gate on.
+    """
+    db = tmp_path / "pipeline.duckdb"
+    _assignments_table(db, [])
+
+    keyed, counts = anchor_export.attach_span_keys(
+        [("assignment", "01BAD", "01PM"), ("assignment", "01GONE", "01PM2")],
+        # 01BAD is absent from the join map the way an unparseable key leaves it
+        {"01GONE": ("usa_wa_legislature", "31521", "party", "republican", "2025-26")},
+        db,
+        unparseable={"01BAD"},
+    )
+
+    assert [row[3] for row in keyed] == ["", ""]
+    assert counts == {"matched": 0, "absent": 1, "unparseable": 1}
+
+
+def test_a_read_never_creates_the_database(tmp_path) -> None:
+    """CR 14: duckdb creates the file it is asked to open, so the missing-table
+    guard used to fire only AFTER minting an empty database at a typo'd path —
+    which the next run then finds looking real."""
+    missing = tmp_path / "not-here.duckdb"
+
+    with pytest.raises(RuntimeError, match="does not exist"):
+        anchor_export.attach_span_keys([("assignment", "01A", "01B")], {}, missing)
+
+    assert not missing.exists()
