@@ -102,6 +102,12 @@ class Assignment(ServingBase):
     valid_from: Mapped[date | None] = mapped_column(Date)
     valid_to: Mapped[date | None] = mapped_column(Date)
     is_active: Mapped[bool | None] = mapped_column(Boolean)
+    #: The five primary-key fields as one producer-serialized string (usa-wa#370),
+    #: for power-map#490's applier. Redundant HERE — this table already keys on
+    #: those five columns — and carried anyway, because the serving loader holds
+    #: the published columns and the modelled ones to be one set in both
+    #: directions: a declared field with no column is a value silently dropped.
+    span_key: Mapped[str | None] = mapped_column(String(512))
 
 
 class PersonCrosswalk(ServingBase):

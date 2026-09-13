@@ -48,6 +48,8 @@ FIELDS = {
         {"name": "valid_from", "type": "date"},
         {"name": "valid_to", "type": "date"},
         {"name": "is_active", "type": "boolean"},
+        # usa-wa#370 — the five key fields as one string, for power-map#490
+        {"name": "span_key", "type": "string"},
     ],
 }
 
@@ -227,6 +229,7 @@ async def test_typed_columns_survive_the_round_trip(serving_schema, db_session, 
                 "valid_from": "2021-01-01",
                 "valid_to": None,
                 "is_active": "true",
+                "span_key": "01A|seat:senate:ld-14|chamber-senate|14|2021-22",
             }
         ],
     )
