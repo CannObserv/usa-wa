@@ -158,8 +158,13 @@ of its own, so the crosswalk PM seeds from had nothing to join to. The
 separator is `|`, not `:`, because `role_key` already carries colons; a value
 containing it is **refused** rather than escaped, so the day a vocabulary
 needs the character the build fails here instead of two tuples quietly
-serializing alike. `pm_anchors` copies this column rather than recomputing it
-— see [PIPELINE.md](PIPELINE.md).
+serializing alike.
+
+It began as one half of a pair — `pm_anchors` copied the column rather than
+recomputing it, so the two sides could not disagree about how five fields
+become one string — and #314 retired that crosswalk once power-map#525 re-keyed
+onto this column. What was the cutover's safety property is now simply PM's
+only handle on an assignment row.
 
 A deterministic join that has forked is the one failure this design cannot
 tolerate — but the dbt `assignments_name_a_role` test does **not** detect it

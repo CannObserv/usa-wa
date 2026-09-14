@@ -201,26 +201,30 @@ def test_the_cutover_tier_is_empty() -> None:
 
 
 def test_publishes_a_non_dbt_table_with_empty_lineage(built_db, tmp_path) -> None:
-    """#354: `pm_anchors` is materialized from Postgres, not by a dbt model, so
-    the manifest knows nothing about it. That is honest lineage, not a failure —
-    and it must not cost the publisher any special-casing."""
+    """A table the dbt manifest knows nothing about publishes with `derived_from:
+    []` — honest lineage, not a failure, and no special-casing in the publisher.
+
+    `pm_anchors` (#354) was the live case until #314 retired it, so this is now
+    a property of `publish` with no dataset exercising it. Kept deliberately:
+    the behaviour being pinned is the *absence* of a special case, which is
+    exactly what decays once nothing checks it."""
     con = duckdb.connect(str(built_db))
     con.execute(
-        "create table pm_anchors as select * from (values "
+        "create table unmodelled as select * from (values "
         "('person', '01A', '01P'), ('assignment', '01B', '01Q')) t(kind, usa_wa_id, pm_id)"
     )
     con.close()
     out = tmp_path / "datasets"
 
-    summary = publish(built_db, out, _manifest(tmp_path), datasets=[("pm_anchors", "cutover")])
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=[("unmodelled", "internal")])
 
     assert summary["minted"] == 1
     entry = next(
         d
         for d in json.loads((out / "catalog.json").read_text())["datasets"]
-        if d["name"] == "pm_anchors"
+        if d["name"] == "unmodelled"
     )
-    assert entry["tier"] == "cutover"
+    assert entry["tier"] == "internal"
     assert entry["rows"] == 2
     assert entry["derived_from"] == []
     # the counts-and-hash manifest.json carried, now carried the way every other
@@ -229,7 +233,7 @@ def test_publishes_a_non_dbt_table_with_empty_lineage(built_db, tmp_path) -> Non
     assert entry["bytes"] > 0
 
     package = json.loads(
-        (out / "pm_anchors" / entry["latest_version"] / "datapackage.json").read_text()
+        (out / "unmodelled" / entry["latest_version"] / "datapackage.json").read_text()
     )
     [resource] = package["resources"]
     assert [f["name"] for f in resource["schema"]["fields"]] == ["kind", "usa_wa_id", "pm_id"]

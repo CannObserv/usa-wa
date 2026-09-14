@@ -7,19 +7,23 @@ deterministic structural keys and no registry, so the row is named by the tuple
 
 which is unique across the conformed set (8,395 / 8,395 on the 2026-09-11 snapshot).
 
-power-map#490 needs that tuple as **one string**, published on both `assignments`
-and `pm_anchors`, so it can re-key its assignment crosswalk off usa-wa's retiring
-Postgres ULIDs and onto the key the dataset actually has. Its applier measures
+power-map#490 needs that tuple as **one string** so it can re-key its assignment
+crosswalk off usa-wa's retiring Postgres ULIDs and onto the key the dataset
+actually has. It shipped on both `assignments` and `pm_anchors` for the duration
+of the cutover; usa-wa#314 retired the latter once power-map#525 had re-keyed. Its applier measures
 retraction-as-absence in the dataset's own key space; before this column there was
 nothing for an assignment anchor to be absent *from* (the crosswalk's `usa_wa_id`
 appears in no published column, so crosswalk-membership and dataset-membership
 overlapped on 0 of 8,777 assignment rows).
 
-**One serializer, called by both sinks**, which is the whole point: PM asked for a
-producer-serialized column precisely so the two sides never disagree about how five
-fields become one string. `anchor_export` does not even re-derive it — it joins each
-anchored canonical row to the built `assignments` table and copies the key from
-there, so a divergence is not merely unlikely but unrepresentable.
+**One serializer.** PM asked for a producer-serialized column precisely so the two
+sides never disagree about how five fields become one string. While the cutover ran
+there were two sinks and the rule had teeth: `anchor_export` did not re-derive the
+key but joined each anchored canonical row to the built `assignments` table and
+copied it, making divergence unrepresentable rather than unlikely. usa-wa#314
+retired that export once power-map#525 re-keyed its crosswalk onto this column, so
+`assignments` is the sole sink and the key is the sole handle PM holds on an
+assignment row.
 
 **The key is not stable across a re-segmentation, and that is deliberate** —
 power-map#490 asked for it stated on both sides. ``span_start_biennium`` is part

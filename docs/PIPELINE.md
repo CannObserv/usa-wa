@@ -205,11 +205,11 @@ retraction=absence means a degraded build must never ship as mass retraction.
 The API serves the tree at `/datasets/*` with `/health/datasets` as the
 publication probe. The nightly systemd chain (`scripts/pipeline-nightly.sh`,
 `usa-wa-pipeline.timer`, daily 08:00 UTC) runs harvests → dbt build →
-registrar → anchor export → publish → serving load → parity probes
+registrar → publish → serving load → parity probes
 (`parity_citations` last); any counted failure exits 1 so `OnFailure=` emails
 the operator.
 
-Four tiers, each answering a different question about who may depend on it.
+Three tiers, each answering a different question about who may depend on it.
 `tier` is per-dataset in the catalog and `/health/datasets` returns it, so the
 tier is published rather than inferred:
 
@@ -218,87 +218,33 @@ tier is published rather than inferred:
 | `staging` | `stg_*` | The triage/lineage surface — one row per wire, source coordinates attached |
 | `conformed` | `persons`, `organizations`, `roles`, `assignments`, the crosswalks | The subscriber contract; schema-stable, semver'd |
 | `internal` | `citations` | Published bytes, no stability promise; its columns follow the API, not consumers |
-| `cutover` | `pm_anchors` | A migration artifact with a limited life — see below |
 
-**Each assignment anchor carries its published `span_key`** (usa-wa#370,
-power-map#490). A published assignment has no id of its own — #302 gave
-assignments deterministic structural keys and no registry — so PM's applier,
-which measures retraction-as-absence in the dataset's own key space, had
-nothing for an assignment anchor to be absent *from*: the crosswalk's
-`usa_wa_id` appears in no published column, and crosswalk- vs
-dataset-membership overlapped on **0 of 8,777** assignment rows (roles
-coincide at 312/312, which is why roles work as built and assignments do not).
-The column is serialized once by
-[`conformed/span_key.py`](../packages/usa-wa-pipeline/src/usa_wa_pipeline/conformed/span_key.py)
-and published on **both** `assignments` and `pm_anchors`; `anchor_export` does
-not re-derive it but joins each anchored canonical row to the built
-`assignments` table on `(source, member_id, span_kind, span_discriminator,
-span_start_biennium)` and copies the key, so a divergence between the two
-sides is unrepresentable rather than unlikely. An anchor whose row the
-pipeline no longer publishes gets an EMPTY key and is counted
-(`span_key_absent`, 384 on 2026-09-11) — that emptiness is the producer's
-absence signal, and PM keeps such anchors deliberately: an unanchored PM row
-falls outside its applier's row scope and could never be retired.
+A fourth tier, `cutover`, held one dataset — `pm_anchors`, the PM crosswalk
+seed (#312) delivered as a dataset (#354, power-map#495) — and **#314 retired
+both**. power-map#525 re-keyed its assignment crosswalk off the Postgres ULIDs
+that dataset carried and onto `assignments.span_key`, and reported it needs no
+further seed, so the producer stopped asserting the mapping. Delisting is the
+whole retraction: `catalog.json` is rebuilt from `PUBLISHED_DATASETS` every
+run, so the entry stopped appearing, while the version dirs already minted stay
+on disk and keep answering at their URLs. `PUBLISHED_DATASETS` pins the tier
+empty (`test_the_cutover_tier_is_empty`), which is also what keeps the column
+drop unblocked: the publisher refuses a run whose table is missing, so a
+lingering entry would have wedged the nightly publish for every other dataset
+the day the `pm_*` columns went.
 
-`pm_anchors` is the PM crosswalk seed (#312) delivered as a dataset (#354,
-power-map#495) instead of as a second ad-hoc file path. It is the one published
-table with no dbt model behind it. `python -m usa_wa_pipeline.anchor_export`
-reads the `pm_*` anchor columns out of Postgres and materializes them into the
-pipeline duckdb (`--db`) as `pm_anchors`, which the publisher picks up with no
-special-casing (`derived_from` is legitimately `[]`).
-
-**Live rows only** (#356): a locally archived or deleted row is one this
-deployment has stopped asserting, so naming it in the crosswalk hands PM a
-mapping to a row nothing should write to. The dataset was quietly exempt from
-retraction-as-absence and leaked 34 — 32 narrow tenure spans PM's own newer
-anchors supersede, plus two disputed claims both sides had archived.
-
-**And no tombstoned entity** (#368). A registry merge is a third retraction
-signal and this export saw neither of the first two in it — the loser's
-canonical row is not archived and not deleted, nothing happened to it locally —
-so its anchor kept shipping. The #366 Heck merge was the first case, pointing at
-a PM row power-map#514 then deleted; re-seeding PM's crosswalk from that export
-blocks twice, first on two usa-wa ids landing on one PM row ("PM merged what the
-producer holds apart") and later on the id resolving as `missing` once PM's
-tombstone retention lapses. Only the ENTITY retires: the loser's **assignment**
-anchors stay, since PM's merge keeps an assignment's id and changes only whose
-it is. That falls out of the filter rather than being special-cased — a registry
-entity is a canonical person/org/role ULID, an assignment's id is not.
-
-The withheld rows are counted (`withheld_tombstoned`, beside the per-kind
-counts at `/api/v1/health/jobs`), because withholding is otherwise invisible
-and this screen puts a bulk adjudication upstream of the publish gate: a merge
-of many entities shrinks this dataset, a shrink past `--max-shrink` refuses the
-publish, and **a refused publish mints nothing at all** — every other dataset
-included. The refusal names this dataset and its before/after counts; the
-counter is what attributes them to merges rather than to the #356 screen.
-
-The `data/anchor-export/` tree this job used to write is **retired** (#354). It
-was never HTTP-reachable — it moved by manual copy — and running it beside the
-publisher meant two writers for one dataset, which is how the divergent-digest
-bug happened (#357). Per-kind counts moved to the job's counters, where
-`/api/v1/health/jobs` surfaces them, and stay derivable from the published
-`kind` column.
-
-Both id columns are carried as text. An all-digit Crockford ULID typed
-numerically is an id that 404s at PM, and duckdb maps an explicit `columns=`
-spec **positionally**: a header it merely trusted would have swapped
-`usa_wa_id` and `pm_id` silently, since both are 26-char base32 and every
-downstream shape check still passes.
-
-**One dataset, one sha256** — now structurally, because there is only one
-writer. The interim fix made the two artifacts byte-identical; retiring the
-second one removes the question. See
-[ARCHITECTURE.md § Publishing bytes](ARCHITECTURE.md#publishing-bytes-one-writer-landed-atomically-357).
-
-**The job writes.** It is read-only on Postgres but *replaces* `pm_anchors` in
-the duckdb named by `--db`, which defaults to production — point `--db` at a
-scratch file for any ad-hoc run.
-
-**It retires in #314.** The publisher refuses a run whose table is missing, so
-dropping the `pm_*` columns without also removing the `PUBLISHED_DATASETS`
-entry wedges the nightly publish for every other dataset. The entry says so at
-the point where it becomes due.
+**Each published assignment carries its `span_key`** (usa-wa#370,
+power-map#490), and that outlives the crosswalk. A published assignment has no
+id of its own — #302 gave assignments deterministic structural keys and no
+registry — so PM's applier, which measures retraction-as-absence in the
+dataset's own key space, had nothing for an assignment anchor to be absent
+*from*: the crosswalk's `usa_wa_id` appeared in no published column, and
+crosswalk- vs dataset-membership overlapped on **0 of 8,777** assignment rows
+(roles coincide at 312/312, which is why roles worked as built and assignments
+did not). The column is serialized once by
+[`conformed/span_key.py`](../packages/usa-wa-pipeline/src/usa_wa_pipeline/conformed/span_key.py).
+It is now the *only* handle PM holds on an assignment row, which is the point:
+the crosswalk was the cutover artifact and the key is the thing that replaced
+it.
 
 ### Seat occupancy is gated (#359)
 
@@ -419,12 +365,14 @@ something to conform to:
 | NULL | bare empty field; an empty *string* is `""`, so the two stay distinct |
 | row order | `order by all` — every column, left to right, ascending |
 
-Row order is load-bearing twice over: it is what makes skip-if-unchanged mean
-"nothing moved" rather than "duckdb returned rows differently", and it is half
-of why the local `pm_anchors` artifact is byte-identical to the published one.
-Line endings are the other half — `csv`'s default excel dialect writes CRLF,
-one byte per row, which was 12,462 bytes and a second conflicting digest for
-identical content (#354).
+Row order is load-bearing: it is what makes skip-if-unchanged mean "nothing
+moved" rather than "duckdb returned rows differently". It was load-bearing a
+second way while `pm_anchors` had two writers — row order and line endings
+together were why the local artifact and the published one agreed byte for
+byte, `csv`'s default excel dialect writing CRLF being one byte per row, 12,462
+bytes and a second conflicting digest for identical content (#354). #357 made
+one writer per dataset the rule and #314 retired that dataset, so the second
+reason is history; the first still holds every night.
 
 `SCHEMA_VERSION` 1.6.0 added `dialect`, and by the carry-forward rule a bump
 reaches a dataset only when it next mints — so version dirs published before

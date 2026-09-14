@@ -21,7 +21,9 @@ Materializes each published dataset as an immutable versioned directory —
   model parents), never hand-maintained; the dataset *list* is deliberate
   config (:data:`PUBLISHED_DATASETS` — publishing is a decision). A table with
   no dbt model behind it publishes with empty lineage rather than being
-  special-cased, which is what lets ``pm_anchors`` (#354) ride this path.
+  special-cased, which is what let ``pm_anchors`` (#354) ride this path until
+  #314 retired it. No live dataset needs the fallback today; it stays because
+  special-casing is the thing being avoided.
 - Versions are timestamps plus a collision token
   (``v20260903T120000Z-a1b2c3``); the catalog lists only the latest.
   Retention/pruning is deliberately absent: these are archival products at
