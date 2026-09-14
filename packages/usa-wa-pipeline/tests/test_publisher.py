@@ -178,11 +178,26 @@ def test_rebuilt_identical_table_is_skipped_not_reminted(built_db, tmp_path):
     assert summary["minted"] == 0
 
 
-def test_pm_anchors_ships_as_a_cutover_dataset() -> None:
-    """#354: the anchor export reaches PM through the catalog, not a second
-    ad-hoc path. Its own tier, because it is neither staging nor conformed —
-    a cutover artifact with a limited life."""
-    assert ("pm_anchors", "cutover") in PUBLISHED_DATASETS
+def test_the_cutover_tier_is_empty() -> None:
+    """#314: `pm_anchors` had a limited life (#354) and it is over.
+
+    power-map#525 re-keyed its assignment crosswalk off the Postgres ULIDs this
+    dataset carried and onto the published `assignments.span_key` (usa-wa#370),
+    and PM confirmed on #314 that it plans no further seed. So the producer
+    stops asserting the mapping rather than shipping a frozen copy of it
+    nightly.
+
+    Absence is the entire signal, and it needs no publisher change:
+    `catalog.json` is built from `PUBLISHED_DATASETS` alone, so an unlisted
+    dataset's entry simply stops appearing on the next run. Version dirs
+    already on disk are immutable and stay readable at their URLs — this
+    retracts the *forward* assertion, not the archive.
+
+    Asserted as a whole-tier rule rather than one name: `cutover` was minted
+    for this dataset alone, so a second entry arriving in it would mean someone
+    reopened the seam #314 closed.
+    """
+    assert [name for name, tier in PUBLISHED_DATASETS if tier == "cutover"] == []
 
 
 def test_publishes_a_non_dbt_table_with_empty_lineage(built_db, tmp_path) -> None:
