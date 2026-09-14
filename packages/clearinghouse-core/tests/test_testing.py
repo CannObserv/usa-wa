@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from clearinghouse_core import testing
+from clearinghouse_core.models import Base
 from clearinghouse_core.testing import (
     assert_test_url_safety,
     declared_schemas,
@@ -149,8 +150,19 @@ def test_declared_schemas_includes_every_workspace_schema():
     migration chain (#22) but integration-test wipes still listed only the two
     original schemas, so a from-base re-migration collided on
     ``sync.powermap_outbox``. The helper must surface *every* schema the
-    migration chain creates — derived from ``Base.metadata`` so it can't drift
-    out of date as new schemas are added — regardless of the caller's import
-    context (it forces sibling registration imports itself).
+    migration chain creates, regardless of the caller's import context (it
+    forces the registration import itself).
+
+    ``sync`` is still asserted here after #314 deleted the package that declared
+    it, and that is the point rather than an oversight: historical migrations are
+    immutable, so the from-base replay still creates the schema. Deriving the set
+    from ``Base.metadata`` alone would have reintroduced #26 from the opposite
+    direction — a schema the models lost while the chain kept it — so the helper
+    unions in ``LEGACY_MIGRATION_SCHEMAS``.
     """
     assert declared_schemas() >= {"clearinghouse_core", "canonical", "sync"}
+    assert "sync" not in {t.schema for t in Base.metadata.tables.values() if t.schema}, (
+        "`sync` is declared by a live model again — if the sync tables came back, "
+        "drop them from LEGACY_MIGRATION_SCHEMAS so the set stops carrying a "
+        "hand-maintained entry the metadata now supplies"
+    )

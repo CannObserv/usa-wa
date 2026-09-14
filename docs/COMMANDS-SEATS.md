@@ -33,12 +33,14 @@ python -m usa_wa_adapter_pdc.harvest --from-year 2008 --pause-seconds 0.5
 python -m usa_wa_facts_seats.pdc.build_pdc_spans --dry-run
 python -m usa_wa_facts_seats.pdc.build_pdc_spans
 
-# Migration — OWNER ROLE, run AFTER build_pdc_spans, sidecar paused. Retires the pre-#79
+# Migration — OWNER ROLE, run AFTER build_pdc_spans. (Said "sidecar paused" until #314
+# deleted the sidecar; there is nothing left to pause.) Retires the pre-#79
 # per-biennium usa_wa_pdc House rows ({member}:chamber-house:{biennium}, 3-part) stranded by the
 # 4-part span key: maps each to the covering span by (person, role) + window, transfers the PM
 # anchor, hard-deletes the row + its citations (owner-only under #54). A row with no covering span
-# yet is left as orphans_no_span (re-run after the build). anchors_dropped (>0) = the sidecar
-# anchored the span first, orphaning the legacy PM assignment (the #80 start-date gap).
+# yet is left as orphans_no_span (re-run after the build). anchors_dropped (>0) meant the
+# sidecar had anchored the span first, orphaning the legacy PM assignment (the #80
+# start-date gap) — historical, since nothing anchors rows any more.
 python -m usa_wa_facts_seats.pdc.migrate_pdc_spans --dry-run
 python -m usa_wa_facts_seats.pdc.migrate_pdc_spans
 ```
@@ -117,17 +119,16 @@ python -m usa_wa_facts_seats.house.migrate --dry-run
 python -m usa_wa_facts_seats.house.migrate
 
 # DEPLOY SEQUENCING (the whole historical backfill — and any build that changes span depth, e.g.
-# enabling #103 elimination), SIDECAR PAUSED throughout, before the next 06:45 SOS timer fire.
-# Build BEFORE migrate, so the deep usa_wa_legislature keeper spans exist for the migration to
-# collapse the stranded PDC + superseded rows onto (transferring their anchors) before anything
-# drains to PM. Draining first lets PM dedup-match a new span onto a still-anchored old row's
-# assignment ((person, role, start_date)) and park the entry UNAVAILABLE (#86 + operator alert).
-#   sudo systemctl stop usa-wa-sync-powermap
+# enabling #103 elimination). Build BEFORE migrate, so the deep usa_wa_legislature keeper spans
+# exist for the migration to collapse the stranded PDC + superseded rows onto.
 #   python -m usa_wa_adapter_sos.results.harvest --from-year 2008        # Phase A (SOS results archive)
 #   python -m usa_wa_facts_seats.house.build                   # Phase B: full-depth rebuild
 #   python -m usa_wa_facts_seats.house.migrate                # OWNER role: superseded + PDC->WSL
-#   sudo systemctl start usa-wa-sync-powermap                  # let the sidecar drain to PM
-# If the 06:45 timer beats this window: the daily build emits the new spans first and the sidecar
-# parks the colliding entries UNAVAILABLE (#86, operator alert) — recoverable: run the migrate,
-# then redrive (python -m usa_wa_api.cli.redrive).
+#
+# This sequence used to be bracketed by stopping and starting usa-wa-sync-powermap, because
+# draining first let PM dedup-match a new span onto a still-anchored old row's assignment
+# ((person, role, start_date)) and park the entry UNAVAILABLE (#86 + operator alert); the
+# recovery was to run the migrate and then redrive. #314 deleted the sidecar, the outbox path
+# and the redrive CLI, so the ordering constraint is now purely local: migrate after build so
+# the keeper spans exist.
 ```

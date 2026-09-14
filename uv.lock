@@ -10,8 +10,6 @@ resolution-markers = [
 members = [
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
-    "clearinghouse-sync-powermap",
-    "powermap-client",
     "usa-wa-adapter-legislature",
     "usa-wa-adapter-pdc",
     "usa-wa-adapter-sos",
@@ -27,10 +25,8 @@ dev = [
     { name = "anyio", specifier = ">=4.0,<5" },
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
     { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
-    { name = "clearinghouse-sync-powermap", editable = "packages/clearinghouse-sync-powermap" },
     { name = "httpx", specifier = ">=0.27,<1" },
     { name = "import-linter", specifier = ">=2.0,<3" },
-    { name = "powermap-client", editable = "packages/powermap-client" },
     { name = "pre-commit", specifier = ">=4.0,<5" },
     { name = "pytest", specifier = ">=8.0,<9" },
     { name = "pytest-asyncio", specifier = ">=1.0,<2" },
@@ -378,25 +374,6 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0,<3" },
-]
-
-[[package]]
-name = "clearinghouse-sync-powermap"
-version = "0.1.0"
-source = { editable = "packages/clearinghouse-sync-powermap" }
-dependencies = [
-    { name = "clearinghouse-core" },
-    { name = "httpx" },
-    { name = "powermap-client" },
-    { name = "sqlalchemy", extra = ["asyncio"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
-    { name = "httpx", specifier = ">=0.27,<1" },
-    { name = "powermap-client", editable = "packages/powermap-client" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0,<3" },
 ]
 
@@ -1655,21 +1632,6 @@ wheels = [
 ]
 
 [[package]]
-name = "powermap-client"
-version = "0.1.0"
-source = { editable = "packages/powermap-client" }
-dependencies = [
-    { name = "attrs" },
-    { name = "httpx" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "attrs", specifier = ">=22.2.0" },
-    { name = "httpx", specifier = ">=0.23.1,<0.29.0" },
-]
-
-[[package]]
 name = "pre-commit"
 version = "4.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2555,7 +2517,6 @@ source = { editable = "packages/usa-wa-api" }
 dependencies = [
     { name = "clearinghouse-core" },
     { name = "clearinghouse-domain-legislative" },
-    { name = "clearinghouse-sync-powermap" },
     { name = "fastapi" },
     { name = "uvicorn" },
 ]
@@ -2564,7 +2525,6 @@ dependencies = [
 requires-dist = [
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
     { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
-    { name = "clearinghouse-sync-powermap", editable = "packages/clearinghouse-sync-powermap" },
     { name = "fastapi", specifier = ">=0.115.0,<1" },
     { name = "uvicorn", specifier = ">=0.34.0,<1" },
 ]

@@ -6,7 +6,6 @@ rationale. The everyday subset is in [`AGENTS.md`](../AGENTS.md#common-commands)
 Grouped references split out so each stays loadable on its own:
 
 - [COMMANDS-SUCCESSION.md](COMMANDS-SUCCESSION.md) — operator succession events, odd-year corroboration, committee lineage
-- [COMMANDS-SYNC.md](COMMANDS-SYNC.md) — Power Map reconcilers, heals, validation, provenance and integrity
 - [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md) — historical harvests, span builders, one-shot migrations, write-free probes
 - [COMMANDS-SEATS.md](COMMANDS-SEATS.md) — the Layer-3b seat-fact backfills: PDC identifier links (#79), WSL+SOS House Position (#101)
 
@@ -17,13 +16,13 @@ daily/weekly ones on systemd timers ([`AGENTS.md`](../AGENTS.md#server-lifecycle
 Lifecycle); the rest are run-once / ad-hoc. Pair backfills with `USA_WA_BIENNIUM` to target
 a non-current biennium.
 
-**All 44 run on the shared job harness (#179b)**: each takes `--json`, prints a `key=value`
+**All 51 run on the shared job harness (#179b)**: each takes `--json`, prints a `key=value`
 summary, and writes a `job_runs` row (`GET /api/v1/health/jobs`). **Exit codes unchanged**
 unless a doc below says otherwise (`0` ok / `1` failed / `2` config / `4` degraded, `3`
 reserved for "aborted, took no action") — see
-[MODULES-FRAMEWORK.md](MODULES-FRAMEWORK.md). Two CR #196 qualifications on that "all" —
-`--dry-run` is on 40 of 44, and an exit-`2` config error writes no ledger row — are in
-[COMMANDS-SYNC.md](COMMANDS-SYNC.md#the-harness-contract).
+[MODULES-FRAMEWORK.md](MODULES-FRAMEWORK.md). Two CR #196 qualifications on that "all"
+still hold: `--dry-run` is not on every one of them, and an exit-`2` config error writes
+no ledger row.
 
 ### Documented in this file
 
@@ -62,7 +61,7 @@ Full options, exit codes and rationale: [COMMANDS-SEATS.md](COMMANDS-SEATS.md).
 | `python -m usa_wa_facts_seats.pdc.migrate_pdc_spans` | Retire pre-#79 per-biennium PDC House rows onto spans (#79) |
 | `python -m usa_wa_adapter_sos.results.harvest` | Archive WA SOS **results** cohorts (the House Position source, `usa_wa_sos_results`) — Phase A (#101) |
 | `python -m usa_wa_adapter_legislature.roster_pdf.harvest` | Archive the WA Legislature roster PDF (1889–2025, `usa_wa_legislature_roster`) — Phase A (#225); one edition, not a sweep; exit 4 = document unlocatable or a newer edition published |
-| `python -m usa_wa_adapter_legislature.roster_pdf.backfill` | Roster succession dates → operator events (#226); **sidecar-paused**, defers to every existing attestation, `--dry-run` rolls back; exit 4 = nothing resolved |
+| `python -m usa_wa_adapter_legislature.roster_pdf.backfill` | Roster succession dates → operator events (#226); defers to every existing attestation, `--dry-run` rolls back; exit 4 = nothing resolved |
 | `python -m usa_wa_facts_seats.house.build` | WSL+SOS House Position seat spans (2008→present) incl. #103 elimination inference, Phase B (#101) |
 | `python -m usa_wa_facts_seats.house.migrate` | Superseded-collapse (#103) + re-source usa_wa_pdc House rows → usa_wa_legislature (owner role, #101) |
 
@@ -72,31 +71,18 @@ Full options, exit codes and rationale: [COMMANDS-SUCCESSION.md](COMMANDS-SUCCES
 
 | Command | Purpose |
 |---|---|
-| `python -m usa_wa_sync_powermap.reconcile_committee_active` | Reconcile PM `active` vs current roster (#44; weekly) |
 | `python -m usa_wa_adapter_legislature.operators.cli` | Record operator succession events — the live interjection surface (#107) |
 | `python -m usa_wa_adapter_legislature.operators.invariants` | Assert chamber counts + seat occupancy; exit 1 on drift (#107; daily) |
 | `python -m usa_wa_facts_seats.senate_corroboration` | Cite elected senators + assert no odd-year Senate winner lacks an open seat; exit 1 on drift (#123; daily) |
 | `python -m usa_wa_facts_seats.house_corroboration` | Assert no odd-year House special winner lacks an open Position seat; `--sweep-biennia` historical audit; exit 1 on drift (#149; daily) |
 | `python -m usa_wa_adapter_legislature.committees.succession_cli` | Record operator committee-succession links — the judgment layer (#124 C2) |
-| `python -m usa_wa_sync_powermap.committee_event_producer` | Emit committee lifecycle windows + succession links to PM as org events (#124 C3) |
 | `python -m usa_wa_adapter_legislature.committees.lineage_invariants` | Assert committee lineage coherence (INV1/INV2); exit 1 on drift (#124 C4; daily) |
 | `python -m usa_wa_adapter_legislature.committees.lineage_suggest` | Advisory: rank committee succession-candidate pairs (#124 C5) |
 
-### Power Map sync
-
-Full options, exit codes and rationale: [COMMANDS-SYNC.md](COMMANDS-SYNC.md).
+### Provenance and integrity
 
 | Command | Purpose |
 |---|---|
-| `python -m usa_wa_sync_powermap.backfill_contact_labels` | Re-observe orgs w/ phone so PM adopts contact label (#31) |
-| `python -m usa_wa_sync_powermap.reconcile_committee_names` | Committee rename → dated-name evidence (#46; weekly) |
-| `python -m usa_wa_sync_powermap.reconcile_committee_meeting_names` | Joint/Other rename detection (#56; weekly) |
-| `python -m usa_wa_sync_powermap.validate_committees` | Read-only local↔PM drift report (#64) |
-| `python -m usa_wa_sync_powermap.heal_committee_curation` | Force-adopt PM curation for LWW-locked committees (#65) |
-| `python -m usa_wa_sync_powermap.heal_assignment_clocks` | Adopt PM's clock onto LWW-skewed anchored assignments; stop churn (#102) |
-| `python -m usa_wa_sync_powermap.reanchor_assignments` | Re-resolve assignment anchors PM reminted in a merge, by natural key (#283) |
-| `python -m usa_wa_sync_powermap.prune_subscriptions` | Unsubscribe PM-only strangers; re-run to stale=0 (#73) |
-| `python -m usa_wa_sync_powermap.retract_assignments` | Retract spurious anchored assignments on PM (`op:"retract"`) + tombstone locally; sidecar-paused (#144 Phase 2) |
 | `python -m clearinghouse_core.integrity` | Provenance integrity sweep — rolling byte-slice (#54/#55; weekly) |
 | `python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline` | OWNER-role provenance repair (#64) |
 
@@ -118,7 +104,6 @@ Full options, exit codes and rationale: [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL
 | `python -m usa_wa_adapter_legislature.membership.migrate_spans` | Retire per-biennium committee rows stranded by deeper spans (#82) |
 | `python -m usa_wa_adapter_legislature.migrate_role_types` | Reclassify generic `member` Roles → PM catalog slugs (`committee_member`/`party_member`) to stop the #110 no-op-gate churn |
 | `python -m usa_wa_adapter_legislature.committees.harvest` | Committee historical backfill, Phase A (sub-project 3) |
-| `python -m usa_wa_sync_powermap.reconcile_committee_name_chain` | Full committee rename-chain emit, Phase B (sub-project 3) |
 | `python -m usa_wa_adapter_sos.filings.harvest` | Archive WA SOS votewa **filing** cohorts (candidacy metadata, `usa_wa_sos`) — Phase A (#100); closed archive, caps at 2018 (#169) |
 
 ## Setup

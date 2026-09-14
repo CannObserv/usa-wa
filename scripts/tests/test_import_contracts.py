@@ -89,9 +89,10 @@ def test_every_workspace_package_is_a_root_package():
         for p in (REPO / "packages").iterdir()
         if (p / "pyproject.toml").is_file()
     }
-    # The generated OpenAPI client is excluded from every hook (see .pre-commit-config.yaml);
-    # it is vendored, not ours to layer.
-    assert roots == packages - {"powermap_client"}
+    # No exclusions since #314 deleted `powermap-client`, the generated OpenAPI
+    # client that was vendored rather than ours to layer. Every package on disk
+    # is now a package the contracts see.
+    assert roots == packages
 
 
 def test_import_linter_runs_in_the_same_gate_as_ruff():

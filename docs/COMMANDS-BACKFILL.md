@@ -137,8 +137,8 @@ exist before anything reaches PM.
 identifier type, add it to `SOURCE_TO_IDENTIFIER_TYPE`, *then* produce.
 
 ```bash
-# The whole sequence runs SIDECAR-PAUSED (deepening re-keys spans; migrate moves PM anchors):
-sudo systemctl stop usa-wa-sync-powermap
+# (Ran SIDECAR-PAUSED until #314 — deepening re-keys spans and the migrate moved PM anchors.
+# The sidecar is gone; no pause step remains.)
 
 # 1. Build (app role). Oracle violations abort with exit 1 before any write.
 uv run python -m usa_wa_adapter_legislature.roster_pdf.build --dry-run
@@ -153,18 +153,11 @@ uv run python -m usa_wa_adapter_legislature.roster_pdf.build
 #    trust it once step 1 exited 0 — see below.
 uv run python -m usa_wa_adapter_legislature.sponsors.migrate_spans --dry-run
 
-# 3. RETRACT every source_id the preview would drop — BEFORE the collapse, not after (#276).
-#    Skip this step entirely when anchors_dropped=0, which is the expected reading. The flag
-#    is repeatable; retract the whole drop set in one invocation.
-uv run python -m usa_wa_sync_powermap.retract_assignments --dry-run \
-    --source-id <dropped-1> --source-id <dropped-2>
-uv run python -m usa_wa_sync_powermap.retract_assignments \
-    --source-id <dropped-1> --source-id <dropped-2>
-# NOTE: anchors_dropped does NOT fall to 0 afterwards — re-previewing still reports the same
-#    count. Retraction sets archived_at and leaves pm_assignment_id in place, and the collapse
-#    selects on deleted_at IS NULL alone, so the row is still seen and still counted. The drop
-#    is simply harmless now: the PM assignment it orphans is already archived. Treat
-#    anchors_dropped as a to-do list, not a convergence signal.
+# 3. RETIRED at #314 with `retract_assignments`. It retracted every source_id the preview
+#    would drop, before the collapse rather than after (#276), so a dropped anchor never
+#    became a live PM assignment nothing local could name. With the sidecar gone nothing
+#    writes to PM at all, so anchors_dropped is now a local bookkeeping number: the PM rows
+#    it names are PM's to reconcile from the published datasets.
 
 # 4. Collapse the stranded shallow keys (OWNER role — deletes citations, #54). Deepening
 #    re-keys a joined member's span to its roster-era start, stranding the shipped
@@ -172,22 +165,23 @@ uv run python -m usa_wa_sync_powermap.retract_assignments \
 #    Measured: superseded_found=130, anchors_transferred=130, orphans=0, anchors_dropped=0.
 uv run python -m usa_wa_adapter_legislature.sponsors.migrate_spans
 
-# 5. Resume; the outbox drains the new Persons + Assignments to PM, paced (#85).
-#    Requires the PM prerequisite above; without it the person entries defer indefinitely.
-sudo systemctl start usa-wa-sync-powermap
+# 5. RETIRED at #314. This resumed the sidecar so the outbox drained the new Persons +
+#    Assignments to PM. PM now picks them up from the next nightly dataset publish.
 ```
 
 **Why steps 2–3 come before the collapse (#276).** The collapse is a one-way door for the rows
 whose anchors it drops. `_retire_onto` hard-deletes the stranded row *unconditionally* —
 including on the branch where the keeper already carries a different anchor, so the row and its
 only local handle disappear in the same pass that orphans the PM assignment.
-[`retract_assignments`](COMMANDS-SYNC.md#retract-spurious-anchored-assignments-144-phase-2)
-resolves its targets by the **local** natural key `(source, source_id)`, and `--source-id` is
-its only addressing mode — there is no `--pm-assignment-id` door. So after the collapse a
-dropped anchor is a live PM assignment nothing local can name: the CLI answers `not_found` and
-exits `1`, and the only remaining route is PM's admin-only unarchive. Retraction is **terminal**
-(power-map#391 shipped no reversible `archived:false`), so this is not a step to run
-speculatively — run it on exactly the ids the preview named.
+`retract_assignments` resolved its targets by the **local** natural key `(source,
+source_id)`, and `--source-id` was its only addressing mode — there was no
+`--pm-assignment-id` door. So after the collapse a dropped anchor was a live PM assignment
+nothing local could name, and the only remaining route was PM's admin-only unarchive.
+
+**#314 dissolved the hazard rather than fixing it.** With no producer path to PM, the
+collapse can no longer orphan anything on PM's side: PM reconciles from the published
+datasets, where a collapsed row is simply absent. The ordering above is kept as the record
+of why the constraint existed, not as a step to run.
 
 The recorded `anchors_transferred=130, orphans=0, anchors_dropped=0` is the *clean* reading, not
 a guarantee the collapse always reaches it. `anchors_dropped` rises whenever the sidecar drained
@@ -251,11 +245,7 @@ Ordered by source, then by phase within it — three sources, not two:
 
 1. the WSL/legislature sweeps (members, committees, their span builders and
    migrations), which are most of the section;
-2. `usa_wa_sync_powermap.reconcile_committee_name_chain` — a PM-sync emitter,
-   documented here beside the `committees.harvest` Phase A whose archived
-   rosters it reads, not in [COMMANDS-SYNC.md](COMMANDS-SYNC.md) with the other
-   reconcilers;
-3. the SOS filings archive last — a different upstream, epic, and archive key,
+2. the SOS filings archive last — a different upstream, epic, and archive key,
    so it deliberately does not interleave with either.
 
 ```bash
@@ -330,11 +320,10 @@ python -m usa_wa_adapter_legislature.sponsors.build
 # stranded one (anchors_dropped + warned, the #80 orphaned-upstream case). Idempotent; --dry-run
 # rolls back. #97 run (full-depth Senate/party backfill): spans_built=920 superseded_retired=164
 # anchors_transferred=164 orphans=0 → Senate 241 spans (1991->2025) + party 679, all produced.
-# DEPLOY SEQUENCING: run in the SAME window as the backfill, sidecar PAUSED
-# (sudo systemctl stop usa-wa-sync-powermap). PM keys assignments on (person, role, start_date), so
-# a deepened span the sidecar anchors BEFORE this runs gets its own PM assignment, after which the
-# stranded anchor can only be dropped (anchors_dropped). Restart after:
-# sudo systemctl start usa-wa-sync-powermap.
+# DEPLOY SEQUENCING: run in the SAME window as the backfill. The sidecar-pause bracket this
+# carried until #314 is gone with the sidecar — PM keyed assignments on (person, role,
+# start_date), so a deepened span it anchored BEFORE this ran got its own PM assignment and
+# the stranded anchor could then only be dropped (anchors_dropped). Nothing pushes to PM now.
 python -m usa_wa_adapter_legislature.sponsors.migrate_spans --dry-run
 python -m usa_wa_adapter_legislature.sponsors.migrate_spans
 
@@ -369,12 +358,11 @@ python -m usa_wa_adapter_legislature.membership.build
 # claim. Each is mapped to the covering span by (person_id, role_id) + validity window, its
 # pm_assignment_id transferred, then hard-deleted with its citations (owner-only under #54).
 #
-# SEQUENCING: run this in the SAME maintenance window as the Phase A harvest, with the sidecar
-# paused (sudo systemctl stop usa-wa-sync-powermap). PM keys assignments on
-# (person, role, start_date), so a deepened span the sidecar drains first is minted as its OWN PM
-# assignment — after which the legacy row's anchor can only be dropped, orphaning that PM row
-# (a live PM assignment with the wrong start_date and no local mirror). Those are counted
-# `anchors_dropped` and warned per row; expect 0. Restart the sidecar after.
+# SEQUENCING: run this in the SAME maintenance window as the Phase A harvest. The
+# sidecar-pause requirement retired with the sidecar at #314 — PM keyed assignments on
+# (person, role, start_date), so a deepened span drained first was minted as its OWN PM
+# assignment, after which the legacy row's anchor could only be dropped, orphaning that PM row.
+# Those are still counted `anchors_dropped` and warned per row; expect 0.
 # Idempotent; --dry-run rolls back.
 python -m usa_wa_adapter_legislature.membership.migrate_spans --dry-run
 python -m usa_wa_adapter_legislature.membership.migrate_spans
@@ -403,23 +391,19 @@ python -m usa_wa_adapter_legislature.migrate_role_types
 # 1-day TTL is a cache hit that upserts NOTHING) — the post-incident re-materialization of
 # rolled-back rows, and the retrospective-change revalidation of closed rosters; byte-identical
 # wire dedups to the existing RawPayload, fill-only leaves unaffected committees untouched.
-# FOLLOW-UP after a --force run that CREATES committees: the freshly-created rows are
-# LWW-locked (local updated_at ≥ PM's org clock), so the sidecar mirror won't adopt their
-# PM name/acronym windows until PM's clock advances — run `heal_committee_curation` to
-# force-adopt them (else validate_committees shows them divergent with empty child tables).
+# (Pre-#314 follow-up, no longer applicable: a --force run that CREATED committees left the
+# fresh rows LWW-locked against the sidecar mirror, needing `heal_committee_curation`. There
+# is no mirror and no LWW gate any more.)
 python -m usa_wa_adapter_legislature.committees.harvest --from-biennium 2011-12 --pause-seconds 2
 python -m usa_wa_adapter_legislature.committees.harvest --dry-run   # auto-probe floor, roll back
 python -m usa_wa_adapter_legislature.committees.harvest --from-biennium 1991-92 --force  # re-materialize
-# then: python -m usa_wa_sync_powermap.heal_committee_curation   # mirror the created cohort's windows
 
-# Full committee rename-chain emission (sub-project 3, Phase B) — the deep-history sibling
-# of #46. Reads every archived committees-roster:<biennium> offline (archive-first, no WSL
-# re-pull), builds each stable Id's full normalize_name(LongName) timeline, and emits every
-# former->legal transition to PM (windowed dated-name evidence). Dormancy-aware + per-boundary
-# storm floor. Emit-only; PM curates is_canonical, the #45 mirror brings windows back (now
-# sticking via #65). Backfill-once (not a timer). --dry-run previews; exit 0/1/2/3.
-python -m usa_wa_sync_powermap.reconcile_committee_name_chain --dry-run
-python -m usa_wa_sync_powermap.reconcile_committee_name_chain
+# Full committee rename-chain emission (sub-project 3, Phase B) — RETIRED at #314 with
+# `reconcile_committee_name_chain`. It read every archived committees-roster:<biennium>
+# offline, built each stable Id's full normalize_name(LongName) timeline, and emitted every
+# former->legal transition to PM as windowed dated-name evidence. The timeline logic was
+# pure and the archive it read is untouched; what went is the emitter and the PM read-mirror
+# that brought the curated windows back.
 
 # SOS FILINGS harvest — Phase A of #100, archive-only (#166). Sweep the votewa
 # /Candidates/ExportToExcel CSV export (statewide, countyCode=xx) for each EVEN general-election

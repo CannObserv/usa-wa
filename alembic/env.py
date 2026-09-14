@@ -17,8 +17,12 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # Side-effect imports so every workspace member's tables register on Base.metadata
 # before autogen runs. Add new domain packages here as they're created.
+#
+# `clearinghouse_sync_powermap` was the second entry until #314 deleted it. Its
+# `sync` schema is still IN the database and still created by the historical
+# migrations — autogenerate would now propose dropping those six tables, which is
+# #314's own migration step to write deliberately, not a diff to accept blindly.
 import clearinghouse_domain_legislative  # noqa: E402, F401
-import clearinghouse_sync_powermap  # noqa: E402, F401
 from alembic import context
 from clearinghouse_core.models import Base
 

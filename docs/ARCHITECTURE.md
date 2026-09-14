@@ -17,14 +17,14 @@ this document is the pattern that record instantiates.
 | 2b — vocabulary | `usa-wa-common` | what is true about *Washington's* legislature rather than about any publisher of data on it: the election calendar, seat/position keying, name folding, party canonicalization, the ballot interfaces. **Source-free** |
 | 3 — adapters | `usa-wa-adapter-*` | **per jurisdiction+target**: turn a target's wire into canonical rows. **Sourcing only** |
 | 3b — facts | `usa-wa-facts-*` | **applications**: compose cohort providers across adapters into a canonical fact |
-| 4 — deployment | `usa-wa-api`, `usa-wa-sync-powermap` | serve + sync to Power Map |
+| 4 — deployment | `usa-wa-api` | serve (the PM sync sidecar was the second until #314) |
 
 **The layering is a contract, not a description** (#189, AR-14). It is checked by
 `import-linter` (`uv run lint-imports`, in the pre-commit gate beside ruff; contracts in the
 root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py`):
 
 - `usa_wa_adapter_* ↛ usa_wa_adapter_*` — an adapter never imports a peer
-- `usa_wa_sync_powermap`, `usa_wa_api`, `usa_wa_facts_* ↛ usa_wa_adapter_*.transport`
+- `usa_wa_api`, `usa_wa_facts_*`, `usa_wa_pipeline ↛ usa_wa_adapter_*.transport`
 - `usa_wa_common ↛` any adapter, fact or deployment package
 - the layer order above, with no back-edges
 

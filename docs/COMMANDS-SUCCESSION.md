@@ -164,11 +164,10 @@ with which — emitted to PM as `succeeded_by` / `split_from` / `merged_with` en
 the loop. See [`docs/specs/2026-07-25-committee-lineage-lifecycle-design.md`](specs/2026-07-25-committee-lineage-lifecycle-design.md).
 
 ```bash
-# C1b — one-time bulk deactivation of the defunct-era backfill (see § Reconcilers &
-# validation in COMMANDS-SYNC.md;
-# --all-era disables #90 live-era scoping). Pair with --max-absent-fraction 1.0.
-python -m usa_wa_sync_powermap.reconcile_committee_active --all-era \
-    --max-absent-fraction 1.0 --dry-run
+# C1b — one-time bulk deactivation of the defunct-era backfill. RETIRED at #314 with
+# the PM producer CLI that ran it (reconcile_committee_active): it emitted PM `active`
+# transitions, and PM now reads the published datasets instead of being pushed to. The
+# local C1a lifecycle windows below are unaffected — they were never this CLI's work.
 
 # C2 — record an operator-attested succession link (the judgment layer). Both --subject and
 # --linked are WSL committee Ids that must resolve to live usa_wa_legislature committee Orgs
@@ -191,12 +190,9 @@ python -m usa_wa_adapter_legislature.committees.succession_cli --supersede <id> 
     --evidence-url https://...                        # clear the year (vs omit --year = inherit)
 python -m usa_wa_adapter_legislature.committees.succession_cli --list               # current links
 
-# C3 — emit the C1a windows + C2 links to PM as org entity events (create/refine, no-op
-# gated; anchors read from the read-mirror, not a local producer row). Also RETRACTS the
-# stale PM event of a superseded, unreasserted link (#127; op=retract, stamps entity_events
-# .retracted_at) — a year-only correction keeps the identity and refines instead. --dry-run
-# computes the diff without posting. Exit 1 if any event rejected / 2 on a global auth block.
-python -m usa_wa_sync_powermap.committee_event_producer --dry-run
+# C3 — emitting the C1a windows + C2 links to PM as org entity events. RETIRED at #314
+# with committee_event_producer. C2's links are still recorded locally and still gate C4;
+# what went is the push of them to PM, which #314 replaced with PM's nightly pull.
 
 # C4 — daily coherence invariant (read-only anti-drift backstop): INV1 no active=false
 # committee carries a live membership Assignment; INV2 the subject of a non-superseded

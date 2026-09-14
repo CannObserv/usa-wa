@@ -12,7 +12,7 @@ That is how `usa-wa-adapter-sos` — the module behind three production systemd
 units — ended up in none of them (AR-10, finding 10): nothing broke, so nothing
 noticed. Its imports were lint-classified as third-party and its dependency edge
 rested entirely on glob behaviour. `usa_wa_adapter_pdc` and `powermap_client`
-were likewise missing from `known-first-party`.
+(deleted in #314) were likewise missing from `known-first-party`.
 
 This guard closes that gap the way `test_unit_ordering` closes the
 systemd-ordering gap: the on-disk package set is cross-checked against each

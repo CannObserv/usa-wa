@@ -3,7 +3,7 @@
 # usa-wa-migrate.service oneshot unit (and runnable by hand on the migrate host).
 #
 # Requires DATABASE_URL_OWNER in the environment (the systemd unit loads it from
-# /etc/usa-wa/.env; the live API + sidecar units never carry it). Applies
+# /etc/usa-wa/.env; the live API unit never carries it). Applies
 # scripts/grants.sql afterward so a migration's new tables inherit app grants in
 # the same deploy. The grants step runs as <owner>, so it is a no-op for role
 # creation/reassignment — those are one-time, superuser-run provisioning steps.

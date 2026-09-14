@@ -65,7 +65,7 @@ API that provably cannot write rather than one that promises not to.
 `test_v1_contract.py` asserts both — the prefixed set and the whole route table.
 
 Re-driving dead-lettered outbox work is now on-box only:
-`python -m usa_wa_api.cli.redrive` ([COMMANDS-SYNC.md](COMMANDS-SYNC.md)), with the same scoping
+`python -m usa_wa_api.cli.redrive`, with the same scoping
 and dry-run semantics. Shell access was always a stronger trust boundary than the single shared
 `X-Operator-Token` header the route carried, and that header — and
 `USA_WA_OPERATOR_TOKEN` — are gone with it.

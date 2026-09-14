@@ -64,7 +64,6 @@ import clearinghouse_core.jurisdictions  # noqa: F401  (registers core models)
 import clearinghouse_core.provenance  # noqa: F401
 import clearinghouse_core.sweep_state  # noqa: F401
 import clearinghouse_domain_legislative  # noqa: F401  (registers every domain model)
-import clearinghouse_sync_powermap.models  # noqa: F401  (registers the outbox ledger)
 from clearinghouse_core.models import Base
 
 DECLARED = "declared"
@@ -89,17 +88,18 @@ OPEN_TRACKING_ISSUES = {
 
 #: Packages excluded from the producer scan.
 #:
-#: ``powermap-client`` is a generated OpenAPI client whose model names collide with
-#: ours (it has its own ``Person``, ``Assignment``, ``EntityEvent``); counting it
-#: would make orphaned tables look produced by name alone. It has no ``src/``
-#: directory either, so the glob below already skips it — named here so the
-#: exclusion survives a layout change.
-EXCLUDED_PACKAGES = frozenset({"powermap-client"})
+#: Empty since #314. Its one entry was ``powermap-client``, a generated OpenAPI
+#: client whose model names collided with ours (its own ``Person``,
+#: ``Assignment``, ``EntityEvent``), so counting it would have made orphaned
+#: tables look produced by name alone. Kept as a named, empty set: the next
+#: vendored package with colliding model names must exclude itself here
+#: deliberately rather than quietly mask an orphan.
+EXCLUDED_PACKAGES: frozenset[str] = frozenset()
 
 #: Mapped classes that never reach a production table and so are exempt.
-#: ``FakeEntity`` is sync-engine test scaffolding; its package ``__init__`` does not
-#: import it, so it never enters ``Base.metadata`` outside the test suite.
-EXEMPT_CLASSES = frozenset({"clearinghouse_sync_powermap.testing.FakeEntity"})
+#: Empty since #314 — ``clearinghouse_sync_powermap.testing.FakeEntity`` was
+#: sync-engine test scaffolding that entered ``Base.metadata`` only under test.
+EXEMPT_CLASSES: frozenset[str] = frozenset()
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 

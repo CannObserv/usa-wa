@@ -6,8 +6,6 @@ dev = [
     # Workspace members (so a single `uv sync` installs everything in editable mode)
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
-    "clearinghouse-sync-powermap",
-    "powermap-client",
     "usa-wa-adapter-legislature",
     "usa-wa-adapter-pdc",
     "usa-wa-adapter-sos",
@@ -36,8 +34,6 @@ dev = [
 [tool.uv.sources]
 clearinghouse-core = { workspace = true }
 clearinghouse-domain-legislative = { workspace = true }
-clearinghouse-sync-powermap = { workspace = true }
-powermap-client = { workspace = true }
 usa-wa-adapter-legislature = { workspace = true }
 usa-wa-adapter-pdc = { workspace = true }
 usa-wa-adapter-sos = { workspace = true }
@@ -88,7 +84,6 @@ unit_cov_fail_under = "64"
 [tool.coverage.run]
 source = ["packages"]
 omit = [
-    "packages/powermap-client/*",  # generated OpenAPI client; not our code to test
     # Declared-not-implemented tier (#182). These modules are pure table declarations
     # with no producer: every line executes on import, so they scored 100% and padded
     # the gate with code that never runs in anger. Their classes stay marked
@@ -111,7 +106,7 @@ fail_under = 80
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = ["skills-vendor/", "alembic/versions/", ".superpowers/", "packages/powermap-client/"]
+extend-exclude = ["skills-vendor/", "alembic/versions/", ".superpowers/"]
 
 [tool.ruff.lint]
 # ASYNC (flake8-async) and S (flake8-bandit) added by CR #191 finding 7: the job
@@ -130,8 +125,6 @@ select = ["E", "F", "I", "W", "UP", "ASYNC", "S"]
 known-first-party = [
     "clearinghouse_core",
     "clearinghouse_domain_legislative",
-    "clearinghouse_sync_powermap",
-    "powermap_client",
     "usa_wa_adapter_legislature",
     "usa_wa_adapter_pdc",
     "usa_wa_adapter_sos",
@@ -158,7 +151,6 @@ known-first-party = [
 root_packages = [
     "clearinghouse_core",
     "clearinghouse_domain_legislative",
-    "clearinghouse_sync_powermap",
     "usa_wa_common",
     "usa_wa_adapter_legislature",
     "usa_wa_adapter_pdc",
@@ -186,18 +178,18 @@ layers = [
     "usa_wa_facts_seats : usa_wa_pipeline",
     "usa_wa_adapter_legislature : usa_wa_adapter_pdc : usa_wa_adapter_sos",
     "usa_wa_common",
-    "clearinghouse_domain_legislative : clearinghouse_sync_powermap",
+    "clearinghouse_domain_legislative",
     "clearinghouse_core",
 ]
-# `clearinghouse_core.testing.reset_migration_schemas` function-locally imports the
-# domain + sync packages so every declared schema is registered before it drops and
-# recreates them. A deliberate inversion of the layer order, scoped to one test-support
-# helper and already commented at the call site: it is *table registration*, not a
-# dependency of Layer 1 on Layer 2. Named exactly (not wildcarded) so a second, real
-# inversion in `clearinghouse_core` cannot hide behind it.
+# `clearinghouse_core.testing.declared_schemas` function-locally imports the domain
+# package so every declared schema is registered before the reset drops and recreates
+# them. A deliberate inversion of the layer order, scoped to one test-support helper
+# and already commented at the call site: it is *table registration*, not a dependency
+# of Layer 1 on Layer 2. Named exactly (not wildcarded) so a second, real inversion in
+# `clearinghouse_core` cannot hide behind it. The sync package was the second entry
+# until #314.
 ignore_imports = [
     "clearinghouse_core.testing -> clearinghouse_domain_legislative.identity",
-    "clearinghouse_core.testing -> clearinghouse_sync_powermap",
 ]
 
 [[tool.importlinter.contracts]]

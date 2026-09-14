@@ -64,7 +64,7 @@ positionless seat pre-flight rather than take a 422.
 Three orthogonal axes, deliberately **not** collapsed into one column. A row is *live* iff both
 tombstones are NULL.
 
-| Axis | Where | Meaning | Effect on the PM sync cohort |
+| Axis | Where | Meaning | Effect on the PM sync cohort (retired at #314) |
 |---|---|---|---|
 | `archived_at` | `LifecycleMixin` (person/org/role/assignment) | mirrors PM's reversible "inactive" gate; the PM id is still **live** | row **stays** in sweep/reconcile and is re-fetched, so a dropped un-archive self-heals (#42) |
 | `deleted_at` | `LifecycleMixin` | terminal tombstone: genuine delete / merge-orphan with no surviving winner; the PM id is **gone** (re-fetch 404s) | row is **excluded** — never re-created or re-fetched |
@@ -289,7 +289,7 @@ C3 anchor strategy exists to avoid.
 Four modules declare full table clusters that **nothing writes**. They are imported by
 `clearinghouse_domain_legislative/__init__.py` (which registers every table with the shared
 `Base.metadata`, so alembic autogenerates them and they exist in the database), but no adapter,
-API route, or sidecar imports them — the only non-`__init__` importers are the domain package's
+API route or job imports them — the only non-`__init__` importers are the domain package's
 own tests.
 
 | Module | Cluster | Tracking |

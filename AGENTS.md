@@ -43,12 +43,11 @@ edges with `grep`. Goal→tool table, evidence, and the session-start `ToolSearc
 | 3 adapters | `usa-wa-adapter-*` | sourcing only, one per jurisdiction+target — **no adapter may import a peer adapter** |
 | 3b facts | `usa-wa-facts-*` | applications composing cohorts across adapters — **never an adapter's `transport`** |
 | 3c pipeline | `usa-wa-pipeline` | #302 dbt staging/matching/conformed models + the publisher (four catalog tiers, one of them non-dbt) — facts sibling, **never a `transport`** |
-| 4 deployment | `usa-wa-api`, `usa-wa-sync-powermap` | serve + sync — **never an adapter's `transport`** |
+| 4 deployment | `usa-wa-api` | serve — **never an adapter's `transport`** |
 
 Per-package module reference — what each file is for and why it exists:
 
 - [`docs/MODULES-FRAMEWORK.md`](docs/MODULES-FRAMEWORK.md) — Layers 1–2: the framework + domain primitives
-- [`docs/MODULES-SYNC-ENGINE.md`](docs/MODULES-SYNC-ENGINE.md) — the portable PM sync engine + the generated PM client
 - [`docs/MODULES-COMMON.md`](docs/MODULES-COMMON.md) — Layer 2b `usa-wa-common`: WA vocabulary (calendar, seats, names, parties, ballot) and the cohort seam
 - [`docs/MODULES-LEGISLATURE.md`](docs/MODULES-LEGISLATURE.md) — WSL adapter: transport, normalizers, daily refresh, cohort providers, probes
 - [`docs/MODULES-LEGISLATURE-ROSTER.md`](docs/MODULES-LEGISLATURE-ROSTER.md) — the roster-PDF source: parser, audit oracle, succession → resolve → backfill
@@ -56,8 +55,7 @@ Per-package module reference — what each file is for and why it exists:
 - [`docs/MODULES-PDC.md`](docs/MODULES-PDC.md) — PDC SODA adapter (identifier-only)
 - [`docs/MODULES-SOS.md`](docs/MODULES-SOS.md) — SOS filings + results sources
 - [`docs/MODULES-FACTS-SEATS.md`](docs/MODULES-FACTS-SEATS.md) — Layer 3b `usa-wa-facts-seats`: the composition layer (House Position, Senate corroboration, PDC spans)
-- [`docs/MODULES-SYNC.md`](docs/MODULES-SYNC.md) — Layer 4: the API deployment, the PM sidecar daemon, repo-root directories
-- [`docs/MODULES-SYNC-PRODUCERS.md`](docs/MODULES-SYNC-PRODUCERS.md) — the one-shot PM producer CLIs: reconcilers, heals, validation, retraction
+- [`docs/MODULES-DEPLOYMENT.md`](docs/MODULES-DEPLOYMENT.md) — Layer 4: the API deployment, repo-root directories
 
 ## Infrastructure
 
@@ -81,7 +79,7 @@ Run `uv sync --locked` in a new worktree: `.skills/worktree_venv=none` links no 
 git pull
 uv sync --locked                       # reconcile venv ⇄ uv.lock deliberately
 sudo systemctl restart usa-wa-migrate  # if DB models changed (restart, not start — see note)
-sudo systemctl restart usa-wa usa-wa-sync-powermap
+sudo systemctl restart usa-wa
 ```
 
 Unit files are installed as root-owned **copies**, so `sudo cp deploy/<unit> /etc/systemd/system/` before `daemon-reload` — reload alone re-reads the stale copy and deploys nothing. The per-unit restart table, the `uv sync --locked` rationale, and the `verify-units.sh` pre-commit gate (#51) are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
@@ -114,7 +112,7 @@ export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 export $(cat /etc/usa-wa/.env /home/exedev/usa-wa/.env 2>/dev/null | xargs)
 ```
 
-Every variable the deployment reads — including the PM sidecar tunables — is documented in [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md).
+Every variable the deployment reads is documented in [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md).
 
 ## Common Commands
 
@@ -155,7 +153,7 @@ uv run alembic revision --autogenerate -m "description"
 uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload --log-config packages/usa-wa-api/src/usa_wa_api/log_config.json
 ```
 
-Everyday commands only. Every operational and backfill CLI is indexed in [`docs/COMMANDS.md`](docs/COMMANDS.md), which links the grouped references (succession, PM sync, backfill). Prod runs the daily/weekly ones on systemd timers (see § Server Lifecycle); pair a backfill with `USA_WA_BIENNIUM` to target a non-current biennium.
+Everyday commands only. Every operational and backfill CLI is indexed in [`docs/COMMANDS.md`](docs/COMMANDS.md), which links the grouped references (succession, backfill). Prod runs the daily/weekly ones on systemd timers (see § Server Lifecycle); pair a backfill with `USA_WA_BIENNIUM` to target a non-current biennium.
 
 ## Agent Skills
 
@@ -199,12 +197,10 @@ JSON records carry `{timestamp, level, logger, message}` (#133). `level`/`logger
 - [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→tool table, the broken file-dependency graph, the `ToolSearch` prefetch
 - [docs/LOGGING.md](docs/LOGGING.md) — the JSON record shape and why every uvicorn invocation passes `--log-config`
 - [docs/API.md](docs/API.md) — the read-only `/api/v1` surface: route inventory, pagination, and the response contracts
-- [docs/LWW-NOOP-GATE.md](docs/LWW-NOOP-GATE.md) — the local-newer no-op gate; read before adding a `write_enabled` producer descriptor
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — systemd units, failure alerting, DB roles, restart/lifecycle table
-- [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) — every environment variable and PM sidecar tunable, with defaults
+- [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) — every environment variable, with defaults
 - [docs/COMMANDS.md](docs/COMMANDS.md) — command index plus setup, tests, migrations, daily refresh
 - [docs/COMMANDS-SUCCESSION.md](docs/COMMANDS-SUCCESSION.md) — operator succession, odd-year corroboration, committee lineage
-- [docs/COMMANDS-SYNC.md](docs/COMMANDS-SYNC.md) — PM reconcilers, heals, validation, provenance and integrity
 - [docs/COMMANDS-BACKFILL.md](docs/COMMANDS-BACKFILL.md) — historical harvests, span builders, one-shot migrations, write-free probes
 - [docs/COMMANDS-SEATS.md](docs/COMMANDS-SEATS.md) — the seat-fact backfills: PDC identifier links (#79), WSL+SOS House Position (#101)
 - [docs/SKILLS.md](docs/SKILLS.md) — vendored agent skills: inventory, symlink layout, refresh procedure

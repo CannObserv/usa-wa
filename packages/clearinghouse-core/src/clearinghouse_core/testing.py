@@ -222,31 +222,53 @@ def assert_test_url_safety(test_url: str) -> None:
             )
 
 
+#: Schemas the migration chain still CREATES but no live model declares (#314).
+#:
+#: Historical migrations are immutable, so ``alembic upgrade head`` from base
+#: still runs the #22 revision that creates ``sync`` and its six PM tables long
+#: after :mod:`clearinghouse_sync_powermap` was deleted. A reset derived purely
+#: from ``Base.metadata`` would therefore stop dropping ``sync`` while the replay
+#: kept creating it — which is issue #26 exactly, arrived at from the opposite
+#: direction: #26 was a schema the chain gained and the wipe list missed, this is
+#: a schema the models lost and the chain kept.
+#:
+#: An entry leaves this set only when the chain stops creating the schema, which
+#: means squashing or rewriting the migrations that do — NOT when #314's drop
+#: migration lands. A drop at the head still leaves the replay creating the
+#: schema on the way there.
+LEGACY_MIGRATION_SCHEMAS = frozenset({"sync"})
+
+
 def declared_schemas() -> set[str]:
-    """Every Postgres schema declared by any workspace table.
+    """Every Postgres schema the migration chain creates.
 
     Single source of truth for full-DB schema resets in integration tests that
-    clear ``alembic_version`` and re-run ``alembic upgrade head`` from base. The
-    set is derived from ``Base.metadata`` so it can never drift out of date as
-    new schemas join the migration chain — the bug behind issue #26, where the
-    ``sync`` schema (added in #22) was missing from hand-maintained wipe lists,
-    so a from-base re-migration collided on ``sync.powermap_outbox``.
+    clear ``alembic_version`` and re-run ``alembic upgrade head`` from base. Two
+    sources, because one stopped being enough:
 
-    The sibling-package imports below are a deliberate runtime dependency up the
-    layer stack: this Layer-1 helper reaches its domain/sync siblings to force
-    their table registration. They are kept *local* (not module-level) so that
-    importing ``clearinghouse_core.testing`` stays safe without the siblings
-    installed — only *calling* this function requires them, which never happens
-    outside the co-installed workspace test venv. If clearinghouse-core is ever
-    packaged standalone, this is the seam to revisit (e.g. inject the schema set
-    from the caller). Run purely for side effects, they make the returned set
-    complete regardless of the caller's own import context.
+    - every schema a live model declares, derived from ``Base.metadata`` so it
+      cannot drift out of date as new schemas join the chain — the bug behind
+      issue #26, where the ``sync`` schema (added in #22) was missing from
+      hand-maintained wipe lists and a from-base re-migration collided on
+      ``sync.powermap_outbox``;
+    - :data:`LEGACY_MIGRATION_SCHEMAS`, for a schema the chain creates that no
+      model declares any more.
+
+    The domain import below is a deliberate runtime dependency up the layer
+    stack: this Layer-1 helper reaches its domain sibling to force table
+    registration. It is kept *local* (not module-level) so that importing
+    ``clearinghouse_core.testing`` stays safe without the sibling installed —
+    only *calling* this function requires it, which never happens outside the
+    co-installed workspace test venv. If clearinghouse-core is ever packaged
+    standalone, this is the seam to revisit (e.g. inject the schema set from the
+    caller). Run purely for side effects, it makes the returned set complete
+    regardless of the caller's own import context.
     """
-    import clearinghouse_sync_powermap  # noqa: F401  (registers the sync schema)
     from clearinghouse_core.models import Base
     from clearinghouse_domain_legislative import identity  # noqa: F401  (canonical schema)
 
-    return {t.schema for t in Base.metadata.tables.values() if t.schema}
+    declared = {t.schema for t in Base.metadata.tables.values() if t.schema}
+    return declared | set(LEGACY_MIGRATION_SCHEMAS)
 
 
 # --- Test-database session lock (#208) ---------------------------------------

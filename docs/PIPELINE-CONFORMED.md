@@ -282,7 +282,7 @@ dated: senate 34, committee 8). That identity is the evidence the rule touched
 party alone. The oracle is stale by construction — the stored rows were built
 under the old rule and the daily refresh re-drives only the current biennium —
 and a rebuild is deliberately not the answer today, because it would push 695
-span changes through the legacy PM sidecar mid-cutover while power-map takes
+span changes through the legacy PM sidecar mid-cutover (that sidecar is gone as of #314) while power-map takes
 the corrected spans from the published dataset anyway. At 785 this ratchet no
 longer meaningfully guards party spans; the other kinds stay tightly held, and
 the number dies with #314.

@@ -88,7 +88,7 @@ uv run ruff format .
 Full command reference: [`docs/COMMANDS.md`](docs/COMMANDS.md) — it carries the
 index of every operational and backfill CLI, grouped by the reference that
 documents each: [succession](docs/COMMANDS-SUCCESSION.md),
-[PM sync](docs/COMMANDS-SYNC.md), [backfill](docs/COMMANDS-BACKFILL.md),
+[backfill](docs/COMMANDS-BACKFILL.md),
 [seat facts](docs/COMMANDS-SEATS.md).
 
 Agent-facing docs (architecture, per-package module maps, deployment,
@@ -108,7 +108,7 @@ the current git SHA to `/run/usa-wa/build-id` and exposes it as `BUILD_ID`.
 
 To install on a fresh host, copy all units, then enable in this order at
 provision time — migrate first, run synchronously by `--now`. Boot ordering is
-already enforced by the units (the API and sidecar declare
+already enforced by the units (the API declares
 `After=usa-wa-migrate.service`, and migrate declares the reciprocal `Before=`;
 the timer-driven oneshots below carry the same `After=`), so a reboot can't serve
 against a not-yet-migrated schema. The `--now` here is for provision-time
