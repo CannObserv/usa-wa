@@ -85,19 +85,25 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
     # deployment to hold one frozenset would be a real cost for a restatement of
     # a field the catalog already publishes.
     ("citations", "internal"),
-    # The PM anchor crosswalk (#354, power-map#495). Its own tier because it is
-    # honestly neither: not staging (no wire behind it), not conformed (not a
-    # product anyone subscribes to ongoing), but a CUTOVER artifact with a
-    # limited life. Materialized from Postgres by `anchor_export`, not by a dbt
-    # model, so `derived_from` is legitimately empty.
+    # The `cutover` tier is EMPTY, and `test_the_cutover_tier_is_empty` keeps it
+    # that way (#314). It carried exactly one dataset for its whole life:
+    # `pm_anchors` (#354, power-map#495), the PM crosswalk seed, materialized
+    # from Postgres by `anchor_export` rather than by a dbt model. power-map#525
+    # re-keyed its assignment crosswalk off those Postgres ULIDs and onto the
+    # published `assignments.span_key` (#370), and reported on #314 that it needs
+    # no further seed — so the producer stops asserting the mapping instead of
+    # shipping a frozen copy of it nightly.
     #
-    # DELETE THIS ENTRY IN #314, in the same commit that drops the `pm_*` anchor
-    # columns. The publisher refuses a run whose table is missing — deliberate
-    # for a live product, wrong for an artifact whose disappearance is planned —
-    # so dropping the columns without removing this line wedges the nightly
-    # publish for every other dataset. The shrink gate is the near-miss warning:
-    # emptying the anchors is a 100% shrink and refuses first.
-    ("pm_anchors", "cutover"),
+    # Delisting is the entire retraction: `catalog.json` is rebuilt from this list
+    # every run, so the entry stops appearing tomorrow. The version dirs already
+    # minted stay on disk and keep answering at their URLs — what retracts is the
+    # forward assertion, not the archive.
+    #
+    # It also closes an ordering hazard this entry used to carry: the publisher
+    # refuses a run whose table is missing, so dropping the `pm_*` columns while
+    # this line stood would have wedged the nightly publish for every OTHER
+    # dataset. With the line gone the hazard is gone with it, and #314's column
+    # drop no longer has a publish-shaped tripwire in front of it.
 ]
 
 #: Per-dataset schema semver: additive = minor, rename/removal = major (spec).
@@ -138,6 +144,15 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
 #:   anchor had nothing to be absent FROM: the crosswalk's `usa_wa_id`
 #:   appears in no published column, so crosswalk- and dataset-membership
 #:   overlapped on 0 of 8,777 assignment rows. Appended, hence minor.
+#:
+#: NOT bumped by #314, which removed `pm_anchors` from the published set. The
+#: rule above reads "rename/removal = major", and that is about a COLUMN leaving
+#: a dataset. A whole dataset leaving changes no surviving dataset's shape — the
+#: mirror of 1.5.0, which recorded `pm_anchors` *joining* as minor for exactly
+#: that reason. A major bump would also be unstampable where it would mean
+#: something (`pm_anchors` never mints again) and false everywhere it would
+#: actually land, since the carry-forward rule would stamp "breaking" onto
+#: `assignments` and friends the next time their unrelated bytes moved.
 SCHEMA_VERSION = "1.7.0"
 
 #: The CSV serialisation every published dataset uses, declared rather than
