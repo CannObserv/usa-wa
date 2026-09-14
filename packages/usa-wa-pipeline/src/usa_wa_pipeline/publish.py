@@ -178,11 +178,13 @@ CSV_DIALECT: dict[str, object] = {
 
 DEFAULT_MAX_SHRINK = 0.10
 
-#: Where the built duckdb lives. `anchor_export` materializes INTO the same file
-#: this reads FROM, so the resolution lives here once and both call it (CR 110).
-#: Two copies of the literal would let the pair drift silently: the export would
-#: write a table the publisher never reads, the catalog would quietly stop
-#: carrying that dataset, and both jobs would still report `ok`.
+#: Where the built duckdb lives. The resolution was shared with `anchor_export`,
+#: which materialized INTO the same file this reads FROM (CR 110) — two copies of
+#: the literal would have let the pair drift silently, the export writing a table
+#: the publisher never read while both jobs reported `ok`. #314 retired that
+#: second caller; the helper stays because the explicit → env → default order is
+#: the documented contract of `USA_WA_PIPELINE_DB`, not an implementation detail
+#: of having had two callers.
 PIPELINE_DB_ENV = "USA_WA_PIPELINE_DB"
 _DEFAULT_PIPELINE_DB = "data/pipeline.duckdb"
 
