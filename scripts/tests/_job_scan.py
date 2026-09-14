@@ -20,12 +20,14 @@ PACKAGES = REPO / "packages"
 #: Entry points that are deliberately **not** jobs. A job runs, reports and exits; these
 #: do not, so ``run_job``'s scaffold (one transaction, one terminal outcome, one ledger
 #: row) does not describe them.
-EXEMPT = {
-    # The sidecar daemon: `run_forever()`, no terminal outcome to record. Its health is
-    # the #85 failure-streak alerting and the systemd unit's own liveness, not a
-    # job_runs row.
-    "usa_wa_sync_powermap/__main__.py",
-}
+#:
+#: Empty since #314. Its one entry was the PM sync sidecar daemon — `run_forever()`,
+#: no terminal outcome to record, its health carried by the #85 failure-streak
+#: alerting and systemd liveness rather than a job_runs row. Kept as a named,
+#: empty set rather than deleted: the exemption is a standing policy about
+#: daemons, and the next long-running entry point should have to add itself here
+#: deliberately instead of finding no seam and widening the scan.
+EXEMPT: set[str] = set()
 
 
 def entry_points() -> list[Path]:
@@ -47,7 +49,7 @@ def jobs() -> list[Path]:
 
 
 def relative(path: Path) -> str:
-    """``usa_wa_sync_powermap/__main__.py`` — the package-relative module path."""
+    """``usa_wa_api/cli/redrive.py`` — the package-relative module path."""
     parts = path.parts
     return "/".join(parts[parts.index("src") + 1 :])
 

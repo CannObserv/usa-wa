@@ -4,7 +4,20 @@ Some mapped tables are *declared* — designed, migrated and tested, but not yet
 wired to any source. Nothing in the code distinguished "no writer because it is
 waiting on #28" from "no writer because it was abandoned". #182 chose to keep the
 tables and make the status explicit instead, via inert markers on the model
-modules and classes:
+modules and classes.
+
+A table can also arrive here from the other direction. ``retired`` (#314) means
+it HAD a producer and the producer went: the PM mirrors — ``OrganizationName``,
+``OrganizationAcronym``, ``EntityEvent``, ``RoleType`` — were written only by the
+sync sidecar, and deleting it left four tables holding real rows that nothing
+maintains. That is not the same claim as ``declared`` and must not borrow its
+word: a declared table is waiting to be built, a retired one is waiting to be
+dropped, and an operator reading "declared" on a table full of stale PM data
+would draw the wrong conclusion about whether to trust it. Both statuses carry
+the same obligations below — a rationale, an open tracking issue, and a marker
+that has to come off if anything ever references the class again.
+
+The markers themselves:
 
 - module level, for a module whose every mapped class is declared::
 
@@ -56,6 +69,14 @@ from clearinghouse_core.models import Base
 
 DECLARED = "declared"
 
+#: Had a producer; the producer retired and the table is waiting to be dropped
+#: (#314). Distinct from DECLARED, which never had one — see the module docstring.
+RETIRED = "retired"
+
+#: Every status a marker may carry. Anything else is a typo, and
+#: `test_every_declared_marker_names_an_open_tracking_issue` says so by name.
+MARKER_STATUSES = frozenset({DECLARED, RETIRED})
+
 #: Tracking issues a declared marker may name. Every entry was verified open on
 #: 2026-08-07; closing one without wiring its tables should be a deliberate act,
 #: so removing it here is what forces the marker to be revisited.
@@ -63,6 +84,7 @@ OPEN_TRACKING_ISSUES = {
     28: "P1c: WSL bill cluster (bills, actions, sponsorships, versions) + discover(since)",
     67: "WSL committee activity + legislation-detail cluster",
     194: "Declared tier: 12 tables with no producer and no implementation issue",
+    314: "PM sync cutover: retire the sidecar, its schema and the pm_* anchors",
 }
 
 #: Packages excluded from the producer scan.
@@ -238,8 +260,14 @@ def produced() -> set[str]:
     return _produced_names()
 
 
-def test_every_unproduced_model_is_marked_declared(classes, produced):
-    """No producer + no marker = an orphan nobody declared. Mark it or wire it."""
+def test_every_unproduced_model_carries_a_marker(classes, produced):
+    """No producer + no marker = an orphan nobody accounted for. Mark it or wire it.
+
+    Fires in both directions: a table nobody has built yet, and a table whose
+    producer was deleted out from under it. The second is how #314 found the four
+    PM mirrors — the sidecar's deletion orphaned them in one commit, and this is
+    what refused to let that land silently.
+    """
     unmarked = sorted(
         path
         for path, cls in classes.items()
@@ -248,32 +276,38 @@ def test_every_unproduced_model_is_marked_declared(classes, produced):
     assert not unmarked, (
         "these mapped classes have no producer outside their model module and no "
         f"IMPLEMENTATION_STATUS marker: {unmarked}. Either wire them to a source, or "
-        "mark the module/class declared with a tracking issue (see #182)."
+        f"mark the module/class with one of {sorted(MARKER_STATUSES)} and a tracking "
+        "issue (see #182 for `declared`, #314 for `retired`)."
     )
 
 
-def test_no_stale_declared_markers(classes, produced):
+def test_no_stale_markers(classes, produced):
     """A table someone finally wired must lose its marker — the tier stays honest."""
     stale = sorted(
         path
         for path, cls in classes.items()
-        if cls.__name__ in produced and (_marker(cls) or {}).get("status") == DECLARED
+        if cls.__name__ in produced and (_marker(cls) or {}).get("status") in MARKER_STATUSES
     )
     assert not stale, (
-        f"these classes are marked declared but a live module now references them: {stale}. "
-        "Drop the marker (and its coverage omit entry) — the table is implemented."
+        f"these classes carry a marker but a live module now references them: {stale}. "
+        "Drop the marker (and its coverage omit entry) — the table is implemented. "
+        "A `retired` table that gained a reader is a resurrection, and the marker "
+        "must not outlive it."
     )
 
 
-def test_every_declared_marker_names_an_open_tracking_issue(classes):
-    """A marker without a live issue is a TODO nobody owns."""
+def test_every_marker_names_an_open_tracking_issue(classes):
+    """A marker without a live issue is a TODO nobody owns — for either status."""
     problems = []
     for path, cls in classes.items():
         marker = _marker(cls)
         if marker is None:
             continue
-        if marker["status"] != DECLARED:
-            problems.append(f"{path}: unknown status {marker['status']!r}")
+        if marker["status"] not in MARKER_STATUSES:
+            problems.append(
+                f"{path}: unknown status {marker['status']!r} "
+                f"(expected one of {sorted(MARKER_STATUSES)})"
+            )
             continue
         issues = marker["issues"]
         if not isinstance(issues, tuple) or not issues:
@@ -287,8 +321,12 @@ def test_every_declared_marker_names_an_open_tracking_issue(classes):
     assert not problems, problems
 
 
-def test_declared_modules_are_excluded_from_the_coverage_gate(classes):
-    """Wholly declared modules must not pad the 80% gate with never-run code."""
+def test_marked_modules_are_excluded_from_the_coverage_gate(classes):
+    """A wholly marked module must not pad the 80% gate with code nothing runs.
+
+    Same rule for both statuses: `declared` code has never run and `retired` code
+    has stopped running, and either way the only lines coverage sees are the class
+    body executing on import."""
     config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
     omitted = set(config["tool"]["coverage"]["run"]["omit"])
 

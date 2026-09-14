@@ -435,6 +435,14 @@ class OrganizationName(Base, TimestampMixin):
     across disjoint windows.
     """
 
+    # Retired tier (#314) — see tests/test_declared_tier.py.
+    __implementation_status__ = "retired"
+    __implementation_tracking_issues__ = (314,)
+    __implementation_rationale__ = (
+        "Read-mirror of PM's dated OrgName windows (usa-wa#45); the sidecar's org "
+        "descriptor was its only writer and nothing else ever read it."
+    )
+
     __tablename__ = "organization_names"
     __table_args__ = (
         UniqueConstraint("source", "source_id", name="uq_organization_names_natural_key"),
@@ -488,6 +496,14 @@ class OrganizationAcronym(Base, TimestampMixin):
     (canonical → former → re-adopted).
     """
 
+    # Retired tier (#314) — see tests/test_declared_tier.py.
+    __implementation_status__ = "retired"
+    __implementation_tracking_issues__ = (314,)
+    __implementation_rationale__ = (
+        "Read-mirror of PM's OrgAcronym list (usa-wa#47); same single writer as "
+        "OrganizationName, same absence of readers."
+    )
+
     __tablename__ = "organization_acronyms"
     __table_args__ = (
         UniqueConstraint("source", "source_id", name="uq_organization_acronyms_natural_key"),
@@ -532,6 +548,14 @@ class EntityEvent(Base, TimestampMixin):
     entity events — nothing writes this table today, so an embed would always be
     empty (tracked as a usa-wa follow-up).
     """
+
+    # Retired tier (#314) — see tests/test_declared_tier.py.
+    __implementation_status__ = "retired"
+    __implementation_tracking_issues__ = (314,)
+    __implementation_rationale__ = (
+        "Mirror of PM's ObservationEventItem (power-map#170); written only by the "
+        "sidecar's events read-mirror, never read outside it."
+    )
 
     __tablename__ = "entity_events"
     __table_args__ = (

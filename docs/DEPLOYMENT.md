@@ -10,7 +10,6 @@ detail behind them.
 | Service | Framework | Port | Managed by |
 |---|---|---|---|
 | API (live) | FastAPI | 8000 | `systemctl` (`usa-wa.service`) |
-| PM sync sidecar | asyncio daemon | — | `systemctl` (`usa-wa-sync-powermap.service`) |
 | WSL refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-wsl-refresh.timer` → `.service`; 06:00 UTC). Pulls committees **and** the current-biennium meeting window for additive Joint/`Other` discovery (#39) |
 | PDC archive refresh (daily) | oneshot, no timer | — | `systemctl` (`usa-wa-pdc-archive-refresh.service`, #201 Phase A). Archives the current biennium's winner cohorts (#121: both House generals + the three Senate cohorts), each SAVEPOINT-guarded, forced past the TTL. **No timer of its own** — pulled in by the rebuild unit below (`Wants=`) and ordered before it. Exit 4 = every cohort unserved |
 | PDC refresh (daily) | oneshot + timer | — | `systemctl` (`usa-wa-pdc-refresh.timer` → `.service`; 06:30 UTC, #69; **identifier-only since #101, rebuild-only since #201**). Re-drives the builder off the archive → `person_wa_pdc` cross-links only (the House Position seat is the SOS refresh's since #101). Ordered after the WSL refresh (binds onto its House Persons + sponsor archive) and after its own archive half — `Wants=`, not `Requires=`: a Socrata outage alerts on the archive unit while this one re-derives from the last good archive |
@@ -21,9 +20,6 @@ detail behind them.
 | Succession invariants (daily) | oneshot + timer | — | `systemctl` (`usa-wa-succession-invariants.timer` → `.service`; 07:15 UTC, #107). Read-only assertion of the open-seat cohort — 49 Senate / 98 House chamber counts + no duplicate occupancy; exit 1 → operator email (a missing operator succession event is otherwise silent). Ordered after the WSL/PDC/SOS refreshes rebuild the cohort |
 | Committee lineage invariants (daily) | oneshot + timer | — | `systemctl` (`usa-wa-committee-lineage-invariants.timer` → `.service`; 07:30 UTC, #124 C4). Read-only coherence assertion — INV1 no `active=false` committee carries a live membership Assignment; INV2 the subject of a non-superseded `succeeded_by`/`merged_with` link is `active=false` (`split_from` exempt); exit 1 → operator email. Ordered after the refreshes + reconcile deactivate defunct committees + close their spans |
 | Dataset pipeline (daily) | oneshot + timer | — | `systemctl` (`usa-wa-pipeline.timer` → `.service`; 08:00 UTC, #311). The #302 nightly chain: three raw harvests → dbt build → registrar → publish → serving load → parity probes (`scripts/pipeline-nightly.sh`). Harvest failures contained (last good wires + publish gates protect); a build failure aborts; registrar conflicts, a publish-gate refusal, or a parity divergence exit 1 → operator email while the last good catalog stands. Ordered after the canonical refreshes (they are the parity oracle) |
-| Committee active reconcile (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-active.timer` → `.service`; Sun 07:00 UTC) |
-| Committee rename detection (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-names.timer` → `.service`; Sun 07:30 UTC) |
-| Joint/Other rename detection (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-reconcile-committee-meeting-names.timer` → `.service`; Sun 07:45 UTC, #56) |
 | Provenance integrity sweep (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-integrity-sweep.timer` → `.service`; Sun 08:00 UTC) |
 | Failure alerts | templated oneshot | — | `OnFailure=` → `usa-wa-notify-failure@.service` |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
@@ -73,8 +69,7 @@ journal nobody is watching. Each failable oneshot (`usa-wa-migrate`,
 `usa-wa-pdc-archive-refresh`, `usa-wa-sos-archive-refresh` (#201 — each half of a
 daily cycle alerts on its own, so a source outage and a rebuild failure are
 distinguishable from the email alone),
-`usa-wa-reconcile-committee-active`, `usa-wa-reconcile-committee-names`,
-`usa-wa-reconcile-committee-meeting-names`, `usa-wa-integrity-sweep`,
+`usa-wa-integrity-sweep`,
 `usa-wa-senate-corroboration`, `usa-wa-house-corroboration`,
 `usa-wa-succession-invariants`,
 `usa-wa-committee-lineage-invariants`) carries
@@ -92,10 +87,10 @@ triageable without opening the journal. Recipient is `USA_WA_ALERT_EMAIL`
 (`/etc/usa-wa/.env`); the script **fails closed** if it's unset — set it before
 relying on alerts. The handler has no `OnFailure=` on itself (a failed send must
 not recurse); a dropped alert still leaves the failure in the journal. The
-serving units (`usa-wa`, `sync-powermap`) restart in place via `Restart=` and so
-don't route through this one-shot alert — the sidecar closes that gap itself
-(#85): after N consecutive failed cycles (and on a REJECTED-count rise) it emails
-the same `USA_WA_ALERT_EMAIL` in-process via `usa_wa_sync_powermap.alerts`.
+serving unit (`usa-wa`) restarts in place via `Restart=` and so does not route
+through this one-shot alert. The PM sync sidecar was the second such unit and
+closed that gap itself (#85, in-process email on a failure streak); #314 deleted
+it, so `Restart=` units are back to being covered by systemd state alone.
 
 ## DB role topology (defense-in-depth, issue #22)
 
@@ -134,8 +129,8 @@ in a git worktree** (see the `using-git-worktrees` skill), leaving the prod
 checkout on `main`. `USA_WA_DEPLOY_BRANCH` overrides the expected branch for a
 non-standard host. The notify handler (`usa-wa-notify-failure@.service`) is
 exempt (it's the alerting path); timers carry no guard (they run no code, only
-activate their guarded `.service`). The two serving units
-(`usa-wa`/`usa-wa-sync-powermap`) carry a widened `StartLimitIntervalSec=300`/
+activate their guarded `.service`). The serving unit (`usa-wa`) carries a
+widened `StartLimitIntervalSec=300`/
 `StartLimitBurst=10` so an off-main checkout — which fails the guard on every
 `Restart=` attempt — settles into `failed` instead of looping forever (a
 transient dependency blip under ~50s still self-heals). **Recovery after an
@@ -150,12 +145,9 @@ wide enough to bound the loop (`StartLimitIntervalSec >= RestartSec * StartLimit
 
 **Deploy convention: units never sync the venv (issue #30).** Every systemd
 entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
-`usa-wa-sync-powermap.service`, `usa-wa-wsl-refresh.service`,
+`usa-wa-wsl-refresh.service`,
 `usa-wa-pdc-refresh.service`, `usa-wa-sos-refresh.service`,
 `usa-wa-pdc-archive-refresh.service`, `usa-wa-sos-archive-refresh.service`,
-`usa-wa-reconcile-committee-active.service`,
-`usa-wa-reconcile-committee-names.service`,
-`usa-wa-reconcile-committee-meeting-names.service`,
 `usa-wa-integrity-sweep.service`, `usa-wa-senate-corroboration.service`,
 `usa-wa-house-corroboration.service`, `usa-wa-succession-invariants.service`,
 `usa-wa-committee-lineage-invariants.service`, `scripts/migrate.sh`).
@@ -170,7 +162,7 @@ deliberate `uv sync --locked` after a pull that touches `uv.lock`:**
 git pull
 uv sync --locked                       # reconcile venv ⇄ uv.lock deliberately
 sudo systemctl restart usa-wa-migrate  # if DB models changed (restart, not start — see note)
-sudo systemctl restart usa-wa usa-wa-sync-powermap
+sudo systemctl restart usa-wa
 ```
 
 `uv sync` here uses `--locked` (not `--frozen`): it additionally asserts
@@ -201,9 +193,6 @@ silently deploys nothing.
 | After editing `deploy/usa-wa-pdc-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-pdc-refresh.timer` |
 | After editing `deploy/usa-wa-sos-refresh.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-sos-refresh.timer` |
 | After editing `deploy/usa-wa-{pdc,sos}-archive-refresh.service` | `sudo cp` + `sudo systemctl daemon-reload` (no timer and no `[Install]` — each is pulled in by its rebuild unit, so there is nothing to enable or restart) |
-| After editing `deploy/usa-wa-reconcile-committee-active.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-active.timer` |
-| After editing `deploy/usa-wa-reconcile-committee-names.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-names.timer` |
-| After editing `deploy/usa-wa-reconcile-committee-meeting-names.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-reconcile-committee-meeting-names.timer` |
 | After editing `deploy/usa-wa-integrity-sweep.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-integrity-sweep.timer` |
 | After editing `deploy/usa-wa-senate-corroboration.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-senate-corroboration.timer` |
 | After editing `deploy/usa-wa-house-corroboration.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-house-corroboration.timer` |
@@ -215,9 +204,6 @@ silently deploys nothing.
 | Run the PDC refresh now (ad-hoc) | `sudo systemctl start usa-wa-pdc-refresh.service` (runs **both** halves — the `Wants=` pulls the archive unit in) |
 | Run the SOS refresh now (ad-hoc) | `sudo systemctl start usa-wa-sos-refresh.service` (both halves, as above) |
 | Refresh only a source's archive (ad-hoc) | `sudo systemctl start usa-wa-{pdc,sos}-archive-refresh.service` |
-| Run the committee active reconcile now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-active.service` |
-| Run the committee rename detection now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-names.service` |
-| Run the Joint/Other rename detection now (ad-hoc) | `sudo systemctl start usa-wa-reconcile-committee-meeting-names.service` |
 | Run the provenance integrity sweep now (ad-hoc) | `sudo systemctl start usa-wa-integrity-sweep.service` |
 | Run the Senate corroboration now (ad-hoc) | `sudo systemctl start usa-wa-senate-corroboration.service` |
 | Run the House corroboration now (ad-hoc) | `sudo systemctl start usa-wa-house-corroboration.service` |

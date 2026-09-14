@@ -41,9 +41,9 @@ from systemd_units import (
 # compared as sets.
 #
 # Note the deliberate asymmetry: usa-wa-migrate.service declares Before= only
-# the two long-running serving units (usa-wa + sync-powermap), while every
-# oneshot/timer-driven unit (e.g. reconcile, wsl-refresh) asserts After=migrate
-# from its own side. Ordering is symmetric in effect (one side suffices), so this
+# the long-running serving unit (usa-wa — the PM sync sidecar was the second
+# until #314), while every oneshot/timer-driven unit (e.g. wsl-refresh) asserts
+# After=migrate from its own side. Ordering is symmetric in effect (one side suffices), so this
 # is correct — captured faithfully rather than normalized.
 #
 # OnFailure (#49): every oneshot that can fail unattended — migrate plus all the
@@ -55,33 +55,13 @@ NOTIFY = {"usa-wa-notify-failure@%n.service"}
 EXPECTED: dict[str, dict[str, set[str]]] = {
     "usa-wa-migrate.service": {
         "After": {"network.target", "postgresql.service"},
-        "Before": {"usa-wa.service", "usa-wa-sync-powermap.service"},
+        "Before": {"usa-wa.service"},
         "OnFailure": NOTIFY,
     },
     "usa-wa.service": {
         "After": {"network.target", "postgresql.service", "usa-wa-migrate.service"},
         "Before": set(),
         "OnFailure": set(),
-    },
-    "usa-wa-sync-powermap.service": {
-        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
-        "Before": set(),
-        "OnFailure": set(),
-    },
-    "usa-wa-reconcile-committee-active.service": {
-        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
-        "Before": set(),
-        "OnFailure": NOTIFY,
-    },
-    "usa-wa-reconcile-committee-names.service": {
-        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
-        "Before": set(),
-        "OnFailure": NOTIFY,
-    },
-    "usa-wa-reconcile-committee-meeting-names.service": {
-        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
-        "Before": set(),
-        "OnFailure": NOTIFY,
     },
     "usa-wa-wsl-refresh.service": {
         "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
@@ -218,21 +198,6 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     # set OnFailure on itself (a failed alert send must not recurse).
     "usa-wa-notify-failure@.service": {"After": set(), "Before": set(), "OnFailure": set()},
     # Timers carry their schedule in [Timer]; no [Unit] ordering by design.
-    "usa-wa-reconcile-committee-active.timer": {
-        "After": set(),
-        "Before": set(),
-        "OnFailure": set(),
-    },
-    "usa-wa-reconcile-committee-names.timer": {
-        "After": set(),
-        "Before": set(),
-        "OnFailure": set(),
-    },
-    "usa-wa-reconcile-committee-meeting-names.timer": {
-        "After": set(),
-        "Before": set(),
-        "OnFailure": set(),
-    },
     "usa-wa-wsl-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-pipeline.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-pdc-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
@@ -262,7 +227,8 @@ UNGUARDED_SERVICES = {"usa-wa-notify-failure@.service"}
 # Each must carry a StartLimit window wide enough for the burst to accumulate,
 # else the guard's ExecStartPre failure restart-loops unbounded (finding 1) —
 # systemd's default 10s window never trips at RestartSec=5.
-RESTARTING_SERVICES = {"usa-wa.service", "usa-wa-sync-powermap.service"}
+# One entry since #314 deleted the PM sync sidecar, the other long-running unit.
+RESTARTING_SERVICES = {"usa-wa.service"}
 
 
 def _guard_present(path: Path) -> bool:

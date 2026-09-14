@@ -53,7 +53,6 @@ READ_ONLY = {
     "usa_wa_adapter_legislature/operators/invariants.py": "read-only succession check",
     "usa_wa_adapter_legislature/sponsors/probe_identity.py": "needs_db=False WSL probe",
     "usa_wa_facts_seats/house_corroboration.py": "report-only unless --strict",
-    "usa_wa_sync_powermap/validate_committees.py": "read-only against both sides",
 }
 
 

@@ -10,7 +10,8 @@ hardcoded slug map (retires the usa-wa#68 ``SEAT_ROLE_TYPE_SLUGS`` constant), an
 positionless ``requires_qualifier`` seat (power-map#273) pre-flight.
 
 The mirror is refreshed by the sidecar's catalog sync
-(:func:`usa_wa_sync_powermap.role_type_catalog.sync_role_type_catalog`).
+(``usa_wa_sync_powermap.role_type_catalog.sync_role_type_catalog``, deleted in
+usa-wa#314).
 ``expects_jurisdiction`` is PM's advisory hint that the office is normally attached with
 a jurisdiction (power-map#271 renamed this field from ``is_seat``; PM does not *enforce*
 it on ``resolve_role``), which is exactly the signal usa-wa needs to pick the seat
@@ -25,6 +26,18 @@ from clearinghouse_core.db.ulid import ULID
 from clearinghouse_core.models import Base, TimestampMixin
 
 SCHEMA = "canonical"
+
+
+#: Retired tier (#314) — see tests/test_declared_tier.py. Whole-module, because
+#: RoleType is all this module declares.
+IMPLEMENTATION_STATUS = "retired"
+IMPLEMENTATION_TRACKING_ISSUES = (314,)
+IMPLEMENTATION_RATIONALE = (
+    "PM's role_types catalog mirror; its only writer was the sidecar's "
+    "role_type_catalog sync and its only reader was RoleDescriptor, both deleted "
+    "with the PM sync stack. The rows are a frozen copy of PM's catalog as of "
+    "2026-09-08 — drop the table with the pm_* columns."
+)
 
 
 def _new_ulid() -> _ULID:

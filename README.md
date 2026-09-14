@@ -96,8 +96,10 @@ environment) are indexed under **Detail Docs** in [`AGENTS.md`](AGENTS.md).
 
 ## Deploy
 
-The systemd units live under [`deploy/`](deploy/) — the live API plus a sync
-sidecar, a migrate oneshot, and twelve timer-driven oneshots.
+The systemd units live under [`deploy/`](deploy/) — the live API, a migrate
+oneshot, and nine timer-driven oneshots. (The PM sync sidecar and its three
+weekly committee reconcilers were the tenth through thirteenth until usa-wa#314
+retired the PM sync stack.)
 
 Production secrets live in `/etc/usa-wa/.env` (managed manually on the VM, not in
 the repo) — **this file must exist before enabling any unit**, or migrate (owner
@@ -121,8 +123,8 @@ sudo systemctl daemon-reload
 # 1. Migrate to head (owner role; RemainAfterExit oneshot — runs once now)
 sudo systemctl enable --now usa-wa-migrate
 
-# 2. Long-running services (app role)
-sudo systemctl enable --now usa-wa usa-wa-sync-powermap
+# 2. Long-running service (app role)
+sudo systemctl enable --now usa-wa
 
 # Tail logs
 sudo journalctl -u usa-wa -f
@@ -154,10 +156,7 @@ sudo systemctl enable --now usa-wa-committee-lineage-invariants.timer       # da
 # Dataset pipeline (daily) — the #302 publish chain
 sudo systemctl enable --now usa-wa-pipeline.timer                           # daily 08:00 UTC (#311)
 
-# Reconcile + sweep (weekly)
-sudo systemctl enable --now usa-wa-reconcile-committee-active.timer         # weekly Sun 07:00 UTC
-sudo systemctl enable --now usa-wa-reconcile-committee-names.timer          # weekly Sun 07:30 UTC
-sudo systemctl enable --now usa-wa-reconcile-committee-meeting-names.timer  # weekly Sun 07:45 UTC (#56)
+# Sweep (weekly)
 sudo systemctl enable --now usa-wa-integrity-sweep.timer                    # weekly Sun 08:00 UTC
 
 sudo systemctl list-timers 'usa-wa-*'                                       # verify next-elapse

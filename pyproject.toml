@@ -15,7 +15,6 @@ dev = [
     "usa-wa-common",
     "usa-wa-facts-seats",
     "usa-wa-pipeline",
-    "usa-wa-sync-powermap",
     # Tools
     "alembic>=1.15.0,<2",
     "anyio>=4.0,<5",
@@ -46,7 +45,6 @@ usa-wa-api = { workspace = true }
 usa-wa-common = { workspace = true }
 usa-wa-facts-seats = { workspace = true }
 usa-wa-pipeline = { workspace = true }
-usa-wa-sync-powermap = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["packages", "scripts"]
@@ -100,6 +98,10 @@ omit = [
     "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/pdc.py",
     "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/statutes.py",
     "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/votes.py",
+    # Retired tier (#314): PM's role_types mirror, whose writer and reader both
+    # went with the sync sidecar. Same reasoning as the declared modules above —
+    # the only lines coverage sees are the class body executing on import.
+    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/role_types.py",
 ]
 
 [tool.coverage.report]
@@ -137,7 +139,6 @@ known-first-party = [
     "usa_wa_common",
     "usa_wa_facts_seats",
     "usa_wa_pipeline",
-    "usa_wa_sync_powermap",
 ]
 
 # ---------------------------------------------------------------------------
@@ -165,7 +166,6 @@ root_packages = [
     "usa_wa_facts_seats",
     "usa_wa_pipeline",
     "usa_wa_api",
-    "usa_wa_sync_powermap",
 ]
 include_external_packages = false
 
@@ -174,7 +174,12 @@ include_external_packages = false
 name = "Layers: core < domain < common < adapter < facts < deployment"
 type = "layers"
 layers = [
-    "usa_wa_api : usa_wa_sync_powermap",
+    # `usa_wa_sync_powermap` was the second Layer-4 package until #314 retired
+    # the PM sync stack. Layer 4 is the API deployment alone now; the sibling
+    # slot is left documented rather than reused, because the next deployment
+    # package to arrive should have to justify sitting beside the API rather
+    # than inherit a slot.
+    "usa_wa_api",
     # facts and pipeline are independent siblings: both compose across adapters
     # (the pipeline's dbt Python models may import adapter parsers, never a
     # transport), neither may import the other (#302/#303).
@@ -211,6 +216,11 @@ modules = [
 # A Layer-4 deployment package doing Layer-3 sourcing: the PM sync sidecar was making
 # live SOAP calls to the Washington State Legislature from four reconcilers and a
 # producer. A sync path depends on the *archive* (a cohort provider), never on a wire.
+#
+# #314 deleted the offender, and the rule outlives it deliberately. The contract was
+# never about that package — it is about what a deployment may reach for, and the API
+# is a deployment. Dropping the rule with the package it caught would leave the next
+# Layer-4 arrival to rediscover AR-14 the hard way.
 name = "Deployment packages never touch an adapter transport"
 type = "forbidden"
 # Direct imports only. A cohort provider *owns* a transport internally — that is the
@@ -218,7 +228,7 @@ type = "forbidden"
 # the opposite of the rule. What must not happen is a deployment module naming the
 # transport itself and driving the wire.
 allow_indirect_imports = true
-source_modules = ["usa_wa_sync_powermap", "usa_wa_api"]
+source_modules = ["usa_wa_api"]
 forbidden_modules = [
     "usa_wa_adapter_legislature.transport",
     "usa_wa_adapter_pdc.transport",
@@ -261,6 +271,5 @@ forbidden_modules = [
     "usa_wa_adapter_pdc",
     "usa_wa_adapter_sos",
     "usa_wa_facts_seats",
-    "usa_wa_sync_powermap",
     "usa_wa_api",
 ]

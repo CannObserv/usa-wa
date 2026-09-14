@@ -127,9 +127,13 @@ def test_contracts_are_currently_kept():
             "from usa_wa_adapter_pdc import adapter  # noqa: F401",
             "No adapter imports a peer adapter",
         ),
-        # A Layer-4 deployment module driving a Layer-3 wire.
+        # A Layer-4 deployment module driving a Layer-3 wire. The probe moved here
+        # in #314: the sidecar it used to sit in was the contract's original
+        # offender AND its original probe, and deleting the package would have
+        # quietly taken the proof with it. The API is the deployment layer now, so
+        # the rule is proved against the package it still governs.
         (
-            "packages/usa-wa-sync-powermap/src/usa_wa_sync_powermap/_contract_probe.py",
+            "packages/usa-wa-api/src/usa_wa_api/_contract_probe.py",
             "from usa_wa_adapter_legislature.transport import WSLClient  # noqa: F401",
             "Deployment packages never touch an adapter transport",
         ),

@@ -19,7 +19,6 @@ members = [
     "usa-wa-common",
     "usa-wa-facts-seats",
     "usa-wa-pipeline",
-    "usa-wa-sync-powermap",
 ]
 
 [manifest.dependency-groups]
@@ -46,7 +45,6 @@ dev = [
     { name = "usa-wa-common", editable = "packages/usa-wa-common" },
     { name = "usa-wa-facts-seats", editable = "packages/usa-wa-facts-seats" },
     { name = "usa-wa-pipeline", editable = "packages/usa-wa-pipeline" },
-    { name = "usa-wa-sync-powermap", editable = "packages/usa-wa-sync-powermap" },
     { name = "vcrpy", specifier = ">=7.0" },
 ]
 
@@ -2632,25 +2630,6 @@ requires-dist = [
     { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
     { name = "usa-wa-adapter-pdc", editable = "packages/usa-wa-adapter-pdc" },
     { name = "usa-wa-adapter-sos", editable = "packages/usa-wa-adapter-sos" },
-]
-
-[[package]]
-name = "usa-wa-sync-powermap"
-version = "0.1.0"
-source = { editable = "packages/usa-wa-sync-powermap" }
-dependencies = [
-    { name = "clearinghouse-core" },
-    { name = "clearinghouse-domain-legislative" },
-    { name = "clearinghouse-sync-powermap" },
-    { name = "usa-wa-adapter-legislature" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
-    { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
-    { name = "clearinghouse-sync-powermap", editable = "packages/clearinghouse-sync-powermap" },
-    { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
 ]
 
 [[package]]

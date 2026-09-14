@@ -48,9 +48,12 @@ scripts/
 .pre-commit-config.yaml
 .github/
 
-# Enumerated code surfaces. The read-only route table is docs/API.md; the PM
-# producer descriptors are docs/MODULES-SYNC-PRODUCERS.md and
-# docs/LWW-NOOP-GATE.md; the CLI entry points are docs/COMMANDS.md.
+# Enumerated code surfaces. The read-only route table is docs/API.md; the CLI
+# entry points are docs/COMMANDS.md. `descriptors/` was the third — the PM
+# producer descriptors, documented in docs/MODULES-SYNC-PRODUCERS.md and
+# docs/LWW-NOOP-GATE.md — and #314 deleted the tree it pointed at. Dropped
+# rather than kept as a dead entry: `test_every_entry_matches_a_tracked_file`
+# refuses a list that cannot hit anything, which is what keeps the gate from
+# printing the same green for "no sensitive paths touched" and "the list rotted".
 api/v1/
 cli/
-descriptors/
