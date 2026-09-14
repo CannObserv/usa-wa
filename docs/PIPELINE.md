@@ -232,6 +232,15 @@ drop unblocked: the publisher refuses a run whose table is missing, so a
 lingering entry would have wedged the nightly publish for every other dataset
 the day the `pm_*` columns went.
 
+The removal takes `SCHEMA_VERSION` to **2.0.0**. A dataset leaving is a removal,
+read at the level of the catalog — the thing a subscriber actually binds to —
+and a consumer that resolved `pm_anchors` from `catalog.json` now finds nothing
+there. Mind what the carry-forward rule below does with a *major*: the number
+reaches a dataset only when that dataset next mints, so the catalog legitimately
+carries a spread of 1.x and 2.0.0 entries whose columns are identical. The major
+is a statement about the catalog, not a promise that every entry carrying it
+changed shape.
+
 **Each published assignment carries its `span_key`** (usa-wa#370,
 power-map#490), and that outlives the crosswalk. A published assignment has no
 id of its own — #302 gave assignments deterministic structural keys and no
@@ -376,7 +385,8 @@ reason is history; the first still holds every night.
 
 `SCHEMA_VERSION` 1.6.0 added `dialect`, and by the carry-forward rule a bump
 reaches a dataset only when it next mints — so version dirs published before
-1.6.0 keep the datapackage they shipped with. They obey the table above
+1.6.0 keep the datapackage they shipped with (the same rule that spreads 2.0.0
+across the catalog one minting at a time). They obey the table above
 regardless; this document is the declaration for them. `test_published_bytes_obey_the_declared_dialect` parses every published CSV back with its own
 declared dialect and checks the shape, so the table is enforced rather than
 aspirational.

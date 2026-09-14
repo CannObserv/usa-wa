@@ -147,15 +147,24 @@ PUBLISHED_DATASETS: list[tuple[str, str]] = [
 #:   appears in no published column, so crosswalk- and dataset-membership
 #:   overlapped on 0 of 8,777 assignment rows. Appended, hence minor.
 #:
-#: NOT bumped by #314, which removed `pm_anchors` from the published set. The
-#: rule above reads "rename/removal = major", and that is about a COLUMN leaving
-#: a dataset. A whole dataset leaving changes no surviving dataset's shape — the
-#: mirror of 1.5.0, which recorded `pm_anchors` *joining* as minor for exactly
-#: that reason. A major bump would also be unstampable where it would mean
-#: something (`pm_anchors` never mints again) and false everywhere it would
-#: actually land, since the carry-forward rule would stamp "breaking" onto
-#: `assignments` and friends the next time their unrelated bytes moved.
-SCHEMA_VERSION = "1.7.0"
+#: - 2.0.0 (#314): `pm_anchors` left the published set and the `cutover` tier
+#:   went with it. A **removal**, and the rule above says removals are major —
+#:   read at the level of the catalog, which is the contract a subscriber
+#:   actually binds to. A consumer that resolved `pm_anchors` from
+#:   `catalog.json` now finds nothing there, and no reading of "minor" covers a
+#:   product disappearing.
+#:
+#:   Note what the carry-forward rule makes of a MAJOR bump, because it is
+#:   sharper here than for the minors above: 2.0.0 reaches a dataset only when
+#:   that dataset next mints, so the catalog carries a spread of 1.x and 2.0.0
+#:   entries for datasets whose columns are identical. That is the intended
+#:   reading — an entry names the contract its bytes shipped under, and a
+#:   dataset nothing changed did not ship under a new one — but it does mean
+#:   the major is a statement about the CATALOG, not a promise that every entry
+#:   carrying it changed shape. Re-minting the whole set to make the number
+#:   uniform would churn immutable version dirs for no data change, which is
+#:   the thing skip-if-unchanged exists to prevent.
+SCHEMA_VERSION = "2.0.0"
 
 #: The CSV serialisation every published dataset uses, declared rather than
 #: left for a consumer to sniff (#357). These are duckdb ``COPY``'s defaults,
