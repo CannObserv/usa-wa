@@ -31,9 +31,15 @@ import re
 
 from doc_check_lists import DOC_SECTIONS_FILE, SENSITIVE_PATHS_FILE, VENDORED, entries, tracked
 
-#: The vendored python-fastapi advice. Committing either verbatim would tailor
-#: the file's existence and nothing else — the #371 state with the note
-#: silenced, which is strictly worse than not having the file.
+#: The vendored python-fastapi advice, snapshotted. Committing either verbatim
+#: would tailor the file's existence and nothing else — the #371 state with the
+#: note silenced, which is strictly worse than not having the file.
+#:
+#: A snapshot goes stale in silence: were upstream to edit its defaults, the
+#: test below would keep passing while checking two strings nobody could ever
+#: have committed — the same vacuous-green class gregoryfoster/skills#284 was
+#: filed about. test_the_snapshot_still_matches_the_vendor is what stops that
+#: (#371 CR 1).
 DEFAULT_SECTIONS = frozenset(
     {
         "AGENTS.md: project structure, conventions, skill inventory, route table",
@@ -79,6 +85,25 @@ def test_no_vendored_default_survived_the_tailoring() -> None:
     """Keeping a default line routes this repo's hits at the skill's layout."""
     kept = DEFAULT_SECTIONS & set(entries(DOC_SECTIONS_FILE))
     assert not kept, f"vendored default advice still present: {sorted(kept)}"
+
+
+def test_the_snapshot_still_matches_the_vendor() -> None:
+    """The premise the test above rests on: these ARE the vendor's defaults.
+
+    Checked by substring rather than by parsing the ``DOC_SECTIONS=()`` array:
+    a parser would have to model bash quoting to decide the same question, and
+    the question here is only whether the line upstream ships is still the line
+    we refuse. A refresh that reworded either default fails here, naming the
+    string to re-snapshot, instead of leaving the refusal above pointed at
+    prose that no longer exists.
+    """
+    assert VENDORED.is_file(), f"vendored gate missing at {VENDORED}"
+    source = VENDORED.read_text()
+    stale = sorted(default for default in DEFAULT_SECTIONS if default not in source)
+    assert not stale, (
+        "these no longer appear in the vendored doc-check.sh, so refusing them "
+        f"proves nothing — re-snapshot from its DOC_SECTIONS array: {stale}"
+    )
 
 
 def test_every_line_names_a_doc_and_routes_at_least_one_path() -> None:
