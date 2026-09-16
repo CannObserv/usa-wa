@@ -74,20 +74,24 @@ def _tree_block() -> str:
 
 
 def _entries() -> set[str]:
-    """The tree's entry names — the token before each line's em dash.
+    """The tree's entry names — the first whitespace-delimited token of a line.
 
     Exact entries, not a substring sweep of the block. A substring check was
     the first version and it was vacuous for the root half: renaming the
     ``scripts/`` ENTRY still passed, because another entry's prose mentioned
     ``scripts/tests/``. Every check below asks "is there a line FOR this",
     which is the question the doc's reader asks too.
+
+    The first token, NOT the text before the em dash (#373 CR 7). Splitting on
+    ``—`` made the separator load-bearing: an author who typed a hyphen got
+    ``repo-root directories the tree does not name: ['scripts/']`` about an
+    entry sitting right there on the line, and nothing in the doc said an em
+    dash was required. Every real entry is one token — ``src/usa_wa_api/api/``,
+    ``conftest_coverage.py``, ``usa-wa-api/`` — so the separator stops
+    mattering. Continuation lines contribute a junk token that no check looks
+    up.
     """
-    entries = set()
-    for line in _tree_block().splitlines():
-        head = line.split("—", 1)[0].strip()
-        if head:
-            entries.add(head)
-    return entries
+    return {line.split()[0] for line in _tree_block().splitlines() if line.split()}
 
 
 def test_the_doc_exists_and_draws_one_tree() -> None:
