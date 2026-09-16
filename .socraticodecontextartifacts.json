@@ -103,7 +103,7 @@
     {
       "name": "code-exploration",
       "path": "./docs/CODE-EXPLORATION.md",
-      "description": "Code exploration tool selection \u2014 the goal\u2192tool table, the measurements behind the broken file-dependency-graph finding (empty graph_query/_circular/_stats or file-mode impact output means the tool is broken, never 'no dependents'), and the source of the session-start ToolSearch prefetch query."
+      "description": "Code exploration tool selection \u2014 the goal\u2192tool table, the measurements behind the file-dependency graph's repair in SocratiCode 1.13.0 (13 \u2192 1,633 edges, grep-verified) and the engine version floor that remains the one caveat, and the source of the session-start ToolSearch prefetch query."
     },
     {
       "name": "api",

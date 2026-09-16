@@ -22,9 +22,11 @@ SocratiCode is the preferred semantic-search tool for this repo (once indexed; t
 
 **Adding a doc? Declare it.** Every tracked `*.md` at the repo root or under `docs/` must be named in `.socraticodecontextartifacts.json` or exempted in `.skills/context-artifacts-exempt` — undeclared docs are unreachable via `codebase_context_search` and nothing else reports them (#300). `scripts/tests/test_context_manifest_drift.py` fails on drift.
 
-**The file-dependency graph is broken here.** Empty output from the `codebase_graph_*` tools or
-the file-mode of `codebase_impact` means "tool broken", never "no dependents" — derive import
-edges with `grep`. Goal→tool table, evidence, and the session-start `ToolSearch` prefetch:
+**The file-dependency graph works here since SocratiCode 1.13.0 (#299)** — 1,633 edges across
+510 files, `grep`-verified; `codebase_graph_query` and the file-mode of `codebase_impact` are
+answers now, not traps. On an older engine it silently resolves almost nothing, so check the
+builder version `codebase_graph_status` reports before trusting an empty answer. Goal→tool table,
+the measurement, and the session-start `ToolSearch` prefetch:
 [`docs/CODE-EXPLORATION.md`](docs/CODE-EXPLORATION.md).
 
 ## Project Layout

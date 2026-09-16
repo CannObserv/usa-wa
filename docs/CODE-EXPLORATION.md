@@ -3,7 +3,7 @@
 The behavioural rule (SocratiCode first for semantic questions, `grep` only for exact
 strings) is in [`AGENTS.md`](../AGENTS.md#code-exploration-policy) § Code Exploration
 Policy. This file carries the detail: the goal-to-tool table, the measurements behind
-the broken file-dependency graph, and the session-start prefetch query.
+the file-dependency graph's repair, and the session-start prefetch query.
 
 | Goal | Tool |
 |------|------|
@@ -12,31 +12,50 @@ the broken file-dependency graph, and the session-start prefetch query.
 | Blast radius of changing/deleting a file or function | `codebase_impact` |
 | What does an entry point actually do? | `codebase_flow` |
 | Callers and callees of a function | `codebase_symbol` |
-| Imports/dependents of a file | `grep` — **not** `codebase_graph_query` (see below) |
+| Imports/dependents of a file | `codebase_graph_query` (see the version floor below) |
 | DB schemas, deployment topology, runbook context | `codebase_context` / `codebase_context_search` |
 
-**The file-dependency graph does not work on this repo.** `codebase_graph_build` resolves **11 edges
-across 439 files** (82.2% of symbols unresolved — 3/374 at 81.8% when first measured; the ratio has
-not moved), and `codebase_graph_query` on a module with 25 imports returns "No dependency
-information found". A rebuild does not fix it — the resolver does not
-map `usa_wa_adapter_legislature.tenure_spans` onto
-`packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/tenure_spans.py`, i.e. it cannot
-follow a `uv` workspace `src` layout where the directory name is dashed and the module name is
-underscored. So `codebase_graph_query`, `codebase_graph_circular`, `codebase_graph_stats`, and the
-file-mode of `codebase_impact` return empty or misleading results here — treat empty output as
-"tool broken", never as "no dependents". Derive import edges with `grep` instead, e.g.:
+**The file-dependency graph works on this repo as of SocratiCode 1.14.0 (#299).** It did not
+before 1.13.0: the resolver probed `src/` and `lib/` only at the project root, so a `uv` workspace
+whose distribution directory is dashed and whose module is underscored —
+`packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/tenure_spans.py` — lost nearly
+every import, and no rebuild fixed it. Upstream `f836e99` (gregoryfoster/skills#107,
+socraticode#112) takes the import roots from the tree's `pyproject.toml` manifests instead; it
+shipped in `v1.13.0` on 2026-09-07.
+
+Measured 2026-09-16, one `codebase_graph_build` apart:
+
+| | 1.12.0 | 1.14.0 |
+|---|---|---|
+| dependency edges | 13 | **1,633** |
+| average dependencies per file | 0.0 | 3.2 |
+| orphan files | 460+ of 492 | 51 of 510 |
+| unresolved symbol edges | 81.2% | 61.8% |
+
+Spot-checked against `grep`, both exact:
+`packages/usa-wa-facts-seats/src/usa_wa_facts_seats/house/build.py` reports 24 imports and `grep`
+finds 24 distinct first-party import statements; `clearinghouse_core/provenance.py` reports 83
+dependents and `grep` finds 83 importing files.
+
+**The version floor is the caveat that survives.** An empty graph answer still reads as an ordinary
+"No dependency information found" rather than an error, and nothing in this repo pins the engine —
+the plugin launches `npx -y socraticode`, whose npx cache version moves independently of the
+plugin's (#298). So before trusting an empty answer, run `codebase_graph_status`: it names the
+builder version and the last build time, and asks for a rebuild when the stored graph predates the
+running engine. Anything built by an engine older than 1.13.0 is the degraded graph described
+above — there, and only there, derive import edges with `grep`:
 
 ```bash
 grep -rnE '^[[:space:]]*(from|import)[[:space:]]+usa_wa_adapter_' packages/*/src --include='*.py'
 ```
 
-`codebase_search`, `codebase_symbol`, and the context tools are unaffected and remain preferred.
-Filed upstream as gregoryfoster/skills#107; revisit this note when it is fixed.
+`codebase_search`, `codebase_symbol`, and the context tools were never affected.
 
-The daily `socraticode-health.sh` `SessionStart` hook re-measures this yield and reports it as a
-finding every day (#263) — expected here, not news. The finding it exists for is a **context artifact
-declared in `.socraticodecontextartifacts.json` but never indexed**, which produces no error and no
-warning otherwise. See [`docs/SKILLS.md` § SocratiCode health](SKILLS.md#socraticode-health).
+The daily `socraticode-health.sh` `SessionStart` hook re-measures this yield (#263) and now returns
+`ok`, carrying the 61.8% unresolved share as a statistic rather than a defect. The finding it exists
+for is a **context artifact declared in `.socraticodecontextartifacts.json` but never indexed**,
+which produces no error and no warning otherwise. See
+[`docs/SKILLS.md` § SocratiCode health](SKILLS.md#socraticode-health).
 
 ## Manifest coverage — the drift that grows silently (#300)
 
