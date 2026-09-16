@@ -57,6 +57,38 @@ for is a **context artifact declared in `.socraticodecontextartifacts.json` but 
 which produces no error and no warning otherwise. See
 [`docs/SKILLS.md` § SocratiCode health](SKILLS.md#socraticode-health).
 
+## Background work outlives the tool call (#299)
+
+**`codebase_graph_build` and `codebase_index` return before they have done anything.** Both answer
+immediately — "started in the background" — and then do the work *inside the MCP server process*,
+as does the file watcher's incremental update. Kill the server mid-flight and the half-finished
+state persists, with nothing raised. Both failure modes below were hit in one session:
+
+| What was killed | What persisted | What it looked like |
+|---|---|---|
+| a graph build | the **previous** graph | a rebuild that "succeeded" and still read 13 edges |
+| a watcher-driven incremental update | `indexingStatus: in-progress`, 655/0 files | `⚠ INDEX IS INCOMPLETE` on the next launch |
+
+Neither reports an error, and the second surfaced twenty minutes *after* the same index had been
+read as `completed` 661/661 — so a status checked once is not a status that stays true while a
+watcher is running.
+
+**Check the timestamp, not the headline count.** `codebase_graph_status` carries `Last built`; the
+`socraticode_metadata` Qdrant collection carries `indexingStatus` and `lastIndexedAt` per collection
+(`codebase_*`, `context_*`, `codegraph_*`). An unchanged `Last built` after a "successful" rebuild
+means the build never landed. The edge count alone cannot tell you.
+
+**Close stdin and wait for the exit.** A driver script should finish with `proc.stdin.close()` and
+`proc.wait()`, confirming `rc = 0`, rather than `terminate()`. Recovery is cheap once recognized —
+the server auto-resumes an interrupted index on its next launch (7.9s for six outstanding files),
+and an explicit `codebase_index` during that window is *refused* as "already in progress", which is
+the resume working, not a failure.
+
+**`codebase_remove` is total, not index-only.** It drops every collection for the project — the
+graph and symbol graphs with it. A from-scratch code index rebuilds them unprompted, but budget for
+it: the full rebuild measured here was ~110 minutes for 5,562 chunks plus ~43 for 1,013 context
+chunks, embedding locally against `nomic-embed-text`.
+
 ## Manifest coverage — the drift that grows silently (#300)
 
 That check inspects only what the manifest already **names**, so a doc absent from it is invisible to
