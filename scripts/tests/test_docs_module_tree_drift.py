@@ -13,16 +13,20 @@ An inventory nobody checks reads the same whether it is current or three
 refactors behind — and a *misplaced* entry reads worse than an absent one,
 because the reader who trusts it looks in a directory that does not exist.
 
-Three things here are cheap to decide against ``git ls-files`` and change
+Five things here are cheap to decide against ``git ls-files`` and change
 rarely, so pinning them costs no churn:
 
-* every tracked repo-root directory is named;
-* every subpackage of ``src/usa_wa_api/`` is named **by its full path from the
+* every tracked repo-root directory is an entry;
+* every subpackage of ``src/usa_wa_api/`` is placed **by its full path from the
   package root** — ``src/usa_wa_api/serving/``, never a bare ``serving/`` under
   some other header. Depth is the half that drifted worst, and a bare leaf name
   cannot express it;
 * every module directly inside the package root or one of those subpackages is
-  named.
+  an entry;
+* every root-level ``conftest*.py`` is an entry — listing two of the three is
+  how ``conftest_coverage.py`` stayed invisible;
+* the doc carries exactly one fenced block, so "which block is the tree" is
+  never ambiguous.
 
 What is NOT pinned: the prose beside each entry, the route count (API.md is
 pinned live by ``tests/test_v1_contract.py``), and anything nested deeper than a
