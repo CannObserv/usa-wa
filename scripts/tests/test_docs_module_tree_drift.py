@@ -38,7 +38,6 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 DOC = REPO / "docs" / "MODULES-DEPLOYMENT.md"
-PACKAGE_ROOT = REPO / "packages" / "usa-wa-api" / "src" / "usa_wa_api"
 
 #: Root directories the tree is not expected to name. ``packages/`` is the
 #: doc's subject — every MODULES-*.md describes something under it — rather than
@@ -119,11 +118,28 @@ def test_every_root_conftest_is_named() -> None:
     assert not missing, f"root conftest modules the tree does not name: {missing}"
 
 
-def _subpackages() -> list[Path]:
+#: ``src/usa_wa_api/`` as git spells it, for slicing tracked paths.
+PACKAGE_PREFIX = "packages/usa-wa-api/src/usa_wa_api/"
+
+
+def _package_paths() -> list[str]:
+    """Tracked paths under ``src/usa_wa_api/``, relative to the package root.
+
+    Git, not the filesystem (#373 CR 6). ``iterdir()``/``glob()`` see untracked
+    files, so a scratch module — a local experiment, a generated file — made
+    this suite demand a doc entry for something git does not track, and
+    ``pre-ship.sh`` gates on it, so unrelated work was blocked until the file
+    was deleted. The ``__pycache__`` exclusion that version needed was the same
+    leak patched one directory at a time; asking git removes the class.
+    """
+    return [
+        path.removeprefix(PACKAGE_PREFIX) for path in _tracked() if path.startswith(PACKAGE_PREFIX)
+    ]
+
+
+def _subpackages() -> list[str]:
     """Every tracked subpackage directly under ``src/usa_wa_api/``."""
-    return sorted(
-        child for child in PACKAGE_ROOT.iterdir() if child.is_dir() and child.name != "__pycache__"
-    )
+    return sorted({path.split("/", 1)[0] for path in _package_paths() if "/" in path})
 
 
 def test_every_subpackage_is_named_at_its_real_depth() -> None:
@@ -137,9 +153,9 @@ def test_every_subpackage_is_named_at_its_real_depth() -> None:
     """
     entries = _entries()
     missing = [
-        f"src/usa_wa_api/{pkg.name}/"
+        f"src/usa_wa_api/{pkg}/"
         for pkg in _subpackages()
-        if f"src/usa_wa_api/{pkg.name}/" not in entries
+        if f"src/usa_wa_api/{pkg}/" not in entries
     ]
     assert not missing, (
         f"subpackages the tree does not place by full path: {missing} — a bare "
@@ -156,13 +172,16 @@ def test_every_module_in_the_package_root_and_its_subpackages_is_named() -> None
     why a reference that names one must name the other.
     """
     entries = _entries()
-    missing: list[str] = []
-    for parent in [PACKAGE_ROOT, *_subpackages()]:
-        for module in sorted(parent.glob("*.py")):
-            if module.name == "__init__.py":
-                continue
-            if module.name not in entries:
-                missing.append(str(module.relative_to(PACKAGE_ROOT)))
+    missing = sorted(
+        path
+        for path in _package_paths()
+        # 1 segment = the package root, 2 = one level into a subpackage. Deeper
+        # is out of scope, as the module docstring says.
+        if len(path.split("/")) in (1, 2)
+        and path.endswith(".py")
+        and not path.endswith("__init__.py")
+        and path.rsplit("/", 1)[-1] not in entries
+    )
     assert not missing, f"modules the tree does not name: {missing}"
 
 
