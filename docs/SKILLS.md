@@ -118,7 +118,7 @@ bash skills/curating-context/scripts/prove-no-loss.sh --base main # assert a cur
 
 `.claude/hooks/context-budget-guard.sh` is a symlink through `skills/curating-context/` into the vendor submodule, so on an uninitialized checkout it dangles and every edit fails the hook until the submodule is initialized — `.skills/doctor.sh` heals it, since the chain routes through `skills/*`, which the doctor's scan covers (upstream: [gregoryfoster/skills#99](https://github.com/gregoryfoster/skills/issues/99)).
 
-## Ship-gate sensitive paths
+## Ship-gate sensitive paths and advice
 
 `.skills/doc-sensitive-paths` is the list Step 1.5 of the shipping skill (`doc-check.sh`) checks a branch's changed files against — files whose names or structure some doc enumerates, so the matching section gets a look before the branch ships. It **replaces** the vendored defaults rather than extending them.
 
@@ -129,6 +129,16 @@ Grammar: one path per line, blank lines and `#` comments ignored (the same shape
 Two upstream behaviours make a stale list visible rather than silent: an entry matching no tracked file is named in a note on every clean run, and a list where *no* entry matches anything exits 2 — a gate that could not have found anything is not a pass. `scripts/tests/test_doc_sensitive_paths.py` fails on either state before it reaches a ship.
 
 The list is deliberately narrower than a bare `src/`: that would match every source file in the workspace, so every branch would exit 1 and the exit code would stop meaning anything. Each entry names a surface a doc *enumerates*.
+
+**The advice half (#371).** `doc-check.sh` resolves two files independently: the list above says *what the gate watches*, `.skills/doc-sections` says *what to do about a hit*. Same grammar, and it likewise **replaces** the vendored defaults. Tailoring one and not the other is the failure [gregoryfoster/skills#284](https://github.com/gregoryfoster/skills/issues/284) made audible — from #297 until #371 every hit here printed the python-fastapi defaults ("project structure, conventions, skill inventory, route table") and never named `docs/COMMANDS.md` or `docs/DEPLOYMENT.md`, the docs that actually enumerate what the list watches. A hit now ends with `(advice: .skills/doc-sections)` and no note.
+
+House shape, one section per line:
+
+```
+<doc>[, <doc>…]: <what to spot-check> (<sensitive-path>, …)
+```
+
+The trailing group names the `doc-sensitive-paths` entries the line answers for. Upstream runs no dead-entry check on advice — advice is prose, and a checker for it would be satisfied by pasting paths into the text — so the fixed position buys three checks locally, all in `scripts/tests/test_doc_sections.py`: every doc named is a tracked file, every watched path is routed by some line, and no line routes a path the list does not watch. The routing tokens are **verbatim** `doc-sensitive-paths` entries, trailing slash included — they are keys, not prose. #314 is why they exist; it deleted `descriptors/` along with the two docs that routed it, and the routing #371 was filed with still named all three.
 
 ## Worktree venv isolation
 

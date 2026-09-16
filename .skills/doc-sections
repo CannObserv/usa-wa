@@ -1,0 +1,56 @@
+# doc-sections — the advice the shipping gate prints on a hit, tailored to this
+# repo (#371, upstream gregoryfoster/skills#284).
+#
+# Read by the vendored `doc-check.sh` (Step 1.5 of the shipping skill).
+# `.skills/doc-sensitive-paths` beside this file says WHAT the gate watches;
+# this says WHAT TO DO about a hit. The two resolve independently, and this repo
+# tailored the first in #297 and left this one on the vendored python-fastapi
+# defaults — so every hit printed two lines about "project structure,
+# conventions, skill inventory, route table" and never named docs/COMMANDS.md or
+# docs/DEPLOYMENT.md, the docs that actually enumerate what the list watches.
+# Upstream made that state audible rather than fixing it for us: a hit now ends
+# with a note saying the advice is the skill's, not the project's.
+#
+# Grammar: one section per line, blank lines and `#` comments ignored, and this
+# file REPLACES the two built-in lines rather than extending them. A `#` later
+# in a line is content, not a comment — the advice cites issues.
+#
+# House shape, pinned by scripts/tests/test_doc_sections.py:
+#
+#     <doc>[, <doc>…]: <what to spot-check> (<sensitive-path>, …)
+#
+# The trailing parenthesised group names the `doc-sensitive-paths` entries the
+# line answers for, each spelled VERBATIM as that file spells it, trailing slash
+# and all. It is a routing key, not prose: `api/v1` where the list says `api/v1/`
+# reads identically to a human and routes nothing.
+#
+# Upstream deliberately runs no dead-entry check on advice, since advice is prose
+# and a checker for it would be satisfied by pasting paths into the text. Here
+# the paths sit in a fixed position at the end, which buys three checks the gate
+# cannot make for itself: every doc named is a tracked file, every watched path
+# is routed by some line, and no line routes a path the list does not watch.
+# #314 is why all three exist — it deleted `descriptors/` along with
+# docs/MODULES-SYNC-PRODUCERS.md and docs/LWW-NOOP-GATE.md, and the routing #371
+# was filed with still named all three.
+
+# The policy file itself, and the layer contracts the gate's pyproject/uv.lock
+# entries exist to flag.
+AGENTS.md: § Project Layout and the six-layer table, the import-linter contracts it points at, § Common Commands, § Agent Skills (AGENTS.md, pyproject.toml, uv.lock, .pre-commit-config.yaml)
+README.md: orientation only — the curated links into docs/ and the fresh-host provisioning block, not the content they point at (README.md)
+docs/ARCHITECTURE.md: the layer rules a new package or a new import has to satisfy, and the import-linter contract that enforces them (pyproject.toml, .pre-commit-config.yaml)
+docs/MODULES-*.md: the per-package module reference — one section per workspace member, keyed to that member's README.md and pyproject.toml; a renamed or added package dates the index here as well as AGENTS.md (README.md, pyproject.toml)
+docs/MODULES-DEPLOYMENT.md: Layer 4 — the API deployment's own modules and the repo-root directories (api/v1/, cli/)
+
+# Commands and migrations.
+docs/COMMANDS.md: the command index and § migrations — every CLI entry point by name, and the alembic revision order (alembic/, cli/, scripts/)
+docs/COMMANDS-SUCCESSION.md, docs/COMMANDS-BACKFILL.md, docs/COMMANDS-SEATS.md: the operational CLIs grouped by job; a new or renamed backfill belongs in exactly one of these, named (cli/, scripts/)
+docs/PIPELINE.md, docs/PIPELINE-CONFORMED.md: the #302 dbt commands, the model TDD policy, and the `dbt-build` commit gate (.pre-commit-config.yaml, cli/, scripts/)
+
+# The deployment surface.
+docs/DEPLOYMENT.md: the systemd service+timer table (pinned by test_docs_timer_drift.py), the OnFailure alerting chain, the DB role split, the restart/lifecycle table, the verify-units.sh gate, and § Scheduled work outside systemd for the GitHub Actions cadence (deploy/, alembic/, scripts/, uv.lock, .pre-commit-config.yaml, .github/)
+docs/ENVIRONMENT.md: every variable the deployment reads — a unit's EnvironmentFile=, a new getenv, or a workflow secret belongs in the list here (deploy/, .github/)
+docs/API.md: the read-only /api/v1 route table, pagination, and the response contracts (api/v1/)
+
+# The agent-context surface itself.
+docs/SKILLS.md: the vendor → symlink → discovery layout, the .skills knobs (this file among them), the hook registrations in .claude/settings.json, and § Context budget for the weekly cadence's ledger files (.skills/, .claude/, .github/)
+docs/CODE-EXPLORATION.md: the SocratiCode context-artifact manifest (every tracked doc must be declared or exempted — #300), the goal→tool table, and the session-start hooks (.socraticodecontextartifacts.json, .claude/)
