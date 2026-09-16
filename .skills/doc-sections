@@ -20,14 +20,18 @@
 #     <doc>[, <doc>…]: <what to spot-check> (<sensitive-path>, …)
 #
 # The trailing parenthesised group names the `doc-sensitive-paths` entries the
-# line answers for. Upstream deliberately runs no dead-entry check on advice,
-# since advice is prose and a checker for it would be satisfied by pasting paths
-# into the text. Here the paths sit in a fixed position at the end, which buys
-# two checks the gate cannot make for itself: every doc named is a tracked file,
-# and every watched path is routed by some line. #314 is why both exist — it
-# deleted `descriptors/` along with docs/MODULES-SYNC-PRODUCERS.md and
-# docs/LWW-NOOP-GATE.md, and the routing #371 was filed with still named all
-# three.
+# line answers for, each spelled VERBATIM as that file spells it, trailing slash
+# and all. It is a routing key, not prose: `api/v1` where the list says `api/v1/`
+# reads identically to a human and routes nothing.
+#
+# Upstream deliberately runs no dead-entry check on advice, since advice is prose
+# and a checker for it would be satisfied by pasting paths into the text. Here
+# the paths sit in a fixed position at the end, which buys three checks the gate
+# cannot make for itself: every doc named is a tracked file, every watched path
+# is routed by some line, and no line routes a path the list does not watch.
+# #314 is why all three exist — it deleted `descriptors/` along with
+# docs/MODULES-SYNC-PRODUCERS.md and docs/LWW-NOOP-GATE.md, and the routing #371
+# was filed with still named all three.
 
 # The policy file itself, and the layer contracts the gate's pyproject/uv.lock
 # entries exist to flag.
