@@ -125,6 +125,13 @@ def test_every_doc_named_is_a_tracked_file() -> None:
     Upstream declines this check because advice is prose; here the docs are
     named in a fixed position, so it costs nothing. #314 is the precedent —
     it deleted two of the docs the routing filed with #371 named.
+
+    Weaker for a glob entry, deliberately. ``docs/MODULES-*.md`` passes while
+    ANY module doc survives, so deleting ``docs/MODULES-PDC.md`` leaves that
+    line green — the check is exact for a literal name and existential for a
+    pattern. The alternative is a match-count floor, which would be a number
+    nobody could justify; a line that wants the stronger guarantee should name
+    its docs literally.
     """
     tracked_files = set(tracked())
     dead = [
