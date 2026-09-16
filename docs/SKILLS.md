@@ -138,7 +138,7 @@ House shape, one section per line:
 <doc>[, <doc>…]: <what to spot-check> (<sensitive-path>, …)
 ```
 
-The trailing group names the `doc-sensitive-paths` entries the line answers for. Upstream runs no dead-entry check on advice — advice is prose, and a checker for it would be satisfied by pasting paths into the text — so the fixed position buys two checks locally, both in `scripts/tests/test_doc_sections.py`: every doc named is a tracked file, and every watched path is routed by some line. #314 is why both exist; it deleted `descriptors/` along with the two docs that routed it, and the routing #371 was filed with still named all three.
+The trailing group names the `doc-sensitive-paths` entries the line answers for. Upstream runs no dead-entry check on advice — advice is prose, and a checker for it would be satisfied by pasting paths into the text — so the fixed position buys three checks locally, all in `scripts/tests/test_doc_sections.py`: every doc named is a tracked file, every watched path is routed by some line, and no line routes a path the list does not watch. The routing tokens are **verbatim** `doc-sensitive-paths` entries, trailing slash included — they are keys, not prose. #314 is why they exist; it deleted `descriptors/` along with the two docs that routed it, and the routing #371 was filed with still named all three.
 
 ## Worktree venv isolation
 
