@@ -190,8 +190,14 @@ def test_every_module_in_the_package_root_and_its_subpackages_is_named() -> None
 
 
 def test_the_doc_names_this_guard() -> None:
-    """So the pointer survives a rename, as test_docs_timer_drift requires."""
-    assert "test_docs_module_tree_drift" in DOC.read_text(), (
-        "MODULES-DEPLOYMENT.md must name the module pinning its tree, or a "
-        "rename leaves the doc claiming a guard nobody can find"
+    """So the pointer survives a rename, as test_docs_timer_drift requires.
+
+    Derived from ``__file__`` rather than hardcoded (#373 CR 8): a literal
+    keeps asserting the OLD name after a rename, which is the failure this test
+    claims to prevent. ``test_docs_timer_drift.py`` takes the same route.
+    """
+    name = Path(__file__).stem
+    assert name in DOC.read_text(), (
+        f"MODULES-DEPLOYMENT.md must name {name}, the module pinning its tree, "
+        "or a rename leaves the doc claiming a guard nobody can find"
     )
