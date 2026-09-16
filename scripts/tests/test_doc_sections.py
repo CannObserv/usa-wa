@@ -28,21 +28,8 @@ side by side in ``.skills/``.
 
 import fnmatch
 import re
-import subprocess
-from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-SECTIONS_FILE = REPO / ".skills" / "doc-sections"
-PATHS_FILE = REPO / ".skills" / "doc-sensitive-paths"
-VENDORED = (
-    REPO
-    / "skills-vendor"
-    / "gregoryfoster-skills"
-    / "skills"
-    / "shipping-work-python-fastapi"
-    / "scripts"
-    / "doc-check.sh"
-)
+from doc_check_lists import DOC_SECTIONS_FILE, SENSITIVE_PATHS_FILE, VENDORED, entries, tracked
 
 #: The vendored python-fastapi advice. Committing either verbatim would tailor
 #: the file's existence and nothing else — the #371 state with the note
@@ -64,27 +51,6 @@ DEFAULT_SECTIONS = frozenset(
 ROUTES_RE = re.compile(r"\(([^()]*)\)\s*$")
 
 
-def _entries(path: Path) -> list[str]:
-    """The shared grammar: one entry per line, blank lines and `#` comments out.
-
-    Mirrors ``read_list_file`` in the vendored doc-check.sh, including that a
-    ``#`` later in a line is content rather than a comment — advice cites issues.
-    """
-    lines = path.read_text().splitlines()
-    return [s for line in lines if (s := line.strip()) and not s.startswith("#")]
-
-
-def _tracked() -> list[str]:
-    return subprocess.run(  # noqa: S603 — fixed argv, no shell, no user input
-        ["git", "-c", "core.quotePath=false", "ls-files"],  # noqa: S607
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    ).stdout.splitlines()
-
-
 def _docs_named(entry: str) -> list[str]:
     """The doc paths an advice line opens with, before its first ``:``."""
     head = entry.split(":", 1)[0]
@@ -100,18 +66,18 @@ def _routes(entry: str) -> list[str]:
 
 
 def test_the_list_exists_and_parses() -> None:
-    assert SECTIONS_FILE.is_file(), (
+    assert DOC_SECTIONS_FILE.is_file(), (
         "no .skills/doc-sections; with .skills/doc-sensitive-paths tailored, every "
         "gate hit prints the vendored python-fastapi advice plus a note saying so (#371)"
     )
-    assert _entries(SECTIONS_FILE), (
+    assert entries(DOC_SECTIONS_FILE), (
         "an empty list is exit 2 upstream, not a pass — remove the file instead"
     )
 
 
 def test_no_vendored_default_survived_the_tailoring() -> None:
     """Keeping a default line routes this repo's hits at the skill's layout."""
-    kept = DEFAULT_SECTIONS & set(_entries(SECTIONS_FILE))
+    kept = DEFAULT_SECTIONS & set(entries(DOC_SECTIONS_FILE))
     assert not kept, f"vendored default advice still present: {sorted(kept)}"
 
 
@@ -119,7 +85,7 @@ def test_every_line_names_a_doc_and_routes_at_least_one_path() -> None:
     """The grammar the two checks below depend on, asserted once."""
     malformed = [
         entry
-        for entry in _entries(SECTIONS_FILE)
+        for entry in entries(DOC_SECTIONS_FILE)
         if ":" not in entry or not _docs_named(entry) or not _routes(entry)
     ]
     assert not malformed, (
@@ -135,12 +101,12 @@ def test_every_doc_named_is_a_tracked_file() -> None:
     named in a fixed position, so it costs nothing. #314 is the precedent —
     it deleted two of the docs the routing filed with #371 named.
     """
-    tracked = set(_tracked())
+    tracked_files = set(tracked())
     dead = [
         doc
-        for entry in _entries(SECTIONS_FILE)
+        for entry in entries(DOC_SECTIONS_FILE)
         for doc in _docs_named(entry)
-        if doc not in tracked and not fnmatch.filter(tracked, doc)
+        if doc not in tracked_files and not fnmatch.filter(tracked_files, doc)
     ]
     assert not dead, f"advice names docs that are not tracked files: {dead}"
 
@@ -154,8 +120,8 @@ def test_every_watched_path_is_routed() -> None:
     files. #314 dropped ``descriptors/`` from the path list; nothing would have
     noticed advice still routing it.
     """
-    routed = {path for entry in _entries(SECTIONS_FILE) for path in _routes(entry)}
-    unrouted = [entry for entry in _entries(PATHS_FILE) if entry not in routed]
+    routed = {path for entry in entries(DOC_SECTIONS_FILE) for path in _routes(entry)}
+    unrouted = [entry for entry in entries(SENSITIVE_PATHS_FILE) if entry not in routed]
     assert not unrouted, (
         f"watched paths no advice line names: {unrouted} — add them to a line's "
         "trailing group in .skills/doc-sections"
@@ -164,11 +130,11 @@ def test_every_watched_path_is_routed() -> None:
 
 def test_no_advice_routes_an_unwatched_path() -> None:
     """The other direction: advice about a path the gate cannot hit is dead prose."""
-    watched = set(_entries(PATHS_FILE))
+    watched = set(entries(SENSITIVE_PATHS_FILE))
     stray = sorted(
         {
             path
-            for entry in _entries(SECTIONS_FILE)
+            for entry in entries(DOC_SECTIONS_FILE)
             for path in _routes(entry)
             if path not in watched
         }
