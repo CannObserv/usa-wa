@@ -56,9 +56,16 @@ The three `.skills`/`skills` trees and `.claude/` are described in
 knob does.
 
 The repo-root half of this tree and the `src/usa_wa_api/` half are both pinned
-by `scripts/tests/test_docs_module_tree_drift.py` (#373): every tracked root
-directory named, every subpackage placed by its full path, every module in the
-package root or a subpackage named. The prose beside each entry is not pinned —
-only the inventory. Before #373 the tree drew `serving/` as a child of `api/`,
-omitted `datasets.py`, `serving.py`, `cli/`, `conftest_coverage.py` and six of
-the ten root directories, and nothing reported it.
+by `scripts/tests/test_docs_module_tree_drift.py` (#373). Five checks, all
+against `git ls-files`: every tracked root directory is an entry, every
+subpackage is placed by its full path (`src/usa_wa_api/serving/`, not a bare
+`serving/`), every module in the package root or a subpackage is an entry,
+every root-level `conftest*.py` is an entry, and this file carries **exactly
+one** fenced block — a second would leave the guard unable to tell which one it
+should be pinning. An entry is the first token on its line, so the separator
+after it is free-form.
+
+The prose beside each entry is not pinned — only the inventory. Before #373 the
+tree drew `serving/` as a child of `api/`, omitted `datasets.py`, `serving.py`,
+`cli/`, `conftest_coverage.py` and six of the ten root directories, and nothing
+reported it.
