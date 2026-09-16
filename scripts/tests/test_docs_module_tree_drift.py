@@ -74,6 +74,23 @@ def _tree_block() -> str:
     return blocks[0]
 
 
+def _entries() -> set[str]:
+    """The tree's entry names — the token before each line's em dash.
+
+    Exact entries, not a substring sweep of the block. A substring check was
+    the first version and it was vacuous for the root half: renaming the
+    ``scripts/`` ENTRY still passed, because another entry's prose mentioned
+    ``scripts/tests/``. Every check below asks "is there a line FOR this",
+    which is the question the doc's reader asks too.
+    """
+    entries = set()
+    for line in _tree_block().splitlines():
+        head = line.split("—", 1)[0].strip()
+        if head:
+            entries.add(head)
+    return entries
+
+
 def test_the_doc_exists_and_draws_one_tree() -> None:
     assert DOC.is_file(), f"missing {DOC}"
     assert _tree_block().strip(), "the fenced tree is empty"
@@ -82,8 +99,8 @@ def test_the_doc_exists_and_draws_one_tree() -> None:
 def test_every_tracked_root_directory_is_named() -> None:
     """The doc says "and the repo-root directories"; this makes that true."""
     roots = {f"{f.split('/', 1)[0]}/" for f in _tracked() if "/" in f} - ROOT_EXEMPT
-    tree = _tree_block()
-    missing = sorted(root for root in roots if root not in tree)
+    entries = _entries()
+    missing = sorted(root for root in roots if root not in entries)
     assert not missing, (
         f"repo-root directories the tree does not name: {missing} — the doc's "
         "opening line claims to cover them"
@@ -97,8 +114,8 @@ def test_every_root_conftest_is_named() -> None:
     profile and the #216 integration exemption — stayed invisible.
     """
     conftests = sorted(f for f in _tracked() if re.fullmatch(r"conftest\w*\.py", f))
-    tree = _tree_block()
-    missing = [name for name in conftests if name not in tree]
+    entries = _entries()
+    missing = [name for name in conftests if name not in entries]
     assert not missing, f"root conftest modules the tree does not name: {missing}"
 
 
@@ -118,11 +135,11 @@ def test_every_subpackage_is_named_at_its_real_depth() -> None:
     what the tree has to carry — checked as the literal
     ``src/usa_wa_api/<name>/``.
     """
-    tree = _tree_block()
+    entries = _entries()
     missing = [
         f"src/usa_wa_api/{pkg.name}/"
         for pkg in _subpackages()
-        if f"src/usa_wa_api/{pkg.name}/" not in tree
+        if f"src/usa_wa_api/{pkg.name}/" not in entries
     ]
     assert not missing, (
         f"subpackages the tree does not place by full path: {missing} — a bare "
@@ -138,13 +155,13 @@ def test_every_module_in_the_package_root_and_its_subpackages_is_named() -> None
     second one easily confused with the ``serving/`` package — which is exactly
     why a reference that names one must name the other.
     """
-    tree = _tree_block()
+    entries = _entries()
     missing: list[str] = []
     for parent in [PACKAGE_ROOT, *_subpackages()]:
         for module in sorted(parent.glob("*.py")):
             if module.name == "__init__.py":
                 continue
-            if module.name not in tree:
+            if module.name not in entries:
                 missing.append(str(module.relative_to(PACKAGE_ROOT)))
     assert not missing, f"modules the tree does not name: {missing}"
 
