@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold
+from usa_wa_common.names import strip_tenure_notes
 from usa_wa_common.orgs import STRUCTURAL_ORGS
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
 
@@ -114,6 +115,19 @@ def _live_entities(crosswalk: list[dict[str, Any]]) -> dict[str, list[dict[str, 
     return out
 
 
+def _display_name(value: Any) -> str | None:
+    """A source's name field as a name fit to PUBLISH (#378).
+
+    :func:`_name` answers "is this a name at all" (#364); this also drops the
+    annotations the roster prints inside its name column — tenure events like
+    ``(Resgnd Dec. 31, 1982)``. Kept separate from the fold input on purpose:
+    ``identity_fold`` already ignores parentheticals, so stripping here changes
+    what is published and nothing about which registry key a row resolves to.
+    """
+    named = _name(value)
+    return strip_tenure_notes(named) if named else named
+
+
 def person_rows(
     crosswalk: list[dict[str, Any]],
     *,
@@ -124,7 +138,7 @@ def person_rows(
     """One conformed person per live registry entity."""
     wsl_latest: dict[str, tuple[str, str]] = {}
     for row in sponsors:
-        member_id, name = row.get("member_id"), _name(row.get("name"))
+        member_id, name = row.get("member_id"), _display_name(row.get("name"))
         if member_id and name:
             current = wsl_latest.get(member_id)
             if current is None or row["biennium"] > current[0]:
@@ -136,15 +150,20 @@ def person_rows(
         name = _name(row.get("name"))
         if not name:
             continue
+        # The fold reads the RAW printed name — the registry keys were minted
+        # from it, so a screen applied before this would re-key the person
+        # (#378). Only what gets published is stripped.
         fold = identity_fold(name)
         year = int(row["year"])
         roster_first_year[fold] = min(roster_first_year.get(fold, year), year)
         current = roster_latest.get(fold)
         if current is None or year > current[0]:
-            roster_latest[fold] = (year, name)
+            roster_latest[fold] = (year, strip_tenure_notes(name))
 
     pdc_names = {
-        row["person_id"]: _name(row.get("filer_name")) for row in pdc if row.get("person_id")
+        row["person_id"]: _display_name(row.get("filer_name"))
+        for row in pdc
+        if row.get("person_id")
     }
 
     rows = []

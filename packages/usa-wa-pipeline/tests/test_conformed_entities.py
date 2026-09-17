@@ -343,3 +343,63 @@ def test_org_rows_follow_a_merge_too() -> None:
     [row] = org_rows(crosswalk, committees=COMMITTEES, meetings=[])
     assert row["entity_id"] == "02NEW"
     assert row["name"] == "Ag & Water"
+
+
+# --- published names carry no tenure annotation (usa-wa#378) ------------------
+
+KREIDLER_NOTE = (
+    "Myron “Mike” Kreidler (On leave of absence for military duty Jan. 8, 1991 to April 18, 1991)"
+)
+
+
+def test_a_roster_tenure_note_is_not_published_as_a_name() -> None:
+    """The roster prints service facts inside the name column; `name_full` is a name.
+
+    #378's prerequisite. This row's entity is one of the 17 roster/member-id
+    duplicates, and merging it makes the ROSTER name win survivorship — so
+    without this screen a leave-of-absence note becomes the published legal name
+    of a live, power-map-resolved legislator. That is the #364 shape exactly, and
+    power-map#497 is how #364 was found: downstream, in a consumer.
+
+    The fold is asserted alongside on purpose. The note is stripped for
+    *publication* only — `identity_fold` already ignored it, so the row is still
+    located by the same registry key and no identity moves. A screen that
+    changed the fold would re-key the person, which is the one thing this must
+    not do.
+    """
+    crosswalk = [
+        {
+            "entity_id": "01K",
+            "key_namespace": "usa_wa_legislature_roster",
+            "key_value": "myronkreidler:1977",
+            "merged_into": None,
+        }
+    ]
+    roster = [{"year": 1977, "name": KREIDLER_NOTE, "district": 2, "chamber": "house"}]
+
+    [row] = person_rows(crosswalk, sponsors=[], roster=roster, pdc=[])
+
+    assert row["name_full"] == "Myron “Mike” Kreidler"
+    assert row["name_source"] == "roster"
+
+
+def test_a_marital_print_form_is_left_alone() -> None:
+    """Whether she is published under her husband's name is an editorial call
+    (#378 follow-on 2), so the screen does not quietly make it. Pinned here
+    because the tempting fix — reusing `strip_non_name_parts` — would answer it
+    by accident, and answer it wrong: it yields `Irwin LeCocq` for Mary."""
+    crosswalk = [
+        {
+            "entity_id": "01R",
+            "key_namespace": "usa_wa_legislature_roster",
+            "key_value": "bellereeves:1923",
+            "merged_into": None,
+        }
+    ]
+    roster = [
+        {"year": 1923, "name": "Belle (Mrs. Frank) Reeves", "district": 1, "chamber": "house"}
+    ]
+
+    [row] = person_rows(crosswalk, sponsors=[], roster=roster, pdc=[])
+
+    assert row["name_full"] == "Belle (Mrs. Frank) Reeves"

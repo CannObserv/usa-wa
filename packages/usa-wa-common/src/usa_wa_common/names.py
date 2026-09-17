@@ -61,6 +61,68 @@ def strip_non_name_parts(full_name: str) -> str:
     return " ".join(kept)
 
 
+#: A parenthetical this long is prose, not a name. The roster's name-shaped
+#: parentheticals run to three tokens (``(Mrs. Thomas E.)``); its shortest
+#: annotation runs to ten (``(Select House Cmte upheld election challenge, Hogan
+#: declared duly elected)``). The threshold sits in a gap that wide on purpose —
+#: it is a screen against prose, not a measurement of one corpus.
+_NOTE_MAX_TOKENS = 4
+
+#: A digit inside a parenthetical means a date, and a date means an event.
+_HAS_DIGIT = re.compile(r"\d")
+
+#: Pairs off with :data:`_PARENTHETICAL`, keeping the delimiters so a kept
+#: segment can be put back exactly as printed.
+_PARENTHETICAL_GROUP = re.compile(r"\(([^)]*)\)")
+
+
+def _is_tenure_note(inner: str) -> bool:
+    """Is this parenthetical's content an annotation rather than name content?"""
+    return bool(_HAS_DIGIT.search(inner)) or len(inner.split()) > _NOTE_MAX_TOKENS
+
+
+def strip_tenure_notes(full_name: str) -> str:
+    """An upstream name with printed *annotations* removed and names left alone.
+
+    The narrowest of this module's four name screens, and the only one meant for
+    a name that gets **published** rather than matched. The roster's name column
+    carries two unrelated things in parentheses (usa-wa#378):
+
+    * **tenure events** — ``(Resgnd Dec. 31, 1982)``, ``(On leave of absence for
+      military duty Jan. 8, 1991 to April 18, 1991)``, ``(Left Seattle July 2,
+      1900 Named Court Clerk, 3rd Judcl Dvn, AK Terr.)``. Not names at all: facts
+      about a person's service, printed inside the name. These go.
+    * **name content** — marital print forms (``(Mrs. Thomas E.)``) and legal-name
+      glosses (``Jack (John T.) Dootson``). These stay.
+
+    Why this is not :func:`strip_non_name_parts`, which would be the obvious
+    reach: that function is documented for *matching* and drops every
+    parenthetical, every quoted nickname and every honorific. Publishing its
+    output would strip ``A. L. "Slim" Rasmussen`` down to ``A. L. Rasmussen``
+    (his quoted nickname is how he is known, and five already-published people
+    carry one), and would turn ``Mrs. Irwin LeCocq (Mary)`` into ``Irwin
+    LeCocq`` — her husband's name, published as hers. A matching screen may
+    over-strip because nothing downstream reads its output; a publication screen
+    may not.
+
+    **Whether a woman should be published under a marital form at all is a real
+    editorial question and deliberately not answered here** (usa-wa#378 follow-on
+    2). Leaving those untouched keeps it a decision someone makes, rather than
+    one this function makes silently on the way past.
+
+    The discriminator is a digit or more than :data:`_NOTE_MAX_TOKENS` tokens.
+    Both halves are load-bearing: ``(Select House Cmte upheld election
+    challenge, Hogan declared duly elected)`` carries no digit, and ``(Mary)``
+    carries no prose, so neither test alone separates the two classes.
+    """
+
+    def _keep(match: re.Match[str]) -> str:
+        return "" if _is_tenure_note(match.group(1)) else match.group(0)
+
+    stripped = _PARENTHETICAL_GROUP.sub(_keep, full_name)
+    return stripped if stripped == full_name else " ".join(stripped.split())
+
+
 def split_by_given_name(
     row_tokens: Collection[str],
     candidates: Mapping[str, Collection[str]],

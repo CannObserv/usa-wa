@@ -14,6 +14,7 @@ from usa_wa_common.names import (
     split_name,
     strip_non_name_parts,
     strip_other_party_parts,
+    strip_tenure_notes,
     surname_match_set,
 )
 
@@ -164,3 +165,74 @@ def test_split_name(raw, expected) -> None:
     the failure this module exists to prevent.
     """
     assert split_name(raw) == expected
+
+
+# --- strip_tenure_notes (usa-wa#378) ------------------------------------------
+#
+# Every case below is a real published `name_full` from the 2026-09-10 snapshot.
+# The split is the whole point: the roster prints two unrelated things inside
+# parentheses, and only one of them is not a name.
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        # Tenure events. Not a name in any sense — a note about the person's
+        # service that the roster printed inside the name column.
+        ("Geraldine McCormick (Resgnd Dec. 31, 1982)", "Geraldine McCormick"),
+        ("D. N. Judson (Apntd Dec. 13 to serve \u201933 Ex. S.)", "D. N. Judson"),
+        (
+            "A. R. Heilig (Left Seattle July 2, 1900 Named Court Clerk, 3rd Judcl Dvn, AK Terr.)",
+            "A. R. Heilig",
+        ),
+        (
+            "James Wickersham (Left Seattle July 2, 1900 Appointed Judge, 3rd Judcl Dvn, AK Terr.)",
+            "James Wickersham",
+        ),
+        # The one with no digit in it — caught on length, which is why the rule
+        # cannot be "contains a number".
+        (
+            "James M. Hogan (Select House Cmte upheld election challenge, "
+            "Hogan declared duly elected)",
+            "James M. Hogan",
+        ),
+        # #378's reason for existing: merging this row's entity makes the roster
+        # name win survivorship, so without this strip a leave-of-absence note
+        # becomes the published legal name of a live, PM-resolved legislator.
+        (
+            "Myron \u201cMike\u201d Kreidler (On leave of absence for military duty "
+            "Jan. 8, 1991 to April 18, 1991)",
+            "Myron \u201cMike\u201d Kreidler",
+        ),
+    ],
+)
+def test_strip_tenure_notes_removes_an_annotation(raw, expected) -> None:
+    assert strip_tenure_notes(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        # Marital print forms. Whether SHE should be published under her
+        # husband's name is a real editorial question (usa-wa#378 follow-on 2),
+        # and it is not this function's to answer — these survive untouched so
+        # the decision stays a decision rather than a side effect.
+        "Agnes (Mrs. Thomas E.) Kehoe",
+        "Belle (Mrs. Frank) Reeves",
+        "Frances (Mrs. Thomas A.) Swayze",
+        "Margaret (Mrs. Joseph E.) Hurley",
+        "Mrs. Irwin LeCocq (Mary)",
+        "Mrs. Jurie B.(Nettie Luella) Smith",
+        "Mrs. Vincent (Matilda) F. Jones",
+        # A legal-name gloss on a nickname — name content both sides of the paren.
+        "Jack (John T.) Dootson",
+        # Not a person at all: a committee's chamber marker. Organizations go
+        # through the same name screen, so the rule has to leave this alone.
+        "Law & Justice (H)",
+        # Nothing to do.
+        "Patty Murray",
+        "",
+    ],
+)
+def test_strip_tenure_notes_keeps_name_content(raw) -> None:
+    assert strip_tenure_notes(raw) == raw
