@@ -140,6 +140,33 @@ House shape, one section per line:
 
 The trailing group names the `doc-sensitive-paths` entries the line answers for. Upstream runs no dead-entry check on advice — advice is prose, and a checker for it would be satisfied by pasting paths into the text — so the fixed position buys three checks locally, all in `scripts/tests/test_doc_sections.py`: every doc named is a tracked file, every watched path is routed by some line, and no line routes a path the list does not watch. The routing tokens are **verbatim** `doc-sensitive-paths` entries, trailing slash included — they are keys, not prose. #314 is why they exist; it deleted `descriptors/` along with the two docs that routed it, and the routing #371 was filed with still named all three.
 
+## Worktree submodule population
+
+`git worktree add` never populates submodules, so a fresh worktree has an empty `skills-vendor/`.
+Run `git submodule update --init --recursive` beside the `uv sync --locked` below — it is the other
+half of the same bootstrap, and nothing in `worktree-create.sh` does it for you.
+
+**Four tests fail until you do**, none of them naming the submodule as the cause — each reports only
+`vendored gate missing at <path>`:
+
+| Test | Pins |
+|---|---|
+| `test_doc_sections.py::test_the_snapshot_still_matches_the_vendor` | the local snapshot still matches the vendor's `DOC_SECTIONS` defaults |
+| `test_doc_sections.py::test_the_vendored_gate_still_reads_this_file` | `doc-check.sh` still reads `.skills/doc-sections` (gregoryfoster/skills#284) |
+| `test_doc_sensitive_paths.py::test_the_vendored_matcher_is_still_segment_based` | `doc-check.sh` still has `path_matches()` (gregoryfoster/skills#252) |
+| `test_pre_ship_wrapper.py::test_real_delegate_path_resolves` | the hardcoded `shipping-work-python-fastapi/scripts/pre-ship.sh` path |
+
+All four read the vendored file **on purpose** — that is how a local snapshot is kept honest against
+vendor drift — so none of them can be made to pass with the submodule absent, and none should be.
+
+`.skills/doctor.sh` repairs this on its own, but only when something invokes it: Phase 1 of the
+`reviewing-*` / `shipping-*` skills (see the top of this file). A bare `uv run pytest` in a new
+worktree never calls it, which is why the init belongs in the bootstrap rather than being left to
+the doctor. Same shape as #296, which `test_pre_ship_wrapper.py` already carries a note about: the
+checkout [`AGENTS.md`](../AGENTS.md) § Server Lifecycle *mandates* for feature work is the one that
+arrives missing things, because every mechanism that would have supplied them is keyed to the
+primary checkout.
+
 ## Worktree venv isolation
 
 `.skills/worktree_venv` holds **`none`**, so `worktree-create.sh` links no `.venv` into a new worktree and says so on stderr. Provision one there with `uv sync --locked` — about 2 s against a warm cache.
