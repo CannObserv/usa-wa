@@ -91,7 +91,8 @@ def test_sos_filing_rows_carry_their_export(tmp_path) -> None:
 
 def test_provenance_columns_are_declared_last_by_every_builder() -> None:
     """Appended, never interleaved: the published staging schemas are additive
-    (SCHEMA_VERSION minor), so a consumer reading by position is unmoved."""
+    (a minor on that dataset's own `schema_version`, #385), so a consumer reading
+    by position is unmoved."""
     for columns in (
         wsl.COMMITTEE_COLUMNS,
         wsl.SPONSOR_COLUMNS,

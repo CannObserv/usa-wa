@@ -9,14 +9,18 @@ Materializes each published dataset as an immutable versioned directory —
 - **Atomic**: a version dir is staged under a dot-tmp name and renamed into
   place; the catalog is written via tmp+rename only after every dataset
   landed. A crash leaves unlisted orphans, never a listed partial.
-- **Skip-if-unchanged**: a dataset whose content hash equals the latest
-  version's mints nothing — no version churn on a quiet day.
-- **Publish gates** (producer-side; PM's applier gates again): a missing
-  table refuses the whole run, and a row-count shrink beyond ``max_shrink``
-  (default 10%) refuses it too — retraction=absence makes a degraded harvest
-  look like mass retraction, so a shrunken dataset never ships silently.
-  ``--max-shrink 1.0`` is the deliberate operator override for a real
-  contraction. Nothing mints on a refused run.
+- **Skip-if-unchanged**: a dataset mints nothing when its content hash AND
+  the contract it ships under (``schema_version`` + ``contract_hash``) both
+  equal the latest version's — no version churn on a quiet day, and a
+  metadata-only contract change still reaches every dataset (#385).
+- **Publish gates** (producer-side; PM's applier gates again), each refusing
+  the whole run with nothing minted: a missing table; a row-count shrink
+  beyond ``max_shrink`` (default 10%) — retraction=absence makes a degraded
+  harvest look like mass retraction, so a shrunken dataset never ships
+  silently, and ``--max-shrink 1.0`` is the deliberate operator override for
+  a real contraction; a dataset whose published contract changed while its
+  ``schema_version`` stood still; and a ``schema_version`` declared below the
+  one already published (#385).
 - **Lineage** from the dbt manifest (``derived_from`` = the dataset's direct
   model parents), never hand-maintained; the dataset *list* is deliberate
   config (:data:`PUBLISHED_DATASETS` — publishing is a decision). A table with
@@ -39,6 +43,8 @@ import json
 import os
 import secrets
 import shutil
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -52,119 +58,6 @@ logger = get_logger(__name__)
 #: Stable ledger identity (#178).
 JOB_SLUG = "dataset-publish"
 
-#: What gets published: (dataset name == model name, tier). Deliberate config.
-#: Staging datasets are the triage/lineage surface (spec § Catalog); conformed
-#: products are what PM subscribes to. Assignments/roles join when #309 lands.
-PUBLISHED_DATASETS: list[tuple[str, str]] = [
-    ("stg_wsl_committees", "staging"),
-    ("stg_wsl_sponsors", "staging"),
-    ("stg_wsl_committee_members", "staging"),
-    ("stg_wsl_meetings", "staging"),
-    ("stg_roster_members", "staging"),
-    ("stg_pdc_winners", "staging"),
-    ("stg_sos_results", "staging"),
-    ("stg_sos_filings", "staging"),
-    ("stg_raw_fetches", "staging"),
-    ("person_crosswalk", "conformed"),
-    ("org_crosswalk", "conformed"),
-    ("persons", "conformed"),
-    ("organizations", "conformed"),
-    ("assignments", "conformed"),
-    ("roles", "conformed"),
-    # `internal` is not the subscriber contract (#313). It is published all the
-    # same — same immutable version dirs, same digest, same `/datasets` tree,
-    # because the deployment loads it exactly the way it loads every other
-    # one — but nothing outside this repo is invited to depend on its shape, and
-    # it carries no schema-stability promise. `citations` exists so
-    # `/provenance/{type}/{id}` keeps answering once the Postgres provenance
-    # tables retire; its columns follow the API, not consumers.
-    #
-    # The signal a consumer reads is the catalog's own per-dataset `tier`, which
-    # `/health/datasets` already returns. There is deliberately no second
-    # constant naming the internal tiers (CR 106): the one place that would
-    # consume it is the API, which does not depend on this package and should
-    # not start doing so — pulling dbt, duckdb and pandas into the serving
-    # deployment to hold one frozenset would be a real cost for a restatement of
-    # a field the catalog already publishes.
-    ("citations", "internal"),
-    # The `cutover` tier is EMPTY, and `test_the_cutover_tier_is_empty` keeps it
-    # that way (#314). It carried exactly one dataset for its whole life:
-    # `pm_anchors` (#354, power-map#495), the PM crosswalk seed, materialized
-    # from Postgres by `anchor_export` rather than by a dbt model. power-map#525
-    # re-keyed its assignment crosswalk off those Postgres ULIDs and onto the
-    # published `assignments.span_key` (#370), and reported on #314 that it needs
-    # no further seed — so the producer stops asserting the mapping instead of
-    # shipping a frozen copy of it nightly.
-    #
-    # Delisting is the entire retraction: `catalog.json` is rebuilt from this list
-    # every run, so the entry stops appearing tomorrow. The version dirs already
-    # minted stay on disk and keep answering at their URLs — what retracts is the
-    # forward assertion, not the archive.
-    #
-    # It also closes an ordering hazard this entry used to carry: the publisher
-    # refuses a run whose table is missing, so dropping the `pm_*` columns while
-    # this line stood would have wedged the nightly publish for every OTHER
-    # dataset. With the line gone the hazard is gone with it, and #314's column
-    # drop no longer has a publish-shaped tripwire in front of it.
-]
-
-#: Per-dataset schema semver: additive = minor, rename/removal = major (spec).
-#: One knob covers every dataset today — per-dataset versions are a later
-#: refinement.
-#:
-#: A bump does NOT restamp the catalog. Skip-if-unchanged carries an unchanged
-#: dataset's prior entry forward verbatim, so this value reaches a dataset only
-#: when that dataset next mints, and the catalog legitimately carries a spread
-#: (five of them as of #354). That is the more honest reading anyway — an entry
-#: names the contract its bytes were published under, not the newest constant —
-#: but it does mean the value is not a catalog-wide assertion. Pinned by
-#: `test_unchanged_dataset_keeps_its_prior_schema_version`.
-#:
-#: - 1.1.0 (#309): stg_wsl_committee_members gained the member identity fields
-#:   the span tier needs, and `assignments` joined the published set.
-#: - 1.2.0 (#309 inc 4): `roles` joined the published set and `assignments`
-#:   gained `role_key`. Both additive, hence minor.
-#: - 1.3.0 (#313): `roles` gained `entity_id`, its registry ULID — the stable
-#:   handle `/api/v1` addresses a role by once it serves from the published
-#:   contract. `role_key` stays beside it, so PM's seat match key is unmoved.
-#: - 1.4.0 (#313 inc 3): every staging dataset gained `source` + `resource_id`,
-#:   the raw coordinates of the wire the row was read from, and two datasets
-#:   joined — `stg_raw_fetches` (the attestation dimension) and `citations`
-#:   (internal). Appended columns, hence minor.
-#: - 1.5.0 (#354): `pm_anchors` joined the published set, in a new `cutover`
-#:   tier. A dataset joining is additive — no existing dataset changed shape —
-#:   hence minor.
-#: - 1.6.0 (#357): each resource declares its `dialect`. Additive metadata, no
-#:   change to any data.csv — so by the carry-forward rule above it reaches a
-#:   dataset only when that dataset next mints. Existing version dirs are
-#:   immutable and keep the datapackage they shipped with; PIPELINE.md carries
-#:   the declaration for those.
-#: - 1.7.0 (usa-wa#370): `assignments` and `pm_anchors` both gained
-#:   `span_key` — the assignment's five structural fields as one
-#:   producer-serialized string. power-map#490's applier measures
-#:   retraction-as-absence in the dataset's key space, and an assignment
-#:   anchor had nothing to be absent FROM: the crosswalk's `usa_wa_id`
-#:   appears in no published column, so crosswalk- and dataset-membership
-#:   overlapped on 0 of 8,777 assignment rows. Appended, hence minor.
-#:
-#: - 2.0.0 (#314): `pm_anchors` left the published set and the `cutover` tier
-#:   went with it. A **removal**, and the rule above says removals are major —
-#:   read at the level of the catalog, which is the contract a subscriber
-#:   actually binds to. A consumer that resolved `pm_anchors` from
-#:   `catalog.json` now finds nothing there, and no reading of "minor" covers a
-#:   product disappearing.
-#:
-#:   Note what the carry-forward rule makes of a MAJOR bump, because it is
-#:   sharper here than for the minors above: 2.0.0 reaches a dataset only when
-#:   that dataset next mints, so the catalog carries a spread of 1.x and 2.0.0
-#:   entries for datasets whose columns are identical. That is the intended
-#:   reading — an entry names the contract its bytes shipped under, and a
-#:   dataset nothing changed did not ship under a new one — but it does mean
-#:   the major is a statement about the CATALOG, not a promise that every entry
-#:   carrying it changed shape. Re-minting the whole set to make the number
-#:   uniform would churn immutable version dirs for no data change, which is
-#:   the thing skip-if-unchanged exists to prevent.
-SCHEMA_VERSION = "2.0.0"
 
 #: The CSV serialisation every published dataset uses, declared rather than
 #: left for a consumer to sniff (#357). These are duckdb ``COPY``'s defaults,
@@ -186,6 +79,495 @@ CSV_DIALECT: dict[str, object] = {
     "nullSequence": "",
     "header": True,
 }
+
+
+@dataclass(frozen=True)
+class ContractRelease:
+    """One version of one dataset's published contract (#385).
+
+    ``columns`` is the ordered field list that version describes, and it is the
+    whole mechanism: change a published model's columns and
+    ``test_every_declared_contract_matches_the_build`` goes red, and the only way
+    to green it is appending a new release. The bump falls out of the mechanism
+    rather than depending on a reviewer noticing one was owed.
+
+    It records NAMES, not types, because names are what a database-free build can
+    observe. The hermetic dbt build (``USA_WA_PIPELINE_HERMETIC=1``) reads empty
+    sources, and duckdb types an all-NULL column ``INTEGER`` — so every column of
+    every model comes out of it typed ``integer``, and nothing about the real
+    types is knowable there. Declaring them would be declaring a fiction. Types
+    are covered instead by the publisher's own gate below, which compares the
+    full fingerprint — types included — against what was LAST PUBLISHED, both
+    sides read from a real build.
+
+    Names over a digest for the same reason a diff beats a checksum in review: a
+    contract change reads here as ``+ "party"``, which a reviewer can check
+    against the model. An opaque hash is unreviewable, and a stale one is
+    unverifiable in a tier that cannot recompute it.
+
+    ``note`` is why the version exists, kept beside the number rather than in a
+    module-level changelog that drifts from the entries it describes.
+    """
+
+    version: str
+    columns: tuple[str, ...]
+    note: str
+
+
+@dataclass(frozen=True)
+class PublishedDataset:
+    """A dataset the publisher asserts, and the history of its contract (#385).
+
+    The version is PER-DATASET. It was one module constant stamped onto whatever
+    minted next, which made a dataset's major encode *when it last minted* rather
+    than what its shape is: carry-forward plus skip-if-unchanged spread seven
+    values across sixteen datasets at once, two of them two majors apart with
+    identical contracts. power-map's puller pins a major and refused ``persons``
+    and ``person_crosswalk`` over #314's 2.0.0 bump, whose entire content was
+    ``pm_anchors`` leaving the catalog — neither dataset's shape had moved by a
+    single field. A consumer correctly implementing semver was refusing a dataset
+    over a bump that asserted nothing about it.
+    """
+
+    name: str
+    tier: str
+    releases: tuple[ContractRelease, ...]
+
+    @property
+    def schema_version(self) -> str:
+        """The version this dataset publishes today: its latest release."""
+        return self.releases[-1].version
+
+    @property
+    def columns(self) -> tuple[str, ...]:
+        """The ordered field list :attr:`schema_version` claims to describe."""
+        return self.releases[-1].columns
+
+
+def contract_fingerprint(
+    *,
+    name: str,
+    tier: str,
+    fields: Sequence[dict[str, str]],
+    dialect: dict[str, object] | None = None,
+) -> str:
+    """Hash the published contract of one dataset (#385).
+
+    Covers exactly what a consumer binds to: the dataset's name, its tier (the
+    subscribe signal — ``conformed`` → ``internal`` is a contract downgrade), the
+    ORDERED field list with types, and the CSV dialect. Order is in because "an
+    appended column is a minor" only holds for a positional reader.
+
+    Lineage is deliberately absent, and is not a parameter (CR 6): ``derived_from``
+    comes from the dbt manifest, so folding it in would churn every downstream
+    dataset's version whenever an *intermediate* model was refactored, for no
+    consumer-visible change. It was briefly accepted-and-ignored here, which is
+    the same defect #385 filed — a field that does not mean what its name says.
+    ``test_the_contract_hash_is_blind_to_a_lineage_change`` pins the exclusion
+    against a real publish instead. Out for the same reason: ``rows``, ``bytes``,
+    the data hash and ``generated_at``, which describe the bytes of one snapshot
+    rather than the contract they were published under.
+
+    It ships as ``contract_hash`` beside ``schema_version``, because the question
+    a consumer actually asks is "is this the shape I validated?" — a hash answers
+    it and cannot lie, where a major can and did.
+    """
+    payload = {
+        "name": name,
+        "tier": tier,
+        "format": "csv",
+        "dialect": CSV_DIALECT if dialect is None else dialect,
+        "fields": [{"name": f["name"], "type": f["type"]} for f in fields],
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
+
+
+#: What gets published, and the contract each dataset publishes under (#385).
+#:
+#: The dataset LIST is deliberate config — publishing is a decision. Staging
+#: datasets are the triage/lineage surface (spec § Catalog); conformed products
+#: are what PM subscribes to. Lineage is not config: it comes from the dbt
+#: manifest.
+#:
+#: The VERSIONS start where they do because #385's transition freezes each
+#: dataset in place rather than renumbering. Until #385 a single module constant,
+#: ``SCHEMA_VERSION``, was stamped onto whatever dataset minted next; carry-
+#: forward plus skip-if-unchanged spread seven values across sixteen datasets, so
+#: a major encoded when a dataset last minted rather than what its shape was.
+#: The catalog-wide log that produced these numbers, kept because the archive
+#: still carries them: 1.1.0/1.2.0 (#309) stg_wsl_committee_members identity
+#: fields, then `assignments`, `roles` and `role_key`; 1.3.0 (#313) `roles` gained
+#: `entity_id`; 1.4.0 (#313) every staging dataset gained `source` +
+#: `resource_id`, and `stg_raw_fetches` + `citations` joined; 1.5.0 (#354)
+#: `pm_anchors` joined; 1.6.0 (#357) each resource declares its `dialect`; 1.7.0
+#: (#370) `assignments` gained `span_key`; 2.0.0 (#314) `pm_anchors` left.
+#:
+#: Two alternatives were rejected. Resetting every dataset to 1.0.0 DOWNGRADES
+#: four of them on the wire, refusing for the consumer who had just re-pinned to
+#: major 2. Renumbering everything up to a uniform 2.0.0 asserts a major change
+#: for twelve datasets that had none — the exact sin #385 files — and re-mints
+#: them to say it. So the starting values are arbitrary, and harmless: a major is
+#: only ever compared WITHIN a dataset, and comparing two datasets' numbers was
+#: never meaningful enough to buy with a wire break.
+PUBLISHED_DATASETS: list[PublishedDataset] = [
+    PublishedDataset(
+        "stg_wsl_committees",
+        "staging",
+        (
+            ContractRelease(
+                "1.4.0",
+                (
+                    "biennium",
+                    "committee_id",
+                    "agency",
+                    "name",
+                    "long_name",
+                    "acronym",
+                    "phone",
+                    "source",
+                    "resource_id",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "stg_wsl_sponsors",
+        "staging",
+        (
+            ContractRelease(
+                "1.4.0",
+                (
+                    "biennium",
+                    "member_id",
+                    "agency",
+                    "name",
+                    "long_name",
+                    "first_name",
+                    "last_name",
+                    "party",
+                    "district",
+                    "source",
+                    "resource_id",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "stg_wsl_committee_members",
+        "staging",
+        (
+            ContractRelease(
+                "1.4.0",
+                (
+                    "biennium",
+                    "committee_id",
+                    "committee_agency",
+                    "committee_name",
+                    "member_id",
+                    "name",
+                    "long_name",
+                    "first_name",
+                    "last_name",
+                    "agency",
+                    "party",
+                    "district",
+                    "source",
+                    "resource_id",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "stg_wsl_meetings",
+        "staging",
+        (
+            ContractRelease(
+                "1.6.0",
+                (
+                    "meeting_window",
+                    "meeting_agency",
+                    "committee_id",
+                    "committee_agency",
+                    "committee_name",
+                    "source",
+                    "resource_id",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "stg_roster_members",
+        "staging",
+        (
+            ContractRelease(
+                "1.4.0",
+                (
+                    "revision",
+                    "district",
+                    "chamber",
+                    "year",
+                    "order",
+                    "name",
+                    "party_token",
+                    "annotation",
+                    "source",
+                    "resource_id",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "stg_pdc_winners",
+        "staging",
+        (
+            ContractRelease(
+                "1.4.0",
+                (
+                    "chamber",
+                    "election_year",
+                    "person_id",
+                    "filer_id",
+                    "filer_name",
+                    "party",
+                    "legislative_district",
+                    "office",
+                    "general_election_status",
+                    "candidacy_id",
+                    "source",
+                    "resource_id",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "stg_sos_results",
+        "staging",
+        (
+            ContractRelease(
+                "1.4.0",
+                (
+                    "election_date",
+                    "race",
+                    "candidate",
+                    "party",
+                    "votes",
+                    "percentage_of_total_votes",
+                    "jurisdiction_name",
+                    "source",
+                    "resource_id",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "stg_sos_filings",
+        "staging",
+        (
+            ContractRelease(
+                "1.4.0",
+                (
+                    "election_date",
+                    "ballot_name",
+                    "party_name",
+                    "race_name",
+                    "race_jurisdiction_name",
+                    "source",
+                    "resource_id",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "stg_raw_fetches",
+        "staging",
+        (
+            ContractRelease(
+                "2.0.0",
+                (
+                    "source",
+                    "resource_id",
+                    "sha256",
+                    "fetched_at",
+                    "run_id",
+                    "url",
+                    "bytes",
+                    "content_type",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "person_crosswalk",
+        "conformed",
+        (
+            ContractRelease(
+                "2.0.0",
+                (
+                    "entity_id",
+                    "natural_key",
+                    "key_namespace",
+                    "key_value",
+                    "registered_by",
+                    "merged_into",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "org_crosswalk",
+        "conformed",
+        (
+            ContractRelease(
+                "1.2.0",
+                (
+                    "entity_id",
+                    "natural_key",
+                    "key_namespace",
+                    "key_value",
+                    "registered_by",
+                    "merged_into",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "persons",
+        "conformed",
+        (
+            ContractRelease(
+                "2.0.0",
+                ("entity_id", "name_full", "name_source"),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "organizations",
+        "conformed",
+        (
+            ContractRelease(
+                "1.0.0",
+                (
+                    "entity_id",
+                    "name",
+                    "long_name",
+                    "acronym",
+                    "agency",
+                    "org_type",
+                    "first_biennium",
+                    "last_biennium",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "assignments",
+        "conformed",
+        (
+            ContractRelease(
+                "1.7.0",
+                (
+                    "entity_id",
+                    "member_id",
+                    "source",
+                    "role_key",
+                    "span_kind",
+                    "span_discriminator",
+                    "span_start_biennium",
+                    "span_end_biennium",
+                    "valid_from",
+                    "valid_to",
+                    "is_active",
+                    "span_key",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    PublishedDataset(
+        "roles",
+        "conformed",
+        (
+            ContractRelease(
+                "1.3.0",
+                (
+                    "entity_id",
+                    "role_key",
+                    "role_type",
+                    "name",
+                    "span_kind",
+                    "span_discriminator",
+                    "org_source_id",
+                    "org_entity_id",
+                    "district",
+                    "qualifier",
+                ),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    # `internal` is not the subscriber contract (#313). It is published all the
+    # same — same immutable version dirs, same digest, same `/datasets` tree,
+    # because the deployment loads it exactly the way it loads every other
+    # one — but nothing outside this repo is invited to depend on its shape, and
+    # it carries no schema-stability promise. `citations` exists so
+    # `/provenance/{type}/{id}` keeps answering once the Postgres provenance
+    # tables retire; its columns follow the API, not consumers.
+    #
+    # It carries a version and a contract like every other dataset, and will bump
+    # more often than any of them because of that. Deliberate: exempting the
+    # internal tier from the gate would be a special case, and the tier is
+    # already the signal that says not to bind here. That signal is the catalog's
+    # own per-dataset `tier`, which `/health/datasets` already returns. There is
+    # deliberately no second constant naming the internal tiers (CR 106): the one
+    # place that would consume it is the API, which does not depend on this
+    # package and should not start doing so — pulling dbt, duckdb and pandas into
+    # the serving deployment to hold one frozenset would be a real cost for a
+    # restatement of a field the catalog already publishes.
+    PublishedDataset(
+        "citations",
+        "internal",
+        (
+            ContractRelease(
+                "2.0.0",
+                ("entity_type", "entity_id", "source", "resource_id"),
+                "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+        ),
+    ),
+    # The `cutover` tier is EMPTY, and `test_the_cutover_tier_is_empty` keeps it
+    # that way (#314). It carried exactly one dataset for its whole life:
+    # `pm_anchors` (#354, power-map#495), the PM crosswalk seed, materialized
+    # from Postgres by `anchor_export` rather than by a dbt model. power-map#525
+    # re-keyed its assignment crosswalk off those Postgres ULIDs and onto the
+    # published `assignments.span_key` (#370), and reported on #314 that it needs
+    # no further seed — so the producer stops asserting the mapping instead of
+    # shipping a frozen copy of it nightly.
+    #
+    # Delisting is the entire retraction: `catalog.json` is rebuilt from this list
+    # every run, so the entry stops appearing tomorrow. The version dirs already
+    # minted stay on disk and keep answering at their URLs — what retracts is the
+    # forward assertion, not the archive.
+    #
+    # It also closes an ordering hazard this entry used to carry: the publisher
+    # refuses a run whose table is missing, so dropping the `pm_*` columns while
+    # this line stood would have wedged the nightly publish for every OTHER
+    # dataset. With the line gone the hazard is gone with it, and #314's column
+    # drop no longer has a publish-shaped tripwire in front of it.
+]
 
 DEFAULT_MAX_SHRINK = 0.10
 
@@ -219,6 +601,13 @@ _TYPE_MAP = {
 }
 
 
+def _version_sorts(version: str) -> tuple[int, ...]:
+    """A semver string as a comparable tuple. ``"1.10.0" > "1.9.0"``, which the
+    string comparison gets backwards — a failure that would wait until a
+    dataset's eleventh minor and then fire on a correct change."""
+    return tuple(int(part) for part in version.split("."))
+
+
 class PublishRefused(RuntimeError):
     """A publish gate fired; nothing was minted."""
 
@@ -249,7 +638,7 @@ def publish(
     out_root: Path | str,
     manifest_path: Path | str,
     *,
-    datasets: list[tuple[str, str]] | None = None,
+    datasets: Sequence[PublishedDataset] | None = None,
     max_shrink: float = DEFAULT_MAX_SHRINK,
 ) -> dict[str, int]:
     """Publish every configured dataset. Returns counters; raises on a gate."""
@@ -274,7 +663,8 @@ def publish(
     con = duckdb.connect(str(db_path), read_only=True)
     staged: list[dict] = []
     try:
-        for name, tier in datasets:
+        for dataset in datasets:
+            name = dataset.name
             try:
                 columns = con.execute(f'describe "{name}"').fetchall()
             except duckdb.CatalogException as exc:
@@ -294,6 +684,55 @@ def publish(
                         "must not ship as mass retraction — override with --max-shrink "
                         "only for a verified real contraction"
                     )
+            fields = [
+                {"name": col[0], "type": _TYPE_MAP.get(col[1].split("(")[0], "string")}
+                for col in columns
+            ]
+            fingerprint = contract_fingerprint(name=name, tier=dataset.tier, fields=fields)
+            # The gate (#385): this dataset's published contract changed and its
+            # version did not. Enforced ONE WAY — a change implies a bump — and
+            # not as the "if and only if" the issue asks for, because the reverse
+            # cannot hold: the published fields are `{name, type}` with no
+            # descriptions and no prose, so a semantics-only change (a column
+            # re-derived, its meaning shifted, its type unmoved) has no
+            # fingerprint to move, and demanding the iff would forbid the honest
+            # major. A pre-#385 entry records no contract at all; absence is not
+            # a change, and it adopts the baseline on this run rather than
+            # refusing sixteen datasets on the first night after deploy.
+            #
+            # Gated BEFORE the tmp dir exists, like the shrink gate above it: a
+            # refusal must have nothing to strand inside the served tree (CR 15).
+            if (
+                prior
+                and prior.get("contract_hash")
+                and prior["contract_hash"] != fingerprint
+                and prior.get("schema_version") == dataset.schema_version
+            ):
+                raise PublishRefused(
+                    f"dataset {name!r}: its published contract changed while "
+                    f"schema_version stayed {dataset.schema_version} "
+                    f"({prior['contract_hash']} → {fingerprint}); a consumer pins "
+                    "this number and has no other way to learn the shape moved — "
+                    "append a ContractRelease to its PUBLISHED_DATASETS entry"
+                )
+            # The other direction (CR 1): a declared version BELOW the published
+            # one is a downgrade, and the publisher is the only place that can
+            # see it — CI has no published state to compare against, and the
+            # append-only test reads only the declared history, so a release
+            # edited away leaves nothing for it to catch. A consumer pinned to
+            # the major it last saw starts refusing the dataset, which is the
+            # precise wire break #385 exists to prevent.
+            if prior and prior.get("schema_version"):
+                published = prior["schema_version"]
+                if _version_sorts(dataset.schema_version) < _version_sorts(published):
+                    raise PublishRefused(
+                        f"dataset {name!r}: declares schema_version "
+                        f"{dataset.schema_version} but {published} is already "
+                        "published; a version only ever goes forward, and a "
+                        "consumer pinned to the published major would start "
+                        "refusing this dataset — restore the release history "
+                        "rather than lowering the number"
+                    )
             tmp_dir = out_root / f".tmp-{name}-{secrets.token_hex(4)}"
             tmp_dir.mkdir(parents=True)
             csv_path = tmp_dir / "data.csv"
@@ -306,16 +745,15 @@ def publish(
             digest = hashlib.sha256(csv_path.read_bytes()).hexdigest()
             staged.append(
                 {
+                    "dataset": dataset,
                     "name": name,
-                    "tier": tier,
+                    "tier": dataset.tier,
                     "tmp_dir": tmp_dir,
                     "rows": rows,
                     "hash": digest,
                     "bytes": csv_path.stat().st_size,
-                    "fields": [
-                        {"name": col[0], "type": _TYPE_MAP.get(col[1].split("(")[0], "string")}
-                        for col in columns
-                    ],
+                    "fields": fields,
+                    "contract_hash": fingerprint,
                     "prior": prior,
                 }
             )
@@ -333,7 +771,21 @@ def publish(
     catalog_entries = []
     for item in staged:
         prior = item["prior"]
-        if prior and prior["hash"] == f"sha256:{item['hash']}":
+        # Mint on a change to the BYTES or to the CONTRACT they ship under (#385).
+        # Hashing data.csv alone meant a metadata-only contract change never
+        # reached a dataset at all: #357's `dialect` had to be declared by hand in
+        # PIPELINE.md for every version dir that had not re-minted since. Under
+        # per-dataset versions the bump is itself sometimes the only wire
+        # difference, and an unpropagated one is a version nobody can read. The
+        # cost is one version dir with a byte-identical data.csv per contract
+        # change — rare by construction, and what makes a bump observable.
+        unchanged = (
+            prior
+            and prior["hash"] == f"sha256:{item['hash']}"
+            and prior.get("contract_hash") == item["contract_hash"]
+            and prior.get("schema_version") == item["dataset"].schema_version
+        )
+        if unchanged:
             counters["unchanged"] += 1
             catalog_entries.append(prior)
             for path in item["tmp_dir"].iterdir():
@@ -344,7 +796,8 @@ def publish(
             "name": item["name"],
             "version": version,
             "tier": item["tier"],
-            "schema_version": SCHEMA_VERSION,
+            "schema_version": item["dataset"].schema_version,
+            "contract_hash": item["contract_hash"],
             "derived_from": lineage.get(item["name"], []),
             "generated_at": generated_at,
             "resources": [
@@ -370,7 +823,8 @@ def publish(
                 "name": item["name"],
                 "tier": item["tier"],
                 "latest_version": version,
-                "schema_version": SCHEMA_VERSION,
+                "schema_version": item["dataset"].schema_version,
+                "contract_hash": item["contract_hash"],
                 "derived_from": lineage.get(item["name"], []),
                 "rows": item["rows"],
                 "bytes": item["bytes"],

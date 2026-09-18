@@ -7,11 +7,13 @@ import json
 import duckdb
 import pytest
 
-from usa_wa_pipeline import publish as publish_mod
 from usa_wa_pipeline.publish import (
     CSV_DIALECT,
     PUBLISHED_DATASETS,
+    ContractRelease,
+    PublishedDataset,
     PublishRefused,
+    contract_fingerprint,
     publish,
 )
 
@@ -46,7 +48,12 @@ def _manifest(tmp_path):
     return path
 
 
-DATASETS = [("persons", "conformed"), ("person_crosswalk", "conformed")]
+def _dataset(name, tier="conformed", *, version="1.0.0", columns=("entity_id",)):
+    """A published dataset for tests whose subject is not the contract history."""
+    return PublishedDataset(name, tier, (ContractRelease(version, columns, "test baseline"),))
+
+
+DATASETS = [_dataset("persons"), _dataset("person_crosswalk")]
 
 
 def test_publish_mints_versions_and_catalog(built_db, tmp_path):
@@ -106,7 +113,7 @@ def test_publish_refuses_missing_table(built_db, tmp_path):
             built_db,
             tmp_path / "datasets",
             _manifest(tmp_path),
-            datasets=[("nope", "conformed")],
+            datasets=[_dataset("nope")],
         )
 
 
@@ -197,7 +204,7 @@ def test_the_cutover_tier_is_empty() -> None:
     for this dataset alone, so a second entry arriving in it would mean someone
     reopened the seam #314 closed.
     """
-    assert [name for name, tier in PUBLISHED_DATASETS if tier == "cutover"] == []
+    assert [d.name for d in PUBLISHED_DATASETS if d.tier == "cutover"] == []
 
 
 def test_publishes_a_non_dbt_table_with_empty_lineage(built_db, tmp_path) -> None:
@@ -216,7 +223,9 @@ def test_publishes_a_non_dbt_table_with_empty_lineage(built_db, tmp_path) -> Non
     con.close()
     out = tmp_path / "datasets"
 
-    summary = publish(built_db, out, _manifest(tmp_path), datasets=[("unmodelled", "internal")])
+    summary = publish(
+        built_db, out, _manifest(tmp_path), datasets=[_dataset("unmodelled", "internal")]
+    )
 
     assert summary["minted"] == 1
     entry = next(
@@ -240,25 +249,60 @@ def test_publishes_a_non_dbt_table_with_empty_lineage(built_db, tmp_path) -> Non
     assert resource["hash"] == entry["hash"]
 
 
-def test_unchanged_dataset_keeps_its_prior_schema_version(built_db, tmp_path, monkeypatch) -> None:
-    """A SCHEMA_VERSION bump does not restamp the catalog: an unchanged dataset
-    carries its prior entry forward, so its entry keeps naming the contract its
-    bytes were actually published under. The live catalog carries a spread of
-    versions for exactly this reason — it is the behaviour, not drift."""
-    out = tmp_path / "datasets"
-    monkeypatch.setattr(publish_mod, "SCHEMA_VERSION", "9.0.0")
-    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+def test_an_unchanged_dataset_keeps_its_own_version(built_db, tmp_path) -> None:
+    """A quiet dataset mints nothing, and its entry keeps ITS version — not the
+    version of whichever sibling happened to mint beside it (#385).
 
-    monkeypatch.setattr(publish_mod, "SCHEMA_VERSION", "9.1.0")
+    This is what the catalog-wide constant could not express: before #385 the
+    two datasets below would have come out of the second run holding different
+    numbers for reasons having nothing to do with either one's shape."""
+    out = tmp_path / "datasets"
+    datasets = [_dataset("persons", version="1.4.0"), _dataset("person_crosswalk", version="2.0.0")]
+    publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+
     con = duckdb.connect(str(built_db))
     con.execute("insert into persons select '01Z', 'Newcomer'")  # only `persons` changes
     con.close()
-    summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=datasets)
 
     assert (summary["minted"], summary["unchanged"]) == (1, 1)
     entries = {d["name"]: d for d in json.loads((out / "catalog.json").read_text())["datasets"]}
-    assert entries["persons"]["schema_version"] == "9.1.0"
-    assert entries["person_crosswalk"]["schema_version"] == "9.0.0"
+    assert entries["persons"]["schema_version"] == "1.4.0"
+    assert entries["person_crosswalk"]["schema_version"] == "2.0.0"
+
+
+def test_a_version_bump_re_mints_a_dataset_whose_bytes_did_not_move(built_db, tmp_path) -> None:
+    """#385: skip-if-unchanged hashed data.csv ALONE, so a metadata-only change
+    to the contract never reached a dataset at all.
+
+    #357's `dialect` is the proof — PIPELINE.md had to carry that declaration by
+    hand for every version dir that had not re-minted since. Per-dataset versions
+    make it sharper, because for some changes the bump IS the only wire
+    difference: an unpropagated bump is a version nobody can read. So the mint
+    decision is data hash OR contract, and the cost is one version dir with a
+    byte-identical data.csv per contract change — rare by construction, and the
+    thing that makes a bump observable."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=[_dataset("persons", version="1.4.0")])
+
+    bumped = PublishedDataset(
+        "persons",
+        "conformed",
+        (
+            ContractRelease("1.4.0", ("entity_id",), "test baseline"),
+            ContractRelease("1.5.0", ("entity_id",), "a restatement the bytes cannot show"),
+        ),
+    )
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=[bumped])
+
+    assert summary["minted"] == 1
+    versions = sorted(p.name for p in (out / "persons").iterdir() if p.is_dir())
+    assert len(versions) == 2
+    entry = json.loads((out / "catalog.json").read_text())["datasets"][0]
+    assert entry["schema_version"] == "1.5.0"
+    assert (out / "persons" / versions[0] / "data.csv").read_bytes() == (
+        out / "persons" / versions[1] / "data.csv"
+    ).read_bytes(), "the bytes did not move; only the contract they ship under did"
 
 
 def test_datapackage_declares_the_csv_dialect(built_db, tmp_path) -> None:
@@ -321,3 +365,304 @@ def test_published_bytes_obey_the_declared_dialect(built_db, tmp_path) -> None:
         assert rows[1:] == sorted(rows[1:]), (
             f"{entry['name']}: rows must be in `order by all` order"
         )
+
+
+# --- #385: per-dataset schema versions, gated by a contract fingerprint -------
+
+
+def test_contract_fingerprint_moves_with_shape_and_not_with_lineage() -> None:
+    """The fingerprint answers the only question a consumer asks of a version
+    field: did the shape I bound to change?
+
+    Order is load-bearing — "an appended column is a minor" only holds for a
+    positional reader, so a reordering is a different contract.
+
+    Lineage's exclusion is pinned by
+    `test_the_contract_hash_is_blind_to_a_lineage_change` against a real
+    publish, not here: it used to be asserted by passing `derived_from` to a
+    parameter this function ignored, which is the same defect #385 filed — a
+    field that does not mean what its name says (CR 6)."""
+    base = contract_fingerprint(
+        name="persons",
+        tier="conformed",
+        fields=[{"name": "entity_id", "type": "string"}, {"name": "name_full", "type": "string"}],
+    )
+
+    reordered = contract_fingerprint(
+        name="persons",
+        tier="conformed",
+        fields=[{"name": "name_full", "type": "string"}, {"name": "entity_id", "type": "string"}],
+    )
+    retyped = contract_fingerprint(
+        name="persons",
+        tier="conformed",
+        fields=[{"name": "entity_id", "type": "string"}, {"name": "name_full", "type": "integer"}],
+    )
+    appended = contract_fingerprint(
+        name="persons",
+        tier="conformed",
+        fields=[
+            {"name": "entity_id", "type": "string"},
+            {"name": "name_full", "type": "string"},
+            {"name": "party", "type": "string"},
+        ],
+    )
+    demoted = contract_fingerprint(
+        name="persons",
+        tier="internal",
+        fields=[{"name": "entity_id", "type": "string"}, {"name": "name_full", "type": "string"}],
+    )
+    redialected = contract_fingerprint(
+        name="persons",
+        tier="conformed",
+        fields=[{"name": "entity_id", "type": "string"}, {"name": "name_full", "type": "string"}],
+        dialect={**CSV_DIALECT, "delimiter": "\t"},
+    )
+    assert len({base, reordered, retyped, appended, demoted, redialected}) == 6
+
+
+def test_each_dataset_carries_its_own_version() -> None:
+    """#385: the version is per-dataset, not one module constant stamped onto
+    whatever minted next. A dataset's current version is the last release it
+    declares, and that is what reaches its datapackage."""
+    dataset = PublishedDataset(
+        "persons",
+        "conformed",
+        (
+            ContractRelease("1.0.0", ("entity_id", "name_full"), "the first published contract"),
+            ContractRelease("1.1.0", ("entity_id", "name_full", "party"), "gained `party`"),
+        ),
+    )
+    assert dataset.schema_version == "1.1.0"
+    assert dataset.columns == ("entity_id", "name_full", "party")
+
+
+def test_each_dataset_publishes_its_own_version_and_contract_hash(built_db, tmp_path) -> None:
+    """#385: the version written into a dataset's datapackage is ITS version.
+
+    Two datasets minting in the same run, declaring different versions, must not
+    come out carrying the same number — that is the whole defect. The computed
+    `contract_hash` ships beside it, because the question a consumer actually
+    asks is "is this the shape I validated?", and a hash answers it where a
+    major can lie."""
+    out = tmp_path / "datasets"
+    datasets = [
+        _dataset("persons", version="1.4.0"),
+        _dataset("person_crosswalk", version="2.0.0"),
+    ]
+    publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+
+    entries = {d["name"]: d for d in json.loads((out / "catalog.json").read_text())["datasets"]}
+    assert entries["persons"]["schema_version"] == "1.4.0"
+    assert entries["person_crosswalk"]["schema_version"] == "2.0.0"
+
+    package = json.loads(
+        (out / "persons" / entries["persons"]["latest_version"] / "datapackage.json").read_text()
+    )
+    assert package["schema_version"] == "1.4.0"
+    assert package["contract_hash"] == entries["persons"]["contract_hash"]
+    assert package["contract_hash"] == contract_fingerprint(
+        name="persons",
+        tier="conformed",
+        fields=[{"name": "entity_id", "type": "string"}, {"name": "name_full", "type": "string"}],
+    )
+
+
+def test_a_contract_change_without_a_bump_refuses_the_run(built_db, tmp_path) -> None:
+    """The gate #385 asks for: a dataset's `schema_version` changes if its
+    published contract changes.
+
+    Enforced ONE WAY — change implies bump, hard refusal — and not as the "if and
+    only if" the issue's acceptance bullet asks for, because the reverse is
+    unimplementable: the published fields are `{name, type}` with no descriptions
+    and no contract prose, so a semantics-only change (a column re-derived, its
+    meaning shifted, its type unmoved) has no fingerprint expression. Enforcing
+    the iff would forbid the honest major.
+
+    Refusal, not a warning, and refusal of the WHOLE run, because that is what
+    every other publish gate does — a partial catalog is the one outcome the
+    publisher never produces."""
+    out = tmp_path / "datasets"
+    datasets = [_dataset("persons", version="1.4.0"), _dataset("person_crosswalk")]
+    publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+
+    con = duckdb.connect(str(built_db))
+    con.execute("alter table persons add column party varchar")  # an appended column: a minor
+    con.close()
+
+    with pytest.raises(PublishRefused, match="persons.*1.4.0"):
+        publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+    # refused whole: the sibling that WOULD have minted cleanly minted nothing
+    assert list(out.glob(".tmp-*")) == []
+    catalog = json.loads((out / "catalog.json").read_text())
+    persons = next(d for d in catalog["datasets"] if d["name"] == "persons")
+    assert [f for f in persons] and persons["schema_version"] == "1.4.0"
+    assert len([p for p in (out / "persons").iterdir() if p.is_dir()]) == 1
+
+
+def test_a_contract_change_publishes_once_its_version_moves(built_db, tmp_path) -> None:
+    """The other half of the gate: with the bump declared, the same change ships.
+
+    The fingerprint the publisher writes is COMPUTED from the build, never
+    assembled from the declared columns — the datapackage describes the bytes
+    beside it, and a stale declaration must not be able to make it lie. Keeping
+    the declaration honest is the drift test's job
+    (`test_published_contracts.py`), where a wrong one is a build failure rather
+    than a published falsehood."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=[_dataset("persons", version="1.4.0")])
+
+    con = duckdb.connect(str(built_db))
+    con.execute("alter table persons add column party varchar")
+    con.close()
+    bumped = PublishedDataset(
+        "persons",
+        "conformed",
+        (
+            ContractRelease("1.4.0", ("entity_id",), "test baseline"),
+            ContractRelease("1.5.0", ("entity_id", "party"), "gained `party`, appended"),
+        ),
+    )
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=[bumped])
+
+    assert summary["minted"] == 1
+    entry = json.loads((out / "catalog.json").read_text())["datasets"][0]
+    assert entry["schema_version"] == "1.5.0"
+    assert entry["contract_hash"] == contract_fingerprint(
+        name="persons",
+        tier="conformed",
+        fields=[
+            {"name": "entity_id", "type": "string"},
+            {"name": "name_full", "type": "string"},
+            {"name": "party", "type": "string"},
+        ],
+    )
+
+
+def test_the_gate_is_silent_on_a_datasets_first_publish(built_db, tmp_path) -> None:
+    """A dataset with no prior published entry has no contract to have changed.
+    It mints at whatever version it declares — a new dataset joining is not a
+    contract change to itself, and the gate must not make one unpublishable."""
+    out = tmp_path / "datasets"
+    summary = publish(
+        built_db,
+        out,
+        _manifest(tmp_path),
+        datasets=[_dataset("persons", version="3.1.0")],
+    )
+    assert summary["minted"] == 1
+    assert (
+        json.loads((out / "catalog.json").read_text())["datasets"][0]["schema_version"] == "3.1.0"
+    )
+
+
+def test_the_gate_holds_across_the_pre_385_catalog(built_db, tmp_path) -> None:
+    """Entries minted before #385 carry no `contract_hash`, and the gate must not
+    read their absence as a contract change — that would refuse the first run
+    after deploy for all sixteen datasets, on a repo where nothing had moved.
+
+    The baseline is adopted instead: an entry with no recorded contract re-mints
+    (its datapackage is missing a field the current one publishes) and the run
+    proceeds."""
+    out = tmp_path / "datasets"
+    datasets = [_dataset("persons", version="1.4.0")]
+    publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+
+    catalog_path = out / "catalog.json"
+    catalog = json.loads(catalog_path.read_text())
+    for entry in catalog["datasets"]:
+        del entry["contract_hash"]  # a pre-#385 catalog
+    catalog_path.write_text(json.dumps(catalog, indent=2) + "\n")
+
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+    assert summary["minted"] == 1
+    entry = json.loads(catalog_path.read_text())["datasets"][0]
+    assert entry["schema_version"] == "1.4.0"
+    assert entry["contract_hash"].startswith("sha256:")
+
+
+def test_a_version_below_the_published_one_refuses_the_run(built_db, tmp_path) -> None:
+    """CR 1: a declared version that sorts BELOW what was last published is a
+    downgrade, and refuses.
+
+    The gate above catches a contract that moved without its version. This
+    catches the other direction — a version that moved backwards, by an edited
+    history or a mistyped release — and it has to live here because it is the
+    only place that can see it: CI has no published state to compare against.
+    A downgrade is the precise wire break #385 exists to prevent, since a
+    consumer pinned to the major it last saw starts refusing the dataset."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=[_dataset("persons", version="2.0.0")])
+
+    with pytest.raises(PublishRefused, match="1.0.0.*2.0.0"):
+        publish(built_db, out, _manifest(tmp_path), datasets=[_dataset("persons", version="1.0.0")])
+    assert list(out.glob(".tmp-*")) == []
+    entry = json.loads((out / "catalog.json").read_text())["datasets"][0]
+    assert entry["schema_version"] == "2.0.0"
+
+
+def test_a_version_equal_to_the_published_one_is_the_quiet_case(built_db, tmp_path) -> None:
+    """The overwhelmingly common run: nothing moved, so the version did not
+    either. Equality is not a downgrade, and the monotonicity check must not
+    turn every quiet night into a refusal."""
+    out = tmp_path / "datasets"
+    datasets = [_dataset("persons", version="2.0.0")]
+    publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+    assert (summary["minted"], summary["unchanged"]) == (0, 1)
+
+
+def test_a_double_digit_version_compares_numerically_not_lexically(built_db, tmp_path) -> None:
+    """`"1.10.0" < "1.9.0"` as strings and `>` as versions. Comparing the wrong
+    way would refuse the eleventh minor of a dataset as a downgrade — a failure
+    that waits years and then fires on a correct change."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=[_dataset("persons", version="1.9.0")])
+    summary = publish(
+        built_db, out, _manifest(tmp_path), datasets=[_dataset("persons", version="1.10.0")]
+    )
+    assert summary["minted"] == 1
+    assert (
+        json.loads((out / "catalog.json").read_text())["datasets"][0]["schema_version"] == "1.10.0"
+    )
+
+
+def test_the_contract_hash_is_blind_to_a_lineage_change(built_db, tmp_path) -> None:
+    """CR 6: `derived_from` moves and `contract_hash` does not.
+
+    Lineage is provenance, not shape. It comes from the dbt manifest, so folding
+    it into the fingerprint would churn every downstream dataset's version
+    whenever an *intermediate* model was refactored — a version bump a consumer
+    would have to evaluate, describing a change they cannot see.
+
+    Asserted end-to-end rather than by handing the hash function a lineage it
+    ignores: the property that matters is what the publisher writes."""
+    out = tmp_path / "datasets"
+    datasets = [_dataset("persons", version="1.0.0")]
+    publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+    first = json.loads((out / "catalog.json").read_text())["datasets"][0]
+
+    # a different manifest — `persons` now derives from a renamed intermediate —
+    # and a row change, so the dataset re-mints rather than carrying forward
+    relineaged = tmp_path / "relineaged.json"
+    relineaged.write_text(
+        json.dumps(
+            {
+                "nodes": {
+                    "model.usa_wa_pipeline.persons": {
+                        "depends_on": {"nodes": ["model.usa_wa_pipeline.int_person_identities"]}
+                    }
+                }
+            }
+        )
+    )
+    con = duckdb.connect(str(built_db))
+    con.execute("insert into persons select '01Z', 'Newcomer'")
+    con.close()
+    publish(built_db, out, relineaged, datasets=datasets)
+    second = json.loads((out / "catalog.json").read_text())["datasets"][0]
+
+    assert first["derived_from"] == ["person_crosswalk"]
+    assert second["derived_from"] == ["int_person_identities"]
+    assert second["contract_hash"] == first["contract_hash"]
+    assert second["schema_version"] == first["schema_version"] == "1.0.0"
