@@ -78,15 +78,25 @@ def hermetic_build(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def built_columns(hermetic_build):
-    """Every published dataset's column list, as the build produces it."""
+    """Every published dataset's column list, as the build produces it.
+
+    A dataset the build does not produce maps to ``None`` rather than raising
+    (CR 2). Raising here would end every test in this module in fixture setup,
+    so the one test whose subject IS the missing dataset could never report its
+    name — the failure would read as an opaque `CatalogException` in whichever
+    test happened to run first.
+    """
     con = duckdb.connect(str(hermetic_build))
     try:
-        return {
-            dataset.name: tuple(
-                col[0] for col in con.execute(f'describe "{dataset.name}"').fetchall()
-            )
-            for dataset in PUBLISHED_DATASETS
-        }
+        built = {}
+        for dataset in PUBLISHED_DATASETS:
+            try:
+                rows = con.execute(f'describe "{dataset.name}"').fetchall()
+            except duckdb.CatalogException:
+                built[dataset.name] = None
+            else:
+                built[dataset.name] = tuple(col[0] for col in rows)
+        return built
     finally:
         con.close()
 
@@ -103,7 +113,8 @@ def test_every_declared_contract_matches_the_build(built_columns) -> None:
     drifted = {
         dataset.name: (dataset.schema_version, dataset.columns, built_columns[dataset.name])
         for dataset in PUBLISHED_DATASETS
-        if dataset.columns != built_columns[dataset.name]
+        if built_columns[dataset.name] is not None
+        and dataset.columns != built_columns[dataset.name]
     }
     assert not drifted, "declared contract ≠ built contract:\n" + "\n".join(
         f"  {name} (declared at {version})\n    declared: {declared}\n    built:    {actual}"
@@ -116,7 +127,7 @@ def test_every_published_dataset_is_in_the_build(built_columns) -> None:
     """A dataset the build does not produce refuses the whole nightly publish
     (`table missing from the build`). Catching that here makes it a red test
     rather than a wedged timer and an operator email."""
-    missing = [name for name, columns in built_columns.items() if not columns]
+    missing = [name for name, columns in built_columns.items() if columns is None]
     assert not missing, f"published but not built: {missing}"
 
 
@@ -161,7 +172,10 @@ def test_the_transition_froze_each_dataset_at_the_version_it_was_publishing() ->
 
     Pinned as data because it is a historical fact about the archive: these
     numbers are the join between what was published before the cutover and what
-    is published after, and nothing else records it.
+    is published after, and nothing else records it. It is a statement about
+    THESE sixteen, so a dataset published after the cutover is skipped rather
+    than failing a lookup (CR 3) — it has no pre-#385 number to have been frozen
+    at, and adding one is an ordinary act this test has no opinion about.
     """
     frozen = {
         "stg_wsl_committees": "1.4.0",
@@ -182,6 +196,8 @@ def test_the_transition_froze_each_dataset_at_the_version_it_was_publishing() ->
         "citations": "2.0.0",
     }
     for dataset in PUBLISHED_DATASETS:
+        if dataset.name not in frozen:
+            continue  # published after the cutover: no pre-#385 number to freeze
         baseline = dataset.releases[0]
         assert baseline.version == frozen[dataset.name], (
             f"{dataset.name}: the frozen baseline is {frozen[dataset.name]}, "
