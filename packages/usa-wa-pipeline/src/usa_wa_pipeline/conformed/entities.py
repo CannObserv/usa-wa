@@ -152,7 +152,6 @@ def person_rows(
                 wsl_latest[member_id] = (row["biennium"], name)
 
     roster_latest: dict[str, tuple[int, str]] = {}
-    roster_first_year: dict[str, int] = {}
     for row in roster:
         name = _name(row.get("name"))
         if not name:
@@ -171,7 +170,6 @@ def person_rows(
             # `''` too, and a registry key of `:<year>` selects it.
             continue
         year = int(row["year"])
-        roster_first_year[fold] = min(roster_first_year.get(fold, year), year)
         current = roster_latest.get(fold)
         if current is None or year > current[0]:
             roster_latest[fold] = (year, display)
