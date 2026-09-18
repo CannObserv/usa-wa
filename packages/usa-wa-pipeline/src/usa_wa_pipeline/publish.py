@@ -594,6 +594,13 @@ _TYPE_MAP = {
 }
 
 
+def _version_sorts(version: str) -> tuple[int, ...]:
+    """A semver string as a comparable tuple. ``"1.10.0" > "1.9.0"``, which the
+    string comparison gets backwards — a failure that would wait until a
+    dataset's eleventh minor and then fire on a correct change."""
+    return tuple(int(part) for part in version.split("."))
+
+
 class PublishRefused(RuntimeError):
     """A publish gate fired; nothing was minted."""
 
@@ -701,6 +708,24 @@ def publish(
                     "this number and has no other way to learn the shape moved — "
                     "append a ContractRelease to its PUBLISHED_DATASETS entry"
                 )
+            # The other direction (CR 1): a declared version BELOW the published
+            # one is a downgrade, and the publisher is the only place that can
+            # see it — CI has no published state to compare against, and the
+            # append-only test reads only the declared history, so a release
+            # edited away leaves nothing for it to catch. A consumer pinned to
+            # the major it last saw starts refusing the dataset, which is the
+            # precise wire break #385 exists to prevent.
+            if prior and prior.get("schema_version"):
+                published = prior["schema_version"]
+                if _version_sorts(dataset.schema_version) < _version_sorts(published):
+                    raise PublishRefused(
+                        f"dataset {name!r}: declares schema_version "
+                        f"{dataset.schema_version} but {published} is already "
+                        "published; a version only ever goes forward, and a "
+                        "consumer pinned to the published major would start "
+                        "refusing this dataset — restore the release history "
+                        "rather than lowering the number"
+                    )
             tmp_dir = out_root / f".tmp-{name}-{secrets.token_hex(4)}"
             tmp_dir.mkdir(parents=True)
             csv_path = tmp_dir / "data.csv"

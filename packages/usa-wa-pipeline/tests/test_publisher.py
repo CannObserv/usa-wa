@@ -583,3 +583,49 @@ def test_the_gate_holds_across_the_pre_385_catalog(built_db, tmp_path) -> None:
     entry = json.loads(catalog_path.read_text())["datasets"][0]
     assert entry["schema_version"] == "1.4.0"
     assert entry["contract_hash"].startswith("sha256:")
+
+
+def test_a_version_below_the_published_one_refuses_the_run(built_db, tmp_path) -> None:
+    """CR 1: a declared version that sorts BELOW what was last published is a
+    downgrade, and refuses.
+
+    The gate above catches a contract that moved without its version. This
+    catches the other direction — a version that moved backwards, by an edited
+    history or a mistyped release — and it has to live here because it is the
+    only place that can see it: CI has no published state to compare against.
+    A downgrade is the precise wire break #385 exists to prevent, since a
+    consumer pinned to the major it last saw starts refusing the dataset."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=[_dataset("persons", version="2.0.0")])
+
+    with pytest.raises(PublishRefused, match="1.0.0.*2.0.0"):
+        publish(built_db, out, _manifest(tmp_path), datasets=[_dataset("persons", version="1.0.0")])
+    assert list(out.glob(".tmp-*")) == []
+    entry = json.loads((out / "catalog.json").read_text())["datasets"][0]
+    assert entry["schema_version"] == "2.0.0"
+
+
+def test_a_version_equal_to_the_published_one_is_the_quiet_case(built_db, tmp_path) -> None:
+    """The overwhelmingly common run: nothing moved, so the version did not
+    either. Equality is not a downgrade, and the monotonicity check must not
+    turn every quiet night into a refusal."""
+    out = tmp_path / "datasets"
+    datasets = [_dataset("persons", version="2.0.0")]
+    publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+    assert (summary["minted"], summary["unchanged"]) == (0, 1)
+
+
+def test_a_double_digit_version_compares_numerically_not_lexically(built_db, tmp_path) -> None:
+    """`"1.10.0" < "1.9.0"` as strings and `>` as versions. Comparing the wrong
+    way would refuse the eleventh minor of a dataset as a downgrade — a failure
+    that waits years and then fires on a correct change."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=[_dataset("persons", version="1.9.0")])
+    summary = publish(
+        built_db, out, _manifest(tmp_path), datasets=[_dataset("persons", version="1.10.0")]
+    )
+    assert summary["minted"] == 1
+    assert (
+        json.loads((out / "catalog.json").read_text())["datasets"][0]["schema_version"] == "1.10.0"
+    )
