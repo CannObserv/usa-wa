@@ -1,0 +1,46 @@
+-- One live person entity per human (#378).
+--
+-- The defect this exists for: `persons` is seeded from namespaces that mint
+-- independently — the legislature's numeric member id, the roster PDF's
+-- `<fold>:<year>`, the PDC's filer id — and nothing reconciled them. Seventeen
+-- pairs published as two people each, `person_crosswalk` carrying no
+-- `merged_into` to say otherwise. power-map had resolved every member-id entity
+-- to a live person and planned every roster twin as a CREATE, so applying the
+-- subscription would have minted 17 duplicate people — Patty Murray, Jack
+-- Metcalf and Ellen Craswell among them. It was caught by a consumer reading
+-- the dataset, which is the discovery this gate moves upstream.
+--
+-- The merges closed those 17. This is what makes the 18th a build failure.
+--
+-- The predicate is a `select *`, and the work is all in `person_name_collisions`
+-- — a python model, because the grouping key is `identity_fold`: Python, in
+-- usa-wa-adapter-legislature, over a `persons` that publishes only
+-- (entity_id, name_full, name_source). There is no fold in SQL's reach here,
+-- and hand-deriving one is exactly the second implementation CR 155
+-- consolidated out of `usa_wa_common.names`. The model's own docstring and
+-- `conformed/namesakes.py` carry the reasoning; what belongs HERE is the reason
+-- the check is a build gate and not a report.
+--
+-- Which is: it must fail the BUILD. The parity probes would have been the other
+-- home for this, and they run after `dataset-publish` in the nightly chain —
+-- they can tell you a bad dataset shipped, never stop it shipping. The 17 were
+-- already in a published snapshot when power-map found them.
+--
+-- GATED AT ZERO, with no baseline, like `persons_named` and unlike
+-- `assignments_seat_occupancy`: the corpus is clean as of 2026-09-18 (3,117
+-- persons, 3,114 folds, the 3 collisions all adjudicated namesakes), so any row
+-- here is new.
+--
+-- The allowlist lives with the model, not in this file, and holds three folds:
+-- the `IDENTITY_SPLITS` roster splits by derivation, plus `bobmccaslin` and
+-- `briansullivan`, two WSL-internal namesake pairs each verified against the
+-- corpus. An allowlist entry tells the build to stop looking forever, so each
+-- carries the evidence that settled it.
+--
+-- 14 of the 17, not 17: the fold keeps middle initials, so `Stanley Johnson` /
+-- `Stanley C. Johnson` and the two Salings are invisible here, as is
+-- `Mike Kreidler` against the roster's `Myron "Mike" Kreidler`. The loosening
+-- that recovers the initials cases collides 42 groups over the live corpus. The
+-- trade and its measurement are in `conformed/namesakes.py`.
+select name_fold, entity_id, name_full, name_source
+from {{ ref('person_name_collisions') }}

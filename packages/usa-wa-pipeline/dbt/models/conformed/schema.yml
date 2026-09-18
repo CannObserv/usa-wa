@@ -36,6 +36,13 @@ models:
           - accepted_values:
               arguments:
                 values: ["roster", "wsl", "pdc"]
+  - name: person_name_collisions
+    description: "Live entities sharing one identity_fold, minus the adjudicated allowlist — empty on a clean build, the hand-review work order otherwise (#378). Not published; tests/persons_distinct_identities.sql gates it at zero. Both sides of every pair are emitted: which id survives a merge is an adjudication, not a thing a gate may presume."
+    columns:
+      - name: name_fold
+        data_tests: [not_null]
+      - name: entity_id
+        data_tests: [not_null]
   - name: organizations
     description: One row per LIVE org entity; newest-biennium committee attributes.
     columns:

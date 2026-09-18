@@ -97,6 +97,52 @@ adjudication or one retired wire away at any time, and requiring a name would
 wedge the nightly the day it recurs. Permitting a null costs the gate nothing —
 it still refuses every blank.
 
+**And one entity per human** (#378 step 4). `persons` is seeded from namespaces
+that mint independently — the legislature's numeric member id, the roster PDF's
+`<fold>:<year>`, the PDC's filer id — and nothing reconciled them, so 17 pairs
+published as two people each with no `merged_into` in `person_crosswalk` to say
+otherwise. power-map had already resolved every member-id entity and planned
+every roster twin as a **create**; applying the subscription would have minted
+17 duplicate people, Patty Murray and Jack Metcalf among them. A consumer
+reading the dataset is what caught it.
+
+`models/conformed/person_name_collisions.py` is the guard that moves that
+discovery upstream: a thin binder over `usa_wa_pipeline.conformed.namesakes`,
+grouping live entities by `identity_fold` and emitting every row of every
+un-allowlisted collision. `tests/persons_distinct_identities.sql` gates it at
+zero, so the 18th fails `dbt build` rather than shipping.
+
+**A python model, not a SQL test**, unlike its two neighbours. The grouping key
+is `identity_fold` — Python, in `usa-wa-adapter-legislature` — and `persons`
+publishes only `(entity_id, name_full, name_source)`, so there is no fold in
+SQL's reach; re-deriving one there is the second implementation CR 155
+consolidated out of `usa_wa_common.names`. The parity probes were the other
+candidate home and run *after* `dataset-publish`: they can report that a bad
+dataset shipped, never stop it shipping, which is precisely how the 17 got out.
+The model materializes (it is not in `PUBLISHED_DATASETS`) because on a red
+build the table is the hand-review work order — both sides of every pair, since
+which id survives a merge is an adjudication and not something a gate may
+presume.
+
+**14 of the 17, and the allowlist is three.** The fold keeps middle initials, so
+`Stanley Johnson` / `Stanley C. Johnson` and the two Salings are invisible here,
+as is `Mike Kreidler` against the roster's `Myron “Mike” Kreidler`. Loosening it
+to first-given-plus-surname recovers two of those and collides 42 groups over 88
+rows on the live corpus — including `N. B. Atkinson` / `N. P. Atkinson`, which
+`roster_pdf/identity.py` documents as distinct on five independent grounds. The
+miss is the bought half of that trade. What remains colliding legitimately is
+three folds: every `IDENTITY_SPLITS` key **by derivation**, since a roster split
+mints two entities from one fold on purpose and restating them here would break
+the nightly the next time one is added; plus `bobmccaslin` and `briansullivan`,
+two WSL-internal namesake pairs each carrying the corpus evidence that settled
+it — an allowlist entry tells the build to stop looking forever, so an
+unexplained one is indistinguishable from a duplicate someone waved through.
+
+This does not fix the cause. `registry_seed` still has no `deleted_at` filter,
+so a producer-side soft-delete is still ignored and an 18th duplicate can still
+be *minted*; the gate catches it at build time. That split is deliberate — the
+gate survives `canonical.*` retiring at #314, the seed fix does not.
+
 ## Conformed: tenure spans (#309 part 2)
 
 `models/conformed/assignments.py` is a thin binder over
