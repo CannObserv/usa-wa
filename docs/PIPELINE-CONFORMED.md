@@ -87,6 +87,19 @@ power-map-resolved legislator — the #364 shape again, one issue later. The fol
 still reads the RAW printed name, so no registry key moves; only what publishes
 is stripped. `tests/persons_unannotated.sql` gates it at zero.
 
+**Nor is a seat designator** (#367). The roster prints #229's Position signal
+into the name cell on LD-19/LD-39 — `John Wynne – 39A` — and 8 of 3,117 rows
+published it. `_display_name` applies `strip_position_suffix` *after*
+`strip_tenure_notes`, because the suffix anchors on end-of-string and a name
+carrying both loses it only once the note is gone.
+`tests/persons_no_seat_suffix.sql` gates the designator's *shape* at zero.
+
+Wiring, not a rule: `strip_position_suffix` has been public since CR #88 saying
+it exists *"so the display-name minter shares one definition of what counts as
+seat metadata"*, and the minter never called it. A screen that is written and
+documented as shared can still be silently uninvoked — only a gate over the
+output notices, and power-map#499 noticed first.
+
 The guard that outlives the fix is `tests/persons_named.sql`, gated at zero:
 blank, untrimmed, or a `name_full`/`name_source` pair with one side missing
 fails `dbt build`. It is deliberately NOT a `not_null` test on `name_full` nor a
@@ -125,18 +138,16 @@ which id survives a merge is an adjudication and not something a gate may
 presume.
 
 **14 of the 17, and the allowlist is three.** The fold keeps middle initials, so
-`Stanley Johnson` / `Stanley C. Johnson` and the two Salings are invisible here,
-as is `Mike Kreidler` against the roster's `Myron “Mike” Kreidler`. Loosening it
-to first-given-plus-surname recovers two of those and collides 42 groups over 88
-rows on the live corpus — including `N. B. Atkinson` / `N. P. Atkinson`, which
-`roster_pdf/identity.py` documents as distinct on five independent grounds. The
-miss is the bought half of that trade. What remains colliding legitimately is
-three folds: every `IDENTITY_SPLITS` key **by derivation**, since a roster split
-mints two entities from one fold on purpose and restating them here would break
-the nightly the next time one is added; plus `bobmccaslin` and `briansullivan`,
-two WSL-internal namesake pairs each carrying the corpus evidence that settled
-it — an allowlist entry tells the build to stop looking forever, so an
-unexplained one is indistinguishable from a duplicate someone waved through.
+`Stanley Johnson` / `Stanley C. Johnson` and the two Salings are invisible here.
+Loosening it to first-given-plus-surname recovers two and collides 42 groups over
+88 rows — including `N. B. Atkinson` / `N. P. Atkinson`, which
+`roster_pdf/identity.py` documents as distinct on five grounds; the miss is the
+bought half of that trade. What legitimately collides is three folds: every
+`IDENTITY_SPLITS` key **by derivation**, since a roster split mints two entities
+from one fold on purpose and restating them here would break the nightly the next
+time one is added; plus `bobmccaslin` and `briansullivan`, each carrying the
+evidence that settled it — an allowlist entry tells the build to stop looking
+forever, so an unexplained one is a duplicate someone waved through.
 
 This does not fix the cause. `registry_seed` still has no `deleted_at` filter,
 so a producer-side soft-delete is still ignored and an 18th duplicate can still

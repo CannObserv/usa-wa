@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold
+from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold, strip_position_suffix
 from usa_wa_common.names import strip_tenure_notes
 from usa_wa_common.orgs import STRUCTURAL_ORGS
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
@@ -116,13 +116,32 @@ def _live_entities(crosswalk: list[dict[str, Any]]) -> dict[str, list[dict[str, 
 
 
 def _display_name(value: Any) -> str | None:
-    """A source's name field as a name fit to PUBLISH (#378).
+    """A source's name field as a name fit to PUBLISH (#378, #367).
 
-    :func:`_name` answers "is this a name at all" (#364); this also drops the
-    annotations the roster prints inside its name column — tenure events like
-    ``(Resgnd Dec. 31, 1982)``. Kept separate from the fold input on purpose:
-    ``identity_fold`` already ignores parentheticals, so stripping here changes
-    what is published and nothing about which registry key a row resolves to.
+    :func:`_name` answers "is this a name at all" (#364); this drops the two
+    things the roster prints inside its name column that are not name:
+
+    - **tenure annotations** — service events like ``(Resgnd Dec. 31, 1982)``
+      (#378);
+    - **the seat designator** — ``John Wynne – 39A``, #229's Position signal for
+      the split districts LD-19 and LD-39 (#367).
+
+    Both are kept separate from the fold input on purpose: ``identity_fold``
+    already ignores parentheticals AND already runs ``strip_position_suffix``
+    via ``clean_name``, so stripping here changes what is published and nothing
+    about which registry key a row resolves to. For 8 rows power-map anchors on,
+    re-keying would have been the one outcome worse than the wrong name.
+
+    Order is load-bearing: ``strip_position_suffix`` anchors on end-of-string, so
+    a name carrying both only loses the suffix once the note that follows it is
+    gone.
+
+    The seat strip is not a new rule — ``strip_position_suffix`` has been public
+    since CR #88 precisely "so the display-name minter shares one definition of
+    what counts as seat metadata", and this is the minter that never called it.
+    power-map#499 found the consequence downstream: 8 of its 26 person-name
+    disagreements were this artifact, and a consumer's only answer to one is a
+    curation overlay asserting a name that is properly the producer's.
 
     Screened **again after stripping** (CR 151), because a name that is nothing
     but an annotation strips to ``''`` — and ``''`` is the #364 shape this whole
@@ -132,7 +151,9 @@ def _display_name(value: Any) -> str | None:
     blank is that two of the three call sites happen to test truthiness.
     """
     named = _name(value)
-    return _name(strip_tenure_notes(named)) if named else named
+    if not named:
+        return named
+    return _name(strip_position_suffix(strip_tenure_notes(named)))
 
 
 def person_rows(
@@ -160,7 +181,7 @@ def person_rows(
         # from it, so a screen applied before this would re-key the person
         # (#378). Only what gets published is stripped.
         fold = identity_fold(name)
-        display = _name(strip_tenure_notes(name))
+        display = _display_name(name)
         if display is None:
             # All annotation, no name. Skipped rather than stored, because this
             # is the ONE source whose selection below does not guard on

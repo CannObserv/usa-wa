@@ -1,0 +1,37 @@
+-- A published name carries no seat designator (#367).
+--
+-- The roster prints #229's Position signal into the name cell on the split
+-- districts: `John Wynne – 39A`, LD-19 and LD-39, positions A and B. 8 of 3,134
+-- rows carried one, and `conformed.entities._display_name` now strips it.
+--
+-- This is the guard, and it exists because the strip is a WIRING fix rather than
+-- a new rule. `strip_position_suffix` has been public since CR #88 precisely
+-- "so the display-name minter shares one definition of what counts as seat
+-- metadata" — and the minter did not call it for the whole life of the
+-- conformed tier. A screen that was already written, already public, already
+-- documented as shared, and silently not invoked is exactly the kind of thing a
+-- test catches and a docstring does not.
+--
+-- power-map#499 is how it surfaced: 8 of the applier's 26 person-name
+-- disagreements were this artifact and not a real difference. A consumer's only
+-- answer to a parse artifact in a producer-owned field is a hand-written
+-- curation overlay — power-map asserting authorship of 8 names that are
+-- properly ours — which is a worse outcome than either side wants.
+--
+-- Matches the shape, not the two districts. `– 19B` and `– 39A` are all the
+-- corpus has, but keying the gate on those numbers would make it blind the day
+-- the roster prints a third; the designator's SHAPE (separator, one or two
+-- digits, optional position letter, end of string) is what is not a name.
+--
+-- Any dash: the corpus uses an EN DASH (U+2013) and `strip_position_suffix`
+-- accepts en dash, em dash and hyphen, so the gate has to cover the same set or
+-- it would pass a form the stripper is expected to remove.
+--
+-- GATED AT ZERO, with no baseline — as of 2026-09-18 the corpus is clean
+-- (3,117 persons), so any row here is new.
+--
+-- Casts to varchar: the hermetic build materializes `persons` empty, and an
+-- empty object column can bind as something other than VARCHAR (#361).
+select entity_id, name_full, name_source
+from {{ ref('persons') }}
+where regexp_matches(cast(name_full as varchar), '[–—-]\s*\d{1,2}\s*[A-Za-z]?\s*$')
