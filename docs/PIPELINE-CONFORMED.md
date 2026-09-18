@@ -63,6 +63,30 @@ this tier, not in staging: staging re-parses the archive and holds no policy,
 and nulling the stub there would erase the evidence that the wire answered with
 one.
 
+**And an annotation is not a name either** (#378). The roster's name column
+prints two unrelated things in parentheses: name content — marital forms
+(`Agnes (Mrs. Thomas E.) Kehoe`) and legal-name glosses (`Jack (John T.)
+Dootson`) — and facts about a person's *service*, typeset inside the name
+(`(Resgnd Dec. 31, 1982)`, `(On leave of absence for military duty Jan. 8, 1991
+to April 18, 1991)`). `entities._display_name` removes the second class through
+`usa_wa_common.names.strip_tenure_notes` and leaves the first untouched.
+
+The narrowness is the point, in both directions. Reusing `strip_non_name_parts`
+— the matching screen — would have cut `A. L. “Slim” Rasmussen` to `A. L.
+Rasmussen` and rendered `Mrs. Irwin LeCocq (Mary)` as `Irwin LeCocq`, her
+husband's name published as hers; a screen whose output nothing reads may
+over-strip, a published one may not. And **whether a woman should be published
+under a marital print form at all is deliberately left unanswered** — it is a
+real editorial question, and leaving those forms alone keeps it a decision
+someone makes rather than one a strip makes silently.
+
+It mattered because survivorship is roster > WSL: merging #378's 17 duplicate
+pairs made the roster name win, so without this `Myron “Mike” Kreidler (On leave
+of absence …)` would have become the published legal name of a live,
+power-map-resolved legislator — the #364 shape again, one issue later. The fold
+still reads the RAW printed name, so no registry key moves; only what publishes
+is stripped. `tests/persons_unannotated.sql` gates it at zero.
+
 The guard that outlives the fix is `tests/persons_named.sql`, gated at zero:
 blank, untrimmed, or a `name_full`/`name_source` pair with one side missing
 fails `dbt build`. It is deliberately NOT a `not_null` test on `name_full` nor a
