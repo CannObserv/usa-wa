@@ -59,6 +59,28 @@ logger = get_logger(__name__)
 JOB_SLUG = "dataset-publish"
 
 
+#: The CSV serialisation every published dataset uses, declared rather than
+#: left for a consumer to sniff (#357). These are duckdb ``COPY``'s defaults,
+#: verified against its output rather than assumed — the point is that the
+#: contract now says so out loud, in the datapackage a client already reads.
+#:
+#: It exists because the bytes are the product: two producers of the same rows
+#: diverged on line endings alone (#354), which cost 12,462 bytes and a second,
+#: conflicting sha256 for identical content. A digest is only meaningful once
+#: the serialisation behind it is pinned.
+#:
+#: ``nullSequence`` is worth stating: duckdb writes NULL as a bare empty field
+#: and an empty string as ``""``, so the two remain distinguishable on the wire.
+CSV_DIALECT: dict[str, object] = {
+    "delimiter": ",",
+    "lineTerminator": "\n",
+    "quoteChar": '"',
+    "doubleQuote": True,
+    "nullSequence": "",
+    "header": True,
+}
+
+
 @dataclass(frozen=True)
 class ContractRelease:
     """One version of one dataset's published contract (#385).
@@ -546,27 +568,6 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
     # dataset. With the line gone the hazard is gone with it, and #314's column
     # drop no longer has a publish-shaped tripwire in front of it.
 ]
-
-#: The CSV serialisation every published dataset uses, declared rather than
-#: left for a consumer to sniff (#357). These are duckdb ``COPY``'s defaults,
-#: verified against its output rather than assumed — the point is that the
-#: contract now says so out loud, in the datapackage a client already reads.
-#:
-#: It exists because the bytes are the product: two producers of the same rows
-#: diverged on line endings alone (#354), which cost 12,462 bytes and a second,
-#: conflicting sha256 for identical content. A digest is only meaningful once
-#: the serialisation behind it is pinned.
-#:
-#: ``nullSequence`` is worth stating: duckdb writes NULL as a bare empty field
-#: and an empty string as ``""``, so the two remain distinguishable on the wire.
-CSV_DIALECT: dict[str, object] = {
-    "delimiter": ",",
-    "lineTerminator": "\n",
-    "quoteChar": '"',
-    "doubleQuote": True,
-    "nullSequence": "",
-    "header": True,
-}
 
 DEFAULT_MAX_SHRINK = 0.10
 
