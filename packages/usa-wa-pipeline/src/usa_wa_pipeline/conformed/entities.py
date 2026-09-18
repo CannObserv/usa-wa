@@ -123,9 +123,16 @@ def _display_name(value: Any) -> str | None:
     ``(Resgnd Dec. 31, 1982)``. Kept separate from the fold input on purpose:
     ``identity_fold`` already ignores parentheticals, so stripping here changes
     what is published and nothing about which registry key a row resolves to.
+
+    Screened **again after stripping** (CR 151), because a name that is nothing
+    but an annotation strips to ``''`` — and ``''`` is the #364 shape this whole
+    path exists to keep out, not a fix for it. Returning it would satisfy the
+    ``str | None`` annotation while breaking the contract the name half of that
+    union carries, and the only thing standing between that and a published
+    blank is that two of the three call sites happen to test truthiness.
     """
     named = _name(value)
-    return strip_tenure_notes(named) if named else named
+    return _name(strip_tenure_notes(named)) if named else named
 
 
 def person_rows(
@@ -154,11 +161,20 @@ def person_rows(
         # from it, so a screen applied before this would re-key the person
         # (#378). Only what gets published is stripped.
         fold = identity_fold(name)
+        display = _name(strip_tenure_notes(name))
+        if display is None:
+            # All annotation, no name. Skipped rather than stored, because this
+            # is the ONE source whose selection below does not guard on
+            # truthiness — it takes `roster_latest[fold][1]` outright — so a
+            # blank here publishes as `('', 'roster')` and fails the nightly
+            # `persons_named` gate (CR 151). Reachable: such a name folds to
+            # `''` too, and a registry key of `:<year>` selects it.
+            continue
         year = int(row["year"])
         roster_first_year[fold] = min(roster_first_year.get(fold, year), year)
         current = roster_latest.get(fold)
         if current is None or year > current[0]:
-            roster_latest[fold] = (year, strip_tenure_notes(name))
+            roster_latest[fold] = (year, display)
 
     pdc_names = {
         row["person_id"]: _display_name(row.get("filer_name"))

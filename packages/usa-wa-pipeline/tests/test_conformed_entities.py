@@ -403,3 +403,45 @@ def test_a_marital_print_form_is_left_alone() -> None:
     [row] = person_rows(crosswalk, sponsors=[], roster=roster, pdc=[])
 
     assert row["name_full"] == "Belle (Mrs. Frank) Reeves"
+
+
+# --- a name that is ALL annotation is absent, not blank (CR 151) --------------
+
+ALL_NOTE = "(Resgnd Dec. 31, 1982)"
+
+
+def test_an_all_annotation_roster_name_publishes_no_name() -> None:
+    """Stripping must not turn a name into `''` — #364's shape, not a fix for it.
+
+    Reachable, not theoretical: `identity_fold(ALL_NOTE)` is `''`, so a roster
+    key of `:<year>` selects this row and publishes `name_full=''` with
+    `name_source='roster'` — which `dbt/tests/persons_named.sql` fails the
+    nightly build on. The roster branch is the one source whose selection does
+    not guard on truthiness (`if fold in roster_latest` then takes `[1]`), so it
+    is where an emptied name actually lands.
+    """
+    crosswalk = [
+        {
+            "entity_id": "01Z",
+            "key_namespace": "usa_wa_legislature_roster",
+            "key_value": ":1900",
+            "merged_into": None,
+        }
+    ]
+    roster = [{"year": 1900, "name": ALL_NOTE, "district": 1, "chamber": "house"}]
+
+    [row] = person_rows(crosswalk, sponsors=[], roster=roster, pdc=[])
+
+    assert row["name_full"] is None
+    assert row["name_source"] is None
+
+
+def test_display_name_returns_absent_not_blank() -> None:
+    """`_display_name` extends `_name`, so it owes `_name`'s contract: a name or
+    None, never `''`. The WSL and PDC call sites happen to guard on truthiness
+    and so survive a blank today; that is incidental, and a future site written
+    as `is not None` would republish #364."""
+    assert mod._display_name(ALL_NOTE) is None
+    assert mod._display_name("   ") is None
+    assert mod._display_name(None) is None
+    assert mod._display_name("Patty Murray") == "Patty Murray"
