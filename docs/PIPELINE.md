@@ -232,14 +232,71 @@ drop unblocked: the publisher refuses a run whose table is missing, so a
 lingering entry would have wedged the nightly publish for every other dataset
 the day the `pm_*` columns went.
 
-The removal takes `SCHEMA_VERSION` to **2.0.0**. A dataset leaving is a removal,
-read at the level of the catalog — the thing a subscriber actually binds to —
-and a consumer that resolved `pm_anchors` from `catalog.json` now finds nothing
-there. Mind what the carry-forward rule below does with a *major*: the number
-reaches a dataset only when that dataset next mints, so the catalog legitimately
-carries a spread of 1.x and 2.0.0 entries whose columns are identical. The major
-is a statement about the catalog, not a promise that every entry carrying it
-changed shape.
+That removal took the old catalog-wide `SCHEMA_VERSION` to **2.0.0** — and
+produced the defect #385 filed. See § Schema versions are per-dataset below.
+
+### Schema versions are per-dataset (#385)
+
+Each entry in `publish.PUBLISHED_DATASETS` carries its own version history — a
+tuple of `ContractRelease(version, columns, note)`. `schema_version` in that
+dataset's `datapackage.json` and catalog entry is the latest release's version,
+and it moves **only when that dataset's contract moves**.
+
+It used to be one module constant, `SCHEMA_VERSION`, stamped onto whatever
+dataset minted next. Carry-forward (an unchanged dataset keeps its prior catalog
+entry) plus skip-if-unchanged meant the corpus spanned versions indefinitely —
+sixteen datasets across seven values — so a dataset's major encoded *when it last
+minted*, not what its shape was. power-map's puller pins a major and refused
+`persons` and `person_crosswalk` over #314's 2.0.0 bump, whose whole content was
+`pm_anchors` leaving the catalog; neither dataset's shape had moved by a field.
+A consumer correctly implementing semver was refusing a dataset over a bump that
+asserted nothing about it.
+
+**Who bumps.** Whoever changes the contract, at the moment the drift test goes
+red. Never edit a standing release: append a new `ContractRelease` with the next
+version and the columns the build now produces. Additive = minor, rename or
+removal = major, per dataset.
+
+**Two gates, catching different mistakes.**
+
+| Gate | Where | Catches |
+|---|---|---|
+| `test_every_declared_contract_matches_the_build` | unit tier, hermetic dbt build | a model's columns moved and its entry did not |
+| the publisher's own contract gate | nightly publish, against what was last published | a declaration edited in place, and a contract that moves with no code change at all |
+
+The declaration records column **names and order**, not types: a hermetic build
+reads empty sources and duckdb types an all-NULL column `INTEGER`, so types are
+unknowable in a database-free tier and declaring them would declare a fiction.
+Names and order were verified identical between the hermetic and live builds for
+all sixteen datasets (2026-09-18). Types are covered by the publish-time gate,
+which compares the full `contract_hash` — the dataset's name, tier, dialect and
+its ordered fields *with* types — against what was last published, both sides
+read from a real build. Lineage is deliberately **not** in the fingerprint:
+`derived_from` comes from the dbt manifest, so folding it in would churn every
+downstream dataset's version when an intermediate model is refactored.
+
+The gate is enforced one way — a contract change requires a bump — and not as an
+"if and only if". The published fields are `{name, type}` with no descriptions,
+so a semantics-only change (a column re-derived, its meaning shifted, its type
+unmoved) has no fingerprint to move; demanding the iff would forbid the honest
+major. A bump with no shape change is allowed, and re-mints.
+
+**`contract_hash` ships beside `schema_version`** in both the datapackage and
+the catalog entry. It answers the question a consumer actually asks — "is this
+the shape I validated?" — and unlike a major it cannot lie. The semver stays as
+the cheap human-readable gate.
+
+**The transition froze each dataset in place.** Every dataset kept the number it
+was already publishing on 2026-09-18 (`persons` 2.0.0, `organizations` 1.0.0,
+the six other `stg_*` 1.4.0, and so on), and moves only on its own contract from
+there. Resetting to a clean 1.0.0 would have *downgraded* four datasets on the
+wire, refusing for the consumer who had just re-pinned to major 2; renumbering
+everything up to 2.0.0 would have asserted a major change for twelve datasets
+that had none, and re-minted them to say it. The starting values are therefore
+arbitrary and harmless: a major is only ever compared within a dataset.
+`test_the_transition_froze_each_dataset_at_the_version_it_was_publishing`
+records them, because nothing else joins the pre-cutover archive to the numbers
+published after it.
 
 **Each published assignment carries its `span_key`** (usa-wa#370,
 power-map#490), and that outlives the crosswalk. A published assignment has no
@@ -383,11 +440,13 @@ bytes and a second conflicting digest for identical content (#354). #357 made
 one writer per dataset the rule and #314 retired that dataset, so the second
 reason is history; the first still holds every night.
 
-`SCHEMA_VERSION` 1.6.0 added `dialect`, and by the carry-forward rule a bump
-reaches a dataset only when it next mints — so version dirs published before
-1.6.0 keep the datapackage they shipped with (the same rule that spreads 2.0.0
-across the catalog one minting at a time). They obey the table above
-regardless; this document is the declaration for them. `test_published_bytes_obey_the_declared_dialect` parses every published CSV back with its own
+`SCHEMA_VERSION` 1.6.0 added `dialect`, and under the old carry-forward rule a
+bump reached a dataset only when it next minted — so version dirs published
+before 1.6.0 keep the datapackage they shipped with, and this document is the
+declaration for them. #385 closed that gap for everything after it: a dataset
+now re-mints when its contract changes even if its bytes did not, so a
+metadata-only change reaches every dataset on the next run instead of waiting on
+unrelated data to move. `test_published_bytes_obey_the_declared_dialect` parses every published CSV back with its own
 declared dialect and checks the shape, so the table is enforced rather than
 aspirational.
 
