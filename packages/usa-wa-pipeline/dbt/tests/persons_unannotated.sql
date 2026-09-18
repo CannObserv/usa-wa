@@ -1,0 +1,53 @@
+-- A published person's name carries no printed ANNOTATION (#378).
+--
+-- The roster's name column prints two unrelated things inside parentheses, and
+-- only one of them is a name. Marital print forms (`Agnes (Mrs. Thomas E.)
+-- Kehoe`) and legal-name glosses (`Jack (John T.) Dootson`) are name content.
+-- Tenure events are not: `(Resgnd Dec. 31, 1982)`, `(On leave of absence for
+-- military duty Jan. 8, 1991 to April 18, 1991)`, `(Left Seattle July 2, 1900
+-- Named Court Clerk, 3rd Judcl Dvn, AK Terr.)` are facts about a person's
+-- service that the roster happened to typeset inside the name.
+--
+-- Why this is a build gate and not just a screen upstream: `persons_named.sql`
+-- states the rule this follows — "`conformed.entities._name` is why no blank is
+-- built today. This is the guard that makes the next one a BUILD FAILURE here
+-- rather than a discovery downstream." #378 shipped the screen
+-- (`usa_wa_common.names.strip_tenure_notes`) without the guard, which left the
+-- class fixed but not defended: any future path that reaches `name_full`
+-- without going through `_display_name` republishes it, and the way that gets
+-- noticed is a consumer's staging models a week later. That is precisely how
+-- #364 was found (power-map#497).
+--
+-- It was not hypothetical. Survivorship is roster > WSL, so merging #378's 17
+-- duplicate pairs made the roster name win — and `Myron "Mike" Kreidler (On
+-- leave of absence ...)` would have become the published legal name of a live,
+-- power-map-resolved legislator.
+--
+-- The predicate mirrors `strip_tenure_notes`: a parenthetical is an annotation
+-- if its content carries a DIGIT (a date, therefore an event) or runs to more
+-- than four whitespace-separated tokens (prose, not a name). Both halves are
+-- load-bearing in both places — `(Select House Cmte upheld election challenge,
+-- Hogan declared duly elected)` has no digit, and `(Mary)` has no prose — so
+-- neither test alone separates the two classes.
+--
+-- The token half is spelled as four space-terminated tokens before the rest,
+-- which is five tokens or more. The longest name-shaped parenthetical in the
+-- corpus is three (`(Mrs. Thomas E.)`); the shortest annotation is ten. The
+-- threshold sits in a gap that wide deliberately: it screens prose, it does not
+-- measure one corpus.
+--
+-- Deliberately NOT a general "no parentheses" rule, which is the tempting
+-- shortcut. That would flag every marital print form, and whether a woman
+-- should be published under her husband's name is a live editorial question
+-- (#378 follow-on 2) that a nightly build must not settle by failing.
+--
+-- GATED AT ZERO, with no baseline: verified 0 of 3,117 published persons match
+-- as of the 2026-09-17 build, so any row here is new.
+--
+-- Casts to varchar throughout, and `regexp_matches` returns NULL on a NULL
+-- input which SQL drops — so a nameless person passes, as it must (see the
+-- companion reasoning in `persons_named.sql`).
+select entity_id, name_full, name_source
+from {{ ref('persons') }}
+where regexp_matches(cast(name_full as varchar), '\([^)]*[0-9][^)]*\)')
+   or regexp_matches(cast(name_full as varchar), '\((?:[^) ]* ){4,}[^)]*\)')
