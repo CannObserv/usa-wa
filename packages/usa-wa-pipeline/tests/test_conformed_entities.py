@@ -3,6 +3,7 @@
 import pandas as pd
 
 import usa_wa_pipeline.conformed.entities as mod
+from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold
 from usa_wa_pipeline.conformed.entities import org_rows, person_rows
 
 CROSSWALK = [
@@ -445,3 +446,67 @@ def test_display_name_returns_absent_not_blank() -> None:
     assert mod._display_name("   ") is None
     assert mod._display_name(None) is None
     assert mod._display_name("Patty Murray") == "Patty Murray"
+
+
+# --- a published name carries no seat designator (usa-wa#367) -----------------
+
+#: The roster's position designator for the split districts, printed into the
+#: name cell: LD-19 and LD-39, positions A and B. 8 rows of 3,134 carry one.
+WYNNE_SUFFIX = "John Wynne – 39A"
+
+
+def test_a_roster_seat_suffix_is_not_published_as_a_name() -> None:
+    """`– 39A` is #229's Position signal, not part of the person's name.
+
+    power-map#499 found these downstream: 8 of the applier's 26 person-name
+    disagreements were this artifact rather than a real difference, and the only
+    consumer-side answer to a parse artifact is a hand-written curation overlay
+    asserting a name that is properly the producer's.
+
+    Not a new screen. `strip_position_suffix` has existed since CR #88 and its
+    docstring says it is public *"so the display-name minter shares one
+    definition of what counts as seat metadata"* — the display-name minter never
+    called it. This is the wiring, not the rule.
+    """
+    crosswalk = [
+        {
+            "entity_id": "01W",
+            "key_namespace": "usa_wa_legislature_roster",
+            "key_value": "johnwynne:1963",
+            "merged_into": None,
+        }
+    ]
+    roster = [{"year": 1963, "name": WYNNE_SUFFIX, "district": 39, "chamber": "house"}]
+
+    [row] = person_rows(crosswalk, sponsors=[], roster=roster, pdc=[])
+
+    assert row["name_full"] == "John Wynne"
+    assert row["name_source"] == "roster"
+
+
+def test_the_seat_suffix_screen_does_not_move_the_fold() -> None:
+    """Same separation the tenure-note screen keeps (#378): publication only.
+
+    `identity_fold` runs `clean_name`, which already applies
+    `strip_position_suffix`, so the row is located by the same registry key
+    either way. A screen that changed the fold would re-key eight people — which
+    for a dataset power-map anchors on is the one outcome worse than the wrong
+    name.
+    """
+    assert identity_fold(WYNNE_SUFFIX) == identity_fold("John Wynne")
+
+
+def test_a_note_and_a_suffix_on_one_name_both_go() -> None:
+    """Order matters, so it is pinned.
+
+    The suffix pattern anchors on end-of-string, so a name carrying both — the
+    roster prints `Bob Basich – 19B` and prints tenure notes — only loses the
+    suffix once the note that follows it is gone. Stripping in the other order
+    leaves `Bob Basich – 19B` published.
+    """
+    assert mod._display_name("Bob Basich – 19B (Resgnd Dec. 31, 1982)") == "Bob Basich"
+
+
+def test_a_name_that_is_only_a_suffix_is_absent_not_blank() -> None:
+    """CR 151's lesson, applied to the second screen rather than relearned."""
+    assert mod._display_name("– 19B") is None
