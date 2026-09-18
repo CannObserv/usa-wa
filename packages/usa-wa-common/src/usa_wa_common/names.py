@@ -35,8 +35,14 @@ def fold_token(token: str) -> str:
     return _NON_ALNUM.sub("", _unaccent(token.casefold()))
 
 
-#: Parenthetical segments — marital forms, printed nicknames, the odd leaked annotation.
-_PARENTHETICAL = re.compile(r"\([^)]*\)")
+#: Parenthetical segments — marital forms, printed nicknames, the odd leaked
+#: annotation. The inner text is captured because :func:`strip_tenure_notes`
+#: has to read it to decide; a capture group is inert for the ``.sub(" ", …)``
+#: callers, so ONE pattern serves all three rather than a plain twin sitting
+#: beside a grouped one. This module's sibling consolidation records why that
+#: matters — `conformed/crosswalk.py`: "Divergence between those copies is what
+#: #366 was" (CR 155).
+_PARENTHETICAL = re.compile(r"\(([^)]*)\)")
 
 #: Quoted nicknames: ``“Red”``, ``"Slim"``. The same person carries them in some listings
 #: and not others, so they cannot participate in matching.
@@ -70,10 +76,6 @@ _NOTE_MAX_TOKENS = 4
 
 #: A digit inside a parenthetical means a date, and a date means an event.
 _HAS_DIGIT = re.compile(r"\d")
-
-#: Pairs off with :data:`_PARENTHETICAL`, keeping the delimiters so a kept
-#: segment can be put back exactly as printed.
-_PARENTHETICAL_GROUP = re.compile(r"\(([^)]*)\)")
 
 
 def _is_tenure_note(inner: str) -> bool:
@@ -119,7 +121,7 @@ def strip_tenure_notes(full_name: str) -> str:
     def _keep(match: re.Match[str]) -> str:
         return "" if _is_tenure_note(match.group(1)) else match.group(0)
 
-    stripped = _PARENTHETICAL_GROUP.sub(_keep, full_name)
+    stripped = _PARENTHETICAL.sub(_keep, full_name)
     return stripped if stripped == full_name else " ".join(stripped.split())
 
 
