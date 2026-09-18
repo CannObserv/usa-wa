@@ -9,14 +9,18 @@ Materializes each published dataset as an immutable versioned directory —
 - **Atomic**: a version dir is staged under a dot-tmp name and renamed into
   place; the catalog is written via tmp+rename only after every dataset
   landed. A crash leaves unlisted orphans, never a listed partial.
-- **Skip-if-unchanged**: a dataset whose content hash equals the latest
-  version's mints nothing — no version churn on a quiet day.
-- **Publish gates** (producer-side; PM's applier gates again): a missing
-  table refuses the whole run, and a row-count shrink beyond ``max_shrink``
-  (default 10%) refuses it too — retraction=absence makes a degraded harvest
-  look like mass retraction, so a shrunken dataset never ships silently.
-  ``--max-shrink 1.0`` is the deliberate operator override for a real
-  contraction. Nothing mints on a refused run.
+- **Skip-if-unchanged**: a dataset mints nothing when its content hash AND
+  the contract it ships under (``schema_version`` + ``contract_hash``) both
+  equal the latest version's — no version churn on a quiet day, and a
+  metadata-only contract change still reaches every dataset (#385).
+- **Publish gates** (producer-side; PM's applier gates again), each refusing
+  the whole run with nothing minted: a missing table; a row-count shrink
+  beyond ``max_shrink`` (default 10%) — retraction=absence makes a degraded
+  harvest look like mass retraction, so a shrunken dataset never ships
+  silently, and ``--max-shrink 1.0`` is the deliberate operator override for
+  a real contraction; a dataset whose published contract changed while its
+  ``schema_version`` stood still; and a ``schema_version`` declared below the
+  one already published (#385).
 - **Lineage** from the dbt manifest (``derived_from`` = the dataset's direct
   model parents), never hand-maintained; the dataset *list* is deliberate
   config (:data:`PUBLISHED_DATASETS` — publishing is a decision). A table with
