@@ -128,7 +128,6 @@ def contract_fingerprint(
     tier: str,
     fields: Sequence[dict[str, str]],
     dialect: dict[str, object] | None = None,
-    derived_from: Sequence[str] | None = None,
 ) -> str:
     """Hash the published contract of one dataset (#385).
 
@@ -137,12 +136,15 @@ def contract_fingerprint(
     ORDERED field list with types, and the CSV dialect. Order is in because "an
     appended column is a minor" only holds for a positional reader.
 
-    ``derived_from`` is accepted and deliberately ignored. Lineage is provenance,
-    not shape, and it comes from the dbt manifest — folding it in would churn
-    every downstream dataset's version whenever an *intermediate* model was
-    refactored, for no consumer-visible change. Out for the same reason:
-    ``rows``, ``bytes``, the data hash and ``generated_at``, which describe the
-    bytes of one snapshot rather than the contract they were published under.
+    Lineage is deliberately absent, and is not a parameter (CR 6): ``derived_from``
+    comes from the dbt manifest, so folding it in would churn every downstream
+    dataset's version whenever an *intermediate* model was refactored, for no
+    consumer-visible change. It was briefly accepted-and-ignored here, which is
+    the same defect #385 filed — a field that does not mean what its name says.
+    ``test_the_contract_hash_is_blind_to_a_lineage_change`` pins the exclusion
+    against a real publish instead. Out for the same reason: ``rows``, ``bytes``,
+    the data hash and ``generated_at``, which describe the bytes of one snapshot
+    rather than the contract they were published under.
 
     It ships as ``contract_hash`` beside ``schema_version``, because the question
     a consumer actually asks is "is this the shape I validated?" — a hash answers

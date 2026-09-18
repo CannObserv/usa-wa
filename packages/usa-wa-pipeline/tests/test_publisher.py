@@ -375,22 +375,18 @@ def test_contract_fingerprint_moves_with_shape_and_not_with_lineage() -> None:
     field: did the shape I bound to change?
 
     Order is load-bearing — "an appended column is a minor" only holds for a
-    positional reader, so a reordering is a different contract. Lineage is NOT:
-    `derived_from` comes from the dbt manifest, so folding it in would churn
-    every downstream dataset's version when an *intermediate* model is
-    refactored, for no consumer-visible change (#385)."""
+    positional reader, so a reordering is a different contract.
+
+    Lineage's exclusion is pinned by
+    `test_the_contract_hash_is_blind_to_a_lineage_change` against a real
+    publish, not here: it used to be asserted by passing `derived_from` to a
+    parameter this function ignored, which is the same defect #385 filed — a
+    field that does not mean what its name says (CR 6)."""
     base = contract_fingerprint(
         name="persons",
         tier="conformed",
         fields=[{"name": "entity_id", "type": "string"}, {"name": "name_full", "type": "string"}],
     )
-
-    assert base == contract_fingerprint(
-        name="persons",
-        tier="conformed",
-        fields=[{"name": "entity_id", "type": "string"}, {"name": "name_full", "type": "string"}],
-        derived_from=["person_crosswalk", "stg_roster_members"],
-    ), "lineage is provenance, not shape"
 
     reordered = contract_fingerprint(
         name="persons",
@@ -629,3 +625,44 @@ def test_a_double_digit_version_compares_numerically_not_lexically(built_db, tmp
     assert (
         json.loads((out / "catalog.json").read_text())["datasets"][0]["schema_version"] == "1.10.0"
     )
+
+
+def test_the_contract_hash_is_blind_to_a_lineage_change(built_db, tmp_path) -> None:
+    """CR 6: `derived_from` moves and `contract_hash` does not.
+
+    Lineage is provenance, not shape. It comes from the dbt manifest, so folding
+    it into the fingerprint would churn every downstream dataset's version
+    whenever an *intermediate* model was refactored — a version bump a consumer
+    would have to evaluate, describing a change they cannot see.
+
+    Asserted end-to-end rather than by handing the hash function a lineage it
+    ignores: the property that matters is what the publisher writes."""
+    out = tmp_path / "datasets"
+    datasets = [_dataset("persons", version="1.0.0")]
+    publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+    first = json.loads((out / "catalog.json").read_text())["datasets"][0]
+
+    # a different manifest — `persons` now derives from a renamed intermediate —
+    # and a row change, so the dataset re-mints rather than carrying forward
+    relineaged = tmp_path / "relineaged.json"
+    relineaged.write_text(
+        json.dumps(
+            {
+                "nodes": {
+                    "model.usa_wa_pipeline.persons": {
+                        "depends_on": {"nodes": ["model.usa_wa_pipeline.int_person_identities"]}
+                    }
+                }
+            }
+        )
+    )
+    con = duckdb.connect(str(built_db))
+    con.execute("insert into persons select '01Z', 'Newcomer'")
+    con.close()
+    publish(built_db, out, relineaged, datasets=datasets)
+    second = json.loads((out / "catalog.json").read_text())["datasets"][0]
+
+    assert first["derived_from"] == ["person_crosswalk"]
+    assert second["derived_from"] == ["int_person_identities"]
+    assert second["contract_hash"] == first["contract_hash"]
+    assert second["schema_version"] == first["schema_version"] == "1.0.0"
