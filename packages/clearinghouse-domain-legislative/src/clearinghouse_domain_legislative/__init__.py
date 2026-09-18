@@ -12,7 +12,6 @@ from clearinghouse_domain_legislative import (  # noqa: F401
     identity,
     operator_events,
     pdc,
-    role_types,
     sessions,
     statutes,
     votes,
@@ -25,7 +24,6 @@ __all__ = [
     "votes",
     "statutes",
     "pdc",
-    "role_types",
     "operator_events",
     "committee_succession",
 ]

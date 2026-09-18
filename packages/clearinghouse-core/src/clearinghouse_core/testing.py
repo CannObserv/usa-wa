@@ -235,7 +235,15 @@ def assert_test_url_safety(test_url: str) -> None:
 #: An entry leaves this set only when the chain stops creating the schema, which
 #: means squashing or rewriting the migrations that do — NOT when #314's drop
 #: migration lands. A drop at the head still leaves the replay creating the
-#: schema on the way there.
+#: schema on the way there. #314 step C landed that drop and this entry stayed,
+#: which is the rule working rather than an omission: ``sync`` now exists from
+#: the #22 revision to step C's and nowhere else, so a reset that stops dropping
+#: it would strand a half-replayed database.
+#:
+#: This is a DROP list. Never create from it: the fixture in :file:`conftest_db.py`
+#: creates only the schemas ``Base.metadata`` declares, because standing up an
+#: empty schema the head migration just dropped is how ``sync`` came back once
+#: per test session after step C.
 LEGACY_MIGRATION_SCHEMAS = frozenset({"sync"})
 
 

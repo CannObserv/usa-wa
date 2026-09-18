@@ -4,7 +4,7 @@
 --   <owner>  — owns every table/sequence; the only role with DDL/DROP rights.
 --              Used solely by `alembic upgrade head` (the migrate systemd unit).
 --   <app>    — DML only (SELECT/INSERT/UPDATE/DELETE). Used by the live API,
---              the sync sidecar, the WSL refresh cron, and the on-box CLIs.
+--              the pipeline chain, the WSL refresh cron, and the on-box CLIs.
 --              Cannot CREATE/ALTER/DROP, so it cannot accidentally migrate.
 --
 -- Re-runnable: every statement is idempotent. The migrate unit applies this
@@ -84,24 +84,27 @@ GRANT USAGE, CREATE ON SCHEMA serving TO :"app";
 --    on purpose: it carries only alembic_version (migrate-only, owned by
 --    postgres), so the app role never touches it and <owner> — which does not
 --    own public — must not try to grant on it at steady state.
-GRANT USAGE ON SCHEMA canonical, clearinghouse_core, registry, sync TO :"owner";
-GRANT USAGE ON SCHEMA canonical, clearinghouse_core, registry, sync TO :"app";
+--
+--    REMOVE A SCHEMA HERE when a migration drops one, in the same change: the
+--    migrate unit runs this file after every `alembic upgrade head`, and GRANT
+--    on a schema that no longer exists is an ERROR, not a no-op — it would wedge
+--    the unit on the deploy that dropped it. `sync` left with #314 step C.
+GRANT USAGE ON SCHEMA canonical, clearinghouse_core, registry TO :"owner";
+GRANT USAGE ON SCHEMA canonical, clearinghouse_core, registry TO :"app";
 
 -- 4. DML grants on all current tables + sequences for the app role.
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA canonical TO :"app";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA clearinghouse_core TO :"app";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA registry TO :"app";
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA sync TO :"app";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA canonical TO :"app";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA clearinghouse_core TO :"app";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA registry TO :"app";
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA sync TO :"app";
 
 -- 5. Default privileges: tables/sequences a FUTURE migration creates (as <owner>)
 --    auto-grant DML to <app>, so no role lag between migrate and serve.
-ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_core, registry, sync
+ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_core, registry
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"app";
-ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_core, registry, sync
+ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_core, registry
   GRANT USAGE, SELECT ON SEQUENCES TO :"app";
 
 -- 6. Write-once provenance (#54). The provenance spine is append-only by

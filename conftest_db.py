@@ -128,11 +128,22 @@ async def test_engine():
         raise RuntimeError(missing_test_database_url_message())
     acquire_test_db_lock(test_database_url)
     engine = create_async_engine(test_database_url)
+    # Drop and create are NOT the same list, and #314 is why. `declared_schemas`
+    # is the drop list: it unions in `LEGACY_MIGRATION_SCHEMAS` so a schema the
+    # models lost while the migration chain kept creating it still gets wiped
+    # (issue #26 from the other direction). Creating that same list would stand a
+    # schema back up that the head migration just dropped and that holds no table
+    # in `Base.metadata` — which is exactly what `sync` did after #314 step C
+    # dropped it: an empty schema, reborn once per test session, indistinguishable
+    # to an operator from one that might still fill up. Create only what
+    # `create_all` is about to write into.
     schemas = declared_schemas()
+    metadata_schemas = {t.schema for t in Base.metadata.tables.values() if t.schema}
     async with engine.begin() as conn:
         await conn.execute(text("DROP TABLE IF EXISTS public.alembic_version"))
         for schema in schemas:
             await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        for schema in metadata_schemas:
             await conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
         await conn.run_sync(Base.metadata.create_all)
     yield engine

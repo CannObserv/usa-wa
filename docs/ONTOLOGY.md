@@ -22,9 +22,16 @@ that also survives a State-resource outage.
 | `roles` | `Role` | a *named slot within* an Organization — a template, not an occupancy |
 | `assignments` | `Assignment` | Person × Role × period — the binding in time |
 | `person_identifiers` / `organization_identifiers` | | N:1 external-ID map, one row per `(parent, scheme)` |
-| `organization_names` / `organization_acronyms` | | dated name / acronym variants for an Organization |
-| `role_types` | `RoleType` | local mirror of PM's `role_types` catalog |
 | `legislative_sessions` | `LegislativeSession` | a bounded period during which a legislature meets |
+
+Four tables left this list at **#314 step C**: `organization_names`,
+`organization_acronyms`, `entity_events` and `role_types` were read-mirrors of
+Power Map state, written only by the sync sidecar and read nowhere else. The
+sidecar went with the #302 replatform; the mirrors went with it. They are worth
+remembering as a shape rather than a loss — a table whose only writer is a
+mirror of somebody else's system has no independent identity, and the retirement
+question for one is always "does anything here still read it", never "is the
+data still true".
 
 All PKs and FKs are ULIDs. Nearly every table carries a `(source, source_id)` natural key under a
 UNIQUE constraint — that pair is the idempotency key every upsert runs on. (The mirror-only
@@ -343,9 +350,10 @@ in it. Then it needs a `resolve_role` and a `citation_target`, and a builder tha
 
 **5. Is it a scalar attribute of an entity that PM already has a field for?** → a **column**,
 mirrored from PM. Precedent: `Organization.acronym` and `Organization.active` are scalars adopted
-from PM's richer structures because the hot-path read wants one value. Where PM keeps a list or a
-dated history, the scalar is the *resolved current value* and the history goes in a child table
-(`organization_names`, `organization_acronyms`).
+from PM's richer structures because the hot-path read wants one value. The child tables that used
+to hold the history behind those scalars (`organization_names`, `organization_acronyms`) were
+dropped at #314 step C — so today the scalar is all there is, and a new dated history would be a
+table this repo actually produces rather than a mirror of PM's.
 
 **6. Otherwise — is it a genuinely new entity with its own identity and lifecycle?** → a **table**,
 in the domain package, in the `canonical` schema, with a `(source, source_id)` natural key, a ULID

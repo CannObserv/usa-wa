@@ -17,6 +17,12 @@ would draw the wrong conclusion about whether to trust it. Both statuses carry
 the same obligations below — a rationale, an open tracking issue, and a marker
 that has to come off if anything ever references the class again.
 
+**The retired tier is empty as of #314 step C**, which dropped all four of those
+tables — the status did its job and reached its end state. It is kept rather
+than deleted because the distinction above is the part worth keeping: the next
+table to lose its producer needs a word that is not ``declared``, and rederiving
+that argument is more expensive than leaving the vocabulary standing.
+
 The markers themselves:
 
 - module level, for a module whose every mapped class is declared::

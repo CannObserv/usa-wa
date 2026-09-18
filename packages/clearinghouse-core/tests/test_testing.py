@@ -154,11 +154,16 @@ def test_declared_schemas_includes_every_workspace_schema():
     forces the registration import itself).
 
     ``sync`` is still asserted here after #314 deleted the package that declared
-    it, and that is the point rather than an oversight: historical migrations are
-    immutable, so the from-base replay still creates the schema. Deriving the set
-    from ``Base.metadata`` alone would have reintroduced #26 from the opposite
+    it AND step C dropped the schema at head, and that is the point rather than
+    an oversight: historical migrations are immutable, so the from-base replay
+    still creates the schema on its way to the drop. Deriving the set from
+    ``Base.metadata`` alone would have reintroduced #26 from the opposite
     direction — a schema the models lost while the chain kept it — so the helper
     unions in ``LEGACY_MIGRATION_SCHEMAS``.
+
+    That union makes this a DROP list and nothing else. ``conftest_db`` creates
+    only the ``Base.metadata`` schemas for exactly this reason; creating from
+    here stood ``sync`` back up once per test session after step C dropped it.
     """
     assert declared_schemas() >= {"clearinghouse_core", "canonical", "sync"}
     assert "sync" not in {t.schema for t in Base.metadata.tables.values() if t.schema}, (

@@ -12,7 +12,6 @@ from sqlalchemy.exc import IntegrityError
 
 from clearinghouse_domain_legislative.identity import (
     Assignment,
-    EntityEvent,
     Organization,
     Person,
     Role,
@@ -21,9 +20,11 @@ from clearinghouse_domain_legislative.sessions import LegislativeSession
 from clearinghouse_domain_legislative.votes import PersonVote, VoteEvent
 
 
+#: ``EntityEvent`` was here until #314 step C dropped the table — the decoupling
+#: it attested to still holds for the four that remain.
 @pytest.mark.parametrize(
     "model",
-    [Person, Assignment, EntityEvent, VoteEvent, PersonVote],
+    [Person, Assignment, VoteEvent, PersonVote],
 )
 def test_decoupled_models_drop_jurisdiction_id(model):
     """Decoupled entities no longer carry a ``jurisdiction_id`` column.
