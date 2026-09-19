@@ -160,10 +160,21 @@ _SIZE_UNIT_BYTES = {
 
 
 def parse_bytes(value: str) -> float:
-    """Parse a systemd byte quantity (``512M``, ``1G``, ``infinity``) into bytes."""
+    """Parse a systemd byte quantity (``512M``, ``1G``, ``infinity``) into bytes.
+
+    The ``N%`` form systemd also accepts is rejected rather than resolved: it is
+    host-relative (20% is 1.5 G on this box and 200 M on a small one), so a static
+    file guard comparing it against a byte floor would assert something different
+    on every machine.
+    """
     text = value.strip().lower()
     if text == "infinity":
         return float("inf")
+    if text.endswith("%"):
+        raise ValueError(
+            f"systemd percentage form {value!r} is host-relative, not an absolute "
+            "quantity; this guard compares bytes"
+        )
     match = re.fullmatch(r"(\d+)\s*([a-z]*)", text)
     if not match:
         raise ValueError(f"unparseable systemd size: {value!r}")

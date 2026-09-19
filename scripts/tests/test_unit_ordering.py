@@ -476,7 +476,18 @@ def test_the_branch_guard_runs_before_the_venv_guard(name):
     guard answers the prior question, so it goes first.
     """
     binaries = _exec_start_pre_binaries(DEPLOY / name)
-    assert binaries.index(GUARD_EXEC) < binaries.index(VENV_GUARD_EXEC)
+    # Membership first: `list.index` RAISES on a missing guard, so a removal
+    # turned this parametrised test into 13 opaque ValueErrors alongside the one
+    # clean failure from the presence tests above — noise over the finding (CR 4).
+    for guard in (GUARD_EXEC, VENV_GUARD_EXEC):
+        assert guard in binaries, (
+            f"{name}: no ExecStartPre runs {guard} — the presence tests above name "
+            "the fix; this one only orders guards that are already there"
+        )
+    assert binaries.index(GUARD_EXEC) < binaries.index(VENV_GUARD_EXEC), (
+        f"{name}: the venv guard runs before the branch guard, so an off-main "
+        "checkout reports a venv finding — a symptom — before the cause"
+    )
 
 
 # Memory-pressure reservation for the serving unit (issue #389).
@@ -505,6 +516,12 @@ def test_serving_unit_reserves_memory(name):
 
     low = unit_value(path, "Service", "MemoryLow")
     assert low is not None, f"{name} missing MemoryLow="
+    # Checked before parsing so the percentage form fails with the unit named,
+    # rather than erroring out of parse_bytes with only the value (CR 3).
+    assert not low.strip().endswith("%"), (
+        f"{name}: MemoryLow={low} is host-relative; this guard needs an absolute "
+        "quantity so the floor means the same thing on every box"
+    )
     assert parse_bytes(low) >= MEMORY_LOW_FLOOR_BYTES, (
         f"{name}: MemoryLow={low} is below the unit's own working set; a "
         "reservation smaller than what it already uses reserves nothing"
@@ -534,3 +551,15 @@ def test_the_memory_floor_reads_suffixes_not_digits():
 
     with pytest.raises(ValueError):
         parse_bytes("256 gigabytes")
+
+
+def test_the_percentage_form_is_rejected_by_name():
+    """`MemoryLow=20%` is valid systemd and is NOT an absolute quantity.
+
+    A host-relative reservation cannot be compared against a byte floor in a
+    static file guard — 20% is 1.5 G here and 200 M on a small box. Rejecting it
+    with a message that says so beats the generic "unparseable" the regex
+    produced, which named neither the form nor why it could not be read.
+    """
+    with pytest.raises(ValueError, match="percentage"):
+        parse_bytes("20%")

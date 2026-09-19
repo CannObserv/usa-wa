@@ -125,6 +125,27 @@ def test_registrations_are_project_dir_anchored() -> None:
         )
 
 
+def _timeout_from_arguments(line: str) -> int | None:
+    """The ``--timeout`` value in an ``install-hook.sh`` argument line, or ``None``.
+
+    ``None`` covers every shape that is not a readable timeout — the flag absent,
+    the flag last with no value, a value that is not an integer. The manifests are
+    vendored, so this repo does not control their shape, and a truncated one used
+    to raise ``IndexError`` from inside a comprehension that named neither the
+    hook nor the file (CR 6).
+    """
+    tokens = line.split()
+    if "--timeout" not in tokens:
+        return None
+    index = tokens.index("--timeout") + 1
+    if index >= len(tokens):
+        return None
+    try:
+        return int(tokens[index])
+    except ValueError:
+        return None
+
+
 def _installed_hook_manifests() -> list[tuple[str, int]]:
     """``(hook_filename, prescribed_timeout)`` for every hook shipping an ``.install``.
 
@@ -143,11 +164,24 @@ def _installed_hook_manifests() -> list[tuple[str, int]]:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            tokens = line.split()
-            if "--timeout" in tokens:
-                manifests.append((hook.name, int(tokens[tokens.index("--timeout") + 1])))
+            timeout = _timeout_from_arguments(line)
+            if timeout is not None:
+                manifests.append((hook.name, timeout))
             break
     return manifests
+
+
+def test_a_malformed_manifest_line_is_not_a_crash() -> None:
+    """A trailing bare ``--timeout`` must not take the suite out with an IndexError.
+
+    The manifests are vendored, so this repo does not control their shape; a
+    truncated one would have raised `IndexError: list index out of range` from
+    inside a list comprehension, naming no hook and no file (CR 6).
+    """
+    assert _timeout_from_arguments("--hook x.sh --skill y --timeout 120") == 120
+    assert _timeout_from_arguments("--hook x.sh --skill y") is None
+    assert _timeout_from_arguments("--hook x.sh --timeout") is None
+    assert _timeout_from_arguments("--hook x.sh --timeout soon") is None
 
 
 def test_manifest_scan_finds_the_vendored_hooks() -> None:

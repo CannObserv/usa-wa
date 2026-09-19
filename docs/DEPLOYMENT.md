@@ -282,7 +282,7 @@ Four changes, in the order they take effect:
 | Don't create the spike | SocratiCode pinned to a pre-installed 1.14.0 instead of `npx … @latest` per launch | `~/.socraticode/pin` — [docs/CODE-EXPLORATION.md § The server is pinned](CODE-EXPLORATION.md#the-server-is-pinned-not-installed-per-launch-389) |
 | Keep the kernel's reserve | `vm.min_free_kbytes` 11399 → **65536** (~64 MiB, ~0.8% of RAM) | `/etc/sysctl.d/60-usa-wa-memory.conf` |
 | Kill the cause before the kernel stalls | **earlyoom** 1.7, `--prefer '^(node\|npm\|esbuild)$'`, `--avoid '^(uv\|uvicorn\|postgres\|sshd\|systemd\|dockerd\|tailscaled)$'` | `/etc/default/earlyoom` |
-| Protect the victim | `MemoryLow=256M` + `OOMScoreAdjust=-500` on `usa-wa.service` | `deploy/usa-wa.service`, pinned by `test_unit_ordering.py` |
+| Protect the victim | `MemoryLow=256M` + `OOMScoreAdjust=-500` on `usa-wa.service`, **plus `MemoryLow=1G` on `system.slice`** | `deploy/usa-wa.service` + `deploy/system.slice.d/`, pinned by `test_unit_ordering.py` and `test_memory_protection.py` |
 
 Two details that are easy to get wrong:
 
@@ -296,9 +296,39 @@ Two details that are easy to get wrong:
 `MemoryLow` is a *reservation*, not a limit — systemd never refuses an allocation
 because of it. The unit's measured peak is ~62 MB, so 256M is headroom.
 
+**`MemoryLow=` on the unit alone reserves nothing.** A cgroup's effective
+`memory.low` is capped by its ancestors', and `system.slice` defaults to `0` —
+measured here on 2026-09-19, with cgroup2 mounted `rw,relatime` (no
+`memory_recursiveprot`) and `DefaultMemoryLow` unset, so
+`min(256M, 0)` was **0** while the unit reported the directive as set. The parent
+protection is `deploy/system.slice.d/10-usa-wa-memory.conf`; without it the unit
+half is decorative. `test_memory_protection.py` asserts the slice's reservation
+covers the unit's, so raising one without the other fails the gate.
+
+### Installing the host artifacts
+
+Three of the four layers live under `deploy/`, mirroring their install paths, and
+are copied into place the same way the units are — root-owned copies, never
+symlinks:
+
+```bash
+sudo mkdir -p /etc/systemd/system/system.slice.d
+sudo cp deploy/system.slice.d/10-usa-wa-memory.conf /etc/systemd/system/system.slice.d/
+sudo cp deploy/sysctl.d/60-usa-wa-memory.conf /etc/sysctl.d/
+sudo cp deploy/default/earlyoom /etc/default/earlyoom
+sudo systemctl daemon-reload && sudo sysctl --system && sudo systemctl restart earlyoom
+```
+
+The fourth, the SocratiCode pin, is a per-host `npm install` and is not a repo
+artifact — [docs/CODE-EXPLORATION.md § The server is pinned](CODE-EXPLORATION.md#the-server-is-pinned-not-installed-per-launch-389).
+
+### Verifying
+
 ```bash
 systemctl show usa-wa.service -p MemoryCurrent -p MemoryPeak -p MemoryLow -p OOMScoreAdjust
-systemctl status earlyoom            # hourly `mem avail:` report in the journal
+cat /sys/fs/cgroup/system.slice/memory.low        # must be non-zero, else the unit's is inert
+systemctl status earlyoom                          # hourly `mem avail:` report in the journal
+tr '\0' '\n' < /proc/$(systemctl show earlyoom -p MainPID --value)/cmdline
 sysctl vm.min_free_kbytes
 ```
 

@@ -80,6 +80,11 @@ for record in "$VENV"/lib/python*/site-packages/*.dist-info/direct_url.json; do
     esac
     editable=$((editable + 1))
 
+    # Only the `file:///…` triple-slash form uv writes is unwrapped. `file:/path`
+    # (also valid per RFC 8089) and percent-encoded paths fall through with the
+    # scheme still attached and are reported — fail-closed, and deliberate: a
+    # URL-decoder here would be more code able to get a production start wrong
+    # than the one shape this deployment produces is worth. (CR 5)
     url=${payload#*'"url":"'}
     url=${url%%'"'*}
     path=${url#file://}
