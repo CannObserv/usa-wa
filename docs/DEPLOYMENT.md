@@ -181,6 +181,66 @@ run `sudo cp deploy/<unit> /etc/systemd/system/` **before** the `daemon-reload` 
 rows below prescribe — `daemon-reload` alone re-reads the stale installed copy and
 silently deploys nothing.
 
+## Shared-venv integrity (issue #279)
+
+The venv `/home/exedev/usa-wa/.venv` is shared by every unit, and #279 is the way
+it silently stops being the production one. The prod checkout is both
+`usa-wa.service`'s `WorkingDirectory=` and the parent of every worktree; the
+worktree skill's default symlinked that `.venv` into each new worktree, and `uv
+run` reinstalls the workspace project — so one `uv run pytest` inside a worktree
+restamped **all** the editable installs in the live venv at the worktree's paths:
+
+```
+- usa-wa-common==0.1.0 (from file:///home/exedev/usa-wa/.worktrees/docs-276-runbook-ordering/packages/usa-wa-common)
++ usa-wa-common==0.1.0 (from file:///home/exedev/usa-wa/packages/usa-wa-common)
+```
+
+Nothing looked wrong: the gate ran green, the PR merged, and the running process
+kept serving from modules it had already imported. It detonated at the next
+`systemctl restart usa-wa`, days later, after the worktree was gone — and it
+detonated naming the logging config rather than the venv:
+
+```
+ModuleNotFoundError: No module named 'clearinghouse_core'
+ValueError: Cannot resolve 'clearinghouse_core.logging.build_json_formatter'
+ValueError: Unable to configure formatter 'json'
+```
+
+**The cause is closed.** `.skills/worktree_venv` holds `none`, so worktrees get no
+linked venv at all (docs/SKILLS.md § Worktree venv isolation) — provision one per
+worktree with `uv sync --locked`. Neither older guard covers this direction:
+`--frozen --no-sync` (#30) stops a *unit start* from mutating the venv, and
+`assert-main-checkout.sh` (#87) guards the checked-out *branch*.
+
+**The detector.** [`scripts/assert-venv-integrity.sh`](../scripts/assert-venv-integrity.sh)
+reads every `*.dist-info/direct_url.json` in the venv — PEP 610's record of where
+each install came from, and exactly what `uv sync --locked` rewrote to repair
+#279 — and requires each editable one to resolve to `<root>/packages/<member>`.
+That is an allowlist rather than a check that the path is under the root, because
+a worktree *is* under the root: `/home/exedev/usa-wa/.worktrees/<slug>/packages/…`
+passes the obvious test and is the very state being caught. It fails closed on a
+missing `.venv` and on a venv carrying no editable installs at all (a unit
+starting against that raises the same `ModuleNotFoundError`).
+
+```bash
+bash /home/exedev/usa-wa/scripts/assert-venv-integrity.sh && echo intact
+```
+
+`USA_WA_DEPLOY_ROOT` overrides the checkout root for a non-standard host.
+
+**Recovery**, once it reports a finding:
+
+```bash
+cd /home/exedev/usa-wa
+uv sync --locked
+sudo systemctl reset-failed usa-wa
+sudo systemctl restart usa-wa
+curl -s http://127.0.0.1:8000/health    # {"status":"ok","build":"..."} — /health, not /api/v1/health
+```
+
+Every code-running unit is affected the same way, not just `usa-wa`: the
+daily/weekly timers and `usa-wa-migrate` all start through `uv run`.
+
 ## Lifecycle reference
 
 | Situation | Action |

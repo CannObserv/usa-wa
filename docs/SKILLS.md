@@ -167,8 +167,8 @@ The trailing group names the `doc-sensitive-paths` entries the line answers for.
 Run `git submodule update --init --recursive` beside the `uv sync --locked` below — it is the other
 half of the same bootstrap, and nothing in `worktree-create.sh` does it for you.
 
-**Four tests fail until you do**, none of them naming the submodule as the cause — each reports only
-`vendored gate missing at <path>`:
+**Five tests fail until you do**, none of them naming the submodule as the cause — each reports only
+that a vendored file is missing:
 
 | Test | Pins |
 |---|---|
@@ -176,8 +176,9 @@ half of the same bootstrap, and nothing in `worktree-create.sh` does it for you.
 | `test_doc_sections.py::test_the_vendored_gate_still_reads_this_file` | `doc-check.sh` still reads `.skills/doc-sections` (gregoryfoster/skills#284) |
 | `test_doc_sensitive_paths.py::test_the_vendored_matcher_is_still_segment_based` | `doc-check.sh` still has `path_matches()` (gregoryfoster/skills#252) |
 | `test_pre_ship_wrapper.py::test_real_delegate_path_resolves` | the hardcoded `shipping-work-python-fastapi/scripts/pre-ship.sh` path |
+| `test_hook_registration_gate.py::test_manifest_scan_finds_the_vendored_hooks` | the `<hook>.install` manifests the timeout guard reads ([§ Hook timeouts](#hook-timeouts)) |
 
-All four read the vendored file **on purpose** — that is how a local snapshot is kept honest against
+All five read the vendored file **on purpose** — that is how a local snapshot is kept honest against
 vendor drift — so none of them can be made to pass with the submodule absent, and none should be.
 
 `.skills/doctor.sh` repairs this on its own, but only when something invokes it: Phase 1 of the
