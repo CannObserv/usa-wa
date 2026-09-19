@@ -212,8 +212,20 @@ worktree with `uv sync --locked`. Neither older guard covers this direction:
 `--frozen --no-sync` (#30) stops a *unit start* from mutating the venv, and
 `assert-main-checkout.sh` (#87) guards the checked-out *branch*.
 
-**The detector.** [`scripts/assert-venv-integrity.sh`](../scripts/assert-venv-integrity.sh)
-reads every `*.dist-info/direct_url.json` in the venv — PEP 610's record of where
+**The guard.** [`scripts/assert-venv-integrity.sh`](../scripts/assert-venv-integrity.sh) is
+wired as the second `ExecStartPre=` on all thirteen code-running `.service` units,
+directly after the #87 branch guard — same exemption (`usa-wa-notify-failure@`,
+the alerting path) and the same cross-check in `test_unit_ordering.py`, so a new
+service either carries both or is an explicit exemption. Branch guard first
+because it answers the prior question: off-main the venv legitimately points
+elsewhere, and a venv finding reported first sends the operator after a symptom.
+
+Unit start is the right place and a pre-commit gate is not. The corruption is
+committed by a *worktree*, whose own venv a gate running there would check
+instead; and it surfaces at a start that may be days later. That start is the
+moment the damage becomes visible, so it is the moment worth naming it.
+
+It reads every `*.dist-info/direct_url.json` in the venv — PEP 610's record of where
 each install came from, and exactly what `uv sync --locked` rewrote to repair
 #279 — and requires each editable one to resolve to `<root>/packages/<member>`.
 That is an allowlist rather than a check that the path is under the root, because
@@ -222,13 +234,17 @@ passes the obvious test and is the very state being caught. It fails closed on a
 missing `.venv` and on a venv carrying no editable installs at all (a unit
 starting against that raises the same `ModuleNotFoundError`).
 
+Run it by hand any time — it writes nothing and touches no network:
+
 ```bash
 bash /home/exedev/usa-wa/scripts/assert-venv-integrity.sh && echo intact
 ```
 
 `USA_WA_DEPLOY_ROOT` overrides the checkout root for a non-standard host.
 
-**Recovery**, once it reports a finding:
+**Recovery**, once a unit refuses to start on it (journal: `assert-venv: refusing
+to start — …`). Returning the venv to health does not auto-restart a `failed`
+unit, exactly as with the #87 guard:
 
 ```bash
 cd /home/exedev/usa-wa

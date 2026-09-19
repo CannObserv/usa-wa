@@ -28,6 +28,13 @@ WorkingDirectory=/home/exedev/usa-wa
 # "main is the deployed code" convention, which #84 showed is not self-enforcing.
 ExecStartPre=/home/exedev/usa-wa/scripts/assert-main-checkout.sh
 
+# Refuse to start against a venv whose editable installs resolve outside
+# /home/exedev/usa-wa/packages/ (#279). A `uv run` in a worktree that shares this
+# venv restamps them at .worktrees/<slug>/packages/…; the checkout stays on main,
+# so the guard above passes and every import here fails once that worktree is
+# gone — days later, reported as `Unable to configure formatter 'json'`.
+ExecStartPre=/home/exedev/usa-wa/scripts/assert-venv-integrity.sh
+
 # Pin PATH so `uv` resolves regardless of the inherited systemd default.
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
