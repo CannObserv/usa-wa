@@ -257,6 +257,51 @@ curl -s http://127.0.0.1:8000/health    # {"status":"ok","build":"..."} — /hea
 Every code-running unit is affected the same way, not just `usa-wa`: the
 daily/weekly timers and `usa-wa-migrate` all start through `uv run`.
 
+## Memory pressure (issue #389)
+
+7.7 GiB, **no swap**, one production service and interactive agent sessions on the
+same host. That combination fails in an unusual way: past the ceiling the kernel
+does not reliably kill anything, it fails *atomic* allocations in unrelated
+processes (`tailscaled`, `ksoftirqd`) while the production service starves. On
+`CannObserv/broker` — same shape, 8 GB — the bus was effectively down 57m 48s with
+nothing OOM-killed ([gregoryfoster/skills#295](https://github.com/gregoryfoster/skills/issues/295)).
+
+**Measured here, 2026-09-19.** `preflight.sh --check` passed on memory (7.7 GiB,
+above the 4 GiB warn) and flagged the absent swap. `usa-wa.service` read
+`oom_score` **668**; three concurrent SocratiCode MCP servers, launched from
+`npx` caches under two *different* hashes, read **676–679**. Cause and victim
+within noise of each other. Broker's report that exe.dev session processes sit at
+`oom_score_adj` -1000 and so can never be picked does **not** reproduce here:
+`exe-init` reads 0, only `sshd` reads -1000, and session-launched servers inherit
+0. `postgresql.service` already ships at -900 from the Debian packaging.
+
+Four changes, in the order they take effect:
+
+| Layer | Change | Where it lives |
+|---|---|---|
+| Don't create the spike | SocratiCode pinned to a pre-installed 1.14.0 instead of `npx … @latest` per launch | `~/.socraticode/pin` — [docs/CODE-EXPLORATION.md § The server is pinned](CODE-EXPLORATION.md#the-server-is-pinned-not-installed-per-launch-389) |
+| Keep the kernel's reserve | `vm.min_free_kbytes` 11399 → **65536** (~64 MiB, ~0.8% of RAM) | `/etc/sysctl.d/60-usa-wa-memory.conf` |
+| Kill the cause before the kernel stalls | **earlyoom** 1.7, `--prefer '^(node\|npm\|esbuild)$'`, `--avoid '^(uv\|uvicorn\|postgres\|sshd\|systemd\|dockerd\|tailscaled)$'` | `/etc/default/earlyoom` |
+| Protect the victim | `MemoryLow=256M` + `OOMScoreAdjust=-500` on `usa-wa.service` | `deploy/usa-wa.service`, pinned by `test_unit_ordering.py` |
+
+Two details that are easy to get wrong:
+
+- **The serving unit's process name is `uv`, not `uvicorn`.** `ExecStart` is `uv
+  run … uvicorn`, so `comm` is `uv` — an earlyoom `--avoid` regex written for
+  `uvicorn` protects nothing. Both are listed.
+- **With zero swap, earlyoom's swap condition is always satisfied** (`0 <= 10%`),
+  so the memory threshold alone governs. That is the intent here; on a host with
+  swap, both must be below their minimum before it acts.
+
+`MemoryLow` is a *reservation*, not a limit — systemd never refuses an allocation
+because of it. The unit's measured peak is ~62 MB, so 256M is headroom.
+
+```bash
+systemctl show usa-wa.service -p MemoryCurrent -p MemoryPeak -p MemoryLow -p OOMScoreAdjust
+systemctl status earlyoom            # hourly `mem avail:` report in the journal
+sysctl vm.min_free_kbytes
+```
+
 ## Lifecycle reference
 
 | Situation | Action |

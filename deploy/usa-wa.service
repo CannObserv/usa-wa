@@ -55,5 +55,34 @@ ExecStart=/usr/local/bin/uv run --frozen --no-sync uvicorn usa_wa_api.api.main:a
 Restart=on-failure
 RestartSec=5
 
+# Memory-pressure reservation (#389). The host is 7.7 GiB with NO swap, and an
+# interactive agent session shares it with this service — the combination that
+# took CannObserv/broker down for 57m on 2026-09-16 (gregoryfoster/skills#295).
+# Two properties make the serving unit the victim rather than the cause:
+#
+#   1. Nothing separates them. Broker's report was that exe.dev session processes
+#      inherit oom_score_adj -1000 and so can never be picked; measured HERE on
+#      2026-09-19 that does not hold — exe-init reads 0 (only sshd reads -1000)
+#      and session-launched servers inherit 0, the same adjustment this unit had.
+#      Either way the kernel has no reason to prefer the cause over the service.
+#   2. With no swap the kernel may kill nothing at all past the ceiling: it fails
+#      atomic allocations in unrelated processes (tailscaled, ksoftirqd) while the
+#      production service starves.
+#
+# MemoryLow protects this unit's pages from reclaim — a reservation, not a limit.
+# Measured peak is ~62 MB, so 256M is headroom rather than a ceiling anywhere near
+# live usage; systemd never refuses an allocation because of MemoryLow.
+# OOMScoreAdjust moves it down the victim list. Measured on this host 2026-09-19:
+# this unit read oom_score 668 while three concurrent SocratiCode MCP servers read
+# 676-679 — cause and victim within noise of each other. -500 makes the gap
+# decisive. (postgresql.service already ships at oom_score_adj -900 from the
+# Debian packaging, so it needs no equivalent here.)
+#
+# Neither directive substitutes for the host-side half — vm.min_free_kbytes,
+# earlyoom, and not installing an npm package per MCP session. All three are on
+# this box; see docs/DEPLOYMENT.md § Memory pressure.
+MemoryLow=256M
+OOMScoreAdjust=-500
+
 [Install]
 WantedBy=multi-user.target
