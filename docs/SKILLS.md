@@ -30,6 +30,8 @@ Each vendored hook ships a `<hook>.install` manifest carrying a `--timeout`, and
 
 `context-manifest-drift.sh` is project-local, ships no manifest, and carries no prescribed value.
 
+**The order of the four entries is incidental.** Re-running an installer strips its own entry and re-appends it, so the array order reflects the order the installers last ran, not a decision. Nothing depends on it today; if something ever does, say so here rather than inferring intent from the file.
+
 Re-running an installer **adds** a missing timeout and **preserves** a differing one ([gregoryfoster/skills#259](https://github.com/gregoryfoster/skills/issues/259)), so the repair is idempotent:
 
 ```bash
@@ -177,6 +179,8 @@ that a vendored file is missing:
 | `test_doc_sensitive_paths.py::test_the_vendored_matcher_is_still_segment_based` | `doc-check.sh` still has `path_matches()` (gregoryfoster/skills#252) |
 | `test_pre_ship_wrapper.py::test_real_delegate_path_resolves` | the hardcoded `shipping-work-python-fastapi/scripts/pre-ship.sh` path |
 | `test_hook_registration_gate.py::test_manifest_scan_finds_the_vendored_hooks` | the `<hook>.install` manifests the timeout guard reads ([§ Hook timeouts](#hook-timeouts)) |
+
+One further test depends on state outside the checkout for a different reason: `test_assert_venv_integrity.py::test_the_production_venv_is_intact` runs the #279 guard against `/home/exedev/usa-wa/.venv` whichever checkout invokes it, so a **worktree** suite can go red for a condition in the primary checkout. That is deliberate — a guard about to become an `ExecStartPre=` on thirteen units should be known to pass against the venv those units start from — and a red there is a live finding, repaired with `uv sync --locked` in the primary checkout ([`docs/DEPLOYMENT.md` § Shared-venv integrity](DEPLOYMENT.md#shared-venv-integrity-issue-279)). It skips where that checkout does not exist.
 
 All five read the vendored file **on purpose** — that is how a local snapshot is kept honest against
 vendor drift — so none of them can be made to pass with the submodule absent, and none should be.
