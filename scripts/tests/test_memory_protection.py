@@ -65,6 +65,12 @@ def test_the_slice_reservation_covers_the_units() -> None:
     unit_low = unit_value(SERVING_UNIT, "Service", "MemoryLow")
     assert unit_low is not None, "usa-wa.service lost its MemoryLow="
 
+    for name, low in (("system.slice", slice_low), ("usa-wa.service", unit_low)):
+        assert not low.strip().endswith("%"), (
+            f"{name}: MemoryLow={low} is host-relative, so the two sides of this "
+            "comparison would not mean the same thing (CR 3)"
+        )
+
     assert parse_bytes(slice_low) >= parse_bytes(unit_low), (
         f"system.slice MemoryLow={slice_low} is below usa-wa.service's {unit_low}; "
         "the unit's effective protection is capped by its parent's, so the excess "

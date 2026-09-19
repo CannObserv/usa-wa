@@ -505,6 +505,12 @@ def test_serving_unit_reserves_memory(name):
 
     low = unit_value(path, "Service", "MemoryLow")
     assert low is not None, f"{name} missing MemoryLow="
+    # Checked before parsing so the percentage form fails with the unit named,
+    # rather than erroring out of parse_bytes with only the value (CR 3).
+    assert not low.strip().endswith("%"), (
+        f"{name}: MemoryLow={low} is host-relative; this guard needs an absolute "
+        "quantity so the floor means the same thing on every box"
+    )
     assert parse_bytes(low) >= MEMORY_LOW_FLOOR_BYTES, (
         f"{name}: MemoryLow={low} is below the unit's own working set; a "
         "reservation smaller than what it already uses reserves nothing"
@@ -534,3 +540,15 @@ def test_the_memory_floor_reads_suffixes_not_digits():
 
     with pytest.raises(ValueError):
         parse_bytes("256 gigabytes")
+
+
+def test_the_percentage_form_is_rejected_by_name():
+    """`MemoryLow=20%` is valid systemd and is NOT an absolute quantity.
+
+    A host-relative reservation cannot be compared against a byte floor in a
+    static file guard — 20% is 1.5 G here and 200 M on a small box. Rejecting it
+    with a message that says so beats the generic "unparseable" the regex
+    produced, which named neither the form nor why it could not be read.
+    """
+    with pytest.raises(ValueError, match="percentage"):
+        parse_bytes("20%")
