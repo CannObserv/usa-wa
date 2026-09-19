@@ -123,3 +123,76 @@ def test_registrations_are_project_dir_anchored() -> None:
         assert "CLAUDE_PROJECT_DIR" in command, (
             f"cwd-relative hook command: {command!r} — re-run its installer"
         )
+
+
+def _installed_hook_manifests() -> list[tuple[str, int]]:
+    """``(hook_filename, prescribed_timeout)`` for every hook shipping an ``.install``.
+
+    A vendored hook's constants live in a ``<hook>.install`` manifest beside the
+    script — the same file ``.skills/doctor.sh`` reads to print a repair line. The
+    manifest is reached through the symlink, so this yields nothing at all on an
+    uninitialized ``skills-vendor/``; the companion test below fails in that state
+    rather than passing over an empty list.
+    """
+    manifests: list[tuple[str, int]] = []
+    for hook in sorted(HOOKS_DIR.glob("*.sh")):
+        manifest = hook.resolve().with_suffix(".install")
+        if not manifest.is_file():
+            continue  # a project-local hook, which has no vendored manifest
+        for line in manifest.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            tokens = line.split()
+            if "--timeout" in tokens:
+                manifests.append((hook.name, int(tokens[tokens.index("--timeout") + 1])))
+            break
+    return manifests
+
+
+def test_manifest_scan_finds_the_vendored_hooks() -> None:
+    """A per-hook guard over an empty scan passes for the wrong reason.
+
+    Reads through the hook symlinks on purpose — that is how the registration is
+    kept honest against the vendor's own constants — so it fails on an
+    uninitialized ``skills-vendor/`` the same way the four tests in
+    docs/SKILLS.md § Worktree submodule population do.
+    """
+    assert len(_installed_hook_manifests()) >= 3, (
+        "no vendored hook manifests found — vendored gate missing, or the "
+        "<hook>.install convention moved"
+    )
+
+
+def _registered_entries() -> list[dict]:
+    return [
+        hook
+        for groups in json.loads(SETTINGS.read_text())["hooks"].values()
+        for group in groups
+        for hook in group["hooks"]
+    ]
+
+
+def test_every_manifest_timeout_is_registered() -> None:
+    """A hook whose manifest prescribes a timeout carries one in settings.json (#379).
+
+    Presence, not equality: gregoryfoster/skills#259 makes *preserve* beat
+    *prescribe*, so a consumer that deliberately set a different value keeps it
+    across a re-run of the installer, and asserting the manifest's literal here
+    would make this gate fight that. Absence is the defect — the harness default
+    then applies, and for ``skills-submodule-update.sh`` that budget now has to
+    cover a ``git submodule update --remote`` per vendored repo **plus** the
+    ``git push`` gregoryfoster/skills#293 added. A kill between that commit and
+    its push leaves ``main`` ahead of ``origin/main``: an unpushed pointer bump
+    is functionally untracked for every consumer but this machine.
+    """
+    entries = _registered_entries()
+    for name, prescribed in _installed_hook_manifests():
+        matching = [entry for entry in entries if name in entry["command"]]
+        assert matching, f"{name}: on disk with no registration"
+        for entry in matching:
+            assert entry.get("timeout") is not None, (
+                f"{name}: registered with no timeout, so the harness default applies "
+                f"instead of the manifest's {prescribed}s. Re-run the hook's installer "
+                f"(see {name.removesuffix('.sh')}.install beside the script)."
+            )

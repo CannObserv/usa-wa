@@ -18,6 +18,27 @@ bash .skills/doctor.sh --version   # installed copy's stamp
 bash skills-vendor/gregoryfoster-skills/skills/managing-skills/scripts/install-doctor.sh   # manual (re)install
 ```
 
+## Hook timeouts
+
+Each vendored hook ships a `<hook>.install` manifest carrying a `--timeout`, and an entry registered *without* one silently inherits the harness default instead (#379). All three vendored registrations now name theirs:
+
+| Hook | Timeout | Why that budget |
+|---|---|---|
+| `skills-submodule-update.sh` | 120s | a `git submodule update --remote` per vendored repo, and since [gregoryfoster/skills#293](https://github.com/gregoryfoster/skills/issues/293) a `git push` sharing it. A kill between the commit and the push leaves `main` ahead of `origin/main` — an unpushed pointer bump is functionally untracked for every consumer but this machine |
+| `socraticode-health.sh` | 120s | shells out to `mcp-driver.mjs`, which launches the server; it stamps its once-per-UTC-day lock *before* the work, so a kill consumes the day's attempt and reports nothing |
+| `socraticode-reminder.sh` | 5s | one `echo` — no network, no Docker, no submodule |
+
+`context-manifest-drift.sh` is project-local, ships no manifest, and carries no prescribed value.
+
+Re-running an installer **adds** a missing timeout and **preserves** a differing one ([gregoryfoster/skills#259](https://github.com/gregoryfoster/skills/issues/259)), so the repair is idempotent:
+
+```bash
+bash skills-vendor/gregoryfoster-skills/skills/managing-skills/scripts/install-refresh.sh
+bash skills-vendor/gregoryfoster-skills/skills/managing-skills/scripts/install-refresh.sh --check
+```
+
+Pinned by [`scripts/tests/test_hook_registration_gate.py`](../scripts/tests/test_hook_registration_gate.py), which asserts *presence* rather than the manifest's literal — asserting equality would fight #259's preserve-beats-prescribe.
+
 ## Vendor sources
 
 | Submodule | Upstream | Purpose |
