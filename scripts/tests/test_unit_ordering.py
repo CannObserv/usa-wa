@@ -29,6 +29,7 @@ from pathlib import Path
 import pytest
 from systemd_units import (
     DEPLOY,
+    parse_bytes,
     parse_exec_start_pre,
     parse_seconds,
     parse_unit_deps,
@@ -476,3 +477,60 @@ def test_the_branch_guard_runs_before_the_venv_guard(name):
     """
     binaries = _exec_start_pre_binaries(DEPLOY / name)
     assert binaries.index(GUARD_EXEC) < binaries.index(VENV_GUARD_EXEC)
+
+
+# Memory-pressure reservation for the serving unit (issue #389).
+#
+# The host is 7.7 GiB with NO swap, and an interactive session shares it with
+# this service. exe.dev session processes inherit oom_score_adj -1000 from
+# exe-init and sshd, so the kernel's OOM killer can never pick the process that
+# caused the exhaustion — it takes a unit at adj 0 instead, and on this box the
+# serving unit is the one whose death is the outage. Past the ceiling with no
+# swap the kernel may not kill anything at all: it fails atomic allocations in
+# unrelated processes (the shape of CannObserv/broker's 2026-09-16 incident,
+# gregoryfoster/skills#295).
+#
+# MemoryLow protects the unit's pages from reclaim; measured peak is ~62 MB, so
+# 256M is reservation with headroom rather than a limit anywhere near live usage.
+# OOMScoreAdjust moves it down the victim list — the oneshot timers are
+# retryable and it is not.
+MEMORY_RESERVED_SERVICES = {"usa-wa.service"}
+MEMORY_LOW_FLOOR_BYTES = 128 * 1024 * 1024
+
+
+@pytest.mark.parametrize("name", sorted(MEMORY_RESERVED_SERVICES))
+def test_serving_unit_reserves_memory(name):
+    """The serving unit carries MemoryLow= and a negative OOMScoreAdjust= (#389)."""
+    path = DEPLOY / name
+
+    low = unit_value(path, "Service", "MemoryLow")
+    assert low is not None, f"{name} missing MemoryLow="
+    assert parse_bytes(low) >= MEMORY_LOW_FLOOR_BYTES, (
+        f"{name}: MemoryLow={low} is below the unit's own working set; a "
+        "reservation smaller than what it already uses reserves nothing"
+    )
+
+    adjust = unit_value(path, "Service", "OOMScoreAdjust")
+    assert adjust is not None, f"{name} missing OOMScoreAdjust="
+    assert int(adjust) < 0, (
+        f"{name}: OOMScoreAdjust={adjust} leaves it at or above the default, so it "
+        "stays a first-choice victim while the session that exhausted the host "
+        "sits at -1000 and cannot be picked"
+    )
+
+
+def test_the_memory_floor_reads_suffixes_not_digits():
+    """`parse_bytes` has teeth: the floor must reject a reservation written bare.
+
+    `MemoryLow=256` is 256 **bytes** to systemd, not 256 MB — a reservation that
+    reserves nothing while reading, in a diff, exactly like one that does. A
+    comparison performed on the digits alone accepts it.
+    """
+    assert parse_bytes("256M") == 256 * 1024**2
+    assert parse_bytes("256M") == parse_bytes("256MB")  # systemd's B is not SI
+    assert parse_bytes("1G") == 1024**3
+    assert parse_bytes("256") < MEMORY_LOW_FLOOR_BYTES, "a bare number must fail the floor"
+    assert parse_bytes("infinity") == float("inf")
+
+    with pytest.raises(ValueError):
+        parse_bytes("256 gigabytes")

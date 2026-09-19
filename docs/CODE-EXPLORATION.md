@@ -133,3 +133,48 @@ This file used to transcribe the query, and the transcription had already gone s
 it omitted `codebase_graph_circular`, `_stats` and `_visualize`. That is the failure
 upstream removed the copies for (gregoryfoster/skills#234): a transcription of a
 symlinked hook's output drifts silently, because nothing compares the two.
+
+## The server is pinned, not installed per launch (#389)
+
+The plugin's `mcp.json` is `npx -y --prefer-online socraticode@latest`, and
+`--prefer-online` revalidates against the registry on **every** launch — a warm
+cache is not a warm path on any day the package moved. The daily
+`socraticode-health.sh` hook shells out to the same command from `SessionStart`,
+concurrently with the plugin's own launch. So the expensive part of a session
+start was an *install*, not an index: measured upstream on an 8 GB host, a cold
+install plus server plus full index reached **1.2 G** at the cgroup and all 126
+`MemoryHigh` throttle events landed in the install, none in indexing
+([gregoryfoster/skills#295](https://github.com/gregoryfoster/skills/issues/295)).
+
+This host qualifies — 7.7 GiB, **no swap**, and a production service sharing it —
+so the server is installed once, deliberately, under a cap:
+
+```bash
+npm view socraticode version        # pick a literal; never @latest
+systemd-run --user --scope -p MemoryHigh=1200M -p MemoryMax=1536M \
+  -- npm install --prefix ~/.socraticode/pin socraticode@<version>
+```
+
+Pinned here at **1.14.0** on 2026-09-19 (457 MB under `~/.socraticode/pin`), which
+is what `@latest` resolved to that day — so the pin introduced no version drift.
+Confirm which path wins without launching a server:
+
+```bash
+node skills-vendor/gregoryfoster-skills/skills/init-socraticode/scripts/mcp-driver.mjs resolve
+# → "source": "pinned install v1.14.0 (/home/exedev/.socraticode/pin)"
+```
+
+Nothing else is configured. Absent a pin the chain is exactly what it was, so this
+is opt-in and reversible by deleting the directory.
+
+**It does not pin the session.** Claude Code cannot override a plugin's MCP
+command, so the plugin keeps launching `@latest` while the driver is
+deterministic. The health hook measures that gap and reports a *defect* only at a
+minor or major difference — a patch apart is the intended steady state, since a
+pin is meant to lag. Re-pin as a decision, not on a schedule: the reason to pin
+was to stop an unattended launch from installing.
+
+Host-side memory protection — `MemoryLow=`/`OOMScoreAdjust=` on the serving unit,
+`vm.min_free_kbytes`, earlyoom — is in
+[`docs/DEPLOYMENT.md` § Memory pressure](DEPLOYMENT.md#memory-pressure-issue-389).
+A cap on a session process cannot substitute for it.
