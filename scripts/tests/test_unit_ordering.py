@@ -476,7 +476,18 @@ def test_the_branch_guard_runs_before_the_venv_guard(name):
     guard answers the prior question, so it goes first.
     """
     binaries = _exec_start_pre_binaries(DEPLOY / name)
-    assert binaries.index(GUARD_EXEC) < binaries.index(VENV_GUARD_EXEC)
+    # Membership first: `list.index` RAISES on a missing guard, so a removal
+    # turned this parametrised test into 13 opaque ValueErrors alongside the one
+    # clean failure from the presence tests above — noise over the finding (CR 4).
+    for guard in (GUARD_EXEC, VENV_GUARD_EXEC):
+        assert guard in binaries, (
+            f"{name}: no ExecStartPre runs {guard} — the presence tests above name "
+            "the fix; this one only orders guards that are already there"
+        )
+    assert binaries.index(GUARD_EXEC) < binaries.index(VENV_GUARD_EXEC), (
+        f"{name}: the venv guard runs before the branch guard, so an off-main "
+        "checkout reports a venv finding — a symptom — before the cause"
+    )
 
 
 # Memory-pressure reservation for the serving unit (issue #389).
