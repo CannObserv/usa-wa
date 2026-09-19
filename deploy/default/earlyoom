@@ -1,0 +1,37 @@
+# usa-wa#389 — earlyoom on a 7.7 GiB host with NO swap that runs the production
+# usa-wa service alongside interactive agent sessions.
+#
+# Why it exists here at all: with no swap, the kernel past its memory ceiling
+# does not reliably kill anything — it fails atomic allocations in unrelated
+# processes (tailscaled, ksoftirqd) while the production service starves. That is
+# how CannObserv/broker's 2026-09-16 outage presented, nothing OOM-killed and the
+# bus down 57m 48s (gregoryfoster/skills#295). earlyoom acts *before* the kernel
+# reaches that state.
+#
+# -r 3600: hourly memory report (the packaged default; keeps the journal quiet).
+# -m/-s are left at their defaults (10% / 10%, SIGKILL at 5%). With zero swap the
+# swap condition is permanently satisfied (0 <= 10%), so the memory threshold
+# alone governs — intended here, and worth saying, because the documented "both
+# must be below minimum" reads as though it would never fire.
+#
+# --prefer: the SocratiCode MCP servers and any npm install a launch performs are
+# the spikes on this host. Measured 2026-09-19: three concurrent `node …
+# .npm/_npx/…/socraticode` servers at oom_score 676-679 against usa-wa's 668 —
+# i.e. the cause and the victim were within noise of each other.
+#
+# --avoid: `uv` is the serving unit's process name. ExecStart is `uv run …
+# uvicorn`, so the comm the kernel and earlyoom see is `uv`, NOT `uvicorn` — a
+# regex written for the name this repo calls that process everywhere else would
+# protect nothing and read as though it did. Both are listed, and
+# scripts/tests/test_memory_protection.py EXECUTES these regexes against `uv` so
+# the trap cannot come back. postgres already ships at oom_score_adj -900 from
+# the Debian packaging and needs nothing here, but is listed so a future
+# repackaging cannot quietly remove that protection.
+#
+# systemd's ExecStart is `/usr/bin/earlyoom $EARLYOOM_ARGS`. Verified on this
+# host that the single quotes below are consumed rather than passed through:
+# /proc/<pid>/cmdline reads `--prefer` `^(node|npm|esbuild)$`, unquoted.
+#
+# Install: sudo cp deploy/default/earlyoom /etc/default/earlyoom && sudo systemctl restart earlyoom
+# Verify:  tr '\0' '\n' < /proc/$(systemctl show earlyoom -p MainPID --value)/cmdline
+EARLYOOM_ARGS="-r 3600 --prefer '^(node|npm|esbuild)$' --avoid '^(uv|uvicorn|postgres|sshd|systemd|dockerd|tailscaled)$'"

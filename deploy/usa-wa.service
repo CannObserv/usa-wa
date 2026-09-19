@@ -72,6 +72,13 @@ RestartSec=5
 # MemoryLow protects this unit's pages from reclaim — a reservation, not a limit.
 # Measured peak is ~62 MB, so 256M is headroom rather than a ceiling anywhere near
 # live usage; systemd never refuses an allocation because of MemoryLow.
+#
+# IT IS HALF A MECHANISM. A cgroup's effective memory.low is capped by its
+# ancestors', so this line reserves nothing unless system.slice holds protection
+# for it to draw on — and system.slice defaults to 0. The other half is
+# deploy/system.slice.d/10-usa-wa-memory.conf, which must be installed for this
+# directive to do anything at all; test_memory_protection.py asserts the two stay
+# in the right relation.
 # OOMScoreAdjust moves it down the victim list. Measured on this host 2026-09-19:
 # this unit read oom_score 668 while three concurrent SocratiCode MCP servers read
 # 676-679 — cause and victim within noise of each other. -500 makes the gap
