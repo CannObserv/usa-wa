@@ -223,6 +223,14 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
 GUARD_EXEC = "/home/exedev/usa-wa/scripts/assert-main-checkout.sh"
 UNGUARDED_SERVICES = {"usa-wa-notify-failure@.service"}
 
+# Shared venv-integrity guard (issue #279). Same exemption set and the same
+# reasoning as the branch guard, one layer down: #87 asserts WHICH TREE is checked
+# out, this asserts WHICH TREE THE VENV RESOLVES IMPORTS FROM. A worktree that ran
+# `uv run` against a linked prod .venv leaves the checkout on main and every
+# editable install pointing at .worktrees/<slug>/packages/…, so the #87 guard
+# passes and the unit still cannot import clearinghouse_core.
+VENV_GUARD_EXEC = "/home/exedev/usa-wa/scripts/assert-venv-integrity.sh"
+
 # Units whose Restart=on-failure engages systemd's start-rate limiter (#87 CR).
 # Each must carry a StartLimit window wide enough for the burst to accumulate,
 # else the guard's ExecStartPre failure restart-loops unbounded (finding 1) —
@@ -231,12 +239,17 @@ UNGUARDED_SERVICES = {"usa-wa-notify-failure@.service"}
 RESTARTING_SERVICES = {"usa-wa.service"}
 
 
-def _guard_present(path: Path) -> bool:
-    for value in parse_exec_start_pre(path):
-        exe = value.lstrip("+!-").split()[0] if value else ""
-        if exe == GUARD_EXEC:
-            return True
-    return False
+def _exec_start_pre_binaries(path: Path) -> list[str]:
+    """The executables a unit's ExecStartPre= lines invoke, in file order.
+
+    Systemd's `+`/`!`/`-` prefixes modify privilege and failure handling, not the
+    command, so they are stripped before comparing.
+    """
+    return [value.lstrip("+!-").split()[0] for value in parse_exec_start_pre(path) if value]
+
+
+def _guard_present(path: Path, guard: str = GUARD_EXEC) -> bool:
+    return guard in _exec_start_pre_binaries(path)
 
 
 def _loop_is_bounded(interval: str, restart_sec: str, burst: str) -> bool:
@@ -411,3 +424,55 @@ def test_parser_tolerates_trailing_backslash_at_eof(tmp_path):
     assert after == {"a.service"}
     assert before == set()
     assert on_failure == set()
+
+
+def test_venv_guard_on_every_code_running_service():
+    """Every prod .service that runs repo code carries the venv-integrity guard (#279).
+
+    Cross-checked against the on-disk .service set exactly as the branch guard is,
+    so a newly added service either carries it or is an explicit entry in
+    UNGUARDED_SERVICES.
+
+    The unit start is the right place for this and a pre-commit gate is not: the
+    corruption is committed by a *worktree*, whose own venv a gate running there
+    would check instead, and it detonates at a start that may be days later. This
+    is the moment the damage becomes visible, so it is the moment worth naming it
+    — otherwise the operator meets `Unable to configure formatter 'json'`.
+    """
+    on_disk_services = {p.name for p in DEPLOY.glob("*.service")}
+    expected_guarded = on_disk_services - UNGUARDED_SERVICES
+    actually_guarded = {
+        name for name in on_disk_services if _guard_present(DEPLOY / name, VENV_GUARD_EXEC)
+    }
+    assert actually_guarded == expected_guarded
+
+
+def test_exempt_services_carry_no_venv_guard():
+    """The notify handler must not carry it either.
+
+    It runs notify-failure.sh, not app code, and it is the unit that reports every
+    other unit's failure. A guard that can refuse to start it would suppress the
+    alert for the outage it is diagnosing.
+    """
+    for name in UNGUARDED_SERVICES:
+        assert not _guard_present(DEPLOY / name, VENV_GUARD_EXEC)
+
+
+def test_venv_guard_script_exists_and_is_executable():
+    script = DEPLOY.parent / "scripts" / "assert-venv-integrity.sh"
+    assert script.is_file()
+    assert script.stat().st_mode & 0o111, "guard script must be executable"
+
+
+@pytest.mark.parametrize(
+    "name", sorted({p.name for p in DEPLOY.glob("*.service")} - UNGUARDED_SERVICES)
+)
+def test_the_branch_guard_runs_before_the_venv_guard(name):
+    """Order is diagnosis, not correctness — both are cheap and read-only.
+
+    Off-main, the venv legitimately points at whatever that branch resolves to, so
+    a venv finding reported first sends the operator after a symptom. The branch
+    guard answers the prior question, so it goes first.
+    """
+    binaries = _exec_start_pre_binaries(DEPLOY / name)
+    assert binaries.index(GUARD_EXEC) < binaries.index(VENV_GUARD_EXEC)

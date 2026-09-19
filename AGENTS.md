@@ -71,13 +71,13 @@ The full service table (every systemd unit and what each one does), the `OnFailu
 
 **Port 8000 belongs to systemd.** Never start uvicorn manually on port 8000.
 
-**Prod checkout stays on `main` (issue #87).** Every code-running unit carries `ExecStartPre=…/scripts/assert-main-checkout.sh` and refuses to start off-main, so a feature branch left checked out wedges the timers rather than deploying itself. Do feature work in a git worktree (see the `using-git-worktrees` skill). Recovery and the start-limit reasoning: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+**Prod checkout stays on `main` (issue #87).** Every code-running unit carries `ExecStartPre=…/scripts/assert-main-checkout.sh` and refuses to start off-main, so a feature branch left checked out wedges the timers rather than deploying itself. A second `ExecStartPre=…/scripts/assert-venv-integrity.sh` (#279) likewise refuses a shared `.venv` whose editable installs resolve outside `packages/` — repair: `uv sync --locked`. Do feature work in a git worktree (see the `using-git-worktrees` skill). Recovery and the start-limit reasoning: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 Bootstrap a new worktree with **both** steps — neither is done for you, and each fails in its own
 way: `uv sync --locked` (`.skills/worktree_venv=none` links no venv on purpose —
 [`docs/SKILLS.md`](docs/SKILLS.md#worktree-venv-isolation)) and
 `git submodule update --init --recursive` (`git worktree add` never populates `skills-vendor/`,
-and four tests fail until it does — [`docs/SKILLS.md`](docs/SKILLS.md#worktree-submodule-population)).
+and five tests fail until it does — [`docs/SKILLS.md`](docs/SKILLS.md#worktree-submodule-population)).
 
 **Units never sync the venv (issue #30).** Every entrypoint runs `uv run --frozen --no-sync`, so unit start cannot apply a dependency change a `git pull` landed in `uv.lock`. Dependency changes land only via a deliberate sync:
 
