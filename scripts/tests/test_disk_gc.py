@@ -321,6 +321,23 @@ def test_prunes_plugin_cache_versions_that_are_not_installed(host):
     assert current.exists()
 
 
+def test_a_failed_removal_stays_in_the_reclaimable_accounting(host):
+    """CR 7. Counting a candidate as neither pruned nor reclaimable made a run
+    that failed to free 2 GB report `pruned_bytes: 0, reclaimable_bytes: 0` —
+    read as "nothing to reclaim", the opposite of what happened."""
+    servers = host["vscode"] / "cli" / "servers"
+    _fill(servers / "Stable-idle0000", kib=128)
+    servers.chmod(0o555)  # removal denied, listing still allowed
+    try:
+        data = report(host, "--prune")
+        assert data["pruned_bytes"] == 0
+        assert data["reclaimable_bytes"] >= 128 * 1024
+        assert any(c["kind"] == "vscode-server" for c in data["reclaimable"])
+        assert any("could not remove" in w for w in data["warnings"])
+    finally:
+        servers.chmod(0o755)
+
+
 def test_leaves_the_plugin_cache_alone_without_a_readable_manifest(host):
     """No manifest means no evidence of what is installed — so remove nothing."""
     version = _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.12.0")

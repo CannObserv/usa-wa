@@ -182,6 +182,12 @@ PRUNED_KINDS=()
 PRUNED_PATHS=()
 PRUNED_BYTES=()
 PRUNED_TOTAL=0
+#: Candidates a --prune run tried and failed to remove. They stay in the
+#: reclaimable accounting, so the report distinguishes "nothing to reclaim" from
+#: "could not reclaim it".
+UNREMOVED_KINDS=()
+UNREMOVED_PATHS=()
+UNREMOVED_BYTES=()
 RECLAIMABLE_TOTAL=0
 
 for i in "${!CAND_PATHS[@]}"; do
@@ -193,7 +199,15 @@ for i in "${!CAND_PATHS[@]}"; do
             PRUNED_BYTES+=("$bytes")
             PRUNED_TOTAL=$((PRUNED_TOTAL + bytes))
         else
+            # Still reclaimable — it just was not reclaimed. Counting it as
+            # neither pruned nor reclaimable made a run that failed to remove
+            # 2 GB report "pruned_bytes: 0, reclaimable_bytes: 0", i.e. nothing
+            # to do, which is the opposite of the truth.
             WARNINGS+=("could not remove ${CAND_PATHS[$i]}")
+            RECLAIMABLE_TOTAL=$((RECLAIMABLE_TOTAL + bytes))
+            UNREMOVED_KINDS+=("${CAND_KINDS[$i]}")
+            UNREMOVED_PATHS+=("${CAND_PATHS[$i]}")
+            UNREMOVED_BYTES+=("$bytes")
         fi
     else
         RECLAIMABLE_TOTAL=$((RECLAIMABLE_TOTAL + bytes))
@@ -289,7 +303,11 @@ if [ "$JSON" -eq 1 ]; then
     printf '],'
     printf '"reclaimable_bytes":%s,' "$RECLAIMABLE_TOTAL"
     printf '"reclaimable":['
-    [ "$PRUNE" -eq 1 ] || emit_entries CAND_KINDS CAND_PATHS CAND_BYTES
+    if [ "$PRUNE" -eq 1 ]; then
+        emit_entries UNREMOVED_KINDS UNREMOVED_PATHS UNREMOVED_BYTES
+    else
+        emit_entries CAND_KINDS CAND_PATHS CAND_BYTES
+    fi
     printf '],'
     printf '"tiers":{'
     for i in "${!TIER_NAMES[@]}"; do
@@ -312,6 +330,12 @@ else
         for i in "${!PRUNED_PATHS[@]}"; do
             printf '  - %-14s %10s  %s\n' "${PRUNED_KINDS[$i]}" "$(human "${PRUNED_BYTES[$i]}")" "${PRUNED_PATHS[$i]}"
         done
+        if [ "${#UNREMOVED_PATHS[@]}" -gt 0 ]; then
+            echo "NOT reclaimed: $(human "$RECLAIMABLE_TOTAL") in ${#UNREMOVED_PATHS[@]} item(s) — removal failed"
+            for i in "${!UNREMOVED_PATHS[@]}"; do
+                printf '  ! %-14s %10s  %s\n' "${UNREMOVED_KINDS[$i]}" "$(human "${UNREMOVED_BYTES[$i]}")" "${UNREMOVED_PATHS[$i]}"
+            done
+        fi
     else
         echo "reclaimable: $(human "$RECLAIMABLE_TOTAL") in ${#CAND_PATHS[@]} item(s) — re-run with --prune"
         for i in "${!CAND_PATHS[@]}"; do
