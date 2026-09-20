@@ -87,6 +87,44 @@ def live_procs():
 
 
 @pytest.fixture
+def live_cwd():
+    """Spawn a process *running inside* a directory without naming it in argv.
+
+    CR 2: the evidence a command line gives is not the only evidence. A process
+    started by a relative path after a chdir runs out of a tree it never spells
+    out, and a liveness check that reads argv alone would `rm -rf` it.
+    """
+    started: list[subprocess.Popen] = []
+
+    def _spawn(path: Path) -> subprocess.Popen:
+        path.mkdir(parents=True, exist_ok=True)
+        proc = subprocess.Popen(
+            ["bash", "-c", "while :; do sleep 0.2; done"],
+            cwd=str(path),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            try:
+                if Path(f"/proc/{proc.pid}/cwd").resolve() == path.resolve():
+                    break
+            except OSError:  # pragma: no cover - race with a not-yet-visible pid
+                pass
+            time.sleep(0.05)
+        else:  # pragma: no cover - the spawn itself failed
+            pytest.fail(f"spawned process never showed {path} as its cwd")
+        started.append(proc)
+        return proc
+
+    yield _spawn
+
+    for proc in started:
+        proc.send_signal(signal.SIGKILL)
+        proc.wait()
+
+
+@pytest.fixture
 def host(tmp_path):
     """A fake host tree: VS Code server root, plugin cache, npx cache, repo."""
     vscode = tmp_path / "vscode-server"
@@ -233,6 +271,15 @@ def test_prunes_idle_beside_live(host, live_procs):
     run_gc(host, "--prune")
     assert live.exists()
     assert not idle.exists()
+
+
+def test_keeps_a_build_a_process_only_runs_inside(host, live_cwd):
+    """CR 2. Nothing names this path in argv — the only evidence is the
+    process's cwd. Reading command lines alone would delete a live server."""
+    live = _fill(host["vscode"] / "cli" / "servers" / "Stable-cwd00000")
+    live_cwd(live / "server")
+    run_gc(host, "--prune")
+    assert live.exists()
 
 
 def test_keeps_lru_json_which_is_not_a_build(host):

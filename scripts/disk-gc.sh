@@ -71,6 +71,13 @@ OLLAMA_SLIM_LABEL="cpu-only-gpu-libs-stripped"
 # process table read afterwards would report every candidate as live and the GC
 # would silently never reclaim anything. Self and parent are excluded for the
 # same reason.
+#
+# Three sources, not one. A command line is the usual evidence, but it is not
+# the only way a process depends on a tree: one started by a relative path after
+# a chdir, or through a symlinked entry point, names the directory nowhere in
+# its argv while still running out of it. `cwd` and `exe` close that, and the
+# whole point of the liveness check is that a false negative means `rm -rf` on
+# something in use.
 LIVE_CMDLINES=$(mktemp) || exit 2
 trap 'rm -f "$LIVE_CMDLINES"' EXIT
 for entry in /proc/[0-9]*; do
@@ -78,6 +85,8 @@ for entry in /proc/[0-9]*; do
     [ "$pid" = "$$" ] && continue
     [ "$pid" = "$PPID" ] && continue
     tr '\0' '\n' <"$entry/cmdline" 2>/dev/null
+    readlink "$entry/cwd" 2>/dev/null
+    readlink "$entry/exe" 2>/dev/null
 done >"$LIVE_CMDLINES"
 
 is_live() {
