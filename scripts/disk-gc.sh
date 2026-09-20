@@ -142,7 +142,11 @@ done
 
 # Claude plugin cache: one full node tree per version ever installed. The
 # manifest is the only evidence of which version is current, so an unreadable
-# manifest means "remove nothing" rather than "remove everything".
+# manifest means "remove nothing" rather than "remove everything" — and a
+# manifest that parses but names nothing installed is the same absence of
+# evidence, not a licence to clear the cache. Each tree is ~646 MB, and a
+# partially written manifest is a likelier explanation than a real empty
+# install.
 MANIFEST="$PLUGIN_ROOT/installed_plugins.json"
 if [ -f "$MANIFEST" ] && command -v python3 >/dev/null 2>&1; then
     if INSTALLED=$(python3 -c '
@@ -154,7 +158,9 @@ for entries in doc.get("plugins", {}).values():
         path = entry.get("installPath")
         if path:
             print(path)
-' "$MANIFEST" 2>/dev/null); then
+' "$MANIFEST" 2>/dev/null) && [ -n "$INSTALLED" ]; then
+        # `cache/<marketplace>/<plugin>/<version>` — the layout every installed
+        # plugin uses here. A deeper or shallower one would not be matched.
         for version_dir in "$PLUGIN_ROOT"/cache/*/*/*; do
             [ -d "$version_dir" ] || continue
             printf '%s\n' "$INSTALLED" | grep -qxF -- "$version_dir" && continue

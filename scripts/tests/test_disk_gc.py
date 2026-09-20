@@ -332,6 +332,18 @@ def test_leaves_the_plugin_cache_alone_without_a_readable_manifest(host):
     assert version.exists()
 
 
+def test_an_empty_manifest_is_absence_of_evidence_not_permission(host):
+    """CR 3. A manifest that parses but names nothing installed would have
+    cleared every cached version — ~646 MB apiece. A partially written manifest
+    explains that state at least as well as a real empty install does."""
+    (host["plugins"] / "installed_plugins.json").write_text(
+        json.dumps({"version": 2, "plugins": {}})
+    )
+    version = _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.14.0")
+    run_gc(host, "--prune")
+    assert version.exists()
+
+
 def test_keeps_a_live_plugin_cache_version_even_if_uninstalled(host, live_procs):
     """A superseded version still serving a running session outranks the manifest."""
     _installed(host, "1.14.0")
