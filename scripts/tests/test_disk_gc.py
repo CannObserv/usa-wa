@@ -174,6 +174,24 @@ def test_fails_below_the_fail_threshold(host):
     assert run_gc(host, DISK_GC_WARN_BYTES=huge, DISK_GC_FAIL_BYTES=huge).returncode == 1
 
 
+def test_sizes_survive_a_directory_du_cannot_fully_read(host):
+    """CR 1. `du -sb` prints a total AND exits non-zero when it could not
+    descend everywhere, so a naive `du … || echo 0` emits two lines. That broke
+    the byte arithmetic with a syntax error and put a raw newline inside the
+    JSON — the machine-readable contract failing exactly when the filesystem is
+    degraded, which is when the sensor matters most."""
+    idle = _fill(host["vscode"] / "cli" / "servers" / "Stable-idle0000", kib=64)
+    unreadable = idle / "unreadable"
+    _fill(unreadable, kib=16)
+    unreadable.chmod(0o000)
+    try:
+        data = report(host)  # parses as JSON, or this test fails
+        assert isinstance(data["reclaimable_bytes"], int)
+        assert all(isinstance(c["bytes"], int) for c in data["reclaimable"])
+    finally:
+        unreadable.chmod(0o755)
+
+
 def test_reports_repo_tier_sizes(host):
     _fill(host["repo"] / "data" / "datasets" / "citations", kib=128)
     _fill(host["repo"] / "raw" / "usa_wa_legislature", kib=64)

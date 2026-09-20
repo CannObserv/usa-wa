@@ -85,11 +85,22 @@ is_live() {
 }
 
 size_of() {
+    # Always exactly one integer on stdout. `du` prints a total AND exits
+    # non-zero when it could not descend everywhere (an unreadable subdirectory,
+    # or a file that vanished mid-scan), so `du … || echo 0` emits BOTH the
+    # total and the fallback — two lines, which then break `$((… + bytes))` with
+    # a syntax error and emit `"bytes":3\n0` into the JSON. Capture first,
+    # validate, then decide.
+    local total
     [ -e "$1" ] || {
         echo 0
         return
     }
-    du -sb -- "$1" 2>/dev/null | cut -f1 || echo 0
+    total=$(du -sb -- "$1" 2>/dev/null | head -n1 | cut -f1)
+    case "$total" in
+        '' | *[!0-9]*) echo 0 ;;
+        *) echo "$total" ;;
+    esac
 }
 
 # ── candidates ────────────────────────────────────────────────────────────────
