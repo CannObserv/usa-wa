@@ -40,11 +40,17 @@ Environment=HOME=/home/exedev
 ExecStart=/home/exedev/usa-wa/scripts/disk-gc.sh --prune
 
 # I/O-bound by construction: `du` over several multi-gigabyte trees, plus a
-# find per candidate. Deprioritised so the sweep cannot evict the serving unit's
-# page cache — it fires 15 minutes clear of the ingest chain, so it has time to
-# spare and nothing to gain from competing.
+# find per candidate. Deprioritised so the sweep cannot crowd the serving unit;
+# it fires 15 minutes clear of the ingest chain, so it has time to spare.
+#
+# Nice= only. IOSchedulingClass= was here briefly and was wrong twice over: this
+# host's root device (/dev/vda) uses the `none` scheduler, so there is no I/O
+# scheduling to influence and the directive did nothing at all — and where it
+# WOULD bite (BFQ), class `idle` can be starved indefinitely by sustained I/O,
+# against the TimeoutStartSec= below, turning a cosmetic tuning into a spurious
+# OnFailure= email. CPU niceness is independent of the block layer and is the
+# half that actually applies. Measured cost of the sweep: ~1s.
 Nice=10
-IOSchedulingClass=idle
 
 # Bounded so a pathological tree fails deterministically rather than hanging the
 # manager; the timer retries tomorrow. Measured at ~1s on a healthy host, so the

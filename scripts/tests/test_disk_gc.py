@@ -543,6 +543,24 @@ def test_script_is_executable():
     assert SCRIPT.stat().st_mode & 0o111
 
 
+@pytest.mark.parametrize("script", ["disk-gc.sh", "slim-ollama-image.sh"])
+def test_help_is_derived_from_the_header_not_hardcoded_lines(script):
+    """CR 15 and CR 18. Both scripts print `--help` by slicing their own header
+    comment. Hardcoded line numbers meant one inserted line silently truncated
+    the usage text or leaked the `Pinned by` pointer into it — no error, no
+    test. CR 15 fixed one script and CR 18 caught that the other was missed, so
+    this is parametrised over both: the recurrence was the fix being applied
+    per-file by hand."""
+    path = SCRIPT.parent / script
+    assert "sed -n '2,/^[^#]/p'" in path.read_text(), "help range is hardcoded again"
+
+    out = subprocess.run([str(path), "--help"], capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0
+    assert "Usage" in out.stdout
+    assert "Pinned by" not in out.stdout
+    assert "set -uo pipefail" not in out.stdout
+
+
 def test_runs_without_a_virtualenv(host):
     """The unit is exempt from the #279 venv guard precisely because this path
     must work when the venv does not. Guard that it never grows a dependency on

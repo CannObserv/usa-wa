@@ -35,7 +35,10 @@ for arg in "$@"; do
     case "$arg" in
         --force) FORCE=1 ;;
         -h | --help)
-            sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'
+            # Derived, not hardcoded: the header runs to the first line that
+            # is not a comment, so inserting one cannot silently truncate the
+            # usage text or leak the `Pinned by` line into it.
+            sed -n '2,/^[^#]/p' "$0" | sed '/^# Pinned by/,$d' | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
