@@ -31,15 +31,24 @@ WorkingDirectory=/home/exedev/usa-wa
 Environment=HOME=/home/exedev
 
 # --prune: reclaim first, then report what is left. Only provably unreferenced
-# copies are removed — every candidate is checked against /proc/*/cmdline, since
-# the reclaimable VS Code server build and the one serving a live window are
-# siblings in one directory. Repo data (datasets, raw/, dbt, cassettes) is
-# measured and never touched; its retention contract is #396.
+# copies are removed — every candidate is checked against the live process table
+# (cmdline, cwd and exe), since the reclaimable VS Code server build and the one
+# serving a live window are siblings in one directory, and a grace window covers
+# the tree that is still being installed and so named by no process yet. Repo
+# data (datasets, raw/, dbt, cassettes) is measured and never touched; its
+# retention contract is #396.
 ExecStart=/home/exedev/usa-wa/scripts/disk-gc.sh --prune
 
-# `du` over several multi-gigabyte trees on a volume already under pressure.
+# I/O-bound by construction: `du` over several multi-gigabyte trees, plus a
+# find per candidate. Deprioritised so the sweep cannot evict the serving unit's
+# page cache — it fires 15 minutes clear of the ingest chain, so it has time to
+# spare and nothing to gain from competing.
+Nice=10
+IOSchedulingClass=idle
+
 # Bounded so a pathological tree fails deterministically rather than hanging the
-# manager; the timer retries tomorrow.
+# manager; the timer retries tomorrow. Measured at ~1s on a healthy host, so the
+# margin here is for a degraded one, not for the ordinary case.
 TimeoutStartSec=300
 
 # This unit is started by usa-wa-disk-gc.timer; no [Install] WantedBy.

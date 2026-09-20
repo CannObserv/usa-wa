@@ -249,11 +249,16 @@ Exit `0` healthy or warning, `1` free space under the fail floor (→ operator
 email via `OnFailure=`), `2` tooling. Thresholds are `DISK_GC_WARN_BYTES`
 (default 2 GiB) and `DISK_GC_FAIL_BYTES` (1 GiB).
 
-**What it prunes** — only copies no running process references, checked against
-`/proc/*/cmdline`: superseded VS Code server builds and `code-*` CLI binaries,
+**What it prunes** — superseded VS Code server builds and `code-*` CLI binaries,
 Claude plugin-cache versions that are not the installed one, and `~/.npm/_npx`
 trees. The reclaimable copy and the in-use one are siblings in the same
-directory, so liveness is the only safe discriminator.
+directory, so a size-or-mtime heuristic would delete a running editor's server;
+liveness is the discriminator, read from `/proc/*/` `cmdline`, `cwd` **and**
+`exe` — a process started by a relative path names its tree in none of its argv.
+
+A `DISK_GC_GRACE_MINUTES` window (default 60) covers the one case liveness
+cannot: a tree still being installed is named by no process yet, because the
+process that will run out of it does not exist. Set it to `0` to disable.
 
 **What it never prunes** — repo data. `data/datasets/`, `raw/`, the dbt logs and
 the duckdb are measured and reported; their retention contract is

@@ -153,6 +153,15 @@ rollback_hint() {
     # one place the command belongs. The tag has already moved to the slim
     # build by here, which is exactly why "the old image is still there" is not
     # on its own actionable.
+    #
+    # With no id in hand, say so. Interpolating an empty OLD_ID printed
+    # `docker tag  ollama/ollama:latest` — a command missing an argument, which
+    # is worse than no command at all because it still looks pasteable.
+    if [ -z "$OLD_ID" ]; then
+        printf 'the previous image id could not be read; find it with `%s images` (the untagged ollama entry) and retag it to %s before retrying\n' \
+            "$DOCKER" "$IMAGE" >&2
+        return
+    fi
     printf 'roll back with:\n  %s tag %s %s\n  %s rm -f %s\n  %s run -d --name %s -p %s:11434 -v %s:/root/.ollama --restart unless-stopped %s\n' \
         "$DOCKER" "$OLD_ID" "$IMAGE" \
         "$DOCKER" "$CONTAINER" \

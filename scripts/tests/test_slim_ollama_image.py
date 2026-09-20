@@ -259,6 +259,33 @@ def test_a_verification_failure_names_the_rollback_command(stubs, tmp_path):
     assert "-v socraticode_ollama_data:/root/.ollama" in result.stderr
 
 
+def test_an_unreadable_image_id_does_not_print_a_broken_command(stubs, tmp_path):
+    """CR 13. Interpolating an empty OLD_ID emitted `docker tag  <image>` — a
+    command with an argument silently missing, which is worse than printing
+    nothing because it still looks pasteable to an operator mid-incident."""
+    log = tmp_path / "docker.log"
+    stub = tmp_path / "docker"
+    stub.write_text(
+        f"""#!/bin/sh
+printf '%s\n' "$*" >> {log}
+case "$*" in
+  *".Id"*) exit 1 ;;
+  *"ollama list"*) exit 1 ;;
+  image*) printf '' ;;
+  import) cat >/dev/null 2>&1 ;;
+  *) : ;;
+esac
+exit 0
+"""
+    )
+    stub.chmod(0o755)
+    result = run_slim(tmp_path)
+    assert result.returncode != 0
+    assert "tag  " not in result.stderr, "an empty id was interpolated into a command"
+    assert "could not be read" in result.stderr
+    assert "images" in result.stderr
+
+
 def test_an_explicitly_empty_gpu_glob_disables_the_check(stubs, tmp_path):
     """CR 9. `DISK_GC_DOCKER=''` disables its check rather than crashing; the
     glob must behave the same way instead of tripping `set -u`."""
