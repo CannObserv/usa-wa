@@ -38,6 +38,10 @@ SLIM_LABEL = "cpu-only-gpu-libs-stripped"
 #: rather than a production embed call.
 GPU_DIRS = ("cuda_v12", "cuda_v13", "mlx_cuda_v13", "vulkan")
 
+#: The port SocratiCode's startOllama() publishes, restated so the rollback-hint
+#: assertion fails loudly if the script and the stack ever disagree about it.
+OLLAMA_PORT = 11435
+
 
 def _docker_stub(tmp_path: Path, *, label: str = "", fail_on: str = "") -> Path:
     """A `docker` stand-in that logs every invocation and answers plausibly.
@@ -236,6 +240,28 @@ def test_keeps_the_fat_image_when_verification_fails(stubs, tmp_path):
     result = run_slim(tmp_path)
     assert result.returncode != 0
     assert not any(line.startswith("image rm") for line in log_lines(tmp_path))
+
+
+def test_a_verification_failure_names_the_rollback_command(stubs, tmp_path):
+    """CR 5. Retaining the fat image is the entire rollback strategy, and by
+    this point the tag has already moved to the slim build — so "the original
+    image is retained" is not on its own something an operator can act on."""
+    _curl_stub(tmp_path, dims=1)
+    _docker_stub(tmp_path)
+    result = run_slim(tmp_path)
+    assert result.returncode != 0
+    assert "tag sha256:fatimage00 ollama/ollama:latest" in result.stderr
+    assert f"-p {OLLAMA_PORT}:11434" in result.stderr
+    assert "-v socraticode_ollama_data:/root/.ollama" in result.stderr
+
+
+def test_an_explicitly_empty_gpu_glob_disables_the_check(stubs, tmp_path):
+    """CR 9. `DISK_GC_DOCKER=''` disables its check rather than crashing; the
+    glob must behave the same way instead of tripping `set -u`."""
+    _docker_stub(tmp_path)
+    result = run_slim(tmp_path, SLIM_GPU_GLOB="")
+    assert result.returncode == 0, result.stderr
+    assert "unbound" not in result.stderr
 
 
 def test_keeps_the_fat_image_when_the_model_is_missing(stubs, tmp_path):

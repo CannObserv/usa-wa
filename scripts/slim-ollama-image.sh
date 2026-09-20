@@ -77,8 +77,8 @@ command -v "$DOCKER" >/dev/null 2>&1 || die "docker not found ($DOCKER)" 2
 # ── refusals, before anything is touched ──────────────────────────────────────
 
 # shellcheck disable=SC2206  # deliberate glob expansion
-gpu_devices=($GPU_GLOB)
-if [ -e "${gpu_devices[0]}" ]; then
+gpu_devices=(${GPU_GLOB:-})
+if [ "${#gpu_devices[@]}" -gt 0 ] && [ -e "${gpu_devices[0]}" ]; then
     die "this host has a GPU (${gpu_devices[0]}) — the accelerator runtimes are the fast path here, not dead weight; refusing"
 fi
 
@@ -119,7 +119,7 @@ echo "slim-ollama-image: flattening into a single-layer image"
     --change 'EXPOSE 11434' \
     --change "LABEL dev.usa-wa.slim=$SLIM_LABEL" \
     - ollama/ollama:cpu-slim ||
-    die "export|import failed; the original image and container are untouched" 2
+    die "export|import failed. The IMAGE is untouched and still tagged $IMAGE, so nothing needs rolling back; the running container has had its accelerator runtimes stripped, which costs this GPU-less host nothing and is undone by \`docker rm -f $CONTAINER\` plus a re-run" 2
 
 # ── swap ──────────────────────────────────────────────────────────────────────
 #
@@ -148,8 +148,20 @@ for _ in $(seq 1 45); do
     sleep 2
 done
 
+rollback_hint() {
+    # The retained image is the rollback, so the failure that needs it is the
+    # one place the command belongs. The tag has already moved to the slim
+    # build by here, which is exactly why "the old image is still there" is not
+    # on its own actionable.
+    printf 'roll back with:\n  %s tag %s %s\n  %s rm -f %s\n  %s run -d --name %s -p %s:11434 -v %s:/root/.ollama --restart unless-stopped %s\n' \
+        "$DOCKER" "$OLD_ID" "$IMAGE" \
+        "$DOCKER" "$CONTAINER" \
+        "$DOCKER" "$CONTAINER" "$PORT" "$VOLUME" "$IMAGE" >&2
+}
+
 if ! "$DOCKER" exec "$CONTAINER" ollama list 2>/dev/null | grep -q "$MODEL"; then
-    die "$MODEL is not present in the replacement container — keeping the original image ($OLD_ID) to roll back to"
+    rollback_hint
+    die "$MODEL is not present in the replacement container — the original image ($OLD_ID) is retained"
 fi
 
 dims=$("$CURL" -s -m 120 "http://localhost:$PORT/api/embed" \
@@ -157,7 +169,8 @@ dims=$("$CURL" -s -m 120 "http://localhost:$PORT/api/embed" \
     python3 -c 'import json,sys; print(len(json.load(sys.stdin)["embeddings"][0]))' 2>/dev/null)
 
 if [ "${dims:-0}" != "$EXPECTED_DIMS" ]; then
-    die "embedding check failed (got ${dims:-none} dimensions, expected $EXPECTED_DIMS) — keeping the original image ($OLD_ID) to roll back to"
+    rollback_hint
+    die "embedding check failed (got ${dims:-none} dimensions, expected $EXPECTED_DIMS) — the original image ($OLD_ID) is retained"
 fi
 
 echo "slim-ollama-image: verified — $MODEL serving $dims dimensions"
