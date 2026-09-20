@@ -195,10 +195,16 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
+    # Host disk GC + free-space sensor (#394). Deliberately dependency-free: it
+    # reads the filesystem and the process table, never the database, and the
+    # condition it detects (a full volume) is one that makes every unit with
+    # dependencies fail first. Exit 1 → notify handler.
+    "usa-wa-disk-gc.service": {"After": set(), "Before": set(), "OnFailure": NOTIFY},
     # The notify handler is itself a oneshot; it carries no ordering and must NOT
     # set OnFailure on itself (a failed alert send must not recurse).
     "usa-wa-notify-failure@.service": {"After": set(), "Before": set(), "OnFailure": set()},
     # Timers carry their schedule in [Timer]; no [Unit] ordering by design.
+    "usa-wa-disk-gc.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-wsl-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-pipeline.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-pdc-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
@@ -222,7 +228,14 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
 # handler (the alerting path, runs notify-failure.sh not app code) is exempt, and
 # timers can't carry ExecStartPre (they only activate their guarded .service).
 GUARD_EXEC = "/home/exedev/usa-wa/scripts/assert-main-checkout.sh"
-UNGUARDED_SERVICES = {"usa-wa-notify-failure@.service"}
+#: Two exemptions, for the same reason stated twice: these units must still run
+#: when the repo is in the state the guards refuse. The notify handler IS the
+#: alerting path (it runs notify-failure.sh, not app code), and the disk GC
+#: (#394) runs plain bash over the host — no imports, no venv — to report a
+#: volume filling up. A feature branch left checked out and a worktree-restamped
+#: venv are what worktree-heavy sessions produce, and those sessions are what
+#: fill the disk; a sensor that goes quiet exactly then is not a sensor.
+UNGUARDED_SERVICES = {"usa-wa-notify-failure@.service", "usa-wa-disk-gc.service"}
 
 # Shared venv-integrity guard (issue #279). Same exemption set and the same
 # reasoning as the branch guard, one layer down: #87 asserts WHICH TREE is checked

@@ -21,6 +21,7 @@ detail behind them.
 | Committee lineage invariants (daily) | oneshot + timer | — | `systemctl` (`usa-wa-committee-lineage-invariants.timer` → `.service`; 07:30 UTC, #124 C4). Read-only coherence assertion — INV1 no `active=false` committee carries a live membership Assignment; INV2 the subject of a non-superseded `succeeded_by`/`merged_with` link is `active=false` (`split_from` exempt); exit 1 → operator email. Ordered after the refreshes + reconcile deactivate defunct committees + close their spans |
 | Dataset pipeline (daily) | oneshot + timer | — | `systemctl` (`usa-wa-pipeline.timer` → `.service`; 08:00 UTC, #311). The #302 nightly chain: three raw harvests → dbt build → registrar → publish → serving load → parity probes (`scripts/pipeline-nightly.sh`). Harvest failures contained (last good wires + publish gates protect); a build failure aborts; registrar conflicts, a publish-gate refusal, or a parity divergence exit 1 → operator email while the last good catalog stands. Ordered after the canonical refreshes (they are the parity oracle) |
 | Provenance integrity sweep (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-integrity-sweep.timer` → `.service`; Sun 08:00 UTC) |
+| Disk GC + free-space sensor (daily) | oneshot + timer | — | `systemctl` (`usa-wa-disk-gc.timer` → `.service`; 05:45 UTC, #394). `scripts/disk-gc.sh --prune`: reclaims tooling copies no running process references (VS Code server builds, Claude plugin-cache versions, `_npx` trees), measures the repo tiers without touching them (#396 owns their retention), and exits 1 below the free-space floor → operator email. First in the chain, ahead of the 06:00 ingest — reclaim, then work. The one unit carrying **neither** `ExecStartPre` guard: it runs no repo code, and #87/#279 both fail in the worktree-heavy state that fills the disk |
 | Failure alerts | templated oneshot | — | `OnFailure=` → `usa-wa-notify-failure@.service` |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
 
@@ -318,6 +319,19 @@ sudo cp deploy/sysctl.d/60-usa-wa-memory.conf /etc/sysctl.d/
 sudo cp deploy/default/earlyoom /etc/default/earlyoom
 sudo systemctl daemon-reload && sudo sysctl --system && sudo systemctl restart earlyoom
 ```
+
+A fifth landed with #394, on the same copy-don't-symlink rule — the journal cap:
+
+```bash
+sudo mkdir -p /etc/systemd/journald.conf.d
+sudo cp deploy/journald.conf.d/10-usa-wa-journal-cap.conf /etc/systemd/journald.conf.d/
+sudo systemctl restart systemd-journald
+```
+
+`/etc/systemd/journald.conf` sets no `SystemMaxUse=`, so the journal grows to
+journald's default 10% of the filesystem (~2.5 G here) and had drifted to 695 M
+before #394. The cap is why `usa-wa-disk-gc.service` does not vacuum the journal
+and therefore needs no privilege.
 
 The fourth, the SocratiCode pin, is a per-host `npm install` and is not a repo
 artifact — [docs/CODE-EXPLORATION.md § The server is pinned](CODE-EXPLORATION.md#the-server-is-pinned-not-installed-per-launch-389).
