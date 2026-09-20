@@ -293,6 +293,46 @@ def test_keeps_a_tree_that_is_still_being_written(host):
     assert data["pruned"] == []
 
 
+@pytest.mark.parametrize(
+    "setting", ["DISK_GC_GRACE_MINUTES", "DISK_GC_WARN_BYTES", "DISK_GC_FAIL_BYTES"]
+)
+def test_bad_configuration_refuses_to_run(host, setting):
+    """CR 19. These all used to fail OPEN: a non-numeric value made bash print
+    `integer expression expected` and then SKIP the check, so a typo in the
+    unit's Environment= silently disarmed the guard while the run continued and
+    exited 0. A misconfigured GC must refuse, not run with its safeties off."""
+    result = run_gc(host, "--json", **{setting: "abc"})
+    assert result.returncode == 2
+    assert setting in result.stderr
+    assert result.stdout == ""
+
+
+def test_a_bad_grace_value_cannot_prune(host):
+    """The consequence the refusal exists to prevent."""
+    tree = _fill(host["npx"] / "aaaaaaaaaaaaaaaa")
+    run_gc(host, "--prune", DISK_GC_GRACE_MINUTES="")
+    assert tree.exists()
+
+
+def test_withheld_candidates_are_reported_not_silently_skipped(host):
+    """CR 21. `reclaimed: 0B in 0 item(s)` was byte-identical whether the window
+    had withheld half a gigabyte or there was nothing to do — true either way,
+    and misleading in the one tool someone opens when the disk is filling."""
+    _fill(host["npx"] / "aaaaaaaaaaaaaaaa", kib=128)
+    data = report(host, "--prune", DISK_GC_GRACE_MINUTES=60)
+    assert data["pruned"] == []
+    assert [c["kind"] for c in data["withheld"]] == ["npx-cache"]
+    assert data["grace_minutes"] == 60
+
+    human = run_gc(host, "--prune", DISK_GC_GRACE_MINUTES=60)
+    assert "withheld: 1 item(s)" in human.stdout
+
+
+def test_nothing_withheld_on_an_empty_host(host):
+    data = report(host, "--prune", DISK_GC_GRACE_MINUTES=60)
+    assert data["withheld"] == []
+
+
 def test_prunes_a_tree_older_than_the_grace_window(host):
     """The other half of CR 12 — the window must expire, or nothing is ever
     reclaimed and the GC quietly becomes a no-op."""

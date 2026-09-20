@@ -72,6 +72,29 @@ FAIL_BYTES=${DISK_GC_FAIL_BYTES:-1073741824}
 # starting a minute earlier gets its half-written install deleted under it, and
 # nothing detects or repairs the partial tree afterwards.
 GRACE_MINUTES=${DISK_GC_GRACE_MINUTES:-60}
+
+# Every numeric input, validated before anything is read or removed. Left
+# unchecked these all failed OPEN: `DISK_GC_GRACE_MINUTES=abc` made bash print
+# `[: abc: integer expression expected` and then SKIP the grace window, so a
+# typo in the unit's Environment= silently disarmed the guard that stops
+# --prune deleting a half-written install — signalled only by one stderr line
+# in the journal. A misconfigured garbage collector must refuse to run, not run
+# with its safeties off.
+for setting in WARN_BYTES FAIL_BYTES GRACE_MINUTES; do
+    case "${!setting}" in
+        '' | *[!0-9]*)
+            echo "disk-gc: DISK_GC_$setting must be a non-negative integer, got '${!setting}'" >&2
+            exit 2
+            ;;
+    esac
+done
+
+# `find` is how the grace window is enforced; without it recently_touched would
+# return "not recent" for everything and the window would silently not exist.
+command -v find >/dev/null 2>&1 || {
+    echo "disk-gc: find not found — the grace window cannot be enforced" >&2
+    exit 2
+}
 #: The label scripts/slim-ollama-image.sh stamps on the rebuilt image.
 OLLAMA_SLIM_LABEL="cpu-only-gpu-libs-stripped"
 
@@ -129,6 +152,14 @@ CAND_KINDS=()
 CAND_PATHS=()
 CAND_BYTES=()
 WARNINGS=()
+#: Candidates the grace window held back. Reported separately because
+#: "reclaimed: 0B in 0 item(s)" was byte-identical whether the window had
+#: withheld half a gigabyte or there was genuinely nothing to do — true either
+#: way, and misleading in exactly the tool someone opens when the disk is
+#: filling. Sizes are deliberately not measured: walking a tree that is being
+#: written to is what the window exists to avoid.
+WITHHELD_KINDS=()
+WITHHELD_PATHS=()
 
 recently_touched() {
     # Anything under the tree modified inside the grace window, not just the
@@ -147,6 +178,8 @@ consider() {
         return 0
     fi
     if recently_touched "$path"; then
+        WITHHELD_KINDS+=("$kind")
+        WITHHELD_PATHS+=("$path")
         return 0
     fi
     CAND_KINDS+=("$kind")
@@ -334,6 +367,14 @@ if [ "$JSON" -eq 1 ]; then
         emit_entries CAND_KINDS CAND_PATHS CAND_BYTES
     fi
     printf '],'
+    printf '"withheld":['
+    for i in "${!WITHHELD_PATHS[@]}"; do
+        [ "$i" -eq 0 ] || printf ','
+        printf '{"kind":%s,"path":%s}' \
+            "$(json_string "${WITHHELD_KINDS[$i]}")" "$(json_string "${WITHHELD_PATHS[$i]}")"
+    done
+    printf '],'
+    printf '"grace_minutes":%s,' "$GRACE_MINUTES"
     printf '"tiers":{'
     for i in "${!TIER_NAMES[@]}"; do
         [ "$i" -eq 0 ] || printf ','
@@ -365,6 +406,12 @@ else
         echo "reclaimable: $(human "$RECLAIMABLE_TOTAL") in ${#CAND_PATHS[@]} item(s) — re-run with --prune"
         for i in "${!CAND_PATHS[@]}"; do
             printf '  - %-14s %10s  %s\n' "${CAND_KINDS[$i]}" "$(human "${CAND_BYTES[$i]}")" "${CAND_PATHS[$i]}"
+        done
+    fi
+    if [ "${#WITHHELD_PATHS[@]}" -gt 0 ]; then
+        echo "withheld: ${#WITHHELD_PATHS[@]} item(s) modified within the last ${GRACE_MINUTES}m — still being written, or recently used"
+        for i in "${!WITHHELD_PATHS[@]}"; do
+            printf '  ~ %-14s %10s  %s\n' "${WITHHELD_KINDS[$i]}" "-" "${WITHHELD_PATHS[$i]}"
         done
     fi
     echo "repo tiers (measured, never pruned here — #396 owns their retention):"
