@@ -256,7 +256,9 @@ fi
 # ── the sensor reading ────────────────────────────────────────────────────────
 
 read -r TOTAL_KB FREE_KB <<<"$(df -Pk "$MOUNT" | awk 'NR==2 {print $2, $4}')"
-if [ -z "${TOTAL_KB:-}" ] || [ -z "${FREE_KB:-}" ]; then
+# Zero total, not just empty: a pseudo-filesystem or an odd container mount
+# reports 0, which would divide by zero in the used-percentage below.
+if [ -z "${TOTAL_KB:-}" ] || [ -z "${FREE_KB:-}" ] || [ "$TOTAL_KB" -eq 0 ]; then
     echo "disk-gc: could not read free space for $MOUNT" >&2
     exit 2
 fi
