@@ -25,4 +25,54 @@ Currently defined:
 - `USA_WA_DATASETS_ROOT` — root of the published-dataset tree (#311): the publisher writes immutable `<name>/<version>/` dirs + `catalog.json` here, and the API serves it at `/datasets/*` (resolved per request). Default `data/datasets` relative to the invoker's cwd / the service's WorkingDirectory — the primary checkout, so publisher and API agree without configuration.
 - `USA_WA_ALERT_EMAIL` — recipient for oneshot failure alerts (#49). Consumed by `scripts/notify-failure.sh` (the `usa-wa-notify-failure@.service` `OnFailure=` handler). Must be **you / an exe.dev team member** (gateway recipient allow-list). The script **fails closed** if unset, so set it in `/etc/usa-wa/.env` to arm alerting. See [DEPLOYMENT.md](DEPLOYMENT.md) § Failure alerting.
 
+### Host maintenance (#394) — `scripts/disk-gc.sh`, `scripts/slim-ollama-image.sh`
+
+Both read their configuration from the environment and **neither is wired to an
+`EnvironmentFile=`**: `usa-wa-disk-gc.service` deliberately loads no env file,
+because the whole point of that unit is to still run when the repo and its
+configuration are in a bad state. So these are defaults-in-the-script,
+overridable for an ad-hoc run or by editing the unit — not knobs to set in
+`/etc/usa-wa/.env`, where they would have no effect on the timer.
+
+Every numeric one is validated at startup and a bad value **exits 2 rather than
+running** (#394 CR 19): unvalidated, a typo made bash skip the check and carry
+on with that guard disabled, which for a tool whose verb is `rm -rf` is the
+wrong direction to fail in.
+
+- `DISK_GC_GRACE_MINUTES` — minutes a candidate must have been untouched before
+  it may be removed; default `60`, `0` disables. This is the guard liveness
+  cannot provide: a tree being installed *right now* is named by no running
+  process, because the process that will run out of it does not exist yet. With
+  ~457 MB `_npx` installs happening at session start (#389) and the timer firing
+  daily at 05:45, a session starting a minute earlier would otherwise have its
+  half-written install deleted under it.
+- `DISK_GC_WARN_BYTES` / `DISK_GC_FAIL_BYTES` — free-space thresholds; defaults
+  2 GiB / 1 GiB. Below the fail threshold the run exits 1 into the
+  `OnFailure=` alert chain (#49). Sized so the floor sits above one worktree's
+  venv (~225 MB), since #394 measured 1.3 G → 565 M in 28 hours of ordinary
+  session work — a threshold with less headroom fires after the damage.
+- `DISK_GC_MOUNT` — filesystem to measure; default `/`.
+- `DISK_GC_VSCODE_ROOT`, `DISK_GC_PLUGIN_ROOT`, `DISK_GC_NPX_ROOT`,
+  `DISK_GC_REPO` — the four trees it scans; defaults `$HOME/.vscode-server`,
+  `$HOME/.claude/plugins`, `$HOME/.npm/_npx`, `/home/exedev/usa-wa`. The unit
+  sets `Environment=HOME=/home/exedev` so the first three resolve under systemd.
+  Redirected at tmp dirs by the test suite, which is how it never touches a real
+  host.
+- `DISK_GC_DOCKER` — the `docker` binary used for the ollama slim-label check;
+  default `docker`, and an **empty value disables the check** (absence of a
+  container stack is not damage).
+- `SLIM_DOCKER`, `SLIM_CURL` — the two binaries the ollama rebuild drives;
+  stubbed by its tests so nothing reaches a real daemon.
+- `SLIM_GPU_GLOB` — path glob whose matching means this host has an accelerator
+  and must not be stripped; default `/dev/nvidia*`, empty disables. The refusal
+  exists because the CUDA/ROCm/MLX runtimes are dead weight *here* and the fast
+  path on a GPU host.
+- `SLIM_MIN_FREE_BYTES` — headroom required before rebuilding; default 2 GiB.
+  `docker export | docker import` materialises the replacement while the
+  original 8 GB image still exists.
+- `SLIM_MOUNT`, `SLIM_OLLAMA_PORT`, `SLIM_OLLAMA_MODEL`, `SLIM_EXPECTED_DIMS` —
+  default `/`, `11435`, `nomic-embed-text`, `768`. The last two are the
+  post-rebuild verification: the model must be present and embedding at the
+  expected dimensionality before the original image is discarded.
+
 The PM sidecar's own tunables (`SidecarSettings` — `POWERMAP_BASE_URL`, `POWERMAP_API_KEY`, the drain/replay/reconcile cadences and the request-rate governor) were documented here until usa-wa#314 deleted the sidecar. Nothing reads them; they can be removed from `/etc/usa-wa/.env` — and `POWERMAP_API_KEY` **should** be, since a live credential nothing uses is a credential nobody rotates.
