@@ -40,7 +40,10 @@ for arg in "$@"; do
         --prune) PRUNE=1 ;;
         --json) JSON=1 ;;
         -h | --help)
-            sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
+            # Derived, not hardcoded: the header runs to the first line that
+            # is not a comment, so inserting one cannot silently truncate the
+            # usage text or leak the `Pinned by` line into it.
+            sed -n '2,/^[^#]/p' "$0" | sed '/^# Pinned by/,$d' | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -61,6 +64,14 @@ DOCKER=${DISK_GC_DOCKER-docker}
 # venv (~225 MB) of headroom is a threshold that fires after the damage.
 WARN_BYTES=${DISK_GC_WARN_BYTES:-2147483648}
 FAIL_BYTES=${DISK_GC_FAIL_BYTES:-1073741824}
+# Minutes a candidate must have been untouched before it may be removed.
+# Liveness cannot answer this one: a tree being installed RIGHT NOW is named by
+# no running process, because the process that will run out of it does not exist
+# yet. #389 established that a ~457 MB `_npx` install happens at session start,
+# and this timer fires daily at 05:45 — so without a grace window a session
+# starting a minute earlier gets its half-written install deleted under it, and
+# nothing detects or repairs the partial tree afterwards.
+GRACE_MINUTES=${DISK_GC_GRACE_MINUTES:-60}
 #: The label scripts/slim-ollama-image.sh stamps on the rebuilt image.
 OLLAMA_SLIM_LABEL="cpu-only-gpu-libs-stripped"
 
@@ -119,11 +130,23 @@ CAND_PATHS=()
 CAND_BYTES=()
 WARNINGS=()
 
+recently_touched() {
+    # Anything under the tree modified inside the grace window, not just the
+    # directory itself: an installer writing files deep inside leaves the top
+    # level's own mtime untouched.
+    [ "$GRACE_MINUTES" -le 0 ] && return 1
+    [ -n "$(find "$1" -mmin "-$GRACE_MINUTES" -print -quit 2>/dev/null)" ]
+}
+
 consider() {
-    # consider <kind> <path> — record it unless some running process names it.
+    # consider <kind> <path> — record it unless some running process names it,
+    # or it is still being written.
     local kind=$1 path=$2
     [ -e "$path" ] || return 0
     if is_live "$path"; then
+        return 0
+    fi
+    if recently_touched "$path"; then
         return 0
     fi
     CAND_KINDS+=("$kind")

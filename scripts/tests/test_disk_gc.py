@@ -4,11 +4,14 @@
 separate this from "a cleanup script someone runs when they remember":
 
 * **It prunes only what is provably unreferenced.** Every candidate is checked
-  against the live process table (`/proc/*/cmdline`) before removal, because the
-  reclaimable copies and the in-use ones sit side by side in the same directory —
-  five VS Code server builds, two of them serving live windows; five copies of
-  SocratiCode's node tree, two of them running. A size-or-mtime heuristic would
-  delete a running editor's server.
+  against the live process table before removal — `cmdline`, `cwd` AND `exe`,
+  because a process started by a relative path names its tree in none of its
+  argv (CR 2) — since the reclaimable copies and the in-use ones sit side by
+  side in the same directory: five VS Code server builds, two of them serving
+  live windows; five copies of SocratiCode's node tree, two of them running. A
+  size-or-mtime heuristic would delete a running editor's server. A *grace
+  window* covers the case liveness cannot (CR 12): a tree still being installed
+  is named by no process yet.
 * **It never touches repo data.** Retention for the published-dataset, `raw/`,
   dbt and cassette tiers is a *contract* question descoped to its own issue; this
   script reports those sizes and removes nothing from them. A GC that quietly
@@ -167,6 +170,10 @@ def run_gc(host, *args, docker: Path | str = "", **env_overrides) -> subprocess.
         # a test's exit code; the threshold tests set them explicitly.
         "DISK_GC_WARN_BYTES": "0",
         "DISK_GC_FAIL_BYTES": "0",
+        # Fixtures create their trees milliseconds before the run, so the
+        # production grace window would (correctly) protect every one of them.
+        # Disabled by default; the grace-window test sets it explicitly.
+        "DISK_GC_GRACE_MINUTES": "0",
         **{k: str(v) for k, v in env_overrides.items()},
     }
     return subprocess.run(
@@ -212,6 +219,7 @@ def test_fails_below_the_fail_threshold(host):
     assert run_gc(host, DISK_GC_WARN_BYTES=huge, DISK_GC_FAIL_BYTES=huge).returncode == 1
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads through chmod 000, exercising nothing")
 def test_sizes_survive_a_directory_du_cannot_fully_read(host):
     """CR 1. `du -sb` prints a total AND exits non-zero when it could not
     descend everywhere, so a naive `du … || echo 0` emits two lines. That broke
@@ -273,6 +281,41 @@ def test_prunes_idle_beside_live(host, live_procs):
     assert not idle.exists()
 
 
+def test_keeps_a_tree_that_is_still_being_written(host):
+    """CR 12. Liveness cannot answer this: a tree being installed right now is
+    named by no running process, because the process that will run out of it
+    does not exist yet. #389 measured a ~457 MB `_npx` install at session start,
+    and the timer fires daily — so a session starting a minute earlier would
+    have its half-written install deleted under it."""
+    fresh = _fill(host["npx"] / "aaaaaaaaaaaaaaaa")
+    data = report(host, "--prune", DISK_GC_GRACE_MINUTES=60)
+    assert fresh.exists()
+    assert data["pruned"] == []
+
+
+def test_prunes_a_tree_older_than_the_grace_window(host):
+    """The other half of CR 12 — the window must expire, or nothing is ever
+    reclaimed and the GC quietly becomes a no-op."""
+    old = _fill(host["npx"] / "bbbbbbbbbbbbbbbb")
+    stale = time.time() - 7200
+    for path in [old, *old.rglob("*")]:
+        os.utime(path, (stale, stale))
+    run_gc(host, "--prune", DISK_GC_GRACE_MINUTES=60)
+    assert not old.exists()
+
+
+def test_a_fresh_file_deep_inside_protects_the_tree(host):
+    """An installer writing files inside leaves the top level's own mtime
+    untouched, so the check has to look at the whole tree."""
+    tree = _fill(host["npx"] / "cccccccccccccccc")
+    stale = time.time() - 7200
+    os.utime(tree, (stale, stale))
+    (tree / "node_modules").mkdir()
+    (tree / "node_modules" / "just-written").write_bytes(b"x")
+    run_gc(host, "--prune", DISK_GC_GRACE_MINUTES=60)
+    assert tree.exists()
+
+
 def test_keeps_a_build_a_process_only_runs_inside(host, live_cwd):
     """CR 2. Nothing names this path in argv — the only evidence is the
     process's cwd. Reading command lines alone would delete a live server."""
@@ -321,6 +364,7 @@ def test_prunes_plugin_cache_versions_that_are_not_installed(host):
     assert current.exists()
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root removes through a read-only parent")
 def test_a_failed_removal_stays_in_the_reclaimable_accounting(host):
     """CR 7. Counting a candidate as neither pruned nor reclaimable made a run
     that failed to free 2 GB report `pruned_bytes: 0, reclaimable_bytes: 0` —
