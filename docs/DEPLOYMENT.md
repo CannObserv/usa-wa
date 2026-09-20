@@ -21,6 +21,7 @@ detail behind them.
 | Committee lineage invariants (daily) | oneshot + timer | — | `systemctl` (`usa-wa-committee-lineage-invariants.timer` → `.service`; 07:30 UTC, #124 C4). Read-only coherence assertion — INV1 no `active=false` committee carries a live membership Assignment; INV2 the subject of a non-superseded `succeeded_by`/`merged_with` link is `active=false` (`split_from` exempt); exit 1 → operator email. Ordered after the refreshes + reconcile deactivate defunct committees + close their spans |
 | Dataset pipeline (daily) | oneshot + timer | — | `systemctl` (`usa-wa-pipeline.timer` → `.service`; 08:00 UTC, #311). The #302 nightly chain: three raw harvests → dbt build → registrar → publish → serving load → parity probes (`scripts/pipeline-nightly.sh`). Harvest failures contained (last good wires + publish gates protect); a build failure aborts; registrar conflicts, a publish-gate refusal, or a parity divergence exit 1 → operator email while the last good catalog stands. Ordered after the canonical refreshes (they are the parity oracle) |
 | Provenance integrity sweep (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-integrity-sweep.timer` → `.service`; Sun 08:00 UTC) |
+| Disk GC + free-space sensor (daily) | oneshot + timer | — | `systemctl` (`usa-wa-disk-gc.timer` → `.service`; 05:45 UTC, #394). `scripts/disk-gc.sh --prune`: reclaims tooling copies no running process references (VS Code server builds, Claude plugin-cache versions, `_npx` trees), measures the repo tiers without touching them (#396 owns their retention), and exits 1 below the free-space floor → operator email. First in the chain, ahead of the 06:00 ingest — reclaim, then work. The one unit carrying **neither** `ExecStartPre` guard: it runs no repo code, and #87/#279 both fail in the worktree-heavy state that fills the disk |
 | Failure alerts | templated oneshot | — | `OnFailure=` → `usa-wa-notify-failure@.service` |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
 
@@ -319,6 +320,19 @@ sudo cp deploy/default/earlyoom /etc/default/earlyoom
 sudo systemctl daemon-reload && sudo sysctl --system && sudo systemctl restart earlyoom
 ```
 
+A fifth landed with #394, on the same copy-don't-symlink rule — the journal cap:
+
+```bash
+sudo mkdir -p /etc/systemd/journald.conf.d
+sudo cp deploy/journald.conf.d/10-usa-wa-journal-cap.conf /etc/systemd/journald.conf.d/
+sudo systemctl restart systemd-journald
+```
+
+`/etc/systemd/journald.conf` sets no `SystemMaxUse=`, so the journal grows to
+journald's default 10% of the filesystem (~2.5 G here) and had drifted to 695 M
+before #394. The cap is why `usa-wa-disk-gc.service` does not vacuum the journal
+and therefore needs no privilege.
+
 The fourth, the SocratiCode pin, is a per-host `npm install` and is not a repo
 artifact — [docs/CODE-EXPLORATION.md § The server is pinned](CODE-EXPLORATION.md#the-server-is-pinned-not-installed-per-launch-389).
 
@@ -349,6 +363,7 @@ sysctl vm.min_free_kbytes
 | After editing `deploy/usa-wa-house-corroboration.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-house-corroboration.timer` |
 | After editing `deploy/usa-wa-succession-invariants.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-succession-invariants.timer` |
 | After editing `deploy/usa-wa-committee-lineage-invariants.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-committee-lineage-invariants.timer` |
+| After editing `deploy/usa-wa-disk-gc.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-disk-gc.timer` |
 | After editing `deploy/usa-wa-notify-failure@.service` | `sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
 | After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
 | Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
@@ -360,6 +375,7 @@ sysctl vm.min_free_kbytes
 | Run the House corroboration now (ad-hoc) | `sudo systemctl start usa-wa-house-corroboration.service` |
 | Run the succession invariant check now (ad-hoc) | `sudo systemctl start usa-wa-succession-invariants.service` |
 | Run the committee lineage invariant check now (ad-hoc) | `sudo systemctl start usa-wa-committee-lineage-invariants.service` |
+| Reclaim disk / check free space now (ad-hoc) | `sudo systemctl start usa-wa-disk-gc.service`, or `scripts/disk-gc.sh` for a report that removes nothing. Needs no DB and no venv — it is the one unit that still runs with a feature branch checked out |
 
 ## Validating unit edits (#51)
 

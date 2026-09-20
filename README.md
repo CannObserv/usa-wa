@@ -97,7 +97,7 @@ environment) are indexed under **Detail Docs** in [`AGENTS.md`](AGENTS.md).
 ## Deploy
 
 The systemd units live under [`deploy/`](deploy/) — the live API, a migrate
-oneshot, and nine timer-driven oneshots. (The PM sync sidecar and its three
+oneshot, and ten timer-driven oneshots. (The PM sync sidecar and its three
 weekly committee reconcilers were the tenth through thirteenth until usa-wa#314
 retired the PM sync stack.)
 
@@ -139,9 +139,14 @@ above already landed in `/etc/systemd/system/` via the `usa-wa*` copy.)
 Enable **all** of them. Four of the dailies are invariant gates whose whole job
 is to exit 1 and email the operator (`OnFailure=`, #49) when the data drifts —
 skip one and nothing fails, nothing alerts, and the absence looks identical to
-"no drift".
+"no drift". The disk GC (#394) is the same bargain one layer down: it exits 1
+when free space runs out, which is how a nightly publish dies on ENOSPC instead
+of publishing.
 
 ```bash
+# Host hygiene (daily) — reclaim before the day's work, not after it fails
+sudo systemctl enable --now usa-wa-disk-gc.timer                            # daily 05:45 UTC (#394)
+
 # Ingest (daily)
 sudo systemctl enable --now usa-wa-wsl-refresh.timer                        # daily 06:00 UTC
 sudo systemctl enable --now usa-wa-pdc-refresh.timer                        # daily 06:30 UTC (#69 identifier links)

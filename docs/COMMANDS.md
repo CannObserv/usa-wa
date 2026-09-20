@@ -230,6 +230,62 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) § Lifecycle reference for the full unit-by-u
 restart matrix, and [`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server Lifecycle
 for the `--no-sync` / `uv sync --locked` deploy convention.
 
+## Host maintenance (#394)
+
+Not job-harness CLIs — plain bash, no venv, no database. Both exist because the
+25 GB root volume hit 98% with 565 MB free and killed a `pytest` run on ENOSPC,
+and because nothing on the box reported it beforehand.
+
+```bash
+# Report: free space, what is reclaimable, per-tier repo sizes. Removes nothing.
+scripts/disk-gc.sh
+scripts/disk-gc.sh --json                  # machine-readable, one object
+
+# Reclaim, then report. What prod runs daily at 05:45 UTC (usa-wa-disk-gc.timer).
+scripts/disk-gc.sh --prune
+```
+
+Exit `0` healthy or warning, `1` free space under the fail floor (→ operator
+email via `OnFailure=`), `2` tooling. Thresholds are `DISK_GC_WARN_BYTES`
+(default 2 GiB) and `DISK_GC_FAIL_BYTES` (1 GiB).
+
+**What it prunes** — superseded VS Code server builds and `code-*` CLI binaries,
+Claude plugin-cache versions that are not the installed one, and `~/.npm/_npx`
+trees. The reclaimable copy and the in-use one are siblings in the same
+directory, so a size-or-mtime heuristic would delete a running editor's server;
+liveness is the discriminator, read from `/proc/*/` `cmdline`, `cwd` **and**
+`exe` — a process started by a relative path names its tree in none of its argv.
+
+A `DISK_GC_GRACE_MINUTES` window (default 60) covers the one case liveness
+cannot: a tree still being installed is named by no process yet, because the
+process that will run out of it does not exist. Set it to `0` to disable.
+
+**What it never prunes** — repo data. `data/datasets/`, `raw/`, the dbt logs and
+the duckdb are measured and reported; their retention contract is
+[#396](https://github.com/CannObserv/usa-wa/issues/396), not this script's call.
+Worktrees are named, never destroyed — that is gated by the `using-git-worktrees`
+Iron Law, a merge check a GC cannot make.
+
+```bash
+# Rebuild ollama/ollama:latest without its accelerator runtimes
+scripts/slim-ollama-image.sh
+scripts/slim-ollama-image.sh --force       # rebuild even if already slim
+```
+
+The stock image costs **8.06 GB on disk / 3.27 GB of content** to serve one
+274 MB embedding model: `cuda_v12` 1.2 G, `cuda_v13` 831 M, `mlx_cuda_v13`
+2.0 G, `vulkan` 47 M — 4.0 GB of accelerator runtime on a VM with no
+accelerator. Stripping them took the volume from 98% to 57% with a
+byte-identical embedding response.
+
+It refuses on a host that has a GPU, refuses without headroom for the rebuild,
+and keeps the fat image until the replacement is verified serving the model —
+that image is the only rollback. The rebuilt image keeps the
+`ollama/ollama:latest` tag (SocratiCode hardcodes it, and its
+`isOllamaImagePresent()` gates the pull on it being present locally) and carries
+a `dev.usa-wa.slim` label. A plain `docker pull` silently restores the fat
+image; `scripts/disk-gc.sh` reads that label and reports it.
+
 ## Data refresh (daily)
 
 Prod runs these on systemd timers; the forms below are the ad-hoc / backfill

@@ -1,0 +1,23 @@
+[Unit]
+Description=usa-wa — daily host disk GC and free-space check
+Documentation=https://github.com/CannObserv/usa-wa/issues/394
+
+[Timer]
+# Daily, 05:45 UTC — first in the chain, ahead of the 06:00 WSL refresh. The
+# order is the point: reclaim, then ingest. The day's work (harvests, a dbt
+# build, a publish) is what consumes space, so space is freed before it runs
+# rather than after it has already failed.
+#
+# Daily, not weekly like the integrity sweep: #394 measured 1.3 G → 565 M in 28
+# hours of ordinary session work, so a weekly reading is stale before it is read.
+# It still under-samples interactive sessions, which are the volatile part —
+# `scripts/disk-gc.sh` by hand is the answer there, and the reason it reports as
+# well as prunes.
+OnCalendar=*-*-* 05:45:00 UTC
+# Run on next boot if the box was down at the scheduled time.
+Persistent=true
+# Jitter to avoid firing on the dot.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

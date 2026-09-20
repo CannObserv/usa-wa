@@ -43,7 +43,7 @@ docs/plans/           — Per-phase implementation plans
 docs/research/        — Discovery outputs (Archiver/Watcher contracts, multi-state IA delta)
 docs/                 — Reference docs (COMMANDS, SKILLS)
 deploy/               — Systemd unit + deployment config. Service table: [DEPLOYMENT.md](DEPLOYMENT.md)
-scripts/              — the eight operational shell entrypoints (migrate, dbt-gate, pipeline-nightly, notify-failure, verify-units, assert-main-checkout, assert-venv-integrity, pre-ship), `context_manifest_drift.py` behind the session hook, and `scripts/tests/` — the repo-level guards that pin these docs, the systemd units and the workspace registries. CLIs by name: [COMMANDS.md](COMMANDS.md)
+scripts/              — the ten operational shell entrypoints (migrate, dbt-gate, pipeline-nightly, notify-failure, verify-units, assert-main-checkout, assert-venv-integrity, pre-ship, disk-gc, slim-ollama-image), `context_manifest_drift.py` behind the session hook, and `scripts/tests/` — the repo-level guards that pin these docs, the systemd units and the workspace registries. CLIs by name: [COMMANDS.md](COMMANDS.md)
 .github/              — one GitHub Actions workflow, the weekly context cadence. It is the only scheduled job not on this VM: [DEPLOYMENT.md](DEPLOYMENT.md) § Scheduled work outside systemd
 .claude/              — Claude Code settings, hooks and the skill symlinks
 .skills/              — the skill knobs (context budgets, the ship gate's path list and advice) and `doctor.sh`

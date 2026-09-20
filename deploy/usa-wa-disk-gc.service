@@ -1,0 +1,60 @@
+[Unit]
+Description=usa-wa — host disk garbage collector + free-space sensor (#394) one-shot
+# No After= by design. Every other oneshot orders itself after postgresql and
+# usa-wa-migrate because it reads the database; this one reads the filesystem and
+# the process table only. Giving it dependencies it does not need would be giving
+# it ways to be prevented from running, and the condition it detects — a full
+# volume — is one that makes everything else fail first.
+# Alert the operator on failure (#49). Exit 1 means free space is below the fail
+# threshold: the disk is nearly gone and the next test run or nightly publish
+# dies on ENOSPC, which is exactly how #394 was discovered. That is worth an
+# email at 05:45 rather than a dead pipeline at 08:00.
+OnFailure=usa-wa-notify-failure@%n.service
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/usa-wa
+
+# NO ExecStartPre guards, deliberately — the one unit in deploy/ that carries
+# neither (UNGUARDED_SERVICES in scripts/tests/test_unit_ordering.py names it
+# alongside the notify handler).
+#
+# assert-main-checkout.sh (#87) and assert-venv-integrity.sh (#279) both exist to
+# stop a unit running *repo code* against the wrong tree. This unit runs no repo
+# code — plain bash over $HOME and the filesystem, no imports, no venv. Worse,
+# both guards fail precisely in the state this unit exists for: a checked-out
+# feature branch and a worktree-restamped venv are what worktree-heavy sessions
+# produce, and each live worktree costs ~225 MB (.skills/worktree_venv=none,
+# #279). A sensor that goes silent exactly when the disk is filling is not a
+# sensor.
+Environment=HOME=/home/exedev
+
+# --prune: reclaim first, then report what is left. Only provably unreferenced
+# copies are removed — every candidate is checked against the live process table
+# (cmdline, cwd and exe), since the reclaimable VS Code server build and the one
+# serving a live window are siblings in one directory, and a grace window covers
+# the tree that is still being installed and so named by no process yet. Repo
+# data (datasets, raw/, dbt, cassettes) is measured and never touched; its
+# retention contract is #396.
+ExecStart=/home/exedev/usa-wa/scripts/disk-gc.sh --prune
+
+# I/O-bound by construction: `du` over several multi-gigabyte trees, plus a
+# find per candidate. Deprioritised so the sweep cannot crowd the serving unit;
+# it fires 15 minutes clear of the ingest chain, so it has time to spare.
+#
+# Nice= only. IOSchedulingClass= was here briefly and was wrong twice over: this
+# host's root device (/dev/vda) uses the `none` scheduler, so there is no I/O
+# scheduling to influence and the directive did nothing at all — and where it
+# WOULD bite (BFQ), class `idle` can be starved indefinitely by sustained I/O,
+# against the TimeoutStartSec= below, turning a cosmetic tuning into a spurious
+# OnFailure= email. CPU niceness is independent of the block layer and is the
+# half that actually applies. Measured cost of the sweep: ~1s.
+Nice=10
+
+# Bounded so a pathological tree fails deterministically rather than hanging the
+# manager; the timer retries tomorrow. Measured at ~1s on a healthy host, so the
+# margin here is for a degraded one, not for the ordinary case.
+TimeoutStartSec=300
+
+# This unit is started by usa-wa-disk-gc.timer; no [Install] WantedBy.
