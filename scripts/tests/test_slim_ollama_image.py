@@ -75,7 +75,11 @@ case "$1" in
   ps) printf 'socraticode-ollama' ;;
   exec) printf 'nomic-embed-text:latest  0a109f422b47  274 MB' ;;
   export) printf 'tar-bytes' ;;
-  import) printf 'sha256:deadbeef' ;;
+  # Drain stdin, as real `docker import` does. Exiting without reading it left
+  # the `export` upstream of the pipe to die of SIGPIPE (141), which `pipefail`
+  # then reported as a failed rebuild — a race that won in isolation and lost
+  # under a full-suite load, making every test of the rebuild path flaky.
+  import) cat >/dev/null 2>&1; printf 'sha256:deadbeef' ;;
   *) : ;;
 esac
 exit 0
