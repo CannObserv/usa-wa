@@ -16,11 +16,6 @@
       "description": "The domain model \u2014 what ingested data becomes: entities, lifecycle axes, spans-as-assignments, and the three event shapes. Sibling of ARCHITECTURE.md (which covers how data gets in). Read before adding a fact."
     },
     {
-      "name": "architecture-design",
-      "path": "./docs/specs/2026-05-25-usa-wa-mvp-design.md",
-      "description": "The original MVP architecture design \u2014 the four-layer clearinghouse split (clearinghouse-core / domain-legislative / per-jurisdiction adapters / deployment API), provenance model, and adapter contract. Historical baseline: the layering has since grown to six layers (see AGENTS.md), but this remains the source of truth for the data model and the founding design decisions."
-    },
-    {
       "name": "architecture-specs",
       "path": "./docs/specs",
       "description": "Architecture specs \u2014 jurisdiction decoupling, identity sync, Power Map sync sidecar, WSL SOAP transformation, committee historical backfill, merge-orphan self-heal, subscription sync, and more. Source of truth for design decisions per subsystem."
@@ -101,9 +96,9 @@
       "description": "Seat-fact backfill commands \u2014 PDC identifier links (#79) and WSL+SOS House Position (#101) \u2014 plus which half of the daily PDC/SOS archive/rebuild cycle each flag governs (#201)."
     },
     {
-      "name": "code-exploration",
-      "path": "./docs/CODE-EXPLORATION.md",
-      "description": "Code exploration tool selection \u2014 the goal\u2192tool table, the measurements behind the file-dependency graph's repair in SocratiCode 1.13.0 (13 \u2192 1,633 edges, grep-verified), the engine version floor that remains the one caveat, the background-work trap (graph builds, indexes and watcher updates run inside the server process after the tool call returns; killing it persists half-finished state silently \u2014 check Last built and indexingStatus, not the headline count), and the source of the session-start ToolSearch prefetch query."
+      "name": "socraticode-doc",
+      "path": "./docs/SOCRATICODE.md",
+      "description": "Code exploration tool selection \u2014 the generated goal\u2192tool table, prefetch, per-tool notes, graph-health and index-scope guidance (init-socraticode template, between the socraticode-doc markers), plus this repo's own notes below the END marker: the measurements behind the file-dependency graph's repair in SocratiCode 1.13.0 (13 \u2192 1,633 edges, grep-verified) and the engine version floor that remains the one caveat; the background-work trap (graph builds, indexes and watcher updates run inside the server process after the tool call returns, so killing it persists half-finished state silently \u2014 check Last built and indexingStatus, not the headline count); the manifest-coverage drift check (#300); and why the server is pinned rather than installed per launch (#389)."
     },
     {
       "name": "api",

@@ -54,4 +54,4 @@ docs/API.md: the read-only /api/v1 route table, pagination, and the response con
 
 # The agent-context surface itself.
 docs/SKILLS.md: the vendor → symlink → discovery layout, the .skills knobs (this file among them), the hook registrations in .claude/settings.json, and § Context budget for the weekly cadence's ledger files (.skills/, .claude/, .github/)
-docs/CODE-EXPLORATION.md: the SocratiCode context-artifact manifest (every tracked doc must be declared or exempted — #300), the goal→tool table, and the session-start hooks (.socraticodecontextartifacts.json, .claude/)
+docs/SOCRATICODE.md: the SocratiCode context-artifact manifest (every tracked doc must be declared or exempted — #300), the goal→tool table, and the session-start hooks (.socraticodecontextartifacts.json, .claude/)
