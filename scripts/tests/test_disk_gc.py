@@ -4,14 +4,16 @@
 separate this from "a cleanup script someone runs when they remember":
 
 * **It prunes only what is provably unreferenced.** Every candidate is checked
-  against the live process table before removal — `cmdline`, `cwd` AND `exe`,
-  because a process started by a relative path names its tree in none of its
-  argv (CR 2) — since the reclaimable copies and the in-use ones sit side by
-  side in the same directory: five VS Code server builds, two of them serving
-  live windows; five copies of SocratiCode's node tree, two of them running. A
-  size-or-mtime heuristic would delete a running editor's server. A *grace
-  window* covers the case liveness cannot (CR 12): a tree still being installed
-  is named by no process yet.
+  against the live process table before removal — `cmdline`, `cwd`, `exe` AND
+  `maps`, because a process started by a relative path names its tree in none
+  of its argv (CR 2), and one holding a native addon loaded names it in none of
+  the other three (#399 CR 1) — since the reclaimable copies and the in-use
+  ones sit side by side in the same directory: five VS Code server builds, two
+  of them serving live windows; five copies of SocratiCode's node tree, two of
+  them running; five Claude extension versions (#399), one live and a different
+  one active. A size-or-mtime heuristic would delete a running editor's server.
+  A *grace window* covers the case liveness cannot (CR 12): a tree still being
+  installed is named by no process yet.
 * **It never touches repo data.** Retention for the published-dataset, `raw/`,
   dbt and cassette tiers is a *contract* question descoped to its own issue; this
   script reports those sizes and removes nothing from them. A GC that quietly
@@ -117,6 +119,86 @@ def live_cwd():
             time.sleep(0.05)
         else:  # pragma: no cover - the spawn itself failed
             pytest.fail(f"spawned process never showed {path} as its cwd")
+        started.append(proc)
+        return proc
+
+    yield _spawn
+
+    for proc in started:
+        proc.send_signal(signal.SIGKILL)
+        proc.wait()
+
+
+@pytest.fixture
+def live_exe():
+    """Spawn a process *executing a binary* inside a tree, naming it nowhere else.
+
+    #399: this is how the live Claude extension version is actually in use — the
+    agent `exe`s its bundled native binary, and neither argv (argv[0] is a bare
+    name here) nor cwd spells out the extension directory.
+    """
+    started: list[subprocess.Popen] = []
+
+    def _spawn(binary: Path) -> subprocess.Popen:
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(shutil.which("sleep"), binary)
+        proc = subprocess.Popen(
+            ["sleep", "600"],
+            executable=str(binary),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            try:
+                if Path(f"/proc/{proc.pid}/exe").resolve() == binary.resolve():
+                    break
+            except OSError:  # pragma: no cover - race with a not-yet-visible pid
+                pass
+            time.sleep(0.05)
+        else:  # pragma: no cover - the spawn itself failed
+            pytest.fail(f"spawned process never showed {binary} as its exe")
+        started.append(proc)
+        return proc
+
+    yield _spawn
+
+    for proc in started:
+        proc.send_signal(signal.SIGKILL)
+        proc.wait()
+
+
+@pytest.fixture
+def live_mmap():
+    """Spawn a process that holds a file from a tree *mapped*, and nothing else.
+
+    #399 CR 1: an un-reloaded VS Code window's extension host still has an old
+    Claude extension version loaded, and names that directory in none of
+    cmdline, cwd or exe — its one trace is the native addon in its memory maps.
+    The path reaches the child through the environment, which the liveness
+    snapshot does not read, and the descriptor is closed once mapped.
+    """
+    started: list[subprocess.Popen] = []
+    body = (
+        "import mmap, os, time\n"
+        "with open(os.environ['MAPPED'], 'rb') as fh:\n"
+        "    held = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)\n"
+        "print('mapped', flush=True)\n"
+        "time.sleep(600)\n"
+    )
+
+    def _spawn(path: Path) -> subprocess.Popen:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\0" * 4096)
+        proc = subprocess.Popen(
+            ["python3", "-c", body],
+            env={**os.environ, "MAPPED": str(path)},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        if proc.stdout.readline().strip() != "mapped":  # pragma: no cover
+            pytest.fail(f"spawned process never mapped {path}")
         started.append(proc)
         return proc
 
@@ -365,6 +447,35 @@ def test_keeps_a_build_a_process_only_runs_inside(host, live_cwd):
     assert live.exists()
 
 
+def test_a_full_disk_cannot_blind_the_liveness_check(host, live_procs):
+    """CR 5. The snapshot used to be a temp file on the very disk this GC runs to
+    rescue: at ENOSPC the write truncated silently, every process it lost read
+    as idle, and --prune ran `rm -rf` on trees in use — in exactly the state the
+    unit exists for. `ulimit -f 1` makes any file write past 1 KiB fail, which
+    is the same truncation; the live build must survive it."""
+    live = _fill(host["vscode"] / "cli" / "servers" / "Stable-live0000")
+    live_procs(live / "server" / "bin" / "code-server")
+    env = {
+        **os.environ,
+        "DISK_GC_VSCODE_ROOT": str(host["vscode"]),
+        "DISK_GC_PLUGIN_ROOT": str(host["plugins"]),
+        "DISK_GC_NPX_ROOT": str(host["npx"]),
+        "DISK_GC_REPO": str(host["repo"]),
+        "DISK_GC_DOCKER": "",
+        "DISK_GC_WARN_BYTES": "0",
+        "DISK_GC_FAIL_BYTES": "0",
+        "DISK_GC_GRACE_MINUTES": "0",
+    }
+    subprocess.run(
+        ["bash", "-c", 'ulimit -f 1 && exec "$0" --prune', str(SCRIPT)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+    )
+    assert live.exists()
+
+
 def test_keeps_lru_json_which_is_not_a_build(host):
     lru = host["vscode"] / "cli" / "servers" / "lru.json"
     lru.write_text("[]")
@@ -453,6 +564,194 @@ def test_keeps_a_live_plugin_cache_version_even_if_uninstalled(host, live_procs)
     live_procs(superseded / "node_modules" / ".bin" / "socraticode")
     run_gc(host, "--prune")
     assert superseded.exists()
+
+
+# ── VS Code extensions (#399) ─────────────────────────────────────────────────
+
+CLAUDE_EXT = "anthropic.claude-code"
+
+
+def _extension(host, version: str, kib: int = 64) -> Path:
+    """One Claude extension version, laid out as VS Code installs it."""
+    return _fill(host["vscode"] / "extensions" / f"{CLAUDE_EXT}-{version}-linux-x64", kib=kib)
+
+
+def _manifest_entry(root: Path, ext_id: str, version: str) -> dict:
+    """One `extensions.json` entry, in the shape VS Code writes it."""
+    rel = f"{ext_id}-{version}-linux-x64"
+    return {
+        "identifier": {"id": ext_id},
+        "version": version,
+        "location": {
+            "$mid": 1,
+            "fsPath": str(root / rel),
+            "path": str(root / rel),
+            "scheme": "file",
+        },
+        "relativeLocation": rel,
+        "metadata": {"source": "gallery", "targetPlatform": "linux-x64"},
+    }
+
+
+def _active_extension(host, version: str, root: Path | None = None) -> None:
+    """Write `extensions.json` naming `version` as the active Claude extension."""
+    root = root or host["vscode"] / "extensions"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "extensions.json").write_text(json.dumps([_manifest_entry(root, CLAUDE_EXT, version)]))
+
+
+def _extension_warnings(data: dict) -> list[str]:
+    return [w for w in data["warnings"] if "extensions.json" in w]
+
+
+def test_extension_versions_are_a_gc_root(host):
+    """The defect #399 names: 649 MB of superseded extension binaries sat in a
+    tier the sensor did not look at, so it reported `reclaimable: 0B` — and #394
+    was filed after ENOSPC at 565 MB free."""
+    _active_extension(host, "2.1.278")
+    _extension(host, "2.1.278")
+    _extension(host, "2.1.259", kib=128)
+    data = report(host)
+    reclaimable = [c for c in data["reclaimable"] if c["kind"] == "vscode-extension"]
+    assert [Path(c["path"]).name for c in reclaimable] == [f"{CLAUDE_EXT}-2.1.259-linux-x64"]
+    assert reclaimable[0]["bytes"] >= 128 * 1024
+
+
+def test_prunes_extension_versions_neither_active_nor_live(host, live_exe):
+    """The host as #399 measured it: idle versions beside one a running agent
+    executes out of, beside the one the manifest names. Live and active are
+    different states and a version can be either without the other."""
+    _active_extension(host, "2.1.278")
+    idle = _extension(host, "2.1.259")
+    live = _extension(host, "2.1.273")
+    active = _extension(host, "2.1.278")
+    live_exe(live / "resources" / "native-binary" / "claude")
+    run_gc(host, "--prune")
+    assert not idle.exists()
+    assert live.exists()
+    assert active.exists()
+
+
+def test_keeps_a_version_an_unreloaded_window_still_has_loaded(host, live_mmap):
+    """CR 1. The window's extension host maps the old version's native addon
+    and names its directory nowhere else. With no agent running, a snapshot
+    of cmdline, cwd and exe alone reads that version as idle — and pruning it
+    breaks the next session that window starts."""
+    _active_extension(host, "2.1.278")
+    loaded = _extension(host, "2.1.273")
+    _extension(host, "2.1.278")
+    live_mmap(loaded / "resources" / "audio-capture" / "x64-linux" / "audio-capture.node")
+    run_gc(host, "--prune")
+    assert loaded.exists()
+
+
+def test_a_mapped_file_protects_every_tier(host, live_mmap):
+    """The fourth liveness source is not extension-specific: a node tree whose
+    native module a running process has mapped is in use, whatever launched it."""
+    tree = _fill(host["npx"] / "dddddddddddddddd")
+    live_mmap(tree / "node_modules" / "addon.node")
+    run_gc(host, "--prune")
+    assert tree.exists()
+
+
+def test_keeps_the_active_extension_with_no_process_live(host):
+    """An editor between reloads has no running agent. That is not licence to
+    delete the version it will start next."""
+    _active_extension(host, "2.1.278")
+    idle = _extension(host, "2.1.266")
+    active = _extension(host, "2.1.278")
+    data = report(host, "--prune")
+    assert not idle.exists()
+    assert active.exists()
+    assert _extension_warnings(data) == []
+
+
+def _write_manifest(host, case: str) -> None:
+    root = host["vscode"] / "extensions"
+    manifest = root / "extensions.json"
+    if case == "absent":
+        return
+    if case == "unparseable":
+        manifest.write_text('[{"identifier": {"id": "anthropic.claude-code"}, "vers')
+    elif case == "names-nothing":
+        manifest.write_text("[]")
+    elif case == "names-another-extension":
+        manifest.write_text(json.dumps([_manifest_entry(root, "ms-python.python", "2025.1.0")]))
+    elif case == "names-a-version-not-on-disk":
+        _active_extension(host, "2.1.279")
+    elif case == "not-a-list":
+        manifest.write_text(json.dumps({"anthropic.claude-code": "2.1.278"}))
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "absent",
+        "unparseable",
+        "names-nothing",
+        "names-another-extension",
+        "names-a-version-not-on-disk",
+        "not-a-list",
+    ],
+)
+def test_no_usable_manifest_removes_no_extension(host, case):
+    """The manifest is the only evidence of which version is active, so every
+    way of lacking it means remove *nothing*: a half-written manifest explains
+    an empty or mismatched one at least as well as a real uninstall does. One
+    naming a version that is not on disk is no better — pruning the rest would
+    leave the editor nothing to start. And the refusal is reported, or the
+    sensor is back to printing `0B` over ~220 MB a version."""
+    versions = [_extension(host, "2.1.259"), _extension(host, "2.1.278")]
+    _write_manifest(host, case)
+    data = report(host, "--prune")
+    assert all(v.exists() for v in versions)
+    assert data["pruned"] == []
+    assert len(_extension_warnings(data)) == 1
+
+
+def test_no_claude_extension_is_not_a_warning(host):
+    """A host without the extension has nothing to evaluate; absence of the
+    tier must not read as a broken manifest."""
+    assert _extension_warnings(report(host)) == []
+
+
+def test_other_extensions_are_never_candidates(host):
+    """Scoped to the Claude extension on purpose: other publishers' extensions
+    are small, and a manifest that omits one is weaker evidence than a match on
+    the one extension this tier is about. The version-digit anchor keeps a
+    hypothetical sibling id from being read as a Claude version."""
+    _active_extension(host, "2.1.278")
+    _extension(host, "2.1.278")
+    root = host["vscode"] / "extensions"
+    other = _fill(root / "ms-python.python-2025.1.0-linux-x64")
+    sibling = _fill(root / f"{CLAUDE_EXT}-companion-1.0.0")
+    run_gc(host, "--prune")
+    assert other.exists()
+    assert sibling.exists()
+
+
+def test_a_fresh_extension_version_is_withheld(host):
+    """The grace window covers this tier too: a version VS Code is unpacking
+    right now is named by no process and, until it finishes, by no manifest."""
+    _active_extension(host, "2.1.278")
+    active = _extension(host, "2.1.278")
+    stale = time.time() - 7200
+    for path in [active, *active.rglob("*")]:
+        os.utime(path, (stale, stale))
+    fresh = _extension(host, "2.1.281")
+    data = report(host, "--prune", DISK_GC_GRACE_MINUTES=60)
+    assert fresh.exists()
+    assert [c["kind"] for c in data["withheld"]] == ["vscode-extension"]
+
+
+def test_extensions_root_is_overridable(host, tmp_path):
+    elsewhere = tmp_path / "elsewhere-extensions"
+    _active_extension(host, "2.1.278", root=elsewhere)
+    idle = _fill(elsewhere / f"{CLAUDE_EXT}-2.1.259-linux-x64")
+    active = _fill(elsewhere / f"{CLAUDE_EXT}-2.1.278-linux-x64")
+    run_gc(host, "--prune", DISK_GC_EXTENSIONS_ROOT=elsewhere)
+    assert not idle.exists()
+    assert active.exists()
 
 
 # ── npx caches ────────────────────────────────────────────────────────────────

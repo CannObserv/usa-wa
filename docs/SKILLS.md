@@ -110,7 +110,7 @@ Adding an artifact to `.socraticodecontextartifacts.json` **does not index it**.
 
 `.claude/hooks/socraticode-health.sh` is the detector — a `SessionStart` hook symlinked into the vendored `init-socraticode/scripts/`, wired in [`.claude/settings.json`](../.claude/settings.json). It runs at most once per UTC day **per project** (the lock lives in the common `.git`, so N worktrees produce one report a day, not N), is silent when there is nothing to report, and exits 0 on every path so it can never block a session. It **reports; it never repairs** — no re-index, no `docker start`, no file edit.
 
-What it surfaces: a declared-but-unindexed (or stale) context artifact **by name**, a `codebase_health` problem, a FAILED or INCOMPLETE last operation, and the graph edge-yield gate. That last one fires here every day and is expected — it is the broken file-dependency graph documented in [`docs/CODE-EXPLORATION.md`](CODE-EXPLORATION.md), not a new finding.
+What it surfaces: a declared-but-unindexed (or stale) context artifact **by name**, a `codebase_health` problem, a FAILED or INCOMPLETE last operation, and the graph edge-yield gate. That last one fired here daily until the file-dependency graph's repair in SocratiCode 1.13.0 ([`docs/CODE-EXPLORATION.md`](CODE-EXPLORATION.md)); it is quiet now, so a firing gate is a new finding — check the engine version first.
 
 ```bash
 SOCRATICODE_HEALTH_FORCE=1 bash .claude/hooks/socraticode-health.sh   # ignore the daily lock
@@ -122,7 +122,7 @@ Act on an artifact finding with `codebase_context_index`; on an index finding wi
 
 ## Context budget
 
-`curating-context` (#161) keeps `AGENTS.md` and the docs it links under a token budget — every token in that surface is paid on every agent invocation. It leaves five tracked files in `.skills/`:
+`curating-context` (#161) keeps `AGENTS.md` and the docs it links under a token budget — every token in that surface is paid on every agent invocation. It leaves these tracked files in `.skills/`:
 
 | File | What it is |
 |---|---|
@@ -130,6 +130,10 @@ Act on an artifact finding with `codebase_context_index`; on an index finding wi
 | `context-doc-budget` | per-reference-doc budget — **10,000** tokens |
 | `context-token-ratio` | this repo's measured bytes-per-token, written by each `--exact` run; the offline estimators read it so `bytes/4` (which under-reports this content by ~60%) is never used |
 | `context-metrics.jsonl` | append-only ledger, one row per run. Committed rather than centralized so the history travels with the repo and is reviewable in the same PR as the edits it describes |
+| `context-token-counts` | per-file anchors (`<bytes> <tokens> <path>`) from the last whole-surface `--exact` run — the offline estimate's `"file"` source, one step better than the repo-wide ratio |
+| `context-loss-ok` | judged warrants for lines a curation rewrote rather than moved (`prove-no-loss.sh`), each naming why from a closed set — `retarget`, `tighten`, `disproven`, … |
+| `context-seams-ok` | judged acknowledgements for `check-seams.sh` hits — references that still point true after a move |
+| `context-counts-ok` | judged warrants for `check-counts.sh` hits — a bare number the text beside it enumerates, or that cannot drift |
 | `doctor.sh` | unrelated — see [§ the preflight](#skillsdoctorsh--the-preflight) |
 
 The weekly run recovers ground; the **write guard** stops regrowth between runs. It is a `PostToolUse` hook on `Edit|Write|MultiEdit`, wired in [`.claude/settings.json`](../.claude/settings.json), and it is advisory only — always exits 0, and stays silent unless an edit *both* pushes a context-surface file past its budget *and* increases it since `HEAD`, so a curation run is never nagged. `docs/plans/`, `docs/specs/`, and `docs/research/` are excluded as archival at any depth (so are `audits/` and `archive/`, which this repo does not currently have).

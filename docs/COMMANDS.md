@@ -250,11 +250,13 @@ email via `OnFailure=`), `2` tooling. Thresholds are `DISK_GC_WARN_BYTES`
 (default 2 GiB) and `DISK_GC_FAIL_BYTES` (1 GiB).
 
 **What it prunes** — superseded VS Code server builds and `code-*` CLI binaries,
-Claude plugin-cache versions that are not the installed one, and `~/.npm/_npx`
-trees. The reclaimable copy and the in-use one are siblings in the same
-directory, so a size-or-mtime heuristic would delete a running editor's server;
-liveness is the discriminator, read from `/proc/*/` `cmdline`, `cwd` **and**
-`exe` — a process started by a relative path names its tree in none of its argv.
+Claude extension versions that are neither live nor named by `extensions.json`
+(#399), Claude plugin-cache versions that are not the installed one, and
+`~/.npm/_npx` trees. The reclaimable copy and the in-use one are siblings in the
+same directory, so a size-or-mtime heuristic would delete a running editor's server;
+liveness is the discriminator, read from `/proc/*/` `cmdline`, `cwd`, `exe`
+**and** `maps` — a process started by a relative path names its tree in none of
+its argv, and a loaded native addon (#399) in none of the other three.
 
 A `DISK_GC_GRACE_MINUTES` window (default 60) covers the one case liveness
 cannot: a tree still being installed is named by no process yet, because the
@@ -303,7 +305,7 @@ surface. Pair with `USA_WA_BIENNIUM` to target a non-current biennium.
 python -m usa_wa_adapter_legislature.refresh
 
 # Each daily cycle is TWO jobs since #201 — archive (adapter, Phase A) then rebuild (fact, Phase
-# B) — one unit each. Flag semantics across the halves: § Archive vs rebuild, below.
+# B) — one unit each. Flag semantics across the halves: COMMANDS-SEATS.md § Archive vs rebuild.
 
 # PDC cohort ARCHIVE (#201 Phase A) — archives every winner cohort the current biennium's
 # membership can be decided by (#121: both House generals + the three senate-winners:<Y>), each in
@@ -336,43 +338,9 @@ The seat-fact historical backfills those daily rebuilds re-drive — the PDC win
 cohorts (#79) and the WSL+SOS House Position seat (#101), each with its Phase A /
 Phase B / migration sequence — are in
 [COMMANDS-SEATS.md](COMMANDS-SEATS.md).
-
-## Archive vs rebuild — which half each flag governs (#201)
-
-The daily PDC and SOS cycles are **two jobs, not one**. The adapter owns "refresh my archive"
-(Phase A — a live client), the fact owns "rebuild from that archive" (Phase B — a cohort
-interface). Before #201 both ran in one process, which is why `usa-wa-facts-seats` held the only
-two `import-linter` exceptions in the tree.
-
-| Half | Command | Unit | Ledger slug |
-|---|---|---|---|
-| PDC archive | `python -m usa_wa_adapter_pdc.archive_refresh` | `usa-wa-pdc-archive-refresh.service` | `pdc-archive-refresh` |
-| PDC rebuild | `python -m usa_wa_facts_seats.pdc.refresh` | `usa-wa-pdc-refresh.service` | `pdc-refresh` |
-| SOS archive | `python -m usa_wa_adapter_sos.results.archive_refresh` | `usa-wa-sos-archive-refresh.service` | `sos-archive-refresh` |
-| SOS rebuild | `python -m usa_wa_facts_seats.house.refresh` | `usa-wa-sos-refresh.service` | `sos-refresh` |
-
-- **`--force` belongs to the ARCHIVE half, and only there.** It bypasses the Source's freshness
-  TTL, and the rebuild holds no cache — the builders re-derive from the archive every run and are
-  idempotent. The daily archive refreshes force *by default* (the day's archive must be the day's
-  wire; the dedup guard still bounds `RawPayload` growth on a byte-identical re-pull); the
-  historical sweeps (`…pdc.harvest`, `…results.harvest`) expose `--force` as an opt-in flag.
-  Neither rebuild has a `--force` to give.
-- **`USA_WA_BIENNIUM` governs BOTH halves**, independently: it scopes which cohorts are archived
-  and which biennium's spans are rebuilt. Each half resolves it on its own and warns when it names
-  a closed biennium (`*_noncurrent_biennium`), so a stale pin is loud twice, not silently
-  half-applied. Pin it for both when running a non-current biennium by hand.
-- **`--dry-run`**: the archive halves take the harness's (they archive and roll back). Neither
-  rebuild offers one — each commits through its own `session.begin()`, so the flag could only have
-  lied (CR #196 finding 55).
-- **Failure semantics.** Each half has its own `job_runs` row and its own `OnFailure=` alert. The
-  archive half exits `4` (`EXIT_DEGRADED`) when *every* cohort was unserved — a whole-source
-  outage, which pre-split exited 0 behind a WARNING nothing consumed. A failed archive does **not**
-  cancel the rebuild: the rebuild unit `Wants=` its archive unit rather than `Requires=` it, so on
-  a votewa/Socrata outage the fact is still re-derived from the last good archive and keeps
-  tracking the WSL roster, which neither source has a part in.
-- **Running one by hand.** `sudo systemctl start usa-wa-sos-refresh.service` runs *both* halves
-  (the `Wants=` pulls the archive in). To rebuild without touching the source — the common case
-  when debugging a span — run the rebuild module directly.
+Which half of each daily cycle a flag governs — `--force`, `USA_WA_BIENNIUM`,
+`--dry-run`, failure semantics — is there too:
+[§ Archive vs rebuild](COMMANDS-SEATS.md#archive-vs-rebuild--which-half-each-flag-governs-201).
 
 ## Submodules
 

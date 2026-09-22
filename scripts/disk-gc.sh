@@ -55,6 +55,7 @@ done
 
 MOUNT=${DISK_GC_MOUNT:-/}
 VSCODE_ROOT=${DISK_GC_VSCODE_ROOT:-$HOME/.vscode-server}
+EXTENSIONS_ROOT=${DISK_GC_EXTENSIONS_ROOT:-$VSCODE_ROOT/extensions}
 PLUGIN_ROOT=${DISK_GC_PLUGIN_ROOT:-$HOME/.claude/plugins}
 NPX_ROOT=${DISK_GC_NPX_ROOT:-$HOME/.npm/_npx}
 REPO=${DISK_GC_REPO:-/home/exedev/usa-wa}
@@ -106,25 +107,47 @@ OLLAMA_SLIM_LABEL="cpu-only-gpu-libs-stripped"
 # would silently never reclaim anything. Self and parent are excluded for the
 # same reason.
 #
-# Three sources, not one. A command line is the usual evidence, but it is not
+# Four sources, not one. A command line is the usual evidence, but it is not
 # the only way a process depends on a tree: one started by a relative path after
 # a chdir, or through a symlinked entry point, names the directory nowhere in
 # its argv while still running out of it. `cwd` and `exe` close that, and the
 # whole point of the liveness check is that a false negative means `rm -rf` on
 # something in use.
-LIVE_CMDLINES=$(mktemp) || exit 2
-trap 'rm -f "$LIVE_CMDLINES"' EXIT
-for entry in /proc/[0-9]*; do
-    pid=${entry#/proc/}
-    [ "$pid" = "$$" ] && continue
-    [ "$pid" = "$PPID" ] && continue
-    tr '\0' '\n' <"$entry/cmdline" 2>/dev/null
-    readlink "$entry/cwd" 2>/dev/null
-    readlink "$entry/exe" 2>/dev/null
-done >"$LIVE_CMDLINES"
+#
+# `maps` is the fourth (#399 CR 1): the file-backed memory mappings, i.e. every
+# shared library and native addon a process has loaded. An un-reloaded VS Code
+# window's extension host still runs an old Claude extension version and names
+# its directory in none of the other three — the mapped `audio-capture.node` is
+# its only trace. Deduplicated as it is read, since every process maps libc.
+#
+# Held in memory, never in a file (#399 CR 5). This script runs because the disk
+# is full, and a snapshot written to that disk truncated silently at ENOSPC:
+# every process the truncation lost then read as idle, which turned --prune into
+# `rm -rf` on trees in use. `awk` dedupes without ever spilling to a temp file
+# the way `sort` can. A failed or empty snapshot is a refusal, never an empty
+# process table. The trailing `:` keeps an unreadable last pid's status from
+# reading as the snapshot failing.
+LIVE=$(
+    for entry in /proc/[0-9]*; do
+        pid=${entry#/proc/}
+        [ "$pid" = "$$" ] && continue
+        [ "$pid" = "$PPID" ] && continue
+        tr '\0' '\n' <"$entry/cmdline" 2>/dev/null
+        readlink "$entry/cwd" 2>/dev/null
+        readlink "$entry/exe" 2>/dev/null
+        grep -o '/.*' "$entry/maps" 2>/dev/null
+        :
+    done | awk '!seen[$0]++'
+) && [ -n "$LIVE" ] || {
+    echo "disk-gc: could not snapshot the process table — refusing to judge liveness" >&2
+    exit 2
+}
 
 is_live() {
-    grep -qF -- "$1" "$LIVE_CMDLINES"
+    # A substring match on the string itself, not `grep -q`: under pipefail a
+    # pipe into an early-exiting grep can report failure on SIGPIPE, and a
+    # here-string can spill to a temp file — either way a live tree reads idle.
+    [[ $LIVE == *"$1"* ]]
 }
 
 size_of() {
@@ -222,6 +245,74 @@ for entries in doc.get("plugins", {}).values():
             printf '%s\n' "$INSTALLED" | grep -qxF -- "$version_dir" && continue
             consider plugin-cache "$version_dir"
         done
+    fi
+fi
+
+# VS Code extensions (#399). The Claude Code extension ships a ~220 MB native
+# binary per version and keeps every one it has installed — about one a week.
+# Two states protect a version, and a version can be either without the other:
+# LIVE (a running agent `exe`s its bundled binary, or a window's extension host
+# has its native addon mapped — `consider` checks both) and ACTIVE (named by
+# extensions.json, the manifest the editor starts the next agent from). The
+# active one is kept even with nothing live: an editor between reloads runs no
+# agent, and that is no licence to delete what it will start next.
+#
+# The one gap left: the addon is loaded lazily, so an un-reloaded window whose
+# extension host never touched it, with no agent running, names its old version
+# nowhere. Pruning that costs the window a reload — which VS Code already asks
+# for after an update — not data.
+#
+# Same failure mode as the plugin cache above: an absent or unparseable
+# manifest, one naming no Claude extension, and one naming a version that is not
+# on disk are all absence of evidence — remove nothing. Unlike there, say so:
+# a silent refusal is the `reclaimable: 0B` over 649 MB that #399 was filed for.
+#
+# Scoped to the Claude extension. Other publishers' extensions are small, and
+# "the manifest omits it" is weaker evidence than a match on the one id this
+# tier is about; `[0-9]` anchors the version so a sibling id like
+# `anthropic.claude-code-foo` is not read as one. `.obsolete`, VS Code's own
+# removal list, is not evidence either: when #399 was measured it listed 2.1.273
+# while a live agent was running out of it. Matched by directory name —
+# `relativeLocation`, or the basename of `location` in manifests that predate
+# it — so a relocated or symlinked root still matches.
+#
+# Deliberately NOT roots: ~/.local/share/claude/versions/ (the native installer's
+# tier, the same keep-everything shape) and ~/.local/share/claude-rollback/
+# (#398's only copy of the pre-update binary — a rollback artefact, not a cache;
+# it must never be auto-pruned).
+EXT_VERSIONS=()
+for version_dir in "$EXTENSIONS_ROOT"/anthropic.claude-code-[0-9]*; do
+    [ -d "$version_dir" ] && EXT_VERSIONS+=("$version_dir")
+done
+if [ "${#EXT_VERSIONS[@]}" -gt 0 ]; then
+    EXT_MANIFEST="$EXTENSIONS_ROOT/extensions.json"
+    # Any error — missing file, bad JSON, an entry of the wrong shape, no
+    # python3 — empties the list rather than leaving a partial one.
+    ACTIVE_EXT=$(python3 -c '
+import json, os, sys
+with open(sys.argv[1]) as fh:
+    doc = json.load(fh)
+for entry in doc:
+    if entry["identifier"]["id"].lower() != "anthropic.claude-code":
+        continue
+    location = entry.get("location") or {}
+    name = entry.get("relativeLocation") or os.path.basename(
+        location.get("fsPath") or location.get("path") or ""
+    )
+    if name:
+        print(name)
+' "$EXT_MANIFEST" 2>/dev/null) || ACTIVE_EXT=
+    ext_evidence=0
+    for version_dir in "${EXT_VERSIONS[@]}"; do
+        printf '%s\n' "$ACTIVE_EXT" | grep -qxF -- "${version_dir##*/}" && ext_evidence=1
+    done
+    if [ "$ext_evidence" -eq 1 ]; then
+        for version_dir in "${EXT_VERSIONS[@]}"; do
+            printf '%s\n' "$ACTIVE_EXT" | grep -qxF -- "${version_dir##*/}" && continue
+            consider vscode-extension "$version_dir"
+        done
+    else
+        WARNINGS+=("$EXT_MANIFEST is absent, unparseable, or names no Claude extension version on disk — ${#EXT_VERSIONS[@]} version(s) left unevaluated, none removed")
     fi
 fi
 
@@ -394,24 +485,24 @@ else
     if [ "$PRUNE" -eq 1 ]; then
         echo "reclaimed: $(human "$PRUNED_TOTAL") in ${#PRUNED_PATHS[@]} item(s)"
         for i in "${!PRUNED_PATHS[@]}"; do
-            printf '  - %-14s %10s  %s\n' "${PRUNED_KINDS[$i]}" "$(human "${PRUNED_BYTES[$i]}")" "${PRUNED_PATHS[$i]}"
+            printf '  - %-16s %10s  %s\n' "${PRUNED_KINDS[$i]}" "$(human "${PRUNED_BYTES[$i]}")" "${PRUNED_PATHS[$i]}"
         done
         if [ "${#UNREMOVED_PATHS[@]}" -gt 0 ]; then
             echo "NOT reclaimed: $(human "$RECLAIMABLE_TOTAL") in ${#UNREMOVED_PATHS[@]} item(s) — removal failed"
             for i in "${!UNREMOVED_PATHS[@]}"; do
-                printf '  ! %-14s %10s  %s\n' "${UNREMOVED_KINDS[$i]}" "$(human "${UNREMOVED_BYTES[$i]}")" "${UNREMOVED_PATHS[$i]}"
+                printf '  ! %-16s %10s  %s\n' "${UNREMOVED_KINDS[$i]}" "$(human "${UNREMOVED_BYTES[$i]}")" "${UNREMOVED_PATHS[$i]}"
             done
         fi
     else
         echo "reclaimable: $(human "$RECLAIMABLE_TOTAL") in ${#CAND_PATHS[@]} item(s) — re-run with --prune"
         for i in "${!CAND_PATHS[@]}"; do
-            printf '  - %-14s %10s  %s\n' "${CAND_KINDS[$i]}" "$(human "${CAND_BYTES[$i]}")" "${CAND_PATHS[$i]}"
+            printf '  - %-16s %10s  %s\n' "${CAND_KINDS[$i]}" "$(human "${CAND_BYTES[$i]}")" "${CAND_PATHS[$i]}"
         done
     fi
     if [ "${#WITHHELD_PATHS[@]}" -gt 0 ]; then
         echo "withheld: ${#WITHHELD_PATHS[@]} item(s) modified within the last ${GRACE_MINUTES}m — still being written, or recently used"
         for i in "${!WITHHELD_PATHS[@]}"; do
-            printf '  ~ %-14s %10s  %s\n' "${WITHHELD_KINDS[$i]}" "-" "${WITHHELD_PATHS[$i]}"
+            printf '  ~ %-16s %10s  %s\n' "${WITHHELD_KINDS[$i]}" "-" "${WITHHELD_PATHS[$i]}"
         done
     fi
     echo "repo tiers (measured, never pruned here — #396 owns their retention):"

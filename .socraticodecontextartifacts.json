@@ -98,7 +98,7 @@
     {
       "name": "commands-seats",
       "path": "./docs/COMMANDS-SEATS.md",
-      "description": "Seat-fact backfill commands \u2014 PDC identifier links (#79) and WSL+SOS House Position (#101)."
+      "description": "Seat-fact backfill commands \u2014 PDC identifier links (#79) and WSL+SOS House Position (#101) \u2014 plus which half of the daily PDC/SOS archive/rebuild cycle each flag governs (#201)."
     },
     {
       "name": "code-exploration",

@@ -16,22 +16,21 @@ Python ≥3.12, uv, pytest, ruff; dbt-duckdb for the #302 pipeline — commands 
 
 ## Code Exploration Policy
 
-SocratiCode is the preferred semantic-search tool for this repo (once indexed; the index lives in `.socraticodecontextartifacts.json` once `codebase_index` has run). Its MCP tools are **deferred** — schemas load only after a `ToolSearch` prefetch.
+SocratiCode is the preferred semantic-search tool for this repo, once `codebase_index` has run. Its MCP tools are **deferred** — schemas load only after a `ToolSearch` prefetch.
 
 **Negative rule.** For broad semantic questions ("where is X", "how does Y work", "what depends on Z"), use SocratiCode MCP tools first. Reach for `grep`/`ripgrep` only on exact strings (error messages, log lines, known symbols). Reserve the Explore subagent for path-pattern walks (e.g. "all `*.py` under `packages/usa-wa-api/src/usa_wa_api/api/`"), not semantic search.
 
 **Adding a doc? Declare it.** Every tracked `*.md` at the repo root or under `docs/` must be named in `.socraticodecontextartifacts.json` or exempted in `.skills/context-artifacts-exempt` — undeclared docs are unreachable via `codebase_context_search` and nothing else reports them (#300). `scripts/tests/test_context_manifest_drift.py` fails on drift.
 
-**The file-dependency graph works here since SocratiCode 1.13.0 (#299)** — 1,633 edges across
-510 files, `grep`-verified; `codebase_graph_query` and the file-mode of `codebase_impact` are
-answers now, not traps. On an older engine it silently resolves almost nothing, so check the
-builder version `codebase_graph_status` reports before trusting an empty answer. Goal→tool table,
-the measurement, and the session-start `ToolSearch` prefetch:
+**The file-dependency graph works here since SocratiCode 1.13.0 (#299)**: `codebase_graph_query`
+and file-mode `codebase_impact` are answers, not traps. An older engine silently resolves almost
+nothing — check the builder version `codebase_graph_status` reports before trusting an empty
+answer. Goal→tool table, the `grep`-verified measurement, the session-start `ToolSearch` prefetch:
 [`docs/CODE-EXPLORATION.md`](docs/CODE-EXPLORATION.md).
 
 ## Project Layout
 
-`uv` workspace. Four-layer clearinghouse split — framework + domain shared across deployments; adapters + API per jurisdiction. See [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](docs/specs/2026-05-25-usa-wa-mvp-design.md).
+`uv` workspace: framework + domain shared across deployments; adapters + API per jurisdiction. Four-layer MVP design: [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](docs/specs/2026-05-25-usa-wa-mvp-design.md).
 
 **Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder** — the reusable Layer-3 pattern, in full, with the worked example. Two rules bind whatever you are building: audit a source's coverage before building on it, and never key a parser on an exact upstream string. Writing a published dataset's bytes adds two more — one writer per dataset, landed atomically (#357). Inside a package (#183), **`harvest.py` = Phase A, `build.py` = Phase B**.
 
@@ -65,7 +64,7 @@ Per-package module reference — what each file is for and why it exists:
 
 `8001` = `8000 + 1`. The exe.dev proxy transparently forwards ports 3000–9999; the dev server is reachable at `https://usa-wa.exe.xyz:8001/`.
 
-The full service table (every systemd unit and what each one does), the `OnFailure=` alerting chain (#49), and the owner/app/test DB role split (#22) are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Two rules from there that bind on every task: migrations need the **owner** role (`DATABASE_URL_OWNER`) and everything else runs as the app role (`DATABASE_URL`); `USA_WA_ALERT_EMAIL` must be set or alerting fails closed.
+Service table, `OnFailure=` alerting chain (#49), owner/app/test DB role split (#22): [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Two rules from there that bind on every task: migrations need the **owner** role (`DATABASE_URL_OWNER`) and everything else runs as the app role (`DATABASE_URL`); `USA_WA_ALERT_EMAIL` must be set or alerting fails closed.
 
 ## Server Lifecycle
 
@@ -84,20 +83,17 @@ and five tests fail until it does — [`docs/SKILLS.md`](docs/SKILLS.md#worktree
 ```bash
 git pull
 uv sync --locked                       # reconcile venv ⇄ uv.lock deliberately
-sudo systemctl restart usa-wa-migrate  # if DB models changed (restart, not start — see note)
+sudo systemctl restart usa-wa-migrate  # if DB models changed (restart, not start — § Common Commands)
 sudo systemctl restart usa-wa
 ```
 
-Unit files are installed as root-owned **copies**, so `sudo cp deploy/<unit> /etc/systemd/system/` before `daemon-reload` — reload alone re-reads the stale copy and deploys nothing. The per-unit restart table, the `uv sync --locked` rationale, and the `verify-units.sh` pre-commit gate (#51) are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+Unit files are installed as root-owned **copies**, so `sudo cp deploy/<unit> /etc/systemd/system/` before `daemon-reload` — reload alone re-reads the stale copy and deploys nothing. Per-unit restart table, `uv sync --locked` rationale, `verify-units.sh` pre-commit gate (#51): [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 **Dev server workflow.** Run on port `8001` so the live service stays up, loading the env
 first — both commands are in § Common Commands below.
 
 **After finishing work.** Always restart the systemd service to pick up changes merged to main:
-
-```bash
-sudo systemctl restart usa-wa
-```
+`sudo systemctl restart usa-wa`.
 
 ## Environment Variables
 
@@ -136,7 +132,7 @@ uv run pytest
 # fail loudly (#208) — docs/COMMANDS.md
 
 # Unit tier (#185) — no database; own coverage gate (#198), no flags needed.
-# Add --no-cov for a faster (~11s vs ~27s), ungated inner loop
+# Add --no-cov for a faster, ungated inner loop
 uv run pytest -m 'not db and not integration'
 
 # A subset — --no-cov: neither gate measures a slice
@@ -180,7 +176,7 @@ from clearinghouse_core.logging import get_logger
 logger = get_logger(__name__)
 ```
 Entry points only: `configure_logging()` is called once inside the FastAPI `lifespan`. Never in library modules.
-**Under uvicorn, `configure_logging()` alone is not enough** (#155): every uvicorn invocation — the `usa-wa.service` `ExecStart` **and** the dev-server commands — must pass `--log-config packages/usa-wa-api/src/usa_wa_api/log_config.json`, or journald interleaves plain-text access lines with JSON app records. Why, and what pins it: [`docs/LOGGING.md`](docs/LOGGING.md).
+**Every uvicorn invocation passes `--log-config packages/usa-wa-api/src/usa_wa_api/log_config.json`** (#155) — `configure_logging()` alone never reaches uvicorn's loggers. Why, and the test that pins it: [`docs/LOGGING.md`](docs/LOGGING.md).
 JSON records carry `{timestamp, level, logger, message}` (#133). `level`/`logger`/`timestamp`/`message` are reserved: never pass them in `extra={}`.
 
 **Date & Time:**
@@ -197,10 +193,10 @@ JSON records carry `{timestamp, level, logger, message}` (#133). `level`/`logger
 
 ## Detail Docs
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the reusable Layer-3 pattern; read before adding an adapter, a source, or a span/seat builder
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the reusable Layer-3 pattern
 - [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model: entities, lifecycle axes, spans-as-assignments, the three event shapes; read before adding a fact
 - the `docs/MODULES-*.md` per-package references are listed under § Project Layout above — one entry each, not repeated here
-- [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→tool table, the broken file-dependency graph, the `ToolSearch` prefetch
+- [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→tool table, the file-dependency graph's version floor, the `ToolSearch` prefetch
 - [docs/LOGGING.md](docs/LOGGING.md) — the JSON record shape and why every uvicorn invocation passes `--log-config`
 - [docs/API.md](docs/API.md) — the read-only `/api/v1` surface: route inventory, pagination, and the response contracts
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — systemd units, failure alerting, DB roles, restart/lifecycle table
