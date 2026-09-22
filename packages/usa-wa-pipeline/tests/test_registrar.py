@@ -1,21 +1,28 @@
 """The registrar (#308): proposed link pairs → clusters → registry writes."""
 
+from argparse import Namespace
+
 import duckdb
 import pytest
 
+from clearinghouse_core.job import JobContext
 from clearinghouse_core.registry import (
+    KIND_ORG,
     KIND_PERSON,
     KIND_ROLE,
     apply_decision,
     decide,
     registered_view,
 )
+from usa_wa_common.orgs import STRUCTURAL_ORGS
 from usa_wa_pipeline.registrar import (
+    _registrar_job,
     cluster_pairs,
+    load_org_keys,
     load_pairs,
     load_role_keys,
-    role_pairs,
     run_registrar,
+    singleton_pairs,
     unprocessed_kinds,
 )
 
@@ -149,13 +156,75 @@ async def test_the_registrar_mints_one_entity_per_role_key(db_session) -> None:
     decision table only ever mints or no-ops. Re-running must not double-mint —
     the role dimension is rebuilt from scratch on every pipeline run."""
     keys = ["usa_wa_legislature:seat:senate:ld-14", "usa_wa_legislature:party-role:democratic"]
-    summary = await run_registrar(db_session, KIND_ROLE, pairs=role_pairs(keys))
+    summary = await run_registrar(db_session, KIND_ROLE, pairs=singleton_pairs(keys))
     assert summary["minted"] == 2
     assert summary["conflicts"] == 0
 
-    again = await run_registrar(db_session, KIND_ROLE, pairs=role_pairs(keys))
+    again = await run_registrar(db_session, KIND_ROLE, pairs=singleton_pairs(keys))
     assert again["minted"] == 0
     assert again["noops"] == 2
 
     view = await registered_view(db_session, KIND_ROLE)
     assert sorted(view) == sorted(keys)
+
+
+def _pipeline_db(tmp_path, *, committees: list[str], meetings: list[str]) -> str:
+    """A built-pipeline stand-in: the tables the registrar job reads."""
+    db_path = str(tmp_path / "pipeline.duckdb")
+    con = duckdb.connect(db_path)
+    con.execute(
+        "create table proposed_links (kind varchar, left_key varchar, right_key varchar, "
+        "rule varchar, score double)"
+    )
+    con.execute("create table roles (role_key varchar)")
+    con.execute("create table stg_wsl_committees (biennium varchar, committee_id varchar)")
+    con.executemany(
+        "insert into stg_wsl_committees values ('2025-26', ?)", [[c] for c in committees]
+    )
+    con.execute("create table stg_wsl_meetings (meeting_window varchar, committee_id varchar)")
+    con.executemany(
+        "insert into stg_wsl_meetings values ('2025-01-01:2026-12-31', ?)",
+        [[m] for m in meetings],
+    )
+    con.close()
+    return db_path
+
+
+def test_org_natural_keys_are_every_staged_committee_plus_the_structural_orgs(tmp_path) -> None:
+    """The org universe the canonical tier holds, derived in the pipeline:
+    CommitteeService committees, the meeting-ref-only Joint/Other bodies no
+    CommitteeService op carries (committee 36500 on 2026-09-22), and the
+    synthesized structural orgs no wire carries at all."""
+    db_path = _pipeline_db(tmp_path, committees=["28240", "31640"], meetings=["31640", "36500"])
+    keys = load_org_keys(db_path)
+    assert keys == sorted(
+        {"usa_wa_legislature:28240", "usa_wa_legislature:31640", "usa_wa_legislature:36500"}
+        | {f"usa_wa_legislature:{source_id}" for source_id in STRUCTURAL_ORGS}
+    )
+
+
+@pytest.mark.db
+async def test_the_nightly_job_registers_a_new_org(db_session, tmp_path) -> None:
+    """2026-09-22: a Joint committee first seen after the #308 seed stayed
+    unregistered — the job had person and role passes and no org pass, so
+    `parity-registry` failed the nightly on `org_missing=1`. Orgs register like
+    roles: singleton clusters, mint once, no-op thereafter."""
+    db_path = _pipeline_db(tmp_path, committees=["28240"], meetings=["36500"])
+    ctx = JobContext(
+        name="registrar",
+        args=Namespace(db=db_path),
+        session=db_session,
+        session_factory=None,
+        dry_run=False,
+    )
+
+    result = await _registrar_job(ctx)
+    assert result.counters["org_minted"] == 2 + len(STRUCTURAL_ORGS)
+    assert result.counters["conflicts"] == 0
+    view = await registered_view(db_session, KIND_ORG)
+    assert "usa_wa_legislature:36500" in view
+    assert "usa_wa_legislature:28240" in view
+
+    again = await _registrar_job(ctx)
+    assert again.counters["org_minted"] == 0
+    assert again.counters["org_noops"] == 2 + len(STRUCTURAL_ORGS)
