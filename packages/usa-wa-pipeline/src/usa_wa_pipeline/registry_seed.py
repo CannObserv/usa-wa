@@ -7,9 +7,13 @@ One cluster per canonical Person (its ``source:source_id`` key plus every
 canonical Role (both ``source:source_id``), applied through the decision table with the
 canonical ULID as the minted id — **existing ULIDs survive the replatform by
 construction** (replatform spec § Identity registry), which is what keeps the
-PM crosswalk seed (#312) valid. Idempotent: a re-run no-ops via the decision
-table; a conflict (two canonical rows sharing a key — pre-existing duplicate)
-is counted and logged, never guessed at.
+PM crosswalk seed (#312) valid. A re-run no-ops on every seeded row via the
+decision table; a conflict (two canonical rows sharing a key — pre-existing
+duplicate) is counted and logged, never guessed at. One-shot by design: once
+the registrar has registered an entity born after the seed, a re-run reports
+that entity's canonical row as a conflict too — the two tiers minted its ULID
+independently (``parity_registry``'s ``post_seed``), so this is expected, not a
+duplicate.
 """
 
 from __future__ import annotations
