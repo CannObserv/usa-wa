@@ -506,13 +506,18 @@ def _installed(host, version: str) -> None:
     )
 
 
+def _plugin_warnings(data: dict) -> list[str]:
+    return [w for w in data["warnings"] if "installed_plugins.json" in w]
+
+
 def test_prunes_plugin_cache_versions_that_are_not_installed(host):
     _installed(host, "1.14.0")
     stale = _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.12.0")
     current = _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.14.0")
-    run_gc(host, "--prune")
+    data = report(host, "--prune")
     assert not stale.exists()
     assert current.exists()
+    assert _plugin_warnings(data) == []
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root removes through a read-only parent")
@@ -533,27 +538,51 @@ def test_a_failed_removal_stays_in_the_reclaimable_accounting(host):
         servers.chmod(0o755)
 
 
-def test_leaves_the_plugin_cache_alone_without_a_readable_manifest(host):
-    """No manifest means no evidence of what is installed — so remove nothing."""
-    version = _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.12.0")
-    run_gc(host, "--prune")
-    assert version.exists()
+def _write_plugin_manifest(host, case: str) -> None:
+    manifest = host["plugins"] / "installed_plugins.json"
+    if case == "absent":
+        return
+    if case == "unparseable":
+        manifest.write_text('{"version": 2, "plugins": {"socraticode@socraticode": [{"inst')
+    elif case == "names-nothing":
+        manifest.write_text(json.dumps({"version": 2, "plugins": {}}))
+    elif case == "names-a-version-not-on-disk":
+        _installed(host, "1.15.0")
+    elif case == "not-an-object":
+        manifest.write_text(json.dumps([{"installPath": "1.14.0"}]))
 
-    (host["plugins"] / "installed_plugins.json").write_text("{not json")
-    run_gc(host, "--prune")
-    assert version.exists()
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "absent",
+        "unparseable",
+        "names-nothing",
+        "names-a-version-not-on-disk",
+        "not-an-object",
+    ],
+)
+def test_no_usable_manifest_removes_no_plugin_version(host, case):
+    """The manifest is the only evidence of which version is installed, so
+    every way of lacking it means remove *nothing* (CR 3): a partially written
+    manifest explains an empty one at least as well as a real empty install
+    does, and each tree is ~646 MB. One naming a version that is not on disk —
+    a half-finished install, a manifest written ahead of extraction — is no
+    better (#400): pruning the rest would leave the plugin nothing to run. And
+    the refusal is reported, or the sensor prints `0B` over all of it."""
+    cache = host["plugins"] / "cache" / "socraticode" / "socraticode"
+    versions = [_fill(cache / "1.12.0"), _fill(cache / "1.14.0")]
+    _write_plugin_manifest(host, case)
+    data = report(host, "--prune")
+    assert all(v.exists() for v in versions)
+    assert data["pruned"] == []
+    assert len(_plugin_warnings(data)) == 1
 
 
-def test_an_empty_manifest_is_absence_of_evidence_not_permission(host):
-    """CR 3. A manifest that parses but names nothing installed would have
-    cleared every cached version — ~646 MB apiece. A partially written manifest
-    explains that state at least as well as a real empty install does."""
-    (host["plugins"] / "installed_plugins.json").write_text(
-        json.dumps({"version": 2, "plugins": {}})
-    )
-    version = _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.14.0")
-    run_gc(host, "--prune")
-    assert version.exists()
+def test_no_plugin_cache_is_not_a_warning(host):
+    """A host with no cached plugin version has nothing to evaluate; absence of
+    the tier must not read as a broken manifest."""
+    assert _plugin_warnings(report(host)) == []
 
 
 def test_keeps_a_live_plugin_cache_version_even_if_uninstalled(host, live_procs):

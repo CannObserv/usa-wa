@@ -258,6 +258,9 @@ liveness is the discriminator, read from `/proc/*/` `cmdline`, `cwd`, `exe`
 **and** `maps` — a process started by a relative path names its tree in none of
 its argv, and a loaded native addon (#399) in none of the other three.
 
+The manifest tiers (`extensions.json`, `installed_plugins.json`) prune only when
+the manifest names a version on disk; otherwise they remove nothing, and warn (#400).
+
 A `DISK_GC_GRACE_MINUTES` window (default 60) covers the one case liveness
 cannot: a tree still being installed is named by no process yet, because the
 process that will run out of it does not exist. Set it to `0` to disable.

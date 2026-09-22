@@ -225,10 +225,27 @@ done
 # manifest that parses but names nothing installed is the same absence of
 # evidence, not a licence to clear the cache. Each tree is ~646 MB, and a
 # partially written manifest is a likelier explanation than a real empty
-# install.
-MANIFEST="$PLUGIN_ROOT/installed_plugins.json"
-if [ -f "$MANIFEST" ] && command -v python3 >/dev/null 2>&1; then
-    if INSTALLED=$(python3 -c '
+# install. So is one naming a version that is not on disk (#400): a
+# half-finished install, or a manifest written ahead of extraction, and pruning
+# the rest would leave the plugin nothing to run. Evidence is therefore the
+# manifest naming at least one version actually present. Lacking it is said, not
+# swallowed: a silent refusal is the `reclaimable: 0B` #399 was filed for.
+#
+# The one gap left: evidence is judged across the cache, not per plugin. With
+# two plugins installed, one whose entry names a present version licenses
+# pruning the other's even if that other's entry names nothing on disk.
+#
+# `cache/<marketplace>/<plugin>/<version>` — the layout every installed plugin
+# uses here. A deeper or shallower one would not be matched.
+PLUGIN_VERSIONS=()
+for version_dir in "$PLUGIN_ROOT"/cache/*/*/*; do
+    [ -d "$version_dir" ] && PLUGIN_VERSIONS+=("$version_dir")
+done
+if [ "${#PLUGIN_VERSIONS[@]}" -gt 0 ]; then
+    MANIFEST="$PLUGIN_ROOT/installed_plugins.json"
+    # Any error — missing file, bad JSON, an entry of the wrong shape, no
+    # python3 — empties the list rather than leaving a partial one.
+    INSTALLED=$(python3 -c '
 import json, sys
 with open(sys.argv[1]) as fh:
     doc = json.load(fh)
@@ -237,14 +254,18 @@ for entries in doc.get("plugins", {}).values():
         path = entry.get("installPath")
         if path:
             print(path)
-' "$MANIFEST" 2>/dev/null) && [ -n "$INSTALLED" ]; then
-        # `cache/<marketplace>/<plugin>/<version>` — the layout every installed
-        # plugin uses here. A deeper or shallower one would not be matched.
-        for version_dir in "$PLUGIN_ROOT"/cache/*/*/*; do
-            [ -d "$version_dir" ] || continue
+' "$MANIFEST" 2>/dev/null) || INSTALLED=
+    plugin_evidence=0
+    for version_dir in "${PLUGIN_VERSIONS[@]}"; do
+        printf '%s\n' "$INSTALLED" | grep -qxF -- "$version_dir" && plugin_evidence=1
+    done
+    if [ "$plugin_evidence" -eq 1 ]; then
+        for version_dir in "${PLUGIN_VERSIONS[@]}"; do
             printf '%s\n' "$INSTALLED" | grep -qxF -- "$version_dir" && continue
             consider plugin-cache "$version_dir"
         done
+    else
+        WARNINGS+=("$MANIFEST is absent, unparseable, or names no plugin version on disk — ${#PLUGIN_VERSIONS[@]} version(s) left unevaluated, none removed")
     fi
 fi
 
@@ -262,10 +283,9 @@ fi
 # nowhere. Pruning that costs the window a reload — which VS Code already asks
 # for after an update — not data.
 #
-# Same failure mode as the plugin cache above: an absent or unparseable
+# Same evidence rule as the plugin cache above: an absent or unparseable
 # manifest, one naming no Claude extension, and one naming a version that is not
-# on disk are all absence of evidence — remove nothing. Unlike there, say so:
-# a silent refusal is the `reclaimable: 0B` over 649 MB that #399 was filed for.
+# on disk are all absence of evidence — remove nothing, and say so.
 #
 # Scoped to the Claude extension. Other publishers' extensions are small, and
 # "the manifest omits it" is weaker evidence than a match on the one id this
