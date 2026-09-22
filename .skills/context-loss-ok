@@ -58,3 +58,15 @@ retarget :: - [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→to
 # summary of it. AGENTS.md keeps the pointer plus the two always-on rules.
 duplicate :: **Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder.** It is the reusable Layer-3 pattern: one adapter package per *jurisdiction+target* bundling every source that target publishes; each **source** a self-contained archive (own `Source`/`source_slug`/archive-key/transport/adapter/normalize/cohort/harvest); the **application** (spans/seats) source-agnostic, consuming a cohort interface — so a fact can draw on a new source without a rewrite (the `usa-wa-adapter-sos` filings + results sources are the worked example). Audit a source's coverage before building on it; never key a parser on an exact upstream string. Inside a package (#183): single-source target ⇒ flat top level (no `pdc/` inside `usa_wa_adapter_pdc`); subpackage only on an axis that varies (WSL splits on its four archives); **`harvest.py` = Phase A, `build.py` = Phase B**, plus `projector`/`emit`/`migrate_*`.
 
+
+# #399 round: § Archive vs rebuild moved out of docs/COMMANDS.md (over its
+# 10,000-token budget) into docs/COMMANDS-SEATS.md, beside the seat-fact builders
+# whose daily re-drives it governs; heading kept verbatim, so its (#201) anchor
+# slug survives under the new file. The in-block pointer in § Data refresh named
+# "§ Archive vs rebuild, below", which no longer exists below; it now names
+# COMMANDS-SEATS.md.
+docs/COMMANDS.md :: retarget :: # B) — one unit each. Flag semantics across the halves: § Archive vs rebuild, below.
+# The two inbound links to that section, retargeted at its new home.
+docs/COMMANDS-BACKFILL.md :: retarget :: (#201) live beside the daily commands in
+docs/COMMANDS-BACKFILL.md :: retarget :: [COMMANDS.md](COMMANDS.md#archive-vs-rebuild--which-half-each-flag-governs-201).
+docs/MODULES-FACTS-SEATS.md :: retarget :: [COMMANDS.md](COMMANDS.md#archive-vs-rebuild--which-half-each-flag-governs-201). **Two new unit files —

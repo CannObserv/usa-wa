@@ -67,7 +67,7 @@ its archive unit — weak on purpose, so a source outage alerts on the archive u
 rebuild still re-derives the fact from the last good archive. Two jobs means two `job_runs` rows
 and two `/health/jobs` slugs, so one half's staleness can no longer hide behind the other's.
 Flag semantics (`--force` is the archive half's; `USA_WA_BIENNIUM` governs both):
-[COMMANDS.md](COMMANDS.md#archive-vs-rebuild--which-half-each-flag-governs-201). **Two new unit files —
+[COMMANDS-SEATS.md](COMMANDS-SEATS.md#archive-vs-rebuild--which-half-each-flag-governs-201). **Two new unit files —
 `sudo cp` + `daemon-reload` at merge** (see below).
 
 ## Entry-point renames (deployment-affecting)

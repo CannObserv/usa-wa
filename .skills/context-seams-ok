@@ -12,7 +12,8 @@
 # 2. provenance-heading — an issue number inside a heading. The repo uses this
 #    deliberately across nine docs; the numbers are the design record, and the
 #    slugs they generate are already load-bearing anchors (COMMANDS-BACKFILL.md
-#    links COMMANDS.md#archive-vs-rebuild--which-half-each-flag-governs-201).
+#    links COMMANDS.md#archive-vs-rebuild--which-half-each-flag-governs-201,
+#    COMMANDS-SEATS.md#… since the #399 round moved the section there).
 #    Renaming them here would break links this same run wired.
 
 # --- back-references to AGENTS.md ------------------------------------------
@@ -35,7 +36,7 @@ docs/COMMANDS-SUCCESSION.md :: Senate odd-year corroboration (#123)
 docs/COMMANDS-SUCCESSION.md :: House odd-year special-winner corroboration (#149)
 docs/COMMANDS-SUCCESSION.md :: Operator succession (#107)
 docs/COMMANDS-SUCCESSION.md :: Committee lineage & lifecycle (#124)
-docs/COMMANDS.md :: Archive vs rebuild — which half each flag governs (#201)
+docs/COMMANDS-SEATS.md :: Archive vs rebuild — which half each flag governs (#201)
 docs/DEPLOYMENT.md :: Failure alerting (#49)
 docs/DEPLOYMENT.md :: DB role topology (defense-in-depth, issue #22)
 docs/DEPLOYMENT.md :: Main-only checkout (issue #87)
@@ -65,3 +66,11 @@ docs/COMMANDS-SYNC.md :: ### Retire superseded outbox rejections (#258)
 docs/DEPLOYMENT.md :: ## Scheduled work outside systemd (#221)
 docs/LWW-NOOP-GATE.md :: ## The inverse: the branch that never fires (#247)
 
+
+# --- #399 round: tracked source naming docs/COMMANDS.md --------------------
+# Swept because § Archive vs rebuild left the file. All three name COMMANDS.md
+# for content that stayed: the manifest entry for the doc itself, the uvicorn
+# --log-config line under § Dev server, and the test commands under § Tests.
+.socraticodecontextartifacts.json :: "path": "./docs/COMMANDS.md",
+packages/usa-wa-api/tests/test_log_config.py :: for doc in ("README.md", "AGENTS.md", "docs/COMMANDS.md"):
+scripts/tests/test_coverage_profiles.py :: DOCS_WITH_TEST_COMMANDS = ("AGENTS.md", "README.md", "docs/COMMANDS.md")

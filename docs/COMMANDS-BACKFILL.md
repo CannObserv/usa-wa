@@ -4,8 +4,8 @@ Split out of [COMMANDS.md](COMMANDS.md), which is where the index lives.
 
 Layer-3 adapter sweeps only. The Layer-3b seat-fact builders that consume these archives
 are in [COMMANDS-SEATS.md](COMMANDS-SEATS.md); the daily archive/rebuild flag semantics
-(#201) live beside the daily commands in
-[COMMANDS.md](COMMANDS.md#archive-vs-rebuild--which-half-each-flag-governs-201).
+(#201) live beside those builders, in
+[COMMANDS-SEATS.md](COMMANDS-SEATS.md#archive-vs-rebuild--which-half-each-flag-governs-201).
 
 ## Discovery probes (write-free)
 
