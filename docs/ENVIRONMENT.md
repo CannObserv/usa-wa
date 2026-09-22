@@ -54,9 +54,10 @@ wrong direction to fail in.
 - `DISK_GC_MOUNT` — filesystem to measure; default `/`.
 - `DISK_GC_VSCODE_ROOT`, `DISK_GC_EXTENSIONS_ROOT`, `DISK_GC_PLUGIN_ROOT`,
   `DISK_GC_NPX_ROOT`, `DISK_GC_REPO` — the five trees it scans; defaults
-  `$HOME/.vscode-server`, `<VSCODE_ROOT>/extensions` (#399), `$HOME/.claude/plugins`,
-  `$HOME/.npm/_npx`, `/home/exedev/usa-wa`. The unit sets
-  `Environment=HOME=/home/exedev` so the `$HOME` ones resolve under systemd.
+  `$HOME/.vscode-server`, `$HOME/.vscode-server/extensions` (#399; follows
+  `DISK_GC_VSCODE_ROOT`), `$HOME/.claude/plugins`, `$HOME/.npm/_npx`,
+  `/home/exedev/usa-wa`. The unit sets `Environment=HOME=/home/exedev` so the
+  `$HOME` ones resolve under systemd.
   Redirected at tmp dirs by the test suite, which is how it never touches a real
   host.
 - `DISK_GC_DOCKER` — the `docker` binary used for the ollama slim-label check;
