@@ -540,6 +540,11 @@ def test_a_failed_removal_stays_in_the_reclaimable_accounting(host):
 
 def _write_plugin_manifest(host, case: str) -> None:
     manifest = host["plugins"] / "installed_plugins.json"
+    # Every shape case names the version that IS on disk, so it can only pass
+    # by the shape being refused — not by naming nothing.
+    on_disk = {
+        "installPath": str(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.14.0")
+    }
     if case == "absent":
         return
     if case == "unparseable":
@@ -549,7 +554,12 @@ def _write_plugin_manifest(host, case: str) -> None:
     elif case == "names-a-version-not-on-disk":
         _installed(host, "1.15.0")
     elif case == "not-an-object":
-        manifest.write_text(json.dumps([{"installPath": "1.14.0"}]))
+        manifest.write_text(json.dumps([on_disk]))
+    elif case == "wrong-shape-after-a-valid-entry":
+        # The parser prints the valid path, then crashes: what it printed
+        # before the crash is a partial list, not evidence.
+        plugins = {"socraticode@socraticode": [on_disk], "other@market": "not-a-list"}
+        manifest.write_text(json.dumps({"version": 2, "plugins": plugins}))
 
 
 @pytest.mark.parametrize(
@@ -560,6 +570,7 @@ def _write_plugin_manifest(host, case: str) -> None:
         "names-nothing",
         "names-a-version-not-on-disk",
         "not-an-object",
+        "wrong-shape-after-a-valid-entry",
     ],
 )
 def test_no_usable_manifest_removes_no_plugin_version(host, case):
@@ -709,7 +720,16 @@ def _write_manifest(host, case: str) -> None:
     elif case == "names-a-version-not-on-disk":
         _active_extension(host, "2.1.279")
     elif case == "not-a-list":
-        manifest.write_text(json.dumps({"anthropic.claude-code": "2.1.278"}))
+        # Wraps an entry naming the version on disk, so only refusing the
+        # shape passes — not naming nothing.
+        manifest.write_text(
+            json.dumps({"extensions": [_manifest_entry(root, CLAUDE_EXT, "2.1.278")]})
+        )
+    elif case == "wrong-shape-after-a-valid-entry":
+        # The parser prints the valid name, then crashes: what it printed
+        # before the crash is a partial list, not evidence.
+        entries = [_manifest_entry(root, CLAUDE_EXT, "2.1.278"), {"identifier": CLAUDE_EXT}]
+        manifest.write_text(json.dumps(entries))
 
 
 @pytest.mark.parametrize(
@@ -721,6 +741,7 @@ def _write_manifest(host, case: str) -> None:
         "names-another-extension",
         "names-a-version-not-on-disk",
         "not-a-list",
+        "wrong-shape-after-a-valid-entry",
     ],
 )
 def test_no_usable_manifest_removes_no_extension(host, case):
