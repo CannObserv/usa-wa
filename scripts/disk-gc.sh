@@ -55,6 +55,7 @@ done
 
 MOUNT=${DISK_GC_MOUNT:-/}
 VSCODE_ROOT=${DISK_GC_VSCODE_ROOT:-$HOME/.vscode-server}
+EXTENSIONS_ROOT=${DISK_GC_EXTENSIONS_ROOT:-$VSCODE_ROOT/extensions}
 PLUGIN_ROOT=${DISK_GC_PLUGIN_ROOT:-$HOME/.claude/plugins}
 NPX_ROOT=${DISK_GC_NPX_ROOT:-$HOME/.npm/_npx}
 REPO=${DISK_GC_REPO:-/home/exedev/usa-wa}
@@ -222,6 +223,68 @@ for entries in doc.get("plugins", {}).values():
             printf '%s\n' "$INSTALLED" | grep -qxF -- "$version_dir" && continue
             consider plugin-cache "$version_dir"
         done
+    fi
+fi
+
+# VS Code extensions (#399). The Claude Code extension ships a ~220 MB native
+# binary per version and keeps every one it has installed — about one a week.
+# Two states protect a version, and a version can be either without the other:
+# LIVE (a running agent `exe`s its bundled binary — `consider` checks it) and
+# ACTIVE (named by extensions.json, the manifest the editor starts the next agent
+# from). The active one is kept even with nothing live: an editor between reloads
+# runs no agent, and that is no licence to delete what it will start next.
+#
+# Same failure mode as the plugin cache above: an absent or unparseable
+# manifest, one naming no Claude extension, and one naming a version that is not
+# on disk are all absence of evidence — remove nothing. Unlike there, say so:
+# a silent refusal is the `reclaimable: 0B` over 649 MB that #399 was filed for.
+#
+# Scoped to the Claude extension. Other publishers' extensions are small, and
+# "the manifest omits it" is weaker evidence than a match on the one id this
+# tier is about; `[0-9]` anchors the version so a sibling id like
+# `anthropic.claude-code-foo` is not read as one. `.obsolete`, VS Code's own
+# removal list, is not evidence either: it names the version a live agent runs
+# out of. Matched by directory name — `relativeLocation`, or the basename of
+# `location` in manifests that predate it — so a relocated or symlinked root
+# still matches.
+#
+# Deliberately NOT roots: ~/.local/share/claude/versions/ (the native installer's
+# tier, the same keep-everything shape) and ~/.local/share/claude-rollback/
+# (#398's only copy of the pre-update binary — a rollback artefact, not a cache;
+# it must never be auto-pruned).
+EXT_VERSIONS=()
+for version_dir in "$EXTENSIONS_ROOT"/anthropic.claude-code-[0-9]*; do
+    [ -d "$version_dir" ] && EXT_VERSIONS+=("$version_dir")
+done
+if [ "${#EXT_VERSIONS[@]}" -gt 0 ]; then
+    EXT_MANIFEST="$EXTENSIONS_ROOT/extensions.json"
+    # Any error — missing file, bad JSON, an entry of the wrong shape, no
+    # python3 — empties the list rather than leaving a partial one.
+    ACTIVE_EXT=$(python3 -c '
+import json, os, sys
+with open(sys.argv[1]) as fh:
+    doc = json.load(fh)
+for entry in doc:
+    if entry["identifier"]["id"].lower() != "anthropic.claude-code":
+        continue
+    location = entry.get("location") or {}
+    name = entry.get("relativeLocation") or os.path.basename(
+        location.get("fsPath") or location.get("path") or ""
+    )
+    if name:
+        print(name)
+' "$EXT_MANIFEST" 2>/dev/null) || ACTIVE_EXT=
+    ext_evidence=0
+    for version_dir in "${EXT_VERSIONS[@]}"; do
+        printf '%s\n' "$ACTIVE_EXT" | grep -qxF -- "${version_dir##*/}" && ext_evidence=1
+    done
+    if [ "$ext_evidence" -eq 1 ]; then
+        for version_dir in "${EXT_VERSIONS[@]}"; do
+            printf '%s\n' "$ACTIVE_EXT" | grep -qxF -- "${version_dir##*/}" && continue
+            consider vscode-extension "$version_dir"
+        done
+    else
+        WARNINGS+=("$EXT_MANIFEST is absent, unparseable, or names no Claude extension version on disk — ${#EXT_VERSIONS[@]} version(s) left unevaluated, none removed")
     fi
 fi
 
@@ -394,24 +457,24 @@ else
     if [ "$PRUNE" -eq 1 ]; then
         echo "reclaimed: $(human "$PRUNED_TOTAL") in ${#PRUNED_PATHS[@]} item(s)"
         for i in "${!PRUNED_PATHS[@]}"; do
-            printf '  - %-14s %10s  %s\n' "${PRUNED_KINDS[$i]}" "$(human "${PRUNED_BYTES[$i]}")" "${PRUNED_PATHS[$i]}"
+            printf '  - %-16s %10s  %s\n' "${PRUNED_KINDS[$i]}" "$(human "${PRUNED_BYTES[$i]}")" "${PRUNED_PATHS[$i]}"
         done
         if [ "${#UNREMOVED_PATHS[@]}" -gt 0 ]; then
             echo "NOT reclaimed: $(human "$RECLAIMABLE_TOTAL") in ${#UNREMOVED_PATHS[@]} item(s) — removal failed"
             for i in "${!UNREMOVED_PATHS[@]}"; do
-                printf '  ! %-14s %10s  %s\n' "${UNREMOVED_KINDS[$i]}" "$(human "${UNREMOVED_BYTES[$i]}")" "${UNREMOVED_PATHS[$i]}"
+                printf '  ! %-16s %10s  %s\n' "${UNREMOVED_KINDS[$i]}" "$(human "${UNREMOVED_BYTES[$i]}")" "${UNREMOVED_PATHS[$i]}"
             done
         fi
     else
         echo "reclaimable: $(human "$RECLAIMABLE_TOTAL") in ${#CAND_PATHS[@]} item(s) — re-run with --prune"
         for i in "${!CAND_PATHS[@]}"; do
-            printf '  - %-14s %10s  %s\n' "${CAND_KINDS[$i]}" "$(human "${CAND_BYTES[$i]}")" "${CAND_PATHS[$i]}"
+            printf '  - %-16s %10s  %s\n' "${CAND_KINDS[$i]}" "$(human "${CAND_BYTES[$i]}")" "${CAND_PATHS[$i]}"
         done
     fi
     if [ "${#WITHHELD_PATHS[@]}" -gt 0 ]; then
         echo "withheld: ${#WITHHELD_PATHS[@]} item(s) modified within the last ${GRACE_MINUTES}m — still being written, or recently used"
         for i in "${!WITHHELD_PATHS[@]}"; do
-            printf '  ~ %-14s %10s  %s\n' "${WITHHELD_KINDS[$i]}" "-" "${WITHHELD_PATHS[$i]}"
+            printf '  ~ %-16s %10s  %s\n' "${WITHHELD_KINDS[$i]}" "-" "${WITHHELD_PATHS[$i]}"
         done
     fi
     echo "repo tiers (measured, never pruned here — #396 owns their retention):"

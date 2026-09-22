@@ -250,9 +250,10 @@ email via `OnFailure=`), `2` tooling. Thresholds are `DISK_GC_WARN_BYTES`
 (default 2 GiB) and `DISK_GC_FAIL_BYTES` (1 GiB).
 
 **What it prunes** — superseded VS Code server builds and `code-*` CLI binaries,
-Claude plugin-cache versions that are not the installed one, and `~/.npm/_npx`
-trees. The reclaimable copy and the in-use one are siblings in the same
-directory, so a size-or-mtime heuristic would delete a running editor's server;
+Claude extension versions that are neither live nor named by `extensions.json`
+(#399), Claude plugin-cache versions that are not the installed one, and
+`~/.npm/_npx` trees. The reclaimable copy and the in-use one are siblings in the
+same directory, so a size-or-mtime heuristic would delete a running editor's server;
 liveness is the discriminator, read from `/proc/*/` `cmdline`, `cwd` **and**
 `exe` — a process started by a relative path names its tree in none of its argv.
 

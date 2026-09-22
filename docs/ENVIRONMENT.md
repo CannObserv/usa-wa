@@ -52,10 +52,11 @@ wrong direction to fail in.
   venv (~225 MB), since #394 measured 1.3 G → 565 M in 28 hours of ordinary
   session work — a threshold with less headroom fires after the damage.
 - `DISK_GC_MOUNT` — filesystem to measure; default `/`.
-- `DISK_GC_VSCODE_ROOT`, `DISK_GC_PLUGIN_ROOT`, `DISK_GC_NPX_ROOT`,
-  `DISK_GC_REPO` — the four trees it scans; defaults `$HOME/.vscode-server`,
-  `$HOME/.claude/plugins`, `$HOME/.npm/_npx`, `/home/exedev/usa-wa`. The unit
-  sets `Environment=HOME=/home/exedev` so the first three resolve under systemd.
+- `DISK_GC_VSCODE_ROOT`, `DISK_GC_EXTENSIONS_ROOT`, `DISK_GC_PLUGIN_ROOT`,
+  `DISK_GC_NPX_ROOT`, `DISK_GC_REPO` — the five trees it scans; defaults
+  `$HOME/.vscode-server`, `<VSCODE_ROOT>/extensions` (#399), `$HOME/.claude/plugins`,
+  `$HOME/.npm/_npx`, `/home/exedev/usa-wa`. The unit sets
+  `Environment=HOME=/home/exedev` so the `$HOME` ones resolve under systemd.
   Redirected at tmp dirs by the test suite, which is how it never touches a real
   host.
 - `DISK_GC_DOCKER` — the `docker` binary used for the ollama slim-label check;
