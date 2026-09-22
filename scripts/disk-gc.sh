@@ -257,10 +257,10 @@ fi
 # "the manifest omits it" is weaker evidence than a match on the one id this
 # tier is about; `[0-9]` anchors the version so a sibling id like
 # `anthropic.claude-code-foo` is not read as one. `.obsolete`, VS Code's own
-# removal list, is not evidence either: it names the version a live agent runs
-# out of. Matched by directory name — `relativeLocation`, or the basename of
-# `location` in manifests that predate it — so a relocated or symlinked root
-# still matches.
+# removal list, is not evidence either: when #399 was measured it listed 2.1.273
+# while a live agent was running out of it. Matched by directory name —
+# `relativeLocation`, or the basename of `location` in manifests that predate
+# it — so a relocated or symlinked root still matches.
 #
 # Deliberately NOT roots: ~/.local/share/claude/versions/ (the native installer's
 # tier, the same keep-everything shape) and ~/.local/share/claude-rollback/
