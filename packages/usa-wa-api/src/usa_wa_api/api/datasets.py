@@ -6,9 +6,11 @@
   need no app rebuild. Traversal-guarded; a missing root or file is a plain
   404 (an unpublished box is not an error).
 - ``GET /health/datasets`` is the pipeline's ops probe — the successor to
-  ``/health/sync`` as "is the nightly chain moving": per-dataset latest
-  version, rows, and age; 200 with ``published: false`` before the first
-  publish (absence is the finding, the #180 posture).
+  ``/health/sync`` as "is the nightly chain moving": the catalog's heartbeat
+  (``checked_at``, its age, the published threshold and ``stale``, #386), then
+  per-dataset latest version, rows, and mint age; 200 with
+  ``published: false`` before the first publish (absence is the finding, the
+  #180 posture).
 """
 
 from __future__ import annotations
@@ -35,10 +37,16 @@ def _root() -> Path:
 
 @router.get("/health/datasets")
 def health_datasets() -> dict:
-    """Publication health: catalog age + per-dataset version/rows/age.
+    """Publication health: the catalog's heartbeat + per-dataset version/rows/age.
 
     Plain ``def`` (#302 CR): the handler reads the catalog off disk, and a
     sync handler runs in Starlette's threadpool instead of blocking the loop.
+
+    The heartbeat and the per-dataset age are named apart (#386): both used to
+    be ``age_seconds``, one the run's and one the mint's — the collision the
+    catalog itself had. A pre-#386 catalog carries its run time as top-level
+    ``generated_at`` and no threshold, so ``stale`` is ``null`` for it: the
+    catalog does not say, which is not the same as fresh.
     """
     catalog_path = _root() / "catalog.json"
     if not catalog_path.is_file():
@@ -50,10 +58,15 @@ def health_datasets() -> dict:
         generated = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
         return (now - generated).total_seconds()
 
+    checked_at = catalog.get("checked_at") or catalog["generated_at"]
+    checked_age = age(checked_at)
+    stale_after = catalog.get("stale_after_seconds")
     return {
         "published": True,
-        "generated_at": catalog["generated_at"],
-        "age_seconds": age(catalog["generated_at"]),
+        "checked_at": checked_at,
+        "checked_age_seconds": checked_age,
+        "stale_after_seconds": stale_after,
+        "stale": None if stale_after is None else checked_age > stale_after,
         "datasets": [
             {
                 "name": entry["name"],

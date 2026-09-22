@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+from datetime import datetime
 
 import duckdb
 import pytest
@@ -10,6 +11,7 @@ import pytest
 from usa_wa_pipeline.publish import (
     CSV_DIALECT,
     PUBLISHED_DATASETS,
+    STALE_AFTER_SECONDS,
     ContractRelease,
     PublishedDataset,
     PublishRefused,
@@ -275,7 +277,7 @@ def test_a_version_bump_re_mints_a_dataset_whose_bytes_did_not_move(built_db, tm
     """#385: skip-if-unchanged hashed data.csv ALONE, so a metadata-only change
     to the contract never reached a dataset at all.
 
-    #357's `dialect` is the proof — PIPELINE.md had to carry that declaration by
+    #357's `dialect` is the proof — PIPELINE-PUBLICATION.md had to carry that declaration by
     hand for every version dir that had not re-minted since. Per-dataset versions
     make it sharper, because for some changes the bump IS the only wire
     difference: an unpropagated bump is a version nobody can read. So the mint
@@ -666,3 +668,53 @@ def test_the_contract_hash_is_blind_to_a_lineage_change(built_db, tmp_path) -> N
     assert second["derived_from"] == ["int_person_identities"]
     assert second["contract_hash"] == first["contract_hash"]
     assert second["schema_version"] == first["schema_version"] == "1.0.0"
+
+
+def test_the_catalog_carries_the_publishers_heartbeat(built_db, tmp_path) -> None:
+    """#386: the run time and the staleness threshold, under names no entry shares.
+
+    The run time used to be a top-level ``generated_at`` ten lines above a
+    per-entry ``generated_at`` meaning mint time. A consumer had a coin-flip
+    chance of reading the one that never advances on a quiet day."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    catalog = json.loads((out / "catalog.json").read_text())
+
+    assert "generated_at" not in catalog
+    assert catalog["stale_after_seconds"] == STALE_AFTER_SECONDS
+    checked_at = catalog["checked_at"]
+    assert datetime.strptime(checked_at, "%Y-%m-%dT%H:%M:%S.%fZ")
+    # a minting run stamps its versions with the same clock it stamps the catalog
+    assert {entry["generated_at"] for entry in catalog["datasets"]} == {checked_at}
+
+
+def test_a_run_that_mints_nothing_still_advances_the_heartbeat(built_db, tmp_path) -> None:
+    """#386: the whole point — a quiet day and a dead pipeline must differ on the wire."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    first = json.loads((out / "catalog.json").read_text())
+
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    second = json.loads((out / "catalog.json").read_text())
+
+    assert summary["minted"] == 0
+    assert second["checked_at"] > first["checked_at"]
+    # and the per-entry mint time does NOT move: it is the version's, not the run's
+    assert [e["generated_at"] for e in second["datasets"]] == [
+        e["generated_at"] for e in first["datasets"]
+    ]
+
+
+def test_a_refused_run_leaves_the_heartbeat_stale(built_db, tmp_path) -> None:
+    """#386: a refusal publishes nothing, so it must not claim a fresh check."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    before = json.loads((out / "catalog.json").read_text())["checked_at"]
+
+    con = duckdb.connect(str(built_db))
+    con.execute("delete from person_crosswalk")
+    con.close()
+    with pytest.raises(PublishRefused):
+        publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+    assert json.loads((out / "catalog.json").read_text())["checked_at"] == before

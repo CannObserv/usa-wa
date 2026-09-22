@@ -231,7 +231,7 @@ both the publisher and a hand-rolled export, and they disagreed on line endings
 and row order — identical content, two sha256 values, and a consumer with no way
 to tell a serialisation difference from corruption (#354). If a dataset must
 also exist somewhere else, derive that copy from the published bytes or make the
-second writer conform to [the declared dialect](PIPELINE.md#the-serialisation-is-part-of-the-contract-357)
+second writer conform to [the declared dialect](PIPELINE-PUBLICATION.md#the-serialisation-is-part-of-the-contract-357)
 and prove it with a test that runs the real publisher — never one that restates
 the publisher's options and asserts they match.
 

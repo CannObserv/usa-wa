@@ -1,6 +1,7 @@
 """The /datasets surface + publication probe (#311)."""
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -22,7 +23,8 @@ def published(tmp_path, monkeypatch):
     root.joinpath("catalog.json").write_text(
         json.dumps(
             {
-                "generated_at": "2026-09-03T08:00:00.000000Z",
+                "checked_at": "2026-09-03T08:00:00.000000Z",
+                "stale_after_seconds": 93600,
                 "datasets": [
                     {
                         "name": "persons",
@@ -55,6 +57,42 @@ async def test_health_datasets_published(client, published) -> None:
     assert entry["name"] == "persons"
     assert entry["latest_version"] == "v1"
     assert entry["age_seconds"] > 0
+
+
+async def test_health_datasets_reports_the_heartbeat(client, published) -> None:
+    """#386: the run time, its age and the verdict — named apart from the mint age."""
+    body = (await client.get("/health/datasets")).json()
+    assert body["checked_at"] == "2026-09-03T08:00:00.000000Z"
+    assert body["checked_age_seconds"] > 93600
+    assert body["stale_after_seconds"] == 93600
+    assert body["stale"] is True
+    # one `age_seconds` in the payload, and it is the dataset version's
+    assert "age_seconds" not in body
+    assert "generated_at" not in body
+
+
+async def test_health_datasets_fresh_heartbeat_is_not_stale(client, published) -> None:
+    catalog = json.loads((published / "catalog.json").read_text())
+    catalog["checked_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    (published / "catalog.json").write_text(json.dumps(catalog))
+    body = (await client.get("/health/datasets")).json()
+    assert body["stale"] is False
+
+
+async def test_health_datasets_reads_a_pre_386_catalog(client, published) -> None:
+    """The catalog on disk predates this code until the next nightly run.
+
+    Its top-level ``generated_at`` WAS the run time, so it is read as the
+    heartbeat; it declares no threshold, so ``stale`` is ``null`` — "the catalog
+    does not say", never a guessed ``False``."""
+    catalog = json.loads((published / "catalog.json").read_text())
+    catalog["generated_at"] = catalog.pop("checked_at")
+    del catalog["stale_after_seconds"]
+    (published / "catalog.json").write_text(json.dumps(catalog))
+    body = (await client.get("/health/datasets")).json()
+    assert body["checked_at"] == "2026-09-03T08:00:00.000000Z"
+    assert body["stale_after_seconds"] is None
+    assert body["stale"] is None
 
 
 async def test_serves_catalog_and_files(client, published) -> None:

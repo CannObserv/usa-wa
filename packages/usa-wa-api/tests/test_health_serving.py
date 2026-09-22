@@ -24,7 +24,7 @@ def catalog(tmp_path, monkeypatch):
     (tmp_path / "catalog.json").write_text(
         json.dumps(
             {
-                "generated_at": "2026-09-04T00:00:00.000000Z",
+                "checked_at": "2026-09-04T00:00:00.000000Z",
                 "datasets": [
                     {
                         "name": "roles",

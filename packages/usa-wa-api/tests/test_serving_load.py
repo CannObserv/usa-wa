@@ -90,7 +90,7 @@ def _publish(root: Path, name: str, version: str, rows: list[dict], fields=None)
     catalog = (
         json.loads(catalog_path.read_text())
         if catalog_path.is_file()
-        else {"generated_at": "2026-09-03T00:00:00.000000Z", "datasets": []}
+        else {"checked_at": "2026-09-03T00:00:00.000000Z", "datasets": []}
     )
     catalog["datasets"] = [e for e in catalog["datasets"] if e["name"] != name] + [
         {

@@ -28,6 +28,10 @@ Materializes each published dataset as an immutable versioned directory —
   special-cased, which is what let ``pm_anchors`` (#354) ride this path until
   #314 retired it. No live dataset needs the fallback today; it stays because
   special-casing is the thing being avoided.
+- **Heartbeat** (#386): the catalog's top-level ``checked_at`` advances on
+  every run that is not refused, mint or no mint, beside
+  :data:`STALE_AFTER_SECONDS`. Per-entry ``generated_at`` is the version's
+  mint time and does not move on a quiet day.
 - Versions are timestamps plus a collision token
   (``v20260903T120000Z-a1b2c3``); the catalog lists only the latest.
   Retention/pruning is deliberately absent: these are archival products at
@@ -571,6 +575,17 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
 
 DEFAULT_MAX_SHRINK = 0.10
 
+#: How long after the catalog's ``checked_at`` a consumer should treat a missing
+#: run as a finding (#386). Published in the catalog so a subscriber's threshold
+#: is the producer's statement rather than a guess at our schedule.
+#:
+#: 26h: the daily timer, plus its 5-minute jitter, plus the chain's 30-minute
+#: bound, plus ~85 minutes of slack for the refresh units the chain orders
+#: ``After=``. ``scripts/tests/test_catalog_staleness_threshold.py`` pins it
+#: between that floor and two periods (one missed run must show), against the
+#: unit files themselves.
+STALE_AFTER_SECONDS = 93_600
+
 #: Where the built duckdb lives. The resolution was shared with `anchor_export`,
 #: which materialized INTO the same file this reads FROM (CR 110) — two copies of
 #: the literal would have let the pair drift silently, the export writing a table
@@ -767,6 +782,8 @@ def publish(
         con.close()
 
     counters = {"minted": 0, "unchanged": 0}
+    # One clock for the run: a version minted now is stamped with the same instant
+    # the catalog records as checked. The two NAMES differ on purpose (#386).
     generated_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     catalog_entries = []
     for item in staged:
@@ -774,7 +791,7 @@ def publish(
         # Mint on a change to the BYTES or to the CONTRACT they ship under (#385).
         # Hashing data.csv alone meant a metadata-only contract change never
         # reached a dataset at all: #357's `dialect` had to be declared by hand in
-        # PIPELINE.md for every version dir that had not re-minted since. Under
+        # PIPELINE-PUBLICATION.md for every version dir that had not re-minted since. Under
         # per-dataset versions the bump is itself sometimes the only wire
         # difference, and an unpropagated one is a version nobody can read. The
         # cost is one version dir with a byte-identical data.csv per contract
@@ -832,7 +849,18 @@ def publish(
                 "generated_at": generated_at,
             }
         )
-    catalog = {"generated_at": generated_at, "datasets": catalog_entries}
+    # The heartbeat (#386): written on every run that reaches here, mint or no
+    # mint, so a quiet day and a dead pipeline differ on the wire. A refusal
+    # raised above never reaches it, and the last good `checked_at` stands —
+    # a run that published nothing must not claim a fresh check. Named apart
+    # from the per-entry `generated_at` (mint time, carried forward verbatim
+    # for an unchanged dataset): it was a top-level `generated_at` too, and the
+    # one that never advances on a quiet day sat ten lines below it.
+    catalog = {
+        "checked_at": generated_at,
+        "stale_after_seconds": STALE_AFTER_SECONDS,
+        "datasets": catalog_entries,
+    }
     tmp_catalog = out_root / f".catalog-{secrets.token_hex(4)}.tmp"
     tmp_catalog.write_text(json.dumps(catalog, indent=2) + "\n")
     tmp_catalog.replace(out_root / "catalog.json")

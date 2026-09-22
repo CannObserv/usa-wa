@@ -14,7 +14,7 @@ the LWW no-op gate — went with it, along with `MODULES-SYNC-ENGINE.md`,
 `MODULES-SYNC-PRODUCERS.md`, `COMMANDS-SYNC.md` and `LWW-NOOP-GATE.md`. Read the
 replatform decision in
 [docs/specs/2026-09-02-dataset-publication-replatform-design.md](specs/2026-09-02-dataset-publication-replatform-design.md)
-and the publication contract in [PIPELINE.md](PIPELINE.md).
+and the publication contract in [PIPELINE-PUBLICATION.md](PIPELINE-PUBLICATION.md).
 
 ```
   usa-wa-api/                         — Layer 4: WA deployment (FastAPI + MCP + REST)
