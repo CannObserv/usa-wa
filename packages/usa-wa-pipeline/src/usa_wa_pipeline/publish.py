@@ -806,7 +806,7 @@ def publish(
     # One clock for the run: a version minted now is stamped with the same instant
     # the catalog records as checked. The two NAMES differ on purpose (#386).
     run_at = datetime.now(UTC)
-    generated_at = run_at.strftime(_STAMP)
+    run_stamp = run_at.strftime(_STAMP)
     catalog_entries = []
     for item in staged:
         prior = item["prior"]
@@ -838,7 +838,7 @@ def publish(
             "schema_version": item["dataset"].schema_version,
             "contract_hash": item["contract_hash"],
             "derived_from": lineage.get(item["name"], []),
-            "generated_at": generated_at,
+            "generated_at": run_stamp,
             "resources": [
                 {
                     "name": item["name"],
@@ -868,7 +868,7 @@ def publish(
                 "rows": item["rows"],
                 "bytes": item["bytes"],
                 "hash": f"sha256:{item['hash']}",
-                "generated_at": generated_at,
+                "generated_at": run_stamp,
             }
         )
     # The heartbeat (#386): written on every run that reaches here, mint or no
@@ -879,7 +879,7 @@ def publish(
     # for an unchanged dataset): it was a top-level `generated_at` too, and the
     # one that never advances on a quiet day sat ten lines below it.
     catalog = {
-        "checked_at": generated_at,
+        "checked_at": run_stamp,
         "stale_after": stale_after(run_at).strftime(_STAMP),
         "datasets": catalog_entries,
     }
