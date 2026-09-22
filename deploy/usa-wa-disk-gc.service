@@ -32,11 +32,11 @@ Environment=HOME=/home/exedev
 
 # --prune: reclaim first, then report what is left. Only provably unreferenced
 # copies are removed — every candidate is checked against the live process table
-# (cmdline, cwd, exe and memory maps), since the reclaimable VS Code server build and the one
-# serving a live window are siblings in one directory, and a grace window covers
-# the tree that is still being installed and so named by no process yet. Repo
-# data (datasets, raw/, dbt, cassettes) is measured and never touched; its
-# retention contract is #396.
+# (cmdline, cwd, exe and memory maps), since the reclaimable VS Code server build
+# and the one serving a live window are siblings in one directory, and a grace
+# window covers the tree that is still being installed and so named by no
+# process yet. Repo data (datasets, raw/, dbt, cassettes) is measured and never
+# touched; its retention contract is #396.
 ExecStart=/home/exedev/usa-wa/scripts/disk-gc.sh --prune
 
 # I/O-bound by construction: `du` over several multi-gigabyte trees, plus a
