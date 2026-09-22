@@ -3,9 +3,11 @@
 #
 # Vendored skill trees are third-party docs, not this repo's code. Indexing
 # them inflates embedding time and lets vendored content outrank our own code
-# in codebase_search. skills/ is NOT excluded wholesale — it holds the
-# first-party `brainstorming` skill; its vendored entries are symlinks into
-# the already-excluded skills-vendor/.
+# in codebase_search. skills/ needs no entry of its own: since #263 every one
+# of its entries is a symlink into the already-excluded skills-vendor/ (there
+# are no local overrides left), and the indexer does not follow them — no
+# skills/ path appears in the code index. Re-check that if an override is
+# ever added back.
 skills-vendor/
 .claude/skills/
 
@@ -13,3 +15,14 @@ skills-vendor/
 # omitted from ruff + coverage). 567 files of repetitive _parse_response
 # boilerplate outrank our own code in codebase_search. See usa-wa#143.
 packages/powermap-client/
+
+# Dated prose. All three are declared *directory* context artifacts, so they
+# stay fully reachable through codebase_context_search — excluding them here
+# only stops them competing with first-party source in codebase_search, where
+# a superseded plan outranks the code that replaced it. ~1.1 MB of ~6.7 MB
+# indexable bytes. Asked and answered in the #406 init-socraticode re-run;
+# the reverse call (exclude a directory that is NOT an artifact) would make it
+# unsearchable, which is why this one is keyed to their artifact status.
+docs/plans/
+docs/specs/
+docs/research/

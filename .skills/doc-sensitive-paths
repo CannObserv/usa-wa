@@ -40,7 +40,7 @@ deploy/
 scripts/
 
 # The agent-context surface itself. docs/SKILLS.md describes the symlink layout
-# and the .skills knobs; docs/CODE-EXPLORATION.md describes the manifest and the
+# and the .skills knobs; docs/SOCRATICODE.md describes the manifest and the
 # session hooks; AGENTS.md § Agent Skills points at both.
 .claude/
 .skills/

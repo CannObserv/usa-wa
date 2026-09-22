@@ -14,19 +14,32 @@ TDD required. Red → Green → Refactor. No production code without a failing t
 
 Python ≥3.12, uv, pytest, ruff; dbt-duckdb for the #302 pipeline — commands + model TDD policy: [`docs/PIPELINE.md`](docs/PIPELINE.md); the registry-joined conformed tier (spans, roles, citations): [`docs/PIPELINE-CONFORMED.md`](docs/PIPELINE-CONFORMED.md); the publication contract (catalog, heartbeat, schema versions): [`docs/PIPELINE-PUBLICATION.md`](docs/PIPELINE-PUBLICATION.md).
 
+<!-- BEGIN socraticode-policy -->
 ## Code Exploration Policy
 
-SocratiCode is the preferred semantic-search tool for this repo, once `codebase_index` has run. Its MCP tools are **deferred** — schemas load only after a `ToolSearch` prefetch.
+SocratiCode is the preferred semantic-search tool here once indexed (local
+Qdrant store + on-disk graph; manifest `.socraticodecontextartifacts.json`).
+Its MCP tools are **deferred** — schemas load only after the `ToolSearch`
+prefetch that `.claude/hooks/socraticode-reminder.sh` prints each session.
 
-**Negative rule.** For broad semantic questions ("where is X", "how does Y work", "what depends on Z"), use SocratiCode MCP tools first. Reach for `grep`/`ripgrep` only on exact strings (error messages, log lines, known symbols). Reserve the Explore subagent for path-pattern walks (e.g. "all `*.py` under `packages/usa-wa-api/src/usa_wa_api/api/`"), not semantic search.
+**Negative rule.** Use SocratiCode MCP tools first for semantic questions
+("where is X", "how does Y work", "what depends on Z"). Reach for `grep`/`rg`
+only on exact strings (error messages, log lines, known symbols). Reserve the
+Explore subagent for path-pattern walks (`*.py` under
+`packages/usa-wa-api/src/usa_wa_api/api/`), not semantic search.
 
-**Adding a doc? Declare it.** Every tracked `*.md` at the repo root or under `docs/` must be named in `.socraticodecontextartifacts.json` or exempted in `.skills/context-artifacts-exempt` — undeclared docs are unreachable via `codebase_context_search` and nothing else reports them (#300). `scripts/tests/test_context_manifest_drift.py` fails on drift.
+| Goal | Tool |
+|------|------|
+| Where is X defined / how does Y work / what touches Z | `codebase_search` |
+| Exact string or regex (errors, log lines, known symbols) | `grep` / `rg` |
+| Imports/dependents of a file · blast radius of a change | `codebase_graph_query` / `codebase_impact` |
 
-**The file-dependency graph works here since SocratiCode 1.13.0 (#299)**: `codebase_graph_query`
-and file-mode `codebase_impact` are answers, not traps. An older engine silently resolves almost
-nothing — check the builder version `codebase_graph_status` reports before trusting an empty
-answer. Goal→tool table, the `grep`-verified measurement, the session-start `ToolSearch` prefetch:
-[`docs/CODE-EXPLORATION.md`](docs/CODE-EXPLORATION.md).
+Full tool table, prefetch query, per-tool guidance: [`docs/SOCRATICODE.md`](docs/SOCRATICODE.md).
+<!-- END socraticode-policy -->
+
+## Code Exploration Notes (repo-specific)
+
+**Adding a doc? Declare it.** Every tracked `*.md` at the repo root or under `docs/` goes in `.socraticodecontextartifacts.json`, or in `.skills/context-artifacts-exempt`; the suite fails on drift (#300).
 
 ## Project Layout
 
@@ -195,8 +208,7 @@ JSON records carry `{timestamp, level, logger, message}` (#133). `level`/`logger
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the reusable Layer-3 pattern
 - [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model: entities, lifecycle axes, spans-as-assignments, the three event shapes; read before adding a fact
-- the `docs/MODULES-*.md` per-package references are listed under § Project Layout above — one entry each, not repeated here
-- [docs/CODE-EXPLORATION.md](docs/CODE-EXPLORATION.md) — goal→tool table, the file-dependency graph's version floor, the `ToolSearch` prefetch
+- the `docs/MODULES-*.md` per-package references are listed under § Project Layout above, and `docs/SOCRATICODE.md` under § Code Exploration Policy — not repeated here
 - [docs/LOGGING.md](docs/LOGGING.md) — the JSON record shape and why every uvicorn invocation passes `--log-config`
 - [docs/API.md](docs/API.md) — the read-only `/api/v1` surface: route inventory, pagination, and the response contracts
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — systemd units, failure alerting, DB roles, restart/lifecycle table
