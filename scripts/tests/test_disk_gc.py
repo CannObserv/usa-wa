@@ -590,6 +590,31 @@ def test_no_usable_manifest_removes_no_plugin_version(host, case):
     assert len(_plugin_warnings(data)) == 1
 
 
+def test_a_long_manifest_cannot_hide_the_installed_version(host):
+    """CR 2. Membership was `printf "$LIST" | grep -qxF` under pipefail: on a
+    list longer than the pipe buffer, a match near the top exits grep, SIGPIPEs
+    the printf, and the match reads as a miss — so the installed version became
+    a candidate. A second version named at the bottom supplies the evidence
+    that lets the prune loop run at all."""
+    cache = host["plugins"] / "cache"
+    stale = _fill(cache / "socraticode" / "socraticode" / "1.12.0")
+    installed = _fill(cache / "socraticode" / "socraticode" / "1.14.0")
+    other = _fill(cache / "other" / "other" / "1.0.0")
+    filler = [{"installPath": f"/nonexistent/plugin/cache/filler/{i:05d}"} for i in range(10000)]
+    plugins = {
+        "socraticode@socraticode": [{"installPath": str(installed)}],
+        "filler@market": filler,
+        "other@other": [{"installPath": str(other)}],
+    }
+    (host["plugins"] / "installed_plugins.json").write_text(
+        json.dumps({"version": 2, "plugins": plugins})
+    )
+    run_gc(host, "--prune")
+    assert installed.exists()
+    assert other.exists()
+    assert not stale.exists()
+
+
 def test_no_plugin_cache_is_not_a_warning(host):
     """A host with no cached plugin version has nothing to evaluate; absence of
     the tier must not read as a broken manifest."""

@@ -150,6 +150,15 @@ is_live() {
     [[ $LIVE == *"$1"* ]]
 }
 
+names() {
+    # names <list> <line> — does the newline-separated <list> hold <line>
+    # exactly? A match on the string, for is_live's reason (#400 CR 2): on a
+    # list longer than the pipe buffer, `printf | grep -qxF` matching near the
+    # top SIGPIPEs the printf, and the match reads as a miss — an installed
+    # version turned candidate.
+    [[ $'\n'$1$'\n' == *$'\n'"$2"$'\n'* ]]
+}
+
 size_of() {
     # Always exactly one integer on stdout. `du` prints a total AND exits
     # non-zero when it could not descend everywhere (an unreadable subdirectory,
@@ -257,11 +266,11 @@ for entries in doc.get("plugins", {}).values():
 ' "$MANIFEST" 2>/dev/null) || INSTALLED=
     plugin_evidence=0
     for version_dir in "${PLUGIN_VERSIONS[@]}"; do
-        printf '%s\n' "$INSTALLED" | grep -qxF -- "$version_dir" && plugin_evidence=1
+        names "$INSTALLED" "$version_dir" && plugin_evidence=1
     done
     if [ "$plugin_evidence" -eq 1 ]; then
         for version_dir in "${PLUGIN_VERSIONS[@]}"; do
-            printf '%s\n' "$INSTALLED" | grep -qxF -- "$version_dir" && continue
+            names "$INSTALLED" "$version_dir" && continue
             consider plugin-cache "$version_dir"
         done
     else
@@ -324,11 +333,11 @@ for entry in doc:
 ' "$EXT_MANIFEST" 2>/dev/null) || ACTIVE_EXT=
     ext_evidence=0
     for version_dir in "${EXT_VERSIONS[@]}"; do
-        printf '%s\n' "$ACTIVE_EXT" | grep -qxF -- "${version_dir##*/}" && ext_evidence=1
+        names "$ACTIVE_EXT" "${version_dir##*/}" && ext_evidence=1
     done
     if [ "$ext_evidence" -eq 1 ]; then
         for version_dir in "${EXT_VERSIONS[@]}"; do
-            printf '%s\n' "$ACTIVE_EXT" | grep -qxF -- "${version_dir##*/}" && continue
+            names "$ACTIVE_EXT" "${version_dir##*/}" && continue
             consider vscode-extension "$version_dir"
         done
     else
