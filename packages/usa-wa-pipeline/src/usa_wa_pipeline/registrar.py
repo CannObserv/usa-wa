@@ -14,6 +14,9 @@ runs each cluster through the registry decision table
   publish gate (#311). The registry is sticky: a matching-rule change can
   re-propose the world and move nothing.
 
+Orgs and roles have no matching problem, so they register from the built
+models as singleton clusters instead — mint once, no-op every run after.
+
 Runs after ``dbt build`` in the nightly chain; idempotent (a re-run of the
 same proposals no-ops through the decision table).
 """
@@ -30,12 +33,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.registry import (
+    KIND_ORG,
     KIND_PERSON,
     KIND_ROLE,
     apply_decision,
     decide,
     registered_view,
 )
+from usa_wa_common.orgs import STRUCTURAL_ORGS
 from usa_wa_pipeline.conformed.roles import SOURCE as ROLE_SOURCE
 
 logger = get_logger(__name__)
@@ -44,6 +49,10 @@ logger = get_logger(__name__)
 JOB_SLUG = "registrar"
 
 _DEFAULT_DB = "data/pipeline.duckdb"
+
+#: The source every org key is asserted under — committee ids and the
+#: structural orgs alike, the namespace the seed carried across from canonical.
+ORG_SOURCE = "usa_wa_legislature"
 
 
 def cluster_pairs(pairs: Iterable[tuple[str, str]]) -> list[set[str]]:
@@ -119,15 +128,38 @@ def load_pairs(db_path: str, kind: str = KIND_PERSON) -> list[tuple[str, str]]:
         con.close()
 
 
-def role_pairs(natural_keys: Iterable[str]) -> list[tuple[str, str]]:
-    """Role natural keys → singleton clusters for :func:`run_registrar` (#313).
+def singleton_pairs(natural_keys: Iterable[str]) -> list[tuple[str, str]]:
+    """Natural keys → singleton clusters for :func:`run_registrar` (roles #313, orgs).
 
-    A role has no matching problem, so every cluster is one key paired with
-    itself: the decision table then only ever mints (new seat) or no-ops
-    (every subsequent run). Reusing that table rather than writing a second
-    registration path is the point — one ledger, one set of rules.
+    A role or an org has no matching problem, so every cluster is one key
+    paired with itself: the decision table then only ever mints (new seat, new
+    committee) or no-ops (every subsequent run). Reusing that table rather than
+    writing a second registration path is the point — one ledger, one set of
+    rules.
     """
     return [(key, key) for key in natural_keys]
+
+
+def load_org_keys(db_path: str) -> list[str]:
+    """Org natural keys: every committee staging attests, plus the structural orgs.
+
+    The same universe the canonical tier holds (220/220 on 2026-09-22):
+    CommitteeService committees, the Joint/``Other`` bodies only a meeting ref
+    carries, and the synthesized legislature/chambers/parties no wire carries
+    at all. Before this pass existed only the one-shot seed registered orgs, so
+    the first committee born after it — Joint committee 36500, 2026-09-22 —
+    stayed unregistered and failed ``parity-registry``.
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    try:
+        rows = con.execute(
+            "select committee_id from stg_wsl_committees "
+            "union select committee_id from stg_wsl_meetings"
+        ).fetchall()
+    finally:
+        con.close()
+    source_ids = {str(row[0]) for row in rows if row[0] is not None} | set(STRUCTURAL_ORGS)
+    return [f"{ORG_SOURCE}:{source_id}" for source_id in sorted(source_ids)]
 
 
 def load_role_keys(db_path: str) -> list[str]:
@@ -179,14 +211,17 @@ async def _registrar_job(ctx: JobContext) -> JobResult:
     session = ctx.require_session()
     pairs = load_pairs(db_path)
     summary = await run_registrar(session, KIND_PERSON, pairs=pairs)
-    # Roles (#313), from the conformed dimension rather than proposed_links —
-    # see `load_role_keys`. Counters are namespaced so a role mint is never
-    # read as a person mint; conflicts fold into the one triage signal.
-    role_summary = await run_registrar(
-        session, KIND_ROLE, pairs=role_pairs(load_role_keys(db_path))
-    )
-    summary.update({f"role_{name}": value for name, value in role_summary.items()})
-    summary["conflicts"] += role_summary["conflicts"]
+    # Orgs and roles (#313) register from the built models rather than
+    # proposed_links — see `load_org_keys` / `load_role_keys`. Counters are
+    # namespaced so an org or role mint is never read as a person mint;
+    # conflicts fold into the one triage signal.
+    for prefix, kind, keys in (
+        ("org", KIND_ORG, load_org_keys(db_path)),
+        ("role", KIND_ROLE, load_role_keys(db_path)),
+    ):
+        kind_summary = await run_registrar(session, kind, pairs=singleton_pairs(keys))
+        summary.update({f"{prefix}_{name}": value for name, value in kind_summary.items()})
+        summary["conflicts"] += kind_summary["conflicts"]
     skipped_kinds = unprocessed_kinds(db_path)
     if skipped_kinds:
         summary["unprocessed_kinds"] = skipped_kinds

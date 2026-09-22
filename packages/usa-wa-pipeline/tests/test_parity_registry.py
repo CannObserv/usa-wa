@@ -8,6 +8,7 @@ entities is sanctioned policy (its own count), never a standing alarm.
 from datetime import UTC, datetime
 
 import pytest
+from ulid import ULID
 
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
 from clearinghouse_core.registry import KIND_PERSON, RegistryEntity, RegistryKey
@@ -95,3 +96,22 @@ async def test_binding_to_an_unrelated_entity_is_mismapped(db_session) -> None:
     counters, failed = await run_parity(db_session)
     assert failed
     assert counters["person_mismapped"] == 1
+
+
+async def test_a_canonical_row_minted_after_the_seed_is_post_seed_not_mismapped(
+    db_session,
+) -> None:
+    """2026-09-22: after the #308 seed the canonical tier and the registrar mint
+    independently, so a row the canonical tier created later can never carry
+    the registrar's ULID. Its key bound to the registrar's entity is the ledger
+    working, not erosion — no seeded identity moved. Counted, never alarmed."""
+    await _seed_jurisdiction(db_session)
+    canonical_id = await _seed_person(db_session, "36500")  # never a registry entity
+    registrar_id = str(ULID())
+    await _bind(db_session, f"{SOURCE}:36500", registrar_id)
+
+    counters, failed = await run_parity(db_session)
+    assert not failed
+    assert canonical_id != registrar_id
+    assert counters["person_post_seed"] == 1
+    assert counters["person_mismapped"] == 0

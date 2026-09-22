@@ -157,6 +157,13 @@ ULIDs replace the ones PM's #312 anchors name. The `role_entity_mismatches`
 counter in `parity_spans` is the backstop, gated at zero — it catches the
 mistake, but the seed is what prevents it.
 
+**Orgs register nightly too** (`registrar.load_org_keys`): singleton clusters
+over every staged committee id (`stg_wsl_committees` ∪ `stg_wsl_meetings`) plus
+`STRUCTURAL_ORGS`, under the same seed-first rule as roles. After the seed the
+two tiers mint independently, so `parity_registry` counts a canonical row whose
+ULID the registry never held as `post_seed`, not `mismapped`; an unbound key is
+still `missing`.
+
 ```bash
 # One-time: seed from canonical rows, ULIDs preserved (idempotent)
 uv run python -m usa_wa_pipeline.registry_seed

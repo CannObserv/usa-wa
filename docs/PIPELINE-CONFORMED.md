@@ -228,7 +228,11 @@ same rows. Neither crosswalk may drop a role: a seat exists whether or not the
 registry has reached it, and the nightly runs `dbt build → registrar → publish`,
 so a brand-new seat is unregistered in the build that first sees it and bound by
 the next. `unregistered_roles` and `unregistered_orgs` make that one-run latency
-visible; `role_entity_mismatches` separates it from a *broken* anchor.
+visible; `role_entity_mismatches` separates it from a *broken* anchor. A
+brand-new org has the same latency without a counter: `organizations` is one
+row per registered entity, so the committee is absent from the build that
+first sees it and published by the next (Joint committee 36500: first seen
+2026-09-22).
 
 **An assignment names itself with `span_key`** (usa-wa#370): the five
 structural fields — `entity_id | role_key | span_kind | span_discriminator |
