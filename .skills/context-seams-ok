@@ -74,3 +74,76 @@ docs/LWW-NOOP-GATE.md :: ## The inverse: the branch that never fires (#247)
 .socraticodecontextartifacts.json :: "path": "./docs/COMMANDS.md",
 packages/usa-wa-api/tests/test_log_config.py :: for doc in ("README.md", "AGENTS.md", "docs/COMMANDS.md"):
 scripts/tests/test_coverage_profiles.py :: DOCS_WITH_TEST_COMMANDS = ("AGENTS.md", "README.md", "docs/COMMANDS.md")
+
+# --- AGENTS.md round 2026-09-22: tracked source naming AGENTS.md ---------------
+# Swept because content left the policy file. Judged one by one: each names a
+# section that still exists under the same heading (§ Server Lifecycle x16,
+# § Environment Variables x5, § Project Layout x3), a rule still stated there
+# (never key a parser on an exact upstream string; codebase_search over grep;
+# worktree-per-feature), or the file itself as a path/fixture. None pointed at
+# a line this round rewrote.
+.claude/hooks/context-budget-guard.sh :: # AGENTS.md, the next fortnight of edits puts it back, and the telemetry trend
+.claude/hooks/context-budget-guard.sh :: - the policy file: AGENTS.md or CLAUDE.md at the repo root. A symlinked
+.claude/hooks/context-budget-guard.sh :: AGENTS.md|CLAUDE.md) KIND="policy" ;;
+.claude/hooks/context-budget-guard.sh :: CLAUDE.md is followed to its target, which is the cohort norm.
+.claude/hooks/skills-submodule-update.sh :: # forever. The remedy is log-and-skip, not the exit-2 of AGENTS.md's gate
+.claude/hooks/socraticode-health.sh :: # them was told by AGENTS.md to prefer codebase_search over grep.
+.claude/hooks/socraticode-health.sh :: repo's AGENTS.md.
+.pre-commit-config.yaml :: # worktree add` produces and which AGENTS.md's worktree-per-feature rule makes
+.socraticodecontextartifacts.json :: "description": "Repository orientation \u2014 setup, the dev-server and port convention, the operational CLI list, and curated links into the canonical docs. The human entry point; AGENTS.md is the agent one."
+.socraticodecontextartifacts.json :: "description": "The original MVP architecture design \u2014 the four-layer clearinghouse split (clearinghouse-core / domain-legislative / per-jurisdiction adapters / deployment API), provenance model, and adapter contract. Historical baseline: the layering has since grown to six layers (see AGENTS.md), but this remains the source of truth for the data model and the founding design decisions."
+.socraticodecontextartifacts.json :: "path": "./AGENTS.md",
+conftest_db.py :: #: Production secrets (AGENTS.md § Environment Variables). Deliberately *not* where
+conftest_db.py :: nothing seeds it — while AGENTS.md § Server Lifecycle mandates worktree-based
+deploy/usa-wa-committee-lineage-invariants.service :: # --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
+deploy/usa-wa-house-corroboration.service :: # --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
+deploy/usa-wa-integrity-sweep.service :: # at unit start (AGENTS.md § Server Lifecycle, #30).
+deploy/usa-wa-pdc-archive-refresh.service :: # at unit start (AGENTS.md § Server Lifecycle, #30).
+deploy/usa-wa-pdc-refresh.service :: # at unit start (AGENTS.md § Server Lifecycle, #30).
+deploy/usa-wa-senate-corroboration.service :: # --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
+deploy/usa-wa-sos-archive-refresh.service :: # at unit start (AGENTS.md § Server Lifecycle, #30).
+deploy/usa-wa-sos-refresh.service :: # at unit start (AGENTS.md § Server Lifecycle, #30).
+deploy/usa-wa-succession-invariants.service :: # --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
+deploy/usa-wa-wsl-refresh.service :: # deliberate `uv sync` in the deploy runbook (AGENTS.md § Server Lifecycle, #30).
+deploy/usa-wa.service :: # in the deploy runbook (AGENTS.md § Server Lifecycle, issue #30).
+packages/usa-wa-adapter-legislature/tests/test_refresh_e2e.py :: #: spelled out — an assertion must never key on an exact upstream string (AGENTS.md).
+packages/usa-wa-api/tests/test_log_config.py :: for doc in ("README.md", "AGENTS.md", "docs/COMMANDS.md"):
+packages/usa-wa-common/src/usa_wa_common/parties.py :: **On holding a source's abbreviations in a source-free package (#227 CR #63).** AGENTS.md
+packages/usa-wa-common/src/usa_wa_common/parties.py :: non-breaking space must not fall to ``unknown_token`` (CR #54, and AGENTS.md's rule against
+packages/usa-wa-common/tests/test_parties.py :: AGENTS.md forbids. Case and edge whitespace fold; interior punctuation is significant."""
+packages/usa-wa-common/tests/test_parties.py :: ``unknown_token``. AGENTS.md: never key a parser on an exact upstream string."""
+packages/usa-wa-pipeline/src/usa_wa_pipeline/conformed/wire.py :: (the AGENTS.md rule: never key a parser on an exact upstream string; these
+scripts/assert-venv-integrity.sh :: # It is coupled to the AGENTS.md § Project Layout `packages/*` workspace, on
+scripts/assert-venv-integrity.sh :: # parser on an exact upstream string is what AGENTS.md § Project Layout
+scripts/migrate.sh :: # deploy runbook (AGENTS.md § Server Lifecycle, issue #30).
+scripts/pre-ship.sh :: # Dev/agent secrets, TEST_DATABASE_URL among them (AGENTS.md § Environment
+scripts/pre-ship.sh :: # Loads usa-wa's two env files (AGENTS.md § Environment Variables), then hands
+scripts/pre-ship.sh :: # The repo-wide idiom (AGENTS.md), deliberately reproduced rather than improved
+scripts/pre-ship.sh :: # Worktrees don't populate submodules and AGENTS.md mandates worktree-based
+scripts/pre-ship.sh :: # git-ignored, so the checkout AGENTS.md mandates feature work happen in (#87)
+scripts/pre-ship.sh :: # nothing in worktree-create.sh seeds it — and AGENTS.md § Server Lifecycle
+scripts/pre-ship.sh :: echo "            so it will not be committed (AGENTS.md § Environment Variables)." >&2
+scripts/tests/test_assert_venv_integrity.py :: #: and AGENTS.md § Project Layout forbids keying a parser on an exact upstream
+scripts/tests/test_context_manifest_drift.py :: artifacts=["./AGENTS.md", "./docs/API.md"],
+scripts/tests/test_context_manifest_drift.py :: artifacts=["./AGENTS.md", "./docs/ARCHITECTURE.md"],
+scripts/tests/test_context_manifest_drift.py :: artifacts=["./AGENTS.md", "./docs/specs"],
+# Broad on purpose: five byte-identical fixture arguments in one test file.
+# Content matching cannot split identical lines; one judgement covers all five.
+scripts/tests/test_context_manifest_drift.py :: artifacts=["./AGENTS.md"],
+scripts/tests/test_context_manifest_drift.py :: docs=["AGENTS.md", "CLAUDE.md"],
+scripts/tests/test_context_manifest_drift.py :: docs=["AGENTS.md", "docs/API.md"],
+scripts/tests/test_context_manifest_drift.py :: docs=["AGENTS.md", "docs/ARCHITECTURE.md"],
+scripts/tests/test_context_manifest_drift.py :: docs=["AGENTS.md", "docs/MODULES-SPANS.md"],
+scripts/tests/test_context_manifest_drift.py :: docs=["AGENTS.md", "docs/specs/2026-01-01-thing.md"],
+scripts/tests/test_context_manifest_drift.py :: docs=["AGENTS.md", "packages/pkg/README.md"],
+scripts/tests/test_context_manifest_drift.py :: docs=["AGENTS.md"],
+scripts/tests/test_context_manifest_drift.py :: exempt="# a one-line include of AGENTS.md\nCLAUDE.md\n",
+scripts/tests/test_context_manifest_drift.py :: repo = _scratch(tmp_path, artifacts=["./AGENTS.md"], docs=["AGENTS.md"])
+scripts/tests/test_coverage_profiles.py :: DOCS_WITH_TEST_COMMANDS = ("AGENTS.md", "README.md", "docs/COMMANDS.md")
+scripts/tests/test_doc_sections.py :: "AGENTS.md: project structure, conventions, skill inventory, route table",
+scripts/tests/test_pre_ship_wrapper.py :: """Both files, in order — the repo-root one overrides, as AGENTS.md documents."""
+scripts/tests/test_pre_ship_wrapper.py :: # worktree-create.sh seeds it. AGENTS.md § Server Lifecycle *mandates* worktree
+scripts/tests/test_pre_ship_wrapper.py :: directory". Worktrees don't populate submodules, and AGENTS.md mandates
+scripts/tests/test_test_db_remediation.py :: And the escape hatch it offered, ``-m 'not db'``, is the spelling AGENTS.md
+scripts/tests/test_test_db_remediation.py :: Two things were wrong with that in the checkout AGENTS.md § Server Lifecycle
+scripts/tests/test_test_db_remediation.py :: repo's deliberate secrets split (AGENTS.md § Environment Variables) is the one

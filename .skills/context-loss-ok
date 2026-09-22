@@ -70,3 +70,36 @@ docs/COMMANDS.md :: retarget :: # B) — one unit each. Flag semantics across th
 docs/COMMANDS-BACKFILL.md :: retarget :: (#201) live beside the daily commands in
 docs/COMMANDS-BACKFILL.md :: retarget :: [COMMANDS.md](COMMANDS.md#archive-vs-rebuild--which-half-each-flag-governs-201).
 docs/MODULES-FACTS-SEATS.md :: retarget :: [COMMANDS.md](COMMANDS.md#archive-vs-rebuild--which-half-each-flag-governs-201). **Two new unit files —
+
+# AGENTS.md round, 2026-09-22 (6,072 -> 5,924 exact). Each line read against its
+# replacement. --claims: 146 atoms at base, 0 dropped — every tightening below
+# kept its backticked spans, issue refs and links.
+#
+# disproven — three claims a command refuted:
+#   .socraticodecontextartifacts.json is a hand-kept manifest (one key,
+#   "artifacts", 29 entries), not where codebase_index writes the index;
+#   the workspace is six layers (the table two lines down, import-linter's
+#   contracts), four was the MVP spec's; the unit tier ran 91 s without
+#   coverage and 196-208 s with it today, not ~11 s / ~27 s; and CODE-EXPLORATION.md says the
+#   graph works (1,633 edges) — it is not "broken".
+AGENTS.md :: disproven :: (once indexed; the index lives in `.socraticodecontextartifacts.json` once `codebase_index` has
+AGENTS.md :: disproven :: `uv` workspace. Four-layer clearinghouse split
+AGENTS.md :: disproven :: # Add --no-cov for a faster (~11s vs ~27s), ungated inner loop
+AGENTS.md :: disproven :: — goal→tool table, the broken file-dependency graph, the `ToolSearch` prefetch
+# tighten — same claims, fewer words. The graph paragraph's edge and file counts
+# are CODE-EXPLORATION.md's measurement table; the uvicorn paragraph's mechanism
+# is LOGGING.md's first section; the ARCHITECTURE.md read-before clause is
+# § Project Layout's bold rule; the two DEPLOYMENT.md sentences keep every item.
+AGENTS.md :: tighten :: **The file-dependency graph works here since SocratiCode 1.13.0 (#299)** — 1,633 edges across
+AGENTS.md :: tighten :: 510 files, `grep`-verified; `codebase_graph_query` and the file-mode of `codebase_impact` are
+AGENTS.md :: tighten :: answers now, not traps. On an older engine it silently resolves almost nothing, so check the
+AGENTS.md :: tighten :: builder version `codebase_graph_status` reports before trusting an empty answer. Goal→tool table,
+AGENTS.md :: tighten :: the measurement, and the session-start `ToolSearch` prefetch:
+AGENTS.md :: tighten :: The full service table (every systemd unit and what each one does)
+AGENTS.md :: tighten :: The per-unit restart table, the `uv sync --locked` rationale, and the `verify-units.sh` pre-commit gate (#51) are in
+AGENTS.md :: tighten :: **Under uvicorn, `configure_logging()` alone is not enough** (#155)
+AGENTS.md :: tighten :: — the reusable Layer-3 pattern; read before adding an adapter, a source, or a span/seat builder
+# Same stale fact in docs/SKILLS.md, found by this round's seam sweep: the
+# health hook run with SOCRATICODE_HEALTH_FORCE=1 on 2026-09-22 printed nothing
+# (silent = nothing to report), so the edge-yield gate does not fire daily.
+docs/SKILLS.md :: disproven :: That last one fires here every day and is expected

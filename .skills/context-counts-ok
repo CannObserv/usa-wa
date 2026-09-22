@@ -1,0 +1,20 @@
+# Judged counts, newest last. PATH :: WARRANT :: CONTENT (see check-counts.sh --help).
+#
+# First written in the 2026-09-22 AGENTS.md round. Left open on purpose:
+# "(four catalog tiers, one of them non-dbt)" — true today (docs/PIPELINE.md
+# § Publication: three tiers plus an empty `cutover`), but nothing beside it
+# lists them and no test asserts four.
+
+# The MVP spec is a dated document; its layer count cannot move.
+AGENTS.md :: stable :: Four-layer MVP design:
+# Each is followed, in the same sentence, by the things it counts.
+AGENTS.md :: enumerated :: Two rules bind whatever you are building:
+AGENTS.md :: enumerated :: Writing a published dataset's bytes adds two more
+AGENTS.md :: enumerated :: Two rules from there that bind on every task:
+AGENTS.md :: enumerated :: Two env files, loaded in order (later values override):
+# The table below it. Seven rows, six layers: 3b facts and 3c pipeline share one
+# layer ("facts sibling") in pyproject.toml's import-linter `layers` contract.
+AGENTS.md :: enumerated :: **Six layers since #189 (AR-14), enforced by `import-linter`**
+# Enumerated at the anchor this line links: docs/SKILLS.md § Worktree submodule
+# population tables all five, test by test.
+AGENTS.md :: enumerated :: and five tests fail until it does

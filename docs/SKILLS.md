@@ -110,7 +110,7 @@ Adding an artifact to `.socraticodecontextartifacts.json` **does not index it**.
 
 `.claude/hooks/socraticode-health.sh` is the detector — a `SessionStart` hook symlinked into the vendored `init-socraticode/scripts/`, wired in [`.claude/settings.json`](../.claude/settings.json). It runs at most once per UTC day **per project** (the lock lives in the common `.git`, so N worktrees produce one report a day, not N), is silent when there is nothing to report, and exits 0 on every path so it can never block a session. It **reports; it never repairs** — no re-index, no `docker start`, no file edit.
 
-What it surfaces: a declared-but-unindexed (or stale) context artifact **by name**, a `codebase_health` problem, a FAILED or INCOMPLETE last operation, and the graph edge-yield gate. That last one fires here every day and is expected — it is the broken file-dependency graph documented in [`docs/CODE-EXPLORATION.md`](CODE-EXPLORATION.md), not a new finding.
+What it surfaces: a declared-but-unindexed (or stale) context artifact **by name**, a `codebase_health` problem, a FAILED or INCOMPLETE last operation, and the graph edge-yield gate. That last one fired here daily until the file-dependency graph's repair in SocratiCode 1.13.0 ([`docs/CODE-EXPLORATION.md`](CODE-EXPLORATION.md)); it is quiet now, so a firing gate is a new finding — check the engine version first.
 
 ```bash
 SOCRATICODE_HEALTH_FORCE=1 bash .claude/hooks/socraticode-health.sh   # ignore the daily lock
