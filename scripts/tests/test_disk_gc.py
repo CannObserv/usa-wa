@@ -506,13 +506,18 @@ def _installed(host, version: str) -> None:
     )
 
 
+def _plugin_warnings(data: dict) -> list[str]:
+    return [w for w in data["warnings"] if "installed_plugins.json" in w]
+
+
 def test_prunes_plugin_cache_versions_that_are_not_installed(host):
     _installed(host, "1.14.0")
     stale = _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.12.0")
     current = _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.14.0")
-    run_gc(host, "--prune")
+    data = report(host, "--prune")
     assert not stale.exists()
     assert current.exists()
+    assert _plugin_warnings(data) == []
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root removes through a read-only parent")
@@ -533,27 +538,87 @@ def test_a_failed_removal_stays_in_the_reclaimable_accounting(host):
         servers.chmod(0o755)
 
 
-def test_leaves_the_plugin_cache_alone_without_a_readable_manifest(host):
-    """No manifest means no evidence of what is installed — so remove nothing."""
-    version = _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.12.0")
-    run_gc(host, "--prune")
-    assert version.exists()
+def _write_plugin_manifest(host, case: str) -> None:
+    manifest = host["plugins"] / "installed_plugins.json"
+    # Every shape case names the version that IS on disk, so it can only pass
+    # by the shape being refused — not by naming nothing.
+    on_disk = {
+        "installPath": str(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.14.0")
+    }
+    if case == "absent":
+        return
+    if case == "unparseable":
+        manifest.write_text('{"version": 2, "plugins": {"socraticode@socraticode": [{"inst')
+    elif case == "names-nothing":
+        manifest.write_text(json.dumps({"version": 2, "plugins": {}}))
+    elif case == "names-a-version-not-on-disk":
+        _installed(host, "1.15.0")
+    elif case == "not-an-object":
+        manifest.write_text(json.dumps([on_disk]))
+    elif case == "wrong-shape-after-a-valid-entry":
+        # The parser prints the valid path, then crashes: what it printed
+        # before the crash is a partial list, not evidence.
+        plugins = {"socraticode@socraticode": [on_disk], "other@market": "not-a-list"}
+        manifest.write_text(json.dumps({"version": 2, "plugins": plugins}))
 
-    (host["plugins"] / "installed_plugins.json").write_text("{not json")
-    run_gc(host, "--prune")
-    assert version.exists()
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "absent",
+        "unparseable",
+        "names-nothing",
+        "names-a-version-not-on-disk",
+        "not-an-object",
+        "wrong-shape-after-a-valid-entry",
+    ],
+)
+def test_no_usable_manifest_removes_no_plugin_version(host, case):
+    """The manifest is the only evidence of which version is installed, so
+    every way of lacking it means remove *nothing* (CR 3): a partially written
+    manifest explains an empty one at least as well as a real empty install
+    does, and each tree is ~646 MB. One naming a version that is not on disk —
+    a half-finished install, a manifest written ahead of extraction — is no
+    better (#400): pruning the rest would leave the plugin nothing to run. And
+    the refusal is reported, or the sensor prints `0B` over all of it."""
+    cache = host["plugins"] / "cache" / "socraticode" / "socraticode"
+    versions = [_fill(cache / "1.12.0"), _fill(cache / "1.14.0")]
+    _write_plugin_manifest(host, case)
+    data = report(host, "--prune")
+    assert all(v.exists() for v in versions)
+    assert data["pruned"] == []
+    assert len(_plugin_warnings(data)) == 1
 
 
-def test_an_empty_manifest_is_absence_of_evidence_not_permission(host):
-    """CR 3. A manifest that parses but names nothing installed would have
-    cleared every cached version — ~646 MB apiece. A partially written manifest
-    explains that state at least as well as a real empty install does."""
+def test_a_long_manifest_cannot_hide_the_installed_version(host):
+    """CR 2. Membership was `printf "$LIST" | grep -qxF` under pipefail: on a
+    list longer than the pipe buffer, a match near the top exits grep, SIGPIPEs
+    the printf, and the match reads as a miss — so the installed version became
+    a candidate. A second version named at the bottom supplies the evidence
+    that lets the prune loop run at all."""
+    cache = host["plugins"] / "cache"
+    stale = _fill(cache / "socraticode" / "socraticode" / "1.12.0")
+    installed = _fill(cache / "socraticode" / "socraticode" / "1.14.0")
+    other = _fill(cache / "other" / "other" / "1.0.0")
+    filler = [{"installPath": f"/nonexistent/plugin/cache/filler/{i:05d}"} for i in range(10000)]
+    plugins = {
+        "socraticode@socraticode": [{"installPath": str(installed)}],
+        "filler@market": filler,
+        "other@other": [{"installPath": str(other)}],
+    }
     (host["plugins"] / "installed_plugins.json").write_text(
-        json.dumps({"version": 2, "plugins": {}})
+        json.dumps({"version": 2, "plugins": plugins})
     )
-    version = _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.14.0")
     run_gc(host, "--prune")
-    assert version.exists()
+    assert installed.exists()
+    assert other.exists()
+    assert not stale.exists()
+
+
+def test_no_plugin_cache_is_not_a_warning(host):
+    """A host with no cached plugin version has nothing to evaluate; absence of
+    the tier must not read as a broken manifest."""
+    assert _plugin_warnings(report(host)) == []
 
 
 def test_keeps_a_live_plugin_cache_version_even_if_uninstalled(host, live_procs):
@@ -680,7 +745,16 @@ def _write_manifest(host, case: str) -> None:
     elif case == "names-a-version-not-on-disk":
         _active_extension(host, "2.1.279")
     elif case == "not-a-list":
-        manifest.write_text(json.dumps({"anthropic.claude-code": "2.1.278"}))
+        # Wraps an entry naming the version on disk, so only refusing the
+        # shape passes — not naming nothing.
+        manifest.write_text(
+            json.dumps({"extensions": [_manifest_entry(root, CLAUDE_EXT, "2.1.278")]})
+        )
+    elif case == "wrong-shape-after-a-valid-entry":
+        # The parser prints the valid name, then crashes: what it printed
+        # before the crash is a partial list, not evidence.
+        entries = [_manifest_entry(root, CLAUDE_EXT, "2.1.278"), {"identifier": CLAUDE_EXT}]
+        manifest.write_text(json.dumps(entries))
 
 
 @pytest.mark.parametrize(
@@ -692,6 +766,7 @@ def _write_manifest(host, case: str) -> None:
         "names-another-extension",
         "names-a-version-not-on-disk",
         "not-a-list",
+        "wrong-shape-after-a-valid-entry",
     ],
 )
 def test_no_usable_manifest_removes_no_extension(host, case):
