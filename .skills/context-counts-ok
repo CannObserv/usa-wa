@@ -1,7 +1,7 @@
 # Judged counts, newest last. PATH :: WARRANT :: CONTENT (see check-counts.sh --help).
 #
 # First written in the 2026-09-22 AGENTS.md round. Left open on purpose:
-# "(four catalog tiers, one of them non-dbt)" — true today (docs/PIPELINE.md
+# "(four catalog tiers, one of them non-dbt)" — true today (docs/PIPELINE-PUBLICATION.md
 # § Publication: three tiers plus an empty `cutover`), but nothing beside it
 # lists them and no test asserts four.
 

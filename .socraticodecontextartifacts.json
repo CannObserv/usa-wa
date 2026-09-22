@@ -138,12 +138,17 @@
     {
       "name": "pipeline-reference",
       "path": "./docs/PIPELINE.md",
-      "description": "The #302 dataset-publication pipeline \u2014 dbt-duckdb project layout, commands, the raw file store (objects/manifests/latest.json), the staging models and their parity probes, the identity registry and registrar, and the publication contract (immutable versioned datasets + catalog). The conformed tier lives in PIPELINE-CONFORMED.md."
+      "description": "The #302 dataset-publication pipeline \u2014 dbt-duckdb project layout, commands, the raw file store (objects/manifests/latest.json), the staging models and their parity probes, the identity registry and registrar, and the historical seat-occupancy gates over conformed assignments (#359/#360/#363). The conformed tier lives in PIPELINE-CONFORMED.md; the publication contract in PIPELINE-PUBLICATION.md."
     },
     {
       "name": "pipeline-conformed",
       "path": "./docs/PIPELINE-CONFORMED.md",
       "description": "The #302 pipeline's conformed tier \u2014 the registry-joined products and the guards each carries: crosswalks and entity survivorship, the tenure-span engine (two families, one table, the #228 roster deepening and its refusals), the structurally keyed roles dimension and its role_type/name/qualifier parity, and the citations chain that replaces the Postgres Citation ledger (per-kind rules, the coverage probe, its zero gates and the uncited-persons ratchet)."
+    },
+    {
+      "name": "pipeline-publication",
+      "path": "./docs/PIPELINE-PUBLICATION.md",
+      "description": "The publication contract a subscriber (power-map) builds against \u2014 the immutable versioned dataset tree, catalog.json and its fields, the publisher's gates and the nightly chain, the staging/conformed/internal tiers, per-dataset schema versions and contract_hash (#385), the catalog heartbeat checked_at + its stale_after deadline and what it does and does not cover (#386), and the declared CSV dialect (#357)."
     }
   ]
 }

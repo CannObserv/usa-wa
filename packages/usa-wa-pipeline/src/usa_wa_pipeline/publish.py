@@ -28,6 +28,10 @@ Materializes each published dataset as an immutable versioned directory —
   special-cased, which is what let ``pm_anchors`` (#354) ride this path until
   #314 retired it. No live dataset needs the fallback today; it stays because
   special-casing is the thing being avoided.
+- **Heartbeat** (#386): the catalog's top-level ``checked_at`` advances on
+  every run that is not refused, mint or no mint, beside ``stale_after`` —
+  the deadline for the next one (:func:`stale_after`). Per-entry
+  ``generated_at`` is the version's mint time and does not move on a quiet day.
 - Versions are timestamps plus a collision token
   (``v20260903T120000Z-a1b2c3``); the catalog lists only the latest.
   Retention/pruning is deliberately absent: these are archival products at
@@ -45,7 +49,7 @@ import secrets
 import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 
 import duckdb
@@ -571,6 +575,38 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
 
 DEFAULT_MAX_SHRINK = 0.10
 
+#: When the nightly chain runs — ``OnCalendar=`` of ``deploy/usa-wa-pipeline.timer``,
+#: daily, UTC — restated so the catalog can say when the next check is due (#386).
+SCHEDULED_RUN_UTC = time(8, 0)
+
+#: How long after :data:`SCHEDULED_RUN_UTC` a healthy run has published: the
+#: timer's 5-minute ``RandomizedDelaySec=`` + the service's 30-minute
+#: ``TimeoutStartSec=``, + 10 minutes of margin.
+#: ``scripts/tests/test_catalog_staleness_threshold.py`` pins both constants
+#: against the unit files themselves.
+PUBLISH_GRACE = timedelta(minutes=45)
+
+_STAMP = "%Y-%m-%dT%H:%M:%S.%fZ"
+
+
+def stale_after(checked: datetime) -> datetime:
+    """The deadline for the next ``checked_at`` (#386): the next scheduled run after
+    ``checked``, plus :data:`PUBLISH_GRACE`.
+
+    A deadline, not a duration (#386 CR 1). The first cut published a 26h
+    ``stale_after_seconds``, and it could not show a single missed run to the
+    consumer it exists for: power-map pulls daily at 09:00 UTC, the chain
+    publishes around 08:05, so a missed night read ~24h55m old at the next pull
+    — fresh — and the following night published before the pull after that.
+    Any daily consumer checking within a couple of hours of us had the same
+    blind spot. A deadline tied to the schedule has passed by then.
+    """
+    scheduled = datetime.combine(checked.date(), SCHEDULED_RUN_UTC, tzinfo=UTC)
+    if scheduled <= checked:
+        scheduled += timedelta(days=1)
+    return scheduled + PUBLISH_GRACE
+
+
 #: Where the built duckdb lives. The resolution was shared with `anchor_export`,
 #: which materialized INTO the same file this reads FROM (CR 110) — two copies of
 #: the literal would have let the pair drift silently, the export writing a table
@@ -767,17 +803,20 @@ def publish(
         con.close()
 
     counters = {"minted": 0, "unchanged": 0}
-    generated_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    # One clock for the run: a version minted now is stamped with the same instant
+    # the catalog records as checked. The two NAMES differ on purpose (#386).
+    run_at = datetime.now(UTC)
+    run_stamp = run_at.strftime(_STAMP)
     catalog_entries = []
     for item in staged:
         prior = item["prior"]
         # Mint on a change to the BYTES or to the CONTRACT they ship under (#385).
         # Hashing data.csv alone meant a metadata-only contract change never
         # reached a dataset at all: #357's `dialect` had to be declared by hand in
-        # PIPELINE.md for every version dir that had not re-minted since. Under
-        # per-dataset versions the bump is itself sometimes the only wire
-        # difference, and an unpropagated one is a version nobody can read. The
-        # cost is one version dir with a byte-identical data.csv per contract
+        # PIPELINE-PUBLICATION.md for every version dir that had not re-minted
+        # since. Under per-dataset versions the bump is itself sometimes the only
+        # wire difference, and an unpropagated one is a version nobody can read.
+        # The cost is one version dir with a byte-identical data.csv per contract
         # change — rare by construction, and what makes a bump observable.
         unchanged = (
             prior
@@ -799,7 +838,7 @@ def publish(
             "schema_version": item["dataset"].schema_version,
             "contract_hash": item["contract_hash"],
             "derived_from": lineage.get(item["name"], []),
-            "generated_at": generated_at,
+            "generated_at": run_stamp,
             "resources": [
                 {
                     "name": item["name"],
@@ -829,10 +868,21 @@ def publish(
                 "rows": item["rows"],
                 "bytes": item["bytes"],
                 "hash": f"sha256:{item['hash']}",
-                "generated_at": generated_at,
+                "generated_at": run_stamp,
             }
         )
-    catalog = {"generated_at": generated_at, "datasets": catalog_entries}
+    # The heartbeat (#386): written on every run that reaches here, mint or no
+    # mint, so a quiet day and a dead pipeline differ on the wire. A refusal
+    # raised above never reaches it, and the last good `checked_at` stands —
+    # a run that published nothing must not claim a fresh check. Named apart
+    # from the per-entry `generated_at` (mint time, carried forward verbatim
+    # for an unchanged dataset): it was a top-level `generated_at` too, and the
+    # one that never advances on a quiet day sat ten lines below it.
+    catalog = {
+        "checked_at": run_stamp,
+        "stale_after": stale_after(run_at).strftime(_STAMP),
+        "datasets": catalog_entries,
+    }
     tmp_catalog = out_root / f".catalog-{secrets.token_hex(4)}.tmp"
     tmp_catalog.write_text(json.dumps(catalog, indent=2) + "\n")
     tmp_catalog.replace(out_root / "catalog.json")

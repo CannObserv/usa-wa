@@ -3,18 +3,21 @@
 import csv
 import io
 import json
+from datetime import UTC, datetime, timedelta
 
 import duckdb
 import pytest
 
 from usa_wa_pipeline.publish import (
     CSV_DIALECT,
+    PUBLISH_GRACE,
     PUBLISHED_DATASETS,
     ContractRelease,
     PublishedDataset,
     PublishRefused,
     contract_fingerprint,
     publish,
+    stale_after,
 )
 
 
@@ -275,13 +278,13 @@ def test_a_version_bump_re_mints_a_dataset_whose_bytes_did_not_move(built_db, tm
     """#385: skip-if-unchanged hashed data.csv ALONE, so a metadata-only change
     to the contract never reached a dataset at all.
 
-    #357's `dialect` is the proof — PIPELINE.md had to carry that declaration by
-    hand for every version dir that had not re-minted since. Per-dataset versions
-    make it sharper, because for some changes the bump IS the only wire
-    difference: an unpropagated bump is a version nobody can read. So the mint
-    decision is data hash OR contract, and the cost is one version dir with a
-    byte-identical data.csv per contract change — rare by construction, and the
-    thing that makes a bump observable."""
+    #357's `dialect` is the proof — PIPELINE-PUBLICATION.md had to carry that
+    declaration by hand for every version dir that had not re-minted since.
+    Per-dataset versions make it sharper, because for some changes the bump IS
+    the only wire difference: an unpropagated bump is a version nobody can read.
+    So the mint decision is data hash OR contract, and the cost is one version
+    dir with a byte-identical data.csv per contract change — rare by
+    construction, and the thing that makes a bump observable."""
     out = tmp_path / "datasets"
     publish(built_db, out, _manifest(tmp_path), datasets=[_dataset("persons", version="1.4.0")])
 
@@ -666,3 +669,82 @@ def test_the_contract_hash_is_blind_to_a_lineage_change(built_db, tmp_path) -> N
     assert second["derived_from"] == ["int_person_identities"]
     assert second["contract_hash"] == first["contract_hash"]
     assert second["schema_version"] == first["schema_version"] == "1.0.0"
+
+
+def test_the_catalog_carries_the_publishers_heartbeat(built_db, tmp_path) -> None:
+    """#386: the run time and the staleness threshold, under names no entry shares.
+
+    The run time used to be a top-level ``generated_at`` ten lines above a
+    per-entry ``generated_at`` meaning mint time. A consumer had a coin-flip
+    chance of reading the one that never advances on a quiet day."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    catalog = json.loads((out / "catalog.json").read_text())
+
+    assert "generated_at" not in catalog
+    checked_at = catalog["checked_at"]
+    checked = datetime.strptime(checked_at, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
+    assert catalog["stale_after"] == stale_after(checked).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    # a minting run stamps its versions with the same clock it stamps the catalog
+    assert {entry["generated_at"] for entry in catalog["datasets"]} == {checked_at}
+
+
+def test_a_run_that_mints_nothing_still_advances_the_heartbeat(built_db, tmp_path) -> None:
+    """#386: the whole point — a quiet day and a dead pipeline must differ on the wire."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    first = json.loads((out / "catalog.json").read_text())
+
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    second = json.loads((out / "catalog.json").read_text())
+
+    assert summary["minted"] == 0
+    assert second["checked_at"] > first["checked_at"]
+    # and the per-entry mint time does NOT move: it is the version's, not the run's
+    assert [e["generated_at"] for e in second["datasets"]] == [
+        e["generated_at"] for e in first["datasets"]
+    ]
+
+
+def test_a_refused_run_leaves_the_heartbeat_stale(built_db, tmp_path) -> None:
+    """#386: a refusal publishes nothing, so it must not claim a fresh check."""
+    out = tmp_path / "datasets"
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    before = json.loads((out / "catalog.json").read_text())["checked_at"]
+
+    con = duckdb.connect(str(built_db))
+    con.execute("delete from person_crosswalk")
+    con.close()
+    with pytest.raises(PublishRefused):
+        publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+    assert json.loads((out / "catalog.json").read_text())["checked_at"] == before
+
+
+def _utc(stamp: str) -> datetime:
+    return datetime.fromisoformat(stamp).replace(tzinfo=UTC)
+
+
+def test_stale_after_is_the_next_scheduled_run_plus_its_grace() -> None:
+    """#386: a deadline, from the schedule — the next run after the check, not the check's age."""
+    assert stale_after(_utc("2026-09-22T08:05:42")) == _utc("2026-09-23T08:00") + PUBLISH_GRACE
+    # an off-schedule run (a boot catch-up, a by-hand re-run) before today's run
+    assert stale_after(_utc("2026-09-22T07:10:00")) == _utc("2026-09-22T08:00") + PUBLISH_GRACE
+    # a check landing exactly on the schedule is that run, so the next is tomorrow's
+    assert stale_after(_utc("2026-09-22T08:00:00")) == _utc("2026-09-23T08:00") + PUBLISH_GRACE
+
+
+def test_one_missed_run_is_stale_at_the_subscribers_next_daily_pull() -> None:
+    """#386 CR 1: the case a duration threshold could not see.
+
+    power-map pulls daily at 09:00 UTC; the chain publishes around 08:05. With a
+    26h ``stale_after_seconds``, a missed night read 24h55m old at the next pull —
+    fresh — and the following night published before the pull after that, so a
+    single miss never showed. The deadline has passed by 09:00 the day of the miss.
+    """
+    last_good = _utc("2026-09-22T08:05:42")
+    deadline = stale_after(last_good)
+    assert _utc("2026-09-23T09:00") > deadline
+    # and no false alarm inside the next run's own publish window
+    assert _utc("2026-09-23T08:30") < deadline
+    assert deadline - _utc("2026-09-23T08:00") < timedelta(hours=1)
