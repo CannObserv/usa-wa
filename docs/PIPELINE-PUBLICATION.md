@@ -132,7 +132,7 @@ it.
 | Field | Where | Means | No-mint run |
 |---|---|---|---|
 | `checked_at` | catalog top level | the publisher completed a run | **advances** |
-| `stale_after_seconds` | catalog top level | how long after `checked_at` a missing run is a finding | constant |
+| `stale_after` | catalog top level | the deadline for the next `checked_at` | moves to the next run's |
 | `generated_at` | each entry + its `datapackage.json` | that version's mint time | carried forward |
 
 `checked_at` is the producer's liveness signal — a quiet day and a dead pipeline
@@ -142,19 +142,21 @@ after publish all leave it **fresh**; a `dbt build` failure, a publish
 refusal/crash, or a unit that never runs leave it **stale**. Fresh = "published
 over a successful build", not "every source is fresh".
 
-Half a consumer's check: `now − checked_at > stale_after_seconds` = the producer
-is behind the clock. Built from ≠ the entry's `latest_version` = the consumer is
+Half a consumer's check: `now > stale_after` = the producer is behind the clock. Built from ≠ the entry's `latest_version` = the consumer is
 behind the producer (power-map#535 — the incident behind this issue, during which
 `checked_at` was fresh).
 
-`publish.STALE_AFTER_SECONDS` = 26h: daily timer + 5-min jitter + 30-min
-`TimeoutStartSec=` + slack. `scripts/tests/test_catalog_staleness_threshold.py`
-pins it above that floor and under two periods, reading the unit files.
+`stale_after` = the next scheduled run after `checked_at` (08:00 UTC) +
+`publish.PUBLISH_GRACE` (45 min: 5-min jitter + 30-min `TimeoutStartSec=` +
+margin). A deadline, not a duration: a 26h `stale_after_seconds` left a single
+missed night invisible to power-map's 09:00 pull (24h55m old, then repaired by
+the next run before the pull after). `scripts/tests/test_catalog_staleness_threshold.py`
+pins schedule and grace to the unit files.
 
 Per-entry `generated_at` is mint time, not data-change time: a contract-only
 re-mint moves it over identical bytes (2026-09-19, #385's `contract_hash`:
 sixteen re-mints, `persons` sha256 unchanged). `hash` says whether data changed.
-A pre-#386 catalog has a top-level `generated_at` and no threshold;
+A pre-#386 catalog has a top-level `generated_at` and no deadline;
 `/health/datasets` reads it as `checked_at` with `stale: null`.
 
 ## The serialisation is part of the contract (#357)

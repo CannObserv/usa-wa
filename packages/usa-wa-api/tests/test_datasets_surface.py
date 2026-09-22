@@ -1,7 +1,7 @@
 """The /datasets surface + publication probe (#311)."""
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -24,7 +24,7 @@ def published(tmp_path, monkeypatch):
         json.dumps(
             {
                 "checked_at": "2026-09-03T08:00:00.000000Z",
-                "stale_after_seconds": 93600,
+                "stale_after": "2026-09-04T08:45:00.000000Z",
                 "datasets": [
                     {
                         "name": "persons",
@@ -60,11 +60,11 @@ async def test_health_datasets_published(client, published) -> None:
 
 
 async def test_health_datasets_reports_the_heartbeat(client, published) -> None:
-    """#386: the run time, its age and the verdict — named apart from the mint age."""
+    """#386: the run time, its age, the deadline and the verdict — named apart from the mint age."""
     body = (await client.get("/health/datasets")).json()
     assert body["checked_at"] == "2026-09-03T08:00:00.000000Z"
-    assert body["checked_age_seconds"] > 93600
-    assert body["stale_after_seconds"] == 93600
+    assert body["checked_age_seconds"] > 0
+    assert body["stale_after"] == "2026-09-04T08:45:00.000000Z"
     assert body["stale"] is True
     # one `age_seconds` in the payload, and it is the dataset version's
     assert "age_seconds" not in body
@@ -73,7 +73,9 @@ async def test_health_datasets_reports_the_heartbeat(client, published) -> None:
 
 async def test_health_datasets_fresh_heartbeat_is_not_stale(client, published) -> None:
     catalog = json.loads((published / "catalog.json").read_text())
-    catalog["checked_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    now = datetime.now(UTC)
+    catalog["checked_at"] = now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    catalog["stale_after"] = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     (published / "catalog.json").write_text(json.dumps(catalog))
     body = (await client.get("/health/datasets")).json()
     assert body["stale"] is False
@@ -87,11 +89,11 @@ async def test_health_datasets_reads_a_pre_386_catalog(client, published) -> Non
     does not say", never a guessed ``False``."""
     catalog = json.loads((published / "catalog.json").read_text())
     catalog["generated_at"] = catalog.pop("checked_at")
-    del catalog["stale_after_seconds"]
+    del catalog["stale_after"]
     (published / "catalog.json").write_text(json.dumps(catalog))
     body = (await client.get("/health/datasets")).json()
     assert body["checked_at"] == "2026-09-03T08:00:00.000000Z"
-    assert body["stale_after_seconds"] is None
+    assert body["stale_after"] is None
     assert body["stale"] is None
 
 

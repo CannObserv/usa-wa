@@ -7,7 +7,7 @@
   404 (an unpublished box is not an error).
 - ``GET /health/datasets`` is the pipeline's ops probe — the successor to
   ``/health/sync`` as "is the nightly chain moving": the catalog's heartbeat
-  (``checked_at``, its age, the published threshold and ``stale``, #386), then
+  (``checked_at``, its age, the published deadline and ``stale``, #386), then
   per-dataset latest version, rows, and mint age; 200 with
   ``published: false`` before the first publish (absence is the finding, the
   #180 posture).
@@ -45,7 +45,7 @@ def health_datasets() -> dict:
     The heartbeat and the per-dataset age are named apart (#386): both used to
     be ``age_seconds``, one the run's and one the mint's — the collision the
     catalog itself had. A pre-#386 catalog carries its run time as top-level
-    ``generated_at`` and no threshold, so ``stale`` is ``null`` for it: the
+    ``generated_at`` and no deadline, so ``stale`` is ``null`` for it: the
     catalog does not say, which is not the same as fresh.
     """
     catalog_path = _root() / "catalog.json"
@@ -54,19 +54,20 @@ def health_datasets() -> dict:
     catalog = json.loads(catalog_path.read_text())
     now = datetime.now(UTC)
 
+    def parse(stamp: str) -> datetime:
+        return datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
+
     def age(stamp: str) -> float:
-        generated = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
-        return (now - generated).total_seconds()
+        return (now - parse(stamp)).total_seconds()
 
     checked_at = catalog.get("checked_at") or catalog["generated_at"]
-    checked_age = age(checked_at)
-    stale_after = catalog.get("stale_after_seconds")
+    stale_after = catalog.get("stale_after")
     return {
         "published": True,
         "checked_at": checked_at,
-        "checked_age_seconds": checked_age,
-        "stale_after_seconds": stale_after,
-        "stale": None if stale_after is None else checked_age > stale_after,
+        "checked_age_seconds": age(checked_at),
+        "stale_after": stale_after,
+        "stale": None if stale_after is None else now > parse(stale_after),
         "datasets": [
             {
                 "name": entry["name"],

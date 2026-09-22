@@ -3,20 +3,21 @@
 import csv
 import io
 import json
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import duckdb
 import pytest
 
 from usa_wa_pipeline.publish import (
     CSV_DIALECT,
+    PUBLISH_GRACE,
     PUBLISHED_DATASETS,
-    STALE_AFTER_SECONDS,
     ContractRelease,
     PublishedDataset,
     PublishRefused,
     contract_fingerprint,
     publish,
+    stale_after,
 )
 
 
@@ -681,9 +682,9 @@ def test_the_catalog_carries_the_publishers_heartbeat(built_db, tmp_path) -> Non
     catalog = json.loads((out / "catalog.json").read_text())
 
     assert "generated_at" not in catalog
-    assert catalog["stale_after_seconds"] == STALE_AFTER_SECONDS
     checked_at = catalog["checked_at"]
-    assert datetime.strptime(checked_at, "%Y-%m-%dT%H:%M:%S.%fZ")
+    checked = datetime.strptime(checked_at, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
+    assert catalog["stale_after"] == stale_after(checked).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     # a minting run stamps its versions with the same clock it stamps the catalog
     assert {entry["generated_at"] for entry in catalog["datasets"]} == {checked_at}
 
@@ -718,3 +719,32 @@ def test_a_refused_run_leaves_the_heartbeat_stale(built_db, tmp_path) -> None:
         publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
 
     assert json.loads((out / "catalog.json").read_text())["checked_at"] == before
+
+
+def _utc(stamp: str) -> datetime:
+    return datetime.fromisoformat(stamp).replace(tzinfo=UTC)
+
+
+def test_stale_after_is_the_next_scheduled_run_plus_its_grace() -> None:
+    """#386: a deadline, from the schedule — the next run after the check, not the check's age."""
+    assert stale_after(_utc("2026-09-22T08:05:42")) == _utc("2026-09-23T08:00") + PUBLISH_GRACE
+    # an off-schedule run (a boot catch-up, a by-hand re-run) before today's run
+    assert stale_after(_utc("2026-09-22T07:10:00")) == _utc("2026-09-22T08:00") + PUBLISH_GRACE
+    # a check landing exactly on the schedule is that run, so the next is tomorrow's
+    assert stale_after(_utc("2026-09-22T08:00:00")) == _utc("2026-09-23T08:00") + PUBLISH_GRACE
+
+
+def test_one_missed_run_is_stale_at_the_subscribers_next_daily_pull() -> None:
+    """#386 CR 1: the case a duration threshold could not see.
+
+    power-map pulls daily at 09:00 UTC; the chain publishes around 08:05. With a
+    26h ``stale_after_seconds``, a missed night read 24h55m old at the next pull —
+    fresh — and the following night published before the pull after that, so a
+    single miss never showed. The deadline has passed by 09:00 the day of the miss.
+    """
+    last_good = _utc("2026-09-22T08:05:42")
+    deadline = stale_after(last_good)
+    assert _utc("2026-09-23T09:00") > deadline
+    # and no false alarm inside the next run's own publish window
+    assert _utc("2026-09-23T08:30") < deadline
+    assert deadline - _utc("2026-09-23T08:00") < timedelta(hours=1)

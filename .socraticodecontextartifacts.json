@@ -148,7 +148,7 @@
     {
       "name": "pipeline-publication",
       "path": "./docs/PIPELINE-PUBLICATION.md",
-      "description": "The publication contract a subscriber (power-map) builds against \u2014 the immutable versioned dataset tree, catalog.json and its fields, the publisher's gates and the nightly chain, the staging/conformed/internal tiers, per-dataset schema versions and contract_hash (#385), the catalog heartbeat checked_at + stale_after_seconds and what it does and does not cover (#386), and the declared CSV dialect (#357)."
+      "description": "The publication contract a subscriber (power-map) builds against \u2014 the immutable versioned dataset tree, catalog.json and its fields, the publisher's gates and the nightly chain, the staging/conformed/internal tiers, per-dataset schema versions and contract_hash (#385), the catalog heartbeat checked_at + its stale_after deadline and what it does and does not cover (#386), and the declared CSV dialect (#357)."
     }
   ]
 }
