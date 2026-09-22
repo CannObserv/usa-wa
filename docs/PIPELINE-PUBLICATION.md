@@ -142,16 +142,18 @@ after publish all leave it **fresh**; a `dbt build` failure, a publish
 refusal/crash, or a unit that never runs leave it **stale**. Fresh = "published
 over a successful build", not "every source is fresh".
 
-Half a consumer's check: `now > stale_after` = the producer is behind the clock. Built from ≠ the entry's `latest_version` = the consumer is
-behind the producer (power-map#535 — the incident behind this issue, during which
-`checked_at` was fresh).
+Half a consumer's check: `now > stale_after` = the producer is behind the
+clock. Built from ≠ the entry's `latest_version` = the consumer is behind the
+producer (power-map#535 — the incident that raised #386, during which the
+catalog's run timestamp, then a top-level `generated_at`, was fresh).
 
 `stale_after` = the next scheduled run after `checked_at` (08:00 UTC) +
 `publish.PUBLISH_GRACE` (45 min: 5-min jitter + 30-min `TimeoutStartSec=` +
 margin). A deadline, not a duration: a 26h `stale_after_seconds` left a single
 missed night invisible to power-map's 09:00 pull (24h55m old, then repaired by
-the next run before the pull after). `scripts/tests/test_catalog_staleness_threshold.py`
-pins schedule and grace to the unit files.
+the next run before the pull after).
+`scripts/tests/test_catalog_staleness_threshold.py` pins schedule and grace to
+the unit files.
 
 Per-entry `generated_at` is mint time, not data-change time: a contract-only
 re-mint moves it over identical bytes (2026-09-19, #385's `contract_hash`:
