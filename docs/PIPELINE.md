@@ -157,17 +157,12 @@ ULIDs replace the ones PM's #312 anchors name. The `role_entity_mismatches`
 counter in `parity_spans` is the backstop, gated at zero — it catches the
 mistake, but the seed is what prevents it.
 
-**Orgs register nightly too, the same way.** The registrar's org pass reads the
-org universe from staging — every `stg_wsl_committees` id, every
-`stg_wsl_meetings` id (the Joint/`Other` bodies no CommitteeService op
-carries), every `STRUCTURAL_ORGS` key; 220/220 against canonical on
-2026-09-22 — as singleton clusters. Until then only the one-shot seed
-registered orgs, so the first committee born after it (Joint committee 36500)
-went unregistered, dropped out of the published `organizations`, and failed
-`parity-registry` on `org_missing=1`. After the seed the two tiers mint
-independently, so a canonical row created later never carries the registrar's
-ULID: the probe counts that `post_seed`, not `mismapped` — no seeded identity
-moved. An unbound key is still `missing`.
+**Orgs register nightly too** (`registrar.load_org_keys`): singleton clusters
+over every staged committee id (`stg_wsl_committees` ∪ `stg_wsl_meetings`) plus
+`STRUCTURAL_ORGS`, under the same seed-first rule as roles. After the seed the
+two tiers mint independently, so `parity_registry` counts a canonical row whose
+ULID the registry never held as `post_seed`, not `mismapped`; an unbound key is
+still `missing`.
 
 ```bash
 # One-time: seed from canonical rows, ULIDs preserved (idempotent)
