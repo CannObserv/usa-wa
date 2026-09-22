@@ -813,10 +813,10 @@ def publish(
         # Mint on a change to the BYTES or to the CONTRACT they ship under (#385).
         # Hashing data.csv alone meant a metadata-only contract change never
         # reached a dataset at all: #357's `dialect` had to be declared by hand in
-        # PIPELINE-PUBLICATION.md for every version dir that had not re-minted since. Under
-        # per-dataset versions the bump is itself sometimes the only wire
-        # difference, and an unpropagated one is a version nobody can read. The
-        # cost is one version dir with a byte-identical data.csv per contract
+        # PIPELINE-PUBLICATION.md for every version dir that had not re-minted
+        # since. Under per-dataset versions the bump is itself sometimes the only
+        # wire difference, and an unpropagated one is a version nobody can read.
+        # The cost is one version dir with a byte-identical data.csv per contract
         # change — rare by construction, and what makes a bump observable.
         unchanged = (
             prior

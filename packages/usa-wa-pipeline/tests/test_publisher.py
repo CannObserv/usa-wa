@@ -278,13 +278,13 @@ def test_a_version_bump_re_mints_a_dataset_whose_bytes_did_not_move(built_db, tm
     """#385: skip-if-unchanged hashed data.csv ALONE, so a metadata-only change
     to the contract never reached a dataset at all.
 
-    #357's `dialect` is the proof — PIPELINE-PUBLICATION.md had to carry that declaration by
-    hand for every version dir that had not re-minted since. Per-dataset versions
-    make it sharper, because for some changes the bump IS the only wire
-    difference: an unpropagated bump is a version nobody can read. So the mint
-    decision is data hash OR contract, and the cost is one version dir with a
-    byte-identical data.csv per contract change — rare by construction, and the
-    thing that makes a bump observable."""
+    #357's `dialect` is the proof — PIPELINE-PUBLICATION.md had to carry that
+    declaration by hand for every version dir that had not re-minted since.
+    Per-dataset versions make it sharper, because for some changes the bump IS
+    the only wire difference: an unpropagated bump is a version nobody can read.
+    So the mint decision is data hash OR contract, and the cost is one version
+    dir with a byte-identical data.csv per contract change — rare by
+    construction, and the thing that makes a bump observable."""
     out = tmp_path / "datasets"
     publish(built_db, out, _manifest(tmp_path), datasets=[_dataset("persons", version="1.4.0")])
 
