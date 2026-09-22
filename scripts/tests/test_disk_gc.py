@@ -447,6 +447,35 @@ def test_keeps_a_build_a_process_only_runs_inside(host, live_cwd):
     assert live.exists()
 
 
+def test_a_full_disk_cannot_blind_the_liveness_check(host, live_procs):
+    """CR 5. The snapshot used to be a temp file on the very disk this GC runs to
+    rescue: at ENOSPC the write truncated silently, every process it lost read
+    as idle, and --prune ran `rm -rf` on trees in use — in exactly the state the
+    unit exists for. `ulimit -f 1` makes any file write past 1 KiB fail, which
+    is the same truncation; the live build must survive it."""
+    live = _fill(host["vscode"] / "cli" / "servers" / "Stable-live0000")
+    live_procs(live / "server" / "bin" / "code-server")
+    env = {
+        **os.environ,
+        "DISK_GC_VSCODE_ROOT": str(host["vscode"]),
+        "DISK_GC_PLUGIN_ROOT": str(host["plugins"]),
+        "DISK_GC_NPX_ROOT": str(host["npx"]),
+        "DISK_GC_REPO": str(host["repo"]),
+        "DISK_GC_DOCKER": "",
+        "DISK_GC_WARN_BYTES": "0",
+        "DISK_GC_FAIL_BYTES": "0",
+        "DISK_GC_GRACE_MINUTES": "0",
+    }
+    subprocess.run(
+        ["bash", "-c", 'ulimit -f 1 && exec "$0" --prune', str(SCRIPT)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=120,
+    )
+    assert live.exists()
+
+
 def test_keeps_lru_json_which_is_not_a_build(host):
     lru = host["vscode"] / "cli" / "servers" / "lru.json"
     lru.write_text("[]")

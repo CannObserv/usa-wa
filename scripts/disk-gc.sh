@@ -118,22 +118,36 @@ OLLAMA_SLIM_LABEL="cpu-only-gpu-libs-stripped"
 # shared library and native addon a process has loaded. An un-reloaded VS Code
 # window's extension host still runs an old Claude extension version and names
 # its directory in none of the other three — the mapped `audio-capture.node` is
-# its only trace. Deduplicated afterwards, since every process maps libc.
-LIVE_CMDLINES=$(mktemp) || exit 2
-trap 'rm -f "$LIVE_CMDLINES"' EXIT
-for entry in /proc/[0-9]*; do
-    pid=${entry#/proc/}
-    [ "$pid" = "$$" ] && continue
-    [ "$pid" = "$PPID" ] && continue
-    tr '\0' '\n' <"$entry/cmdline" 2>/dev/null
-    readlink "$entry/cwd" 2>/dev/null
-    readlink "$entry/exe" 2>/dev/null
-    grep -o '/.*' "$entry/maps" 2>/dev/null
-done >"$LIVE_CMDLINES"
-sort -u -o "$LIVE_CMDLINES" "$LIVE_CMDLINES"
+# its only trace. Deduplicated as it is read, since every process maps libc.
+#
+# Held in memory, never in a file (#399 CR 5). This script runs because the disk
+# is full, and a snapshot written to that disk truncated silently at ENOSPC:
+# every process the truncation lost then read as idle, which turned --prune into
+# `rm -rf` on trees in use. `awk` dedupes without ever spilling to a temp file
+# the way `sort` can. A failed or empty snapshot is a refusal, never an empty
+# process table. The trailing `:` keeps an unreadable last pid's status from
+# reading as the snapshot failing.
+LIVE=$(
+    for entry in /proc/[0-9]*; do
+        pid=${entry#/proc/}
+        [ "$pid" = "$$" ] && continue
+        [ "$pid" = "$PPID" ] && continue
+        tr '\0' '\n' <"$entry/cmdline" 2>/dev/null
+        readlink "$entry/cwd" 2>/dev/null
+        readlink "$entry/exe" 2>/dev/null
+        grep -o '/.*' "$entry/maps" 2>/dev/null
+        :
+    done | awk '!seen[$0]++'
+) && [ -n "$LIVE" ] || {
+    echo "disk-gc: could not snapshot the process table — refusing to judge liveness" >&2
+    exit 2
+}
 
 is_live() {
-    grep -qF -- "$1" "$LIVE_CMDLINES"
+    # A substring match on the string itself, not `grep -q`: under pipefail a
+    # pipe into an early-exiting grep can report failure on SIGPIPE, and a
+    # here-string can spill to a temp file — either way a live tree reads idle.
+    [[ $LIVE == *"$1"* ]]
 }
 
 size_of() {
