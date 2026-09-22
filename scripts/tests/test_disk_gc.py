@@ -4,15 +4,16 @@
 separate this from "a cleanup script someone runs when they remember":
 
 * **It prunes only what is provably unreferenced.** Every candidate is checked
-  against the live process table before removal — `cmdline`, `cwd` AND `exe`,
-  because a process started by a relative path names its tree in none of its
-  argv (CR 2) — since the reclaimable copies and the in-use ones sit side by
-  side in the same directory: five VS Code server builds, two of them serving
-  live windows; five copies of SocratiCode's node tree, two of them running;
-  five Claude extension versions (#399), one live and a different one active. A
-  size-or-mtime heuristic would delete a running editor's server. A *grace
-  window* covers the case liveness cannot (CR 12): a tree still being installed
-  is named by no process yet.
+  against the live process table before removal — `cmdline`, `cwd`, `exe` AND
+  `maps`, because a process started by a relative path names its tree in none
+  of its argv (CR 2), and one holding a native addon loaded names it in none of
+  the other three (#399 CR 1) — since the reclaimable copies and the in-use
+  ones sit side by side in the same directory: five VS Code server builds, two
+  of them serving live windows; five copies of SocratiCode's node tree, two of
+  them running; five Claude extension versions (#399), one live and a different
+  one active. A size-or-mtime heuristic would delete a running editor's server.
+  A *grace window* covers the case liveness cannot (CR 12): a tree still being
+  installed is named by no process yet.
 * **It never touches repo data.** Retention for the published-dataset, `raw/`,
   dbt and cassette tiers is a *contract* question descoped to its own issue; this
   script reports those sizes and removes nothing from them. A GC that quietly
@@ -157,6 +158,47 @@ def live_exe():
             time.sleep(0.05)
         else:  # pragma: no cover - the spawn itself failed
             pytest.fail(f"spawned process never showed {binary} as its exe")
+        started.append(proc)
+        return proc
+
+    yield _spawn
+
+    for proc in started:
+        proc.send_signal(signal.SIGKILL)
+        proc.wait()
+
+
+@pytest.fixture
+def live_mmap():
+    """Spawn a process that holds a file from a tree *mapped*, and nothing else.
+
+    #399 CR 1: an un-reloaded VS Code window's extension host still has an old
+    Claude extension version loaded, and names that directory in none of
+    cmdline, cwd or exe — its one trace is the native addon in its memory maps.
+    The path reaches the child through the environment, which the liveness
+    snapshot does not read, and the descriptor is closed once mapped.
+    """
+    started: list[subprocess.Popen] = []
+    body = (
+        "import mmap, os, time\n"
+        "with open(os.environ['MAPPED'], 'rb') as fh:\n"
+        "    held = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)\n"
+        "print('mapped', flush=True)\n"
+        "time.sleep(600)\n"
+    )
+
+    def _spawn(path: Path) -> subprocess.Popen:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\0" * 4096)
+        proc = subprocess.Popen(
+            ["python3", "-c", body],
+            env={**os.environ, "MAPPED": str(path)},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        if proc.stdout.readline().strip() != "mapped":  # pragma: no cover
+            pytest.fail(f"spawned process never mapped {path}")
         started.append(proc)
         return proc
 
@@ -559,6 +601,28 @@ def test_prunes_extension_versions_neither_active_nor_live(host, live_exe):
     assert not idle.exists()
     assert live.exists()
     assert active.exists()
+
+
+def test_keeps_a_version_an_unreloaded_window_still_has_loaded(host, live_mmap):
+    """CR 1. The window's extension host maps the old version's native addon
+    and names its directory nowhere else. With no agent running, a snapshot
+    of cmdline, cwd and exe alone reads that version as idle — and pruning it
+    breaks the next session that window starts."""
+    _active_extension(host, "2.1.278")
+    loaded = _extension(host, "2.1.273")
+    _extension(host, "2.1.278")
+    live_mmap(loaded / "resources" / "audio-capture" / "x64-linux" / "audio-capture.node")
+    run_gc(host, "--prune")
+    assert loaded.exists()
+
+
+def test_a_mapped_file_protects_every_tier(host, live_mmap):
+    """The fourth liveness source is not extension-specific: a node tree whose
+    native module a running process has mapped is in use, whatever launched it."""
+    tree = _fill(host["npx"] / "dddddddddddddddd")
+    live_mmap(tree / "node_modules" / "addon.node")
+    run_gc(host, "--prune")
+    assert tree.exists()
 
 
 def test_keeps_the_active_extension_with_no_process_live(host):

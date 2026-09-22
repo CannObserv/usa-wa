@@ -107,12 +107,18 @@ OLLAMA_SLIM_LABEL="cpu-only-gpu-libs-stripped"
 # would silently never reclaim anything. Self and parent are excluded for the
 # same reason.
 #
-# Three sources, not one. A command line is the usual evidence, but it is not
+# Four sources, not one. A command line is the usual evidence, but it is not
 # the only way a process depends on a tree: one started by a relative path after
 # a chdir, or through a symlinked entry point, names the directory nowhere in
 # its argv while still running out of it. `cwd` and `exe` close that, and the
 # whole point of the liveness check is that a false negative means `rm -rf` on
 # something in use.
+#
+# `maps` is the fourth (#399 CR 1): the file-backed memory mappings, i.e. every
+# shared library and native addon a process has loaded. An un-reloaded VS Code
+# window's extension host still runs an old Claude extension version and names
+# its directory in none of the other three — the mapped `audio-capture.node` is
+# its only trace. Deduplicated afterwards, since every process maps libc.
 LIVE_CMDLINES=$(mktemp) || exit 2
 trap 'rm -f "$LIVE_CMDLINES"' EXIT
 for entry in /proc/[0-9]*; do
@@ -122,7 +128,9 @@ for entry in /proc/[0-9]*; do
     tr '\0' '\n' <"$entry/cmdline" 2>/dev/null
     readlink "$entry/cwd" 2>/dev/null
     readlink "$entry/exe" 2>/dev/null
+    grep -o '/.*' "$entry/maps" 2>/dev/null
 done >"$LIVE_CMDLINES"
+sort -u -o "$LIVE_CMDLINES" "$LIVE_CMDLINES"
 
 is_live() {
     grep -qF -- "$1" "$LIVE_CMDLINES"
@@ -229,10 +237,16 @@ fi
 # VS Code extensions (#399). The Claude Code extension ships a ~220 MB native
 # binary per version and keeps every one it has installed — about one a week.
 # Two states protect a version, and a version can be either without the other:
-# LIVE (a running agent `exe`s its bundled binary — `consider` checks it) and
-# ACTIVE (named by extensions.json, the manifest the editor starts the next agent
-# from). The active one is kept even with nothing live: an editor between reloads
-# runs no agent, and that is no licence to delete what it will start next.
+# LIVE (a running agent `exe`s its bundled binary, or a window's extension host
+# has its native addon mapped — `consider` checks both) and ACTIVE (named by
+# extensions.json, the manifest the editor starts the next agent from). The
+# active one is kept even with nothing live: an editor between reloads runs no
+# agent, and that is no licence to delete what it will start next.
+#
+# The one gap left: the addon is loaded lazily, so an un-reloaded window whose
+# extension host never touched it, with no agent running, names its old version
+# nowhere. Pruning that costs the window a reload — which VS Code already asks
+# for after an update — not data.
 #
 # Same failure mode as the plugin cache above: an absent or unparseable
 # manifest, one naming no Claude extension, and one naming a version that is not

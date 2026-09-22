@@ -254,8 +254,9 @@ Claude extension versions that are neither live nor named by `extensions.json`
 (#399), Claude plugin-cache versions that are not the installed one, and
 `~/.npm/_npx` trees. The reclaimable copy and the in-use one are siblings in the
 same directory, so a size-or-mtime heuristic would delete a running editor's server;
-liveness is the discriminator, read from `/proc/*/` `cmdline`, `cwd` **and**
-`exe` — a process started by a relative path names its tree in none of its argv.
+liveness is the discriminator, read from `/proc/*/` `cmdline`, `cwd`, `exe`
+**and** `maps` — a process started by a relative path names its tree in none of
+its argv, and a loaded native addon (#399) in none of the other three.
 
 A `DISK_GC_GRACE_MINUTES` window (default 60) covers the one case liveness
 cannot: a tree still being installed is named by no process yet, because the
