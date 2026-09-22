@@ -66,9 +66,9 @@ filterwarnings = [
 # DB-backed module does not fail an unrelated build; tight enough to notice a tier that
 # stops exercising things. Ratchet it up as the number climbs; it is not an aspiration.
 #
-# Gating costs the tier its speed — instrumentation takes it from ~11s to ~27s — so
-# `--no-cov` stays documented for the inner loop. It is the *gate* that had to stop
-# needing a flag, not the loop.
+# Gating costs the tier its speed — instrumentation roughly doubles it (~11s to ~27s
+# when this was added; 91s to 196-208s on 2026-09-22) — so `--no-cov` stays documented
+# for the inner loop. It is the *gate* that had to stop needing a flag, not the loop.
 #
 # The integration tier (#216) gets the opposite call — an exemption, not a second
 # floor. Its e2e test drives the refresh via subprocess.run, so the child's lines are
