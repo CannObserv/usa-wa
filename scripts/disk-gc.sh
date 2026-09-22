@@ -234,11 +234,12 @@ done
 # manifest that parses but names nothing installed is the same absence of
 # evidence, not a licence to clear the cache. Each tree is ~646 MB, and a
 # partially written manifest is a likelier explanation than a real empty
-# install. So is one naming a version that is not on disk (#400): a
-# half-finished install, or a manifest written ahead of extraction, and pruning
-# the rest would leave the plugin nothing to run. Evidence is therefore the
-# manifest naming at least one version actually present. Lacking it is said, not
-# swallowed: a silent refusal is the `reclaimable: 0B` #399 was filed for.
+# install. A manifest naming only versions that are not on disk is the same
+# absence (#400) — a half-finished install, or one written ahead of extraction —
+# and pruning the rest would leave the plugin nothing to run. Evidence is
+# therefore the manifest naming at least one version actually present. Lacking
+# it is said, not swallowed: a silent refusal is the `reclaimable: 0B` #399 was
+# filed for.
 #
 # The one gap left: evidence is judged across the cache, not per plugin. With
 # two plugins installed, one whose entry names a present version licenses
