@@ -262,6 +262,11 @@ done
 # is field 22 of /proc/<pid>/stat. Every session start writing a marker also
 # puts the version inside the grace window below, so it reads `withheld:` for up
 # to an hour after — conservative, and harmless.
+#
+# Assumes the marker's pid lives in THIS pid namespace, and that this /proc
+# shows it. A session in a container, or a unit given ProtectProc=/hidepid,
+# would read as gone and its version as idle. The unit runs as the user whose
+# sessions write the markers, with no /proc sandboxing, which keeps it true.
 in_use_verdict() {
     # Prints `idle` when every marker is PROVEN dead (its pid is gone, or running
     # with a different start time: a reused pid), `live` when one names a running
