@@ -796,7 +796,7 @@ def test_a_symlinked_version_is_never_a_candidate(host, tmp_path):
     assert not any(c["path"] == str(link) for c in data["reclaimable"])
 
 
-def _fake_stat(proc_root: Path, pid: int, fields_after_comm: list[str]) -> None:
+def _fake_stat(proc_root: Path, pid: int | str, fields_after_comm: list[str]) -> None:
     (proc_root / str(pid)).mkdir(parents=True, exist_ok=True)
     (proc_root / str(pid) / "stat").write_text(f"{pid} (claude) " + " ".join(fields_after_comm))
 
@@ -808,6 +808,7 @@ def test_a_malformed_stat_line_spoils_only_its_own_marker(host, tmp_path):
     Eight short lines make it near-certain one is listed first."""
     proc = tmp_path / "proc"
     superseded = _superseded(host)
+    _fake_stat(proc, "self", ["S"])  # CR 8: a proc root must hold self/stat
     _fake_stat(proc, 222, ["S"] * 19 + ["999"])
     _mark_in_use(superseded, 222, content=json.dumps({"pid": 222, "procStart": "999"}))
     for short in range(300, 308):
@@ -816,6 +817,20 @@ def test_a_malformed_stat_line_spoils_only_its_own_marker(host, tmp_path):
     data = report(host, "--prune", DISK_GC_PROC_ROOT=proc)
     assert superseded.exists()
     assert _marker_warnings(data) == []
+
+
+def test_a_proc_root_that_is_no_process_table_judges_nothing(host, session, tmp_path):
+    """CR 8. Every marker's `<pid>/stat` is absent under a wrong proc root, so
+    each live session read as dead and --prune removed the versions in use —
+    DISK_GC_PROC_ROOT failing open where every other root fails safe. A root
+    without `self/stat` is not a process table: undecidable, kept, warned."""
+    superseded = _superseded(host)
+    _mark_in_use(superseded, session())
+    empty = tmp_path / "not-proc"
+    empty.mkdir()
+    data = report(host, "--prune", DISK_GC_PROC_ROOT=empty)
+    assert superseded.exists()
+    assert len(_marker_warnings(data)) == 1
 
 
 def test_a_marker_that_is_not_a_regular_file_cannot_hang_the_gc(host):

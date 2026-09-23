@@ -60,7 +60,9 @@ PLUGIN_ROOT=${DISK_GC_PLUGIN_ROOT:-$HOME/.claude/plugins}
 NPX_ROOT=${DISK_GC_NPX_ROOT:-$HOME/.npm/_npx}
 # Where in_use_verdict reads a marker's /proc/<pid>/stat. Redirectable so a
 # test can hand it a stat line the kernel never writes; the process-table
-# snapshot below always reads the real /proc.
+# snapshot below always reads the real /proc. Under a wrong root every pid
+# reads as gone — every live session as dead — so a root without `self/stat`
+# is refused as no process table, and its markers judged undecidable (#407 CR 8).
 PROC_ROOT=${DISK_GC_PROC_ROOT:-/proc}
 REPO=${DISK_GC_REPO:-/home/exedev/usa-wa}
 DOCKER=${DISK_GC_DOCKER-docker}
@@ -292,6 +294,8 @@ try:
     names = os.listdir(root)
 except (FileNotFoundError, NotADirectoryError):
     names = []
+if names and not os.path.isfile(os.path.join(sys.argv[2], "self", "stat")):
+    sys.exit()
 undecided = False
 for name in names:
     try:

@@ -62,7 +62,8 @@ wrong direction to fail in.
   host.
 - `DISK_GC_PROC_ROOT` — where the plugin-cache in-use check reads a marker's
   `<pid>/stat` (#407); default `/proc`. Test-only: the process-table snapshot
-  always reads the real `/proc`.
+  always reads the real `/proc`. A root without `self/stat` is refused, not
+  trusted — under a wrong root every live session would read as dead.
 - `DISK_GC_DOCKER` — the `docker` binary used for the ollama slim-label check;
   default `docker`, and an **empty value disables the check** (absence of a
   container stack is not damage).
