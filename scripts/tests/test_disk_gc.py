@@ -781,6 +781,21 @@ def test_a_live_marker_outranks_junk_beside_it(host, session):
     assert _marker_warnings(data) == []
 
 
+def test_a_symlinked_version_is_never_a_candidate(host, tmp_path):
+    """CR 6. Claude Code keeps a symlinked (link-mode) version's markers in
+    `.in_use-links`, not under the version, so the marker check reads it as
+    idle. Removing the link frees ~0 B and breaks any session loading the
+    plugin through it."""
+    _installed(host, "1.14.0")
+    _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.14.0")
+    target = _fill(tmp_path / "dev-checkout")
+    link = host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.13.0-dev"
+    link.symlink_to(target, target_is_directory=True)
+    data = report(host, "--prune")
+    assert link.is_symlink()
+    assert not any(c["path"] == str(link) for c in data["reclaimable"])
+
+
 def _fake_stat(proc_root: Path, pid: int, fields_after_comm: list[str]) -> None:
     (proc_root / str(pid)).mkdir(parents=True, exist_ok=True)
     (proc_root / str(pid) / "stat").write_text(f"{pid} (claude) " + " ".join(fields_after_comm))

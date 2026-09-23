@@ -345,6 +345,10 @@ for entries in doc.get("plugins", {}).values():
     if [ "$plugin_evidence" -eq 1 ]; then
         for version_dir in "${PLUGIN_VERSIONS[@]}"; do
             names "$INSTALLED" "$version_dir" && continue
+            # A symlinked (link-mode) version keeps its markers in Claude
+            # Code's `.in_use-links`, which in_use_verdict does not read, and
+            # removing the link frees ~0 B (#407 CR 6). Never a candidate.
+            [ -L "$version_dir" ] && continue
             # An undecidable marker keeps its version, and says so (#407 CR 1).
             # Only Claude Code's daily sweep clears a junk marker; were that to
             # stop, a silent refusal would be #399's `reclaimable: 0B` again.
