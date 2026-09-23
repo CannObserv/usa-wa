@@ -22,7 +22,10 @@ Materializes each published dataset as an immutable versioned directory —
   ``schema_version`` stood still; and a ``schema_version`` declared below the
   one already published (#385).
 - **Lineage** from the dbt manifest (``derived_from`` = the dataset's direct
-  model parents), never hand-maintained; the dataset *list* is deliberate
+  model parents), never hand-maintained, and read fresh every run: an
+  unchanged dataset's carried-forward catalog entry gets today's parents
+  (#388), while its version dir's datapackage keeps the ones it shipped
+  with. Lineage never mints (CR 6). The dataset *list* is deliberate
   config (:data:`PUBLISHED_DATASETS` — publishing is a decision). A table with
   no dbt model behind it publishes with empty lineage rather than being
   special-cased, which is what let ``pm_anchors`` (#354) ride this path until
@@ -802,7 +805,7 @@ def publish(
     finally:
         con.close()
 
-    counters = {"minted": 0, "unchanged": 0}
+    counters = {"minted": 0, "unchanged": 0, "lineage_refreshed": 0}
     # One clock for the run: a version minted now is stamped with the same instant
     # the catalog records as checked. The two NAMES differ on purpose (#386).
     run_at = datetime.now(UTC)
@@ -826,7 +829,17 @@ def publish(
         )
         if unchanged:
             counters["unchanged"] += 1
-            catalog_entries.append(prior)
+            # Carried forward with ONE field refreshed (#388): `derived_from` is
+            # today's manifest, current as of the catalog's `checked_at`. Verbatim
+            # carry-forward published a quiet dataset's lineage-at-last-mint as a
+            # live assertion, and lineage cannot mint (CR 6) to correct it. The
+            # version dir's datapackage keeps the parents it shipped with — the
+            # historical record, as-of its own `generated_at` — so the two copies
+            # may disagree after a refactor, and the catalog is the current one.
+            parents = lineage.get(item["name"], [])
+            if prior.get("derived_from") != parents:
+                counters["lineage_refreshed"] += 1
+            catalog_entries.append({**prior, "derived_from": parents})
             for path in item["tmp_dir"].iterdir():
                 path.unlink()
             item["tmp_dir"].rmdir()

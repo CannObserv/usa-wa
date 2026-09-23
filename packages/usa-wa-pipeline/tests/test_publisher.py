@@ -645,10 +645,24 @@ def test_the_contract_hash_is_blind_to_a_lineage_change(built_db, tmp_path) -> N
     publish(built_db, out, _manifest(tmp_path), datasets=datasets)
     first = json.loads((out / "catalog.json").read_text())["datasets"][0]
 
-    # a different manifest — `persons` now derives from a renamed intermediate —
-    # and a row change, so the dataset re-mints rather than carrying forward
-    relineaged = tmp_path / "relineaged.json"
-    relineaged.write_text(
+    # a different manifest and a row change, so the dataset re-mints rather than
+    # carrying forward
+    con = duckdb.connect(str(built_db))
+    con.execute("insert into persons select '01Z', 'Newcomer'")
+    con.close()
+    publish(built_db, out, _relineaged_manifest(tmp_path), datasets=datasets)
+    second = json.loads((out / "catalog.json").read_text())["datasets"][0]
+
+    assert first["derived_from"] == ["person_crosswalk"]
+    assert second["derived_from"] == ["int_person_identities"]
+    assert second["contract_hash"] == first["contract_hash"]
+    assert second["schema_version"] == first["schema_version"] == "1.0.0"
+
+
+def _relineaged_manifest(tmp_path):
+    """The manifest after a refactor: `persons` now derives from a renamed intermediate."""
+    path = tmp_path / "relineaged.json"
+    path.write_text(
         json.dumps(
             {
                 "nodes": {
@@ -659,16 +673,46 @@ def test_the_contract_hash_is_blind_to_a_lineage_change(built_db, tmp_path) -> N
             }
         )
     )
-    con = duckdb.connect(str(built_db))
-    con.execute("insert into persons select '01Z', 'Newcomer'")
-    con.close()
-    publish(built_db, out, relineaged, datasets=datasets)
+    return path
+
+
+def test_a_quiet_dataset_publishes_its_current_lineage(built_db, tmp_path) -> None:
+    """#388: a carried-forward catalog entry gets today's `derived_from`.
+
+    The entry used to be carried forward verbatim, so a dataset whose bytes and
+    contract were both quiet kept publishing the parents it had at its last mint,
+    as though they were current. Lineage does not mint (CR 6), so the refresh
+    moves the catalog alone: the version dir's datapackage is the historical
+    record of what that version was built from, and stays as it shipped."""
+    out = tmp_path / "datasets"
+    datasets = [_dataset("persons")]
+    publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+    first = json.loads((out / "catalog.json").read_text())["datasets"][0]
+
+    summary = publish(built_db, out, _relineaged_manifest(tmp_path), datasets=datasets)
     second = json.loads((out / "catalog.json").read_text())["datasets"][0]
 
-    assert first["derived_from"] == ["person_crosswalk"]
+    assert (summary["minted"], summary["unchanged"]) == (0, 1)
     assert second["derived_from"] == ["int_person_identities"]
-    assert second["contract_hash"] == first["contract_hash"]
-    assert second["schema_version"] == first["schema_version"] == "1.0.0"
+    assert second["latest_version"] == first["latest_version"]
+    assert second["generated_at"] == first["generated_at"]
+    package = out / "persons" / first["latest_version"] / "datapackage.json"
+    assert json.loads(package.read_text())["derived_from"] == ["person_crosswalk"]
+
+
+def test_a_lineage_refresh_is_counted_only_when_the_parents_moved(built_db, tmp_path) -> None:
+    """#388: a refactor that re-parents a quiet dataset shows up in the run's log
+    line; a quiet day with the same manifest counts nothing."""
+    out = tmp_path / "datasets"
+    datasets = [_dataset("persons"), _dataset("person_crosswalk")]
+    publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+
+    quiet = publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+    refactored = publish(built_db, out, _relineaged_manifest(tmp_path), datasets=datasets)
+
+    assert quiet["lineage_refreshed"] == 0
+    # `persons` moved; `person_crosswalk` had no parents before or after
+    assert refactored["lineage_refreshed"] == 1
 
 
 def test_the_catalog_carries_the_publishers_heartbeat(built_db, tmp_path) -> None:
