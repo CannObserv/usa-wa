@@ -645,8 +645,10 @@ def test_the_contract_hash_is_blind_to_a_lineage_change(built_db, tmp_path) -> N
     publish(built_db, out, _manifest(tmp_path), datasets=datasets)
     first = json.loads((out / "catalog.json").read_text())["datasets"][0]
 
-    # a different manifest and a row change, so the dataset re-mints rather than
-    # carrying forward
+    # a different manifest AND a row change. The row change is load-bearing: a
+    # carried-forward entry copies `contract_hash` from the prior one, so without
+    # a re-mint the hash assertion below holds trivially. `derived_from` alone
+    # would move either way (#388).
     con = duckdb.connect(str(built_db))
     con.execute("insert into persons select '01Z', 'Newcomer'")
     con.close()
