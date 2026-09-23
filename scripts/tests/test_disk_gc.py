@@ -781,6 +781,28 @@ def test_a_live_marker_outranks_junk_beside_it(host, session):
     assert _marker_warnings(data) == []
 
 
+def _fake_stat(proc_root: Path, pid: int, fields_after_comm: list[str]) -> None:
+    (proc_root / str(pid)).mkdir(parents=True, exist_ok=True)
+    (proc_root / str(pid) / "stat").write_text(f"{pid} (claude) " + " ".join(fields_after_comm))
+
+
+def test_a_malformed_stat_line_spoils_only_its_own_marker(host, tmp_path):
+    """CR 5. The field-22 comparison sat outside the per-marker guard, so one
+    stat line too short to hold field 22 ended the scan: a live marker listed
+    after it went unread, and a live session was reported as undecidable.
+    Eight short lines make it near-certain one is listed first."""
+    proc = tmp_path / "proc"
+    superseded = _superseded(host)
+    _fake_stat(proc, 222, ["S"] * 19 + ["999"])
+    _mark_in_use(superseded, 222, content=json.dumps({"pid": 222, "procStart": "999"}))
+    for short in range(300, 308):
+        _fake_stat(proc, short, ["S"])
+        _mark_in_use(superseded, short, content=json.dumps({"pid": short, "procStart": "1"}))
+    data = report(host, "--prune", DISK_GC_PROC_ROOT=proc)
+    assert superseded.exists()
+    assert _marker_warnings(data) == []
+
+
 def test_a_marker_that_is_not_a_regular_file_is_never_opened(host):
     """CR 2. Opening a FIFO for reading blocks until a writer appears, so a
     FIFO in `.in_use/` hung the whole GC until the unit's TimeoutStartSec

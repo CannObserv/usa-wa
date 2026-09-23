@@ -58,6 +58,10 @@ VSCODE_ROOT=${DISK_GC_VSCODE_ROOT:-$HOME/.vscode-server}
 EXTENSIONS_ROOT=${DISK_GC_EXTENSIONS_ROOT:-$VSCODE_ROOT/extensions}
 PLUGIN_ROOT=${DISK_GC_PLUGIN_ROOT:-$HOME/.claude/plugins}
 NPX_ROOT=${DISK_GC_NPX_ROOT:-$HOME/.npm/_npx}
+# Where in_use_verdict reads a marker's /proc/<pid>/stat. Redirectable so a
+# test can hand it a stat line the kernel never writes; the process-table
+# snapshot below always reads the real /proc.
+PROC_ROOT=${DISK_GC_PROC_ROOT:-/proc}
 REPO=${DISK_GC_REPO:-/home/exedev/usa-wa}
 DOCKER=${DISK_GC_DOCKER-docker}
 # 2 GiB / 1 GiB. The measured volatility behind these: 1.3 G → 565 M in 28 h of
@@ -278,7 +282,9 @@ in_use_verdict() {
     # only if it is a regular file (#407 CR 2): opening a FIFO blocks until a
     # writer appears, which hung the whole GC until the unit's timeout.
     # Field 22 is counted from after the LAST `)` — field 2 is the command
-    # name in parens, and a name may itself hold `) ` and spaces.
+    # name in parens, and a name may itself hold `) ` and spaces. A pid that
+    # exits between opening its stat and reading it raises ESRCH, not ENOENT:
+    # both mean gone (#407 CR 5). Anything else spoils only its own marker.
     python3 -c '
 import json, os, stat as st, sys
 root = os.path.join(sys.argv[1], ".in_use")
@@ -298,19 +304,20 @@ for name in names:
         if type(pid) is not int or pid <= 0 or not str(start).isdigit():
             raise ValueError(name)
         try:
-            with open(f"/proc/{pid}/stat") as fh:
+            with open(os.path.join(sys.argv[2], str(pid), "stat")) as fh:
                 stat = fh.read()
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
             continue
+        alive = stat.rsplit(")", 1)[1].split()[19] == str(start)
     except Exception:
         undecided = True
         continue
-    if stat.rsplit(")", 1)[1].split()[19] == str(start):
+    if alive:
         print("live")
         sys.exit()
 if not undecided:
     print("idle")
-' "$1" 2>/dev/null
+' "$1" "$PROC_ROOT" 2>/dev/null
 }
 
 PLUGIN_VERSIONS=()

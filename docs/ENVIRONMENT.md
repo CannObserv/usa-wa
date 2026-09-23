@@ -60,6 +60,9 @@ wrong direction to fail in.
   `$HOME` ones resolve under systemd.
   Redirected at tmp dirs by the test suite, which is how it never touches a real
   host.
+- `DISK_GC_PROC_ROOT` — where the plugin-cache in-use check reads a marker's
+  `<pid>/stat` (#407); default `/proc`. Test-only: the process-table snapshot
+  always reads the real `/proc`.
 - `DISK_GC_DOCKER` — the `docker` binary used for the ollama slim-label check;
   default `docker`, and an **empty value disables the check** (absence of a
   container stack is not damage).
