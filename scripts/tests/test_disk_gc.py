@@ -13,7 +13,10 @@ separate this from "a cleanup script someone runs when they remember":
   them running; five Claude extension versions (#399), one live and a different
   one active. A size-or-mtime heuristic would delete a running editor's server.
   A *grace window* covers the case liveness cannot (CR 12): a tree still being
-  installed is named by no process yet.
+  installed is named by no process yet. The plugin cache adds a fifth source
+  (#407): a session reading a plugin version's skills and hooks names it in no
+  `/proc` entry, so Claude Code's own `.in_use/<pid>` markers — checked against
+  the pid's start time — are the only evidence it is in use.
 * **It never touches repo data.** Retention for the published-dataset, `raw/`,
   dbt and cassette tiers is a *contract* question descoped to its own issue; this
   script reports those sizes and removes nothing from them. A GC that quietly
