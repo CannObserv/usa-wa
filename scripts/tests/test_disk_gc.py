@@ -692,6 +692,10 @@ def _dead_pid() -> int:
     return proc.pid
 
 
+def _marker_warnings(data: dict) -> list[str]:
+    return [w for w in data["warnings"] if ".in_use" in w]
+
+
 def _superseded(host) -> Path:
     """An uninstalled version beside the installed one — a prune candidate."""
     _installed(host, "1.14.0")
@@ -706,8 +710,9 @@ def test_keeps_an_uninstalled_version_a_live_session_marks_in_use(host, session)
     tree breaks the session mid-run."""
     superseded = _superseded(host)
     _mark_in_use(superseded, session())
-    run_gc(host, "--prune")
+    data = report(host, "--prune")
     assert superseded.exists()
+    assert _marker_warnings(data) == []
 
 
 def test_a_dead_sessions_marker_does_not_protect_a_version(host):
@@ -748,12 +753,27 @@ def test_a_command_name_holding_parens_and_spaces_still_matches(host, session, t
 def test_a_marker_that_cannot_be_judged_protects_its_version(host, content):
     """Only a marker proven dead releases a version. An empty one is a session
     still writing it, and anything unparseable could be a live session in a
-    format this script does not know. Claude Code's own daily sweep deletes
-    junk markers, so this cannot pin a version for long."""
+    format this script does not know. Kept, and said (CR 1): only Claude
+    Code's daily sweep clears a junk marker, and if that sweep ever stops, a
+    silent refusal would pin ~646 MB behind `reclaimable: 0B` — #399's defect."""
     superseded = _superseded(host)
     _mark_in_use(superseded, 4242, content=content)
-    run_gc(host, "--prune")
+    data = report(host, "--prune")
     assert superseded.exists()
+    assert len(_marker_warnings(data)) == 1
+
+
+def test_a_live_marker_outranks_junk_beside_it(host, session):
+    """One junk marker must not turn a live session into a warning. Several
+    junk markers make it near-certain one is listed before the live one, and
+    the directory's listing order is not ours to choose."""
+    superseded = _superseded(host)
+    _mark_in_use(superseded, session())
+    for junk in range(900001, 900009):
+        _mark_in_use(superseded, junk, content="not json")
+    data = report(host, "--prune")
+    assert superseded.exists()
+    assert _marker_warnings(data) == []
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads through chmod 000, exercising nothing")
@@ -762,8 +782,9 @@ def test_an_unreadable_marker_protects_its_version(host):
     marker = _mark_in_use(superseded, 4242, content='{"pid": 4242, "procStart": "1"}')
     marker.chmod(0o000)
     try:
-        run_gc(host, "--prune")
+        data = report(host, "--prune")
         assert superseded.exists()
+        assert len(_marker_warnings(data)) == 1
     finally:
         if marker.exists():
             marker.chmod(0o644)

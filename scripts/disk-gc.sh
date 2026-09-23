@@ -262,37 +262,44 @@ done
 # is field 22 of /proc/<pid>/stat. Every session start writing a marker also
 # puts the version inside the grace window below, so it reads `withheld:` for up
 # to an hour after — conservative, and harmless.
-in_use_by_live_session() {
-    # Succeeds unless every marker is PROVEN dead: its pid is gone, or running
-    # with a different start time (a reused pid). Only the literal `idle` from
-    # the parser releases the version, so an unreadable or unparseable marker,
-    # a missing python3 or a crash all read as live. Claude Code deletes dead and
-    # junk markers itself, daily, so failing closed cannot pin a version for
-    # long. No `.in_use` at all is not evidence of use: it defers to /proc.
+in_use_verdict() {
+    # Prints `idle` when every marker is PROVEN dead (its pid is gone, or running
+    # with a different start time: a reused pid), `live` when one names a running
+    # session, and nothing when a marker cannot be judged — unreadable,
+    # unparseable, a missing python3, a crash. A live marker outranks a junk one
+    # beside it, whatever the listing order. Only `idle` releases the version.
+    # No `.in_use` at all is not evidence of use: `idle`, deferring to /proc.
     # Field 22 is counted from after the LAST `)` — field 2 is the command
     # name in parens, and a name may itself hold `) ` and spaces.
-    [ "$(python3 -c '
+    python3 -c '
 import json, os, sys
 root = os.path.join(sys.argv[1], ".in_use")
 try:
     names = os.listdir(root)
 except (FileNotFoundError, NotADirectoryError):
     names = []
+undecided = False
 for name in names:
-    with open(os.path.join(root, name), "rb") as fh:
-        marker = json.loads(fh.read(4097))
-    pid, start = marker["pid"], marker["procStart"]
-    if type(pid) is not int or pid <= 0 or not str(start).isdigit():
-        sys.exit()
     try:
-        with open(f"/proc/{pid}/stat") as fh:
-            stat = fh.read()
-    except FileNotFoundError:
+        with open(os.path.join(root, name), "rb") as fh:
+            marker = json.loads(fh.read(4097))
+        pid, start = marker["pid"], marker["procStart"]
+        if type(pid) is not int or pid <= 0 or not str(start).isdigit():
+            raise ValueError(name)
+        try:
+            with open(f"/proc/{pid}/stat") as fh:
+                stat = fh.read()
+        except FileNotFoundError:
+            continue
+    except Exception:
+        undecided = True
         continue
     if stat.rsplit(")", 1)[1].split()[19] == str(start):
+        print("live")
         sys.exit()
-print("idle")
-' "$1" 2>/dev/null)" != idle ]
+if not undecided:
+    print("idle")
+' "$1" 2>/dev/null
 }
 
 PLUGIN_VERSIONS=()
@@ -320,7 +327,17 @@ for entries in doc.get("plugins", {}).values():
     if [ "$plugin_evidence" -eq 1 ]; then
         for version_dir in "${PLUGIN_VERSIONS[@]}"; do
             names "$INSTALLED" "$version_dir" && continue
-            in_use_by_live_session "$version_dir" && continue
+            # An undecidable marker keeps its version, and says so (#407 CR 1).
+            # Only Claude Code's daily sweep clears a junk marker; were that to
+            # stop, a silent refusal would be #399's `reclaimable: 0B` again.
+            case "$(in_use_verdict "$version_dir")" in
+                idle) ;;
+                live) continue ;;
+                *)
+                    WARNINGS+=("$version_dir/.in_use holds a marker that could not be judged — version kept, not evaluated")
+                    continue
+                    ;;
+            esac
             consider plugin-cache "$version_dir"
         done
     else
