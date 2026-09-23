@@ -58,6 +58,12 @@ VSCODE_ROOT=${DISK_GC_VSCODE_ROOT:-$HOME/.vscode-server}
 EXTENSIONS_ROOT=${DISK_GC_EXTENSIONS_ROOT:-$VSCODE_ROOT/extensions}
 PLUGIN_ROOT=${DISK_GC_PLUGIN_ROOT:-$HOME/.claude/plugins}
 NPX_ROOT=${DISK_GC_NPX_ROOT:-$HOME/.npm/_npx}
+# Where in_use_verdict reads a marker's /proc/<pid>/stat. Redirectable so a
+# test can hand it a stat line the kernel never writes; the process-table
+# snapshot below always reads the real /proc. Under a wrong root every pid
+# reads as gone — every live session as dead — so a root without `self/stat`
+# is refused as no process table, and its markers judged undecidable (#407 CR 8).
+PROC_ROOT=${DISK_GC_PROC_ROOT:-/proc}
 REPO=${DISK_GC_REPO:-/home/exedev/usa-wa}
 DOCKER=${DISK_GC_DOCKER-docker}
 # 2 GiB / 1 GiB. The measured volatility behind these: 1.3 G → 565 M in 28 h of
@@ -247,6 +253,77 @@ done
 #
 # `cache/<marketplace>/<plugin>/<version>` — the layout every installed plugin
 # uses here. A deeper or shallower one would not be matched.
+#
+# Claude Code runs its own sweep of this cache (#407, read from the 2.1.280
+# binary). It stamps a version the manifest dropped with `.orphaned_at` and
+# deletes it 14 days later unless a live session still uses it. This tier is the
+# faster backstop: two ~646 MB releases inside those 14 days exceed the margin
+# #394's ENOSPC turned on.
+#
+# A session using a version is invisible to the four /proc sources above.
+# SocratiCode's MCP server runs from `_npx`, so the session that reads a
+# version's skills, agents and hooks names that tree in no cmdline, cwd, exe or
+# maps. Its one trace is the marker Claude Code writes at session start,
+# `<version>/.in_use/<pid>` holding `{"pid":…,"procStart":"…"}`, where procStart
+# is field 22 of /proc/<pid>/stat. Every session start writing a marker also
+# puts the version inside the grace window below, so it reads `withheld:` for up
+# to an hour after — conservative, and harmless.
+#
+# Assumes the marker's pid lives in THIS pid namespace, and that this /proc
+# shows it. A session in a container, or a unit given ProtectProc=/hidepid,
+# would read as gone and its version as idle. The unit runs as the user whose
+# sessions write the markers, with no /proc sandboxing, which keeps it true.
+in_use_verdict() {
+    # Prints `idle` when every marker is PROVEN dead (its pid is gone, or running
+    # with a different start time: a reused pid), `live` when one names a running
+    # session, and nothing when a marker cannot be judged — unreadable,
+    # unparseable, a missing python3, a crash. A live marker outranks a junk one
+    # beside it, whatever the listing order. Only `idle` releases the version.
+    # No `.in_use` at all is not evidence of use: `idle`, deferring to /proc.
+    # A marker is opened non-blocking and without following links, and read
+    # only if it is a regular file (#407 CR 2): opening a FIFO blocks until a
+    # writer appears, which hung the whole GC until the unit's timeout.
+    # Field 22 is counted from after the LAST `)` — field 2 is the command
+    # name in parens, and a name may itself hold `) ` and spaces. A pid that
+    # exits between opening its stat and reading it raises ESRCH, not ENOENT:
+    # both mean gone (#407 CR 5). Anything else spoils only its own marker.
+    python3 -c '
+import json, os, stat as st, sys
+root = os.path.join(sys.argv[1], ".in_use")
+try:
+    names = os.listdir(root)
+except (FileNotFoundError, NotADirectoryError):
+    names = []
+if names and not os.path.isfile(os.path.join(sys.argv[2], "self", "stat")):
+    sys.exit()
+undecided = False
+for name in names:
+    try:
+        fd = os.open(os.path.join(root, name), os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+        with open(fd, "rb") as fh:
+            if not st.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError(name)
+            marker = json.loads(fh.read(4097))
+        pid, start = marker["pid"], marker["procStart"]
+        if type(pid) is not int or pid <= 0 or not str(start).isdigit():
+            raise ValueError(name)
+        try:
+            with open(os.path.join(sys.argv[2], str(pid), "stat")) as fh:
+                stat = fh.read()
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        alive = stat.rsplit(")", 1)[1].split()[19] == str(start)
+    except Exception:
+        undecided = True
+        continue
+    if alive:
+        print("live")
+        sys.exit()
+if not undecided:
+    print("idle")
+' "$1" "$PROC_ROOT" 2>/dev/null
+}
+
 PLUGIN_VERSIONS=()
 for version_dir in "$PLUGIN_ROOT"/cache/*/*/*; do
     [ -d "$version_dir" ] && PLUGIN_VERSIONS+=("$version_dir")
@@ -272,6 +349,21 @@ for entries in doc.get("plugins", {}).values():
     if [ "$plugin_evidence" -eq 1 ]; then
         for version_dir in "${PLUGIN_VERSIONS[@]}"; do
             names "$INSTALLED" "$version_dir" && continue
+            # A symlinked (link-mode) version keeps its markers in Claude
+            # Code's `.in_use-links`, which in_use_verdict does not read, and
+            # removing the link frees ~0 B (#407 CR 6). Never a candidate.
+            [ -L "$version_dir" ] && continue
+            # An undecidable marker keeps its version, and says so (#407 CR 1).
+            # Only Claude Code's daily sweep clears a junk marker; were that to
+            # stop, a silent refusal would be #399's `reclaimable: 0B` again.
+            case "$(in_use_verdict "$version_dir")" in
+                idle) ;;
+                live) continue ;;
+                *)
+                    WARNINGS+=("$version_dir/.in_use holds a marker that could not be judged — version kept, not evaluated")
+                    continue
+                    ;;
+            esac
             consider plugin-cache "$version_dir"
         done
     else

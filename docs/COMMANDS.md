@@ -261,6 +261,12 @@ its argv, and a loaded native addon (#399) in none of the other three.
 The manifest tiers (`extensions.json`, `installed_plugins.json`) prune only when
 the manifest names a version on disk; otherwise they remove nothing, and warn (#400).
 
+Plugin-cache liveness adds Claude Code's `.in_use/<pid>` markers (#407): a
+session using a version names it in no `/proc` entry. Only a marker proven dead
+(pid gone, or `procStart` mismatch) releases one; an unjudgeable one keeps it,
+with a warning. Claude Code's own sweep deletes a dropped version after 14 days;
+this tier is the faster backstop.
+
 A `DISK_GC_GRACE_MINUTES` window (default 60) covers the one case liveness
 cannot: a tree still being installed is named by no process yet, because the
 process that will run out of it does not exist. Set it to `0` to disable.

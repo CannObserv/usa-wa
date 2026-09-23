@@ -13,7 +13,10 @@ separate this from "a cleanup script someone runs when they remember":
   them running; five Claude extension versions (#399), one live and a different
   one active. A size-or-mtime heuristic would delete a running editor's server.
   A *grace window* covers the case liveness cannot (CR 12): a tree still being
-  installed is named by no process yet.
+  installed is named by no process yet. The plugin cache adds a fifth source
+  (#407): a session reading a plugin version's skills and hooks names it in no
+  `/proc` entry, so Claude Code's own `.in_use/<pid>` markers — checked against
+  the pid's start time — are the only evidence it is in use.
 * **It never touches repo data.** Retention for the published-dataset, `raw/`,
   dbt and cassette tiers is a *contract* question descoped to its own issue; this
   script reports those sizes and removes nothing from them. A GC that quietly
@@ -240,7 +243,9 @@ def _docker_stub(tmp_path: Path, slim_label: str | None) -> Path:
     return stub
 
 
-def run_gc(host, *args, docker: Path | str = "", **env_overrides) -> subprocess.CompletedProcess:
+def run_gc(
+    host, *args, docker: Path | str = "", timeout: float = 120, **env_overrides
+) -> subprocess.CompletedProcess:
     env = {
         **os.environ,
         "DISK_GC_VSCODE_ROOT": str(host["vscode"]),
@@ -259,7 +264,7 @@ def run_gc(host, *args, docker: Path | str = "", **env_overrides) -> subprocess.
         **{k: str(v) for k, v in env_overrides.items()},
     }
     return subprocess.run(
-        [str(SCRIPT), *args], capture_output=True, text=True, env=env, timeout=120
+        [str(SCRIPT), *args], capture_output=True, text=True, env=env, timeout=timeout
     )
 
 
@@ -629,6 +634,232 @@ def test_keeps_a_live_plugin_cache_version_even_if_uninstalled(host, live_procs)
     live_procs(superseded / "node_modules" / ".bin" / "socraticode")
     run_gc(host, "--prune")
     assert superseded.exists()
+
+
+# ── Claude Code's own in-use markers (#407) ───────────────────────────────────
+
+
+def _proc_start(pid: int) -> str:
+    """Field 22 of /proc/<pid>/stat — what Claude Code writes as `procStart`.
+
+    Counted from after the LAST `)`: field 2 is the command name in parens, and
+    a name may itself hold spaces and parens.
+    """
+    stat = Path(f"/proc/{pid}/stat").read_text()
+    return stat.rsplit(")", 1)[1].split()[19]
+
+
+def _mark_in_use(version_dir: Path, pid: int, content: str | None = None) -> Path:
+    """Write `.in_use/<pid>` the way a Claude Code session marks the version it uses."""
+    marker = version_dir / ".in_use" / str(pid)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    if content is None:
+        content = json.dumps({"pid": pid, "procStart": _proc_start(pid)})
+    marker.write_text(content)
+    return marker
+
+
+@pytest.fixture
+def session():
+    """Spawn a stand-in Claude Code session: a process naming no plugin tree.
+
+    That is the real shape (#407). SocratiCode's MCP server runs from `_npx`, so
+    the session reading a plugin version's skills, agents and hooks names that
+    version in none of cmdline, cwd, exe or maps — its marker is the only trace.
+    An optional `exe` runs the process under a chosen file name, which becomes
+    its command name in /proc/<pid>/stat.
+    """
+    started: list[subprocess.Popen] = []
+
+    def _spawn(exe: Path | None = None) -> int:
+        if exe is not None:
+            exe.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(shutil.which("sleep"), exe)
+        proc = subprocess.Popen(
+            ["sleep", "600"],
+            executable=str(exe) if exe is not None else None,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        started.append(proc)
+        return proc.pid
+
+    yield _spawn
+
+    for proc in started:
+        proc.send_signal(signal.SIGKILL)
+        proc.wait()
+
+
+def _dead_pid() -> int:
+    proc = subprocess.Popen(["true"])
+    proc.wait()
+    return proc.pid
+
+
+def _marker_warnings(data: dict) -> list[str]:
+    return [w for w in data["warnings"] if ".in_use" in w]
+
+
+def _superseded(host) -> Path:
+    """An uninstalled version beside the installed one — a prune candidate."""
+    _installed(host, "1.14.0")
+    _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.14.0")
+    return _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.12.0")
+
+
+def test_keeps_an_uninstalled_version_a_live_session_marks_in_use(host, session):
+    """#407. After a plugin update, a session opened on the old version keeps
+    reading its skills and hooks from that tree while naming it nowhere in
+    /proc. Its `.in_use/<pid>` marker is the only evidence, and deleting the
+    tree breaks the session mid-run."""
+    superseded = _superseded(host)
+    _mark_in_use(superseded, session())
+    data = report(host, "--prune")
+    assert superseded.exists()
+    assert _marker_warnings(data) == []
+
+
+def test_a_dead_sessions_marker_does_not_protect_a_version(host):
+    """A crashed session leaves its marker behind. Counting it as live would
+    protect a ~646 MB tree forever."""
+    superseded = _superseded(host)
+    dead = _dead_pid()
+    _mark_in_use(superseded, dead, content=json.dumps({"pid": dead, "procStart": "12345"}))
+    run_gc(host, "--prune")
+    assert not superseded.exists()
+
+
+def test_a_reused_pid_does_not_protect_a_version(host, session):
+    """`procStart` is what rules out pid reuse: the pid is running, but it is
+    not the process that wrote the marker."""
+    superseded = _superseded(host)
+    pid = session()
+    _mark_in_use(superseded, pid, content=json.dumps({"pid": pid, "procStart": "1"}))
+    run_gc(host, "--prune")
+    assert not superseded.exists()
+
+
+def test_a_command_name_holding_parens_and_spaces_still_matches(host, session, tmp_path):
+    """/proc/<pid>/stat puts the command name in parens as field 2, and the
+    name may hold `) ` and spaces. Counting fields from the first `)` misreads
+    `procStart`, so a live session reads as a reused pid."""
+    superseded = _superseded(host)
+    _mark_in_use(superseded, session(exe=tmp_path / "bin" / "a) b c"))
+    run_gc(host, "--prune")
+    assert superseded.exists()
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["", "not json", '{"pid": 4242}', '{"procStart": "1"}', '["pid", 4242]'],
+    ids=["empty", "not-json", "no-procStart", "no-pid", "not-an-object"],
+)
+def test_a_marker_that_cannot_be_judged_protects_its_version(host, content):
+    """Only a marker proven dead releases a version. An empty one is a session
+    still writing it, and anything unparseable could be a live session in a
+    format this script does not know. Kept, and said (CR 1): only Claude
+    Code's daily sweep clears a junk marker, and if that sweep ever stops, a
+    silent refusal would pin ~646 MB behind `reclaimable: 0B` — #399's defect."""
+    superseded = _superseded(host)
+    _mark_in_use(superseded, 4242, content=content)
+    data = report(host, "--prune")
+    assert superseded.exists()
+    assert len(_marker_warnings(data)) == 1
+
+
+def test_a_live_marker_outranks_junk_beside_it(host, session):
+    """One junk marker must not turn a live session into a warning. Several
+    junk markers make it near-certain one is listed before the live one, and
+    the directory's listing order is not ours to choose."""
+    superseded = _superseded(host)
+    _mark_in_use(superseded, session())
+    for junk in range(900001, 900009):
+        _mark_in_use(superseded, junk, content="not json")
+    data = report(host, "--prune")
+    assert superseded.exists()
+    assert _marker_warnings(data) == []
+
+
+def test_a_symlinked_version_is_never_a_candidate(host, tmp_path):
+    """CR 6. Claude Code keeps a symlinked (link-mode) version's markers in
+    `.in_use-links`, not under the version, so the marker check reads it as
+    idle. Removing the link frees ~0 B and breaks any session loading the
+    plugin through it."""
+    _installed(host, "1.14.0")
+    _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.14.0")
+    target = _fill(tmp_path / "dev-checkout")
+    link = host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.13.0-dev"
+    link.symlink_to(target, target_is_directory=True)
+    data = report(host, "--prune")
+    assert link.is_symlink()
+    assert not any(c["path"] == str(link) for c in data["reclaimable"])
+
+
+def _fake_stat(proc_root: Path, pid: int | str, fields_after_comm: list[str]) -> None:
+    (proc_root / str(pid)).mkdir(parents=True, exist_ok=True)
+    (proc_root / str(pid) / "stat").write_text(f"{pid} (claude) " + " ".join(fields_after_comm))
+
+
+def test_a_malformed_stat_line_spoils_only_its_own_marker(host, tmp_path):
+    """CR 5. The field-22 comparison sat outside the per-marker guard, so one
+    stat line too short to hold field 22 ended the scan: a live marker listed
+    after it went unread, and a live session was reported as undecidable.
+    Eight short lines make it near-certain one is listed first."""
+    proc = tmp_path / "proc"
+    superseded = _superseded(host)
+    _fake_stat(proc, "self", ["S"])  # CR 8: a proc root must hold self/stat
+    _fake_stat(proc, 222, ["S"] * 19 + ["999"])
+    _mark_in_use(superseded, 222, content=json.dumps({"pid": 222, "procStart": "999"}))
+    for short in range(300, 308):
+        _fake_stat(proc, short, ["S"])
+        _mark_in_use(superseded, short, content=json.dumps({"pid": short, "procStart": "1"}))
+    data = report(host, "--prune", DISK_GC_PROC_ROOT=proc)
+    assert superseded.exists()
+    assert _marker_warnings(data) == []
+
+
+def test_a_proc_root_that_is_no_process_table_judges_nothing(host, session, tmp_path):
+    """CR 8. Every marker's `<pid>/stat` is absent under a wrong proc root, so
+    each live session read as dead and --prune removed the versions in use —
+    DISK_GC_PROC_ROOT failing open where every other root fails safe. A root
+    without `self/stat` is not a process table: undecidable, kept, warned."""
+    superseded = _superseded(host)
+    _mark_in_use(superseded, session())
+    empty = tmp_path / "not-proc"
+    empty.mkdir()
+    data = report(host, "--prune", DISK_GC_PROC_ROOT=empty)
+    assert superseded.exists()
+    assert len(_marker_warnings(data)) == 1
+
+
+def test_a_marker_that_is_not_a_regular_file_cannot_hang_the_gc(host):
+    """CR 2. Opening a FIFO for reading blocks until a writer appears, so a
+    FIFO in `.in_use/` hung the whole GC until the unit's TimeoutStartSec
+    killed it — an OnFailure= email, and no tier pruned or reported on the day
+    the disk is full. Not a regular file: undecidable, kept and warned about."""
+    superseded = _superseded(host)
+    fifo = superseded / ".in_use" / "4242"
+    fifo.parent.mkdir(parents=True)
+    os.mkfifo(fifo)
+    result = run_gc(host, "--json", "--prune", timeout=20)
+    data = json.loads(result.stdout)
+    assert superseded.exists()
+    assert len(_marker_warnings(data)) == 1
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads through chmod 000, exercising nothing")
+def test_an_unreadable_marker_protects_its_version(host):
+    superseded = _superseded(host)
+    marker = _mark_in_use(superseded, 4242, content='{"pid": 4242, "procStart": "1"}')
+    marker.chmod(0o000)
+    try:
+        data = report(host, "--prune")
+        assert superseded.exists()
+        assert len(_marker_warnings(data)) == 1
+    finally:
+        if marker.exists():
+            marker.chmod(0o644)
 
 
 # ── VS Code extensions (#399) ─────────────────────────────────────────────────
