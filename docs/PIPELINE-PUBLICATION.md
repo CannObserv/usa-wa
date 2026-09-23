@@ -89,6 +89,11 @@ its ordered fields *with* types — against what was last published, both sides
 read from a real build. Lineage is deliberately **not** in the fingerprint:
 `derived_from` comes from the dbt manifest, so folding it in would churn every
 downstream dataset's version when an intermediate model is refactored.
+Instead a carried-forward catalog entry gets the current `derived_from` on every
+run (#388), so the catalog's copy is current as of `checked_at`, while the copy
+in the version dir's datapackage stays as it shipped. After a refactor the two
+disagree on purpose: the catalog says what the parents are now, the datapackage
+what that version was built from.
 
 The gate is enforced one way — a contract change requires a bump — and not as an
 "if and only if". The published fields are `{name, type}` with no descriptions,
@@ -134,6 +139,8 @@ it.
 | `checked_at` | catalog top level | the publisher completed a run | **advances** |
 | `stale_after` | catalog top level | the deadline for the next `checked_at` | moves to the next run's |
 | `generated_at` | each entry + its `datapackage.json` | that version's mint time | carried forward |
+| `derived_from` | each catalog entry | the dataset's direct dbt parents in the latest run's manifest | **refreshed** (#388) |
+| `derived_from` | each `datapackage.json` | the parents that version was built from | frozen at mint |
 
 `checked_at` is the producer's liveness signal — a quiet day and a dead pipeline
 differ only here. Scope is the **publisher**, not the chain: a contained harvest
