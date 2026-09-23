@@ -631,6 +631,144 @@ def test_keeps_a_live_plugin_cache_version_even_if_uninstalled(host, live_procs)
     assert superseded.exists()
 
 
+# ── Claude Code's own in-use markers (#407) ───────────────────────────────────
+
+
+def _proc_start(pid: int) -> str:
+    """Field 22 of /proc/<pid>/stat — what Claude Code writes as `procStart`.
+
+    Counted from after the LAST `)`: field 2 is the command name in parens, and
+    a name may itself hold spaces and parens.
+    """
+    stat = Path(f"/proc/{pid}/stat").read_text()
+    return stat.rsplit(")", 1)[1].split()[19]
+
+
+def _mark_in_use(version_dir: Path, pid: int, content: str | None = None) -> Path:
+    """Write `.in_use/<pid>` the way a Claude Code session marks the version it uses."""
+    marker = version_dir / ".in_use" / str(pid)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    if content is None:
+        content = json.dumps({"pid": pid, "procStart": _proc_start(pid)})
+    marker.write_text(content)
+    return marker
+
+
+@pytest.fixture
+def session():
+    """Spawn a stand-in Claude Code session: a process naming no plugin tree.
+
+    That is the real shape (#407). SocratiCode's MCP server runs from `_npx`, so
+    the session reading a plugin version's skills, agents and hooks names that
+    version in none of cmdline, cwd, exe or maps — its marker is the only trace.
+    An optional `exe` runs the process under a chosen file name, which becomes
+    its command name in /proc/<pid>/stat.
+    """
+    started: list[subprocess.Popen] = []
+
+    def _spawn(exe: Path | None = None) -> int:
+        if exe is not None:
+            exe.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(shutil.which("sleep"), exe)
+        proc = subprocess.Popen(
+            ["sleep", "600"],
+            executable=str(exe) if exe is not None else None,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        started.append(proc)
+        return proc.pid
+
+    yield _spawn
+
+    for proc in started:
+        proc.send_signal(signal.SIGKILL)
+        proc.wait()
+
+
+def _dead_pid() -> int:
+    proc = subprocess.Popen(["true"])
+    proc.wait()
+    return proc.pid
+
+
+def _superseded(host) -> Path:
+    """An uninstalled version beside the installed one — a prune candidate."""
+    _installed(host, "1.14.0")
+    _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.14.0")
+    return _fill(host["plugins"] / "cache" / "socraticode" / "socraticode" / "1.12.0")
+
+
+def test_keeps_an_uninstalled_version_a_live_session_marks_in_use(host, session):
+    """#407. After a plugin update, a session opened on the old version keeps
+    reading its skills and hooks from that tree while naming it nowhere in
+    /proc. Its `.in_use/<pid>` marker is the only evidence, and deleting the
+    tree breaks the session mid-run."""
+    superseded = _superseded(host)
+    _mark_in_use(superseded, session())
+    run_gc(host, "--prune")
+    assert superseded.exists()
+
+
+def test_a_dead_sessions_marker_does_not_protect_a_version(host):
+    """A crashed session leaves its marker behind. Counting it as live would
+    protect a ~646 MB tree forever."""
+    superseded = _superseded(host)
+    dead = _dead_pid()
+    _mark_in_use(superseded, dead, content=json.dumps({"pid": dead, "procStart": "12345"}))
+    run_gc(host, "--prune")
+    assert not superseded.exists()
+
+
+def test_a_reused_pid_does_not_protect_a_version(host, session):
+    """`procStart` is what rules out pid reuse: the pid is running, but it is
+    not the process that wrote the marker."""
+    superseded = _superseded(host)
+    pid = session()
+    _mark_in_use(superseded, pid, content=json.dumps({"pid": pid, "procStart": "1"}))
+    run_gc(host, "--prune")
+    assert not superseded.exists()
+
+
+def test_a_command_name_holding_parens_and_spaces_still_matches(host, session, tmp_path):
+    """/proc/<pid>/stat puts the command name in parens as field 2, and the
+    name may hold `) ` and spaces. Counting fields from the first `)` misreads
+    `procStart`, so a live session reads as a reused pid."""
+    superseded = _superseded(host)
+    _mark_in_use(superseded, session(exe=tmp_path / "bin" / "a) b c"))
+    run_gc(host, "--prune")
+    assert superseded.exists()
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["", "not json", '{"pid": 4242}', '{"procStart": "1"}', '["pid", 4242]'],
+    ids=["empty", "not-json", "no-procStart", "no-pid", "not-an-object"],
+)
+def test_a_marker_that_cannot_be_judged_protects_its_version(host, content):
+    """Only a marker proven dead releases a version. An empty one is a session
+    still writing it, and anything unparseable could be a live session in a
+    format this script does not know. Claude Code's own daily sweep deletes
+    junk markers, so this cannot pin a version for long."""
+    superseded = _superseded(host)
+    _mark_in_use(superseded, 4242, content=content)
+    run_gc(host, "--prune")
+    assert superseded.exists()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads through chmod 000, exercising nothing")
+def test_an_unreadable_marker_protects_its_version(host):
+    superseded = _superseded(host)
+    marker = _mark_in_use(superseded, 4242, content='{"pid": 4242, "procStart": "1"}')
+    marker.chmod(0o000)
+    try:
+        run_gc(host, "--prune")
+        assert superseded.exists()
+    finally:
+        if marker.exists():
+            marker.chmod(0o644)
+
+
 # ── VS Code extensions (#399) ─────────────────────────────────────────────────
 
 CLAUDE_EXT = "anthropic.claude-code"
