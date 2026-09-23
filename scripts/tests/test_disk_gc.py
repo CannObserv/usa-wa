@@ -240,7 +240,9 @@ def _docker_stub(tmp_path: Path, slim_label: str | None) -> Path:
     return stub
 
 
-def run_gc(host, *args, docker: Path | str = "", **env_overrides) -> subprocess.CompletedProcess:
+def run_gc(
+    host, *args, docker: Path | str = "", timeout: float = 120, **env_overrides
+) -> subprocess.CompletedProcess:
     env = {
         **os.environ,
         "DISK_GC_VSCODE_ROOT": str(host["vscode"]),
@@ -259,7 +261,7 @@ def run_gc(host, *args, docker: Path | str = "", **env_overrides) -> subprocess.
         **{k: str(v) for k, v in env_overrides.items()},
     }
     return subprocess.run(
-        [str(SCRIPT), *args], capture_output=True, text=True, env=env, timeout=120
+        [str(SCRIPT), *args], capture_output=True, text=True, env=env, timeout=timeout
     )
 
 
@@ -774,6 +776,21 @@ def test_a_live_marker_outranks_junk_beside_it(host, session):
     data = report(host, "--prune")
     assert superseded.exists()
     assert _marker_warnings(data) == []
+
+
+def test_a_marker_that_is_not_a_regular_file_is_never_opened(host):
+    """CR 2. Opening a FIFO for reading blocks until a writer appears, so a
+    FIFO in `.in_use/` hung the whole GC until the unit's TimeoutStartSec
+    killed it — an OnFailure= email, and no tier pruned or reported on the day
+    the disk is full. Not a regular file: undecidable, kept and warned about."""
+    superseded = _superseded(host)
+    fifo = superseded / ".in_use" / "4242"
+    fifo.parent.mkdir(parents=True)
+    os.mkfifo(fifo)
+    result = run_gc(host, "--json", "--prune", timeout=20)
+    data = json.loads(result.stdout)
+    assert superseded.exists()
+    assert len(_marker_warnings(data)) == 1
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads through chmod 000, exercising nothing")

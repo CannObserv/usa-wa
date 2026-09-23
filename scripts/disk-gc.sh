@@ -269,10 +269,13 @@ in_use_verdict() {
     # unparseable, a missing python3, a crash. A live marker outranks a junk one
     # beside it, whatever the listing order. Only `idle` releases the version.
     # No `.in_use` at all is not evidence of use: `idle`, deferring to /proc.
+    # A marker is opened non-blocking and without following links, and read
+    # only if it is a regular file (#407 CR 2): opening a FIFO blocks until a
+    # writer appears, which hung the whole GC until the unit's timeout.
     # Field 22 is counted from after the LAST `)` — field 2 is the command
     # name in parens, and a name may itself hold `) ` and spaces.
     python3 -c '
-import json, os, sys
+import json, os, stat as st, sys
 root = os.path.join(sys.argv[1], ".in_use")
 try:
     names = os.listdir(root)
@@ -281,7 +284,10 @@ except (FileNotFoundError, NotADirectoryError):
 undecided = False
 for name in names:
     try:
-        with open(os.path.join(root, name), "rb") as fh:
+        fd = os.open(os.path.join(root, name), os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+        with open(fd, "rb") as fh:
+            if not st.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError(name)
             marker = json.loads(fh.read(4097))
         pid, start = marker["pid"], marker["procStart"]
         if type(pid) is not int or pid <= 0 or not str(start).isdigit():
