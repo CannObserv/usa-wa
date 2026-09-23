@@ -264,8 +264,8 @@ the manifest names a version on disk; otherwise they remove nothing, and warn (#
 Plugin-cache liveness adds Claude Code's `.in_use/<pid>` markers (#407): a
 session using a version names it in no `/proc` entry. Only a marker proven dead
 (pid gone, or `procStart` mismatch) releases one; an unjudgeable one keeps it,
-with a warning. Claude Code's own sweep deletes
-a dropped version after 14 days; this tier is the faster backstop.
+with a warning. Claude Code's own sweep deletes a dropped version after 14 days;
+this tier is the faster backstop.
 
 A `DISK_GC_GRACE_MINUTES` window (default 60) covers the one case liveness
 cannot: a tree still being installed is named by no process yet, because the
