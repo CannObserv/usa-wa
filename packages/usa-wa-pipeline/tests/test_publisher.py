@@ -704,17 +704,20 @@ def test_a_quiet_dataset_publishes_its_current_lineage(built_db, tmp_path) -> No
 
 def test_a_lineage_refresh_is_counted_only_when_the_parents_moved(built_db, tmp_path) -> None:
     """#388: a refactor that re-parents a quiet dataset shows up in the run's log
-    line; a quiet day with the same manifest counts nothing."""
+    line once; a quiet day with the same manifest counts nothing, and neither
+    does every night after the refactor — the refreshed parents are written back."""
     out = tmp_path / "datasets"
     datasets = [_dataset("persons"), _dataset("person_crosswalk")]
     publish(built_db, out, _manifest(tmp_path), datasets=datasets)
 
     quiet = publish(built_db, out, _manifest(tmp_path), datasets=datasets)
     refactored = publish(built_db, out, _relineaged_manifest(tmp_path), datasets=datasets)
+    settled = publish(built_db, out, _relineaged_manifest(tmp_path), datasets=datasets)
 
     assert quiet["lineage_refreshed"] == 0
     # `persons` moved; `person_crosswalk` had no parents before or after
     assert refactored["lineage_refreshed"] == 1
+    assert settled["lineage_refreshed"] == 0
 
 
 def test_the_catalog_carries_the_publishers_heartbeat(built_db, tmp_path) -> None:
