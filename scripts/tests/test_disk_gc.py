@@ -818,7 +818,7 @@ def test_a_malformed_stat_line_spoils_only_its_own_marker(host, tmp_path):
     assert _marker_warnings(data) == []
 
 
-def test_a_marker_that_is_not_a_regular_file_is_never_opened(host):
+def test_a_marker_that_is_not_a_regular_file_cannot_hang_the_gc(host):
     """CR 2. Opening a FIFO for reading blocks until a writer appears, so a
     FIFO in `.in_use/` hung the whole GC until the unit's TimeoutStartSec
     killed it — an OnFailure= email, and no tier pruned or reported on the day
