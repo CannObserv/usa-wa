@@ -451,7 +451,9 @@ async def run_parity(
     # the seed the adapter and the registrar mint independently, so a canonical
     # role whose ULID the registry never held cannot carry the registrar's id —
     # `role_post_seed`, reported not gated, as `parity_registry` does for
-    # persons and orgs.
+    # persons and orgs. The price: a registrar pass run AHEAD of the seed reads
+    # as every role post-seed and passes, so the seed alone guards that
+    # (PIPELINE.md § Identity registry).
     role_entities = {
         str(entity_id)
         for entity_id in (

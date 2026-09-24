@@ -155,12 +155,15 @@ Role ULIDs across; the registrar's role pass *mints* for anything unregistered.
 Run the seed **before** the first registrar pass that sees roles, or 312 fresh
 ULIDs replace the canonical ones — and a seeded role's ULID is the `entity_id`
 published in `roles` and joined from `assignments`, so every consumer's join
-would silently re-point. The `role_entity_mismatches` counter in `parity_spans`
-is the backstop, gated at zero — it catches the mistake, but the seed is what
-prevents it. It counts only a *seeded* role (its canonical ULID a registry
-entity): a role born after the seed has no earlier published id to protect, so
-one whose canonical ULID the registry never held is `role_post_seed`, reported
-but not gated (#402) — the orgs rule below.
+would silently re-point. **The seed is the only guard.** `role_entity_mismatches`
+in `parity_spans`, gated at zero, counts only a *seeded* role (its canonical
+ULID a registry entity) whose key moved: a role born after the seed has no
+earlier published id to protect, so one whose canonical ULID the registry never
+held is `role_post_seed`, reported but not gated (#402) — the orgs rule below.
+A registrar pass ahead of the seed leaves *no* canonical ULID in the registry,
+so it reads as `role_post_seed` ≈ every role and passes, exactly as
+`parity_registry` would for persons and orgs. Only a registry rebuilt from empty
+can repeat it; the live one is seeded (312/312 roles, 2026-09-24).
 
 **Orgs register nightly too** (`registrar.load_org_keys`): singleton clusters
 over every staged committee id (`stg_wsl_committees` ∪ `stg_wsl_meetings`) plus
