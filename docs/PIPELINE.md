@@ -179,7 +179,10 @@ registrar (111 of 640 sponsors on 2026-09-22, registered only by the seed), and
 the next one would fail `parity-registry` (`person_missing`) and `parity-spans`
 (`unregistered_spans`). `registrar.load_sponsor_keys` adds a singleton
 `(key, key)` pair per staged `usa_wa_legislature:<member_id>`; union-find folds
-a paired sponsor into its component, so matched clusters are unchanged. **WSL
+a paired sponsor into its component, so matched clusters are unchanged. Like a
+new seat or committee, a new legislator publishes one build after the one that
+first stages them (`dbt build → registrar → publish`); `parity-spans` re-reads
+the registry after the registrar, so that lag never trips it. **WSL
 keys only** (decided 2026-09-23): a roster key
 (`usa_wa_legislature_roster:<fold>:<year>`) is built by us from a name, so a
 parser or fold change would mint a published duplicate — it stays pair-only and
