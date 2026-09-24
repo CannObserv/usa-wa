@@ -43,20 +43,20 @@ failed=()
 
 # run_stage LABEL CMD... — run one stage, its stdout streamed as before; on
 # failure, keep "LABEL (exit N): <its last stdout line>" for report_failures.
-# tee to a file, never to /dev/stdout or /dev/fd/N: under systemd stdout is
-# the journal socket, which open(2) refuses (ENXIO).
+# The last line is held in memory (lastpipe keeps the read loop in this shell):
+# a file under /tmp shares / with the raw store, so on a disk-full night it
+# would restate nothing or a stale line (CR 8). printf writes the inherited fd;
+# never reopen /dev/stdout or /dev/fd/N — under systemd that is the journal
+# socket, which open(2) refuses (ENXIO).
+shopt -s lastpipe
 run_stage() {
-  local label=$1 out rc last=""
+  local label=$1 line last="" rc
   shift
-  if out=$(mktemp 2>/dev/null); then
-    "$@" | tee "$out"
-    rc=${PIPESTATUS[0]}
-    last=$(tail -n 1 "$out")
-    rm -f "$out"
-  else
-    "$@"
-    rc=$?
-  fi
+  "$@" | while IFS= read -r line || [ -n "$line" ]; do
+    printf '%s\n' "$line"
+    last=$line
+  done
+  rc=${PIPESTATUS[0]}
   if [ "$rc" -ne 0 ]; then
     failed+=("$label (exit $rc): ${last:-(no summary on stdout)}")
   fi

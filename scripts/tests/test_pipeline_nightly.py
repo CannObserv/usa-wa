@@ -40,6 +40,9 @@ for _ in $(seq 1 "${STUB_NOISE:-0}"); do echo "stub-noise $stage"; done
 case " ${STUB_FAIL:-} " in
   *" $stage "*) echo "job=$stage outcome=failed fetched=3"; exit "${STUB_RC:-1}" ;;
 esac
+case " ${STUB_NO_NEWLINE:-} " in
+  *" $stage "*) printf 'job=%s outcome=failed fetched=5' "$stage"; exit 1 ;;
+esac
 echo "job=$stage outcome=ok"
 """
 
@@ -174,6 +177,31 @@ def test_the_closing_report_survives_stdout_on_the_journal_socket(run_nightly):
     assert "job=usa_wa_adapter_pdc.raw_harvest outcome=failed fetched=3" in lines
     assert not [line for line in lines if "No such device or address" in line]
     assert lines[-1].startswith("pipeline-nightly: failed stage: usa_wa_adapter_pdc.raw_harvest")
+
+
+def test_the_capture_needs_no_disk(run_nightly, tmp_path):
+    """CR 8: on a disk-full night — the CR 1 case, and ``/tmp`` shares ``/`` with the
+    raw store — a file-backed capture either claims "no summary" or restates a stale
+    line. The capture is in memory, so an unusable ``TMPDIR`` changes nothing."""
+    code, lines = run_nightly(
+        STUB_FAIL="usa_wa_adapter_pdc.raw_harvest", TMPDIR=str(tmp_path / "does-not-exist")
+    )
+
+    assert code == 1
+    assert (
+        "pipeline-nightly: failed stage: usa_wa_adapter_pdc.raw_harvest (exit 1): "
+        "job=usa_wa_adapter_pdc.raw_harvest outcome=failed fetched=3"
+    ) in lines
+
+
+def test_a_last_line_without_a_newline_is_still_captured(run_nightly):
+    code, lines = run_nightly(STUB_NO_NEWLINE="usa_wa_pipeline.publish")
+
+    assert code == 1
+    assert (
+        "pipeline-nightly: failed stage: usa_wa_pipeline.publish (exit 1): "
+        "job=usa_wa_pipeline.publish outcome=failed fetched=5"
+    ) in lines
 
 
 def test_the_seams_default_to_the_production_paths():
