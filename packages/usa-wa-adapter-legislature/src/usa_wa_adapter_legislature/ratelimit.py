@@ -9,6 +9,7 @@ Layer-1 home for both is deferred (#236), not rejected.
 
 from __future__ import annotations
 
+import math
 import os
 import threading
 import time
@@ -53,11 +54,14 @@ class RateLimiter:
 
 def env_float(name: str, default: float) -> float:
     """Read a float from env `name`, falling back to `default` on unset/malformed — a bad env
-    var must not crash every caller with an import-time `ValueError`."""
+    var must not crash every caller with an import-time `ValueError`. Non-finite values count as
+    malformed: `inf` parses, then crashes the limiter's second `acquire()` in `time.sleep`, and
+    `nan` silently disables it."""
     raw = os.environ.get(name)
     if raw is None:
         return default
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError:
         return default
+    return value if math.isfinite(value) else default
