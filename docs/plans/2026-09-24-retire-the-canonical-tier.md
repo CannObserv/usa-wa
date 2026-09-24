@@ -61,7 +61,7 @@ What survives:
    - Done when the nightly is green reading `registry.operator_events`, and the raw store holds a `usa_wa_operator` run newer than 09-03.
    - #421 lands in parallel and must leave the roster harvest, including the re-check, with no Postgres provenance writes before PR F.
 2. **PR B: port the checks as dbt tests on the conformed tier.**
-   - Chamber counts on the open cohort.
+   - Chamber counts on the open cohort: **error above** 49/98, **warn below**. Today's `count_ok` is strict equality (`invariants.py:87-88`), and a failed dbt test aborts the nightly before registrar and publish, so a straight port would block publishing on every legitimate vacancy and on the 2027-01-01 rollover. A vacancy is a real state; an excess is a defect.
    - One person on two seats in a chamber.
    - The #272 misdating predicate.
    - House and Senate odd-year winner corroboration, `stg_sos_results` ⋈ `assignments`.
