@@ -17,6 +17,9 @@ Every operational & backfill CLI, grouped by the reference that documents it. Pr
 daily/weekly/monthly ones on systemd timers ([`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server
 Lifecycle); the rest are run-once / ad-hoc. Pair backfills with `USA_WA_BIENNIUM` to target
 a non-current biennium.
+Pinned both ways against the `run_job` entry points by
+[`scripts/tests/test_command_index_drift.py`](../scripts/tests/test_command_index_drift.py):
+a new CLI with no row, or a row naming a removed one, fails the suite.
 
 **All of them run on the shared job harness (#179b)**: each takes `--json`, prints a `key=value`
 summary, and writes a `job_runs` row (`GET /api/v1/health/jobs`). **Exit codes unchanged**
