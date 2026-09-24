@@ -14,11 +14,11 @@ Grouped references split out so each stays loadable on its own:
 ## Command index
 
 Every operational & backfill CLI, grouped by the reference that documents it. Prod runs the
-daily/weekly ones on systemd timers ([`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server
+daily/weekly/monthly ones on systemd timers ([`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server
 Lifecycle); the rest are run-once / ad-hoc. Pair backfills with `USA_WA_BIENNIUM` to target
 a non-current biennium.
 
-**All 51 run on the shared job harness (#179b)**: each takes `--json`, prints a `key=value`
+**All of them run on the shared job harness (#179b)**: each takes `--json`, prints a `key=value`
 summary, and writes a `job_runs` row (`GET /api/v1/health/jobs`). **Exit codes unchanged**
 unless a doc below says otherwise (`0` ok / `1` failed / `2` config / `4` degraded, `3`
 reserved for "aborted, took no action") — see

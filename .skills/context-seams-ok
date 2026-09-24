@@ -19,7 +19,7 @@
 # --- back-references to AGENTS.md ------------------------------------------
 docs/ARCHITECTURE.md :: and the module in [`AGENTS.md`](../AGENTS.md).
 docs/COMMANDS.md :: The everyday subset is in [`AGENTS.md`](../AGENTS.md#common-commands).
-docs/COMMANDS.md :: daily/weekly ones on systemd timers ([`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server
+docs/COMMANDS.md :: daily/weekly/monthly ones on systemd timers ([`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server
 docs/COMMANDS.md :: restart matrix, and [`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server Lifecycle
 docs/DEPLOYMENT.md :: that apply on nearly every task stay in [`AGENTS.md`](../AGENTS.md); this is the
 docs/ENVIRONMENT.md :: [`AGENTS.md`](../AGENTS.md#environment-variables); the DB roles these DSNs map
