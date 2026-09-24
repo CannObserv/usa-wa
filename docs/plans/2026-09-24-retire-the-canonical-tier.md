@@ -9,10 +9,11 @@ status: draft
 ## Problem
 
 The #302 pipeline publishes every dataset, but the Postgres canonical tier still runs seven
-daily timers and a weekly one. Two systems that can disagree can also both page: the 2026-09-22
-parity alert fired on a one-day skew between them. #412's body treats canonical as the parity
-oracle and nothing more. The 2026-09-24 inventory found more couplings than that, and each one
-blocks a deletion:
+daily timers and a weekly one. #412's body treats canonical as the parity oracle and nothing
+more. The oracle has earned its keep: on 2026-09-22 `parity_registry` caught that the registrar
+never registered a new org, fixed the same day (`80c6c28`). Retiring it means keeping that
+catch without it, which is what PR B's post-registrar probe does. The 2026-09-24 inventory also
+found more couplings than the oracle, and each one blocks a deletion:
 
 | Coupling | Where | Blocks |
 |---|---|---|
