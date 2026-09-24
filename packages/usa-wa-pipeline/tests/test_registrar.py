@@ -178,9 +178,10 @@ def _pipeline_db(
     sponsors: Sequence[str] = (),
     links: Sequence[tuple[str, str]] = (),
     roster: Sequence[tuple[int, str]] = (),
+    pdc: Sequence[str] = (),
 ) -> str:
     """A built-pipeline stand-in: the tables the registrar job reads, plus the
-    roster staging it deliberately does not (#403)."""
+    roster and PDC staging it deliberately does not (#403)."""
     db_path = str(tmp_path / "pipeline.duckdb")
     tables = (
         (
@@ -209,6 +210,11 @@ def _pipeline_db(
             "stg_roster_members (year integer, district varchar, chamber varchar, name varchar)",
             "insert into stg_roster_members values (?, '14', 'House', ?)",
             [list(r) for r in roster],
+        ),
+        (
+            "stg_pdc_winners (person_id varchar, chamber varchar, election_year varchar)",
+            "insert into stg_pdc_winners values (?, 'House', '2024')",
+            [[person_id] for person_id in pdc],
         ),
     )
     con = duckdb.connect(db_path)
@@ -341,10 +347,12 @@ async def test_a_roster_key_no_rule_pairs_is_never_minted(db_session, tmp_path) 
     us from a name, so after a parser or fold change a roster-only person must
     surface as `missing` and be adjudicated — never minted and published as a
     duplicate. Nor is a PDC key a standalone person: it is a crosswalk key that
-    rides a WSL person's pair."""
+    rides a WSL person's pair, so a staged PDC winner no rule pairs stays
+    unregistered too (CR 3)."""
     db_path = _pipeline_db(
         tmp_path,
         roster=[(2021, "Jane Doe"), (2021, "Roster Only")],
+        pdc=["7710"],
         links=[("usa_wa_legislature_roster:jane doe:2021", "usa_wa_legislature:1")],
         sponsors=["1"],
     )
