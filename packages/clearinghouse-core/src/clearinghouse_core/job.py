@@ -202,9 +202,10 @@ class JobFailure(Exception):
 
     A bare exception out of a handler reports ``failed`` with no counters, so the
     ledger row (served by ``/health/jobs``) and the ``job_finished`` journal record say
-    *that* the run died but not how far it got. Neither is guaranteed to reach the #49
-    alert email, which carries only its unit's last 25 journal lines: the raw
-    harvesters run first in ``pipeline-nightly.sh``, so theirs never do (#331 CR 5). Raise
+    *that* the run died but not how far it got. The #49 alert email carries only its
+    unit's last 25 journal lines, so a job that is not its unit's last output reaches
+    it only through a restatement — ``pipeline-nightly.sh`` makes one for every failed
+    stage (#331 CR 5/6). Raise
     this instead — ``raise JobFailure(counters) from exc`` — and the harness records
     ``failed`` with those counters. Everything else is identical to a bare raise: the
     traceback (the ``from exc`` cause included) is logged as ``job_failed``, the

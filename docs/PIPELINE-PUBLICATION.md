@@ -22,7 +22,7 @@ publication probe. The nightly systemd chain (`scripts/pipeline-nightly.sh`,
 `usa-wa-pipeline.timer`, daily 08:00 UTC) runs harvests → dbt build →
 registrar → publish → serving load → parity probes
 (`parity_citations` last); any counted failure exits 1 so `OnFailure=` emails
-the operator.
+the operator, with each failed stage's summary line restated last (#331).
 
 Three tiers, each answering a different question about who may depend on it.
 `tier` is per-dataset in the catalog and `/health/datasets` returns it, so the
