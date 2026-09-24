@@ -6,12 +6,14 @@ entity model, the span model, the three event shapes, and which tables are decla
 fed. Read it before adding a fact — the last section is the decision procedure for *where* a new
 fact belongs.
 
-Two Postgres schemas hold everything: `clearinghouse_core` (Layer 1 — `Jurisdiction`, provenance)
-and `canonical` (Layer 2 — every legislative-domain table below).
+Postgres holds four application schemas: `clearinghouse_core` (Layer 1 — `Jurisdiction`,
+provenance, the run ledger), `canonical` (Layer 2 — every legislative-domain table below,
+retiring under #412), `registry` (the #302 identity ledger) and `serving` (the API's projection
+of the published datasets).
 
 ## 1. The live entity model
 
-Power Map's terminology, mirrored 1:1 — the two models were designed together. Since #302 usa-wa
+Power Map's terminology, mirrored 1:1. Since #302 usa-wa
 is the **single master** for its slice: it publishes versioned datasets, reads nothing back, and
 Power Map (PM) is one subscriber. The `canonical` tables below are the Postgres tier the pipeline
 was built beside, retiring under #412; `serving.*` is the API's projection of what was published.
