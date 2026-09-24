@@ -13,6 +13,13 @@ row builder that fills it, and returns :func:`typed_relation` rather than a
 frame. The type becomes a property of the model, not of the rows it happened to
 read. pandas cannot carry the declaration itself: it has no DATE dtype, so an
 empty date column would still come out as something else.
+
+The cast TYPES; it never converts. A cast that turned float64 ``10.0`` into the
+text ``'10.0'``, or rounded ``10.5`` into ``10``, would let a source drifting type
+publish silently — before, that drift moved the published type and the
+publisher's contract gate refused it. So a column is cast only when its inferred
+type already is the declared one, is a lossless widening of it, or is a guess
+(the column is all NULL); anything else is refused, naming the column.
 """
 
 from collections.abc import Iterable, Mapping
@@ -23,6 +30,9 @@ import pandas as pd
 
 #: Ordered column → duckdb type. Order is the published column order.
 Schema = Mapping[str, str]
+
+#: (inferred, declared) pairs that cast with no value able to change.
+_WIDENINGS = frozenset({("INTEGER", "BIGINT"), ("INTEGER", "DOUBLE"), ("BIGINT", "DOUBLE")})
 
 
 def typed_relation(
@@ -43,7 +53,35 @@ def typed_relation(
             raise ValueError(f"frame columns {list(frame.columns)} != schema columns {columns}")
     else:
         frame = pd.DataFrame(list(rows), columns=columns)
+    relation = session.from_df(frame)
+    inferred = dict(zip(relation.columns, (str(t) for t in relation.types), strict=True))
+    for name, declared in schema.items():
+        _refuse_a_conversion(relation, name, inferred[name], declared)
     projection = ", ".join(
         f'cast("{name}" as {type_}) as "{name}"' for name, type_ in schema.items()
     )
-    return session.from_df(frame).project(projection)
+    return relation.project(projection)
+
+
+def _refuse_a_conversion(
+    relation: duckdb.DuckDBPyRelation, name: str, inferred: str, declared: str
+) -> None:
+    """Raise unless casting ``name`` from ``inferred`` to ``declared`` keeps every value.
+
+    The one narrowing allowed is DOUBLE → BIGINT over whole numbers: a single NULL
+    makes pandas widen an integer column to float64, which is how ``roles.district``
+    arrives (#361 CR 1).
+    """
+    if inferred == declared or (inferred, declared) in _WIDENINGS:
+        return
+    column = f'"{name}"'
+    if relation.aggregate(f"count({column})").fetchone()[0] == 0:
+        return  # all NULL: the inferred type is duckdb's guess, not the data's
+    if inferred == "DOUBLE" and declared == "BIGINT":
+        fractional = f"count(*) filter (where {column} <> trunc({column}))"
+        if relation.aggregate(fractional).fetchone()[0] == 0:
+            return
+    raise ValueError(
+        f"column {name!r}: its values infer {inferred}, and casting them to the declared "
+        f"{declared} would convert rather than type them"
+    )
