@@ -26,7 +26,10 @@ and returns 0 — a signal with no consumer. A handler reports it by returning
 **Contract for handlers.** ``async def handler(ctx: JobContext) -> ...`` returning any
 of: a :class:`JobResult`, a mapping, a summary dataclass (``RunSummary``,
 ``HarvestSummary``, …), or ``None``. The last three are read as ``ok`` with those
-counters, so migrating an existing job is usually a delete, not a rewrite.
+counters, so migrating an existing job is usually a delete, not a rewrite. A handler
+that *raises* reports ``failed`` with no counters, unless it raises a
+:class:`JobFailure` carrying the counters it had reached (#331) — so the alert still
+says how far the run got.
 
 **Transactions.** ``commit=True`` (the default) commits the session on ``ok`` and on
 ``degraded`` — a skip-and-continue sweep's partial work is real work — and rolls back
@@ -192,6 +195,26 @@ class JobResult:
         if self.exit_code is not None:
             return self.exit_code
         return _EXIT_BY_OUTCOME[self.outcome]
+
+
+class JobFailure(Exception):
+    """A raised failure that keeps the counters the run had reached (#331).
+
+    A bare exception out of a handler reports ``failed`` with no counters, so the #49
+    alert and the ledger row say *that* the run died but not how far it got. Raise
+    this instead — ``raise JobFailure(counters) from exc`` — and the harness records
+    ``failed`` with those counters. Everything else is identical to a bare raise: the
+    traceback (the ``from exc`` cause included) is logged as ``job_failed``, the
+    transaction rolls back, the exit code is :data:`EXIT_FAILED`. Opt-in: a job that
+    never raises it behaves exactly as before.
+
+    ``counters`` takes the shapes a handler may return — a mapping, a summary
+    dataclass, or ``None``.
+    """
+
+    def __init__(self, counters: Any = None) -> None:
+        super().__init__("job failed; counters reached so far are attached")
+        self.counters = counters
 
 
 JobHandler = Callable[[JobContext], Awaitable[Any]]
@@ -502,11 +525,11 @@ async def _execute(
         )
         try:
             result = _as_result(await handler(ctx))
-        except Exception:
+        except Exception as exc:
             logger.exception("job_failed", extra={"job": name})
             if session is not None and commit:
                 await session.rollback()
-            return JobResult.failed()
+            return JobResult.failed(exc.counters if isinstance(exc, JobFailure) else None)
         if session is not None and commit:
             if args.dry_run or result.outcome == OUTCOME_FAILED:
                 await session.rollback()
