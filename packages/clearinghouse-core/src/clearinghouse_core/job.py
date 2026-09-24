@@ -209,12 +209,13 @@ class JobFailure(Exception):
     never raises it behaves exactly as before.
 
     ``counters`` takes the shapes a handler may return — a mapping, a summary
-    dataclass, or ``None``.
+    dataclass, or ``None`` — normalized on construction as :class:`JobResult`'s are,
+    so it is a JSON-safe snapshot at the raise, not an alias of the handler's dict.
     """
 
     def __init__(self, counters: Any = None) -> None:
         super().__init__("job failed; counters reached so far are attached")
-        self.counters = counters
+        self.counters: dict[str, Any] = normalize_counters(counters)
 
 
 JobHandler = Callable[[JobContext], Awaitable[Any]]

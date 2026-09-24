@@ -283,6 +283,23 @@ def test_a_job_failure_normalizes_a_summary_dataclass(fake_db, capsys):
     assert _summary(capsys)["counters"] == {"fetched": 2}
 
 
+def test_a_job_failure_snapshots_its_counters_at_the_raise():
+    """CR 2: normalized on construction, as ``JobResult`` is — a JSON-safe dict for
+    every reader of ``.counters``, and not an alias of the handler's live dict."""
+
+    @dataclass
+    class _Summary:
+        fetched: int
+
+    live = {"fetched": 1}
+    failure = JobFailure(live)
+    live["fetched"] = 99
+
+    assert failure.counters == {"fetched": 1}
+    assert JobFailure(_Summary(fetched=2)).counters == {"fetched": 2}
+    assert JobFailure().counters == {}
+
+
 def test_explicit_exit_code_overrides_the_default_mapping(fake_db):
     """Jobs with an established code (the reconcilers' EXIT_ABORTED=3) keep it while
     still recording a truthful ledger outcome."""
