@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 
 import httpx
 import pytest
 import respx
 
 from clearinghouse_core.source_coverage import CoverageStatus
+from usa_wa_adapter_legislature.ratelimit import RateLimiter
+from usa_wa_adapter_legislature.roster_pdf import transport as roster_transport_module
 from usa_wa_adapter_legislature.roster_pdf.adapter import (
     ROSTER_RESOURCE_PREFIX,
     RosterPdfAdapter,
@@ -23,9 +26,12 @@ from usa_wa_adapter_legislature.roster_pdf.coverage import (
 )
 from usa_wa_adapter_legislature.roster_pdf.extraction import extract_revision_date
 from usa_wa_adapter_legislature.roster_pdf.transport import (
+    DEFAULT_LEG_MIN_REQUEST_INTERVAL,
     DEFAULT_ROSTER_URL,
     RosterPdfClient,
     RosterUnavailable,
+    _env_min_interval,
+    configure_leg_rate_limit,
     roster_href,
 )
 
@@ -133,6 +139,110 @@ class TestFetch:
         respx.get(DEFAULT_ROSTER_URL).mock(return_value=httpx.Response(500))
         with pytest.raises(httpx.HTTPStatusError):
             await RosterPdfClient().fetch_roster()
+
+
+class _FakeClock:
+    """Monotonic clock where ``sleep(d)`` advances time by ``d``, recording each wait and the
+    thread it ran on."""
+
+    def __init__(self) -> None:
+        self.t = 0.0
+        self.sleeps: list[float] = []
+        self.sleep_threads: list[int] = []
+
+    def monotonic(self) -> float:
+        return self.t
+
+    def sleep(self, d: float) -> None:
+        self.sleeps.append(d)
+        self.sleep_threads.append(threading.get_ident())
+        self.t += d
+
+
+def _paced(clock: _FakeClock) -> RateLimiter:
+    """A 1.0s limiter on the fake clock: the first request is free, each later one waits 1.0."""
+    return RateLimiter(1.0, monotonic=clock.monotonic, sleep=clock.sleep)
+
+
+class TestCourtesyLimiter:
+    """#236: every ``leg.wa.gov`` request passes one host limiter, like WSL and both SOS hosts."""
+
+    @respx.mock
+    async def test_every_request_on_the_rediscovery_path_is_gated(self) -> None:
+        """Three GETs (known URL 404 → index → moved href), so two waits — not just the one
+        document GET."""
+        moved = "/media/NEWKEY22/members-of-the-legislature-1889-2025.pdf"
+        respx.get(DEFAULT_ROSTER_URL).mock(return_value=httpx.Response(404))
+        respx.get(RosterPdfClient().index_url).mock(
+            return_value=httpx.Response(200, html=f"<a href='{moved}'>Members</a>")
+        )
+        respx.get(f"https://leg.wa.gov{moved}").mock(
+            return_value=httpx.Response(200, content=b"%PDF-1.7 moved")
+        )
+        clock = _FakeClock()
+        await RosterPdfClient(limiter=_paced(clock)).fetch_roster()
+        assert clock.sleeps == [1.0, 1.0]
+
+    @respx.mock
+    async def test_a_redirect_hop_is_gated(self) -> None:
+        """``follow_redirects`` issues a second request the call site never sees."""
+        final = "https://leg.wa.gov/media/s4gf4suc/Members-Of-The-Legislature-1889-2025.pdf"
+        respx.get(DEFAULT_ROSTER_URL).mock(
+            return_value=httpx.Response(301, headers={"location": final})
+        )
+        respx.get(final).mock(return_value=httpx.Response(200, content=b"%PDF-1.7"))
+        clock = _FakeClock()
+        await RosterPdfClient(limiter=_paced(clock)).fetch_roster()
+        assert clock.sleeps == [1.0]
+
+    @respx.mock
+    async def test_the_wait_runs_off_the_event_loop(self) -> None:
+        """The limiter sleeps with ``time.sleep``; on the loop thread it would stall every other
+        task for the whole interval."""
+        respx.get(DEFAULT_ROSTER_URL).mock(return_value=httpx.Response(200, content=b"%PDF"))
+        clock = _FakeClock()
+        limiter = _paced(clock)
+        limiter.acquire()  # a request just went out, so the fetch below must wait
+        await RosterPdfClient(limiter=limiter).fetch_roster()
+        assert clock.sleeps == [1.0]
+        assert clock.sleep_threads[0] != threading.get_ident()
+
+    @respx.mock
+    async def test_a_default_client_is_gated_by_the_host_limiter(self, monkeypatch) -> None:
+        respx.get(DEFAULT_ROSTER_URL).mock(return_value=httpx.Response(200, content=b"%PDF"))
+        clock = _FakeClock()
+        host_limiter = _paced(clock)
+        host_limiter.acquire()
+        monkeypatch.setattr(roster_transport_module, "_LEG_LIMITER", host_limiter)
+        await RosterPdfClient().fetch_roster()
+        assert clock.sleeps == [1.0]
+
+    @respx.mock
+    async def test_configure_leg_rate_limit_paces_a_default_client(self, monkeypatch) -> None:
+        """``--pause-seconds`` lands through :func:`configure_leg_rate_limit`, so it must reach
+        the very limiter a default client waits on — not merely set a value somewhere."""
+        respx.get(DEFAULT_ROSTER_URL).mock(return_value=httpx.Response(200, content=b"%PDF"))
+        clock = _FakeClock()
+        host_limiter = RateLimiter(0.0, monotonic=clock.monotonic, sleep=clock.sleep)
+        monkeypatch.setattr(roster_transport_module, "_LEG_LIMITER", host_limiter)
+        configure_leg_rate_limit(2.0)
+        host_limiter.acquire()  # a request just went out, so the fetch below must wait
+        await RosterPdfClient().fetch_roster()
+        assert clock.sleeps == [2.0]
+
+    def test_env_knob_reads_a_valid_value(self, monkeypatch) -> None:
+        monkeypatch.setenv("USA_WA_LEG_MIN_REQUEST_INTERVAL", "2.5")
+        assert _env_min_interval() == 2.5
+
+    def test_env_knob_zero_disables(self, monkeypatch) -> None:
+        monkeypatch.setenv("USA_WA_LEG_MIN_REQUEST_INTERVAL", "0")
+        assert _env_min_interval() == 0.0
+
+    def test_env_knob_falls_back_when_unset_or_malformed(self, monkeypatch) -> None:
+        monkeypatch.delenv("USA_WA_LEG_MIN_REQUEST_INTERVAL", raising=False)
+        assert _env_min_interval() == DEFAULT_LEG_MIN_REQUEST_INTERVAL
+        monkeypatch.setenv("USA_WA_LEG_MIN_REQUEST_INTERVAL", "gentle")
+        assert _env_min_interval() == DEFAULT_LEG_MIN_REQUEST_INTERVAL
 
 
 class TestAdapterShape:

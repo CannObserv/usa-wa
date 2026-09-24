@@ -18,15 +18,24 @@ re-discover the href** from the Legislative Information Center index — the sam
 results transport does for its varying export filenames — while any other status is a genuine
 outage and propagates. Treating a 500 as a rotated key would mask a real failure; treating a 404
 as an outage would strand the source permanently on the next re-publish.
+
+**A courtesy gate on every request (#236)** — the #77 pattern every other source already follows.
+One host limiter (:data:`_LEG_LIMITER`, knob ``USA_WA_LEG_MIN_REQUEST_INTERVAL``) is enforced by
+an httpx request hook, so re-discovery's three GETs and any redirect hop are all spaced. Like
+its siblings it is in-process: it spaces the requests *within* a run, and the first request of
+a fresh process never waits. It does not throttle repeated ``--force`` invocations.
 """
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 from dataclasses import dataclass
 
 import httpx
+
+from usa_wa_adapter_legislature.ratelimit import RateLimiter, env_float
 
 #: The ``leg.wa.gov`` host.
 LEG_BASE_URL = "https://leg.wa.gov"
@@ -44,6 +53,30 @@ DEFAULT_INDEX_URL = f"{LEG_BASE_URL}/about-the-legislature/legislative-informati
 _ROSTER_HREF = re.compile(
     r"/media/[^\"'/]+/members-of-the-legislature-\d{4}-\d{4}\.pdf", re.IGNORECASE
 )
+
+
+#: Courtesy floor between any two ``leg.wa.gov`` requests (#236), the #77 pattern. A different
+#: host from WSL's ``wslwebservices.leg.wa.gov``, so its own instance + knob. 1.0s matches the
+#: SOS hosts: a low-QPS government site, and a run is one GET (three on re-discovery). ``0``
+#: disables; a harvest's ``--pause-seconds`` overrides it via :func:`configure_leg_rate_limit`.
+DEFAULT_LEG_MIN_REQUEST_INTERVAL = 1.0
+
+LEG_MIN_INTERVAL_ENV = "USA_WA_LEG_MIN_REQUEST_INTERVAL"
+
+
+def _env_min_interval() -> float:
+    """Read ``USA_WA_LEG_MIN_REQUEST_INTERVAL`` (default on unset/malformed)."""
+    return env_float(LEG_MIN_INTERVAL_ENV, DEFAULT_LEG_MIN_REQUEST_INTERVAL)
+
+
+#: The one limiter every ``leg.wa.gov`` request passes through.
+_LEG_LIMITER = RateLimiter(_env_min_interval())
+
+
+def configure_leg_rate_limit(min_interval: float) -> None:
+    """Set the ``leg.wa.gov`` min-interval (seconds). Maps a harvest's ``--pause-seconds`` onto
+    the host limiter; the test suite zeroes it via an autouse fixture."""
+    _LEG_LIMITER.set_interval(min_interval)
 
 
 class RosterUnavailable(LookupError):
@@ -79,10 +112,12 @@ class RosterPdfClient:
         url: str = DEFAULT_ROSTER_URL,
         index_url: str = DEFAULT_INDEX_URL,
         timeout: float = 120.0,
+        limiter: RateLimiter | None = None,
     ) -> None:
         self.url = url
         self.index_url = index_url
         self._timeout = timeout
+        self._limiter = limiter if limiter is not None else _LEG_LIMITER
 
     async def fetch_roster(self) -> RosterFetch:
         """Fetch the roster PDF, re-discovering the href if the known URL has rotated away.
@@ -90,7 +125,11 @@ class RosterPdfClient:
         Raises ``httpx.HTTPStatusError`` on any non-404 error status and
         :class:`RosterUnavailable` when a 404 cannot be resolved to a new href.
         """
-        async with httpx.AsyncClient(timeout=self._timeout, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=self._timeout,
+            follow_redirects=True,
+            event_hooks={"request": [self._gate]},
+        ) as client:
             response = await client.get(self.url)
             if response.status_code == 404:
                 response = await self._rediscover(client)
@@ -102,6 +141,13 @@ class RosterPdfClient:
                 content_type=response.headers.get("content-type", "application/pdf"),
                 url=str(response.request.url),
             )
+
+    async def _gate(self, request: httpx.Request) -> None:
+        """Request hook: wait on the host limiter before **every** request — the known URL, the
+        index and the moved href on re-discovery, and any redirect hop, none of which a call
+        site sees individually. :meth:`RateLimiter.acquire` sleeps with ``time.sleep``, so it
+        runs in a worker thread rather than stalling the event loop."""
+        await asyncio.to_thread(self._limiter.acquire)
 
     async def _rediscover(self, client: httpx.AsyncClient) -> httpx.Response:
         """Resolve a rotated media key from the Legislative Information Center index."""
