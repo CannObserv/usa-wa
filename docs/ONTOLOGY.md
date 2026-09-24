@@ -13,10 +13,9 @@ of the published datasets).
 
 ## 1. The live entity model
 
-Power Map's terminology, mirrored 1:1. Since #302 usa-wa
-is the **single master** for its slice: it publishes versioned datasets, reads nothing back, and
-Power Map (PM) is one subscriber. The `canonical` tables below are the Postgres tier the pipeline
-was built beside, retiring under #412; `serving.*` is the API's projection of what was published.
+Power Map's terminology, mirrored 1:1. Since #302 usa-wa is the **single master** for its slice:
+it publishes versioned datasets, reads nothing back, and Power Map (PM) is one subscriber. The
+tables below are the `canonical` ones the pipeline was built beside.
 
 | Table | Model | What it is |
 |---|---|---|
