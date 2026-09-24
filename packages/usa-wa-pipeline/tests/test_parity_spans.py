@@ -11,6 +11,7 @@ the role dimension the dbt test cannot check.
 from datetime import UTC, date, datetime
 
 import pytest
+from sqlalchemy import update
 
 from clearinghouse_core.job import OUTCOME_DEGRADED, OUTCOME_FAILED, OUTCOME_OK
 from clearinghouse_core.jurisdictions import Jurisdiction, JurisdictionType
@@ -129,6 +130,7 @@ async def _seed_role(
     bind_orgs: bool = True,
     bind_roles: bool = True,
     role_source: str = SOURCE,
+    post_seed_keys: frozenset[str] = frozenset(),
 ) -> Role:
     """Seed the canonical role dimension and return the Role assignments hang off.
 
@@ -136,6 +138,10 @@ async def _seed_role(
     `canonical.roles` row, because the probe diffs our derived roles against that
     table on all four (CR 77, CR 84). Which Organization each hangs from is not
     compared, so one is minted per slot purely to satisfy `uq_roles_org_name`.
+
+    A key in ``post_seed_keys`` is a role both tiers minted after the seed
+    (#402): its canonical ULID is never a registry entity, and the registrar's
+    role pass bound its key to a fresh one.
     """
     state_type = JurisdictionType(slug="state", display_name="State")
     db_session.add(state_type)
@@ -172,14 +178,14 @@ async def _seed_role(
             await _bind_key(db_session, natural_key, kind=KIND_ORG)
     if bind_roles:
         # What `registry_seed` does in production: the role's registry entity IS
-        # the canonical Role's ULID, so `role_entity_mismatches` is 0 and PM's
-        # anchors keep naming the same rows (#313).
+        # the canonical Role's ULID, so `role_entity_mismatches` is 0 and the
+        # published `entity_id` stays the one the seed carried across (#313).
         for role in roles:
             await _bind_key(
                 db_session,
                 f"{SOURCE}:{role.source_id}",
                 kind=KIND_ROLE,
-                entity_id=role.id,
+                entity_id=None if role.source_id in post_seed_keys else role.id,
             )
     return roles[0]
 
@@ -219,7 +225,7 @@ async def _bind_key(
     genuinely 0.
 
     ``entity_id`` pins the entity to an existing id — what the seed does for
-    roles (#313), carrying the canonical ULID across so PM's anchors stay valid.
+    roles (#313), carrying the canonical ULID across so the published id holds.
     Without it a fresh entity is minted, which is the persons/orgs shape here.
     """
     entity = (
@@ -510,6 +516,9 @@ async def test_a_clean_run_reports_every_integrity_counter_at_zero(db_session, t
     assert result.counters["malformed_roster_rows"] == 0
     assert result.counters["unparsable_canonical_keys"] == 0
     assert result.counters["unregistered_orgs"] == 0
+    assert result.counters["role_entity_mismatches"] == 0
+    # reported, never gated (#402) — present and zero, not absent
+    assert result.counters["role_post_seed"] == 0
     assert result.counters["integrity_failures"] == []
 
 
@@ -725,6 +734,9 @@ async def test_a_role_the_registry_has_not_reached_is_gated(db_session, tmp_path
     published assignment names must not vanish) but cannot be addressed by the
     API, so the gap is gated rather than merely reported. One run of latency is
     normal — `dbt build -> registrar -> publish` — and the next build closes it.
+
+    No canonical ULID here is a registry entity, so each role has the post-seed
+    shape (#402) — but an UNBOUND key is a registrar gap, never `role_post_seed`.
     """
     role = await _seed_role(db_session, bind_roles=False)
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
@@ -733,22 +745,30 @@ async def test_a_role_the_registry_has_not_reached_is_gated(db_session, tmp_path
     await _seed_roster_family(db_session, role)
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
     assert result.counters["unregistered_roles"] == 3
+    assert result.counters["role_post_seed"] == 0
     assert result.counters["role_divergence"] == 0
     assert result.outcome == OUTCOME_FAILED
     assert result.counters["integrity_failures"] == ["unregistered_roles"]
 
 
-async def test_a_role_ulid_that_does_not_match_the_canonical_one_is_gated(
-    db_session, tmp_path
-) -> None:
-    """The entire justification for giving roles a registry is that PM's 312
-    anchors name the canonical ULIDs, so the seed carries them across rather
-    than minting fresh. A registry entity under a DIFFERENT id means those
-    anchors point at nothing — a broken cutover, not a latency."""
-    role = await _seed_role(db_session, bind_roles=False)
-    # bound, but to freshly minted entities rather than the canonical role ids
+async def test_a_seeded_role_ulid_that_moved_is_gated(db_session, tmp_path) -> None:
+    """A seeded role's ULID is the `entity_id` published in `roles` and joined
+    from `assignments`, so the seed carries the canonical ULIDs across rather
+    than minting fresh. Its key bound to a DIFFERENT entity re-points every
+    consumer's join on that id silently — a broken identity, not a latency.
+
+    The canonical ULIDs are still registry entities here (the seed made them);
+    only the keys moved. That is what separates this from a post-seed role."""
+    role = await _seed_role(db_session)
     for key in FIXTURE_ROLE_KEYS:
-        await _bind_key(db_session, f"{SOURCE}:{key}", kind=KIND_ROLE)
+        fresh = RegistryEntity(kind=KIND_ROLE)
+        db_session.add(fresh)
+        await db_session.flush()
+        await db_session.execute(
+            update(RegistryKey)
+            .where(RegistryKey.natural_key == f"{SOURCE}:{key}")
+            .values(entity_id=fresh.id)
+        )
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
     await _bind_key(db_session, f"{SOURCE}:100")
@@ -759,3 +779,26 @@ async def test_a_role_ulid_that_does_not_match_the_canonical_one_is_gated(
     assert result.counters["role_divergence"] == 0
     assert result.outcome == OUTCOME_FAILED
     assert result.counters["integrity_failures"] == ["role_entity_mismatches"]
+
+
+async def test_a_role_minted_after_the_seed_is_post_seed_not_a_mismatch(
+    db_session, tmp_path
+) -> None:
+    """#402: after the #308 seed the canonical tier and the registrar mint roles
+    independently — the WSL adapter writes `canonical.roles` with its own ULID,
+    the registrar's role pass mints another for the unregistered key. The first
+    new seat or committee-member role would otherwise fail the nightly with no
+    seeded identity moved. It has no earlier published id to protect, so it is
+    reported, not gated — `parity_registry`'s `post_seed` rule (#404)."""
+    post_seed_key = FIXTURE_ROLE_KEYS[1]
+    role = await _seed_role(db_session, post_seed_keys=frozenset({post_seed_key}))
+    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
+    await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
+    await _bind_key(db_session, f"{SOURCE}:100")
+    await _seed_roster_family(db_session, role)
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
+    assert result.counters["unregistered_roles"] == 0
+    assert result.counters["role_entity_mismatches"] == 0
+    assert result.counters["role_post_seed"] == 1
+    assert result.counters["integrity_failures"] == []
+    assert result.outcome == OUTCOME_OK

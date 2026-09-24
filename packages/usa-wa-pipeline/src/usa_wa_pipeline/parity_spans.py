@@ -73,7 +73,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root
-from clearinghouse_core.registry import KIND_ORG, KIND_PERSON, KIND_ROLE
+from clearinghouse_core.registry import KIND_ORG, KIND_PERSON, KIND_ROLE, RegistryEntity
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.identity import Role as CanonicalRole
 from clearinghouse_domain_legislative.terms import biennium_for_date
@@ -442,15 +442,33 @@ async def run_parity(
         if our_roles[key][i] != canonical_roles[key][i]
     )
     # The ULID the seed carried across from `canonical.roles` must be the one we
-    # publish (#313) — this is the entire justification for giving roles a
-    # registry, because PM's 312 role anchors name those ids. A role the
+    # publish (#313): it is the `entity_id` in `roles` that `assignments` join
+    # on, so if it moves every consumer's join silently re-points. A role the
     # registrar has not reached yet is `unregistered_roles`, not a mismatch:
-    # null is a one-run latency, a DIFFERENT id is a broken anchor.
-    role_entity_mismatches = sorted(
-        key
-        for key in set(our_role_ids) & set(canonical_role_ids)
-        if our_role_ids[key] is not None and our_role_ids[key] != canonical_role_ids[key]
-    )
+    # null is a one-run latency, a DIFFERENT id is a moved identity.
+    #
+    # Only a SEEDED role has an earlier published id to protect (#402). After
+    # the seed the adapter and the registrar mint independently, so a canonical
+    # role whose ULID the registry never held cannot carry the registrar's id —
+    # `role_post_seed`, reported not gated, as `parity_registry` does for
+    # persons and orgs. The price: a registrar pass run AHEAD of the seed reads
+    # as every role post-seed and passes, so the seed alone guards that
+    # (PIPELINE.md § Identity registry).
+    role_entities = {
+        str(entity_id)
+        for entity_id in (
+            await session.execute(select(RegistryEntity.id).where(RegistryEntity.kind == KIND_ROLE))
+        ).scalars()
+    }
+    role_entity_mismatches: list[str] = []
+    role_post_seed: list[str] = []
+    for key in sorted(set(our_role_ids) & set(canonical_role_ids)):
+        if our_role_ids[key] is None or our_role_ids[key] == canonical_role_ids[key]:
+            continue
+        if canonical_role_ids[key] in role_entities:
+            role_entity_mismatches.append(key)
+        else:
+            role_post_seed.append(key)
     counters.update(
         {
             "roles": len(our_roles),
@@ -459,6 +477,7 @@ async def run_parity(
             "role_baseline": role_baseline,
             "role_attribute_mismatches": len(attribute_mismatches),
             "role_entity_mismatches": len(role_entity_mismatches),
+            "role_post_seed": len(role_post_seed),
             "unregistered_roles": role_join["unregistered_roles"],
             "unregistered_orgs": role_join["unregistered_orgs"],
         }
@@ -488,6 +507,7 @@ async def run_parity(
             "role_only_ours_sample": role_only_ours[:20],
             "role_only_canonical_sample": role_only_canonical[:20],
             "role_entity_mismatch_sample": role_entity_mismatches[:20],
+            "role_post_seed_sample": role_post_seed[:20],
             "role_attribute_sample": [
                 f"{key}.{attr}: canonical={theirs!r} ours={mine!r}"
                 for key, attr, theirs, mine in attribute_mismatches[:20]
