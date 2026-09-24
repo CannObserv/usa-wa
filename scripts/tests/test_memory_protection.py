@@ -22,7 +22,7 @@ mirroring the install path, exactly as the units do.
 
 These tests read the deploy artifacts, not the live host: the gate must hold in a
 worktree and in CI. What the live host carries is verified at install time —
-``docs/DEPLOYMENT.md`` § Memory pressure carries the commands.
+``docs/DEPLOYMENT-HOST.md`` § Memory pressure carries the commands.
 """
 
 from __future__ import annotations

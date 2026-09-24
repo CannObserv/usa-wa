@@ -43,12 +43,13 @@ docs/MODULES-DEPLOYMENT.md: Layer 4 — the API deployment's own modules and the
 
 # Commands and migrations.
 docs/COMMANDS.md: the command index and § migrations — every CLI entry point by name, and the alembic revision order (alembic/, cli/, scripts/)
-docs/COMMANDS-SUCCESSION.md, docs/COMMANDS-BACKFILL.md, docs/COMMANDS-SEATS.md: the operational CLIs grouped by job; a new or renamed backfill belongs in exactly one of these, named (cli/, scripts/)
-docs/PIPELINE.md, docs/PIPELINE-CONFORMED.md: the #302 dbt commands, the model TDD policy, and the `dbt-build` commit gate (.pre-commit-config.yaml, cli/, scripts/)
+docs/COMMANDS-SUCCESSION.md, docs/COMMANDS-BACKFILL.md, docs/COMMANDS-SEATS.md, docs/COMMANDS-ROSTER.md: the operational CLIs grouped by job; a new or renamed backfill belongs in exactly one of these, named (cli/, scripts/)
+docs/PIPELINE.md, docs/PIPELINE-CONFORMED.md, docs/PIPELINE-CONFORMED-ENTITIES.md: the #302 dbt commands, the model TDD policy, and the `dbt-build` commit gate (.pre-commit-config.yaml, cli/, scripts/)
 docs/PIPELINE-PUBLICATION.md: the publication contract — the nightly chain's stage order and failure policy, and the heartbeat's staleness threshold derived from the pipeline timer (deploy/, scripts/)
 
 # The deployment surface.
 docs/DEPLOYMENT.md: the systemd service+timer table (pinned by test_docs_timer_drift.py), the OnFailure alerting chain, the DB role split, the restart/lifecycle table, the verify-units.sh gate, and § Scheduled work outside systemd for the GitHub Actions cadence (deploy/, alembic/, scripts/, uv.lock, .pre-commit-config.yaml, .github/)
+docs/DEPLOYMENT-HOST.md: the host hazards and their guards — the #87 main-only and #279 venv-integrity ExecStartPre guards, the #389 memory reservation and earlyoom, and the #394 disk GC (deploy/, scripts/)
 docs/ENVIRONMENT.md: every variable the deployment reads — a unit's EnvironmentFile=, a new getenv, or a workflow secret belongs in the list here (deploy/, .github/)
 docs/API.md: the read-only /api/v1 route table, pagination, and the response contracts (api/v1/)
 

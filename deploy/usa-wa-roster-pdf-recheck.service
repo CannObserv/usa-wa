@@ -1,0 +1,56 @@
+[Unit]
+Description=usa-wa — roster PDF edition re-check (#237: fetch + verify the stamp, archive nothing) one-shot
+Documentation=https://github.com/CannObserv/usa-wa/issues/237
+# The Legislature's *Members of the Legislature* roster (#225) is revised ~biennially and its
+# URL carries no cache validators, so the only way to notice a new edition is to fetch it. This
+# unit does that and nothing more. It is NOT a refresh: the edition lags the current biennium by
+# design and never joins the daily chain (#219) — nothing downstream reads this run.
+# usa-wa-migrate.service: schema at head before the harvest's (rolled-back) provenance writes.
+# Ordering only. Egress to leg.wa.gov, so network-online.
+After=network-online.target postgresql.service usa-wa-migrate.service
+Wants=network-online.target
+# The alert IS the product (#49). Exit 4 (EXIT_DEGRADED): a new edition is published — its stamp
+# differs from DEFAULT_REVISION in code — or the document can no longer be located (media key
+# rotated, href not re-discoverable). Exit 1: an outage. Runbook: docs/COMMANDS-ROSTER.md
+# § Roster PDF. %n → this unit's full name.
+OnFailure=usa-wa-notify-failure@%n.service
+
+[Service]
+Type=oneshot
+User=exedev
+WorkingDirectory=/home/exedev/usa-wa
+
+# Refuse to start off a non-main checkout (#87): the enforcement behind the
+# "main is the deployed code" convention, which #84 showed is not self-enforcing.
+ExecStartPre=/home/exedev/usa-wa/scripts/assert-main-checkout.sh
+
+# Refuse to start against a venv whose editable installs resolve outside
+# /home/exedev/usa-wa/packages/ (#279). A `uv run` in a worktree that shares this
+# venv restamps them at .worktrees/<slug>/packages/…; the checkout stays on main,
+# so the guard above passes and every import here fails once that worktree is
+# gone — days later, reported as `Unable to configure formatter 'json'`.
+ExecStartPre=/home/exedev/usa-wa/scripts/assert-venv-integrity.sh
+
+# Pin PATH so `uv` resolves regardless of the inherited systemd default.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+# App role only: the harvest's writes are provenance INSERTs, and --dry-run rolls them back.
+# USA_WA_LEG_MIN_REQUEST_INTERVAL (optional, #236) spaces the leg.wa.gov requests.
+EnvironmentFile=/etc/usa-wa/.env
+EnvironmentFile=-/home/exedev/usa-wa/.env
+
+# --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
+# Every flag is load-bearing (pinned by scripts/tests/test_roster_recheck_unit.py):
+#   --dry-run  the harness rolls the archive write back — a timer can never mutate the archive.
+#   --force    the source's freshness cache is 90 days; unforced, this is a cache hit that
+#              fetches nothing for 90 days after every real harvest, and reports ok throughout.
+#   (no --revision) the check compares against DEFAULT_REVISION in code, so it keeps alerting
+#              monthly until the new edition is archived AND that default is bumped on main.
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_adapter_legislature.roster_pdf.harvest --dry-run --force
+
+# One 5.7MB GET, three on href re-discovery. The client's 120s httpx timeout bounds each connect
+# and each read, not a whole request — a body trickling in under 120s a chunk has no ceiling of
+# its own — so this is the run's real bound, and a hang past it fails into OnFailure=.
+TimeoutStartSec=600
+
+# This unit is started by usa-wa-roster-pdf-recheck.timer; no [Install] WantedBy.

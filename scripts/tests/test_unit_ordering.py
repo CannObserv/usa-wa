@@ -195,6 +195,15 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
+    # Monthly roster-PDF edition re-check (#237): the roster harvest run `--dry-run --force`,
+    # which fetches the document, verifies its stamp and archives nothing. Egress to
+    # leg.wa.gov, so network-online; no refresh predecessor — it reads no cohort. Exit 4 on a
+    # new edition (or an unlocatable document) → notify handler: the alert is the product.
+    "usa-wa-roster-pdf-recheck.service": {
+        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
     # Host disk GC + free-space sensor (#394). Deliberately dependency-free: it
     # reads the filesystem and the process table, never the database, and the
     # condition it detects (a full volume) is one that makes every unit with
@@ -210,6 +219,7 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     "usa-wa-pdc-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-sos-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-integrity-sweep.timer": {"After": set(), "Before": set(), "OnFailure": set()},
+    "usa-wa-roster-pdf-recheck.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-succession-invariants.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-senate-corroboration.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-house-corroboration.timer": {"After": set(), "Before": set(), "OnFailure": set()},

@@ -8,9 +8,9 @@ Two properties shape this module, both verified live 2026-08-14:
 
 **No cache validators.** The response carries no ``ETag``, no ``Last-Modified`` and no
 ``Cache-Control`` (Microsoft-IIS/10.0), so conditional GET is unavailable and change detection is
-a full fetch plus a content hash. At the quarterly cadence this source runs on, that is ~23MB a
-year — cheap enough that the absence of validators is a non-issue rather than a reason to poll
-harder.
+a full fetch plus a content hash. At the monthly edition re-check this source runs on (#237),
+that is ~69MB a year — cheap enough that the absence of validators is a non-issue rather than a
+reason to poll harder.
 
 **The URL is the fragile part, not the content.** ``s4gf4suc`` is a CMS-minted key; a re-publish
 is expected to mint a new one, and the filename carries the edition years. So a **404 means

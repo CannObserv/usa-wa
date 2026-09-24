@@ -8,15 +8,20 @@ Grouped references split out so each stays loadable on its own:
 - [COMMANDS-SUCCESSION.md](COMMANDS-SUCCESSION.md) — operator succession events, odd-year corroboration, committee lineage
 - [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md) — historical harvests, span builders, one-shot migrations, write-free probes
 - [COMMANDS-SEATS.md](COMMANDS-SEATS.md) — the Layer-3b seat-fact backfills: PDC identifier links (#79), WSL+SOS House Position (#101)
+- [COMMANDS-ROSTER.md](COMMANDS-ROSTER.md) — the roster PDF: harvest + monthly edition re-check (#225/#237), succession backfill (#226), pre-1991 build (#228)
+- [DEPLOYMENT-HOST.md](DEPLOYMENT-HOST.md) § Host maintenance — the disk GC and the slim ollama image (#394); plain bash, not job-harness CLIs
 
 ## Command index
 
 Every operational & backfill CLI, grouped by the reference that documents it. Prod runs the
-daily/weekly ones on systemd timers ([`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server
+daily/weekly/monthly ones on systemd timers ([`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server
 Lifecycle); the rest are run-once / ad-hoc. Pair backfills with `USA_WA_BIENNIUM` to target
 a non-current biennium.
+Pinned both ways against the `run_job` entry points by
+[`scripts/tests/test_command_index_drift.py`](../scripts/tests/test_command_index_drift.py):
+a new CLI with no row, or a row naming a removed one, fails the suite.
 
-**All 51 run on the shared job harness (#179b)**: each takes `--json`, prints a `key=value`
+**All of them run on the shared job harness (#179b)**: each takes `--json`, prints a `key=value`
 summary, and writes a `job_runs` row (`GET /api/v1/health/jobs`). **Exit codes unchanged**
 unless a doc below says otherwise (`0` ok / `1` failed / `2` config / `4` degraded, `3`
 reserved for "aborted, took no action") — see
@@ -60,10 +65,18 @@ Full options, exit codes and rationale: [COMMANDS-SEATS.md](COMMANDS-SEATS.md).
 | `python -m usa_wa_facts_seats.pdc.build_pdc_spans` | Era-matched `person_wa_pdc` identifier links, Phase B (#79; identifier-only since #101) |
 | `python -m usa_wa_facts_seats.pdc.migrate_pdc_spans` | Retire pre-#79 per-biennium PDC House rows onto spans (#79) |
 | `python -m usa_wa_adapter_sos.results.harvest` | Archive WA SOS **results** cohorts (the House Position source, `usa_wa_sos_results`) — Phase A (#101) |
-| `python -m usa_wa_adapter_legislature.roster_pdf.harvest` | Archive the WA Legislature roster PDF (1889–2025, `usa_wa_legislature_roster`) — Phase A (#225); one edition, not a sweep; exit 4 = document unlocatable or a newer edition published |
-| `python -m usa_wa_adapter_legislature.roster_pdf.backfill` | Roster succession dates → operator events (#226); defers to every existing attestation, `--dry-run` rolls back; exit 4 = nothing resolved |
 | `python -m usa_wa_facts_seats.house.build` | WSL+SOS House Position seat spans (2008→present) incl. #103 elimination inference, Phase B (#101) |
 | `python -m usa_wa_facts_seats.house.migrate` | Superseded-collapse (#103) + re-source usa_wa_pdc House rows → usa_wa_legislature (owner role, #101) |
+
+### Roster PDF
+
+Full options, exit codes and rationale: [COMMANDS-ROSTER.md](COMMANDS-ROSTER.md).
+
+| Command | Purpose |
+|---|---|
+| `python -m usa_wa_adapter_legislature.roster_pdf.harvest` | Archive the WA Legislature roster PDF (1889–2025, `usa_wa_legislature_roster`) — Phase A (#225); one edition, not a sweep; exit 4 = document unlocatable or a newer edition published. Run `--dry-run --force` monthly by `usa-wa-roster-pdf-recheck.timer` as the edition check (#237) |
+| `python -m usa_wa_adapter_legislature.roster_pdf.backfill` | Roster succession dates → operator events (#226); defers to every existing attestation, `--dry-run` rolls back; exit 4 = nothing resolved |
+| `python -m usa_wa_adapter_legislature.roster_pdf.build` | Pre-1991 roster Persons, party spans and Senate seat spans — Phase B (#228); `--dry-run` rolls back |
 
 ### Succession, corroboration, and committee lineage
 
@@ -117,7 +130,7 @@ uv run pre-commit install
 ```
 
 **In a fresh worktree, `uv sync --locked` before the first commit.** Feature work
-happens in a worktree (`docs/DEPLOYMENT.md` § Main-only checkout), and a new one
+happens in a worktree (`docs/DEPLOYMENT-HOST.md` § Main-only checkout), and a new one
 has no `.venv`. The `import-linter` hook is `always_run: true` and invokes
 `uv run --frozen --no-sync`, which — correctly, per the never-sync-in-a-unit rule
 (issue #30) — creates an empty venv and installs nothing, so the first commit
@@ -229,73 +242,6 @@ sudo journalctl -u usa-wa -f
 See [DEPLOYMENT.md](DEPLOYMENT.md) § Lifecycle reference for the full unit-by-unit
 restart matrix, and [`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server Lifecycle
 for the `--no-sync` / `uv sync --locked` deploy convention.
-
-## Host maintenance (#394)
-
-Not job-harness CLIs — plain bash, no venv, no database. Both exist because the
-25 GB root volume hit 98% with 565 MB free and killed a `pytest` run on ENOSPC,
-and because nothing on the box reported it beforehand.
-
-```bash
-# Report: free space, what is reclaimable, per-tier repo sizes. Removes nothing.
-scripts/disk-gc.sh
-scripts/disk-gc.sh --json                  # machine-readable, one object
-
-# Reclaim, then report. What prod runs daily at 05:45 UTC (usa-wa-disk-gc.timer).
-scripts/disk-gc.sh --prune
-```
-
-Exit `0` healthy or warning, `1` free space under the fail floor (→ operator
-email via `OnFailure=`), `2` tooling. Thresholds are `DISK_GC_WARN_BYTES`
-(default 2 GiB) and `DISK_GC_FAIL_BYTES` (1 GiB).
-
-**What it prunes** — superseded VS Code server builds and `code-*` CLI binaries,
-Claude extension versions that are neither live nor named by `extensions.json`
-(#399), Claude plugin-cache versions that are not the installed one, and
-`~/.npm/_npx` trees. The reclaimable copy and the in-use one are siblings in the
-same directory, so a size-or-mtime heuristic would delete a running editor's server;
-liveness is the discriminator, read from `/proc/*/` `cmdline`, `cwd`, `exe`
-**and** `maps` — a process started by a relative path names its tree in none of
-its argv, and a loaded native addon (#399) in none of the other three.
-
-The manifest tiers (`extensions.json`, `installed_plugins.json`) prune only when
-the manifest names a version on disk; otherwise they remove nothing, and warn (#400).
-
-Plugin-cache liveness adds Claude Code's `.in_use/<pid>` markers (#407): a
-session using a version names it in no `/proc` entry. Only a marker proven dead
-(pid gone, or `procStart` mismatch) releases one; an unjudgeable one keeps it,
-with a warning. Claude Code's own sweep deletes a dropped version after 14 days;
-this tier is the faster backstop.
-
-A `DISK_GC_GRACE_MINUTES` window (default 60) covers the one case liveness
-cannot: a tree still being installed is named by no process yet, because the
-process that will run out of it does not exist. Set it to `0` to disable.
-
-**What it never prunes** — repo data. `data/datasets/`, `raw/`, the dbt logs and
-the duckdb are measured and reported; their retention contract is
-[#396](https://github.com/CannObserv/usa-wa/issues/396), not this script's call.
-Worktrees are named, never destroyed — that is gated by the `using-git-worktrees`
-Iron Law, a merge check a GC cannot make.
-
-```bash
-# Rebuild ollama/ollama:latest without its accelerator runtimes
-scripts/slim-ollama-image.sh
-scripts/slim-ollama-image.sh --force       # rebuild even if already slim
-```
-
-The stock image costs **8.06 GB on disk / 3.27 GB of content** to serve one
-274 MB embedding model: `cuda_v12` 1.2 G, `cuda_v13` 831 M, `mlx_cuda_v13`
-2.0 G, `vulkan` 47 M — 4.0 GB of accelerator runtime on a VM with no
-accelerator. Stripping them took the volume from 98% to 57% with a
-byte-identical embedding response.
-
-It refuses on a host that has a GPU, refuses without headroom for the rebuild,
-and keeps the fat image until the replacement is verified serving the model —
-that image is the only rollback. The rebuilt image keeps the
-`ollama/ollama:latest` tag (SocratiCode hardcodes it, and its
-`isOllamaImagePresent()` gates the pull on it being present locally) and carries
-a `dev.usa-wa.slim` label. A plain `docker pull` silently restores the fat
-image; `scripts/disk-gc.sh` reads that label and reports it.
 
 ## Data refresh (daily)
 

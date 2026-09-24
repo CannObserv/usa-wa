@@ -103,3 +103,20 @@ AGENTS.md :: tighten :: — the reusable Layer-3 pattern; read before adding an 
 # health hook run with SOCRATICODE_HEALTH_FORCE=1 on 2026-09-22 printed nothing
 # (silent = nothing to report), so the edge-yield gate does not fire daily.
 docs/SKILLS.md :: disproven :: That last one fires here every day and is expected
+
+# #237 branch, curating-context round (2026-09-24): six over-budget docs split. Each line
+# below is a pointer whose target this same change moved; read against its replacement.
+AGENTS.md :: retarget :: Recovery and the start-limit reasoning: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+docs/DEPLOYMENT.md :: retarget :: runbook: [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md) § Roster PDF
+docs/COMMANDS.md :: retarget :: happens in a worktree (`docs/DEPLOYMENT.md` § Main-only checkout), and a new one
+docs/MODULES-LEGISLATURE-ROSTER.md :: retarget :: — the sequence is in COMMANDS-BACKFILL.md
+docs/PIPELINE-CONFORMED.md :: retarget :: engine as a Python model) landed next — see below; roles/seats complete the
+docs/SOCRATICODE.md :: retarget :: [`docs/DEPLOYMENT.md` § Memory pressure](DEPLOYMENT.md#memory-pressure-issue-389).
+docs/SKILLS.md :: retarget :: ([`docs/DEPLOYMENT.md` § Shared-venv integrity](DEPLOYMENT.md#shared-venv-integrity-issue-279))
+docs/PIPELINE.md :: retarget :: carries: [`PIPELINE-CONFORMED.md`](PIPELINE-CONFORMED.md).
+# CR 13: COMMANDS.md has no "alembic" heading (`grep -n '^#.*alembic' docs/COMMANDS.md` is empty);
+# the section is "## Database migrations".
+docs/COMMANDS-ROSTER.md :: disproven :: per-command DATABASE_URL=... prefix is silently ignored here (see COMMANDS.md § alembic).
+# CR 14: no "Nightly chain" section exists in any doc (`grep -rln 'Nightly chain' docs/`
+# matched only this line); the rule it cites is in PIPELINE-PUBLICATION.md.
+docs/PIPELINE-CONFORMED-ENTITIES.md :: disproven :: § Nightly chain below) and `persons` /

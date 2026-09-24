@@ -83,7 +83,7 @@ Service table, `OnFailure=` alerting chain (#49), owner/app/test DB role split (
 
 **Port 8000 belongs to systemd.** Never start uvicorn manually on port 8000.
 
-**Prod checkout stays on `main` (issue #87).** Every code-running unit carries `ExecStartPre=…/scripts/assert-main-checkout.sh` and refuses to start off-main, so a feature branch left checked out wedges the timers rather than deploying itself. A second `ExecStartPre=…/scripts/assert-venv-integrity.sh` (#279) likewise refuses a shared `.venv` whose editable installs resolve outside `packages/` — repair: `uv sync --locked`. Do feature work in a git worktree (see the `using-git-worktrees` skill). Recovery and the start-limit reasoning: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+**Prod checkout stays on `main` (issue #87).** Every code-running unit carries `ExecStartPre=…/scripts/assert-main-checkout.sh` and refuses to start off-main, so a feature branch left checked out wedges the timers rather than deploying itself. A second `ExecStartPre=…/scripts/assert-venv-integrity.sh` (#279) likewise refuses a shared `.venv` whose editable installs resolve outside `packages/` — repair: `uv sync --locked`. Do feature work in a git worktree (see the `using-git-worktrees` skill). Recovery and the start-limit reasoning: [`docs/DEPLOYMENT-HOST.md`](docs/DEPLOYMENT-HOST.md).
 
 Bootstrap a new worktree with **both** steps — neither is done for you, and each fails in its own
 way: `uv sync --locked` (`.skills/worktree_venv=none` links no venv on purpose —
@@ -168,7 +168,7 @@ uv run alembic revision --autogenerate -m "description"
 uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload --log-config packages/usa-wa-api/src/usa_wa_api/log_config.json
 ```
 
-Everyday commands only. Every operational and backfill CLI is indexed in [`docs/COMMANDS.md`](docs/COMMANDS.md), which links the grouped references (succession, backfill). Prod runs the daily/weekly ones on systemd timers (see § Server Lifecycle); pair a backfill with `USA_WA_BIENNIUM` to target a non-current biennium.
+Everyday commands only. Every operational and backfill CLI is indexed in [`docs/COMMANDS.md`](docs/COMMANDS.md), which links the grouped references (succession, backfill). Prod runs the daily/weekly/monthly ones on systemd timers (see § Server Lifecycle); pair a backfill with `USA_WA_BIENNIUM` to target a non-current biennium.
 
 ## Agent Skills
 

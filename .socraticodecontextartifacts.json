@@ -48,7 +48,12 @@
     {
       "name": "modules-legislature-roster",
       "path": "./docs/MODULES-LEGISLATURE-ROSTER.md",
-      "description": "The roster-PDF source (1889-2025 official member roster) \u2014 parser, audit oracle, and the succession \u2192 resolve \u2192 backfill pipeline that adds ~102 years of member coverage with exact succession dates."
+      "description": "The roster-PDF source (1889-2025 official member roster) \u2014 transport, parser, audit oracle, and the succession \u2192 resolve \u2192 backfill pipeline that adds ~102 years of member coverage with exact succession dates."
+    },
+    {
+      "name": "modules-legislature-roster-build",
+      "path": "./docs/MODULES-LEGISLATURE-ROSTER-BUILD.md",
+      "description": "The roster PDF's #228 pre-1991 build modules \u2014 identity fold, party-change annotations, the observation projector, Person minting and retirement, minted-member emission, the sponsor-build deepening input, and the Phase B builder CLI."
     },
     {
       "name": "modules-legislature-spans",
@@ -88,7 +93,12 @@
     {
       "name": "commands-backfill",
       "path": "./docs/COMMANDS-BACKFILL.md",
-      "description": "Backfill commands \u2014 historical harvests, span builders, one-shot migrations, and write-free probes. Pair with USA_WA_BIENNIUM to target a non-current biennium."
+      "description": "Backfill commands \u2014 historical harvests, span builders, one-shot migrations, and write-free probes. Pair with USA_WA_BIENNIUM to target a non-current biennium. The roster PDF is in COMMANDS-ROSTER.md."
+    },
+    {
+      "name": "commands-roster",
+      "path": "./docs/COMMANDS-ROSTER.md",
+      "description": "Roster PDF commands \u2014 the Phase A harvest and its monthly dry-run edition re-check (#225/#237) with the alert runbook, the #226 succession backfill, and the #228 pre-1991 build (roster Persons, party spans, Senate seat spans) and its sidecar-paused deploy sequence."
     },
     {
       "name": "commands-seats",
@@ -108,7 +118,12 @@
     {
       "name": "deployment",
       "path": "./docs/DEPLOYMENT.md",
-      "description": "Deployment reference \u2014 systemd unit table, the OnFailure alerting chain, the owner/app/test DB role split, the restart and lifecycle table, and the assert-main-checkout gate that keeps the prod checkout on main."
+      "description": "Deployment reference \u2014 systemd unit table, the OnFailure alerting chain, the owner/app/test DB role split, the never-sync-the-venv convention, the restart and lifecycle table, and the verify-units gate."
+    },
+    {
+      "name": "deployment-host",
+      "path": "./docs/DEPLOYMENT-HOST.md",
+      "description": "Host hazards that break correct units \u2014 the assert-main-checkout gate that keeps the prod checkout on main (#87), the shared-venv integrity guard (#279), memory-pressure protection (MemoryLow, OOMScoreAdjust, earlyoom, #389), and the disk GC + slim ollama image host-maintenance commands (#394)."
     },
     {
       "name": "environment",
@@ -138,7 +153,12 @@
     {
       "name": "pipeline-conformed",
       "path": "./docs/PIPELINE-CONFORMED.md",
-      "description": "The #302 pipeline's conformed tier \u2014 the registry-joined products and the guards each carries: crosswalks and entity survivorship, the tenure-span engine (two families, one table, the #228 roster deepening and its refusals), the structurally keyed roles dimension and its role_type/name/qualifier parity, and the citations chain that replaces the Postgres Citation ledger (per-kind rules, the coverage probe, its zero gates and the uncited-persons ratchet)."
+      "description": "The #302 pipeline's conformed tier \u2014 the tenure-span engine (two families, one table, the #228 roster deepening and its refusals), the structurally keyed roles dimension and its role_type/name/qualifier parity, and the citations chain that replaces the Postgres Citation ledger (per-kind rules, the coverage probe, its zero gates and the uncited-persons ratchet)."
+    },
+    {
+      "name": "pipeline-conformed-entities",
+      "path": "./docs/PIPELINE-CONFORMED-ENTITIES.md",
+      "description": "The conformed tier's identity surface \u2014 person/org crosswalks read from the identity registry, and the persons/organizations entities with their survivorship rules and guards."
     },
     {
       "name": "pipeline-publication",

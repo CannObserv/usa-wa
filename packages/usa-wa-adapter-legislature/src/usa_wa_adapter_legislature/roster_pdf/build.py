@@ -27,8 +27,8 @@ Archive → identities → Persons + spans, in one gated pass:
 **Deploy sidecar-paused**, like every anchor-moving operation: deepening re-keys existing
 spans' ``source_id`` to earlier start-bienniums, stranding the shipped 1991-start rows —
 run ``sponsors.migrate_spans`` (the #97 collapse) in the same window to transfer their PM
-anchors onto the deepened spans, then resume. The full sequence lives in
-``docs/COMMANDS-BACKFILL.md``.
+anchors onto the deepened spans, then resume. The full sequence lives in the repo's
+``docs/COMMANDS-ROSTER.md`` § Pre-1991 build.
 """
 
 from __future__ import annotations

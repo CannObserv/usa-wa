@@ -89,7 +89,8 @@ Full command reference: [`docs/COMMANDS.md`](docs/COMMANDS.md) — it carries th
 index of every operational and backfill CLI, grouped by the reference that
 documents each: [succession](docs/COMMANDS-SUCCESSION.md),
 [backfill](docs/COMMANDS-BACKFILL.md),
-[seat facts](docs/COMMANDS-SEATS.md).
+[seat facts](docs/COMMANDS-SEATS.md),
+[roster PDF](docs/COMMANDS-ROSTER.md).
 
 Agent-facing docs (architecture, per-package module maps, deployment,
 environment) are indexed under **Detail Docs** in [`AGENTS.md`](AGENTS.md).
@@ -97,9 +98,9 @@ environment) are indexed under **Detail Docs** in [`AGENTS.md`](AGENTS.md).
 ## Deploy
 
 The systemd units live under [`deploy/`](deploy/) — the live API, a migrate
-oneshot, and ten timer-driven oneshots. (The PM sync sidecar and its three
-weekly committee reconcilers were the tenth through thirteenth until usa-wa#314
-retired the PM sync stack.)
+oneshot, and eleven timer-driven oneshots. (The PM sync sidecar and its three
+weekly committee reconcilers were four more until usa-wa#314 retired the PM sync
+stack.)
 
 Production secrets live in `/etc/usa-wa/.env` (managed manually on the VM, not in
 the repo) — **this file must exist before enabling any unit**, or migrate (owner
@@ -141,7 +142,9 @@ is to exit 1 and email the operator (`OnFailure=`, #49) when the data drifts —
 skip one and nothing fails, nothing alerts, and the absence looks identical to
 "no drift". The disk GC (#394) is the same bargain one layer down: it exits 1
 when free space runs out, which is how a nightly publish dies on ENOSPC instead
-of publishing.
+of publishing. The monthly roster re-check (#237) is the same bargain for a
+document revised about twice a decade: it archives nothing and exits 4 when a new
+edition is published — the alert is the only notice that one exists.
 
 ```bash
 # Host hygiene (daily) — reclaim before the day's work, not after it fails
@@ -163,6 +166,9 @@ sudo systemctl enable --now usa-wa-pipeline.timer                           # da
 
 # Sweep (weekly)
 sudo systemctl enable --now usa-wa-integrity-sweep.timer                    # weekly Sun 08:00 UTC
+
+# Edition re-check (monthly) — dry-run fetch; exit 4 = new roster edition → operator email
+sudo systemctl enable --now usa-wa-roster-pdf-recheck.timer                 # monthly 1st 09:00 UTC (#237)
 
 sudo systemctl list-timers 'usa-wa-*'                                       # verify next-elapse
 ```

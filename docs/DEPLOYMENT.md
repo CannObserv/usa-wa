@@ -4,6 +4,9 @@ Service topology, failure alerting, DB roles, the systemd lifecycle, and the
 environment-variable reference for the single-VM deployment. Operating rules
 that apply on nearly every task stay in [`AGENTS.md`](../AGENTS.md); this is the
 detail behind them.
+The host hazards — the main-only checkout guard (#87), shared-venv
+integrity (#279), memory pressure (#389) and the disk GC (#394) — are in
+[`DEPLOYMENT-HOST.md`](DEPLOYMENT-HOST.md).
 
 ## Services
 
@@ -21,6 +24,7 @@ detail behind them.
 | Committee lineage invariants (daily) | oneshot + timer | — | `systemctl` (`usa-wa-committee-lineage-invariants.timer` → `.service`; 07:30 UTC, #124 C4). Read-only coherence assertion — INV1 no `active=false` committee carries a live membership Assignment; INV2 the subject of a non-superseded `succeeded_by`/`merged_with` link is `active=false` (`split_from` exempt); exit 1 → operator email. Ordered after the refreshes + reconcile deactivate defunct committees + close their spans |
 | Dataset pipeline (daily) | oneshot + timer | — | `systemctl` (`usa-wa-pipeline.timer` → `.service`; 08:00 UTC, #311). The #302 nightly chain: three raw harvests → dbt build → registrar → publish → serving load → parity probes (`scripts/pipeline-nightly.sh`). Harvest failures contained (last good wires + publish gates protect); a build failure aborts; registrar conflicts, a publish-gate refusal, or a parity divergence exit 1 → operator email while the last good catalog stands. Either exit restates each failed stage's last stdout line (its harness summary, counters included) as the run's closing lines, since the email carries only the last 25 (#331). Ordered after the canonical refreshes (they are the parity oracle) |
 | Provenance integrity sweep (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-integrity-sweep.timer` → `.service`; Sun 08:00 UTC) |
+| Roster PDF edition re-check (monthly) | oneshot + timer | — | `systemctl` (`usa-wa-roster-pdf-recheck.timer` → `.service`; 1st 09:00 UTC, #237). The roster harvest (#225) run `--dry-run --force`: fetches the *Members of the Legislature* PDF, verifies its `Revision Date` against `DEFAULT_REVISION` in code, and rolls the archive write back. Exit 4 = a new edition is published (or the document cannot be located) → operator email, repeated monthly until the edition is harvested **and** the default bumped on `main` — runbook: [COMMANDS-ROSTER.md](COMMANDS-ROSTER.md) § Roster PDF. `--force` is load-bearing: the source's 90-day freshness cache would otherwise make every run a fetch-free cache hit. Not a refresh — nothing downstream reads it |
 | Disk GC + free-space sensor (daily) | oneshot + timer | — | `systemctl` (`usa-wa-disk-gc.timer` → `.service`; 05:45 UTC, #394). `scripts/disk-gc.sh --prune`: reclaims tooling copies no running process references (VS Code server builds, Claude Code extension versions (#399), Claude plugin-cache versions no live session marks in use (#407), `_npx` trees), measures the repo tiers without touching them (#396 owns their retention), and exits 1 below the free-space floor → operator email. First in the chain, ahead of the 06:00 ingest — reclaim, then work. The one unit carrying **neither** `ExecStartPre` guard: it runs no repo code, and #87/#279 both fail in the worktree-heavy state that fills the disk |
 | Failure alerts | templated oneshot | — | `OnFailure=` → `usa-wa-notify-failure@.service` |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
@@ -73,7 +77,8 @@ distinguishable from the email alone),
 `usa-wa-integrity-sweep`,
 `usa-wa-senate-corroboration`, `usa-wa-house-corroboration`,
 `usa-wa-succession-invariants`,
-`usa-wa-committee-lineage-invariants`) carries
+`usa-wa-committee-lineage-invariants`, `usa-wa-pipeline` (#311), `usa-wa-disk-gc` (#394),
+`usa-wa-roster-pdf-recheck` (#237 — its exit 4 is the new-edition notice)) carries
 `OnFailure=usa-wa-notify-failure@%n.service`, so systemd starts the templated
 handler on a non-zero exit **or** a `TimeoutStartSec=` hang. `%n` (the failing
 unit's full name) becomes the handler's instance.
@@ -115,33 +120,6 @@ DDL and DML rights are split across roles so a misconfigured DSN can't migrate/d
 - The **test DB** needs only its role + ownership — do **not** run `grants.sql` against it (its schemas don't exist until the suite creates them, so the schema-grant steps would error). Provision with: `psql -c "CREATE ROLE usa_wa_test_owner LOGIN PASSWORD '…'"` then `ALTER DATABASE usa_wa_test OWNER TO usa_wa_test_owner`.
 - The API lifespan logs a startup fingerprint (`current_user` + `current_database`) — role/DB confusion shows up in the first `journalctl` line.
 
-## Main-only checkout (issue #87)
-
-**Main-only checkout — enforced (issue #87).** The prod checkout at
-`/home/exedev/usa-wa` must stay on `main`: every code-running prod `.service`
-(serving + oneshots + migrate) carries `ExecStartPre=…/scripts/assert-main-checkout.sh`,
-so a unit **refuses to start** off a non-main
-(or detached) checkout — loud in the journal, and for the `OnFailure=`-wired
-oneshots an operator email. This closes the #84 hole: the PDC timer ran unmerged
-`feat/79` code purely because the repo was left checked out on that branch (the
-timer runs `uv run --frozen --no-sync` from whatever is checked out — no human
-sequencing error involved). Convention alone enforced nothing. Do **feature work
-in a git worktree** (see the `using-git-worktrees` skill), leaving the prod
-checkout on `main`. `USA_WA_DEPLOY_BRANCH` overrides the expected branch for a
-non-standard host. The notify handler (`usa-wa-notify-failure@.service`) is
-exempt (it's the alerting path); timers carry no guard (they run no code, only
-activate their guarded `.service`). The serving unit (`usa-wa`) carries a
-widened `StartLimitIntervalSec=300`/
-`StartLimitBurst=10` so an off-main checkout — which fails the guard on every
-`Restart=` attempt — settles into `failed` instead of looping forever (a
-transient dependency blip under ~50s still self-heals). **Recovery after an
-off-main wedge:** returning to `main` doesn't auto-restart a `failed` unit — the
-normal deploy (`systemctl restart …`) clears it; a bare `reset-failed` + `start`
-also works. `test_unit_ordering.py` asserts the guard is present on every
-code-running service, cross-checks the on-disk set (so a new service can't
-silently omit it), and asserts every `Restart=` unit's start-limit window is
-wide enough to bound the loop (`StartLimitIntervalSec >= RestartSec * StartLimitBurst`).
-
 ## Deploy convention: units never sync the venv (issue #30)
 
 **Deploy convention: units never sync the venv (issue #30).** Every systemd
@@ -151,7 +129,9 @@ entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
 `usa-wa-pdc-archive-refresh.service`, `usa-wa-sos-archive-refresh.service`,
 `usa-wa-integrity-sweep.service`, `usa-wa-senate-corroboration.service`,
 `usa-wa-house-corroboration.service`, `usa-wa-succession-invariants.service`,
-`usa-wa-committee-lineage-invariants.service`, `scripts/migrate.sh`).
+`usa-wa-committee-lineage-invariants.service`, `usa-wa-roster-pdf-recheck.service`,
+`scripts/migrate.sh`, `scripts/pipeline-nightly.sh`). The one exception is
+`usa-wa-disk-gc.service`, which runs plain bash and no Python at all (#394).
 `--no-sync` runs against the installed venv as-is; `--frozen` skips re-locking.
 So unit start never mutates the environment — the daily WSL refresh timer can't
 silently apply a dependency change a `git pull` landed in `uv.lock`. (Note:
@@ -182,170 +162,6 @@ run `sudo cp deploy/<unit> /etc/systemd/system/` **before** the `daemon-reload` 
 rows below prescribe — `daemon-reload` alone re-reads the stale installed copy and
 silently deploys nothing.
 
-## Shared-venv integrity (issue #279)
-
-The venv `/home/exedev/usa-wa/.venv` is shared by every unit, and #279 is the way
-it silently stops being the production one. The prod checkout is both
-`usa-wa.service`'s `WorkingDirectory=` and the parent of every worktree; the
-worktree skill's default symlinked that `.venv` into each new worktree, and `uv
-run` reinstalls the workspace project — so one `uv run pytest` inside a worktree
-restamped **all** the editable installs in the live venv at the worktree's paths:
-
-```
-- usa-wa-common==0.1.0 (from file:///home/exedev/usa-wa/.worktrees/docs-276-runbook-ordering/packages/usa-wa-common)
-+ usa-wa-common==0.1.0 (from file:///home/exedev/usa-wa/packages/usa-wa-common)
-```
-
-Nothing looked wrong: the gate ran green, the PR merged, and the running process
-kept serving from modules it had already imported. It detonated at the next
-`systemctl restart usa-wa`, days later, after the worktree was gone — and it
-detonated naming the logging config rather than the venv:
-
-```
-ModuleNotFoundError: No module named 'clearinghouse_core'
-ValueError: Cannot resolve 'clearinghouse_core.logging.build_json_formatter'
-ValueError: Unable to configure formatter 'json'
-```
-
-**The cause is closed.** `.skills/worktree_venv` holds `none`, so worktrees get no
-linked venv at all (docs/SKILLS.md § Worktree venv isolation) — provision one per
-worktree with `uv sync --locked`. Neither older guard covers this direction:
-`--frozen --no-sync` (#30) stops a *unit start* from mutating the venv, and
-`assert-main-checkout.sh` (#87) guards the checked-out *branch*.
-
-**The guard.** [`scripts/assert-venv-integrity.sh`](../scripts/assert-venv-integrity.sh) is
-wired as the second `ExecStartPre=` on all thirteen code-running `.service` units,
-directly after the #87 branch guard — same exemption (`usa-wa-notify-failure@`,
-the alerting path) and the same cross-check in `test_unit_ordering.py`, so a new
-service either carries both or is an explicit exemption. Branch guard first
-because it answers the prior question: off-main the venv legitimately points
-elsewhere, and a venv finding reported first sends the operator after a symptom.
-
-Unit start is the right place and a pre-commit gate is not. The corruption is
-committed by a *worktree*, whose own venv a gate running there would check
-instead; and it surfaces at a start that may be days later. That start is the
-moment the damage becomes visible, so it is the moment worth naming it.
-
-It reads every `*.dist-info/direct_url.json` in the venv — PEP 610's record of where
-each install came from, and exactly what `uv sync --locked` rewrote to repair
-#279 — and requires each editable one to resolve to `<root>/packages/<member>`.
-That is an allowlist rather than a check that the path is under the root, because
-a worktree *is* under the root: `/home/exedev/usa-wa/.worktrees/<slug>/packages/…`
-passes the obvious test and is the very state being caught. It fails closed on a
-missing `.venv` and on a venv carrying no editable installs at all (a unit
-starting against that raises the same `ModuleNotFoundError`).
-
-Run it by hand any time — it writes nothing and touches no network:
-
-```bash
-bash /home/exedev/usa-wa/scripts/assert-venv-integrity.sh && echo intact
-```
-
-`USA_WA_DEPLOY_ROOT` overrides the checkout root for a non-standard host.
-
-**Recovery**, once a unit refuses to start on it (journal: `assert-venv: refusing
-to start — …`). Returning the venv to health does not auto-restart a `failed`
-unit, exactly as with the #87 guard:
-
-```bash
-cd /home/exedev/usa-wa
-uv sync --locked
-sudo systemctl reset-failed usa-wa
-sudo systemctl restart usa-wa
-curl -s http://127.0.0.1:8000/health    # {"status":"ok","build":"..."} — /health, not /api/v1/health
-```
-
-Every code-running unit is affected the same way, not just `usa-wa`: the
-daily/weekly timers and `usa-wa-migrate` all start through `uv run`.
-
-## Memory pressure (issue #389)
-
-7.7 GiB, **no swap**, one production service and interactive agent sessions on the
-same host. That combination fails in an unusual way: past the ceiling the kernel
-does not reliably kill anything, it fails *atomic* allocations in unrelated
-processes (`tailscaled`, `ksoftirqd`) while the production service starves. On
-`CannObserv/broker` — same shape, 8 GB — the bus was effectively down 57m 48s with
-nothing OOM-killed ([gregoryfoster/skills#295](https://github.com/gregoryfoster/skills/issues/295)).
-
-**Measured here, 2026-09-19.** `preflight.sh --check` passed on memory (7.7 GiB,
-above the 4 GiB warn) and flagged the absent swap. `usa-wa.service` read
-`oom_score` **668**; three concurrent SocratiCode MCP servers, launched from
-`npx` caches under two *different* hashes, read **676–679**. Cause and victim
-within noise of each other. Broker's report that exe.dev session processes sit at
-`oom_score_adj` -1000 and so can never be picked does **not** reproduce here:
-`exe-init` reads 0, only `sshd` reads -1000, and session-launched servers inherit
-0. `postgresql.service` already ships at -900 from the Debian packaging.
-
-Four changes, in the order they take effect:
-
-| Layer | Change | Where it lives |
-|---|---|---|
-| Don't create the spike | SocratiCode pinned to a pre-installed 1.14.0 instead of `npx … @latest` per launch | `~/.socraticode/pin` — [docs/SOCRATICODE.md § The server is pinned](SOCRATICODE.md#the-server-is-pinned-not-installed-per-launch-389) |
-| Keep the kernel's reserve | `vm.min_free_kbytes` 11399 → **65536** (~64 MiB, ~0.8% of RAM) | `/etc/sysctl.d/60-usa-wa-memory.conf` |
-| Kill the cause before the kernel stalls | **earlyoom** 1.7, `--prefer '^(node\|npm\|esbuild)$'`, `--avoid '^(uv\|uvicorn\|postgres\|sshd\|systemd\|dockerd\|tailscaled)$'` | `/etc/default/earlyoom` |
-| Protect the victim | `MemoryLow=256M` + `OOMScoreAdjust=-500` on `usa-wa.service`, **plus `MemoryLow=1G` on `system.slice`** | `deploy/usa-wa.service` + `deploy/system.slice.d/`, pinned by `test_unit_ordering.py` and `test_memory_protection.py` |
-
-Two details that are easy to get wrong:
-
-- **The serving unit's process name is `uv`, not `uvicorn`.** `ExecStart` is `uv
-  run … uvicorn`, so `comm` is `uv` — an earlyoom `--avoid` regex written for
-  `uvicorn` protects nothing. Both are listed.
-- **With zero swap, earlyoom's swap condition is always satisfied** (`0 <= 10%`),
-  so the memory threshold alone governs. That is the intent here; on a host with
-  swap, both must be below their minimum before it acts.
-
-`MemoryLow` is a *reservation*, not a limit — systemd never refuses an allocation
-because of it. The unit's measured peak is ~62 MB, so 256M is headroom.
-
-**`MemoryLow=` on the unit alone reserves nothing.** A cgroup's effective
-`memory.low` is capped by its ancestors', and `system.slice` defaults to `0` —
-measured here on 2026-09-19, with cgroup2 mounted `rw,relatime` (no
-`memory_recursiveprot`) and `DefaultMemoryLow` unset, so
-`min(256M, 0)` was **0** while the unit reported the directive as set. The parent
-protection is `deploy/system.slice.d/10-usa-wa-memory.conf`; without it the unit
-half is decorative. `test_memory_protection.py` asserts the slice's reservation
-covers the unit's, so raising one without the other fails the gate.
-
-### Installing the host artifacts
-
-Three of the four layers live under `deploy/`, mirroring their install paths, and
-are copied into place the same way the units are — root-owned copies, never
-symlinks:
-
-```bash
-sudo mkdir -p /etc/systemd/system/system.slice.d
-sudo cp deploy/system.slice.d/10-usa-wa-memory.conf /etc/systemd/system/system.slice.d/
-sudo cp deploy/sysctl.d/60-usa-wa-memory.conf /etc/sysctl.d/
-sudo cp deploy/default/earlyoom /etc/default/earlyoom
-sudo systemctl daemon-reload && sudo sysctl --system && sudo systemctl restart earlyoom
-```
-
-A fifth landed with #394, on the same copy-don't-symlink rule — the journal cap:
-
-```bash
-sudo mkdir -p /etc/systemd/journald.conf.d
-sudo cp deploy/journald.conf.d/10-usa-wa-journal-cap.conf /etc/systemd/journald.conf.d/
-sudo systemctl restart systemd-journald
-```
-
-`/etc/systemd/journald.conf` sets no `SystemMaxUse=`, so the journal grows to
-journald's default 10% of the filesystem (~2.5 G here) and had drifted to 695 M
-before #394. The cap is why `usa-wa-disk-gc.service` does not vacuum the journal
-and therefore needs no privilege.
-
-The fourth, the SocratiCode pin, is a per-host `npm install` and is not a repo
-artifact — [docs/SOCRATICODE.md § The server is pinned](SOCRATICODE.md#the-server-is-pinned-not-installed-per-launch-389).
-
-### Verifying
-
-```bash
-systemctl show usa-wa.service -p MemoryCurrent -p MemoryPeak -p MemoryLow -p OOMScoreAdjust
-cat /sys/fs/cgroup/system.slice/memory.low        # must be non-zero, else the unit's is inert
-systemctl status earlyoom                          # hourly `mem avail:` report in the journal
-tr '\0' '\n' < /proc/$(systemctl show earlyoom -p MainPID --value)/cmdline
-sysctl vm.min_free_kbytes
-```
-
 ## Lifecycle reference
 
 | Situation | Action |
@@ -363,6 +179,7 @@ sysctl vm.min_free_kbytes
 | After editing `deploy/usa-wa-house-corroboration.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-house-corroboration.timer` |
 | After editing `deploy/usa-wa-succession-invariants.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-succession-invariants.timer` |
 | After editing `deploy/usa-wa-committee-lineage-invariants.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-committee-lineage-invariants.timer` |
+| After editing `deploy/usa-wa-roster-pdf-recheck.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-roster-pdf-recheck.timer` |
 | After editing `deploy/usa-wa-disk-gc.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-disk-gc.timer` |
 | After editing `deploy/usa-wa-notify-failure@.service` | `sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
 | After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
@@ -375,6 +192,7 @@ sysctl vm.min_free_kbytes
 | Run the House corroboration now (ad-hoc) | `sudo systemctl start usa-wa-house-corroboration.service` |
 | Run the succession invariant check now (ad-hoc) | `sudo systemctl start usa-wa-succession-invariants.service` |
 | Run the committee lineage invariant check now (ad-hoc) | `sudo systemctl start usa-wa-committee-lineage-invariants.service` |
+| Re-check the roster PDF edition now (ad-hoc) | `sudo systemctl start usa-wa-roster-pdf-recheck.service` (one 5.7MB GET; archives nothing) |
 | Reclaim disk / check free space now (ad-hoc) | `sudo systemctl start usa-wa-disk-gc.service`, or `scripts/disk-gc.sh` for a report that removes nothing. Needs no DB and no venv — it is the one unit that still runs with a feature branch checked out |
 
 ## Validating unit edits (#51)

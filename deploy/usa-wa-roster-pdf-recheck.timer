@@ -1,0 +1,18 @@
+[Unit]
+Description=usa-wa — monthly roster PDF edition re-check
+Documentation=https://github.com/CannObserv/usa-wa/issues/237
+
+[Timer]
+# Monthly, the 1st at 09:00 UTC — clear of the whole daily chain (05:45 disk GC through the
+# 08:00 pipeline) and the Sunday 08:00 integrity sweep. Monthly rather than the spec's
+# quarterly (decided on #237): one 5.7MB GET a month (~69MB/yr) bounds detection latency on a
+# document revised ~biennially to a month. Read-only — a missed-then-caught run is safe.
+OnCalendar=*-*-01 09:00:00 UTC
+# Run on next boot if the box was down at the scheduled time — at this cadence a missed run
+# would otherwise wait a month.
+Persistent=true
+# Jitter to avoid firing on the dot.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
