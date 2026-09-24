@@ -24,8 +24,10 @@ import re
 import shlex
 from unittest.mock import patch
 
+import pytest
 from systemd_units import DEPLOY, unit_value, unit_values
 
+from clearinghouse_core.job import EXIT_DEGRADED
 from clearinghouse_core.testing import patch_job_runtime
 from usa_wa_adapter_legislature.roster_pdf import harvest as harvest_module
 from usa_wa_adapter_legislature.roster_pdf.harvest import DEFAULT_REVISION, RosterHarvestSummary
@@ -70,17 +72,22 @@ def test_the_unit_pins_no_revision_of_its_own() -> None:
     assert not any(arg.startswith("--revision") for arg in _harvest_argv())
 
 
-def test_a_new_edition_exits_non_zero_so_the_alert_fires(monkeypatch) -> None:
-    """``OnFailure=`` fires on a non-zero exit only, so a mismatch must not exit 0."""
+@pytest.mark.parametrize(
+    "condition",
+    [{"mismatch": "stamps 2027-06-01"}, {"unavailable": True}],
+    ids=["new-edition", "unlocatable"],
+)
+def test_both_operator_conditions_exit_degraded_so_the_alert_fires(monkeypatch, condition) -> None:
+    """``OnFailure=`` fires on any non-zero exit, but the alert's subject line carries the
+    code, and the runbook reads 4 as "act on the edition" and 1 as "an outage, wait". Both
+    operator conditions must therefore exit exactly 4 (CR 3)."""
     patch_job_runtime(monkeypatch)
 
-    async def _new_edition(_session, **kwargs):
-        return RosterHarvestSummary(
-            revision=kwargs["revision"], archived=0, mismatch="stamps 2027-06-01"
-        )
+    async def _degraded(_session, **kwargs):
+        return RosterHarvestSummary(revision=kwargs["revision"], archived=0, **condition)
 
-    with patch.object(harvest_module, "harvest_roster", _new_edition):
-        assert harvest_module.main(_harvest_argv()) != 0
+    with patch.object(harvest_module, "harvest_roster", _degraded):
+        assert harvest_module.main(_harvest_argv()) == EXIT_DEGRADED
     assert unit_values(SERVICE, "Unit", "OnFailure") == ["usa-wa-notify-failure@%n.service"]
 
 
