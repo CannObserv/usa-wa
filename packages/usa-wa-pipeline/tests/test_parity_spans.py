@@ -516,6 +516,9 @@ async def test_a_clean_run_reports_every_integrity_counter_at_zero(db_session, t
     assert result.counters["malformed_roster_rows"] == 0
     assert result.counters["unparsable_canonical_keys"] == 0
     assert result.counters["unregistered_orgs"] == 0
+    assert result.counters["role_entity_mismatches"] == 0
+    # reported, never gated (#402) — present and zero, not absent
+    assert result.counters["role_post_seed"] == 0
     assert result.counters["integrity_failures"] == []
 
 
@@ -799,17 +802,3 @@ async def test_a_role_minted_after_the_seed_is_post_seed_not_a_mismatch(
     assert result.counters["role_post_seed"] == 1
     assert result.counters["integrity_failures"] == []
     assert result.outcome == OUTCOME_OK
-
-
-async def test_a_clean_seeded_run_reports_no_post_seed_roles(db_session, tmp_path) -> None:
-    """The complement: every role the seed carried across keeps its ULID, so
-    the counter is present and zero rather than absent."""
-    role = await _seed_role(db_session)
-    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
-    await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
-    await _bind_key(db_session, f"{SOURCE}:100")
-    await _seed_roster_family(db_session, role)
-    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
-    assert result.outcome == OUTCOME_OK
-    assert result.counters["role_post_seed"] == 0
-    assert result.counters["role_entity_mismatches"] == 0
