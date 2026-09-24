@@ -57,11 +57,16 @@ ENABLE_RE = re.compile(
     r"^\s*sudo systemctl enable --now\s+(?P<units>[^#]+?)\s*(?:#\s*(?P<note>.*))?$"
 )
 ONCALENDAR_RE = re.compile(
-    r"^(?:(?P<weekday>[A-Za-z]{3})\s+)?\*-\*-\*\s+(?P<hh>\d{2}):(?P<mm>\d{2}):\d{2}\s+UTC$"
+    r"^(?:(?P<weekday>[A-Za-z]{3})\s+)?\*-\*-(?P<day>\*|\d{2})\s+"
+    r"(?P<hh>\d{2}):(?P<mm>\d{2}):\d{2}\s+UTC$"
 )
+#: The last day every month has. A later one (``*-*-31``) silently skips the short months.
+LAST_UNIVERSAL_DAY = 28
 COUNT_RE = re.compile(r"(\w+)\s+timer-driven oneshots")
-# A cadence as the docs write it: "06:00 UTC" or "Sun 07:45 UTC".
-PROSE_CADENCE_RE = re.compile(r"(?:(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+)?(\d{2}):(\d{2})\s+UTC")
+# A cadence as the docs write it: "06:00 UTC", "Sun 07:45 UTC" or "1st 09:00 UTC" (#237).
+PROSE_CADENCE_RE = re.compile(
+    r"(?:(Mon|Tue|Wed|Thu|Fri|Sat|Sun|\d{1,2}(?:st|nd|rd|th))\s+)?(\d{2}):(\d{2})\s+UTC"
+)
 TIMER_MENTION_RE = re.compile(r"usa-wa-[\w-]+\.timer")
 
 
@@ -69,8 +74,49 @@ def shipped_timers() -> set[str]:
     return {p.name for p in DEPLOY.glob("*.timer")}
 
 
+def ordinal(day: int) -> str:
+    """How the docs write a monthly timer's day: 1 → ``1st``, 12 → ``12th``, 22 → ``22nd``."""
+    suffix = "th" if 11 <= day % 100 <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{day}{suffix}"
+
+
+def parse_on_calendar(value: str, unit: str = "OnCalendar") -> tuple[str | None, str, str]:
+    """Parse one OnCalendar= value into (qualifier, HH, MM).
+
+    The qualifier is what the docs write before the clock time: ``None`` for a daily
+    timer, the weekday (``Sun``) for a weekly one, the ordinal day (``1st``) for a
+    monthly one (#237). Two monthly shapes are refused rather than rendered, because
+    each fires on fewer occasions than any phrase for it would claim.
+    """
+    match = ONCALENDAR_RE.match(value)
+    assert match, f"{unit}: unhandled OnCalendar form {value!r} — extend ONCALENDAR_RE"
+    weekday, day = match["weekday"], match["day"]
+    if day == "*":
+        return weekday, match["hh"], match["mm"]
+    assert weekday is None, (
+        f"{unit}: {value!r} fires only on a {weekday} that falls on day {day} — "
+        "neither weekly nor monthly, so no cadence the docs state would be true"
+    )
+    assert int(day) <= LAST_UNIVERSAL_DAY, (
+        f"{unit}: {value!r} skips every month without a day {day}, yet the docs would call "
+        f"it monthly — schedule it on day {LAST_UNIVERSAL_DAY} or earlier"
+    )
+    return ordinal(int(day)), match["hh"], match["mm"]
+
+
+def period(qualifier: str | None) -> str:
+    """``daily``, ``weekly`` or ``monthly`` — read off the qualifier's shape."""
+    if qualifier is None:
+        return "daily"
+    return "monthly" if qualifier[0].isdigit() else "weekly"
+
+
+#: Provisioning order: every daily, then every weekly, then every monthly.
+PERIOD_RANK = {"daily": 0, "weekly": 1, "monthly": 2}
+
+
 def schedule(timer: str) -> tuple[str | None, str, str]:
-    """Parse a timer's own OnCalendar= into (weekday or None, HH, MM).
+    """Parse a timer's own OnCalendar= into (qualifier, HH, MM) — see ``parse_on_calendar``.
 
     ``OnCalendar=`` is *additive*: repeated lines each add an elapse expression
     (and a bare ``OnCalendar=`` resets the list), so a multi-schedule timer can't
@@ -82,15 +128,19 @@ def schedule(timer: str) -> tuple[str | None, str, str]:
         f"{timer}: {len(values)} OnCalendar= lines — the docs state one cadence per "
         f"timer; extend the renderer (and the docs) before shipping a multi-schedule timer"
     )
-    match = ONCALENDAR_RE.match(values[0])
-    assert match, f"{timer}: unhandled OnCalendar form {values[0]!r} — extend ONCALENDAR_RE"
-    return match["weekday"], match["hh"], match["mm"]
+    return parse_on_calendar(values[0], timer)
+
+
+def render_cadence(qualifier: str | None, hh: str, mm: str) -> str:
+    """The phrase README's comment must open with: ``daily 06:00 UTC``, ``weekly Sun …``,
+    ``monthly 1st …``."""
+    when = f"{hh}:{mm} UTC"
+    return f"{period(qualifier)} {qualifier} {when}" if qualifier else f"daily {when}"
 
 
 def cadence_phrase(timer: str) -> str:
     """Render a timer's OnCalendar= as the phrase README's comment must open with."""
-    weekday, hh, mm = schedule(timer)
-    return f"weekly {weekday} {hh}:{mm} UTC" if weekday else f"daily {hh}:{mm} UTC"
+    return render_cadence(*schedule(timer))
 
 
 def section_lines(path: Path, heading: str) -> list[str]:
@@ -206,8 +256,9 @@ def test_enable_comment_states_the_units_own_cadence(timer):
 
 
 def test_enable_block_is_ordered_by_next_elapse():
-    """Dailies before weeklies, each group by clock time — the order an operator provisions in."""
-    keyed = [(bool(w), h, m) for w, h, m in (schedule(t) for t in enable_block())]
+    """Dailies, then weeklies, then monthlies, each group by clock time — the order an
+    operator provisions in."""
+    keyed = [(PERIOD_RANK[period(q)], h, m) for q, h, m in (schedule(t) for t in enable_block())]
     assert keyed == sorted(keyed)
 
 
@@ -233,8 +284,8 @@ def test_deployment_table_cadence_matches_the_unit(timer):
     row = deployment_rows().get(timer, "")
     found = PROSE_CADENCE_RE.findall(row)
     assert len(found) == 1, f"{timer}: expected one cadence in its § Services row, found {found}"
-    weekday, hh, mm = found[0]
-    assert (weekday or None, hh, mm) == schedule(timer)
+    qualifier, hh, mm = found[0]
+    assert (qualifier or None, hh, mm) == schedule(timer)
 
 
 @pytest.mark.parametrize("doc", [README, DEPLOYMENT_DOC], ids=["README", "DEPLOYMENT"])
@@ -323,3 +374,76 @@ def test_timer_rows_rejects_a_second_row_for_one_timer():
     ]
     with pytest.raises(AssertionError, match="usa-wa-wsl-refresh.timer"):
         timer_rows(rows)
+
+
+# --- monthly cadence (#237) --------------------------------------------------
+# The roster edition re-check is the first timer that is neither daily nor weekly. The parser
+# learns the one monthly shape it ships (``*-*-DD``) and refuses the two that would let a doc
+# state a cadence the unit does not keep.
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("*-*-* 06:00:00 UTC", (None, "06", "00")),
+        ("Sun *-*-* 08:00:00 UTC", ("Sun", "08", "00")),
+        ("*-*-01 09:00:00 UTC", ("1st", "09", "00")),
+        ("*-*-15 23:30:00 UTC", ("15th", "23", "30")),
+    ],
+)
+def test_parse_on_calendar_reads_daily_weekly_and_monthly(value, expected):
+    """The qualifier is what the docs write before the clock: none, a weekday, an ordinal day."""
+    assert parse_on_calendar(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("qualifier", "phrase"),
+    [
+        (None, "daily 06:00 UTC"),
+        ("Sun", "weekly Sun 06:00 UTC"),
+        ("1st", "monthly 1st 06:00 UTC"),
+    ],
+)
+def test_render_cadence_names_the_period(qualifier, phrase):
+    """README's comment opens with the period, so a monthly unit can't read as a daily one."""
+    assert render_cadence(qualifier, "06", "00") == phrase
+
+
+@pytest.mark.parametrize(
+    ("day", "rendered"),
+    [
+        (1, "1st"),
+        (2, "2nd"),
+        (3, "3rd"),
+        (4, "4th"),
+        (11, "11th"),
+        (12, "12th"),
+        (13, "13th"),
+        (21, "21st"),
+        (22, "22nd"),
+        (23, "23rd"),
+        (28, "28th"),
+    ],
+)
+def test_ordinal_day_suffixes(day, rendered):
+    """11-13 take "th" — the case a last-digit lookup alone gets wrong."""
+    assert ordinal(day) == rendered
+
+
+def test_parse_on_calendar_rejects_a_weekday_and_a_day_together():
+    """``Sun *-*-01`` fires only on a 1st that is a Sunday: neither weekly nor monthly."""
+    with pytest.raises(AssertionError, match="neither weekly nor monthly"):
+        parse_on_calendar("Sun *-*-01 09:00:00 UTC")
+
+
+def test_parse_on_calendar_rejects_a_day_that_skips_short_months():
+    """``*-*-31`` silently skips seven months a year; the docs would still say "monthly"."""
+    with pytest.raises(AssertionError, match="skips"):
+        parse_on_calendar("*-*-31 09:00:00 UTC")
+
+
+def test_prose_cadence_reads_an_ordinal_day():
+    """The § Services row states a monthly cadence as "1st 09:00 UTC"."""
+    assert PROSE_CADENCE_RE.findall("(`x.timer` → `.service`; 1st 09:00 UTC, #237)") == [
+        ("1st", "09", "00")
+    ]
