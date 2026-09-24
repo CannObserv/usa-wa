@@ -74,7 +74,7 @@ What survives:
    - Done when `lint-imports` enforces the contract, and a scratch publish matches that night's catalog digests byte for byte.
 5. **PR E: stop the write path.** All of this is reversible:
    - Disable nine units: the WSL, PDC and SOS refreshes, both archive refreshes, succession invariants, committee lineage invariants, and House and Senate corroboration. Keep the unit files. The integrity sweep unit stays: PR C already repointed it.
-   - Remove `usa-wa-pipeline.service`'s `After=` on the refreshes, together with `test_unit_ordering`.
+   - Remove `usa-wa-pipeline.service`'s `After=` on the refreshes, and update the expected edges `test_unit_ordering` pins for it (the file's other guards stay).
    - Remove the parity stage from `pipeline-nightly.sh`.
    - Done when 7 consecutive nightlies are green.
 6. **PR F: delete and drop.**
