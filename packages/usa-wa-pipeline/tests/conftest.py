@@ -18,8 +18,8 @@ _HERMETIC_ENV = (
 def hermetic_build(tmp_path_factory):
     """A full `dbt build` into a throwaway duckdb, with no database anywhere.
 
-    Session-scoped: the build is the expensive part (~6s), and the contract and
-    type-fidelity checks read the same shapes out of it. The env is set for the
+    Session-scoped: the build is the expensive part (~6s), and the build-green,
+    contract and type-fidelity checks all read it. The env is set for the
     build alone and restored before the first test sees the path, so the
     hermetic marker never leaks into an unrelated test.
     """
