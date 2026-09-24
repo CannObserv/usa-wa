@@ -45,12 +45,14 @@ changed a decision above; each is a shape the build settled differently.
   `parity_registry` is the probe. Nine packages, not ten.
 - **Splink's fuzzy tail is deferred**, not built (transition step 4 names it). The seeded
   registry carries every historical link, so exact rules only need the forward flow —
-  `docs/PIPELINE.md` § Matching, measured 2026-09-03: 813 proposals → 0 mints, 0 conflicts.
+  `docs/PIPELINE.md` § Identity registry (#308), measured 2026-09-03: 813 proposals → 0
+  mints, 0 conflicts.
   Revisit if the forward flow starts leaving persons unpaired beyond #403's singleton rule.
 - **Citations ship as an `internal` catalog tier**, not an unpublished artifact: listed in
   `catalog.json`, published bytes, no stability promise, columns follow the API
-  (`docs/PIPELINE-PUBLICATION.md` § Tiers). The Decisions-log row's "internal (unpublished)"
-  is superseded by that; the deferred public `citations` dataset stays deferred.
+  (`docs/PIPELINE-PUBLICATION.md` § Publication (#311), its tier table). The Decisions-log
+  row's "internal (unpublished)" is superseded by that; the deferred public `citations`
+  dataset stays deferred.
 - **Transition steps 7 and 9–10 as executed.** `pm_anchors` (#312) shipped, then #314
   retired it once power-map#525 re-keyed onto `span_key`; `SCHEMA_VERSION` went 2.0.0 for
   that removal. Step 10 split three ways: #314 (steps A, B and the ungated half of C
