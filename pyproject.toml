@@ -95,10 +95,6 @@ omit = [
     "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/pdc.py",
     "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/statutes.py",
     "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/votes.py",
-    # Retired tier (#314): PM's role_types mirror, whose writer and reader both
-    # went with the sync sidecar. Same reasoning as the declared modules above —
-    # the only lines coverage sees are the class body executing on import.
-    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/role_types.py",
 ]
 
 [tool.coverage.report]
