@@ -56,9 +56,10 @@ changed a decision above; each is a shape the build settled differently.
 - **Transition steps 7 and 9–10 as executed.** Step 7: the anchor export (#312) shipped as
   the `pm_anchors` dataset (#354), then #314 retired it once power-map#525 re-keyed onto
   `span_key`; `SCHEMA_VERSION` went 2.0.0 for that removal. Step 9: usa-wa froze its side on
-  2026-09-08 at PM's request (the sidecar and three committee reconcilers masked, #314),
-  deleted the stack on 09-14 and removed the PM API key from its env the same day; PM's
-  revocation of that key is still outstanding. Step 10 split three ways: #314 (steps A, B
+  2026-09-08 at PM's request (the sidecar and three committee reconcilers masked, #314), and
+  PM revoked the key's two write scopes the same day (power-map#494). The key itself stays
+  active and read-capable on PM's side; usa-wa deleted the stack and its copy of the key on
+  09-14. Step 10 split three ways: #314 (steps A, B
   and the ungated half of C shipped; the gated half — the `pm_*` columns — folded into
   #412), #412 (step D: canonical write path, parity harness, `clearinghouse-core` shrink,
   table + column drops), #413 (step E: coverage floors, PM leftovers). The parity harness
