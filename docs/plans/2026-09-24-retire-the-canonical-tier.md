@@ -22,6 +22,7 @@ blocks a deletion:
 | Unported checks: chamber counts 49/98, one person on two seats, misdated spans (#272), House and Senate odd-year corroboration, lineage INV1/INV2 | four units | retiring units |
 | The pipeline imports DB-writing modules transitively: `conformed/spans` → `roster_pdf/build` → `span_emit`, `operators.store`; `conformed/house` → `facts_seats/house/build`; `conformed/roles` → `normalize/members` → `.adapter`, `.jurisdictions`; the job harness → `models` → `provenance`, `jurisdictions` | usa-wa-pipeline, clearinghouse-core | deleting modules |
 | `/sources` routes read `sources` + `source_coverage`; `sources.jurisdiction_id` FKs `jurisdictions` | `usa_wa_api/api/v1/ops.py` | dropping provenance and jurisdictions whole |
+| `source_coverage.evidence_citation_id` FKs `citations`, and `SourceCoverageOut` publishes it (populated in 0 of 5 rows) | `source_coverage.py:246`, `v1/schemas.py:218` | dropping `citations` (Q5) |
 | The file integrity sweep exists but nothing runs it (idle since 09-03) | `clearinghouse_core.raw_integrity` | retiring the Postgres sweep |
 | 15 payloads fetched after the 09-03 export exist only in Postgres (6 WSL, 5 PDC, 4 operator) | `raw_payloads` | dropping provenance |
 | The roster PDF has no raw-store writer, and its monthly re-check still opens Postgres provenance tables | #421 | dropping provenance |
@@ -82,6 +83,7 @@ What survives:
    - Remove the Postgres-tier modules, the `parity_*` probes, `registry_seed`, `runner.py`, `adapter.py` and `span_emit`.
    - Remove the canonical identity models and the PM-mirror half of `jurisdictions.py`.
    - Cut `provenance.py` down to `Source` + `SourceCoverage`, and delete the retired units' files.
+   - Resolve `source_coverage.evidence_citation_id` per Q5 before its target goes.
    - Write one alembic migration that drops the `canonical` schema, `fetch_events`, `raw_payloads`, `citations`, `integrity_sweep_state`, `notes`, `document_identifiers`, both jurisdiction-relationship tables, and every `pm_*` column.
    - In the same commit, update `grants.sql`, `LEGACY_MIGRATION_SCHEMAS`, `test_grants_append_only` and the `test_declared_tier` markers.
    - Done when #412's acceptance holds.
@@ -95,5 +97,6 @@ What survives:
 - **Q2: committee lineage (#124).** Published `organizations` has carried no `active` flag and no succession since #313, so this is already a product gap. Recommend porting `active` in the bundled 2.1.0 contract bump (#384, #369), gating INV1 on it, and deferring a succession dataset. INV2 waits with it, and `committee_succession_events` moves in PR A so the option stays open.
 - **Q3: the Senate corroboration citation writer.** It cites SOS on `valid_from`, and the citations artifact excludes SOS by design. Recommend keeping the check (PR B) and dropping the writer, with that reason recorded.
 - **Q4: `sources.jurisdiction_id` is in the API (`SourceOut`).** Recommend keeping a trimmed `jurisdictions` table seeded from `usa_wa_common` as the FK target, rather than changing the contract.
+- **Q5: `source_coverage.evidence_citation_id`.** It FKs `citations`, which PR F drops, and `/sources/{slug}/coverage` publishes it as `SourceCoverageOut.evidence_citation_id`. It has never carried a value (0 of 5 rows). Recommend dropping the column and the API field in PR F, with an API.md migration note; keeping the field as always-null is the alternative if removing a field counts as breaking for `/api/v1`'s consumers.
 - **Risk: PR D is the only step that could change published bytes by accident.** The digest comparison is its gate.
 - **Risk: after PR E nothing re-derives canonical.** A rollback past E means re-running the refreshes, which are idempotent. That holds until PR F drops the tables.
