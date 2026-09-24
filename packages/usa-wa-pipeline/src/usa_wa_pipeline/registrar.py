@@ -160,12 +160,17 @@ def load_sponsor_keys(db_path: str) -> list[str]:
     ``missing`` and be adjudicated, never minted and published as a duplicate;
     a PDC id is a crosswalk key riding a WSL person's pair. Both stay
     pair-only.
+
+    Numeric ids only (CR 1): a singleton mints on this one value, uncorroborated,
+    and the registry has no delete. Staging renders a blank ``Id`` as ``''``,
+    which its ``not_null`` test passes — skipped here, a malformed id surfaces
+    as ``person_missing``, never as a published ``usa_wa_legislature:`` person.
     """
     con = duckdb.connect(db_path, read_only=True)
     try:
         rows = con.execute(
             "select distinct cast(member_id as varchar) from stg_wsl_sponsors "
-            "where member_id is not null"
+            "where regexp_full_match(cast(member_id as varchar), '[0-9]+')"
         ).fetchall()
     finally:
         con.close()

@@ -279,6 +279,24 @@ def test_sponsor_natural_keys_are_every_staged_wsl_member(tmp_path) -> None:
     assert load_sponsor_keys(db_path) == ["usa_wa_legislature:1", "usa_wa_legislature:27992"]
 
 
+def test_a_sponsor_id_that_is_not_numeric_is_never_a_key(tmp_path) -> None:
+    """#403 CR 1: a singleton mints on one upstream value alone, and the
+    registry has no delete — so only the numeric ids WSL serves may do it.
+    Staging's `text()` renders a blank `Id` as `''`, which `not_null` passes;
+    skipped here, it surfaces as `person_missing`, never as a published
+    `usa_wa_legislature:` person."""
+    db_path = str(tmp_path / "s.duckdb")
+    con = duckdb.connect(db_path)
+    con.execute(
+        "create table stg_wsl_sponsors as select * from (values "
+        "('2025-26', '27992', 'House'), ('2025-26', '', 'House'), "
+        "('2025-26', ' 7 ', 'House'), ('2025-26', 'abc', 'Senate')"
+        ") t(biennium, member_id, agency)"
+    )
+    con.close()
+    assert load_sponsor_keys(db_path) == ["usa_wa_legislature:27992"]
+
+
 @pytest.mark.db
 async def test_the_nightly_job_registers_a_wsl_sponsor_no_rule_pairs(db_session, tmp_path) -> None:
     """#403: `proposed_links` holds only matched pairs, so a legislator no rule
