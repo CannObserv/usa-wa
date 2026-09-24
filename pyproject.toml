@@ -66,7 +66,8 @@ filterwarnings = [
 # a measured 65.47%, 7,205/11,005, with 95.75% for the full run.) Enough that one PR
 # adding a DB-backed module does not fail an unrelated build; tight enough to notice a
 # tier that stops exercising things. Ratchet it up as the number climbs; it is not an
-# aspiration. Re-measure again after #412 retires the canonical tier.
+# aspiration. test_coverage_profiles pins both floors to their measurement, so a ratchet
+# moves the value there too. Re-measure again after #412 retires the canonical tier.
 #
 # Gating costs the tier its speed — instrumentation roughly doubles it (~11s to ~27s
 # when this was added; 91s to 196-208s on 2026-09-22) — so `--no-cov` stays documented
