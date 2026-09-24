@@ -82,3 +82,16 @@ def test_env_float_falls_back_on_malformed(monkeypatch) -> None:
     # A bad env value must not crash every caller with an import-time ValueError.
     monkeypatch.setenv("USA_WA_TEST_INTERVAL", "fast")
     assert env_float("USA_WA_TEST_INTERVAL", 9.0) == 9.0
+
+
+def test_env_float_falls_back_on_infinity(monkeypatch) -> None:
+    # float("inf") parses, but the limiter's second acquire() then asks time.sleep for an
+    # infinite delay and raises OverflowError: a crash one request later, not at import.
+    monkeypatch.setenv("USA_WA_TEST_INTERVAL", "inf")
+    assert env_float("USA_WA_TEST_INTERVAL", 9.0) == 9.0
+
+
+def test_env_float_falls_back_on_nan(monkeypatch) -> None:
+    # max(0.0, nan) is 0.0, so a NaN interval silently disables the limiter.
+    monkeypatch.setenv("USA_WA_TEST_INTERVAL", "nan")
+    assert env_float("USA_WA_TEST_INTERVAL", 9.0) == 9.0
