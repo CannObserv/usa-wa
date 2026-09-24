@@ -279,6 +279,11 @@ async def record_fetch(
     ``fetcher`` returns an adapter fetch object exposing ``.wire`` (bytes) and
     optionally ``.content_type``. An error is contained: recorded ``err``,
     logged under ``log_event``, counted — never raised.
+
+    One exception: a payload with ``wire=None`` raises ``ValueError``. That is a
+    broken transport contract, not per-resource weather (CR 44), so a caller
+    wraps it in :class:`~clearinghouse_core.job.JobFailure` to keep its counters
+    on the failed run (#331).
     """
     if ttl_days and store.is_fresh(resource_id, ttl_days=ttl_days):
         run.record(resource_id, None, url=url, status="skipped")
