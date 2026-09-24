@@ -225,7 +225,7 @@ async def _bind_key(
     genuinely 0.
 
     ``entity_id`` pins the entity to an existing id — what the seed does for
-    roles (#313), carrying the canonical ULID across so PM's anchors stay valid.
+    roles (#313), carrying the canonical ULID across so the published id holds.
     Without it a fresh entity is minted, which is the persons/orgs shape here.
     """
     entity = (
@@ -731,6 +731,9 @@ async def test_a_role_the_registry_has_not_reached_is_gated(db_session, tmp_path
     published assignment names must not vanish) but cannot be addressed by the
     API, so the gap is gated rather than merely reported. One run of latency is
     normal — `dbt build -> registrar -> publish` — and the next build closes it.
+
+    No canonical ULID here is a registry entity, so each role has the post-seed
+    shape (#402) — but an UNBOUND key is a registrar gap, never `role_post_seed`.
     """
     role = await _seed_role(db_session, bind_roles=False)
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
@@ -739,6 +742,7 @@ async def test_a_role_the_registry_has_not_reached_is_gated(db_session, tmp_path
     await _seed_roster_family(db_session, role)
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
     assert result.counters["unregistered_roles"] == 3
+    assert result.counters["role_post_seed"] == 0
     assert result.counters["role_divergence"] == 0
     assert result.outcome == OUTCOME_FAILED
     assert result.counters["integrity_failures"] == ["unregistered_roles"]
