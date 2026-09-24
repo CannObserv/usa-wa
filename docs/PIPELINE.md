@@ -153,9 +153,14 @@ and mediating it away is what #309 refused.
 **Order matters once, at deployment.** `registry_seed` carries the canonical
 Role ULIDs across; the registrar's role pass *mints* for anything unregistered.
 Run the seed **before** the first registrar pass that sees roles, or 312 fresh
-ULIDs replace the ones PM's #312 anchors name. The `role_entity_mismatches`
-counter in `parity_spans` is the backstop, gated at zero — it catches the
-mistake, but the seed is what prevents it.
+ULIDs replace the canonical ones — and a seeded role's ULID is the `entity_id`
+published in `roles` and joined from `assignments`, so every consumer's join
+would silently re-point. The `role_entity_mismatches` counter in `parity_spans`
+is the backstop, gated at zero — it catches the mistake, but the seed is what
+prevents it. It counts only a *seeded* role (its canonical ULID a registry
+entity): a role born after the seed has no earlier published id to protect, so
+one whose canonical ULID the registry never held is `role_post_seed`, reported
+but not gated (#402) — the orgs rule below.
 
 **Orgs register nightly too** (`registrar.load_org_keys`): singleton clusters
 over every staged committee id (`stg_wsl_committees` ∪ `stg_wsl_meetings`) plus
