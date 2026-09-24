@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.job import JobContext, JobFailure, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
 from clearinghouse_domain_legislative.terms import biennium_for_date
@@ -160,6 +160,9 @@ async def harvest_raw(
                 )
                 if not member.error:
                     counters["fanout_landed"] += 1
+    except Exception as exc:
+        # The alert must still say how far the run got (#331).
+        raise JobFailure(counters) from exc
     finally:
         # An uncontained failure (corrupt latest.json, cancellation) must not
         # abandon already-fetched wires as unmanifested strays (#302 CR).

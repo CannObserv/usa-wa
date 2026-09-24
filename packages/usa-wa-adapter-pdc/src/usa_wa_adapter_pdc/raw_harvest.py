@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.job import JobContext, JobFailure, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
 from clearinghouse_domain_legislative.terms import biennium_for_date
@@ -90,6 +90,9 @@ async def harvest_raw(
                 ttl_days,
                 log_event="pdc_raw_harvest_cohort_failed",
             )
+    except Exception as exc:
+        # The alert must still say how far the run got (#331).
+        raise JobFailure(counters) from exc
     finally:
         run.close()
     logger.info("pdc_raw_harvest_complete", extra={"biennium": biennium, **counters})

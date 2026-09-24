@@ -4,6 +4,9 @@ import json
 import logging
 from dataclasses import dataclass
 
+import pytest
+
+from clearinghouse_core.job import JobFailure
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_sos.filings.adapter import whofiled_resource_id
 from usa_wa_adapter_sos.filings.transport import SOSFilingsClient
@@ -78,6 +81,29 @@ async def test_one_source_failing_does_not_stop_the_other(tmp_path) -> None:
     assert summary["fetched"] == len(years)
     results = json.loads(RawStore(tmp_path, "usa_wa_sos_results").manifest_paths()[0].read_text())
     assert all(e["status"] == "ok" for e in results["entries"])
+
+
+class _NullWireResultsClient:
+    async def fetch_legislative_results(self, election_year: int) -> _Wire:
+        return _Wire(wire=None)
+
+
+async def test_broken_transport_contract_fails_with_the_counters_reached(tmp_path) -> None:
+    """#331: ``wire=None`` raises (CR 44) mid-results, and the failure carries the
+    same per-source shape a completed run reports — filings landed, results did not."""
+    years = election_years_for_biennium(BIENNIUM)
+    with pytest.raises(JobFailure) as caught:
+        await harvest_raw(
+            tmp_path,
+            biennium=BIENNIUM,
+            filings_client=FakeFilingsClient(),
+            results_client=_NullWireResultsClient(),
+        )
+    assert isinstance(caught.value.__cause__, ValueError)
+    counters = caught.value.counters
+    assert counters["filings"]["fetched"] == len(years)
+    assert counters["results"]["fetched"] == 0
+    assert counters["fetched"] == len(years)
 
 
 async def test_ttl_skips_fresh_resources(tmp_path) -> None:

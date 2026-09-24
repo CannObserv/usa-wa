@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from clearinghouse_core.job import JobContext, JobResult, run_job
+from clearinghouse_core.job import JobContext, JobFailure, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
 from clearinghouse_domain_legislative.terms import biennium_for_date
@@ -145,6 +145,9 @@ async def harvest_raw(
                 ttl_days,
                 log_event="sos_raw_harvest_cohort_failed",
             )
+    except Exception as exc:
+        # The alert must still say how far the run got (#331).
+        raise JobFailure(_summarize(filings_counters, results_counters)) from exc
     finally:
         filings_run.close()
 
@@ -163,15 +166,22 @@ async def harvest_raw(
                 ttl_days,
                 log_event="sos_raw_harvest_cohort_failed",
             )
+    except Exception as exc:
+        raise JobFailure(_summarize(filings_counters, results_counters)) from exc
     finally:
         results_run.close()
 
-    counters: dict[str, Any] = {
-        key: filings_counters[key] + results_counters[key] for key in filings_counters
-    }
-    counters["filings"] = filings_counters
-    counters["results"] = results_counters
+    counters = _summarize(filings_counters, results_counters)
     logger.info("sos_raw_harvest_complete", extra={"biennium": biennium, "summary": counters})
+    return counters
+
+
+def _summarize(filings: dict[str, int], results: dict[str, int]) -> dict[str, Any]:
+    """Both sources summed, plus each source's own counters — one shape for a
+    completed run and a raised one (#331)."""
+    counters: dict[str, Any] = {key: filings[key] + results[key] for key in filings}
+    counters["filings"] = filings
+    counters["results"] = results
     return counters
 
 
