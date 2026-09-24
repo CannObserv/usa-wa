@@ -12,7 +12,7 @@ and a document that changes about twice a decade.
 **Not a timer.** This never joins the daily refresh: closed history does not drift, and the
 edition lags the current biennium by design. Run it quarterly, or after a revision lands.
 
-    python -m usa_wa_adapter_legislature.roster_pdf.harvest --revision 2025-06-05 [--force] \
+    python -m usa_wa_adapter_legislature.roster_pdf.harvest --revision 2025-06-05 [--force] \\
         [--pause-seconds S]
 
 A rotated media key with no discoverable href is **degraded**, not a crash: the transport already
