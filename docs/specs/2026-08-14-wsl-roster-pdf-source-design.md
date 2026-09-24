@@ -72,7 +72,7 @@ Contents (column-aware parse of the district section, prototype run 2026-08-14):
 | Citation granularity | **One archive key per revision** — a 1943 row cites `legroster:2025-06-05`. No synthetic per-(district, year) target. The citation names the *wire that attested the fact*, and one revision of one document is exactly that wire; a synthetic per-row target would assert a provenance granularity the source does not have. (Settled 2026-08-14.) |
 | Extraction | **`pdfplumber`** as a real `uv` dependency — *not* shelling out to poppler's `pdftotext`. Units run `uv run --frozen --no-sync`, so a system binary is invisible to `uv.lock` and would break silently on a fresh VM. Word bounding boxes are required (see below), which rules out `pypdf` text-only extraction. |
 | Phase split | Phase A archives the 5.7MB bytes; Phase B parses **offline** from `RawPayload`. The parser will need revision; re-running it must never re-fetch. |
-| Cadence | **Quarterly**, never in the daily refresh. **No systemd timer at all** — a documented backfill CLI plus a change-detection probe, run ad-hoc. Closed history does not drift, so a timer would burn cycles re-deriving a constant. (Settled 2026-08-14.) |
+| Cadence | **Quarterly**, never in the daily refresh. **No systemd timer at all** — a documented backfill CLI plus a change-detection probe, run ad-hoc. Closed history does not drift, so a timer would burn cycles re-deriving a constant. (Settled 2026-08-14.) *(Amended by #237 — a monthly dry-run edition check; see amendment below.)* |
 | Authority | **Closed biennia below the WSL floor only.** Operator events + WSL/SOS win for the current biennium, always. |
 
 ### Why the y-coordinate join is non-negotiable
@@ -163,7 +163,7 @@ Revision history in-document: 1962, 66, 78, 87, 91, 97, 99, 2001, 05, 08, 09, 11
 
 Contrast the daily timers (06:45/07:00/07:05/07:15 UTC): those exist because the *current* cohort mutates and a resignation today must surface today. None of that applies here. Therefore:
 
-- **Harvest once; re-check quarterly**, or annually just after sine die plus the biennial revision. **Never in the daily refresh** — it is a backfill and audit oracle, not a refresh source.
+- **Harvest once; re-check quarterly** *(monthly since #237 — see amendment below)*, or annually just after sine die plus the biennial revision. **Never in the daily refresh** — it is a backfill and audit oracle, not a refresh source.
 - **Change detection is a full GET + sha256.** The URL returns **no `ETag`, no `Last-Modified`, no `Cache-Control`** (verified 2026-08-14, Microsoft-IIS/10.0). Conditional GET is unavailable. At quarterly cadence that is ~23MB/yr — trivial.
 - **URL durability is the real fragility, not the content.** `s4gf4suc` is an opaque CMS media key on leg.wa.gov's current CMS; a re-publish will likely mint a new one. The probe must treat a 404 as *needs re-discovery*, not as an outage — discover the href from the Legislative Information Center page, the same `export.html` traversal pattern `results/transport.py` already uses for SOS filenames. Falling back to a hard-coded URL that 404s forever is the failure mode to avoid.
 - **Never authority for the current biennium.** Precedence: PDF wins for closed biennia below the WSL floor; operator events and WSL/SOS win at and above it.
@@ -215,3 +215,27 @@ All three resolved 2026-08-14. Recorded here rather than deleted — the reasoni
 3. **Pre-1965 party spans are unblocked by power-map#302** — party is a `party_member` role, orthogonal to seat shape. Verified against the live schema rather than left as a reading: party roles carry no `jurisdiction_id` and no `qualifier`, so they are keyed by the `uq_roles_org_name` partial index, disjoint from the `uq_roles_seat` index where all seat shape (Position, at-large) lives. **This surfaced a genuine Phase 3 prerequisite** — `canonicalize_party` handles only R/D and silently returns `None` otherwise, so 166 historical minor-party member-year records across 7 parties would disappear without a vocabulary extension. Filed as power-map#442 (naming/lifecycle) + #227 (local vocabulary). See the pre-1965 section.
 
 No open questions remain. Phase 1 is ready to start.
+
+## Amendment (#237, 2026-09-24) — a monthly edition check
+
+"Ad-hoc" turned out to mean *nothing checks it at all*: no probe, no alert, no calendar entry, so a
+new edition would leave the archive stale with no signal. The quarterly re-check is now a
+mechanism rather than a sentence, at a **monthly** cadence (decided on #237).
+
+`usa-wa-roster-pdf-recheck.timer` (1st, 09:00 UTC) runs the Phase A harvest `--dry-run --force`:
+fetch, verify the `Revision Date` against the code's `DEFAULT_REVISION`, roll the archive write
+back. A new edition exits 4 (`EXIT_DEGRADED`) and emails the operator through the existing
+`OnFailure=` chain (#49). The design above stands in every other respect: nothing downstream
+reads the run, it never joins the daily refresh, and the source is never authority for the
+current biennium.
+
+Three details the original table did not foresee:
+
+- **`--force` is load-bearing.** The source's freshness cache is 90 days, so an unforced check is
+  a cache hit that never fetches, and a dry run never refreshes the cache. Change detection needs
+  the full body (no validators, above), so every run is one 5.7MB GET — ~69MB/yr, not ~23MB.
+- **The alert repeats until the code catches up.** The check compares against `DEFAULT_REVISION`,
+  so it fires monthly until the new edition is archived *and* the default bumped on `main`. That
+  is the stale-edition alert, not noise: the archive is stale until then.
+- **Settled question 1 still holds.** The oracle stays ad-hoc. It re-derives a constant and can
+  never go red; this check fetches a document that *can* change, and is silent when it has not.

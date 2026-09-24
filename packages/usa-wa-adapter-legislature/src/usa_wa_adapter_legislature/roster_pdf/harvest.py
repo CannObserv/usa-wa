@@ -9,11 +9,17 @@ publishes per-year cohorts; this source publishes *one document per revision*, s
 archives exactly one resource. Re-running is a cache hit — the whole point, given a 5.7MB body
 and a document that changes about twice a decade.
 
-**Not a timer.** This never joins the daily refresh: closed history does not drift, and the
-edition lags the current biennium by design. Run it quarterly, or after a revision lands.
+**Not a refresh.** This never joins the daily refresh: closed history does not drift, and the
+edition lags the current biennium by design. Archive an edition by hand, after a revision lands.
 
     python -m usa_wa_adapter_legislature.roster_pdf.harvest --revision 2025-06-05 [--force] \\
         [--pause-seconds S]
+
+**The monthly edition re-check (#237)** is this module run ``--dry-run --force`` by
+``usa-wa-roster-pdf-recheck.timer``: fetch, verify the stamp against :data:`DEFAULT_REVISION`,
+archive nothing. A new edition exits ``4`` and alerts through ``OnFailure=`` — monthly, until
+the edition is archived and the default below is bumped. ``--force`` is load-bearing there: the
+source's 90-day freshness cache would otherwise make the check a cache hit that never fetches.
 
 A rotated media key with no discoverable href is **degraded**, not a crash: the transport already
 tried to re-discover, so the remaining condition needs an operator to re-point the source, and
@@ -48,7 +54,9 @@ logger = get_logger(__name__)
 #: Stable ledger identity (#178) — a module path can move without orphaning run history.
 JOB_SLUG = "roster-pdf-harvest"
 
-#: The revision shipped with this source. Override when a newer edition is published.
+#: The revision shipped with this source. Override when a newer edition is published — and bump
+#: it on ``main`` once that edition is archived: the monthly re-check (#237) compares against it,
+#: so it keeps alerting until this names the edition the Legislature currently publishes.
 DEFAULT_REVISION = "2025-06-05"
 
 

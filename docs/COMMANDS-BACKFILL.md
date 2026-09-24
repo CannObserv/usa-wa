@@ -42,7 +42,7 @@ python -m usa_wa_adapter_legislature.sponsors.probe_identity --history
 ## Roster PDF — the archival member source (#225, epic #219)
 
 The Legislature's own *Members of the Legislature 1889-2025* roster. **Not a sweep and not a
-timer**: the source publishes one document per revision (~biennially; 18 editions since 1962),
+refresh**: the source publishes one document per revision (~biennially; 18 editions since 1962),
 so the harvest archives exactly one resource and re-running is a cache hit.
 
 ```bash
@@ -56,10 +56,25 @@ uv run python -m usa_wa_adapter_legislature.roster_pdf.harvest --revision 2025-0
 could not be located, meaning the CMS media key rotated *and* the href could not be re-discovered,
 so an operator must re-point the source.
 
-Re-check **quarterly**, or after a revision lands — never in the daily refresh. Closed history
-does not drift, and the edition lags the current biennium by design, so it is never authority
-there. Phase B parses **offline** from the archive: revise the parser and re-run without
-re-fetching 5.7MB.
+Re-checked **monthly** by `usa-wa-roster-pdf-recheck.timer` (#237, 1st 09:00 UTC) — never in
+the daily refresh. Closed history does not drift, and the edition lags the current biennium by
+design, so it is never authority there. Phase B parses **offline** from the archive: revise the
+parser and re-run without re-fetching 5.7MB.
+
+The timer runs this same harvest `--dry-run --force`: one GET (~69MB/yr), the stamp verified
+against `DEFAULT_REVISION` in `roster_pdf/harvest.py`, the archive write rolled back. `--force`
+is load-bearing — the source's 90-day freshness cache would otherwise make the check a cache hit
+that never fetches. When its `OnFailure=` email arrives, the summary line says which exit 4:
+
+- **`mismatch=…`** — a new edition is published. Archive it with the `--revision` the message
+  names, then bump `DEFAULT_REVISION` on `main`: the check compares against the code, so it
+  alerts every month until both land. Audit the new edition before building on it (the
+  `coverage.py` claim is closed at the old ceiling, and the parser has only seen this layout).
+- **`unavailable=true`** — the media key rotated and the href could not be re-discovered from
+  the index page; re-point `DEFAULT_ROSTER_URL` in `roster_pdf/transport.py`.
+
+Exit `1` is an outage (a non-404 status, a timeout); the next month's run retries. Re-check by
+hand with `sudo systemctl start usa-wa-roster-pdf-recheck.service`.
 
 ```bash
 # Succession backfill (#226) — the roster's mid-term dates → operator events.

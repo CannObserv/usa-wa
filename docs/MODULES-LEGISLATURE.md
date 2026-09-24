@@ -45,8 +45,8 @@ claims), `cohorts.py` (the public provider seam), `bootstrap.py` / `synthesis.py
 roster, with its own `Source`, slug, archive key, transport, adapter, normalize, cohort and
 harvest. The SOS filings+results pair is the precedent. They differ in kind, not just in
 endpoint: SOAP is a daily API, the roster is a **frozen document revised about twice a
-decade**, so it is harvested quarterly, never joins the daily refresh, and is never
-authoritative for the current biennium (it lags it by design).
+decade**, so it is harvested by hand, re-checked monthly by a dry-run timer (#237), never joins
+the daily refresh, and is never authoritative for the current biennium (it lags it by design).
 
 ```
   usa-wa-adapter-legislature/         — Layer 3: WA Legislature SOAP source mapping

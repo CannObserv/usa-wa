@@ -36,8 +36,8 @@ ROSTER_COVERAGE: tuple[CoverageClaim, ...] = (
             "the historical 50-59), 0 rows unparsed. "
             "CLOSED ceiling on purpose: the document is a revision snapshot stamped June 2025 "
             "and lags the current biennium, so it is never authority there. Revisions run "
-            "~biennially (18 since 1962), which is why this source is re-checked quarterly and "
-            "never joins the daily refresh."
+            "~biennially (18 since 1962), which is why this source is re-checked monthly (#237) "
+            "and never joins the daily refresh."
         ),
     ),
 )

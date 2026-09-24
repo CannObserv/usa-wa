@@ -5,7 +5,8 @@ multi-source target pattern: same jurisdiction and target, different publisher a
 SOS filings/results pair is the precedent.
 
 ``kind="document"`` rather than ``rest``/``soap``: this feed is a published PDF edition, not an
-API, and the distinction is what makes the quarterly cadence legible next to the daily wires.
+API, and the distinction is what makes the monthly re-check (#237) legible next to the daily
+wires.
 """
 
 from __future__ import annotations
