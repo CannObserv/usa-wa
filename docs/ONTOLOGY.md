@@ -15,7 +15,9 @@ of the published datasets).
 
 Power Map's terminology, mirrored 1:1. Since #302 usa-wa is the **single master** for its slice:
 it publishes versioned datasets, reads nothing back, and Power Map (PM) is one subscriber. The
-tables below are the `canonical` ones the pipeline was built beside.
+tables below are the `canonical` ones the pipeline was built beside. Where this doc still
+describes the sync engine, its descriptors or the sidecar in the present tense, it describes the
+PM sync #314 retired; #412 rewrites those passages when it retires the tables.
 
 | Table | Model | What it is |
 |---|---|---|
