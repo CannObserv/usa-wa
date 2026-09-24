@@ -9,11 +9,13 @@ def test_every_party_slug_has_exactly_one_structural_party_org():
 
     The registrar registers every ``STRUCTURAL_ORGS`` key nightly, and the conformed
     ``roles`` model points a party role at ``party-<slug>``. A slug with no Org here
-    would bind its party roles to nothing, and the only thing that counts it —
-    ``role_rows``' ``unregistered_orgs`` — is discarded by the dbt model; ``parity_spans``
-    reports it until #412 retires that probe. So this is the offline guard. It replaces
-    the power-map live-Org probe deleted in #413, and outlives the Postgres-tier
-    synthesis tests (``test_synthesis``, ``test_bootstrap``) that #412 deletes.
+    would bind its party roles to nothing. The dbt model discards ``role_rows``'
+    ``unregistered_orgs`` counter; the nightly gate on it runs only after the registrar
+    and after publish (``parity_spans`` today, a post-registrar probe once #412 retires
+    the oracle), so it reports a gap that has already shipped. This is the offline guard
+    that stops it before merge. It replaces the power-map live-Org probe deleted in
+    #413, and outlives the Postgres-tier synthesis tests (``test_synthesis``,
+    ``test_bootstrap``) that #412 deletes.
     """
     party_orgs = {key for key, org in STRUCTURAL_ORGS.items() if org.org_type == "party"}
 
