@@ -3,10 +3,10 @@
 Two upstreams, two encodings, one target vocabulary: WSL's ``Party`` field (``"R"`` /
 ``"Republican"``) and the SOS ballot's preference string (``"(Prefers Republican Party)"``,
 sometimes ``GOP``). Both fold to the same slug, because the slug is the party's identity in this
-repo's own vocabulary — one Org per slug, keyed ``party-<slug>``, in the published
-``organizations`` dataset — and what the party-Org synthesis keys on. (First settled against
-Power Map's ``org_wa_party`` identifiers, power-map#270; provenance, not a constraint, since
-#314.)
+repo's own vocabulary — one ``party-<slug>`` Org per slug in ``usa_wa_common.orgs``, which the
+registrar registers and ``organizations`` publishes — and what the party-Org synthesis keys
+on. (First settled against Power Map's ``org_wa_party`` identifiers, power-map#270;
+provenance, not a constraint, since #314.)
 
 `canonicalize_party` was defined in `usa_wa_adapter_legislature.normalize.members` — the WSL
 SOAP normalizer — and imported by the PDC matcher, the PDC observation builder and the SOS
@@ -88,13 +88,13 @@ def sos_party_slug(party_name: str | None) -> str | None:
 
 # --- the roster PDF's historical vocabulary (#227) ---------------------------
 
-#: Every slug this module can emit — this repo's own party vocabulary. The conformed tier
-#: names one party Org per slug (``party-<slug>``) and publishes it in ``organizations``, so a
-#: party is addressed by slug rather than by name-match or ULID; a slug the resolver could emit
-#: but this set did not declare would have no Org to attach to, and surfaces locally as an
-#: unregistered org in the build counters. (The set was first settled against Power Map's
-#: ``org_wa_party`` identifiers, power-map#270/#442/#443 — provenance, not a constraint, since
-#: #314.)
+#: Every slug this module can emit — this repo's own party vocabulary. Each has exactly one
+#: ``party-<slug>`` Org in ``usa_wa_common.orgs.STRUCTURAL_ORGS``, which the registrar
+#: registers and ``organizations`` publishes, so a party is addressed by slug rather than by
+#: name-match or ULID. A slug the resolver could emit but this set did not declare would have
+#: no Org to attach to; ``tests/test_orgs.py`` holds the two sets equal. (The set was first
+#: settled against Power Map's ``org_wa_party`` identifiers, power-map#270/#442/#443 —
+#: provenance, not a constraint, since #314.)
 PARTY_SLUGS = frozenset(
     {
         "republican",
