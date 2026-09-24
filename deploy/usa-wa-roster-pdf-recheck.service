@@ -48,8 +48,9 @@ EnvironmentFile=-/home/exedev/usa-wa/.env
 #              monthly until the new edition is archived AND that default is bumped on main.
 ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m usa_wa_adapter_legislature.roster_pdf.harvest --dry-run --force
 
-# One 5.7MB GET — three on href re-discovery, each under the client's 120s timeout — so bound
-# the run above that worst case rather than at it.
+# One 5.7MB GET, three on href re-discovery. The client's 120s httpx timeout bounds each connect
+# and each read, not a whole request — a body trickling in under 120s a chunk has no ceiling of
+# its own — so this is the run's real bound, and a hang past it fails into OnFailure=.
 TimeoutStartSec=600
 
 # This unit is started by usa-wa-roster-pdf-recheck.timer; no [Install] WantedBy.
