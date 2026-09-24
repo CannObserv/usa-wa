@@ -69,8 +69,10 @@ asserted nothing about it.
 
 **Who bumps.** Whoever changes the contract, at the moment the drift test goes
 red. Never edit a standing release: append a new `ContractRelease` with the next
-version and the columns the build now produces. Additive = minor, rename or
-removal = major, per dataset.
+version and the columns the build now produces. Additive = minor; rename,
+removal or a type change = major, per dataset. A type change moves no name, so
+the drift test stays green: bump when you edit a `*_SCHEMA` type, or the
+publisher's gate below refuses the night's publish (`stg_sos_filings` 2.0.0, #361).
 
 **Two gates, catching different mistakes.**
 
