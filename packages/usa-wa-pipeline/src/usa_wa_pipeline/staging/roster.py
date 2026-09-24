@@ -16,20 +16,21 @@ from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_legislature.roster_pdf.adapter import ROSTER_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.roster_pdf.extraction import extract_pages
 from usa_wa_adapter_legislature.roster_pdf.normalize import parse_district_pages_reporting
-from usa_wa_pipeline.staging.common import PROVENANCE_COLUMNS
+from usa_wa_pipeline.staging.common import PROVENANCE_SCHEMA
 from usa_wa_pipeline.staging.common import provenance as _provenance
 
-ROSTER_COLUMNS = [
-    "revision",
-    "district",
-    "chamber",
-    "year",
-    "order",
-    "name",
-    "party_token",
-    "annotation",
-    *PROVENANCE_COLUMNS,
-]
+ROSTER_SCHEMA = {
+    "revision": "VARCHAR",
+    "district": "BIGINT",
+    "chamber": "VARCHAR",
+    "year": "BIGINT",
+    "order": "BIGINT",
+    "name": "VARCHAR",
+    "party_token": "VARCHAR",
+    "annotation": "VARCHAR",
+    **PROVENANCE_SCHEMA,
+}
+ROSTER_COLUMNS = list(ROSTER_SCHEMA)
 
 
 def _parse_pdf(wire: bytes) -> list[dict[str, Any]]:

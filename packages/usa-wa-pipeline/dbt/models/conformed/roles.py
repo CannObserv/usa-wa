@@ -6,11 +6,10 @@ the adapter and the WA vocabulary — a role key is structural, so it needs no
 registry; only the organization it belongs to is registry-joined.
 """
 
-import pandas as pd
-
 from clearinghouse_core.registry import KIND_ORG, KIND_ROLE
-from usa_wa_pipeline.conformed.roles import ROLE_COLUMNS, role_rows
+from usa_wa_pipeline.conformed.roles import ROLE_SCHEMA, role_rows
 from usa_wa_pipeline.conformed.spans import entity_index
+from usa_wa_pipeline.frames import typed_relation
 from usa_wa_pipeline.registry_read import crosswalk_frame
 
 
@@ -24,9 +23,7 @@ def model(dbt, session):
         entity_index(crosswalk_frame(KIND_ORG)),
         entity_index(crosswalk_frame(KIND_ROLE)),
     )
-    frame = pd.DataFrame(rows, columns=ROLE_COLUMNS)
     # `district` is null for party/committee roles, and a plain int64 column
-    # cannot hold that — pandas widens to float64 and the published CSV reads
-    # "10.0" for LD 10. The nullable integer dtype keeps it an LD number.
-    frame["district"] = frame["district"].astype("Int64")
-    return frame
+    # cannot hold that — pandas widens to float64, and without the declared
+    # BIGINT the published CSV would read "10.0" for LD 10.
+    return typed_relation(session, rows, ROLE_SCHEMA)

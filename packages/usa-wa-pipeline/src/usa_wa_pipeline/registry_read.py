@@ -77,11 +77,12 @@ def crosswalk_frame(kind: str) -> list[dict[str, Any]]:
     return asyncio.run(_read())
 
 
-CROSSWALK_COLUMNS = [
-    "entity_id",
-    "natural_key",
-    "key_namespace",
-    "key_value",
-    "registered_by",
-    "merged_into",
-]
+CROSSWALK_SCHEMA = {
+    "entity_id": "VARCHAR",
+    "natural_key": "VARCHAR",
+    "key_namespace": "VARCHAR",
+    "key_value": "VARCHAR",
+    "registered_by": "VARCHAR",
+    "merged_into": "VARCHAR",
+}
+CROSSWALK_COLUMNS = list(CROSSWALK_SCHEMA)

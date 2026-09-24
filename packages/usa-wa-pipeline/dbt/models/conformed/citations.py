@@ -10,9 +10,8 @@ Counters are reported by `usa_wa_pipeline.parity_spans`, not from here — a
 emits nothing (the round-4 lesson recorded in `conformed/assignments.py`).
 """
 
-import pandas as pd
-
-from usa_wa_pipeline.conformed.citations import CITATION_COLUMNS, CitationInputs, citation_rows
+from usa_wa_pipeline.conformed.citations import CITATION_SCHEMA, CitationInputs, citation_rows
+from usa_wa_pipeline.frames import typed_relation
 
 
 def model(dbt, session):
@@ -31,4 +30,4 @@ def model(dbt, session):
             roster=dbt.ref("stg_roster_members").df().to_dict("records"),
         )
     )
-    return pd.DataFrame(rows, columns=CITATION_COLUMNS)
+    return typed_relation(session, rows, CITATION_SCHEMA)

@@ -20,60 +20,10 @@ the publisher's own gate instead, which compares the full fingerprint — types
 included — against what was last published, both sides read from a real build.
 """
 
-import os
-
 import duckdb
 import pytest
 
-import usa_wa_pipeline
 from usa_wa_pipeline.publish import PUBLISHED_DATASETS
-
-_HERMETIC_ENV = (
-    "USA_WA_PIPELINE_DB",
-    "USA_WA_PIPELINE_HERMETIC",
-    "USA_WA_RAW_ROOT",
-    "DATABASE_URL",
-)
-
-
-@pytest.fixture(scope="module")
-def hermetic_build(tmp_path_factory):
-    """A full `dbt build` into a throwaway duckdb, with no database anywhere.
-
-    Module-scoped: the build is the expensive part (~6s) and every assertion
-    below reads the same shapes out of it. `monkeypatch` is function-scoped, so
-    the env is saved and restored by hand.
-    """
-    from dbt.cli.main import dbtRunner
-
-    tmp_path = tmp_path_factory.mktemp("contracts")
-    previous = {key: os.environ.get(key) for key in _HERMETIC_ENV}
-    os.environ["USA_WA_PIPELINE_DB"] = str(tmp_path / "test.duckdb")
-    os.environ["USA_WA_PIPELINE_HERMETIC"] = "1"
-    os.environ["USA_WA_RAW_ROOT"] = str(tmp_path / "raw")
-    os.environ.pop("DATABASE_URL", None)
-    try:
-        result = dbtRunner().invoke(
-            [
-                "build",
-                "--project-dir",
-                str(usa_wa_pipeline.PROJECT_DIR),
-                "--profiles-dir",
-                str(usa_wa_pipeline.PROJECT_DIR),
-                "--target-path",
-                str(tmp_path / "target"),
-                "--log-path",
-                str(tmp_path / "logs"),
-            ]
-        )
-        assert result.success, f"dbt build failed: {result.exception}"
-        yield tmp_path / "test.duckdb"
-    finally:
-        for key, value in previous.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
 
 
 @pytest.fixture(scope="module")

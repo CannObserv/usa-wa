@@ -47,18 +47,19 @@ SOURCE = "usa_wa_legislature"
 HOUSE_ORG = "usa_wa_house"
 SENATE_ORG = "usa_wa_senate"
 
-ROLE_COLUMNS = [
-    "entity_id",
-    "role_key",
-    "role_type",
-    "name",
-    "span_kind",
-    "span_discriminator",
-    "org_source_id",
-    "org_entity_id",
-    "district",
-    "qualifier",
-]
+ROLE_SCHEMA = {
+    "entity_id": "VARCHAR",
+    "role_key": "VARCHAR",
+    "role_type": "VARCHAR",
+    "name": "VARCHAR",
+    "span_kind": "VARCHAR",
+    "span_discriminator": "VARCHAR",
+    "org_source_id": "VARCHAR",
+    "org_entity_id": "VARCHAR",
+    "district": "BIGINT",
+    "qualifier": "VARCHAR",
+}
+ROLE_COLUMNS = list(ROLE_SCHEMA)
 
 
 @dataclass(frozen=True)

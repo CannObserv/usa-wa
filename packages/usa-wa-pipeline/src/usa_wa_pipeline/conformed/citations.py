@@ -76,7 +76,13 @@ from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
 
 #: The published shape. ``entity_id`` is a registry ULID for person/organization
 #: /role and a span ``source_id`` for assignment — see the module docstring.
-CITATION_COLUMNS = ["entity_type", "entity_id", "source", "resource_id"]
+CITATION_SCHEMA = {
+    "entity_type": "VARCHAR",
+    "entity_id": "VARCHAR",
+    "source": "VARCHAR",
+    "resource_id": "VARCHAR",
+}
+CITATION_COLUMNS = list(CITATION_SCHEMA)
 
 ENTITY_PERSON = "person"
 ENTITY_ORG = "organization"

@@ -4,9 +4,8 @@ Thin adapter over usa_wa_pipeline.conformed.entities.org_rows (newest
 biennium's committee attributes; meeting-derived fallback for Joint/Other).
 """
 
-import pandas as pd
-
-from usa_wa_pipeline.conformed.entities import ORG_COLUMNS, org_rows
+from usa_wa_pipeline.conformed.entities import ORG_SCHEMA, org_rows
+from usa_wa_pipeline.frames import typed_relation
 
 
 def model(dbt, session):
@@ -17,4 +16,4 @@ def model(dbt, session):
         committees=dbt.ref("stg_wsl_committees").df().to_dict("records"),
         meetings=dbt.ref("stg_wsl_meetings").df().to_dict("records"),
     )
-    return pd.DataFrame(rows, columns=ORG_COLUMNS)
+    return typed_relation(session, rows, ORG_SCHEMA)

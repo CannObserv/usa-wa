@@ -104,23 +104,24 @@ ROSTER_SOURCE = "usa_wa_legislature_roster"
 SPONSOR_KINDS = frozenset({KIND_PARTY, KIND_SENATE})
 COMMITTEE_KINDS = frozenset({KIND_COMMITTEE})
 
-ASSIGNMENT_COLUMNS = [
-    "entity_id",
-    "member_id",
-    "source",
-    "role_key",
-    "span_kind",
-    "span_discriminator",
-    "span_start_biennium",
-    "span_end_biennium",
-    "valid_from",
-    "valid_to",
-    "is_active",
+ASSIGNMENT_SCHEMA = {
+    "entity_id": "VARCHAR",
+    "member_id": "VARCHAR",
+    "source": "VARCHAR",
+    "role_key": "VARCHAR",
+    "span_kind": "VARCHAR",
+    "span_discriminator": "VARCHAR",
+    "span_start_biennium": "VARCHAR",
+    "span_end_biennium": "VARCHAR",
+    "valid_from": "DATE",
+    "valid_to": "DATE",
+    "is_active": "BOOLEAN",
     # The row's own name (usa-wa#370): the five structural fields above it,
     # serialized once by the producer so power-map#490's applier and this tier
     # cannot disagree about how they become one string.
-    "span_key",
-]
+    "span_key": "VARCHAR",
+}
+ASSIGNMENT_COLUMNS = list(ASSIGNMENT_SCHEMA)
 
 
 @dataclass(frozen=True)

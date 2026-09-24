@@ -25,16 +25,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-FETCH_COLUMNS = [
-    "source",
-    "resource_id",
-    "sha256",
-    "fetched_at",
-    "run_id",
-    "url",
-    "bytes",
-    "content_type",
-]
+FETCH_SCHEMA = {
+    "source": "VARCHAR",
+    "resource_id": "VARCHAR",
+    "sha256": "VARCHAR",
+    "fetched_at": "VARCHAR",
+    "run_id": "VARCHAR",
+    "url": "VARCHAR",
+    "bytes": "BIGINT",
+    "content_type": "VARCHAR",
+}
+FETCH_COLUMNS = list(FETCH_SCHEMA)
 
 
 def _manifest_entries(runs_dir: Path, run_id: str) -> dict[str, dict[str, Any]]:

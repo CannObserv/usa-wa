@@ -15,7 +15,7 @@ from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_sos import parsing
 from usa_wa_adapter_sos.filings.adapter import WHOFILED_RESOURCE_PREFIX
 from usa_wa_adapter_sos.results.adapter import LEGRESULTS_RESOURCE_PREFIX
-from usa_wa_pipeline.staging.common import PROVENANCE_COLUMNS
+from usa_wa_pipeline.staging.common import PROVENANCE_SCHEMA
 from usa_wa_pipeline.staging.common import latest_wires as _latest_wires
 from usa_wa_pipeline.staging.common import provenance as _provenance
 
@@ -26,24 +26,26 @@ _LEGRESULTS_PREFIX = LEGRESULTS_RESOURCE_PREFIX
 
 Parser = Callable[[bytes], list[dict[str, Any]]]
 
-RESULT_COLUMNS = [
-    "election_date",
-    "race",
-    "candidate",
-    "party",
-    "votes",
-    "percentage_of_total_votes",
-    "jurisdiction_name",
-    *PROVENANCE_COLUMNS,
-]
-FILING_COLUMNS = [
-    "election_date",
-    "ballot_name",
-    "party_name",
-    "race_name",
-    "race_jurisdiction_name",
-    *PROVENANCE_COLUMNS,
-]
+RESULT_SCHEMA = {
+    "election_date": "VARCHAR",
+    "race": "VARCHAR",
+    "candidate": "VARCHAR",
+    "party": "VARCHAR",
+    "votes": "VARCHAR",
+    "percentage_of_total_votes": "VARCHAR",
+    "jurisdiction_name": "VARCHAR",
+    **PROVENANCE_SCHEMA,
+}
+RESULT_COLUMNS = list(RESULT_SCHEMA)
+FILING_SCHEMA = {
+    "election_date": "VARCHAR",
+    "ballot_name": "VARCHAR",
+    "party_name": "VARCHAR",
+    "race_name": "VARCHAR",
+    "race_jurisdiction_name": "VARCHAR",
+    **PROVENANCE_SCHEMA,
+}
+FILING_COLUMNS = list(FILING_SCHEMA)
 
 
 def result_rows(

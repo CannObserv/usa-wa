@@ -25,7 +25,7 @@ from usa_wa_adapter_legislature.adapter import (
 from usa_wa_adapter_legislature.meetings.windows import (
     COMMITTEE_MEETINGS_RESOURCE_PREFIX,
 )
-from usa_wa_pipeline.staging.common import PROVENANCE_COLUMNS
+from usa_wa_pipeline.staging.common import PROVENANCE_SCHEMA
 from usa_wa_pipeline.staging.common import latest_wires as _latest_wires
 from usa_wa_pipeline.staging.common import provenance as _provenance
 from usa_wa_pipeline.staging.common import text as _text
@@ -34,54 +34,58 @@ _MEETINGS_PREFIX = COMMITTEE_MEETINGS_RESOURCE_PREFIX
 
 Parser = Callable[[bytes], list[dict[str, Any]]]
 
-COMMITTEE_COLUMNS = [
-    "biennium",
-    "committee_id",
-    "agency",
-    "name",
-    "long_name",
-    "acronym",
-    "phone",
-    *PROVENANCE_COLUMNS,
-]
-SPONSOR_COLUMNS = [
-    "biennium",
-    "member_id",
-    "agency",
-    "name",
-    "long_name",
-    "first_name",
-    "last_name",
-    "party",
-    "district",
-    *PROVENANCE_COLUMNS,
-]
-COMMITTEE_MEMBER_COLUMNS = [
-    "biennium",
-    "committee_id",
-    "committee_agency",
-    "committee_name",
-    "member_id",
-    "name",
-    "long_name",
+COMMITTEE_SCHEMA = {
+    "biennium": "VARCHAR",
+    "committee_id": "VARCHAR",
+    "agency": "VARCHAR",
+    "name": "VARCHAR",
+    "long_name": "VARCHAR",
+    "acronym": "VARCHAR",
+    "phone": "VARCHAR",
+    **PROVENANCE_SCHEMA,
+}
+COMMITTEE_COLUMNS = list(COMMITTEE_SCHEMA)
+SPONSOR_SCHEMA = {
+    "biennium": "VARCHAR",
+    "member_id": "VARCHAR",
+    "agency": "VARCHAR",
+    "name": "VARCHAR",
+    "long_name": "VARCHAR",
+    "first_name": "VARCHAR",
+    "last_name": "VARCHAR",
+    "party": "VARCHAR",
+    "district": "VARCHAR",
+    **PROVENANCE_SCHEMA,
+}
+SPONSOR_COLUMNS = list(SPONSOR_SCHEMA)
+COMMITTEE_MEMBER_SCHEMA = {
+    "biennium": "VARCHAR",
+    "committee_id": "VARCHAR",
+    "committee_agency": "VARCHAR",
+    "committee_name": "VARCHAR",
+    "member_id": "VARCHAR",
+    "name": "VARCHAR",
+    "long_name": "VARCHAR",
     # The member's own identity fields, which the wire carries and the span tier
     # needs (#309): `is_person` screens name-blanked stubs on first+last name,
     # and `agency` is the member's chamber, distinct from `committee_agency`.
-    "first_name",
-    "last_name",
-    "agency",
-    "party",
-    "district",
-    *PROVENANCE_COLUMNS,
-]
-MEETING_COLUMNS = [
-    "meeting_window",
-    "meeting_agency",
-    "committee_id",
-    "committee_agency",
-    "committee_name",
-    *PROVENANCE_COLUMNS,
-]
+    "first_name": "VARCHAR",
+    "last_name": "VARCHAR",
+    "agency": "VARCHAR",
+    "party": "VARCHAR",
+    "district": "VARCHAR",
+    **PROVENANCE_SCHEMA,
+}
+COMMITTEE_MEMBER_COLUMNS = list(COMMITTEE_MEMBER_SCHEMA)
+MEETING_SCHEMA = {
+    "meeting_window": "VARCHAR",
+    "meeting_agency": "VARCHAR",
+    "committee_id": "VARCHAR",
+    "committee_agency": "VARCHAR",
+    "committee_name": "VARCHAR",
+    **PROVENANCE_SCHEMA,
+}
+MEETING_COLUMNS = list(MEETING_SCHEMA)
 
 
 def committee_rows(

@@ -19,7 +19,7 @@ from usa_wa_adapter_pdc.harvest import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
     SENATE_WINNERS_RESOURCE_PREFIX,
 )
-from usa_wa_pipeline.staging.common import PROVENANCE_COLUMNS
+from usa_wa_pipeline.staging.common import PROVENANCE_SCHEMA
 from usa_wa_pipeline.staging.common import latest_wires as _latest_wires
 from usa_wa_pipeline.staging.common import provenance as _provenance
 from usa_wa_pipeline.staging.common import text as _text
@@ -31,19 +31,20 @@ _SENATE_PREFIX = SENATE_WINNERS_RESOURCE_PREFIX
 
 Parser = Callable[[bytes], list[dict[str, Any]]]
 
-WINNER_COLUMNS = [
-    "chamber",
-    "election_year",
-    "person_id",
-    "filer_id",
-    "filer_name",
-    "party",
-    "legislative_district",
-    "office",
-    "general_election_status",
-    "candidacy_id",
-    *PROVENANCE_COLUMNS,
-]
+WINNER_SCHEMA = {
+    "chamber": "VARCHAR",
+    "election_year": "BIGINT",
+    "person_id": "VARCHAR",
+    "filer_id": "VARCHAR",
+    "filer_name": "VARCHAR",
+    "party": "VARCHAR",
+    "legislative_district": "VARCHAR",
+    "office": "VARCHAR",
+    "general_election_status": "VARCHAR",
+    "candidacy_id": "VARCHAR",
+    **PROVENANCE_SCHEMA,
+}
+WINNER_COLUMNS = list(WINNER_SCHEMA)
 
 
 def winner_rows(
