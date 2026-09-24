@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import pytest
 
 from clearinghouse_core.job import JobFailure
-from clearinghouse_core.rawstore import RawStore
+from clearinghouse_core.rawstore import RawRun, RawStore
 from usa_wa_adapter_pdc.harvest import biennium_resource_ids
 from usa_wa_adapter_pdc.raw_harvest import SOURCE_SLUG, harvest_raw, job_outcome
 from usa_wa_adapter_pdc.transport import PDCClient
@@ -82,6 +82,20 @@ async def test_broken_transport_contract_fails_with_the_counters_reached(tmp_pat
     assert caught.value.counters["fetched"] == len(election_years_for_biennium(BIENNIUM))
     manifest = json.loads(RawStore(tmp_path, SOURCE_SLUG).manifest_paths()[0].read_text())
     assert len(manifest["entries"]) == caught.value.counters["fetched"]
+
+
+async def test_a_failed_manifest_write_still_reports_the_counters(tmp_path, monkeypatch) -> None:
+    """CR 1: ``run.close()`` is the manifest write — the I/O step a full disk fails —
+    so its failure is wrapped too, not only the fetch loop's."""
+
+    def _disk_full(self) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(RawRun, "close", _disk_full)
+    with pytest.raises(JobFailure) as caught:
+        await harvest_raw(tmp_path, biennium=BIENNIUM, pdc_client=FakePDCClient())
+    assert isinstance(caught.value.__cause__, OSError)
+    assert caught.value.counters["fetched"] == len(biennium_resource_ids(BIENNIUM))
 
 
 async def test_ttl_skips_fresh_resources(tmp_path) -> None:

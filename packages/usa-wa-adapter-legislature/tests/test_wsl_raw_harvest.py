@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import pytest
 
 from clearinghouse_core.job import JobFailure
-from clearinghouse_core.rawstore import RawStore
+from clearinghouse_core.rawstore import RawRun, RawStore
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.raw_harvest import SOURCE_SLUG, harvest_raw, job_outcome
@@ -228,6 +228,26 @@ async def test_broken_transport_contract_fails_with_the_counters_reached(tmp_pat
     assert isinstance(caught.value.__cause__, ValueError)
     assert caught.value.counters["fetched"] == 3
     assert caught.value.counters["errors"] == 0
+
+
+async def test_a_failed_manifest_write_still_reports_the_counters(tmp_path, monkeypatch) -> None:
+    """CR 1: ``run.close()`` is the manifest write — the I/O step a full disk fails —
+    so its failure is wrapped too, not only the fetch loop's."""
+
+    def _disk_full(self) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(RawRun, "close", _disk_full)
+    with pytest.raises(JobFailure) as caught:
+        await harvest_raw(
+            tmp_path,
+            biennium=BIENNIUM,
+            committee_client=FakeCommitteeClient(),
+            meeting_client=FakeMeetingClient(),
+            sponsor_client=FakeSponsorClient(),
+        )
+    assert isinstance(caught.value.__cause__, OSError)
+    assert caught.value.counters["fetched"] == 4 + len(COMMITTEES)
 
 
 def test_job_outcome_degrades_on_masked_outage_and_lost_fanout() -> None:

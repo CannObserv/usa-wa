@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import pytest
 
 from clearinghouse_core.job import JobFailure
-from clearinghouse_core.rawstore import RawStore
+from clearinghouse_core.rawstore import RawRun, RawStore
 from usa_wa_adapter_sos.filings.adapter import whofiled_resource_id
 from usa_wa_adapter_sos.filings.transport import SOSFilingsClient
 from usa_wa_adapter_sos.raw_harvest import (
@@ -104,6 +104,28 @@ async def test_broken_transport_contract_fails_with_the_counters_reached(tmp_pat
     assert counters["filings"]["fetched"] == len(years)
     assert counters["results"]["fetched"] == 0
     assert counters["fetched"] == len(years)
+
+
+async def test_a_failed_filings_manifest_write_still_reports_the_counters(
+    tmp_path, monkeypatch
+) -> None:
+    """CR 1: ``run.close()`` is the manifest write — the I/O step a full disk fails.
+    A clean filings loop whose close fails must still report the filings that landed."""
+
+    def _disk_full(self) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(RawRun, "close", _disk_full)
+    years = election_years_for_biennium(BIENNIUM)
+    with pytest.raises(JobFailure) as caught:
+        await harvest_raw(
+            tmp_path,
+            biennium=BIENNIUM,
+            filings_client=FakeFilingsClient(),
+            results_client=FakeResultsClient(),
+        )
+    assert isinstance(caught.value.__cause__, OSError)
+    assert caught.value.counters["filings"]["fetched"] == len(years)
 
 
 async def test_ttl_skips_fresh_resources(tmp_path) -> None:

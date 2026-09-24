@@ -69,32 +69,34 @@ async def harvest_raw(
     url_source = client if hasattr(client, "winners_url") else PDCClient()
     winners_url = url_source.winners_url()
     try:
-        for resource_id, chamber, year in plan:
-            params = (
-                PDCClient.house_winners_params(year)
-                if chamber == "house"
-                else PDCClient.senate_winners_params(year)
-            )
-            await record_fetch(
-                run,
-                store,
-                resource_id,
-                # the real, replayable request (#54 provenance) — not a pseudo-URL
-                f"{winners_url}?{urlencode(params)}",
-                lambda c=chamber, y=year: (
-                    client.fetch_house_winners(y)
-                    if c == "house"
-                    else client.fetch_senate_winners(y)
-                ),
-                counters,
-                ttl_days,
-                log_event="pdc_raw_harvest_cohort_failed",
-            )
+        try:
+            for resource_id, chamber, year in plan:
+                params = (
+                    PDCClient.house_winners_params(year)
+                    if chamber == "house"
+                    else PDCClient.senate_winners_params(year)
+                )
+                await record_fetch(
+                    run,
+                    store,
+                    resource_id,
+                    # the real, replayable request (#54 provenance) — not a pseudo-URL
+                    f"{winners_url}?{urlencode(params)}",
+                    lambda c=chamber, y=year: (
+                        client.fetch_house_winners(y)
+                        if c == "house"
+                        else client.fetch_senate_winners(y)
+                    ),
+                    counters,
+                    ttl_days,
+                    log_event="pdc_raw_harvest_cohort_failed",
+                )
+        finally:
+            run.close()
     except Exception as exc:
-        # The alert must still say how far the run got (#331).
+        # The alert must still say how far the run got (#331) — outside the
+        # finally, so a failed manifest write is wrapped too (CR 1).
         raise JobFailure(counters) from exc
-    finally:
-        run.close()
     logger.info("pdc_raw_harvest_complete", extra={"biennium": biennium, **counters})
     return counters
 

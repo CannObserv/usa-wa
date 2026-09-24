@@ -76,97 +76,103 @@ async def harvest_raw(
     roster_resource = f"{COMMITTEES_ROSTER_RESOURCE_PREFIX}{biennium}"
 
     try:
-        roster = await record_fetch(
-            run,
-            store,
-            roster_resource,
-            f"{service}?biennium={biennium}#GetCommittees",
-            lambda: committees.fetch_committees(biennium),
-            counters,
-            ttl_days,
-            log_event="wsl_raw_harvest_fetch_failed",
-        )
-        await record_fetch(
-            run,
-            store,
-            f"{COMMITTEES_RESOURCE_PREFIX}{biennium}",
-            f"{service}#GetActiveCommittees",
-            committees.fetch_active_committees,
-            counters,
-            ttl_days,
-            log_event="wsl_raw_harvest_fetch_failed",
-        )
-        begin, end = biennium_window(biennium)
-        await record_fetch(
-            run,
-            store,
-            meetings_resource_id(begin, end),
-            f"{WSL_BASE_URL}/CommitteeMeetingService.asmx#GetCommitteeMeetings",
-            lambda: meetings.fetch_committee_meetings(begin, end),
-            counters,
-            ttl_days,
-            log_event="wsl_raw_harvest_fetch_failed",
-        )
-        await record_fetch(
-            run,
-            store,
-            f"{SPONSORS_RESOURCE_PREFIX}{biennium}",
-            f"{WSL_BASE_URL}/SponsorService.asmx?biennium={biennium}#GetSponsors",
-            lambda: sponsors.fetch_sponsors(biennium),
-            counters,
-            ttl_days,
-            log_event="wsl_raw_harvest_fetch_failed",
-        )
+        try:
+            roster = await record_fetch(
+                run,
+                store,
+                roster_resource,
+                f"{service}?biennium={biennium}#GetCommittees",
+                lambda: committees.fetch_committees(biennium),
+                counters,
+                ttl_days,
+                log_event="wsl_raw_harvest_fetch_failed",
+            )
+            await record_fetch(
+                run,
+                store,
+                f"{COMMITTEES_RESOURCE_PREFIX}{biennium}",
+                f"{service}#GetActiveCommittees",
+                committees.fetch_active_committees,
+                counters,
+                ttl_days,
+                log_event="wsl_raw_harvest_fetch_failed",
+            )
+            begin, end = biennium_window(biennium)
+            await record_fetch(
+                run,
+                store,
+                meetings_resource_id(begin, end),
+                f"{WSL_BASE_URL}/CommitteeMeetingService.asmx#GetCommitteeMeetings",
+                lambda: meetings.fetch_committee_meetings(begin, end),
+                counters,
+                ttl_days,
+                log_event="wsl_raw_harvest_fetch_failed",
+            )
+            await record_fetch(
+                run,
+                store,
+                f"{SPONSORS_RESOURCE_PREFIX}{biennium}",
+                f"{WSL_BASE_URL}/SponsorService.asmx?biennium={biennium}#GetSponsors",
+                lambda: sponsors.fetch_sponsors(biennium),
+                counters,
+                ttl_days,
+                log_event="wsl_raw_harvest_fetch_failed",
+            )
 
-        roster_wire = _roster_wire(store, roster, roster_resource)
-        parsed: list[dict] | None = None
-        if roster_wire is not None and not roster_wire:
-            # The archived form of a benign fault (#82, CR 38): an
-            # out-of-coverage biennium returns an EMPTY wire — no committees,
-            # not a lost fan-out. The transport's parse raises on zero bytes,
-            # so short-circuit exactly as usa_wa_adapter_legislature.parsing does.
-            parsed = []
-        elif roster_wire is not None:
-            try:
-                parsed = await committees.parse_committees(roster_wire)
-            except Exception:
-                # An HTTP-200 roster that does not parse must not abandon the
-                # run ledger: contain, skip the fan-out, degrade at job level.
-                logger.exception(
-                    "wsl_raw_harvest_roster_unparseable", extra={"resource_id": roster_resource}
-                )
-        if parsed is None:
-            counters["fanout_skipped"] = 1
-        else:
-            for committee in parsed:
-                committee_id = committee.get("Id")
-                agency = committee.get("Agency")
-                name = committee.get("Name")
-                if committee_id is None or not agency or not name:
-                    logger.warning("wsl_raw_harvest_committee_unkeyed", extra={"record": committee})
-                    continue
-                counters["fanout_attempted"] += 1
-                member = await record_fetch(
-                    run,
-                    store,
-                    committee_members_hist_resource_id(biennium, str(committee_id), agency, name),
-                    f"{service}?biennium={biennium}&committee={committee_id}#GetCommitteeMembers",
-                    lambda a=agency, n=name: committees.fetch_historical_committee_members(
-                        biennium, a, n
-                    ),
-                    counters,
-                    ttl_days,
-                    log_event="wsl_raw_harvest_fetch_failed",
-                )
-                if not member.error:
-                    counters["fanout_landed"] += 1
+            roster_wire = _roster_wire(store, roster, roster_resource)
+            parsed: list[dict] | None = None
+            if roster_wire is not None and not roster_wire:
+                # The archived form of a benign fault (#82, CR 38): an
+                # out-of-coverage biennium returns an EMPTY wire — no committees,
+                # not a lost fan-out. The transport's parse raises on zero bytes,
+                # so short-circuit exactly as usa_wa_adapter_legislature.parsing does.
+                parsed = []
+            elif roster_wire is not None:
+                try:
+                    parsed = await committees.parse_committees(roster_wire)
+                except Exception:
+                    # An HTTP-200 roster that does not parse must not abandon the
+                    # run ledger: contain, skip the fan-out, degrade at job level.
+                    logger.exception(
+                        "wsl_raw_harvest_roster_unparseable", extra={"resource_id": roster_resource}
+                    )
+            if parsed is None:
+                counters["fanout_skipped"] = 1
+            else:
+                for committee in parsed:
+                    committee_id = committee.get("Id")
+                    agency = committee.get("Agency")
+                    name = committee.get("Name")
+                    if committee_id is None or not agency or not name:
+                        logger.warning(
+                            "wsl_raw_harvest_committee_unkeyed", extra={"record": committee}
+                        )
+                        continue
+                    counters["fanout_attempted"] += 1
+                    member = await record_fetch(
+                        run,
+                        store,
+                        committee_members_hist_resource_id(
+                            biennium, str(committee_id), agency, name
+                        ),
+                        f"{service}?biennium={biennium}&committee={committee_id}#GetCommitteeMembers",
+                        lambda a=agency, n=name: committees.fetch_historical_committee_members(
+                            biennium, a, n
+                        ),
+                        counters,
+                        ttl_days,
+                        log_event="wsl_raw_harvest_fetch_failed",
+                    )
+                    if not member.error:
+                        counters["fanout_landed"] += 1
+        finally:
+            # An uncontained failure (corrupt latest.json, cancellation) must not
+            # abandon already-fetched wires as unmanifested strays (#302 CR).
+            run.close()
     except Exception as exc:
-        # The alert must still say how far the run got (#331).
+        # The alert must still say how far the run got (#331) — outside the
+        # finally, so a failed manifest write is wrapped too (CR 1).
         raise JobFailure(counters) from exc
-    finally:
-        # An uncontained failure (corrupt latest.json, cancellation) must not
-        # abandon already-fetched wires as unmanifested strays (#302 CR).
-        run.close()
     logger.info("wsl_raw_harvest_complete", extra={"biennium": biennium, **counters})
     return counters
 
