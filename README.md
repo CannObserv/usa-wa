@@ -89,7 +89,8 @@ Full command reference: [`docs/COMMANDS.md`](docs/COMMANDS.md) — it carries th
 index of every operational and backfill CLI, grouped by the reference that
 documents each: [succession](docs/COMMANDS-SUCCESSION.md),
 [backfill](docs/COMMANDS-BACKFILL.md),
-[seat facts](docs/COMMANDS-SEATS.md).
+[seat facts](docs/COMMANDS-SEATS.md),
+[roster PDF](docs/COMMANDS-ROSTER.md).
 
 Agent-facing docs (architecture, per-package module maps, deployment,
 environment) are indexed under **Detail Docs** in [`AGENTS.md`](AGENTS.md).
