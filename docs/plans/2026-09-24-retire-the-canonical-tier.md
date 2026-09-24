@@ -23,6 +23,7 @@ blocks a deletion:
 | The pipeline imports DB-writing modules transitively: `conformed/spans` → `roster_pdf/build` → `span_emit`, `operators.store`; `conformed/house` → `facts_seats/house/build`; `conformed/roles` → `normalize/members` → `.adapter`, `.jurisdictions`; the job harness → `models` → `provenance`, `jurisdictions` (registration only; both survive trimmed) | usa-wa-pipeline, clearinghouse-core | deleting modules |
 | `/sources` routes read `sources` + `source_coverage`; `sources.jurisdiction_id` FKs `jurisdictions` | `usa_wa_api/api/v1/ops.py` | dropping provenance and jurisdictions whole |
 | `source_coverage.evidence_citation_id` FKs `citations`, and `SourceCoverageOut` publishes it (populated in 0 of 5 rows) | `source_coverage.py:246`, `v1/schemas.py:218` | dropping `citations` (Q5) |
+| Not every nightly probe needs canonical: `parity_citations` reads only the duckdb, and four of `parity_spans`' zero-gated counters (`unregistered_spans`, `unregistered_orgs`, `unregistered_roles`, `malformed_roster_rows`) have no dbt equivalent — `roles.org_entity_id` is untested, `roles.entity_id` is only `unique`, and unregistered spans drop silently at the inner join | `parity_citations.py`, `parity_spans.INTEGRITY_COUNTERS` | retiring the parity stage whole |
 | The file integrity sweep exists but nothing runs it (idle since 09-03) | `clearinghouse_core.raw_integrity` | retiring the Postgres sweep |
 | 15 payloads fetched after the 09-03 export exist only in Postgres (6 WSL, 5 PDC, 4 operator) | `raw_payloads` | dropping provenance |
 | The roster PDF has no raw-store writer, and its monthly re-check still opens Postgres provenance tables | #421 | dropping provenance |
@@ -50,6 +51,7 @@ What survives:
 - **One PR, the issue's original shape.** Rejected: it spans every package, and the destructive half would be reviewed tangled with a refactor.
 - **Keep canonical read-only as an archive.** Rejected: the oracle is already stale (baseline 785). It shares Layer 2 with the pipeline, so it cannot catch the rollover bugs that matter (#282 hits both tiers). The `pg_dump` and the immutable dataset versions cover the archive need.
 - **Drop the unported checks instead of porting.** Rejected for every check the conformed tier can express. Each check that is dropped gets a recorded reason (Q3).
+- **Retire the parity stage whole, as #412's body says.** Rejected: `parity_citations` has no oracle to lose, and `parity_spans`' oracle-free counters are the only nightly alarm for data silently falling out of the published tables (the #403 class).
 - **Operator events as git-tracked files.** Viable: see Q1.
 
 ## Steps
@@ -66,6 +68,7 @@ What survives:
    - The #272 misdating predicate.
    - House and Senate odd-year winner corroboration, `stg_sos_results` ⋈ `assignments`.
    - Lineage, per Q2.
+   - The oracle-free `parity_spans` counters: no span dropped for want of a registered person, no role without a registered org, no malformed roster row — **error**; a role without its own registered entity — **warn**, since it is one build behind the registrar by design.
    - Done when each test is green against the production duckdb, and the Postgres units still run.
 3. **PR C: wire the file sweep.** Repoint `usa-wa-integrity-sweep.service` at `clearinghouse_core.raw_integrity` and keep the weekly timer. Done when a scheduled run lands in the ledger.
 4. **PR D: cut the import graph.**
@@ -75,11 +78,11 @@ What survives:
 5. **PR E: stop the write path.** All of this is reversible:
    - Disable nine units: the WSL, PDC and SOS refreshes, both archive refreshes, succession invariants, committee lineage invariants, and House and Senate corroboration. Keep the unit files. The integrity sweep unit stays: PR C already repointed it.
    - Remove `usa-wa-pipeline.service`'s `After=` on the refreshes, and update the expected edges `test_unit_ordering` pins for it (the file's other guards stay).
-   - Remove the parity stage from `pipeline-nightly.sh`.
+   - Remove the oracle-backed probes from `pipeline-nightly.sh`: `parity_wsl`, `parity_pdc`, `parity_registry`, `parity_spans`. **Keep `parity_citations`**: it checks the built artifact, not canonical, and is the only gate that every published entity stays citable.
    - Done when 7 consecutive nightlies are green.
 6. **PR F: delete and drop.**
    - Run `raw_export` a final time, now that PR E has stopped every Postgres writer, then the file sweep; only then take a `pg_dump` of `canonical` and the provenance tables. PR A's export cannot be the last one: the refreshes and archive units keep writing `raw_payloads` until PR E.
-   - Remove the Postgres-tier modules, the `parity_*` probes, `registry_seed`, `runner.py`, `adapter.py` and `span_emit`.
+   - Remove the Postgres-tier modules, the four oracle-backed `parity_*` probes (not `parity_citations`), `registry_seed`, `runner.py`, `adapter.py` and `span_emit`.
    - Remove the canonical identity models and the PM-mirror half of `jurisdictions.py`.
    - Cut `provenance.py` down to `Source` + `SourceCoverage`, and delete the retired units' files.
    - Trim `clearinghouse_core/models.py`'s side-effect registration to the surviving models. The job harness reaches `provenance` and `jurisdictions` only through it, and both modules survive in trimmed form, so PR D need not touch the harness.
