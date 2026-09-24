@@ -1,6 +1,6 @@
 """A second coverage profile, for the unit tier (#198).
 
-``[tool.coverage.report] fail_under`` (95 since #413) measures **all** of ``packages/`` — source
+``[tool.coverage.report] fail_under`` measures **all** of ``packages/`` — source
 *and* tests — which is right for ``pytest`` and wrong for ``pytest -m 'not db and not
 integration'``. The unit tier (#185) deselects every DB-backed harvester, span builder,
 reconciler and route by construction, and with them ~1000 test modules whose bodies then

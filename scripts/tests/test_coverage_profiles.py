@@ -1,6 +1,6 @@
 """The unit tier carries its own coverage gate (#198).
 
-``[tool.coverage.report] fail_under`` (95 since #413) measures **all** of ``packages/`` — source
+``[tool.coverage.report] fail_under`` measures **all** of ``packages/`` — source
 *and* tests. The unit tier (#185) deselects every DB-backed harvester, span builder,
 reconciler and route by construction, and with them ~1000 test modules whose bodies then
 never execute, so a green unit run scored ~54% and exited non-zero. Every documented
