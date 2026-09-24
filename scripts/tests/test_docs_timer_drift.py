@@ -437,7 +437,7 @@ def test_parse_on_calendar_rejects_a_weekday_and_a_day_together():
 
 
 def test_parse_on_calendar_rejects_a_day_that_skips_short_months():
-    """``*-*-31`` silently skips seven months a year; the docs would still say "monthly"."""
+    """``*-*-31`` silently skips the five shorter months; the docs would still say "monthly"."""
     with pytest.raises(AssertionError, match="skips"):
         parse_on_calendar("*-*-31 09:00:00 UTC")
 
