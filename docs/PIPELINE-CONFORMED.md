@@ -222,16 +222,16 @@ imported unchanged from the adapter's normalizer and the WA vocabulary.
 
 **#313 adds a role's own `entity_id`** without disturbing that. The key is still
 structural and still what PM matches on; the ULID is a stable handle for the API
-to address, minted through the registry's third kind (§ Identity registry above)
+to address, minted through the registry's third kind
+([`PIPELINE.md` § Identity registry](PIPELINE.md#identity-registry-308))
 and carried across from `canonical.roles` so a seeded role keeps the id it was
 already published under. Neither crosswalk may drop a role: a seat exists
 whether or not the registry has reached it, and the nightly runs `dbt build →
 registrar → publish`, so a brand-new seat is unregistered in the build that
 first sees it and bound by the next. `unregistered_roles` and
 `unregistered_orgs` make that one-run latency visible; `role_entity_mismatches`
-separates it from a *seeded* role whose ULID moved, gated because every join on
-the published `entity_id` re-points. A canonical ULID the registry never held
-is a role born after the seed — `role_post_seed`, reported only (#402). A
+separates it from a *seeded* role whose ULID moved (post-seed roles: same
+section, #402). A
 brand-new org has the same latency without a counter: `organizations` is one
 row per registered entity, so the committee is absent from the build that
 first sees it and published by the next (Joint committee 36500: first seen
