@@ -48,7 +48,7 @@ failed=()
 # would restate nothing or a stale line (CR 8). printf writes the inherited fd;
 # never reopen /dev/stdout or /dev/fd/N — under systemd that is the journal
 # socket, which open(2) refuses (ENXIO).
-shopt -s lastpipe
+shopt -s lastpipe extglob
 run_stage() {
   local label=$1 line last="" rc
   shift
@@ -58,6 +58,9 @@ run_stage() {
   done
   rc=${PIPESTATUS[0]}
   if [ "$rc" -ne 0 ]; then
+    # dbt colors off a TTY too, and journalctl hands the escapes to the email
+    # raw: restate plain text (CR 9). The stage's own lines stay as printed.
+    last=${last//$'\e['*([0-9;])m/}
     failed+=("$label (exit $rc): ${last:-(no summary on stdout)}")
   fi
   return "$rc"

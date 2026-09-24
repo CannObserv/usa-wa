@@ -40,6 +40,9 @@ for _ in $(seq 1 "${STUB_NOISE:-0}"); do echo "stub-noise $stage"; done
 case " ${STUB_FAIL:-} " in
   *" $stage "*) echo "job=$stage outcome=failed fetched=3"; exit "${STUB_RC:-1}" ;;
 esac
+case " ${STUB_COLOR:-} " in
+  *" $stage "*) printf '\033[0m08:06:34  \033[31mDone. PASS=110 ERROR=1\033[0m\n'; exit 1 ;;
+esac
 case " ${STUB_NO_NEWLINE:-} " in
   *" $stage "*) printf 'job=%s outcome=failed fetched=5' "$stage"; exit 1 ;;
 esac
@@ -202,6 +205,19 @@ def test_a_last_line_without_a_newline_is_still_captured(run_nightly):
         "pipeline-nightly: failed stage: usa_wa_pipeline.publish (exit 1): "
         "job=usa_wa_pipeline.publish outcome=failed fetched=5"
     ) in lines
+
+
+def test_a_colored_summary_is_restated_as_plain_text(run_nightly):
+    """CR 9: dbt colors its output off a TTY too — its real last line is
+    ``ESC[0m08:06:34  Done. PASS=…`` — and journalctl hands the escapes to the
+    email raw. The restatement strips them; the stage's own lines are untouched."""
+    code, lines = run_nightly(STUB_COLOR="dbt")
+
+    assert code == 1
+    assert lines[-1] == (
+        "pipeline-nightly: failed stage: dbt build (exit 1): 08:06:34  Done. PASS=110 ERROR=1"
+    )
+    assert "\x1b[31mDone." in "\n".join(lines[:-1])
 
 
 def test_the_seams_default_to_the_production_paths():
