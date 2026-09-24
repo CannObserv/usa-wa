@@ -39,9 +39,11 @@ class RateLimiter:
         self._next = 0.0
 
     def set_interval(self, min_interval: float) -> None:
+        """Change the interval (seconds) for later calls; negative clamps to 0 (disabled)."""
         self._min = max(0.0, min_interval)
 
     def acquire(self) -> None:
+        """Block until this caller's slot. The first call after construction never waits."""
         if self._min <= 0:
             return
         with self._lock:
