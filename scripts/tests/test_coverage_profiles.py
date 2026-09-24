@@ -45,9 +45,6 @@ import conftest_coverage
 REPO = Path(__file__).parent.parent.parent  # scripts/tests/ → repo
 PYPROJECT = REPO / "pyproject.toml"
 
-#: Files the run-level ``omit`` already drops, so the unit scope never sees them.
-OMITTED_PACKAGES = ("powermap-client",)
-
 DOCS_WITH_TEST_COMMANDS = ("AGENTS.md", "README.md", "docs/COMMANDS.md")
 
 #: The marker expression, not the whole command line — the flag this test hunts for sits
@@ -108,8 +105,7 @@ def test_every_package_source_tree_is_in_the_unit_scope() -> None:
     missed = sorted(
         src.relative_to(REPO).as_posix()
         for src in REPO.glob("packages/*/src")
-        if src.parent.name not in OMITTED_PACKAGES
-        and not any(matcher.match(str(module)) for module in src.rglob("*.py"))
+        if not any(matcher.match(str(module)) for module in src.rglob("*.py"))
     )
 
     assert missed == [], (
