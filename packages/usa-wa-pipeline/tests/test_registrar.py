@@ -316,7 +316,7 @@ async def test_the_nightly_job_registers_a_wsl_sponsor_no_rule_pairs(db_session,
         sponsors=["1", "2"],
         links=[
             ("wa_pdc:100", "usa_wa_legislature:1"),
-            ("usa_wa_legislature_roster:jane doe:2021", "usa_wa_legislature:1"),
+            ("usa_wa_legislature_roster:janedoe:2021", "usa_wa_legislature:1"),
         ],
     )
     ctx = _job_context(db_session, db_path)
@@ -330,7 +330,7 @@ async def test_the_nightly_job_registers_a_wsl_sponsor_no_rule_pairs(db_session,
     assert (
         view["usa_wa_legislature:1"]
         == view["wa_pdc:100"]
-        == view["usa_wa_legislature_roster:jane doe:2021"]
+        == view["usa_wa_legislature_roster:janedoe:2021"]
     )
     assert view["usa_wa_legislature:2"] != view["usa_wa_legislature:1"]
 
@@ -353,7 +353,7 @@ async def test_a_roster_key_no_rule_pairs_is_never_minted(db_session, tmp_path) 
         tmp_path,
         roster=[(2021, "Jane Doe"), (2021, "Roster Only")],
         pdc=["7710"],
-        links=[("usa_wa_legislature_roster:jane doe:2021", "usa_wa_legislature:1")],
+        links=[("usa_wa_legislature_roster:janedoe:2021", "usa_wa_legislature:1")],
         sponsors=["1"],
     )
 
@@ -362,5 +362,5 @@ async def test_a_roster_key_no_rule_pairs_is_never_minted(db_session, tmp_path) 
     view = await registered_view(db_session, KIND_PERSON)
     assert sorted(view) == [
         "usa_wa_legislature:1",
-        "usa_wa_legislature_roster:jane doe:2021",
+        "usa_wa_legislature_roster:janedoe:2021",
     ]
