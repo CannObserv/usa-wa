@@ -55,10 +55,10 @@ What survives:
 ## Steps
 
 1. **PR A: curated state off canonical.**
-   - Move `operator_events` and `committee_succession_events` to `registry` with `ALTER TABLE … SET SCHEMA`. Update the models, grants and `operator_read` to match.
+   - Move `operator_events` and `committee_succession_events` to the Q1 home (recommended: `registry`, via `ALTER TABLE … SET SCHEMA`). Update the models, grants and `operator_read` to match.
    - Make `operators.store` record attestation bodies through `RawStore.record_fetch`.
    - Run `raw_export` once to carry the 15 post-export payloads, then run the file sweep.
-   - Done when the nightly is green reading `registry.operator_events`, and the raw store holds a `usa_wa_operator` run newer than 09-03.
+   - Done when the nightly is green reading operator events from their new home, and the raw store holds a `usa_wa_operator` run newer than 09-03.
    - #421 lands in parallel and must leave the roster harvest, including the re-check, with no Postgres provenance writes before PR F.
 2. **PR B: port the checks as dbt tests on the conformed tier.**
    - Chamber counts on the open cohort: **error above** 49/98, **warn below**. Today's `count_ok` is strict equality (`invariants.py:87-88`), and a failed dbt test aborts the nightly before registrar and publish, so a straight port would block publishing on every legitimate vacancy and on the 2027-01-01 rollover. A vacancy is a real state; an excess is a defect.
