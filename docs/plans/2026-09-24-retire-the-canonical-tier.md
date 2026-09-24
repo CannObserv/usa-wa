@@ -20,7 +20,7 @@ blocks a deletion:
 | Operator attestations are written to Postgres `raw_payloads`, not the raw store (4 since the 09-03 export) | `operators/store.py` | dropping provenance |
 | `canonical.committee_succession_events` (165) and the `active` flag feed lineage checks the pipeline never ported | `committees/lineage_invariants.py` | schema drop, and a product decision (Q2) |
 | Unported checks: chamber counts 49/98, one person on two seats, misdated spans (#272), House and Senate odd-year corroboration, lineage INV1/INV2 | four units | retiring units |
-| The pipeline imports DB-writing modules transitively: `conformed/spans` → `roster_pdf/build` → `span_emit`, `operators.store`; `conformed/house` → `facts_seats/house/build`; `conformed/roles` → `normalize/members` → `.adapter`, `.jurisdictions`; the job harness → `models` → `provenance`, `jurisdictions` | usa-wa-pipeline, clearinghouse-core | deleting modules |
+| The pipeline imports DB-writing modules transitively: `conformed/spans` → `roster_pdf/build` → `span_emit`, `operators.store`; `conformed/house` → `facts_seats/house/build`; `conformed/roles` → `normalize/members` → `.adapter`, `.jurisdictions`; the job harness → `models` → `provenance`, `jurisdictions` (registration only; both survive trimmed) | usa-wa-pipeline, clearinghouse-core | deleting modules |
 | `/sources` routes read `sources` + `source_coverage`; `sources.jurisdiction_id` FKs `jurisdictions` | `usa_wa_api/api/v1/ops.py` | dropping provenance and jurisdictions whole |
 | `source_coverage.evidence_citation_id` FKs `citations`, and `SourceCoverageOut` publishes it (populated in 0 of 5 rows) | `source_coverage.py:246`, `v1/schemas.py:218` | dropping `citations` (Q5) |
 | The file integrity sweep exists but nothing runs it (idle since 09-03) | `clearinghouse_core.raw_integrity` | retiring the Postgres sweep |
@@ -70,7 +70,6 @@ What survives:
 3. **PR C: wire the file sweep.** Repoint `usa-wa-integrity-sweep.service` at `clearinghouse_core.raw_integrity` and keep the weekly timer. Done when a scheduled run lands in the ledger.
 4. **PR D: cut the import graph.**
    - Extract the pure functions the pipeline uses from `roster_pdf/build`, `facts_seats/house/build`, `normalize/members` and the adapter modules that staging imports.
-   - Make the job harness stop importing `provenance`/`jurisdictions` eagerly.
    - Add a forbidden contract so neither `usa_wa_pipeline` nor `usa_wa_api` can import the runner, `adapter`, `span_emit`, `operators.store`, `bootstrap`, or any refresh/build module.
    - Done when `lint-imports` enforces the contract, and a scratch publish matches that night's catalog digests byte for byte.
 5. **PR E: stop the write path.** All of this is reversible:
@@ -83,6 +82,7 @@ What survives:
    - Remove the Postgres-tier modules, the `parity_*` probes, `registry_seed`, `runner.py`, `adapter.py` and `span_emit`.
    - Remove the canonical identity models and the PM-mirror half of `jurisdictions.py`.
    - Cut `provenance.py` down to `Source` + `SourceCoverage`, and delete the retired units' files.
+   - Trim `clearinghouse_core/models.py`'s side-effect registration to the surviving models. The job harness reaches `provenance` and `jurisdictions` only through it, and both modules survive in trimmed form, so PR D need not touch the harness.
    - Resolve `source_coverage.evidence_citation_id` per Q5 before its target goes.
    - Write one alembic migration that drops the `canonical` schema, `fetch_events`, `raw_payloads`, `citations`, `integrity_sweep_state`, `notes`, `document_identifiers`, both jurisdiction-relationship tables, and every `pm_*` column.
    - In the same commit, update `grants.sql`, `LEGACY_MIGRATION_SCHEMAS`, `test_grants_append_only` and the `test_declared_tier` markers.
