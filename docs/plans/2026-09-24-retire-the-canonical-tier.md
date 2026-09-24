@@ -79,7 +79,7 @@ What survives:
    - Remove the parity stage from `pipeline-nightly.sh`.
    - Done when 7 consecutive nightlies are green.
 6. **PR F: delete and drop.**
-   - Take a `pg_dump` of `canonical` and the provenance tables.
+   - Run `raw_export` a final time, now that PR E has stopped every Postgres writer, then the file sweep; only then take a `pg_dump` of `canonical` and the provenance tables. PR A's export cannot be the last one: the refreshes and archive units keep writing `raw_payloads` until PR E.
    - Remove the Postgres-tier modules, the `parity_*` probes, `registry_seed`, `runner.py`, `adapter.py` and `span_emit`.
    - Remove the canonical identity models and the PM-mirror half of `jurisdictions.py`.
    - Cut `provenance.py` down to `Source` + `SourceCoverage`, and delete the retired units' files.
