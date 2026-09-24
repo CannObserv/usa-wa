@@ -1,11 +1,12 @@
 """The registrar (#308): proposed link pairs → clusters → registry writes."""
 
 from argparse import Namespace
+from collections.abc import Sequence
 
 import duckdb
 import pytest
 
-from clearinghouse_core.job import JobContext
+from clearinghouse_core.job import OUTCOME_DEGRADED, OUTCOME_OK, JobContext
 from clearinghouse_core.registry import (
     KIND_ORG,
     KIND_PERSON,
@@ -21,6 +22,8 @@ from usa_wa_pipeline.registrar import (
     load_org_keys,
     load_pairs,
     load_role_keys,
+    load_sponsor_keys,
+    malformed_sponsor_ids,
     run_registrar,
     singleton_pairs,
     unprocessed_kinds,
@@ -168,26 +171,70 @@ async def test_the_registrar_mints_one_entity_per_role_key(db_session) -> None:
     assert sorted(view) == sorted(keys)
 
 
-def _pipeline_db(tmp_path, *, committees: list[str], meetings: list[str]) -> str:
-    """A built-pipeline stand-in: the tables the registrar job reads."""
+def _pipeline_db(
+    tmp_path,
+    *,
+    committees: Sequence[str] = (),
+    meetings: Sequence[str] = (),
+    sponsors: Sequence[str] = (),
+    links: Sequence[tuple[str, str]] = (),
+    roster: Sequence[tuple[int, str]] = (),
+    pdc: Sequence[str] = (),
+) -> str:
+    """A built-pipeline stand-in: the tables the registrar job reads, plus the
+    roster and PDC staging it deliberately does not (#403)."""
     db_path = str(tmp_path / "pipeline.duckdb")
+    tables = (
+        (
+            "proposed_links (kind varchar, left_key varchar, right_key varchar, "
+            "rule varchar, score double)",
+            "insert into proposed_links values ('person', ?, ?, 'test', 1.0)",
+            [list(link) for link in links],
+        ),
+        ("roles (role_key varchar)", None, []),
+        (
+            "stg_wsl_committees (biennium varchar, committee_id varchar)",
+            "insert into stg_wsl_committees values ('2025-26', ?)",
+            [[c] for c in committees],
+        ),
+        (
+            "stg_wsl_meetings (meeting_window varchar, committee_id varchar)",
+            "insert into stg_wsl_meetings values ('2025-01-01:2026-12-31', ?)",
+            [[m] for m in meetings],
+        ),
+        (
+            "stg_wsl_sponsors (biennium varchar, member_id varchar, agency varchar)",
+            "insert into stg_wsl_sponsors values ('2025-26', ?, 'House')",
+            [[s] for s in sponsors],
+        ),
+        (
+            "stg_roster_members (year integer, district varchar, chamber varchar, name varchar)",
+            "insert into stg_roster_members values (?, '14', 'House', ?)",
+            [list(r) for r in roster],
+        ),
+        (
+            "stg_pdc_winners (person_id varchar, chamber varchar, election_year varchar)",
+            "insert into stg_pdc_winners values (?, 'House', '2024')",
+            [[person_id] for person_id in pdc],
+        ),
+    )
     con = duckdb.connect(db_path)
-    con.execute(
-        "create table proposed_links (kind varchar, left_key varchar, right_key varchar, "
-        "rule varchar, score double)"
-    )
-    con.execute("create table roles (role_key varchar)")
-    con.execute("create table stg_wsl_committees (biennium varchar, committee_id varchar)")
-    con.executemany(
-        "insert into stg_wsl_committees values ('2025-26', ?)", [[c] for c in committees]
-    )
-    con.execute("create table stg_wsl_meetings (meeting_window varchar, committee_id varchar)")
-    con.executemany(
-        "insert into stg_wsl_meetings values ('2025-01-01:2026-12-31', ?)",
-        [[m] for m in meetings],
-    )
+    for table, insert, rows in tables:
+        con.execute(f"create table {table}")
+        if rows:  # duckdb's executemany refuses an empty parameter list
+            con.executemany(insert, rows)
     con.close()
     return db_path
+
+
+def _job_context(db_session, db_path: str) -> JobContext:
+    return JobContext(
+        name="registrar",
+        args=Namespace(db=db_path),
+        session=db_session,
+        session_factory=None,
+        dry_run=False,
+    )
 
 
 def test_org_natural_keys_are_every_staged_committee_plus_the_structural_orgs(tmp_path) -> None:
@@ -210,13 +257,7 @@ async def test_the_nightly_job_registers_a_new_org(db_session, tmp_path) -> None
     `parity-registry` failed the nightly on `org_missing=1`. Orgs register like
     roles: singleton clusters, mint once, no-op thereafter."""
     db_path = _pipeline_db(tmp_path, committees=["28240"], meetings=["36500"])
-    ctx = JobContext(
-        name="registrar",
-        args=Namespace(db=db_path),
-        session=db_session,
-        session_factory=None,
-        dry_run=False,
-    )
+    ctx = _job_context(db_session, db_path)
 
     result = await _registrar_job(ctx)
     assert result.counters["org_minted"] == 2 + len(STRUCTURAL_ORGS)
@@ -228,3 +269,132 @@ async def test_the_nightly_job_registers_a_new_org(db_session, tmp_path) -> None
     again = await _registrar_job(ctx)
     assert again.counters["org_minted"] == 0
     assert again.counters["org_noops"] == 2 + len(STRUCTURAL_ORGS)
+
+
+def test_sponsor_natural_keys_are_every_staged_wsl_member(tmp_path) -> None:
+    """#403: one key per WSL member id, however many biennia or chambers list
+    them — the numeric upstream id is the person, not the sponsor row."""
+    db_path = str(tmp_path / "s.duckdb")
+    con = duckdb.connect(db_path)
+    con.execute(
+        "create table stg_wsl_sponsors as select * from (values "
+        "('2023-24', '27992', 'House'), ('2025-26', '27992', 'Senate'), "
+        "('2025-26', '1', 'House'), ('2025-26', NULL, 'House')"
+        ") t(biennium, member_id, agency)"
+    )
+    con.close()
+    assert load_sponsor_keys(db_path) == ["usa_wa_legislature:1", "usa_wa_legislature:27992"]
+
+
+def test_a_sponsor_id_that_is_not_numeric_is_never_a_key(tmp_path) -> None:
+    """#403 CR 1: a singleton mints on one upstream value alone, and the
+    registry has no delete — so only the numeric ids WSL serves may do it.
+    Staging's `text()` renders a blank `Id` as `''`, which `not_null` passes;
+    skipped here, it surfaces as `person_missing`, never as a published
+    `usa_wa_legislature:` person."""
+    db_path = str(tmp_path / "s.duckdb")
+    con = duckdb.connect(db_path)
+    con.execute(
+        "create table stg_wsl_sponsors as select * from (values "
+        "('2025-26', '27992', 'House'), ('2025-26', '', 'House'), "
+        "('2025-26', ' 7 ', 'House'), ('2025-26', 'abc', 'Senate')"
+        ") t(biennium, member_id, agency)"
+    )
+    con.close()
+    assert load_sponsor_keys(db_path) == ["usa_wa_legislature:27992"]
+
+
+def test_a_malformed_sponsor_id_is_named_not_dropped(tmp_path) -> None:
+    """#403 CR 5: CR 40's rule — nothing the registrar skips may vanish
+    silently. `person_missing` is no backstop: `parity-registry` diffs the
+    canonical tier, which retires. A NULL is reported too, not crashed on
+    (CR 53's shape): `not_null` guards the nightly only by ordering."""
+    db_path = str(tmp_path / "s.duckdb")
+    con = duckdb.connect(db_path)
+    con.execute(
+        "create table stg_wsl_sponsors as select * from (values "
+        "('2025-26', '27992', 'House'), ('2025-26', '', 'House'), "
+        "('2024-25', 'abc', 'Senate'), ('2025-26', 'abc', 'House'), "
+        "('2025-26', NULL, 'House')"
+        ") t(biennium, member_id, agency)"
+    )
+    con.close()
+    assert malformed_sponsor_ids(db_path) == ["", "<null>", "abc"]
+
+
+@pytest.mark.db
+async def test_a_malformed_sponsor_id_degrades_the_nightly_job(db_session, tmp_path) -> None:
+    """#403 CR 5: the registrar still registers every well-formed sponsor, but
+    degrades (exit 4, the nightly's triage signal) and names the id it would
+    not mint."""
+    db_path = _pipeline_db(tmp_path, sponsors=["1", ""])
+
+    result = await _registrar_job(_job_context(db_session, db_path))
+    assert result.outcome == OUTCOME_DEGRADED
+    assert result.counters["malformed_sponsor_ids"] == [""]
+    assert sorted(await registered_view(db_session, KIND_PERSON)) == ["usa_wa_legislature:1"]
+
+
+@pytest.mark.db
+async def test_the_nightly_job_registers_a_wsl_sponsor_no_rule_pairs(db_session, tmp_path) -> None:
+    """#403: `proposed_links` holds only matched pairs, so a legislator no rule
+    pairs (an appointee with no PDC winner row, a member newer than the roster
+    PDF) never reached the registrar — unregistered, dropped from `persons`, and
+    `parity-registry` + `parity-spans` fail the nightly. Every staged WSL
+    sponsor now rides in as a singleton cluster; union-find leaves the matched
+    components exactly as they were."""
+    db_path = _pipeline_db(
+        tmp_path,
+        sponsors=["1", "2"],
+        links=[
+            ("wa_pdc:100", "usa_wa_legislature:1"),
+            ("usa_wa_legislature_roster:janedoe:2021", "usa_wa_legislature:1"),
+        ],
+    )
+    ctx = _job_context(db_session, db_path)
+
+    result = await _registrar_job(ctx)
+    assert result.outcome == OUTCOME_OK
+    assert "malformed_sponsor_ids" not in result.counters
+    assert result.counters["minted"] == 2
+    assert result.counters["conflicts"] == 0
+    view = await registered_view(db_session, KIND_PERSON)
+    assert "usa_wa_legislature:2" in view  # the unpaired sponsor
+    # the matched pair is still one entity: the singleton joined its component
+    assert (
+        view["usa_wa_legislature:1"]
+        == view["wa_pdc:100"]
+        == view["usa_wa_legislature_roster:janedoe:2021"]
+    )
+    assert view["usa_wa_legislature:2"] != view["usa_wa_legislature:1"]
+
+    again = await _registrar_job(ctx)
+    assert again.counters["minted"] == 0
+    assert again.counters["appended_clusters"] == 0
+    assert again.counters["noops"] == 2
+    assert await registered_view(db_session, KIND_PERSON) == view
+
+
+@pytest.mark.db
+async def test_a_roster_key_no_rule_pairs_is_never_minted(db_session, tmp_path) -> None:
+    """#403 decision (2026-09-23): WSL sponsors only. A roster key is built by
+    us from a name, so after a parser or fold change a roster-only person must
+    surface as `missing` and be adjudicated — never minted and published as a
+    duplicate. Nor is a PDC key a standalone person: it is a crosswalk key that
+    rides a WSL person's pair, so a staged PDC winner no rule pairs stays
+    unregistered too (CR 3)."""
+    db_path = _pipeline_db(
+        tmp_path,
+        roster=[(2021, "Jane Doe"), (2021, "Roster Only")],
+        pdc=["7710"],
+        links=[("usa_wa_legislature_roster:janedoe:2021", "usa_wa_legislature:1")],
+        sponsors=["1"],
+    )
+
+    result = await _registrar_job(_job_context(db_session, db_path))
+    assert result.counters["minted"] == 1
+    view = await registered_view(db_session, KIND_PERSON)
+    assert sorted(view) == [
+        "usa_wa_legislature:1",
+        "usa_wa_legislature_roster:janedoe:2021",
+    ]

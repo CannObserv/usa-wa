@@ -172,6 +172,25 @@ two tiers mint independently, so `parity_registry` counts a canonical row whose
 ULID the registry never held as `post_seed`, not `mismapped`; an unbound key is
 still `missing`.
 
+**Persons: every WSL sponsor, not only the matched ones (#403).** `proposed_links`
+holds only matched pairs, so a legislator no rule pairs — an appointee with no
+PDC winner row, a member newer than the roster PDF — never reached the
+registrar (111 of 640 sponsors on 2026-09-22, registered only by the seed), and
+the next one would fail `parity-registry` (`person_missing`) and `parity-spans`
+(`unregistered_spans`). `registrar.load_sponsor_keys` adds a singleton
+`(key, key)` pair per staged `usa_wa_legislature:<member_id>`; union-find folds
+a paired sponsor into its component, so matched clusters are unchanged. Only a
+numeric id mints alone — the registry has no delete — and any other (blank,
+NULL) degrades the job, named in `malformed_sponsor_ids`. **WSL keys only**
+(decided 2026-09-23): a roster key (`usa_wa_legislature_roster:<fold>:<year>`)
+is built by us from a name, so a parser or fold change would mint a published
+duplicate — it stays pair-only and drift surfaces as `missing`, for
+adjudication. A PDC id is a crosswalk key on a WSL person, never a standalone
+one. Like a new seat or committee, a new legislator publishes one build after
+the one that first stages them (`dbt build → registrar → publish`);
+`parity-spans` re-reads the registry after the registrar, so that lag never
+trips it.
+
 ```bash
 # One-time: seed from canonical rows, ULIDs preserved (idempotent)
 uv run python -m usa_wa_pipeline.registry_seed
@@ -198,7 +217,8 @@ Matching models (`models/matching/`): `match_pdc_wsl` (SQL — same seat + seati
 biennium + surname token-containment; PDC renders names in both orders) and
 `match_roster_wsl` (Python — MUST use the adapter's `identity_fold`, the same
 fold the seeded roster keys carry; join = biennium + chamber + district +
-fold-equal names) union into `proposed_links`, the registrar's sole input.
+fold-equal names) union into `proposed_links`, the registrar's only source of
+pairs — persons also take a singleton per staged WSL sponsor (§ above, #403).
 Corrections are always adjudications — a matching-rule change can propose the
 world and move nothing (sticky registry). Splink's fuzzy tail is deferred: the
 seeded registry carries every historical link, so exact rules only need the
