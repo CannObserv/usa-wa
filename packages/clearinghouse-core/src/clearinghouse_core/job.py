@@ -211,6 +211,9 @@ class JobFailure(Exception):
     ``counters`` takes the shapes a handler may return — a mapping, a summary
     dataclass, or ``None`` — normalized on construction as :class:`JobResult`'s are,
     so it is a JSON-safe snapshot at the raise, not an alias of the handler's dict.
+
+    Wrap *outside* any cleanup ``finally`` (a manifest ``close()``): inside it, the
+    cleanup's own failure escapes bare and the counters are lost after all (#331 CR 1).
     """
 
     def __init__(self, counters: Any = None) -> None:
