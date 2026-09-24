@@ -53,13 +53,16 @@ changed a decision above; each is a shape the build settled differently.
   (`docs/PIPELINE-PUBLICATION.md` § Publication (#311), its tier table). The Decisions-log
   row's "internal (unpublished)" is superseded by that; the deferred public `citations`
   dataset stays deferred.
-- **Transition steps 7 and 9–10 as executed.** `pm_anchors` (#312) shipped, then #314
-  retired it once power-map#525 re-keyed onto `span_key`; `SCHEMA_VERSION` went 2.0.0 for
-  that removal. Step 10 split three ways: #314 (steps A, B and the ungated half of C
-  shipped; the gated half — the `pm_*` columns — folded into #412), #412 (step D: canonical
-  write path, parity harness, `clearinghouse-core` shrink, table + column drops), #413
-  (step E: coverage floors, PM leftovers). The parity harness retires with #412, as
-  § Testing & gates says.
+- **Transition steps 7 and 9–10 as executed.** Step 7: the anchor export (#312) shipped as
+  the `pm_anchors` dataset (#354), then #314 retired it once power-map#525 re-keyed onto
+  `span_key`; `SCHEMA_VERSION` went 2.0.0 for that removal. Step 9: usa-wa froze its side on
+  2026-09-08 at PM's request (the sidecar and three committee reconcilers masked, #314),
+  deleted the stack on 09-14 and removed the PM API key from its env the same day; PM's
+  revocation of that key is still outstanding. Step 10 split three ways: #314 (steps A, B
+  and the ungated half of C shipped; the gated half — the `pm_*` columns — folded into
+  #412), #412 (step D: canonical write path, parity harness, `clearinghouse-core` shrink,
+  table + column drops), #413 (step E: coverage floors, PM leftovers). The parity harness
+  retires with #412, as § Testing & gates says.
 
 ## Decisions log
 
