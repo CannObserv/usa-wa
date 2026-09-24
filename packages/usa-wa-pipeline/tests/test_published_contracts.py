@@ -10,14 +10,11 @@ and this goes red, and the only way to green it is appending a new release — s
 the bump falls out of the mechanism rather than depending on a reviewer noticing
 one was owed.
 
-**What this tier can and cannot see.** A hermetic build reads empty sources, and
-duckdb types an all-NULL column `INTEGER`, so every column of every model comes
-out of it typed `integer` — the types here are a fiction and the declaration
-deliberately does not carry them. Names and order it observes exactly, verified
-against the live build: on 2026-09-18 all sixteen datasets agreed column-for-
-column, differing only in the types this tier cannot see. Types are covered by
-the publisher's own gate instead, which compares the full fingerprint — types
-included — against what was last published, both sides read from a real build.
+**Names, not types.** The declaration carries names and order, which this tier
+observes exactly — verified against the live build: on 2026-09-18 all sixteen
+datasets agreed column-for-column. Types are declared on the models themselves
+and pinned by `test_model_schemas` (#361); an unbumped type change is the
+publisher's own gate's to catch, against what was last published.
 """
 
 import duckdb

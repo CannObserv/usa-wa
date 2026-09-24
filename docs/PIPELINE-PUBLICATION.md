@@ -79,12 +79,15 @@ removal = major, per dataset.
 | `test_every_declared_contract_matches_the_build` | unit tier, hermetic dbt build | a model's columns moved and its entry did not |
 | the publisher's own contract gate | nightly publish, against what was last published | a declaration edited in place, and a contract that moves with no code change at all |
 
-The declaration records column **names and order**, not types: a hermetic build
-reads empty sources and duckdb types an all-NULL column `INTEGER`, so types are
-unknowable in a database-free tier and declaring them would declare a fiction.
-Names and order were verified identical between the hermetic and live builds for
-all sixteen datasets (2026-09-18). Types are covered by the publish-time gate,
-which compares the full `contract_hash` — the dataset's name, tier, dialect and
+The declaration records column **names and order**, not types. Types are declared
+once, on the model: every Python model casts to its `*_SCHEMA` (#361), and
+`test_model_schemas` pins the hermetic build to those types — so the hermetic
+build's types are the real ones. Before #361 they were not: an empty model's
+columns inferred `INTEGER`, and `stg_sos_filings`, empty in production too,
+published every field as `integer` until 2.0.0. Names and order were verified
+identical between the hermetic and live builds for all sixteen datasets
+(2026-09-18). A type change under an unbumped version is caught by the
+publish-time gate, which compares the full `contract_hash` — the dataset's name, tier, dialect and
 its ordered fields *with* types — against what was last published, both sides
 read from a real build. Lineage is deliberately **not** in the fingerprint:
 `derived_from` comes from the dbt manifest, so folding it in would churn every

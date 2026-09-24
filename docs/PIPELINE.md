@@ -355,6 +355,16 @@ Red → Green → Refactor applies; what changes is where each color lives:
   pytest-covered functions (`clearinghouse_domain_legislative` stays the home of the
   pure span code); the dbt model is a thin adapter over them. pytest owns the logic's
   red/green; dbt data tests own the wiring's.
+- **A Python model's column types are declared, never inferred (#361).** Its row
+  builder's module carries a `*_SCHEMA` — ordered column → duckdb type, with
+  `*_COLUMNS = list(*_SCHEMA)` — and the model returns
+  `frames.typed_relation(session, rows, SCHEMA)`, not a bare `pd.DataFrame`. duckdb
+  reads an `object` column with no values as `INTEGER`, so a bare frame types every
+  column of an empty model (the whole hermetic build, and any empty source in
+  production) and any all-NULL column wrong — and a dbt test that is correct against
+  real types then fails to bind. `test_model_schemas` checks every Python model
+  against its schema in the hermetic build, and fails when a model is not listed.
+  A data test therefore never needs a `cast` just to bind there.
 - **Never weaken a test to go green.** Same rule as everywhere in this repo; a data
   test that fails on real source data is a finding about the source — record it
   (coverage claim, exclusion with a comment, or an upstream issue), don't delete it.
