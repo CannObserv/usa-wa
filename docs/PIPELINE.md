@@ -148,7 +148,7 @@ merge, so the ledger is always a 1:1 map from one natural key
 service a registry provides: a stable handle. `role_key` is a derived string,
 and this repo's rule against keying on an exact upstream string applies just as
 much to a public id — so `/api/v1` addresses a role by ULID while `role_key`
-stays published beside it, because that key is what Power Map matches a seat on
+stays published beside it, because that key is what a subscriber matches a seat on
 and mediating it away is what #309 refused.
 
 **Order matters once, at deployment.** `registry_seed` carries the canonical

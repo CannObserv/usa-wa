@@ -64,7 +64,7 @@ class Organization(ServingBase):
 class Role(ServingBase):
     """One seat/slot. ``role_key`` is the deterministic structural name (#309)
     and ``entity_id`` the registry ULID the API addresses it by (#313) — both
-    published, because the key is what Power Map matches a seat on."""
+    published, because the key is what a subscriber matches a seat on."""
 
     __tablename__ = "roles"
 

@@ -34,17 +34,18 @@ from usa_wa_common.parties import (
     ],
 )
 def test_roster_token_resolves_to_its_party_slug(token, slug):
-    """Every year-independent roster token folds to the slug PM's ``org_wa_party``
-    identifier carries (power-map#270/#442), so the Org is addressable by identifier rather
-    than by name-match or ULID."""
+    """Every year-independent roster token folds to the slug this repo's own vocabulary
+    publishes a party Org under (settled in power-map#270/#442), so the Org is addressable by
+    slug rather than by name-match or ULID."""
     result = resolve_party_token(token, year=1897)
     assert result.slug == slug
     assert result.disposition == PARTY_RESOLVED
 
 
 def test_every_resolved_slug_is_in_the_declared_vocabulary():
-    """``PARTY_SLUGS`` is the contract with PM's six historical Orgs plus the two majors —
-    a slug the resolver can emit but the vocabulary does not declare would have no Org."""
+    """``PARTY_SLUGS`` is the vocabulary behind the six historical party Orgs plus the two
+    majors — a slug the resolver can emit but the vocabulary does not declare would have no
+    Org."""
     tokens = ["R", "D", "P.P.", "Pop.", "Silver Rep.", "F.L.", "S", "Prog."]
     slugs = {resolve_party_token(t, year=1915).slug for t in tokens}
     assert slugs <= PARTY_SLUGS

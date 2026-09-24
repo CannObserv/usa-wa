@@ -60,7 +60,7 @@ here fails at the database, in production, not in review.
 
 Since #313 that is true of the **whole app**, not just the `/api/v1` prefix: `POST /sync/redrive`
 was the last mutating route and retired with the sync surface, so the deployment registers no
-non-GET operation anywhere. That is what lets Power Map revoke usa-wa's write scopes against an
+non-GET operation anywhere. That is what let Power Map revoke usa-wa's write scopes against an
 API that provably cannot write rather than one that promises not to.
 `test_v1_contract.py` asserts both — the prefixed set and the whole route table.
 
@@ -128,8 +128,8 @@ bounded by the audit, not by data volume.
 **Entity ids are ULIDs, in base32.** Persons, organizations and roles are addressed by
 `entity_id`, the 26-character Crockford base32 form (`01J9ZQ7X8K3M4N5P6Q7R8S9T0V`). The registry
 stores them as PostgreSQL `uuid`, so a `::text` cast — or any path through the `uuid.UUID`
-representation — yields the 36-character hyphenated hex form, which is not an id this system's
-consumers can use (Power Map's API 404s on it).
+representation — yields the 36-character hyphenated hex form, which is not an id this system
+ever emits (its first subscriber's API 404s on it).
 
 **One deliberate exception: an assignment.** A span has no row identity — a span *is* its key —
 so it is addressed by `assignment_id`, the 4-part

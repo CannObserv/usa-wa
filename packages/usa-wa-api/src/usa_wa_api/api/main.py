@@ -62,7 +62,7 @@ app.include_router(datasets_router)
 app.include_router(serving_router)
 # The product surface (#184). Read-only in the literal sense since #313: with
 # `POST /sync/redrive` retired this app registers no mutating route at all, which
-# is what lets Power Map revoke usa-wa's write scopes against an API that
+# is what let Power Map revoke usa-wa's write scopes against an API that
 # provably cannot write. Mounted last: the unversioned probes above are
 # deployment contracts and keep their paths.
 app.include_router(v1_router)

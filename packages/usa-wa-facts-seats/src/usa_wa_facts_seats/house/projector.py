@@ -12,7 +12,7 @@ Pure — no DB, no session. A sitting member with **no resolvable SOS position**
 archive, an SOS match miss, or a pre-2008 biennium below the votewa floor) emits **nothing**,
 counted ``missing_position`` (OQ1 / #101: a post-1965 unknown position is a data gap, not a
 position-less ``state_representative`` seat — PM rejects that via ``requires_qualifier`` and it
-would be a false structural claim; the genuine pre-1965 at-large seat is power-map#302) —
+would be a false structural claim; the genuine pre-1965 at-large seat is #230) —
 **unless** the within-LD elimination (#103) resolves it: the chamber seats exactly 2 members/LD,
 so an LD with exactly one ballot-claimed seat and exactly one unmatched sitting member gives
 that member the remaining position deterministically. This seats a mid-biennium appointee (never

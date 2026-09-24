@@ -11,9 +11,10 @@ and `canonical` (Layer 2 — every legislative-domain table below).
 
 ## 1. The live entity model
 
-Power Map's terminology, mirrored 1:1. usa-wa is a **producer** of identity data; the archival
-system of record is Power Map (PM), and the local `canonical` tables are a query-latency cache
-that also survives a State-resource outage.
+Power Map's terminology, mirrored 1:1 — the two models were designed together. Since #302 usa-wa
+is the **single master** for its slice: it publishes versioned datasets, reads nothing back, and
+Power Map (PM) is one subscriber. The `canonical` tables below are the Postgres tier the pipeline
+was built beside, retiring under #412; `serving.*` is the API's projection of what was published.
 
 | Table | Model | What it is |
 |---|---|---|

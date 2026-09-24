@@ -12,9 +12,9 @@ Two decisions are load-bearing:
 stored as PostgreSQL ``uuid`` (see ``clearinghouse_core.db.ulid``). The bytes are
 a UUID, so *any* path that goes through the UUID representation — a ``::text``
 cast in SQL, handing Pydantic the driver's :class:`uuid.UUID` — renders the
-36-character hyphenated hex form. That form is not an id any consumer of this
-data can use: Power Map's API takes base32 ULIDs and 404s on hex (project memory:
-``reference_ulid_pm_encoding``). :data:`ULIDStr` converts a UUID rather than
+36-character hyphenated hex form. That form is not an id this API or the
+datasets ever emit: both carry base32 ULIDs, and the first subscriber's API 404s
+on hex (project memory: ``reference_ulid_pm_encoding``). :data:`ULIDStr` converts a UUID rather than
 accepting it, and rejects a hex string outright.
 
 **The canonical slice serves the published datasets** (#313). Persons,
@@ -377,7 +377,7 @@ class RoleOut(ApiModel):
     """A seat or slot — a template, not an occupancy.
 
     Two identifiers, both published on purpose: ``role_key`` is the deterministic
-    structural name (a pure function of the seat, and Power Map's match key), and
+    structural name (a pure function of the seat, and the key a subscriber matches on), and
     ``entity_id`` is the registry ULID that stays put when the derived key moves.
     """
 

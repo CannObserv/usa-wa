@@ -9,9 +9,9 @@ consumer joins a real dimension instead of re-deriving one from a string.
 **Structural, not registered.** Unlike persons and organizations, a role needs
 no registry: its key is a pure function of the seat it names, identical on
 every run and in every deployment. That is the whole point of the increment —
-``seat:house:ld-5:position-1`` means the same thing to us, to Power Map (it
-aligns 1:1 with PM's seat match key) and to a consumer reading the CSV, with no
-ULID mediation. Only the *organization* the slot belongs to is registered, and
+``seat:house:ld-5:position-1`` means the same thing to us and to a consumer
+reading the CSV, with no ULID mediation (the first subscriber matches seats on
+it — an alignment, not a constraint). Only the *organization* the slot belongs to is registered, and
 that comes in from the crosswalk.
 
 Every key function is imported UNCHANGED — ``party_role_source_id``,
@@ -159,8 +159,8 @@ def role_rows(
     the build that first sees it and bound by the next; the counters are what
     make that one-run latency visible rather than silent.
 
-    ``role_key`` stays first-class beside ``entity_id``: it is what PM matches a
-    seat on, and mediating it away is exactly what #309 refused.
+    ``role_key`` stays first-class beside ``entity_id``: it is what a subscriber
+    matches a seat on, and mediating it away is exactly what #309 refused.
     """
     seen: dict[str, Role] = {}
     for row in assignments:

@@ -2,8 +2,11 @@
 
 Two upstreams, two encodings, one target vocabulary: WSL's ``Party`` field (``"R"`` /
 ``"Republican"``) and the SOS ballot's preference string (``"(Prefers Republican Party)"``,
-sometimes ``GOP``). Both fold to the same slug, because the slug is what PM's
-``org_wa_party`` identifier carries (power-map#270) and what the party-Org synthesis keys on.
+sometimes ``GOP``). Both fold to the same slug, because the slug is the party's identity in this
+repo's own vocabulary — one Org per slug, keyed ``party-<slug>``, in the published
+``organizations`` dataset — and what the party-Org synthesis keys on. (First settled against
+Power Map's ``org_wa_party`` identifiers, power-map#270; provenance, not a constraint, since
+#314.)
 
 `canonicalize_party` was defined in `usa_wa_adapter_legislature.normalize.members` — the WSL
 SOAP normalizer — and imported by the PDC matcher, the PDC observation builder and the SOS
@@ -85,10 +88,13 @@ def sos_party_slug(party_name: str | None) -> str | None:
 
 # --- the roster PDF's historical vocabulary (#227) ---------------------------
 
-#: Every slug this module can emit. The contract with Power Map: each one is the
-#: ``org_wa_party`` identifier value of a real Org (power-map#270/#442/#443), so a party is
-#: addressed by identifier rather than by name-match or ULID. A slug the resolver could emit
-#: but this set did not declare would have no Org to attach to.
+#: Every slug this module can emit — this repo's own party vocabulary. The conformed tier
+#: names one party Org per slug (``party-<slug>``) and publishes it in ``organizations``, so a
+#: party is addressed by slug rather than by name-match or ULID; a slug the resolver could emit
+#: but this set did not declare would have no Org to attach to, and surfaces locally as an
+#: unregistered org in the build counters. (The set was first settled against Power Map's
+#: ``org_wa_party`` identifiers, power-map#270/#442/#443 — provenance, not a constraint, since
+#: #314.)
 PARTY_SLUGS = frozenset(
     {
         "republican",
