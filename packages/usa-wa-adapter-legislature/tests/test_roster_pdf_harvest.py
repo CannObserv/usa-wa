@@ -11,6 +11,7 @@ from sqlalchemy import select
 
 from clearinghouse_core.provenance import FetchEvent
 from clearinghouse_core.testing import patch_job_runtime
+from usa_wa_adapter_legislature.roster_pdf import adapter as adapter_module
 from usa_wa_adapter_legislature.roster_pdf import harvest as harvest_module
 from usa_wa_adapter_legislature.roster_pdf.audit import (
     RosterAudit,
@@ -76,6 +77,50 @@ class TestHarvest:
         summary = await harvest_roster(db_session, revision="2025-06-05")
         assert summary.archived == 0
         assert summary.unavailable is True
+
+
+class TestScheduledRecheck:
+    """The monthly edition re-check's premise (#237): ``--force`` is what makes it look.
+
+    The source's freshness cache is 90 days, so inside that window an unforced run is a cache
+    hit that never fetches — and a dry run never refreshes the cache, so forcing costs only the
+    one GET the check exists to make. Both halves are pinned against a real archive; the unit's
+    argv is pinned in ``scripts/tests/test_roster_recheck_unit.py``.
+    """
+
+    @respx.mock
+    async def test_a_forced_recheck_sees_a_new_edition_past_a_fresh_archive(
+        self, db_session, usa_wa, roster_pdf_bytes
+    ) -> None:
+        route = respx.get(DEFAULT_ROSTER_URL).mock(
+            return_value=httpx.Response(200, content=roster_pdf_bytes)
+        )
+        await get_or_create_roster_source(db_session, usa_wa)
+        assert (await harvest_roster(db_session, revision="2025-06-05")).archived == 1
+
+        with patch.object(adapter_module, "extract_revision_date", return_value="2027-06-01"):
+            summary = await harvest_roster(db_session, revision="2025-06-05", force=True)
+
+        assert route.call_count == 2
+        assert summary.archived == 0
+        assert summary.mismatch is not None and "--revision 2027-06-01" in summary.mismatch
+
+    @respx.mock
+    async def test_an_unforced_recheck_is_blind_inside_the_cache_window(
+        self, db_session, usa_wa, roster_pdf_bytes
+    ) -> None:
+        """The trap ``--force`` avoids: a new edition is published, and the run reports clean."""
+        route = respx.get(DEFAULT_ROSTER_URL).mock(
+            return_value=httpx.Response(200, content=roster_pdf_bytes)
+        )
+        await get_or_create_roster_source(db_session, usa_wa)
+        assert (await harvest_roster(db_session, revision="2025-06-05")).archived == 1
+
+        with patch.object(adapter_module, "extract_revision_date", return_value="2027-06-01"):
+            summary = await harvest_roster(db_session, revision="2025-06-05")
+
+        assert route.call_count == 1
+        assert summary.mismatch is None
 
 
 class TestCli:

@@ -21,6 +21,7 @@ detail behind them.
 | Committee lineage invariants (daily) | oneshot + timer | — | `systemctl` (`usa-wa-committee-lineage-invariants.timer` → `.service`; 07:30 UTC, #124 C4). Read-only coherence assertion — INV1 no `active=false` committee carries a live membership Assignment; INV2 the subject of a non-superseded `succeeded_by`/`merged_with` link is `active=false` (`split_from` exempt); exit 1 → operator email. Ordered after the refreshes + reconcile deactivate defunct committees + close their spans |
 | Dataset pipeline (daily) | oneshot + timer | — | `systemctl` (`usa-wa-pipeline.timer` → `.service`; 08:00 UTC, #311). The #302 nightly chain: three raw harvests → dbt build → registrar → publish → serving load → parity probes (`scripts/pipeline-nightly.sh`). Harvest failures contained (last good wires + publish gates protect); a build failure aborts; registrar conflicts, a publish-gate refusal, or a parity divergence exit 1 → operator email while the last good catalog stands. Either exit restates each failed stage's last stdout line (its harness summary, counters included) as the run's closing lines, since the email carries only the last 25 (#331). Ordered after the canonical refreshes (they are the parity oracle) |
 | Provenance integrity sweep (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-integrity-sweep.timer` → `.service`; Sun 08:00 UTC) |
+| Roster PDF edition re-check (monthly) | oneshot + timer | — | `systemctl` (`usa-wa-roster-pdf-recheck.timer` → `.service`; 1st 09:00 UTC, #237). The roster harvest (#225) run `--dry-run --force`: fetches the *Members of the Legislature* PDF, verifies its `Revision Date` against `DEFAULT_REVISION` in code, and rolls the archive write back. Exit 4 = a new edition is published (or the document cannot be located) → operator email, repeated monthly until the edition is harvested **and** the default bumped on `main` — runbook: [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md) § Roster PDF. `--force` is load-bearing: the source's 90-day freshness cache would otherwise make every run a fetch-free cache hit. Not a refresh — nothing downstream reads it |
 | Disk GC + free-space sensor (daily) | oneshot + timer | — | `systemctl` (`usa-wa-disk-gc.timer` → `.service`; 05:45 UTC, #394). `scripts/disk-gc.sh --prune`: reclaims tooling copies no running process references (VS Code server builds, Claude Code extension versions (#399), Claude plugin-cache versions no live session marks in use (#407), `_npx` trees), measures the repo tiers without touching them (#396 owns their retention), and exits 1 below the free-space floor → operator email. First in the chain, ahead of the 06:00 ingest — reclaim, then work. The one unit carrying **neither** `ExecStartPre` guard: it runs no repo code, and #87/#279 both fail in the worktree-heavy state that fills the disk |
 | Failure alerts | templated oneshot | — | `OnFailure=` → `usa-wa-notify-failure@.service` |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
@@ -73,7 +74,8 @@ distinguishable from the email alone),
 `usa-wa-integrity-sweep`,
 `usa-wa-senate-corroboration`, `usa-wa-house-corroboration`,
 `usa-wa-succession-invariants`,
-`usa-wa-committee-lineage-invariants`) carries
+`usa-wa-committee-lineage-invariants`,
+`usa-wa-roster-pdf-recheck` (#237 — its exit 4 is the new-edition notice)) carries
 `OnFailure=usa-wa-notify-failure@%n.service`, so systemd starts the templated
 handler on a non-zero exit **or** a `TimeoutStartSec=` hang. `%n` (the failing
 unit's full name) becomes the handler's instance.
@@ -151,7 +153,8 @@ entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
 `usa-wa-pdc-archive-refresh.service`, `usa-wa-sos-archive-refresh.service`,
 `usa-wa-integrity-sweep.service`, `usa-wa-senate-corroboration.service`,
 `usa-wa-house-corroboration.service`, `usa-wa-succession-invariants.service`,
-`usa-wa-committee-lineage-invariants.service`, `scripts/migrate.sh`).
+`usa-wa-committee-lineage-invariants.service`, `usa-wa-roster-pdf-recheck.service`,
+`scripts/migrate.sh`).
 `--no-sync` runs against the installed venv as-is; `--frozen` skips re-locking.
 So unit start never mutates the environment — the daily WSL refresh timer can't
 silently apply a dependency change a `git pull` landed in `uv.lock`. (Note:
@@ -363,6 +366,7 @@ sysctl vm.min_free_kbytes
 | After editing `deploy/usa-wa-house-corroboration.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-house-corroboration.timer` |
 | After editing `deploy/usa-wa-succession-invariants.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-succession-invariants.timer` |
 | After editing `deploy/usa-wa-committee-lineage-invariants.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-committee-lineage-invariants.timer` |
+| After editing `deploy/usa-wa-roster-pdf-recheck.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-roster-pdf-recheck.timer` |
 | After editing `deploy/usa-wa-disk-gc.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-disk-gc.timer` |
 | After editing `deploy/usa-wa-notify-failure@.service` | `sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
 | After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
@@ -375,6 +379,7 @@ sysctl vm.min_free_kbytes
 | Run the House corroboration now (ad-hoc) | `sudo systemctl start usa-wa-house-corroboration.service` |
 | Run the succession invariant check now (ad-hoc) | `sudo systemctl start usa-wa-succession-invariants.service` |
 | Run the committee lineage invariant check now (ad-hoc) | `sudo systemctl start usa-wa-committee-lineage-invariants.service` |
+| Re-check the roster PDF edition now (ad-hoc) | `sudo systemctl start usa-wa-roster-pdf-recheck.service` (one 5.7MB GET; archives nothing) |
 | Reclaim disk / check free space now (ad-hoc) | `sudo systemctl start usa-wa-disk-gc.service`, or `scripts/disk-gc.sh` for a report that removes nothing. Needs no DB and no venv — it is the one unit that still runs with a feature branch checked out |
 
 ## Validating unit edits (#51)
