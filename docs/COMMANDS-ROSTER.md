@@ -134,7 +134,7 @@ uv run python -m usa_wa_adapter_legislature.roster_pdf.build
 
 # 2. PREVIEW the collapse and read `anchors_dropped` (#276). OWNER role, like step 4: the job
 #    declares role="owner" and resolves DATABASE_URL_OWNER itself, so just load the env — a
-#    per-command DATABASE_URL=... prefix is silently ignored here (see COMMANDS.md § alembic).
+#    per-command DATABASE_URL=... prefix is silently ignored here (see COMMANDS.md § Database migrations).
 #    The dry-run rolls back, and while the sidecar stays paused nothing moves the anchors
 #    underneath it, so its counters are what step 4 will do. Each drop is warned individually
 #    as `sponsor_span_migrate_anchor_dropped`, carrying the `source_id` step 3 needs. Only

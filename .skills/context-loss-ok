@@ -114,3 +114,6 @@ docs/PIPELINE-CONFORMED.md :: retarget :: engine as a Python model) landed next 
 docs/SOCRATICODE.md :: retarget :: [`docs/DEPLOYMENT.md` § Memory pressure](DEPLOYMENT.md#memory-pressure-issue-389).
 docs/SKILLS.md :: retarget :: ([`docs/DEPLOYMENT.md` § Shared-venv integrity](DEPLOYMENT.md#shared-venv-integrity-issue-279))
 docs/PIPELINE.md :: retarget :: carries: [`PIPELINE-CONFORMED.md`](PIPELINE-CONFORMED.md).
+# CR 13: COMMANDS.md has no "alembic" heading (`grep -n '^#.*alembic' docs/COMMANDS.md` is empty);
+# the section is "## Database migrations".
+docs/COMMANDS-ROSTER.md :: disproven :: per-command DATABASE_URL=... prefix is silently ignored here (see COMMANDS.md § alembic).
