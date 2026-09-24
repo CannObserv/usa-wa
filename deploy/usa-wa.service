@@ -87,7 +87,7 @@ RestartSec=5
 #
 # Neither directive substitutes for the host-side half — vm.min_free_kbytes,
 # earlyoom, and not installing an npm package per MCP session. All three are on
-# this box; see docs/DEPLOYMENT.md § Memory pressure.
+# this box; see docs/DEPLOYMENT-HOST.md § Memory pressure.
 MemoryLow=256M
 OOMScoreAdjust=-500
 

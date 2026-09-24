@@ -129,7 +129,8 @@ results/filings corroborate spans, covered by #309's span parity.
 
 Crosswalks + entities, the tenure-span engine, the roles dimension and the
 citations chain — the registry-joined products and every guard each one
-carries: [`PIPELINE-CONFORMED.md`](PIPELINE-CONFORMED.md).
+carries: [`PIPELINE-CONFORMED.md`](PIPELINE-CONFORMED.md), with crosswalks + entities split out
+into [`PIPELINE-CONFORMED-ENTITIES.md`](PIPELINE-CONFORMED-ENTITIES.md).
 
 ## Identity registry (#308)
 

@@ -38,7 +38,7 @@ docs/COMMANDS-SUCCESSION.md :: Committee lineage & lifecycle (#124)
 docs/COMMANDS-SEATS.md :: Archive vs rebuild — which half each flag governs (#201)
 docs/DEPLOYMENT.md :: Failure alerting (#49)
 docs/DEPLOYMENT.md :: DB role topology (defense-in-depth, issue #22)
-docs/DEPLOYMENT.md :: Main-only checkout (issue #87)
+docs/DEPLOYMENT-HOST.md :: Main-only checkout (issue #87)
 docs/DEPLOYMENT.md :: Deploy convention: units never sync the venv (issue #30)
 docs/DEPLOYMENT.md :: Validating unit edits (#51)
 docs/LWW-NOOP-GATE.md :: Sibling: the rejected-UPDATE replay guard (#132)
@@ -58,8 +58,8 @@ docs/SKILLS.md :: [`AGENTS.md`](../AGENTS.md) § Infrastructure fixes this repo 
 # Issue numbers in headings, in docs this run did not touch. Judged legitimate
 # under class 2 above: the numbers are the design record and the slugs are
 # load-bearing. Acked so the ledger's seam count reflects judgement, not backlog.
-docs/COMMANDS-BACKFILL.md :: ## Roster PDF — the archival member source (#225, epic #219)
-docs/COMMANDS-BACKFILL.md :: ## Pre-1991 build (#228) — roster Persons, party spans, Senate seat spans
+docs/COMMANDS-ROSTER.md :: ## Roster PDF — the archival member source (#225, epic #219)
+docs/COMMANDS-ROSTER.md :: ## Pre-1991 build (#228) — roster Persons, party spans, Senate seat spans
 docs/COMMANDS-SYNC.md :: ### Retract spurious anchored assignments (#144 Phase 2)
 docs/COMMANDS-SYNC.md :: ### Retire superseded outbox rejections (#258)
 docs/DEPLOYMENT.md :: ## Scheduled work outside systemd (#221)
@@ -166,3 +166,18 @@ docs/SOCRATICODE.md :: Dated prose is out of the code index (#406)
 docs/SOCRATICODE.md :: Background work outlives the tool call (#299)
 docs/SOCRATICODE.md :: Manifest coverage — the drift that grows silently (#300)
 docs/SOCRATICODE.md :: The server is pinned, not installed per launch (#389)
+
+# #237 branch, curating-context round (2026-09-24): the four docs split out of over-budget
+# parents. Each back-reference below is the new doc's own "split out of" lead-in, or a
+# pointer retargeted to where its content now lives — judged true against the split.
+docs/COMMANDS-ROSTER.md :: Split out of [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md); the index lives in
+docs/COMMANDS-ROSTER.md :: [COMMANDS.md](COMMANDS.md). The Legislature's own roster PDF (#225, epic #219): the Phase A
+docs/COMMANDS-ROSTER.md :: [MODULES-LEGISLATURE-ROSTER.md](MODULES-LEGISLATURE-ROSTER.md).
+docs/DEPLOYMENT-HOST.md :: Split out of [`DEPLOYMENT.md`](DEPLOYMENT.md), which keeps the unit table, alerting, DB
+docs/DEPLOYMENT-HOST.md :: The disk-GC commands came here from [`COMMANDS.md`](COMMANDS.md).
+docs/MODULES-LEGISLATURE-ROSTER-BUILD.md :: [MODULES-LEGISLATURE-ROSTER.md](MODULES-LEGISLATURE-ROSTER.md), which keeps the source
+docs/PIPELINE-CONFORMED-ENTITIES.md :: [`PIPELINE-CONFORMED.md`](PIPELINE-CONFORMED.md), which keeps the tenure spans and the
+docs/PIPELINE-CONFORMED-ENTITIES.md :: engine as a Python model) landed next — see [`PIPELINE-CONFORMED.md`](PIPELINE-CONFORMED.md); roles/seats complete the
+# A past-tense record of what the doc said when the #389 hole was found; retargeting it
+# would falsify the history it reports.
+deploy/system.slice.d/10-usa-wa-memory.conf :: # comment and docs/DEPLOYMENT.md both said it was protected. A protection that

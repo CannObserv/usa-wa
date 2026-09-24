@@ -428,5 +428,5 @@ was to stop an unattended launch from installing.
 
 Host-side memory protection — `MemoryLow=`/`OOMScoreAdjust=` on the serving unit,
 `vm.min_free_kbytes`, earlyoom — is in
-[`docs/DEPLOYMENT.md` § Memory pressure](DEPLOYMENT.md#memory-pressure-issue-389).
+[`docs/DEPLOYMENT-HOST.md` § Memory pressure](DEPLOYMENT-HOST.md#memory-pressure-issue-389).
 A cap on a session process cannot substitute for it.

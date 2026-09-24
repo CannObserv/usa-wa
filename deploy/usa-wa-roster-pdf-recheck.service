@@ -11,7 +11,7 @@ After=network-online.target postgresql.service usa-wa-migrate.service
 Wants=network-online.target
 # The alert IS the product (#49). Exit 4 (EXIT_DEGRADED): a new edition is published — its stamp
 # differs from DEFAULT_REVISION in code — or the document can no longer be located (media key
-# rotated, href not re-discoverable). Exit 1: an outage. Runbook: docs/COMMANDS-BACKFILL.md
+# rotated, href not re-discoverable). Exit 1: an outage. Runbook: docs/COMMANDS-ROSTER.md
 # § Roster PDF. %n → this unit's full name.
 OnFailure=usa-wa-notify-failure@%n.service
 
