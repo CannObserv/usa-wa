@@ -90,3 +90,27 @@ def test_a_frame_whose_columns_disagree_with_the_schema_is_refused(session) -> N
     frame = pd.DataFrame(columns=list(reversed(SCHEMA)))
     with pytest.raises(ValueError, match="columns"):
         typed_relation(session, frame, SCHEMA)
+
+
+def test_a_number_is_never_rendered_as_text(session) -> None:
+    """The cast TYPES, it does not convert (CR 1). A null among integers makes
+    pandas widen them to float64, and casting that to VARCHAR publishes `'10.0'`
+    for LD 10 — a source drifting type would ship silently instead of moving the
+    contract the publisher gates on."""
+    rows = [{"district": 10}, {"district": None}]
+    with pytest.raises(ValueError, match="district"):
+        typed_relation(session, rows, {"district": "VARCHAR"})
+
+
+def test_a_fraction_is_never_rounded_into_an_integer(session) -> None:
+    rows = [{"district": 10.5}, {"district": None}]
+    with pytest.raises(ValueError, match="district"):
+        typed_relation(session, rows, {"district": "BIGINT"})
+
+
+def test_integers_widen_losslessly(session) -> None:
+    """The float64 a null forces onto whole numbers narrows back to BIGINT — the
+    `roles.district` case — and an integer column widens to DOUBLE."""
+    rows = [{"district": 10, "score": 1}, {"district": None, "score": 2}]
+    relation = typed_relation(session, rows, {"district": "BIGINT", "score": "DOUBLE"})
+    assert relation.fetchall() == [(10, 1.0), (None, 2.0)]
