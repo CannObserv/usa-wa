@@ -25,17 +25,19 @@ from usa_wa_common.names import strip_tenure_notes
 from usa_wa_common.orgs import STRUCTURAL_ORGS
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
 
-PERSON_COLUMNS = ["entity_id", "name_full", "name_source"]
-ORG_COLUMNS = [
-    "entity_id",
-    "name",
-    "long_name",
-    "acronym",
-    "agency",
-    "org_type",
-    "first_biennium",
-    "last_biennium",
-]
+PERSON_SCHEMA = {"entity_id": "VARCHAR", "name_full": "VARCHAR", "name_source": "VARCHAR"}
+PERSON_COLUMNS = list(PERSON_SCHEMA)
+ORG_SCHEMA = {
+    "entity_id": "VARCHAR",
+    "name": "VARCHAR",
+    "long_name": "VARCHAR",
+    "acronym": "VARCHAR",
+    "agency": "VARCHAR",
+    "org_type": "VARCHAR",
+    "first_biennium": "VARCHAR",
+    "last_biennium": "VARCHAR",
+}
+ORG_COLUMNS = list(ORG_SCHEMA)
 
 #: Canonical's classification: House/Senate standing committees are
 #: ``committee``; Joint/`Other` bodies (the #39 meeting-derived class) are

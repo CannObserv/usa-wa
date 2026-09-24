@@ -24,31 +24,13 @@ def test_layer_dirs_exist() -> None:
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
-def test_dbt_build_green(tmp_path, monkeypatch) -> None:
-    """``dbt build`` on the scaffold exits clean against a throwaway duckdb."""
-    from dbt.cli.main import dbtRunner
+def test_dbt_build_green(hermetic_build) -> None:
+    """``dbt build`` on the scaffold exits clean against a throwaway duckdb.
 
-    monkeypatch.setenv("USA_WA_PIPELINE_DB", str(tmp_path / "test.duckdb"))
-    monkeypatch.setenv("USA_WA_PIPELINE_HERMETIC", "1")
-    monkeypatch.setenv("USA_WA_RAW_ROOT", str(tmp_path / "raw"))
-    # hermetic: the conformed crosswalk models read the registry only when a
-    # DATABASE_URL is present, and this in-process build must never touch one
-    # (nor call asyncio.run inside pytest's loop)
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    result = dbtRunner().invoke(
-        [
-            "build",
-            "--project-dir",
-            str(usa_wa_pipeline.PROJECT_DIR),
-            "--profiles-dir",
-            str(usa_wa_pipeline.PROJECT_DIR),
-            "--target-path",
-            str(tmp_path / "target"),
-            "--log-path",
-            str(tmp_path / "logs"),
-        ]
-    )
-    assert result.success, f"dbt build failed: {result.exception}"
+    The build is the session's shared one (``conftest.hermetic_build``), which
+    asserts success itself; this names that property where a reader looks for it.
+    """
+    assert hermetic_build.is_file()
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")

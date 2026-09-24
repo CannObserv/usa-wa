@@ -9,7 +9,8 @@ from clearinghouse_core.rawstore import RawStore
 
 #: The raw-store coordinates every staging row carries (#313). Appended last by
 #: each builder's column list, so the published staging schemas stay additive.
-PROVENANCE_COLUMNS = ["source", "resource_id"]
+PROVENANCE_SCHEMA = {"source": "VARCHAR", "resource_id": "VARCHAR"}
+PROVENANCE_COLUMNS = list(PROVENANCE_SCHEMA)
 
 
 def provenance(store: RawStore, resource_id: str) -> dict[str, str]:

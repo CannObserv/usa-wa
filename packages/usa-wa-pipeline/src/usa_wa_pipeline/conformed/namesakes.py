@@ -45,7 +45,13 @@ from usa_wa_adapter_legislature.roster_pdf.identity import IDENTITY_SPLITS, iden
 
 #: The work order's shape: the grouping key first, then the row it names, so the
 #: table sorts into the pairs a reviewer adjudicates.
-COLLISION_COLUMNS = ["name_fold", "entity_id", "name_full", "name_source"]
+COLLISION_SCHEMA = {
+    "name_fold": "VARCHAR",
+    "entity_id": "VARCHAR",
+    "name_full": "VARCHAR",
+    "name_source": "VARCHAR",
+}
+COLLISION_COLUMNS = list(COLLISION_SCHEMA)
 
 #: Folds published under two LIVE entities that are two different people, with
 #: the corpus evidence that settles each. Not roster splits — those derive from

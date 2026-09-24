@@ -22,7 +22,14 @@ import pandas as pd
 
 from usa_wa_adapter_legislature.roster_pdf.identity import WIDE_GAP_YEARS, identity_fold
 
-LINK_COLUMNS = ["kind", "left_key", "right_key", "rule", "score"]
+LINK_SCHEMA = {
+    "kind": "VARCHAR",
+    "left_key": "VARCHAR",
+    "right_key": "VARCHAR",
+    "rule": "VARCHAR",
+    "score": "DOUBLE",
+}
+LINK_COLUMNS = list(LINK_SCHEMA)
 
 RULE = "roster_wsl_seat_fold"
 

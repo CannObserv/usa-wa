@@ -29,9 +29,6 @@
 --
 -- GATED AT ZERO, with no baseline — as of 2026-09-18 the corpus is clean
 -- (3,117 persons), so any row here is new.
---
--- Casts to varchar: the hermetic build materializes `persons` empty, and an
--- empty object column can bind as something other than VARCHAR (#361).
 select entity_id, name_full, name_source
 from {{ ref('persons') }}
-where regexp_matches(cast(name_full as varchar), '[–—-]\s*\d{1,2}\s*[A-Za-z]?\s*$')
+where regexp_matches(name_full, '[–—-]\s*\d{1,2}\s*[A-Za-z]?\s*$')

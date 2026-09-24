@@ -61,20 +61,8 @@
 -- than becoming a null check: a registry entity no source attests is one
 -- adjudication or one retired wire away at any time, and `required` would wedge
 -- the nightly the day it recurs. Permitting a null costs this gate nothing.
---
--- Casts to varchar throughout: the hermetic build materializes `persons` empty,
--- and an empty object column can bind as something other than VARCHAR (#361).
---
--- Nothing here is hoisted into a jinja variable, for two reasons that both
--- bite. `test_persons_named` runs this file
--- with jinja stripped and refuses outright on any expression tag it does not
--- understand — deliberately, so the unit half can never quietly exercise a
--- mangled query; it knows `ref`, not a hand-rolled name. And dbt parses jinja
--- inside SQL COMMENTS too, so even naming the tag syntax here failed the whole
--- project's compile until this sentence stopped spelling it out.
 select entity_id, name_full, name_source
 from {{ ref('persons') }}
-where cast(name_full as varchar) = ''
-   or regexp_matches(cast(name_full as varchar), '^[\pZ\s]|[\pZ\s]$')
-   or (cast(name_full as varchar) is null)
-      is distinct from (cast(name_source as varchar) is null)
+where name_full = ''
+   or regexp_matches(name_full, '^[\pZ\s]|[\pZ\s]$')
+   or (name_full is null) is distinct from (name_source is null)

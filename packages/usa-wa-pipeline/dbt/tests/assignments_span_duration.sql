@@ -18,10 +18,6 @@
 -- Short is not the same as empty. Washington seats military substitutes for
 -- days at a time — Jon Wyss held LD-6 for two days in 2005 while Brad Benson was
 -- on military leave — so the gate asserts DURATION, never a minimum (#362).
---
--- The cast keeps the hermetic build honest: it materializes conformed models
--- EMPTY, which types the columns INTEGER, and a bare date comparison fails to
--- BIND there rather than returning no rows (#361).
 {{ config(severity='error') }}
 select
     entity_id,
@@ -30,4 +26,4 @@ select
     valid_to
 from {{ ref('assignments') }}
 where valid_to is not null
-  and cast(valid_to as date) <= cast(valid_from as date)
+  and valid_to <= valid_from

@@ -6,15 +6,12 @@ registry via usa_wa_pipeline.registry_read (empty only under the explicit
 USA_WA_PIPELINE_HERMETIC gate; a missing DATABASE_URL fails the build).
 """
 
-import pandas as pd
-
-from usa_wa_pipeline.registry_read import CROSSWALK_COLUMNS, crosswalk_frame
+from usa_wa_pipeline.frames import typed_relation
+from usa_wa_pipeline.registry_read import CROSSWALK_SCHEMA, crosswalk_frame
 
 
 def model(dbt, session):
     dbt.config(materialized="table")
-    frame = pd.DataFrame(crosswalk_frame("org"), columns=CROSSWALK_COLUMNS)
-    # pin VARCHAR from day one: an all-None merged_into otherwise infers
-    # INTEGER and the column type flips on the first real tombstone (#302 CR)
-    frame["merged_into"] = frame["merged_into"].astype("string")
-    return frame
+    # the declared schema pins merged_into VARCHAR from day one: all-None, it
+    # would otherwise infer INTEGER and flip on the first real tombstone (#302 CR)
+    return typed_relation(session, crosswalk_frame("org"), CROSSWALK_SCHEMA)

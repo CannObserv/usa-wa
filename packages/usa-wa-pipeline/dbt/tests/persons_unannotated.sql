@@ -44,10 +44,10 @@
 -- GATED AT ZERO, with no baseline: verified 0 of 3,117 published persons match
 -- as of the 2026-09-17 build, so any row here is new.
 --
--- Casts to varchar throughout, and `regexp_matches` returns NULL on a NULL
--- input which SQL drops — so a nameless person passes, as it must (see the
--- companion reasoning in `persons_named.sql`).
+-- `regexp_matches` returns NULL on a NULL input, which SQL drops — so a
+-- nameless person passes, as it must (see the companion reasoning in
+-- `persons_named.sql`).
 select entity_id, name_full, name_source
 from {{ ref('persons') }}
-where regexp_matches(cast(name_full as varchar), '\([^)]*[0-9][^)]*\)')
-   or regexp_matches(cast(name_full as varchar), '\((?:[^) ]* ){4,}[^)]*\)')
+where regexp_matches(name_full, '\([^)]*[0-9][^)]*\)')
+   or regexp_matches(name_full, '\((?:[^) ]* ){4,}[^)]*\)')

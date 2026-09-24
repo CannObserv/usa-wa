@@ -9,12 +9,10 @@ are imported unchanged from the domain and the adapter; the 4-part span
 import os
 from datetime import UTC, datetime
 
-import pandas as pd
-
 from clearinghouse_core.registry import KIND_PERSON
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_pipeline.conformed.spans import (
-    ASSIGNMENT_COLUMNS,
+    ASSIGNMENT_SCHEMA,
     ROSTER_SOURCE,
     SOURCE,
     SpanInputs,
@@ -24,6 +22,7 @@ from usa_wa_pipeline.conformed.spans import (
     entity_index,
     roster_resolution,
 )
+from usa_wa_pipeline.frames import typed_relation
 from usa_wa_pipeline.operator_read import operator_events
 from usa_wa_pipeline.registry_read import crosswalk_frame
 
@@ -74,4 +73,4 @@ def model(dbt, session):
         {SOURCE: spans, ROSTER_SOURCE: roster_spans},
         entity_index(crosswalk_frame(KIND_PERSON)),
     )
-    return pd.DataFrame(rows, columns=ASSIGNMENT_COLUMNS)
+    return typed_relation(session, rows, ASSIGNMENT_SCHEMA)

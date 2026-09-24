@@ -98,14 +98,11 @@ class ContractRelease:
     to green it is appending a new release. The bump falls out of the mechanism
     rather than depending on a reviewer noticing one was owed.
 
-    It records NAMES, not types, because names are what a database-free build can
-    observe. The hermetic dbt build (``USA_WA_PIPELINE_HERMETIC=1``) reads empty
-    sources, and duckdb types an all-NULL column ``INTEGER`` — so every column of
-    every model comes out of it typed ``integer``, and nothing about the real
-    types is knowable there. Declaring them would be declaring a fiction. Types
-    are covered instead by the publisher's own gate below, which compares the
-    full fingerprint — types included — against what was LAST PUBLISHED, both
-    sides read from a real build.
+    It records NAMES, not types. Types are declared once, on the model: every
+    dbt Python model casts to its ``*_SCHEMA`` (#361), and ``test_model_schemas``
+    pins them in the hermetic build. A type change under an unbumped version is
+    caught by the publisher's own gate below, which compares the full
+    fingerprint — types included — against what was LAST PUBLISHED.
 
     Names over a digest for the same reason a diff beats a checksum in review: a
     contract change reads here as ``+ "party"``, which a reviewer can check
@@ -390,6 +387,20 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                     "resource_id",
                 ),
                 "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+            ContractRelease(
+                "2.0.0",
+                (
+                    "election_date",
+                    "ballot_name",
+                    "party_name",
+                    "race_name",
+                    "race_jurisdiction_name",
+                    "source",
+                    "resource_id",
+                ),
+                "#361: every field integer → string. The model was empty, and an empty "
+                "model's columns inferred INTEGER; a type change is major",
             ),
         ),
     ),

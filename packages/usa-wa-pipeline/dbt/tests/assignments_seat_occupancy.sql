@@ -26,9 +26,9 @@
 --
 -- An open span (`valid_to is null`) means "still serving", so it overlaps
 -- anything that starts after it. Spelled as an explicit null branch rather than
--- `coalesce(valid_to, date '9999-12-31')`: besides the sentinel being a smell,
--- the hermetic build materializes an empty `assignments` with an INTEGER
--- `valid_to`, and coalescing that against a DATE literal fails to bind at all.
+-- `coalesce(valid_to, date '9999-12-31')`, because the sentinel is a smell: a
+-- real date standing in for "no date" is one comparison away from being read
+-- as one.
 --
 -- MULTI-MEMBER DISTRICTS are excluded, because they are not conflicts (#360).
 -- Washington's 1889 legislature seated multi-member senate districts — 35
@@ -129,23 +129,20 @@ where a.span_kind in ('chamber-senate', 'chamber-house')
   and not exists (
       select 1
       from {{ ref('stg_roster_members') }} r
-      where cast(r.chamber as varchar) = regexp_extract(cast(a.role_key as varchar), 'seat:(\w+):', 1)
-        and cast(r.district as varchar) = regexp_extract(cast(a.role_key as varchar), 'ld-(\d+)', 1)
+      where r.chamber = regexp_extract(a.role_key, 'seat:(\w+):', 1)
+        and cast(r.district as varchar) = regexp_extract(a.role_key, 'ld-(\d+)', 1)
       group by r.chamber, r.district, r.year
       -- `year` is a grouping key, so min(r.year) below is identity on it — the
       -- aggregate is only there to be legal in HAVING (CR 128)
       having count(*) > 1
          and count(r.annotation) = 0
          -- the multi-member biennium must cover the overlap, not merely exist
-         -- casts throughout: the hermetic build types an empty `assignments`
-         -- INTEGER, so a bare DATE comparison fails to BIND there (#361)
-         and make_date(cast(min(r.year) as integer) + 1, 12, 31)
-             >= greatest(cast(a.valid_from as date), cast(b.valid_from as date))
+         and make_date(min(r.year) + 1, 12, 31) >= greatest(a.valid_from, b.valid_from)
          and (
              (a.valid_to is null and b.valid_to is null)
-             or make_date(cast(min(r.year) as integer), 1, 1) <= least(
-                 coalesce(cast(a.valid_to as date), cast(b.valid_to as date)),
-                 coalesce(cast(b.valid_to as date), cast(a.valid_to as date))
+             or make_date(min(r.year), 1, 1) <= least(
+                 coalesce(a.valid_to, b.valid_to),
+                 coalesce(b.valid_to, a.valid_to)
              )
          )
   )

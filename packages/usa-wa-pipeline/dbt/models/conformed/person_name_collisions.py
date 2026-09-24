@@ -14,12 +14,11 @@ materialized all the same: gated at zero, the table is empty on a clean build
 and is the hand-review work order on any other.
 """
 
-import pandas as pd
-
-from usa_wa_pipeline.conformed.namesakes import COLLISION_COLUMNS, collision_rows
+from usa_wa_pipeline.conformed.namesakes import COLLISION_SCHEMA, collision_rows
+from usa_wa_pipeline.frames import typed_relation
 
 
 def model(dbt, session):
     dbt.config(materialized="table")
     rows = collision_rows(dbt.ref("persons").df().to_dict("records"))
-    return pd.DataFrame(rows, columns=COLLISION_COLUMNS)
+    return typed_relation(session, rows, COLLISION_SCHEMA)
