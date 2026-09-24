@@ -50,9 +50,11 @@ so the harvest archives exactly one resource and re-running is a cache hit.
 uv run python -m usa_wa_adapter_legislature.roster_pdf.harvest --revision 2025-06-05
 ```
 
-`--force` re-fetches past the freshness cache; `--dry-run` rolls back. Exit `0` clean · `1`
-failed · `2` config · **`4` degraded** — the document could not be located, meaning the CMS media
-key rotated *and* the href could not be re-discovered, so an operator must re-point the source.
+`--force` re-fetches past the freshness cache; `--dry-run` rolls back; `--pause-seconds` sets the
+`leg.wa.gov` courtesy limiter for the run (unset leaves `USA_WA_LEG_MIN_REQUEST_INTERVAL`, default
+1.0s, in force — #236). Exit `0` clean · `1` failed · `2` config · **`4` degraded** — the document
+could not be located, meaning the CMS media key rotated *and* the href could not be re-discovered,
+so an operator must re-point the source.
 
 Re-check **quarterly**, or after a revision lands — never in the daily refresh. Closed history
 does not drift, and the edition lags the current biennium by design, so it is never authority
