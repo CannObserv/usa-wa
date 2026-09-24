@@ -239,3 +239,7 @@ Three details the original table did not foresee:
   is the stale-edition alert, not noise: the archive is stale until then.
 - **Settled question 1 still holds.** The oracle stays ad-hoc. It re-derives a constant and can
   never go red; this check fetches a document that *can* change, and is silent when it has not.
+- **It detects a new stamp, not new bytes.** A re-upload that keeps the `Revision Date` but
+  changes the bytes stays green: the decision was the stamp check, and the sha256 comparison the
+  table above mentions is not wired in (`archive_only` does not report whether a fetch matched
+  the archived baseline).

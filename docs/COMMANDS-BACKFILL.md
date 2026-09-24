@@ -76,8 +76,9 @@ that never fetches. When its `OnFailure=` email arrives, the summary line says w
 - **`unavailable=true`** — the media key rotated and the href could not be re-discovered from
   the index page; re-point `DEFAULT_ROSTER_URL` in `roster_pdf/transport.py`.
 
-Exit `1` is an outage (a non-404 status, a timeout); the next month's run retries. Re-check by
-hand with `sudo systemctl start usa-wa-roster-pdf-recheck.service`.
+The check compares the **stamp**, not the bytes: a re-upload that keeps the `Revision Date`
+stays green. Exit `1` is an outage (a non-404 status, a timeout); the next month's run retries.
+Re-check by hand with `sudo systemctl start usa-wa-roster-pdf-recheck.service`.
 
 ```bash
 # Succession backfill (#226) — the roster's mid-term dates → operator events.
