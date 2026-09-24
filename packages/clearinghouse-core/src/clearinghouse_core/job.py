@@ -28,8 +28,8 @@ of: a :class:`JobResult`, a mapping, a summary dataclass (``RunSummary``,
 ``HarvestSummary``, …), or ``None``. The last three are read as ``ok`` with those
 counters, so migrating an existing job is usually a delete, not a rewrite. A handler
 that *raises* reports ``failed`` with no counters, unless it raises a
-:class:`JobFailure` carrying the counters it had reached (#331) — so the alert still
-says how far the run got.
+:class:`JobFailure` carrying the counters it had reached (#331) — so the ledger row
+and the ``job_finished`` record still say how far the run got.
 
 **Transactions.** ``commit=True`` (the default) commits the session on ``ok`` and on
 ``degraded`` — a skip-and-continue sweep's partial work is real work — and rolls back
@@ -200,8 +200,11 @@ class JobResult:
 class JobFailure(Exception):
     """A raised failure that keeps the counters the run had reached (#331).
 
-    A bare exception out of a handler reports ``failed`` with no counters, so the #49
-    alert and the ledger row say *that* the run died but not how far it got. Raise
+    A bare exception out of a handler reports ``failed`` with no counters, so the
+    ledger row (served by ``/health/jobs``) and the ``job_finished`` journal record say
+    *that* the run died but not how far it got. Neither is guaranteed to reach the #49
+    alert email, which carries only its unit's last 25 journal lines: the raw
+    harvesters run first in ``pipeline-nightly.sh``, so theirs never do (#331 CR 5). Raise
     this instead — ``raise JobFailure(counters) from exc`` — and the harness records
     ``failed`` with those counters. Everything else is identical to a bare raise: the
     traceback (the ``from exc`` cause included) is logged as ``job_failed``, the

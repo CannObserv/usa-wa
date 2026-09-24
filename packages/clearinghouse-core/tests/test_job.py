@@ -217,8 +217,8 @@ def test_handler_exception_is_a_failed_run_not_a_traceback(fake_db, capsys):
 
 def test_a_job_failure_keeps_the_counters_it_reached(fake_db, capsys, ledger_calls):
     """#331: a raised failure reports how far the run got. ``JobFailure`` carries the
-    counters to the summary line and the ledger row — the two places the #49 alert and
-    ``/health/jobs`` read — where a bare exception leaves both empty."""
+    counters to the ``job_finished`` summary and the ledger row ``/health/jobs`` serves,
+    where a bare exception leaves both empty."""
 
     async def handler(ctx: JobContext) -> JobResult:
         try:
