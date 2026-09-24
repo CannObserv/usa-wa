@@ -181,15 +181,15 @@ the next one would fail `parity-registry` (`person_missing`) and `parity-spans`
 `(key, key)` pair per staged `usa_wa_legislature:<member_id>`; union-find folds
 a paired sponsor into its component, so matched clusters are unchanged. Only a
 numeric id mints alone — the registry has no delete — and any other (blank,
-NULL) degrades the job, named in `malformed_sponsor_ids`. Like a
-new seat or committee, a new legislator publishes one build after the one that
-first stages them (`dbt build → registrar → publish`); `parity-spans` re-reads
-the registry after the registrar, so that lag never trips it. **WSL
-keys only** (decided 2026-09-23): a roster key
-(`usa_wa_legislature_roster:<fold>:<year>`) is built by us from a name, so a
-parser or fold change would mint a published duplicate — it stays pair-only and
-drift surfaces as `missing`, for adjudication. A PDC id is a crosswalk key on a
-WSL person, never a standalone one.
+NULL) degrades the job, named in `malformed_sponsor_ids`. **WSL keys only**
+(decided 2026-09-23): a roster key (`usa_wa_legislature_roster:<fold>:<year>`)
+is built by us from a name, so a parser or fold change would mint a published
+duplicate — it stays pair-only and drift surfaces as `missing`, for
+adjudication. A PDC id is a crosswalk key on a WSL person, never a standalone
+one. Like a new seat or committee, a new legislator publishes one build after
+the one that first stages them (`dbt build → registrar → publish`);
+`parity-spans` re-reads the registry after the registrar, so that lag never
+trips it.
 
 ```bash
 # One-time: seed from canonical rows, ULIDs preserved (idempotent)
