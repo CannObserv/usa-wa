@@ -137,8 +137,8 @@ def test_no_test_module_is_in_the_unit_scope() -> None:
 def test_the_whole_tree_floor_is_the_measured_one() -> None:
     """The full run's gate is measured, not chosen, and must not soften. Re-measured at
     #413: ``pytest`` covered 97.14% of ``packages/`` (28,474 / 29,312 statements, source
-    and tests) on 2026-09-24, so the floor sits ~2pp below that. It was 80 from #216
-    against a 95.75% measurement — slack nobody had re-examined since the sync stack left."""
+    and tests) on 2026-09-24, so the floor sits ~2pp below that. It was 80 from the #1
+    foundation; the full run measured 95.75% at #198 — slack nobody had re-examined."""
     report = tomllib.loads(PYPROJECT.read_text())["tool"]["coverage"]["report"]
 
     assert report["fail_under"] == 95

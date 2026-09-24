@@ -101,7 +101,8 @@ omit = [
 show_missing = true
 # Measured, not chosen (#413, 2026-09-24): `pytest` covered 97.14% of `packages/`
 # (28,474/29,312 statements, source and tests) after #314 deleted the sync stack, so the
-# floor sits ~2pp below that. #216 set 80 against 95.75%. Re-measure after #412.
+# floor sits ~2pp below that. 80 had stood since the #1 foundation; the full run measured
+# 95.75% at #198. Re-measure after #412.
 fail_under = 95
 
 [tool.ruff]
