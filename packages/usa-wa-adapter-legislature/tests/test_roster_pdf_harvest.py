@@ -122,6 +122,24 @@ class TestScheduledRecheck:
         assert route.call_count == 1
         assert summary.mismatch is None
 
+    @respx.mock
+    async def test_a_dry_run_says_so_in_the_summary_the_ledger_records(
+        self, db_session, usa_wa, roster_pdf_bytes
+    ) -> None:
+        """``/health/jobs`` serves the latest run's summary as its counters (#178). Without a
+        marker, the monthly check's row reads ``archived: 1`` — an archive that was rolled back —
+        and hides the last real harvest behind it (CR 1)."""
+        respx.get(DEFAULT_ROSTER_URL).mock(
+            return_value=httpx.Response(200, content=roster_pdf_bytes)
+        )
+        await get_or_create_roster_source(db_session, usa_wa)
+
+        checked = await harvest_roster(db_session, revision="2025-06-05", dry_run=True)
+        harvested = await harvest_roster(db_session, revision="2025-06-05", force=True)
+
+        assert checked.dry_run is True
+        assert harvested.dry_run is False
+
 
 class TestCli:
     def test_pause_seconds_overrides_the_host_limiter_only_when_passed(self, monkeypatch):

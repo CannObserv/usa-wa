@@ -75,6 +75,10 @@ class RosterHarvestSummary:
     #: Set when the fetched document stamps a different edition than the key requested — a new
     #: edition is published and the operator must re-run with it (CR finding 1).
     mismatch: str | None = None
+    #: The run was rolled back, so ``archived`` counts a fetch that did not land. The ledger
+    #: records this summary as the run's counters and ``/health/jobs`` serves the latest one per
+    #: job, so the monthly re-check (#237) must not read there as an archive.
+    dry_run: bool = False
 
 
 async def harvest_roster(
@@ -99,18 +103,22 @@ async def harvest_roster(
         fetched = await runner.archive_only(resource_id, force=force)
     except RosterUnavailable:
         logger.warning("roster_harvest_unavailable", extra={"revision": revision})
-        return RosterHarvestSummary(revision=revision, archived=0, unavailable=True)
+        return RosterHarvestSummary(
+            revision=revision, archived=0, unavailable=True, dry_run=dry_run
+        )
     except RosterRevisionMismatch as exc:
         logger.warning(
             "roster_harvest_revision_mismatch",
             extra={"revision": revision, "detail": str(exc)},
         )
-        return RosterHarvestSummary(revision=revision, archived=0, mismatch=str(exc))
+        return RosterHarvestSummary(
+            revision=revision, archived=0, mismatch=str(exc), dry_run=dry_run
+        )
     logger.info(
         "roster_harvest_complete",
         extra={"revision": revision, "archived": int(fetched), "dry_run": dry_run},
     )
-    return RosterHarvestSummary(revision=revision, archived=int(fetched))
+    return RosterHarvestSummary(revision=revision, archived=int(fetched), dry_run=dry_run)
 
 
 def _add_args(parser: argparse.ArgumentParser) -> None:
