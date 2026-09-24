@@ -26,7 +26,6 @@ from usa_wa_adapter_legislature.roster_pdf.coverage import (
 )
 from usa_wa_adapter_legislature.roster_pdf.extraction import extract_revision_date
 from usa_wa_adapter_legislature.roster_pdf.transport import (
-    _LEG_LIMITER,
     DEFAULT_LEG_MIN_REQUEST_INTERVAL,
     DEFAULT_ROSTER_URL,
     RosterPdfClient,
@@ -218,11 +217,18 @@ class TestCourtesyLimiter:
         await RosterPdfClient().fetch_roster()
         assert clock.sleeps == [1.0]
 
-    def test_configure_leg_rate_limit_sets_the_host_limiter(self) -> None:
-        configure_leg_rate_limit(1.5)
-        assert _LEG_LIMITER._min == 1.5
-        configure_leg_rate_limit(0.0)  # restore (the autouse fixture also zeroes it)
-        assert _LEG_LIMITER._min == 0.0
+    @respx.mock
+    async def test_configure_leg_rate_limit_paces_a_default_client(self, monkeypatch) -> None:
+        """``--pause-seconds`` lands through :func:`configure_leg_rate_limit`, so it must reach
+        the very limiter a default client waits on — not merely set a value somewhere."""
+        respx.get(DEFAULT_ROSTER_URL).mock(return_value=httpx.Response(200, content=b"%PDF"))
+        clock = _FakeClock()
+        host_limiter = RateLimiter(0.0, monotonic=clock.monotonic, sleep=clock.sleep)
+        monkeypatch.setattr(roster_transport_module, "_LEG_LIMITER", host_limiter)
+        configure_leg_rate_limit(2.0)
+        host_limiter.acquire()  # a request just went out, so the fetch below must wait
+        await RosterPdfClient().fetch_roster()
+        assert clock.sleeps == [2.0]
 
     def test_env_knob_reads_a_valid_value(self, monkeypatch) -> None:
         monkeypatch.setenv("USA_WA_LEG_MIN_REQUEST_INTERVAL", "2.5")
