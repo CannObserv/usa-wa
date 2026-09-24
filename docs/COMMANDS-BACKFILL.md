@@ -70,6 +70,9 @@ that never fetches. When its `OnFailure=` email arrives, the summary line says w
   names, then bump `DEFAULT_REVISION` on `main`: the check compares against the code, so it
   alerts every month until both land. Audit the new edition before building on it (the
   `coverage.py` claim is closed at the old ceiling, and the parser has only seen this layout).
+  **The harvest archives to Postgres only**: the #302 pipeline stages the roster from the raw
+  store, which nothing writes on a schedule, so the published datasets stay on the old edition
+  until #421 lands.
 - **`unavailable=true`** — the media key rotated and the href could not be re-discovered from
   the index page; re-point `DEFAULT_ROSTER_URL` in `roster_pdf/transport.py`.
 
