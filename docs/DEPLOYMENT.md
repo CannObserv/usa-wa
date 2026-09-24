@@ -74,7 +74,7 @@ distinguishable from the email alone),
 `usa-wa-integrity-sweep`,
 `usa-wa-senate-corroboration`, `usa-wa-house-corroboration`,
 `usa-wa-succession-invariants`,
-`usa-wa-committee-lineage-invariants`,
+`usa-wa-committee-lineage-invariants`, `usa-wa-pipeline` (#311), `usa-wa-disk-gc` (#394),
 `usa-wa-roster-pdf-recheck` (#237 — its exit 4 is the new-edition notice)) carries
 `OnFailure=usa-wa-notify-failure@%n.service`, so systemd starts the templated
 handler on a non-zero exit **or** a `TimeoutStartSec=` hang. `%n` (the failing
@@ -154,7 +154,8 @@ entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
 `usa-wa-integrity-sweep.service`, `usa-wa-senate-corroboration.service`,
 `usa-wa-house-corroboration.service`, `usa-wa-succession-invariants.service`,
 `usa-wa-committee-lineage-invariants.service`, `usa-wa-roster-pdf-recheck.service`,
-`scripts/migrate.sh`).
+`scripts/migrate.sh`, `scripts/pipeline-nightly.sh`). The one exception is
+`usa-wa-disk-gc.service`, which runs plain bash and no Python at all (#394).
 `--no-sync` runs against the installed venv as-is; `--frozen` skips re-locking.
 So unit start never mutates the environment — the daily WSL refresh timer can't
 silently apply a dependency change a `git pull` landed in `uv.lock`. (Note:
