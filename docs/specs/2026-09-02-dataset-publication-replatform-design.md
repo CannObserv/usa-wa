@@ -46,8 +46,8 @@ changed a decision above; each is a shape the build settled differently.
 - **Splink's fuzzy tail is deferred**, not built (transition step 4 names it). The seeded
   registry carries every historical link, so exact rules only need the forward flow —
   `docs/PIPELINE.md` § Identity registry (#308), measured 2026-09-03: 813 proposals → 0
-  mints, 0 conflicts.
-  Revisit if the forward flow starts leaving persons unpaired beyond #403's singleton rule.
+  mints, 0 conflicts. Revisit if the forward flow starts leaving persons unpaired beyond
+  #403's singleton rule.
 - **Citations ship as an `internal` catalog tier**, not an unpublished artifact: listed in
   `catalog.json`, published bytes, no stability promise, columns follow the API
   (`docs/PIPELINE-PUBLICATION.md` § Publication (#311), its tier table). The Decisions-log
