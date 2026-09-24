@@ -6,7 +6,7 @@ from collections.abc import Sequence
 import duckdb
 import pytest
 
-from clearinghouse_core.job import JobContext
+from clearinghouse_core.job import OUTCOME_DEGRADED, OUTCOME_OK, JobContext
 from clearinghouse_core.registry import (
     KIND_ORG,
     KIND_PERSON,
@@ -23,6 +23,7 @@ from usa_wa_pipeline.registrar import (
     load_pairs,
     load_role_keys,
     load_sponsor_keys,
+    malformed_sponsor_ids,
     run_registrar,
     singleton_pairs,
     unprocessed_kinds,
@@ -303,6 +304,37 @@ def test_a_sponsor_id_that_is_not_numeric_is_never_a_key(tmp_path) -> None:
     assert load_sponsor_keys(db_path) == ["usa_wa_legislature:27992"]
 
 
+def test_a_malformed_sponsor_id_is_named_not_dropped(tmp_path) -> None:
+    """#403 CR 5: CR 40's rule — nothing the registrar skips may vanish
+    silently. `person_missing` is no backstop: `parity-registry` diffs the
+    canonical tier, which retires. A NULL is reported too, not crashed on
+    (CR 53's shape): `not_null` guards the nightly only by ordering."""
+    db_path = str(tmp_path / "s.duckdb")
+    con = duckdb.connect(db_path)
+    con.execute(
+        "create table stg_wsl_sponsors as select * from (values "
+        "('2025-26', '27992', 'House'), ('2025-26', '', 'House'), "
+        "('2024-25', 'abc', 'Senate'), ('2025-26', 'abc', 'House'), "
+        "('2025-26', NULL, 'House')"
+        ") t(biennium, member_id, agency)"
+    )
+    con.close()
+    assert malformed_sponsor_ids(db_path) == ["", "<null>", "abc"]
+
+
+@pytest.mark.db
+async def test_a_malformed_sponsor_id_degrades_the_nightly_job(db_session, tmp_path) -> None:
+    """#403 CR 5: the registrar still registers every well-formed sponsor, but
+    degrades (exit 4, the nightly's triage signal) and names the id it would
+    not mint."""
+    db_path = _pipeline_db(tmp_path, sponsors=["1", ""])
+
+    result = await _registrar_job(_job_context(db_session, db_path))
+    assert result.outcome == OUTCOME_DEGRADED
+    assert result.counters["malformed_sponsor_ids"] == [""]
+    assert sorted(await registered_view(db_session, KIND_PERSON)) == ["usa_wa_legislature:1"]
+
+
 @pytest.mark.db
 async def test_the_nightly_job_registers_a_wsl_sponsor_no_rule_pairs(db_session, tmp_path) -> None:
     """#403: `proposed_links` holds only matched pairs, so a legislator no rule
@@ -322,6 +354,8 @@ async def test_the_nightly_job_registers_a_wsl_sponsor_no_rule_pairs(db_session,
     ctx = _job_context(db_session, db_path)
 
     result = await _registrar_job(ctx)
+    assert result.outcome == OUTCOME_OK
+    assert "malformed_sponsor_ids" not in result.counters
     assert result.counters["minted"] == 2
     assert result.counters["conflicts"] == 0
     view = await registered_view(db_session, KIND_PERSON)

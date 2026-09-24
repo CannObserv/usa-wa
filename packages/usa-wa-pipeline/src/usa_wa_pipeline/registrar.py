@@ -59,6 +59,10 @@ ORG_SOURCE = "usa_wa_legislature"
 #: of every matching rule, so a sponsor's singleton lands in its pair's cluster.
 PERSON_SOURCE = "usa_wa_legislature"
 
+#: A WSL member id that may mint a person on its own: the numeric ids WSL
+#: serves. Anything else is named by :func:`malformed_sponsor_ids` (CR 1, CR 5).
+_MEMBER_ID_PATTERN = "[0-9]+"
+
 
 def cluster_pairs(pairs: Iterable[tuple[str, str]]) -> list[set[str]]:
     """Connected components over link pairs (union-find, path-halving)."""
@@ -163,18 +167,42 @@ def load_sponsor_keys(db_path: str) -> list[str]:
 
     Numeric ids only (CR 1): a singleton mints on this one value, uncorroborated,
     and the registry has no delete. Staging renders a blank ``Id`` as ``''``,
-    which its ``not_null`` test passes — skipped here, a malformed id surfaces
-    as ``person_missing``, never as a published ``usa_wa_legislature:`` person.
+    which its ``not_null`` test passes — so a malformed id is skipped here, and
+    :func:`malformed_sponsor_ids` names it rather than publish a
+    ``usa_wa_legislature:`` person.
     """
     con = duckdb.connect(db_path, read_only=True)
     try:
         rows = con.execute(
             "select distinct cast(member_id as varchar) from stg_wsl_sponsors "
-            "where regexp_full_match(cast(member_id as varchar), '[0-9]+')"
+            "where regexp_full_match(cast(member_id as varchar), ?)",
+            [_MEMBER_ID_PATTERN],
         ).fetchall()
     finally:
         con.close()
     return [f"{PERSON_SOURCE}:{row[0]}" for row in sorted(rows)]
+
+
+def malformed_sponsor_ids(db_path: str) -> list[str]:
+    """Staged WSL member ids :func:`load_sponsor_keys` refuses to mint.
+
+    Skipped ids must never vanish silently (CR 40's rule, CR 5): the job
+    degrades and names them. ``person_missing`` is no backstop — it diffs the
+    canonical tier, which retires. A NULL is reported as ``<null>`` rather than
+    crashed on (CR 53): the staging ``not_null`` test guards the nightly only by
+    ordering.
+    """
+    con = duckdb.connect(db_path, read_only=True)
+    try:
+        rows = con.execute(
+            "select distinct cast(member_id as varchar) from stg_wsl_sponsors "
+            "where member_id is null "
+            "or not regexp_full_match(cast(member_id as varchar), ?)",
+            [_MEMBER_ID_PATTERN],
+        ).fetchall()
+    finally:
+        con.close()
+    return sorted("<null>" if row[0] is None else row[0] for row in rows)
 
 
 def load_org_keys(db_path: str) -> list[str]:
@@ -266,7 +294,11 @@ async def _registrar_job(ctx: JobContext) -> JobResult:
     if skipped_kinds:
         summary["unprocessed_kinds"] = skipped_kinds
         logger.error("registrar_unprocessed_kinds", extra={"kinds": skipped_kinds})
-    if summary["conflicts"] or skipped_kinds:
+    malformed_ids = malformed_sponsor_ids(db_path)
+    if malformed_ids:
+        summary["malformed_sponsor_ids"] = malformed_ids
+        logger.error("registrar_malformed_sponsor_ids", extra={"member_ids": malformed_ids})
+    if summary["conflicts"] or skipped_kinds or malformed_ids:
         return JobResult.degraded(summary)
     return JobResult.ok(summary)
 
