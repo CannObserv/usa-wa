@@ -12,14 +12,8 @@
 -- So: fail loudly the moment a seat role appears that the gate would skip, and
 -- force the decision (widen the gate, or exclude the kind deliberately with a
 -- reason) instead of letting it be made by omission.
--- `cast(... as varchar)` is not defensive noise: the hermetic build
--- materializes an empty `assignments` whose columns default to INTEGER, so a
--- bare `role_key like 'seat:%'` fails to BIND there rather than returning no
--- rows. Third time this has bitten (#361 tracks the root cause) — until the
--- empty fallback is schema-faithful, any typed operation on this model needs
--- the cast to survive a no-database build.
-select cast(span_kind as varchar) as span_kind, count(*) as n
+select span_kind, count(*) as n
 from {{ ref('assignments') }}
-where cast(role_key as varchar) like 'seat:%'
-  and cast(span_kind as varchar) not in ('chamber-senate', 'chamber-house')
+where role_key like 'seat:%'
+  and span_kind not in ('chamber-senate', 'chamber-house')
 group by 1
