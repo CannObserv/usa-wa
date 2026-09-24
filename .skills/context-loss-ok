@@ -117,3 +117,6 @@ docs/PIPELINE.md :: retarget :: carries: [`PIPELINE-CONFORMED.md`](PIPELINE-CONF
 # CR 13: COMMANDS.md has no "alembic" heading (`grep -n '^#.*alembic' docs/COMMANDS.md` is empty);
 # the section is "## Database migrations".
 docs/COMMANDS-ROSTER.md :: disproven :: per-command DATABASE_URL=... prefix is silently ignored here (see COMMANDS.md § alembic).
+# CR 14: no "Nightly chain" section exists in any doc (`grep -rln 'Nightly chain' docs/`
+# matched only this line); the rule it cites is in PIPELINE-PUBLICATION.md.
+docs/PIPELINE-CONFORMED-ENTITIES.md :: disproven :: § Nightly chain below) and `persons` /

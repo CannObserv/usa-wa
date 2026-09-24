@@ -10,7 +10,7 @@ citations chain built on it.
 published identity surface — every natural key, its entity ULID, and the
 `merged_into` tombstone, read via `usa_wa_pipeline.registry_read`; empty only
 under `USA_WA_PIPELINE_HERMETIC=1` — a missing `DATABASE_URL` fails the build,
-§ Nightly chain below) and `persons` /
+[`PIPELINE-PUBLICATION.md`](PIPELINE-PUBLICATION.md)) and `persons` /
 `organizations` (one row per LIVE entity; logic in
 `usa_wa_pipeline.conformed.entities` — person names roster > WSL > PDC with
 newest-attestation-wins, org attributes from the newest biennium's roster wire,
