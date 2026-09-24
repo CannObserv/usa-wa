@@ -12,7 +12,8 @@ and a document that changes about twice a decade.
 **Not a timer.** This never joins the daily refresh: closed history does not drift, and the
 edition lags the current biennium by design. Run it quarterly, or after a revision lands.
 
-    python -m usa_wa_adapter_legislature.roster_pdf.harvest --revision 2025-06-05 [--force]
+    python -m usa_wa_adapter_legislature.roster_pdf.harvest --revision 2025-06-05 [--force] \
+        [--pause-seconds S]
 
 A rotated media key with no discoverable href is **degraded**, not a crash: the transport already
 tried to re-discover, so the remaining condition needs an operator to re-point the source, and
@@ -35,7 +36,11 @@ from usa_wa_adapter_legislature.roster_pdf.adapter import (
     roster_resource_id,
 )
 from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
-from usa_wa_adapter_legislature.roster_pdf.transport import RosterUnavailable
+from usa_wa_adapter_legislature.roster_pdf.transport import (
+    DEFAULT_LEG_MIN_REQUEST_INTERVAL,
+    RosterUnavailable,
+    configure_leg_rate_limit,
+)
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
@@ -107,11 +112,25 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
         help="Roster revision date (YYYY-MM-DD) — the document's own 'Revision Date'.",
     )
     parser.add_argument("--force", action="store_true", help="Re-fetch past the freshness cache.")
+    parser.add_argument(
+        "--pause-seconds",
+        type=float,
+        default=None,
+        help=(
+            "min interval between leg.wa.gov requests (sets the host limiter); unset leaves the "
+            "value seeded from USA_WA_LEG_MIN_REQUEST_INTERVAL "
+            f"(default {DEFAULT_LEG_MIN_REQUEST_INTERVAL}) in place"
+        ),
+    )
 
 
 async def _harvest_job(ctx: JobContext) -> JobResult:
     """Archive the roster edition; a source we cannot locate — or a newer edition than the one
     requested — is ``degraded``, since both need an operator rather than a retry."""
+    # Only when the operator asked (#169): an unconditional call would let the flag's default
+    # silently overwrite the env-seeded interval.
+    if ctx.args.pause_seconds is not None:
+        configure_leg_rate_limit(ctx.args.pause_seconds)
     summary = await harvest_roster(
         ctx.require_session(),
         revision=ctx.args.revision,

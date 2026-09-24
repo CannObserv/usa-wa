@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import httpx
 import pytest
 import respx
 from sqlalchemy import select
 
 from clearinghouse_core.provenance import FetchEvent
+from clearinghouse_core.testing import patch_job_runtime
+from usa_wa_adapter_legislature.roster_pdf import harvest as harvest_module
 from usa_wa_adapter_legislature.roster_pdf.audit import (
     RosterAudit,
     audit_roster,
     match_rate,
 )
-from usa_wa_adapter_legislature.roster_pdf.harvest import harvest_roster
+from usa_wa_adapter_legislature.roster_pdf.harvest import RosterHarvestSummary, harvest_roster
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
 from usa_wa_adapter_legislature.roster_pdf.transport import DEFAULT_ROSTER_URL
@@ -72,6 +76,27 @@ class TestHarvest:
         summary = await harvest_roster(db_session, revision="2025-06-05")
         assert summary.archived == 0
         assert summary.unavailable is True
+
+
+class TestCli:
+    def test_pause_seconds_overrides_the_host_limiter_only_when_passed(self, monkeypatch):
+        """``--pause-seconds`` defaults to ``None``, so an unflagged run leaves the value the
+        ``leg.wa.gov`` limiter was seeded with from ``USA_WA_LEG_MIN_REQUEST_INTERVAL`` in force
+        (#236) — the #169 lesson, where a flag default silently overwrote the SOS knob."""
+        patch_job_runtime(monkeypatch)
+
+        async def _fake_harvest(session, **kwargs):
+            return RosterHarvestSummary(revision=kwargs["revision"], archived=0)
+
+        with (
+            patch.object(harvest_module, "harvest_roster", _fake_harvest),
+            patch.object(harvest_module, "configure_leg_rate_limit") as configure,
+        ):
+            assert harvest_module.main(["--dry-run"]) == 0
+            assert configure.call_count == 0
+
+            assert harvest_module.main(["--dry-run", "--pause-seconds", "3.5"]) == 0
+            configure.assert_called_once_with(3.5)
 
 
 class TestMatchRate:
