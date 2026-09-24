@@ -81,4 +81,13 @@ wrong direction to fail in.
   post-rebuild verification: the model must be present and embedding at the
   expected dimensionality before the original image is discarded.
 
+### Nightly pipeline — `scripts/pipeline-nightly.sh`
+
+- `PIPELINE_NIGHTLY_ROOT`, `PIPELINE_NIGHTLY_UV` — the checkout the chain `cd`s
+  into and the `uv` command every stage runs through; defaults
+  `/home/exedev/usa-wa` and `/usr/local/bin/uv run --frozen --no-sync`.
+  **Test-only** (#331 CR 6): the suite points them at a tmp dir and a stub `uv`,
+  and refuses to run the script at all if they are missing — unset, it runs the
+  real harvests, build and publish. `usa-wa-pipeline.service` sets neither.
+
 The PM sidecar's own tunables (`SidecarSettings` — `POWERMAP_BASE_URL`, `POWERMAP_API_KEY`, the drain/replay/reconcile cadences and the request-rate governor) were documented here until usa-wa#314 deleted the sidecar. Nothing reads them; they can be removed from `/etc/usa-wa/.env` — and `POWERMAP_API_KEY` **should** be, since a live credential nothing uses is a credential nobody rotates.

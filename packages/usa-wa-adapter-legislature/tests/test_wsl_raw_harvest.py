@@ -10,7 +10,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from clearinghouse_core.rawstore import RawStore
+from clearinghouse_core.job import JobFailure
+from clearinghouse_core.rawstore import RawRun, RawStore
 from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.raw_harvest import SOURCE_SLUG, harvest_raw, job_outcome
@@ -193,7 +194,7 @@ async def test_unparseable_roster_is_contained_and_flagged(tmp_path) -> None:
 async def test_uncontained_failure_still_closes_run(tmp_path) -> None:
     """A crash after successful fetches must not abandon them as unmanifested
     strays: ``run.close()`` runs on the error path too (#302 CR)."""
-    with pytest.raises(ValueError):
+    with pytest.raises(JobFailure) as caught:
         await harvest_raw(
             tmp_path,
             biennium="not-a-biennium",  # biennium_window raises after two fetches land
@@ -201,10 +202,52 @@ async def test_uncontained_failure_still_closes_run(tmp_path) -> None:
             meeting_client=FakeMeetingClient(),
             sponsor_client=FakeSponsorClient(),
         )
+    assert isinstance(caught.value.__cause__, ValueError)
     store = RawStore(tmp_path, SOURCE_SLUG)
     [manifest_path] = store.manifest_paths()
     manifest = json.loads(manifest_path.read_text())
     assert len(manifest["entries"]) == 2
+
+
+class _NullWireSponsorClient:
+    async def fetch_sponsors(self, biennium: str) -> _Wire:
+        return _Wire(wire=None)
+
+
+async def test_broken_transport_contract_fails_with_the_counters_reached(tmp_path) -> None:
+    """#331: ``wire=None`` is a broken transport contract, so ``record_fetch`` raises
+    (CR 44) — but the failure carries the counters, so the alert says how far it got."""
+    with pytest.raises(JobFailure) as caught:
+        await harvest_raw(
+            tmp_path,
+            biennium=BIENNIUM,
+            committee_client=FakeCommitteeClient(),
+            meeting_client=FakeMeetingClient(),
+            sponsor_client=_NullWireSponsorClient(),  # the fourth fetch
+        )
+    assert isinstance(caught.value.__cause__, ValueError)
+    assert caught.value.counters["fetched"] == 3
+    assert caught.value.counters["errors"] == 0
+
+
+async def test_a_failed_manifest_write_still_reports_the_counters(tmp_path, monkeypatch) -> None:
+    """CR 1: ``run.close()`` is the manifest write — the I/O step a full disk fails —
+    so its failure is wrapped too, not only the fetch loop's."""
+
+    def _disk_full(self) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(RawRun, "close", _disk_full)
+    with pytest.raises(JobFailure) as caught:
+        await harvest_raw(
+            tmp_path,
+            biennium=BIENNIUM,
+            committee_client=FakeCommitteeClient(),
+            meeting_client=FakeMeetingClient(),
+            sponsor_client=FakeSponsorClient(),
+        )
+    assert isinstance(caught.value.__cause__, OSError)
+    assert caught.value.counters["fetched"] == 4 + len(COMMITTEES)
 
 
 def test_job_outcome_degrades_on_masked_outage_and_lost_fanout() -> None:

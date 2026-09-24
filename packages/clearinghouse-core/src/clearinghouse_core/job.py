@@ -26,7 +26,10 @@ and returns 0 — a signal with no consumer. A handler reports it by returning
 **Contract for handlers.** ``async def handler(ctx: JobContext) -> ...`` returning any
 of: a :class:`JobResult`, a mapping, a summary dataclass (``RunSummary``,
 ``HarvestSummary``, …), or ``None``. The last three are read as ``ok`` with those
-counters, so migrating an existing job is usually a delete, not a rewrite.
+counters, so migrating an existing job is usually a delete, not a rewrite. A handler
+that *raises* reports ``failed`` with no counters, unless it raises a
+:class:`JobFailure` carrying the counters it had reached (#331) — so the ledger row
+and the ``job_finished`` record still say how far the run got.
 
 **Transactions.** ``commit=True`` (the default) commits the session on ``ok`` and on
 ``degraded`` — a skip-and-continue sweep's partial work is real work — and rolls back
@@ -192,6 +195,34 @@ class JobResult:
         if self.exit_code is not None:
             return self.exit_code
         return _EXIT_BY_OUTCOME[self.outcome]
+
+
+class JobFailure(Exception):
+    """A raised failure that keeps the counters the run had reached (#331).
+
+    A bare exception out of a handler reports ``failed`` with no counters, so the
+    ledger row (served by ``/health/jobs``) and the ``job_finished`` journal record say
+    *that* the run died but not how far it got. The #49 alert email carries only its
+    unit's last 25 journal lines, so a job that is not its unit's last output reaches
+    it only through a restatement — ``pipeline-nightly.sh`` makes one for every failed
+    stage (#331 CR 5/6). Raise
+    this instead — ``raise JobFailure(counters) from exc`` — and the harness records
+    ``failed`` with those counters. Everything else is identical to a bare raise: the
+    traceback (the ``from exc`` cause included) is logged as ``job_failed``, the
+    transaction rolls back, the exit code is :data:`EXIT_FAILED`. Opt-in: a job that
+    never raises it behaves exactly as before.
+
+    ``counters`` takes the shapes a handler may return — a mapping, a summary
+    dataclass, or ``None`` — normalized on construction as :class:`JobResult`'s are,
+    so it is a JSON-safe snapshot at the raise, not an alias of the handler's dict.
+
+    Wrap *outside* any cleanup ``finally`` (a manifest ``close()``): inside it, the
+    cleanup's own failure escapes bare and the counters are lost after all (#331 CR 1).
+    """
+
+    def __init__(self, counters: Any = None) -> None:
+        super().__init__("job failed; counters reached so far are attached")
+        self.counters: dict[str, Any] = normalize_counters(counters)
 
 
 JobHandler = Callable[[JobContext], Awaitable[Any]]
@@ -502,11 +533,11 @@ async def _execute(
         )
         try:
             result = _as_result(await handler(ctx))
-        except Exception:
+        except Exception as exc:
             logger.exception("job_failed", extra={"job": name})
             if session is not None and commit:
                 await session.rollback()
-            return JobResult.failed()
+            return JobResult.failed(exc.counters if isinstance(exc, JobFailure) else None)
         if session is not None and commit:
             if args.dry_run or result.outcome == OUTCOME_FAILED:
                 await session.rollback()

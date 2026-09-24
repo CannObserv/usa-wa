@@ -28,6 +28,7 @@ from clearinghouse_core.job import (
     EXIT_FAILED,
     EXIT_OK,
     JobContext,
+    JobFailure,
     JobResult,
     load_json_batch,
     run_job,
@@ -212,6 +213,91 @@ def test_handler_exception_is_a_failed_run_not_a_traceback(fake_db, capsys):
 
     assert code == EXIT_FAILED
     assert _summary(capsys)["outcome"] == OUTCOME_FAILED
+
+
+def test_a_job_failure_keeps_the_counters_it_reached(fake_db, capsys, ledger_calls):
+    """#331: a raised failure reports how far the run got. ``JobFailure`` carries the
+    counters to the ``job_finished`` summary and the ledger row ``/health/jobs`` serves,
+    where a bare exception leaves both empty."""
+
+    async def handler(ctx: JobContext) -> JobResult:
+        try:
+            raise ValueError("wire=None")
+        except ValueError as exc:
+            raise JobFailure({"fetched": 3, "errors": 0}) from exc
+
+    code = run_job("demo", handler, argv=["--json"], ledger=True)
+
+    assert code == EXIT_FAILED
+    summary = _summary(capsys)
+    assert summary["outcome"] == OUTCOME_FAILED
+    assert summary["counters"] == {"fetched": 3, "errors": 0}
+    assert ledger_calls[-1][1]["outcome"] == OUTCOME_FAILED
+    assert ledger_calls[-1][1]["counters"] == {"fetched": 3, "errors": 0}
+
+
+def test_a_job_failure_is_still_a_logged_rolled_back_failure(fake_db, capsys):
+    """Only the counters differ from a bare raise: the traceback — cause included, so
+    the alert names the real error — is logged and the transaction rolls back."""
+
+    async def handler(ctx: JobContext) -> JobResult:
+        try:
+            raise ValueError("the real cause")
+        except ValueError as exc:
+            raise JobFailure({"fetched": 1}) from exc
+
+    run_job("demo", handler, argv=[])
+
+    assert fake_db.committed == 0
+    assert fake_db.rolled_back == 1
+    # configure_logging() writes the JSON records to stdout, beside the summary line
+    out = capsys.readouterr().out
+    assert '"message": "job_failed"' in out
+    assert "the real cause" in out
+
+
+def test_a_bare_exception_still_records_no_counters(fake_db, capsys, ledger_calls):
+    """``JobFailure`` is opt-in: every job that does not raise it behaves as before."""
+
+    async def handler(ctx: JobContext) -> JobResult:
+        raise ValueError("boom")
+
+    run_job("demo", handler, argv=["--json"], ledger=True)
+
+    assert _summary(capsys)["counters"] == {}
+    assert ledger_calls[-1][1]["counters"] == {}
+
+
+def test_a_job_failure_normalizes_a_summary_dataclass(fake_db, capsys):
+    """Same counter shapes a handler may return — a ``RunSummary``-style dataclass too."""
+
+    @dataclass
+    class _Summary:
+        fetched: int
+
+    async def handler(ctx: JobContext) -> JobResult:
+        raise JobFailure(_Summary(fetched=2))
+
+    run_job("demo", handler, argv=["--json"])
+
+    assert _summary(capsys)["counters"] == {"fetched": 2}
+
+
+def test_a_job_failure_snapshots_its_counters_at_the_raise():
+    """CR 2: normalized on construction, as ``JobResult`` is — a JSON-safe dict for
+    every reader of ``.counters``, and not an alias of the handler's live dict."""
+
+    @dataclass
+    class _Summary:
+        fetched: int
+
+    live = {"fetched": 1}
+    failure = JobFailure(live)
+    live["fetched"] = 99
+
+    assert failure.counters == {"fetched": 1}
+    assert JobFailure(_Summary(fetched=2)).counters == {"fetched": 2}
+    assert JobFailure().counters == {}
 
 
 def test_explicit_exit_code_overrides_the_default_mapping(fake_db):

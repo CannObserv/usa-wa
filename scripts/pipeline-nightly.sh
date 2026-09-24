@@ -22,6 +22,10 @@
 #   snapshot (the load is one transaction), so this is stale-but-correct;
 # - PARITY divergence is counted — observational, runs after publish.
 # Any counted failure exits 1 at the end so OnFailure= emails the operator.
+# Either exit restates every failed stage's last stdout line — the harness
+# summary, counters included — as its closing lines: the email carries only
+# the last 25 journal lines, and a stage's own summary sits hundreds above
+# them (#331 CR 6).
 #
 # Paths are absolute or resolved from the primary checkout (WorkingDirectory):
 # raw/ + data/pipeline.duckdb + data/datasets are the documented defaults, and
@@ -29,33 +33,70 @@
 set -u
 # Guarded (#302 CR): with no -e, a failed cd would scatter raw/ and data/
 # under whatever cwd a by-hand invocation inherited.
-cd /home/exedev/usa-wa || exit 1
+# PIPELINE_NIGHTLY_ROOT / PIPELINE_NIGHTLY_UV are test seams (#331 CR 6): the
+# suite points them at a tmp dir and a stub `uv`. The unit sets neither.
+cd "${PIPELINE_NIGHTLY_ROOT:-/home/exedev/usa-wa}" || exit 1
 
-UV="/usr/local/bin/uv run --frozen --no-sync"
+UV="${PIPELINE_NIGHTLY_UV:-/usr/local/bin/uv run --frozen --no-sync}"
 failures=0
+failed=()
+
+# run_stage LABEL CMD... — run one stage, its stdout streamed as before; on
+# failure, keep "LABEL (exit N): <its last stdout line>" for report_failures.
+# The last line is held in memory (lastpipe keeps the read loop in this shell):
+# a file under /tmp shares / with the raw store, so on a disk-full night it
+# would restate nothing or a stale line (CR 8). printf writes the inherited fd;
+# never reopen /dev/stdout or /dev/fd/N — under systemd that is the journal
+# socket, which open(2) refuses (ENXIO).
+shopt -s lastpipe extglob
+run_stage() {
+  local label=$1 line last="" rc
+  shift
+  "$@" | while IFS= read -r line || [ -n "$line" ]; do
+    printf '%s\n' "$line"
+    last=$line
+  done
+  rc=${PIPESTATUS[0]}
+  if [ "$rc" -ne 0 ]; then
+    # dbt colors off a TTY too, and journalctl hands the escapes to the email
+    # raw: restate plain text (CR 9). The stage's own lines stay as printed.
+    last=${last//$'\e['*([0-9;])m/}
+    failed+=("$label (exit $rc): ${last:-(no summary on stdout)}")
+  fi
+  return "$rc"
+}
+
+# report_failures — restate each failed stage as the run's closing lines.
+report_failures() {
+  local line
+  for line in "${failed[@]}"; do
+    echo "pipeline-nightly: failed stage: $line" >&2
+  done
+}
 
 for job in usa_wa_adapter_legislature.raw_harvest usa_wa_adapter_pdc.raw_harvest usa_wa_adapter_sos.raw_harvest; do
-  if ! $UV python -m "$job"; then
+  if ! run_stage "$job" $UV python -m "$job"; then
     echo "pipeline-nightly: harvest failed (contained): $job" >&2
     failures=$((failures + 1))
   fi
 done
 
-if ! $UV dbt build \
+if ! run_stage "dbt build" $UV dbt build \
     --project-dir packages/usa-wa-pipeline/dbt \
     --profiles-dir packages/usa-wa-pipeline/dbt \
     --target-path /home/exedev/usa-wa/data/target \
     --log-path /home/exedev/usa-wa/data/dbt-logs; then
   echo "pipeline-nightly: dbt build failed — aborting before registrar/publish" >&2
+  report_failures
   exit 1
 fi
 
-if ! $UV python -m usa_wa_pipeline.registrar --db data/pipeline.duckdb; then
+if ! run_stage usa_wa_pipeline.registrar $UV python -m usa_wa_pipeline.registrar --db data/pipeline.duckdb; then
   echo "pipeline-nightly: registrar reported conflicts/failure (triage; publish continues)" >&2
   failures=$((failures + 1))
 fi
 
-if ! $UV python -m usa_wa_pipeline.publish \
+if ! run_stage usa_wa_pipeline.publish $UV python -m usa_wa_pipeline.publish \
     --db data/pipeline.duckdb \
     --manifest /home/exedev/usa-wa/data/target/manifest.json; then
   echo "pipeline-nightly: publish refused/failed (last good catalog stands)" >&2
@@ -65,14 +106,14 @@ fi
 # The deployment's own projection of what just published (#313). After publish
 # so it loads the new catalog; before the probes so a load failure is counted
 # beside them rather than discovered by a 200 answering stale rows.
-if ! $UV python -m usa_wa_api.serving.load; then
+if ! run_stage usa_wa_api.serving.load $UV python -m usa_wa_api.serving.load; then
   echo "pipeline-nightly: serving load failed (API still serves the last snapshot)" >&2
   failures=$((failures + 1))
 fi
 
 for probe in usa_wa_pipeline.parity_wsl usa_wa_pipeline.parity_pdc usa_wa_pipeline.parity_registry \
              usa_wa_pipeline.parity_spans usa_wa_pipeline.parity_citations; do
-  if ! $UV python -m "$probe"; then
+  if ! run_stage "$probe" $UV python -m "$probe"; then
     echo "pipeline-nightly: parity divergence: $probe" >&2
     failures=$((failures + 1))
   fi
@@ -80,5 +121,6 @@ done
 
 if [ "$failures" -gt 0 ]; then
   echo "pipeline-nightly: $failures stage(s) failed" >&2
+  report_failures
   exit 1
 fi
