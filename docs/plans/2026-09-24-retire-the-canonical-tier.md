@@ -8,10 +8,10 @@ status: draft
 
 ## Problem
 
-The #302 pipeline publishes every dataset, but the Postgres canonical tier still runs
-seven daily timers and a weekly one, and two systems that can disagree can also page on it, as the
-2026-09-22 parity alert did. #412's body treats canonical as the parity oracle
-and nothing more. The 2026-09-24 inventory found more couplings than that, and each one
+The #302 pipeline publishes every dataset, but the Postgres canonical tier still runs seven
+daily timers and a weekly one. Two systems that can disagree can also both page: the 2026-09-22
+parity alert fired on a one-day skew between them. #412's body treats canonical as the parity
+oracle and nothing more. The 2026-09-24 inventory found more couplings than that, and each one
 blocks a deletion:
 
 | Coupling | Where | Blocks |
