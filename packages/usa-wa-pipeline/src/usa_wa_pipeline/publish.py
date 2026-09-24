@@ -391,6 +391,20 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 ),
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
+            ContractRelease(
+                "2.0.0",
+                (
+                    "election_date",
+                    "ballot_name",
+                    "party_name",
+                    "race_name",
+                    "race_jurisdiction_name",
+                    "source",
+                    "resource_id",
+                ),
+                "#361: every field integer → string. The model was empty, and an empty "
+                "model's columns inferred INTEGER; a type change is major",
+            ),
         ),
     ),
     PublishedDataset(
