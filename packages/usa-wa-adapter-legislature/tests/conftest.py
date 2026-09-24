@@ -12,15 +12,17 @@ from pathlib import Path
 import pytest
 import vcr
 
+from usa_wa_adapter_legislature.roster_pdf.transport import configure_leg_rate_limit
 from usa_wa_adapter_legislature.transport import configure_wsl_rate_limit
 
 CASSETTE_DIR = Path(__file__).parent / "cassettes"
 
 
 @pytest.fixture(autouse=True)
-def _no_wsl_rate_limit() -> None:
-    """Disable the global WSL courtesy limiter (#77) so a cassette-replayed SOAP call
-    never incurs the production inter-request sleep.
+def _no_courtesy_rate_limits() -> None:
+    """Disable the package's courtesy limiters — WSL (#77) and ``leg.wa.gov`` (#236) — so a
+    cassette-replayed SOAP call or a respx-mocked roster GET never incurs the production
+    inter-request sleep.
 
     Lives here, not at the workspace root (#185). CR #77 hoisted it up on the theory
     that a WSL-cassette test could appear in any package; none did — this is the only
@@ -31,6 +33,7 @@ def _no_wsl_rate_limit() -> None:
     autouse fixture rather than moving this one back up.
     """
     configure_wsl_rate_limit(0.0)
+    configure_leg_rate_limit(0.0)
 
 
 @pytest.fixture
