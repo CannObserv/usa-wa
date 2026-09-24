@@ -168,7 +168,7 @@ uv run alembic revision --autogenerate -m "description"
 uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload --log-config packages/usa-wa-api/src/usa_wa_api/log_config.json
 ```
 
-Everyday commands only. Every operational and backfill CLI is indexed in [`docs/COMMANDS.md`](docs/COMMANDS.md), which links the grouped references (succession, backfill). Prod runs the daily/weekly ones on systemd timers (see § Server Lifecycle); pair a backfill with `USA_WA_BIENNIUM` to target a non-current biennium.
+Everyday commands only. Every operational and backfill CLI is indexed in [`docs/COMMANDS.md`](docs/COMMANDS.md), which links the grouped references (succession, backfill). Prod runs the daily/weekly/monthly ones on systemd timers (see § Server Lifecycle); pair a backfill with `USA_WA_BIENNIUM` to target a non-current biennium.
 
 ## Agent Skills
 
