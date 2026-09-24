@@ -15,10 +15,6 @@ network via vcrpy cassettes.
 from __future__ import annotations
 
 import asyncio
-import os
-import threading
-import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -27,6 +23,8 @@ from zeep import Client
 from zeep.exceptions import Fault
 from zeep.helpers import serialize_object
 from zeep.transports import Transport
+
+from usa_wa_adapter_legislature.ratelimit import RateLimiter, env_float
 
 WSL_BASE_URL = "https://wslwebservices.leg.wa.gov"
 
@@ -38,53 +36,13 @@ WSL_BASE_URL = "https://wslwebservices.leg.wa.gov"
 DEFAULT_WSL_MIN_REQUEST_INTERVAL = 0.5
 
 
-class _RateLimiter:
-    """Thread-safe global min-interval gate. `acquire()` reserves the next evenly-spaced
-    slot under a lock, then sleeps (outside the lock) until it — so concurrent callers from
-    different `asyncio.to_thread` threads are spaced by `min_interval` without one holding
-    the lock while sleeping. `monotonic`/`sleep` are injectable for deterministic tests."""
-
-    def __init__(
-        self,
-        min_interval: float,
-        *,
-        monotonic: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
-    ) -> None:
-        self._min = max(0.0, min_interval)
-        self._monotonic = monotonic
-        self._sleep = sleep
-        self._lock = threading.Lock()
-        self._next = 0.0
-
-    def set_interval(self, min_interval: float) -> None:
-        self._min = max(0.0, min_interval)
-
-    def acquire(self) -> None:
-        if self._min <= 0:
-            return
-        with self._lock:
-            slot = max(self._monotonic(), self._next)
-            self._next = slot + self._min
-        delay = slot - self._monotonic()
-        if delay > 0:
-            self._sleep(delay)
-
-
 def _env_min_interval() -> float:
-    """Read `USA_WA_WSL_MIN_REQUEST_INTERVAL`, falling back to the default on a malformed
-    value — a bad env var must not crash *every* WSL caller with an import-time ValueError."""
-    raw = os.environ.get("USA_WA_WSL_MIN_REQUEST_INTERVAL")
-    if raw is None:
-        return DEFAULT_WSL_MIN_REQUEST_INTERVAL
-    try:
-        return float(raw)
-    except ValueError:
-        return DEFAULT_WSL_MIN_REQUEST_INTERVAL
+    """Read `USA_WA_WSL_MIN_REQUEST_INTERVAL` (default on unset/malformed)."""
+    return env_float("USA_WA_WSL_MIN_REQUEST_INTERVAL", DEFAULT_WSL_MIN_REQUEST_INTERVAL)
 
 
 #: The one shared limiter every WSL SOAP POST passes through (see `_CapturingTransport`).
-_WSL_LIMITER = _RateLimiter(_env_min_interval())
+_WSL_LIMITER = RateLimiter(_env_min_interval())
 
 
 def configure_wsl_rate_limit(min_interval: float) -> None:
