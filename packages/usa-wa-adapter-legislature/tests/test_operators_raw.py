@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import threading
 from datetime import UTC, datetime
 
 from clearinghouse_core.rawstore import RAW_ROOT_ENV, RawStore
@@ -10,6 +11,7 @@ from usa_wa_adapter_legislature.operators.raw import (
     ATTESTATION_CONTENT_TYPE,
     PendingAttestations,
     attestation_url,
+    flush_after_commit,
 )
 
 _AT = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
@@ -112,3 +114,23 @@ def test_for_operator_defaults_to_the_configured_raw_root(tmp_path, monkeypatch)
     monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
     pending = PendingAttestations.for_operator()
     assert pending.store.source_dir == tmp_path / OPERATOR_SOURCE_SLUG
+
+
+async def test_flush_after_commit_writes_off_the_event_loop(tmp_path, monkeypatch):
+    """The flush is file I/O; the handlers that call it are async (the #196 rule the
+    ``--file`` read already follows)."""
+    flush_threads: list[int] = []
+    real_flush = PendingAttestations.flush
+
+    def _recording(self):
+        flush_threads.append(threading.get_ident())
+        return real_flush(self)
+
+    monkeypatch.setattr(PendingAttestations, "flush", _recording)
+    pending = PendingAttestations.for_operator(tmp_path)
+    pending.add(_SID, b"{}", _AT)
+
+    await flush_after_commit(pending)
+
+    assert flush_threads and threading.get_ident() not in flush_threads
+    assert len(_entries(tmp_path)) == 1

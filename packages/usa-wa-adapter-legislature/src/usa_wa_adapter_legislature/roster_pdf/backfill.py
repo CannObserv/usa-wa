@@ -71,7 +71,7 @@ from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
-from usa_wa_adapter_legislature.operators.raw import PendingAttestations
+from usa_wa_adapter_legislature.operators.raw import PendingAttestations, flush_after_commit
 from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
@@ -663,7 +663,7 @@ async def _backfill_job(ctx: JobContext) -> JobResult:
         await session.rollback()
     else:
         await session.commit()
-        raw.flush()
+        await flush_after_commit(raw)
     if not summary.resolution:
         return JobResult.degraded(summary.counters)
     return JobResult.ok(summary.counters)

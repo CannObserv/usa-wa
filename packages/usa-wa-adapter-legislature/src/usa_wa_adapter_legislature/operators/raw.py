@@ -10,7 +10,8 @@ the cutover.
 **Buffered, flushed after commit.** The stores write inside the caller's transaction,
 and a rolled-back write (``--dry-run``, a validation failure) must leave nothing behind
 — no manifest and no object. So a store only :meth:`~PendingAttestations.add`\\ s; the
-entry point that owns the commit calls :meth:`~PendingAttestations.flush` after it.
+entry point that owns the commit awaits :func:`flush_after_commit` after it — off the
+event loop, since the flush is file I/O and those entry points are async handlers.
 
 **Deduplicated against the newest record**, the raw-side twin of the Postgres dedup: a
 byte-identical re-ingest adds nothing. Not ``record_fetch``, which the plan named: that
@@ -19,6 +20,7 @@ is the harvest loop (TTL fresh-skip, a fetcher to call); an attestation has neit
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -73,3 +75,8 @@ class PendingAttestations:
             newest[resource_id] = sha
         self._pending.clear()
         return run.close() if run is not None else None
+
+
+async def flush_after_commit(raw: PendingAttestations) -> Path | None:
+    """Flush ``raw`` in a worker thread. Call it only once the transaction has committed."""
+    return await asyncio.to_thread(raw.flush)

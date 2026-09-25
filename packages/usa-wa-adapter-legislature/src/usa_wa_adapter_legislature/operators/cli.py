@@ -53,7 +53,7 @@ from clearinghouse_domain_legislative.operator_events import (
     OperatorEvent,
 )
 from clearinghouse_domain_legislative.span_emit import resolve_person
-from usa_wa_adapter_legislature.operators.raw import PendingAttestations
+from usa_wa_adapter_legislature.operators.raw import PendingAttestations, flush_after_commit
 from usa_wa_adapter_legislature.operators.store import (
     current_events,
     get_or_create_operator_source,
@@ -326,7 +326,7 @@ async def _record_job(ctx: JobContext) -> JobResult:
     else:
         await session.commit()
         # After the commit, never before: a manifest must not describe a rolled-back write.
-        manifest = raw.flush()
+        manifest = await flush_after_commit(raw)
         if manifest is not None:
             print(f"archived to {manifest}")
     return JobResult.ok({"listed" if ctx.args.list else "recorded": True})
