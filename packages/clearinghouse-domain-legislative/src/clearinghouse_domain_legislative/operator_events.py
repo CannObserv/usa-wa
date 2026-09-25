@@ -45,7 +45,9 @@ from clearinghouse_domain_legislative.span_kinds import SEAT_KINDS  # noqa: F401
 
 # SCHEMA + _new_ulid are defined locally per the domain-model convention (see bills.py /
 # sessions.py), rather than reaching into identity.py's module-private helpers.
-SCHEMA = "canonical"
+# ``registry``, not ``canonical`` (#412 Q1): operator events are curated human input, the
+# same kind of state as ``registry.adjudications``, and they outlive the canonical tier.
+SCHEMA = "registry"
 
 
 def _new_ulid() -> _ULID:

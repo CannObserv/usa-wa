@@ -14,6 +14,12 @@ from clearinghouse_domain_legislative.operator_events import (
 )
 
 
+def test_operator_events_live_in_the_registry_schema():
+    """Curated human input sits beside ``registry.adjudications`` (#412 Q1), off the
+    ``canonical`` schema PR F drops."""
+    assert OperatorEvent.__table__.schema == "registry"
+
+
 def test_event_source_id_departed_omits_seat():
     sid = event_source_id("29091", KIND_DEPARTED, date(2025, 4, 19))
     assert sid == "29091:departed:2025-04-19"

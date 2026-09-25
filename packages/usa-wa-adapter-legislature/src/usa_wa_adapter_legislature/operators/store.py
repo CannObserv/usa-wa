@@ -7,7 +7,8 @@ a first-class provenance fact under the ``usa_wa_operator`` :class:`Source`:
 1. Serialize the event to canonical JSON and hash it (``sha256`` — so the #54 integrity
    sweep covers operator facts identically to a live wire).
 2. Append a :class:`FetchEvent` + :class:`RawPayload` (the JSON body), byte-identical
-   re-ingests deduped (append-only, no pile-up).
+   re-ingests deduped (append-only, no pile-up) — and buffer the same bytes for the raw
+   store (:mod:`.raw`, #412), which the caller flushes once its transaction commits.
 3. Upsert the queryable :class:`OperatorEvent` projection row by its natural key.
 
 A **correction** that moves the effective date is a *new* event (distinct natural key)
@@ -50,6 +51,11 @@ from clearinghouse_domain_legislative.span_emit import (
     add_field_citation,
 )
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
+from usa_wa_adapter_legislature.operators.raw import (
+    ATTESTATION_CONTENT_TYPE,
+    PendingAttestations,
+    attestation_url,
+)
 
 
 async def get_or_create_operator_source(
@@ -158,12 +164,14 @@ async def record_operator_event(
     seat_kind: str | None = None,
     seat_discriminator: str | None = None,
     entered_by: str | None = None,
+    raw: PendingAttestations | None = None,
 ) -> OperatorEvent:
     """Persist an operator event (provenance + projection). Idempotent on the natural key.
 
     Returns the projection row. A byte-identical re-ingest neither duplicates the
     FetchEvent/RawPayload nor changes the row; a changed evidence_url/reason updates the
-    row and appends fresh provenance (a new content_hash)."""
+    row and appends fresh provenance (a new content_hash). ``raw`` buffers the same body
+    for the raw store; every production entry point passes one (#412 PR A)."""
     _check_seat_scope(kind, seat_kind, seat_discriminator)
     sid = event_source_id(
         member_id,
@@ -182,6 +190,9 @@ async def record_operator_event(
         seat_discriminator=seat_discriminator,
     )
     content_hash = hashlib.sha256(body).digest()
+    fetched_at = datetime.now(UTC)
+    if raw is not None:
+        raw.add(sid, body, fetched_at)
 
     fetch_event = None
     if not await _provenance_recorded(session, source.id, sid, content_hash):
@@ -189,8 +200,8 @@ async def record_operator_event(
             source_id=source.id,
             resource_id=sid,
             resource_version_key=content_hash.hex(),
-            url=f"urn:usa-wa-operator:{sid}",
-            fetched_at=datetime.now(UTC),
+            url=attestation_url(sid),
+            fetched_at=fetched_at,
             http_status=None,
             content_hash=content_hash,
             status=FetchStatus.ok,
@@ -200,7 +211,7 @@ async def record_operator_event(
         session.add(
             RawPayload(
                 fetch_event_id=fetch_event.id,
-                content_type="application/json",
+                content_type=ATTESTATION_CONTENT_TYPE,
                 body=body,
                 size_bytes=len(body),
             )
@@ -249,6 +260,7 @@ async def supersede_event(
     kind: str | None = None,
     seat_kind: str | None = None,
     seat_discriminator: str | None = None,
+    raw: PendingAttestations | None = None,
 ) -> OperatorEvent:
     """Record a correction of ``prior`` (same member, new date/reason/url) and stamp
     ``prior.superseded_by_id``. A same-date "correction" resolves to ``prior`` itself (a plain
@@ -299,6 +311,7 @@ async def supersede_event(
         seat_kind=seat_kind if reclassified else prior.seat_kind,
         seat_discriminator=seat_discriminator if reclassified else prior.seat_discriminator,
         entered_by=entered_by,
+        raw=raw,
     )
     if corrected.id != prior.id:
         prior.superseded_by_id = corrected.id

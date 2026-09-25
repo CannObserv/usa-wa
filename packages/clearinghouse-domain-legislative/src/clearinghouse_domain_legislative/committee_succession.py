@@ -39,8 +39,9 @@ from clearinghouse_core.db.ulid import ULID
 from clearinghouse_core.models import Base, TimestampMixin
 
 # SCHEMA + _new_ulid are defined locally per the domain-model convention (mirrors
-# operator_events.py / bills.py) so the module owns its table placement.
-SCHEMA = "canonical"
+# operator_events.py / bills.py) so the module owns its table placement. ``registry``
+# beside the operator events (#412 Q1): curated human input that outlives the canonical tier.
+SCHEMA = "registry"
 
 
 def _new_ulid() -> _ULID:

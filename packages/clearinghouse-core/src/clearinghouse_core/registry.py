@@ -7,7 +7,9 @@ table. All domain knowledge lives in the matching rules that *propose*
 clusters (`usa_wa_pipeline`, dbt SQL + Splink config), none in here.
 
 Three tables in the ``registry`` Postgres schema — master state, small, backed
-up with the database:
+up with the database. The schema also holds the two operator-attestation tables
+(``operator_events``, ``committee_succession_events``, #412 Q1), which the
+jurisdiction's domain models own rather than this module:
 
 - ``registry.entities`` — one row per identity (persons and orgs, discriminated
   by ``kind``). ``merged_into`` is the tombstone an adjudicated merge leaves;

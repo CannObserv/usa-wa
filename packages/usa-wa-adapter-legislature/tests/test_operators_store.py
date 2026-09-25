@@ -10,6 +10,7 @@ from clearinghouse_core.provenance import Citation, FetchEvent, RawPayload, Sour
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED, KIND_SEATED
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
+from usa_wa_adapter_legislature.operators.raw import PendingAttestations
 from usa_wa_adapter_legislature.operators.store import (
     citation_target_for_event,
     cite_operator_events,
@@ -473,3 +474,70 @@ class TestSeatScopeInvariant:
                 seat_kind="chamber-senate",
                 seat_discriminator="5",
             )
+
+
+# --- raw store (#412 PR A) ----------------------------------------------------
+
+
+async def _raw_payload(session, resource_id: str) -> bytes:
+    return (
+        (
+            await session.execute(
+                select(RawPayload.body)
+                .join(FetchEvent, FetchEvent.id == RawPayload.fetch_event_id)
+                .where(FetchEvent.resource_id == resource_id)
+                .order_by(FetchEvent.fetched_at.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+
+
+async def test_record_lands_the_same_bytes_in_the_raw_store(db_session, usa_wa, tmp_path):
+    """The raw copy is byte-identical to the Postgres RawPayload, so the #305 export's
+    hashes and the live writes agree."""
+    source = await _source(db_session)
+    raw = PendingAttestations.for_operator(tmp_path)
+    event = await record_operator_event(
+        db_session,
+        source,
+        member_id="29091",
+        kind=KIND_DEPARTED,
+        reason="died",
+        effective_date=date(2025, 4, 19),
+        evidence_url="https://example.gov/ramos",
+        raw=raw,
+    )
+    raw.flush()
+
+    latest = raw.store.latest()[event.source_id]
+    body = raw.store.object_path(latest["sha256"]).read_bytes()
+    assert body == await _raw_payload(db_session, event.source_id)
+
+
+async def test_supersede_lands_the_correction_in_the_raw_store(db_session, usa_wa, tmp_path):
+    source = await _source(db_session)
+    raw = PendingAttestations.for_operator(tmp_path)
+    prior = await record_operator_event(
+        db_session,
+        source,
+        member_id="29091",
+        kind=KIND_DEPARTED,
+        reason="died",
+        effective_date=date(2025, 4, 19),
+        evidence_url="https://example.gov/ramos",
+        raw=raw,
+    )
+    corrected = await supersede_event(
+        db_session,
+        source,
+        prior,
+        reason="died",
+        effective_date=date(2025, 4, 20),
+        evidence_url="https://example.gov/ramos-2",
+        raw=raw,
+    )
+    raw.flush()
+
+    assert set(raw.store.latest()) == {prior.source_id, corrected.source_id}

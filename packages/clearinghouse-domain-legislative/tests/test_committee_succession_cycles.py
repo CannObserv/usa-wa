@@ -2,7 +2,10 @@
 
 from types import SimpleNamespace
 
-from clearinghouse_domain_legislative.committee_succession import find_succession_cycles
+from clearinghouse_domain_legislative.committee_succession import (
+    CommitteeSuccessionEvent,
+    find_succession_cycles,
+)
 
 
 def _link(subject, linked, slug="succeeded_by"):
@@ -48,3 +51,9 @@ def test_self_consistent_across_multiple_disjoint_cycles():
 def test_empty_and_single_edge():
     assert find_succession_cycles([]) == []
     assert find_succession_cycles([_link("A", "B")]) == []
+
+
+def test_committee_succession_events_live_in_the_registry_schema():
+    """Curated human input sits beside ``registry.adjudications`` (#412 Q1), off the
+    ``canonical`` schema PR F drops."""
+    assert CommitteeSuccessionEvent.__table__.schema == "registry"

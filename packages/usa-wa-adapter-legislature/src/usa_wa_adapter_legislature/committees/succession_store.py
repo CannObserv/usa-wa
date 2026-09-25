@@ -7,8 +7,10 @@ convention as the #107 operator-events store, and sharing its ``usa_wa_operator`
 provenance :class:`Source`.
 
 Every write appends a hashed ``FetchEvent`` + ``RawPayload`` (the serialized event, so
-the integrity sweep covers operator committee-lineage facts, #54). A correction appends a
-new row and stamps the prior one's ``superseded_by_id``; provenance is never mutated.
+the integrity sweep covers operator committee-lineage facts, #54), and buffers the same
+bytes for the raw store (:mod:`usa_wa_adapter_legislature.operators.raw`, #412). A
+correction appends a new row and stamps the prior one's ``superseded_by_id``; provenance
+is never mutated.
 """
 
 from __future__ import annotations
@@ -25,6 +27,11 @@ from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, S
 from clearinghouse_domain_legislative.committee_succession import (
     OPERATOR_SOURCE_SLUG,
     CommitteeSuccessionEvent,
+)
+from usa_wa_adapter_legislature.operators.raw import (
+    ATTESTATION_CONTENT_TYPE,
+    PendingAttestations,
+    attestation_url,
 )
 
 # Re-export the shared operator Source getter so callers need one import.
@@ -106,13 +113,15 @@ async def record_succession_event(
     evidence_url: str,
     notes: str | None = None,
     entered_by: str | None = None,
+    raw: PendingAttestations | None = None,
 ) -> CommitteeSuccessionEvent:
     """Persist a succession attestation (provenance + projection). Idempotent on the
     natural key.
 
     Returns the projection row. A byte-identical re-ingest neither duplicates the
     FetchEvent/RawPayload nor changes the row; a changed evidence_url/notes updates the
-    row and appends fresh provenance (a new content_hash)."""
+    row and appends fresh provenance (a new content_hash). ``raw`` buffers the same body
+    for the raw store; every production entry point passes one (#412 PR A)."""
     sid = succession_source_id(subject_source_id, linked_source_id, slug, effective_year)
     body = _serialize_event(
         subject_source_id=subject_source_id,
@@ -123,14 +132,17 @@ async def record_succession_event(
         notes=notes,
     )
     content_hash = hashlib.sha256(body).digest()
+    fetched_at = datetime.now(UTC)
+    if raw is not None:
+        raw.add(sid, body, fetched_at)
 
     if not await _provenance_recorded(session, source.id, sid, content_hash):
         fetch_event = FetchEvent(
             source_id=source.id,
             resource_id=sid,
             resource_version_key=content_hash.hex(),
-            url=f"urn:usa-wa-operator:{sid}",
-            fetched_at=datetime.now(UTC),
+            url=attestation_url(sid),
+            fetched_at=fetched_at,
             http_status=None,
             content_hash=content_hash,
             status=FetchStatus.ok,
@@ -140,7 +152,7 @@ async def record_succession_event(
         session.add(
             RawPayload(
                 fetch_event_id=fetch_event.id,
-                content_type="application/json",
+                content_type=ATTESTATION_CONTENT_TYPE,
                 body=body,
                 size_bytes=len(body),
             )
@@ -188,6 +200,7 @@ async def supersede_event(
     evidence_url: str,
     notes: str | None = None,
     entered_by: str | None = None,
+    raw: PendingAttestations | None = None,
 ) -> CommitteeSuccessionEvent:
     """Record a correction of ``prior`` and stamp ``prior.superseded_by_id``.
 
@@ -209,6 +222,7 @@ async def supersede_event(
         evidence_url=evidence_url,
         notes=notes,
         entered_by=entered_by,
+        raw=raw,
     )
     if corrected.id != prior.id:
         prior.superseded_by_id = corrected.id

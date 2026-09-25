@@ -48,6 +48,7 @@ from usa_wa_adapter_legislature.committees.succession_store import (
     record_succession_event,
     supersede_event,
 )
+from usa_wa_adapter_legislature.operators.raw import PendingAttestations
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
@@ -111,7 +112,7 @@ async def _resolve_committee(session: AsyncSession, source_id: str) -> Organizat
 
 
 async def validate_and_record(
-    session: AsyncSession, source, spec: LinkSpec
+    session: AsyncSession, source, spec: LinkSpec, *, raw: PendingAttestations | None = None
 ) -> CommitteeSuccessionEvent:
     """Validate ``spec`` (shape + both ends resolve to committee Orgs) and persist it.
 
@@ -161,6 +162,7 @@ async def validate_and_record(
             evidence_url=spec.evidence_url,
             notes=spec.notes,
             entered_by=_entered_by(),
+            raw=raw,
         )
     return await record_succession_event(
         session,
@@ -172,6 +174,7 @@ async def validate_and_record(
         evidence_url=spec.evidence_url,
         notes=spec.notes,
         entered_by=_entered_by(),
+        raw=raw,
     )
 
 
@@ -233,7 +236,7 @@ def _format_event(event: CommitteeSuccessionEvent) -> str:
     )
 
 
-async def _run(session: AsyncSession, args: argparse.Namespace) -> int:
+async def _run(session: AsyncSession, args: argparse.Namespace, raw: PendingAttestations) -> int:
     if args.list:
         events = await current_events(session)
         for event in events:
@@ -249,7 +252,7 @@ async def _run(session: AsyncSession, args: argparse.Namespace) -> int:
     else:
         specs = [_spec_from_args(args)]
 
-    recorded = [await validate_and_record(session, source, spec) for spec in specs]
+    recorded = [await validate_and_record(session, source, spec, raw=raw) for spec in specs]
     for event in recorded:
         print(_format_event(event))
     print(f"recorded {len(recorded)} committee-succession link(s)")
@@ -285,8 +288,9 @@ async def _record_job(ctx: JobContext) -> JobResult:
     ``2`` on the wire (COMMANDS-SUCCESSION.md).
     """
     session = ctx.require_session()
+    raw = PendingAttestations.for_operator()
     try:
-        await _run(session, ctx.args)
+        await _run(session, ctx.args, raw)
     except SuccessionError as exc:
         print(f"error: {exc}", file=sys.stderr)
         await session.rollback()
@@ -296,6 +300,10 @@ async def _record_job(ctx: JobContext) -> JobResult:
         print("(dry-run, rolled back)")
     else:
         await session.commit()
+        # After the commit, never before: a manifest must not describe a rolled-back write.
+        manifest = raw.flush()
+        if manifest is not None:
+            print(f"archived to {manifest}")
     return JobResult.ok({"listed" if ctx.args.list else "recorded": True})
 
 
