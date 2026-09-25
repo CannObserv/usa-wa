@@ -734,3 +734,17 @@ class TestMainRawStore:
 
         assert recording.committed == 1
         assert (tmp_path / OPERATOR_SOURCE_SLUG / "latest.json").is_file()
+
+    def test_a_failed_archive_is_degraded_not_failed(self, monkeypatch, tmp_path, capsys) -> None:
+        monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
+        recording = patch_job_runtime(monkeypatch)
+
+        def _broken(self):
+            raise PermissionError("raw/ is read-only")
+
+        monkeypatch.setattr(PendingAttestations, "flush", _broken)
+        with patch.object(backfill, "backfill_succession", _attesting_backfill([])):
+            assert backfill.main([]) == 4
+
+        assert recording.committed == 1
+        assert "re-run" in capsys.readouterr().err

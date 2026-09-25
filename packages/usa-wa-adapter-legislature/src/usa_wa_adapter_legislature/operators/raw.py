@@ -26,11 +26,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root
 from clearinghouse_domain_legislative.operator_events import OPERATOR_SOURCE_SLUG
 
+logger = get_logger(__name__)
+
 #: The content type every attestation body is recorded under, in Postgres and raw alike.
 ATTESTATION_CONTENT_TYPE = "application/json"
+
+
+class AttestationArchiveError(RuntimeError):
+    """The database write committed, but its raw-store copy did not land."""
 
 
 def attestation_url(resource_id: str) -> str:
@@ -78,5 +85,19 @@ class PendingAttestations:
 
 
 async def flush_after_commit(raw: PendingAttestations) -> Path | None:
-    """Flush ``raw`` in a worker thread. Call it only once the transaction has committed."""
-    return await asyncio.to_thread(raw.flush)
+    """Flush ``raw`` in a worker thread. Call it only once the transaction has committed.
+
+    A disk error here comes **after** the commit, so it is re-raised as
+    :class:`AttestationArchiveError`, whose message says the write landed: the caller
+    reports the run degraded, not failed. Re-running the same command completes the
+    archive, because both halves are idempotent — the store upserts on the natural key,
+    and the flush records whatever its resource's newest entry lacks.
+    """
+    try:
+        return await asyncio.to_thread(raw.flush)
+    except OSError as exc:
+        logger.exception("operator_raw_flush_failed", extra={"raw_root": str(raw.store.root)})
+        raise AttestationArchiveError(
+            f"the database write committed, but archiving it to {raw.store.source_dir} "
+            f"failed ({exc}); re-run the same command to complete the archive"
+        ) from exc

@@ -95,7 +95,8 @@ each write appends a hashed `FetchEvent` + `RawPayload` under the `usa_wa_operat
 # resolves to a usa_wa_legislature Person (a typo would be a silent no-op overlay).
 # App-role DML (writes registry.operator_events + provenance, and the attestation body to the
 # raw store after the commit — run it from the primary checkout, or set USA_WA_RAW_ROOT, so it
-# lands in the prod raw/ and not a worktree's, #412); shell access is the trust boundary,
+# lands in the prod raw/ and not a worktree's, #412; exit 4 = the write committed but the raw
+# copy did not land — re-run the same command to finish it); shell access is the trust boundary,
 # as with the redrive CLI. Provenance is append-only — a date-correction is --supersede
 # (a NEW row stamping the prior one's superseded_by_id), never a mutation (#54).
 # A supersede may also RECLASSIFY, within endings only (#363): departed <-> vacated are
@@ -175,7 +176,8 @@ the loop. See [`docs/specs/2026-07-25-committee-lineage-lifecycle-design.md`](sp
 # --linked are WSL committee Ids that must resolve to live usa_wa_legislature committee Orgs
 # (a typo is a hard error, not a silent no-op link). App-role DML (writes
 # registry.committee_succession_events + provenance under usa_wa_operator, and the body to the
-# raw store after the commit, as C1 above); provenance is append-only.
+# raw store after the commit, exit 4 if only that copy failed, as C1 above); provenance is
+# append-only.
 # A wrong-successor / year fix is --supersede (a NEW row stamping the prior's superseded_by_id).
 # On a supersede: --year sets, --clear-year clears, omitting both inherits the prior's year.
 # --dry-run validates + writes, then rolls back — but --list is read-only and commits even

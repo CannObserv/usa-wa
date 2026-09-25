@@ -337,3 +337,19 @@ def test_main_validation_failure_writes_nothing_to_the_raw_store(monkeypatch, tm
         assert cli.main(["--subject", "14294"]) == 2
 
     assert not (tmp_path / OPERATOR_SOURCE_SLUG).exists()
+
+
+def test_main_a_failed_archive_is_degraded_not_failed(monkeypatch, tmp_path, capsys):
+    """The commit landed; only the raw copy did not. Exit 4, with the re-run advice."""
+    monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
+    recording = patch_job_runtime(monkeypatch)
+
+    def _broken(self):
+        raise PermissionError("raw/ is read-only")
+
+    monkeypatch.setattr(PendingAttestations, "flush", _broken)
+    with patch.object(cli, "_run", _attesting_run()):
+        assert cli.main(["--subject", "14294"]) == 4
+
+    assert recording.committed == 1
+    assert "re-run" in capsys.readouterr().err

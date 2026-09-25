@@ -5,10 +5,13 @@ import json
 import threading
 from datetime import UTC, datetime
 
+import pytest
+
 from clearinghouse_core.rawstore import RAW_ROOT_ENV, RawStore
 from clearinghouse_domain_legislative.operator_events import OPERATOR_SOURCE_SLUG
 from usa_wa_adapter_legislature.operators.raw import (
     ATTESTATION_CONTENT_TYPE,
+    AttestationArchiveError,
     PendingAttestations,
     attestation_url,
     flush_after_commit,
@@ -134,3 +137,18 @@ async def test_flush_after_commit_writes_off_the_event_loop(tmp_path, monkeypatc
 
     assert flush_threads and threading.get_ident() not in flush_threads
     assert len(_entries(tmp_path)) == 1
+
+
+async def test_a_failed_flush_says_the_database_write_committed(tmp_path, monkeypatch):
+    """A disk error after the commit must not read as a failed write: it names what did
+    land and how to finish the rest."""
+
+    def _broken(self):
+        raise PermissionError("raw/ is read-only")
+
+    monkeypatch.setattr(PendingAttestations, "flush", _broken)
+    pending = PendingAttestations.for_operator(tmp_path)
+    pending.add(_SID, b"{}", _AT)
+
+    with pytest.raises(AttestationArchiveError, match="committed.*re-run"):
+        await flush_after_commit(pending)
