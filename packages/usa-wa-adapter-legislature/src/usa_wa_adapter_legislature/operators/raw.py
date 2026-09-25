@@ -103,7 +103,10 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
     for two of the three writers: the roster backfill skips every boundary already
     attested, and ``--supersede`` refuses a prior that is now superseded. The export's
     resumable cursor carries every ``FetchEvent`` written since its last run, and each of
-    these writes has one until PR F retires the Postgres half.
+    these writes has one until PR F retires the Postgres half — with one exception: a
+    restatement Postgres deduplicated (X, then Y, then X again) writes no new
+    ``FetchEvent``, so the export cannot carry it. Nothing is lost, since X's bytes were
+    archived the first time; only ``latest.json`` names Y while the projection holds X.
     """
     try:
         return await asyncio.to_thread(raw.flush)
