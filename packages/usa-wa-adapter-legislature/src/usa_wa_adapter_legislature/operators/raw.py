@@ -111,7 +111,8 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
         logger.exception("operator_raw_flush_failed", extra={"raw_root": str(raw.store.root)})
         raise AttestationArchiveError(
             f"the database write committed, but archiving it to {raw.store.source_dir} "
-            f"failed ({exc}); run `python -m clearinghouse_core.raw_export` to carry it over"
+            f"failed ({exc}); run `uv run python -m clearinghouse_core.raw_export` from the "
+            "primary checkout to carry it over"
         ) from exc
 
 

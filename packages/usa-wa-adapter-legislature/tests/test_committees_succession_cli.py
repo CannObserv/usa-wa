@@ -352,4 +352,4 @@ def test_main_a_failed_archive_is_degraded_not_failed(monkeypatch, tmp_path, cap
         assert cli.main(["--subject", "14294"]) == 4
 
     assert recording.committed == 1
-    assert "clearinghouse_core.raw_export" in capsys.readouterr().err
+    assert "uv run python -m clearinghouse_core.raw_export" in capsys.readouterr().err

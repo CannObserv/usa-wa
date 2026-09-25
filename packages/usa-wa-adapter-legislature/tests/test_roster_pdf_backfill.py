@@ -747,7 +747,7 @@ class TestMainRawStore:
             assert backfill.main([]) == 4
 
         assert recording.committed == 1
-        assert "clearinghouse_core.raw_export" in capsys.readouterr().err
+        assert "uv run python -m clearinghouse_core.raw_export" in capsys.readouterr().err
 
     def test_a_raised_backfill_neither_commits_nor_archives(self, monkeypatch, tmp_path) -> None:
         """#412 PR A moved this job's transaction from the harness to the handler. A raise

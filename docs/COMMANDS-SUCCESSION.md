@@ -96,7 +96,7 @@ each write appends a hashed `FetchEvent` + `RawPayload` under the `usa_wa_operat
 # App-role DML (writes registry.operator_events + provenance, and the attestation body to the
 # raw store after the commit — run it from the primary checkout, or set USA_WA_RAW_ROOT, so it
 # lands in the prod raw/ and not a worktree's, #412; exit 4 = the write committed but the raw
-# copy did not land — run `python -m clearinghouse_core.raw_export` to carry it over, not a
+# copy did not land — run `uv run python -m clearinghouse_core.raw_export` to carry it over, not a
 # re-run, which a --supersede refuses); shell access is the trust boundary,
 # as with the redrive CLI. Provenance is append-only — a date-correction is --supersede
 # (a NEW row stamping the prior one's superseded_by_id), never a mutation (#54).
