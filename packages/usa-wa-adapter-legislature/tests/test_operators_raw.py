@@ -150,5 +150,5 @@ async def test_a_failed_flush_says_the_database_write_committed(tmp_path, monkey
     pending = PendingAttestations.for_operator(tmp_path)
     pending.add(_SID, b"{}", _AT)
 
-    with pytest.raises(AttestationArchiveError, match="committed.*re-run"):
+    with pytest.raises(AttestationArchiveError, match="committed.*clearinghouse_core.raw_export"):
         await flush_after_commit(pending)

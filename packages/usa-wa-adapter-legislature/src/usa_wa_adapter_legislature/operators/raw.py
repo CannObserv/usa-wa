@@ -94,9 +94,13 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
 
     A disk error here comes **after** the commit, so it is re-raised as
     :class:`AttestationArchiveError`, whose message says the write landed: the caller
-    reports the run degraded, not failed. Re-running the same command completes the
-    archive, because both halves are idempotent — the store upserts on the natural key,
-    and the flush records whatever its resource's newest entry lacks.
+    reports the run degraded, not failed.
+
+    The recovery is ``raw_export``, not a re-run. Re-running does not reach the store
+    for two of the three writers: the roster backfill skips every boundary already
+    attested, and ``--supersede`` refuses a prior that is now superseded. The export's
+    resumable cursor carries every ``FetchEvent`` written since its last run, and each of
+    these writes has one until PR F retires the Postgres half.
     """
     try:
         return await asyncio.to_thread(raw.flush)
@@ -104,5 +108,5 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
         logger.exception("operator_raw_flush_failed", extra={"raw_root": str(raw.store.root)})
         raise AttestationArchiveError(
             f"the database write committed, but archiving it to {raw.store.source_dir} "
-            f"failed ({exc}); re-run the same command to complete the archive"
+            f"failed ({exc}); run `python -m clearinghouse_core.raw_export` to carry it over"
         ) from exc

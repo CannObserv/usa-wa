@@ -747,4 +747,4 @@ class TestMainRawStore:
             assert backfill.main([]) == 4
 
         assert recording.committed == 1
-        assert "re-run" in capsys.readouterr().err
+        assert "clearinghouse_core.raw_export" in capsys.readouterr().err
