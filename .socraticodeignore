@@ -11,11 +11,6 @@
 skills-vendor/
 .claude/skills/
 
-# Generated OpenAPI client — not first-party code (do-not-hand-edit; already
-# omitted from ruff + coverage). 567 files of repetitive _parse_response
-# boilerplate outrank our own code in codebase_search. See usa-wa#143.
-packages/powermap-client/
-
 # Dated prose. All three are declared *directory* context artifacts, so they
 # stay fully reachable through codebase_context_search — excluding them here
 # only stops them competing with first-party source in codebase_search, where

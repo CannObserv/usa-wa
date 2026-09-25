@@ -53,10 +53,10 @@ Re-check by hand with `sudo systemctl start usa-wa-roster-pdf-recheck.service`.
 uv run python -m usa_wa_adapter_legislature.roster_pdf.backfill --dry-run
 ```
 
-**Run it sidecar-paused.** Every event written moves a span boundary on the next builder
-re-drive, which re-anchors the corresponding PM Assignment — the same sequencing the #101
-House builder documents: pause the sidecar, run this, re-drive the span builders, resume.
-Do not merge and let the timer run.
+**Run it, then re-drive the span builders.** Every event written moves a span boundary on the
+next builder re-drive. (Said "sidecar-paused" until #314: each moved boundary re-anchored the
+corresponding PM Assignment, the same sequencing the #101 House builder documented. The
+sidecar is gone; there is nothing left to pause.) Do not merge and let the timer run.
 
 **Re-drive means four builders, and the pre-1991 one is the point.** Until #226 the overlay
 was applied only by `sponsors.build`, the SOS House builder and the committee builder — none
@@ -112,17 +112,15 @@ first run (nothing to strand yet, and every shallow row the deepening supersedes
 closed — measured: zero open duplicate `(person, role)` pairs before or after). Every tally lands in `counters`, so the
 #178 job ledger holds the residue, not just the completion log.
 
-**PM prerequisite — do this first.** The roster mints Persons under a *new* source
-(`usa_wa_legislature_roster`), and PM requires a registered `identifier_type` for every
-person observation. `person_wa_legislature_roster` must exist in PM
-(`/admin/settings/identifier-types/`, power-map#456) **before** the sidecar produces, or the
-whole cohort 422s — which is exactly what happened on the first run here (294 rejected before
-the sidecar was stopped). Since #255 an unmapped source *defers* instead of rejecting, so the
-failure mode is now a stalled queue rather than a rejection pile — but the type still has to
-exist before anything reaches PM.
-
-**The general rule:** a new Person-minting source has a PM dependency. Register its
-identifier type, add it to `SOURCE_TO_IDENTIFIER_TYPE`, *then* produce.
+**PM prerequisite — retired at #314.** The roster mints Persons under a *new* source
+(`usa_wa_legislature_roster`), and while the sidecar produced, PM required a registered
+`identifier_type` for every person observation: `person_wa_legislature_roster` had to exist in
+PM (`/admin/settings/identifier-types/`, power-map#456) before the sidecar produced, or the
+whole cohort 422'd — which is exactly what happened on the first run here (294 rejected before
+the sidecar was stopped). The rule that followed — register a new Person-minting source's
+identifier type in PM, add it to `SOURCE_TO_IDENTIFIER_TYPE`, *then* produce — went with the
+sidecar, and so did the mapping. Nothing here produces to PM now; step 5 below says where the
+Persons go instead.
 
 ```bash
 # (Ran SIDECAR-PAUSED until #314 — deepening re-keys spans and the migrate moved PM anchors.
@@ -135,7 +133,7 @@ uv run python -m usa_wa_adapter_legislature.roster_pdf.build
 # 2. PREVIEW the collapse and read `anchors_dropped` (#276). OWNER role, like step 4: the job
 #    declares role="owner" and resolves DATABASE_URL_OWNER itself, so just load the env — a
 #    per-command DATABASE_URL=... prefix is silently ignored here (see COMMANDS.md § Database migrations).
-#    The dry-run rolls back, and while the sidecar stays paused nothing moves the anchors
+#    The dry-run rolls back, and with the sidecar gone nothing moves the anchors
 #    underneath it, so its counters are what step 4 will do. Each drop is warned individually
 #    as `sponsor_span_migrate_anchor_dropped`, carrying the `source_id` step 3 needs. Only
 #    trust it once step 1 exited 0 — see below.
