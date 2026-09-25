@@ -47,7 +47,6 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
@@ -72,11 +71,7 @@ from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
-from usa_wa_adapter_legislature.operators.raw import (
-    AttestationArchiveError,
-    PendingAttestations,
-    flush_after_commit,
-)
+from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archive_after_commit
 from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
@@ -668,10 +663,7 @@ async def _backfill_job(ctx: JobContext) -> JobResult:
         await session.rollback()
     else:
         await session.commit()
-        try:
-            await flush_after_commit(raw)
-        except AttestationArchiveError as exc:
-            print(f"warning: {exc}", file=sys.stderr)
+        if not await archive_after_commit(raw):
             return JobResult.degraded({**summary.counters, "raw_archived": False})
     if not summary.resolution:
         return JobResult.degraded(summary.counters)

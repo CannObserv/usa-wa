@@ -13,6 +13,7 @@ from usa_wa_adapter_legislature.operators.raw import (
     ATTESTATION_CONTENT_TYPE,
     AttestationArchiveError,
     PendingAttestations,
+    archive_after_commit,
     attestation_url,
     flush_after_commit,
 )
@@ -165,3 +166,30 @@ async def test_any_failure_after_the_commit_is_an_archive_error(tmp_path):
 
     with pytest.raises(AttestationArchiveError, match="committed"):
         await flush_after_commit(pending)
+
+
+async def test_archive_after_commit_reports_the_manifest(tmp_path, capsys):
+    pending = PendingAttestations.for_operator(tmp_path)
+    pending.add(_SID, b"{}", _AT)
+
+    assert await archive_after_commit(pending) is True
+    assert "archived to" in capsys.readouterr().out
+
+
+async def test_archive_after_commit_with_nothing_new_is_quiet(tmp_path, capsys):
+    assert await archive_after_commit(PendingAttestations.for_operator(tmp_path)) is True
+    assert capsys.readouterr().out == ""
+
+
+async def test_archive_after_commit_warns_and_says_so(tmp_path, monkeypatch, capsys):
+    """The one place the three entry points share: the warning, and a False to degrade on."""
+
+    def _broken(self):
+        raise PermissionError("raw/ is read-only")
+
+    monkeypatch.setattr(PendingAttestations, "flush", _broken)
+    pending = PendingAttestations.for_operator(tmp_path)
+    pending.add(_SID, b"{}", _AT)
+
+    assert await archive_after_commit(pending) is False
+    assert capsys.readouterr().err.startswith("warning: the database write committed")

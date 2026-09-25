@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -110,3 +111,20 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
             f"the database write committed, but archiving it to {raw.store.source_dir} "
             f"failed ({exc}); run `python -m clearinghouse_core.raw_export` to carry it over"
         ) from exc
+
+
+async def archive_after_commit(raw: PendingAttestations) -> bool:
+    """The entry points' post-commit step: flush, report, and say whether it landed.
+
+    Prints the manifest path when a run was written, or a ``warning:`` line with the
+    recovery when it failed. ``False`` means the caller's run is degraded: its database
+    write committed and only the raw copy is missing.
+    """
+    try:
+        manifest = await flush_after_commit(raw)
+    except AttestationArchiveError as exc:
+        print(f"warning: {exc}", file=sys.stderr)
+        return False
+    if manifest is not None:
+        print(f"archived to {manifest}")
+    return True

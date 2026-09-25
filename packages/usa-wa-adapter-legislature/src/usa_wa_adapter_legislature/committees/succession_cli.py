@@ -48,11 +48,7 @@ from usa_wa_adapter_legislature.committees.succession_store import (
     record_succession_event,
     supersede_event,
 )
-from usa_wa_adapter_legislature.operators.raw import (
-    AttestationArchiveError,
-    PendingAttestations,
-    flush_after_commit,
-)
+from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archive_after_commit
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
@@ -305,13 +301,8 @@ async def _record_job(ctx: JobContext) -> JobResult:
     else:
         await session.commit()
         # After the commit, never before: a manifest must not describe a rolled-back write.
-        try:
-            manifest = await flush_after_commit(raw)
-        except AttestationArchiveError as exc:
-            print(f"warning: {exc}", file=sys.stderr)
+        if not await archive_after_commit(raw):
             return JobResult.degraded({"recorded": True, "raw_archived": False})
-        if manifest is not None:
-            print(f"archived to {manifest}")
     return JobResult.ok({"listed" if ctx.args.list else "recorded": True})
 
 
