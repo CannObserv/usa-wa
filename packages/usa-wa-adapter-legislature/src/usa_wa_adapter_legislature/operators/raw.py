@@ -56,7 +56,9 @@ class PendingAttestations:
     """Attestation bodies waiting for their transaction to commit."""
 
     store: RawStore
-    _pending: list[tuple[str, bytes, datetime]] = field(default_factory=list)
+    _pending: list[tuple[str, bytes, datetime]] = field(
+        default_factory=list, init=False, repr=False
+    )
 
     @classmethod
     def for_operator(cls, root: Path | str | None = None) -> PendingAttestations:

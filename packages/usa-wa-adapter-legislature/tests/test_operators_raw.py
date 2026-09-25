@@ -193,3 +193,10 @@ async def test_archive_after_commit_warns_and_says_so(tmp_path, monkeypatch, cap
 
     assert await archive_after_commit(pending) is False
     assert capsys.readouterr().err.startswith("warning: the database write committed")
+
+
+def test_the_buffer_is_not_part_of_the_constructor(tmp_path):
+    store = RawStore(tmp_path, OPERATOR_SOURCE_SLUG)
+    with pytest.raises(TypeError):
+        PendingAttestations(store, _pending=[(_SID, b"{}", _AT)])
+    assert "_pending" not in repr(PendingAttestations(store))
