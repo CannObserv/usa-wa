@@ -51,7 +51,7 @@
 -- not: it is alphabetical by surname within a district-year, and 101 of 417
 -- people change order between bienniums. Keying on it would mint seat identities
 -- that never existed, make ordinary succession look like seat-hopping, and move
--- historical `role_key` values — power-map's seat match key.
+-- historical `role_key` values — the key a subscriber matches a seat on.
 --
 -- BASELINE 35 — the corpus is not clean, and `error` would wedge the nightly
 -- chain on day one. What remains after multi-member districts are excluded and

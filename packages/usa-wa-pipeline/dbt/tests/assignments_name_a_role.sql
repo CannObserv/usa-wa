@@ -4,8 +4,8 @@
 -- `assignments` through the same `role_for_span`, so the inclusion holds by
 -- construction and this query cannot fail as long as that stays true — its job
 -- is to notice if it stops being true (a filtered or re-derived roles model).
--- The fork worth detecting is ours drifting from the tier that already
--- publishes these keys to Power Map, and that needs an oracle dbt has no
+-- The fork worth detecting is ours drifting from the tier that minted these
+-- keys (and published them, until #314), and that needs an oracle dbt has no
 -- session to reach: `parity_spans` diffs against `canonical.roles`.
 select a.role_key, count(*) as n
 from {{ ref('assignments') }} a
