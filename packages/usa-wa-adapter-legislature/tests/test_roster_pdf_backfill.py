@@ -748,3 +748,20 @@ class TestMainRawStore:
 
         assert recording.committed == 1
         assert "clearinghouse_core.raw_export" in capsys.readouterr().err
+
+    def test_a_raised_backfill_neither_commits_nor_archives(self, monkeypatch, tmp_path) -> None:
+        """#412 PR A moved this job's transaction from the harness to the handler. A raise
+        now relies on the session closing uncommitted; pin it, so wrapping the handler in
+        ``session.begin()`` can never commit a half-written backfill."""
+        monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
+        recording = patch_job_runtime(monkeypatch)
+
+        async def _raises(_session, *, raw, **_kwargs):
+            raw.add("18517:departed:1979-06-15", b"{}", datetime(2026, 9, 25, tzinfo=UTC))
+            raise RuntimeError("resolver blew up mid-write")
+
+        with patch.object(backfill, "backfill_succession", _raises):
+            assert backfill.main([]) == 1
+
+        assert recording.committed == 0
+        assert not (tmp_path / OPERATOR_SOURCE_SLUG).exists()
