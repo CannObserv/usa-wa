@@ -14,8 +14,13 @@ entry point that owns the commit awaits :func:`flush_after_commit` after it — 
 event loop, since the flush is file I/O and those entry points are async handlers.
 
 **Deduplicated against the newest record**, the raw-side twin of the Postgres dedup: a
-byte-identical re-ingest adds nothing. Not ``record_fetch``, which the plan named: that
-is the harvest loop (TTL fresh-skip, a fetcher to call); an attestation has neither.
+byte-identical re-ingest adds nothing. Deliberately *newest* rather than *any earlier*
+record, which is where the two differ: an attestation restated as X, then Y, then X again
+gets a third raw entry but no third ``FetchEvent``. The raw ledger is right to record it —
+the projection row carries X again, and ``latest.json`` should name the bytes it holds.
+
+Not ``record_fetch``, which the plan named: that is the harvest loop (TTL fresh-skip, a
+fetcher to call); an attestation has neither.
 """
 
 from __future__ import annotations
