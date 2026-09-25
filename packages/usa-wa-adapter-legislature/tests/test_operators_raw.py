@@ -152,3 +152,16 @@ async def test_a_failed_flush_says_the_database_write_committed(tmp_path, monkey
 
     with pytest.raises(AttestationArchiveError, match="committed.*clearinghouse_core.raw_export"):
         await flush_after_commit(pending)
+
+
+async def test_any_failure_after_the_commit_is_an_archive_error(tmp_path):
+    """Not only disk errors: a corrupt ``latest.json`` fails the flush with a
+    ``JSONDecodeError``, and the write has committed all the same."""
+    source_dir = tmp_path / OPERATOR_SOURCE_SLUG
+    source_dir.mkdir()
+    (source_dir / "latest.json").write_text("{not json")
+    pending = PendingAttestations.for_operator(tmp_path)
+    pending.add(_SID, b"{}", _AT)
+
+    with pytest.raises(AttestationArchiveError, match="committed"):
+        await flush_after_commit(pending)

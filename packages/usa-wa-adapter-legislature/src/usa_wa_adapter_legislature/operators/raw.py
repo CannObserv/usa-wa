@@ -92,9 +92,9 @@ class PendingAttestations:
 async def flush_after_commit(raw: PendingAttestations) -> Path | None:
     """Flush ``raw`` in a worker thread. Call it only once the transaction has committed.
 
-    A disk error here comes **after** the commit, so it is re-raised as
-    :class:`AttestationArchiveError`, whose message says the write landed: the caller
-    reports the run degraded, not failed.
+    Any failure here comes **after** the commit — a disk error, a corrupt ``latest.json`` —
+    so every one is re-raised as :class:`AttestationArchiveError`, whose message says the
+    write landed: the caller reports the run degraded, not failed.
 
     The recovery is ``raw_export``, not a re-run. Re-running does not reach the store
     for two of the three writers: the roster backfill skips every boundary already
@@ -104,7 +104,7 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
     """
     try:
         return await asyncio.to_thread(raw.flush)
-    except OSError as exc:
+    except Exception as exc:  # post-commit by construction, so every failure; logged below
         logger.exception("operator_raw_flush_failed", extra={"raw_root": str(raw.store.root)})
         raise AttestationArchiveError(
             f"the database write committed, but archiving it to {raw.store.source_dir} "
