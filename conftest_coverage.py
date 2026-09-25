@@ -1,6 +1,6 @@
 """A second coverage profile, for the unit tier (#198).
 
-``[tool.coverage.report] fail_under = 80`` measures **all** of ``packages/`` — source
+``[tool.coverage.report] fail_under`` measures **all** of ``packages/`` — source
 *and* tests — which is right for ``pytest`` and wrong for ``pytest -m 'not db and not
 integration'``. The unit tier (#185) deselects every DB-backed harvester, span builder,
 reconciler and route by construction, and with them ~1000 test modules whose bodies then
@@ -17,7 +17,7 @@ So the tier gets its own profile rather than an exemption:
   still matches every package's tree.
 * **floor** — ``unit_cov_fail_under``. Measured, not chosen: see the pyproject comment.
 
-The whole-tree profile is untouched, so ``pytest`` still gates on 80% of everything.
+The whole-tree profile is untouched, so ``pytest`` still gates on its own floor over everything.
 
 Detection is by *selection*, not by the text of ``-m``: a run is the unit tier when it
 collected the full testpaths, filtered only by a marker expression, and ended up holding
@@ -193,7 +193,8 @@ def retune_coverage(config: pytest.Config) -> str | None:
     # `plugin.options.cov_fail_under`: the latter is the *effective* value, so quoting it
     # would echo the operator's own `--cov-fail-under` back at them as though it were the
     # configured gate (#198 CR-16). Quoting the real one is the point of the line — a
-    # reader who sees "Required test coverage of 64%" needs to know 80% did not evaporate.
+    # reader who sees the unit floor in "Required test coverage of N%" needs to know the
+    # whole-tree floor did not evaporate.
     whole_tree = reporters[0].config.fail_under
     for cov in reporters:
         cov.config.report_include = include

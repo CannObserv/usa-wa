@@ -6,14 +6,18 @@ entity model, the span model, the three event shapes, and which tables are decla
 fed. Read it before adding a fact — the last section is the decision procedure for *where* a new
 fact belongs.
 
-Two Postgres schemas hold everything: `clearinghouse_core` (Layer 1 — `Jurisdiction`, provenance)
-and `canonical` (Layer 2 — every legislative-domain table below).
+Postgres holds four application schemas: `clearinghouse_core` (Layer 1 — `Jurisdiction`,
+provenance, the run ledger), `canonical` (Layer 2 — every legislative-domain table below,
+retiring under #412), `registry` (the #302 identity ledger) and `serving` (the API's projection
+of the published datasets).
 
 ## 1. The live entity model
 
-Power Map's terminology, mirrored 1:1. usa-wa is a **producer** of identity data; the archival
-system of record is Power Map (PM), and the local `canonical` tables are a query-latency cache
-that also survives a State-resource outage.
+Power Map's terminology, mirrored 1:1. Since #302 usa-wa is the **single master** for its slice:
+it publishes versioned datasets, reads nothing back, and Power Map (PM) is one subscriber. The
+tables below are the `canonical` ones the pipeline was built beside. Where this doc still
+describes the sync engine, its descriptors or the sidecar in the present tense, it describes the
+PM sync #314 retired; #412 rewrites those passages when it retires the tables.
 
 | Table | Model | What it is |
 |---|---|---|

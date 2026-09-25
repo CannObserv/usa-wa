@@ -72,7 +72,7 @@ Role is a named slot in an Organization; an Assignment binds one in time
 `(span_kind, span_discriminator)`, so the `role_key` is a pure function of it —
 `seat:house:ld-5:position-1`, `party-role:democratic`,
 `committee-member-role:28240`, `seat:senate:ld-22` — identical on every run and
-aligned 1:1 with Power Map's seat match key. No ULID mediates it; only the
+the key a subscriber matches a seat on. No ULID mediates it; only the
 *organization* the slot belongs to is registry-joined. Every key function is
 imported unchanged from the adapter's normalizer and the WA vocabulary.
 
@@ -116,7 +116,7 @@ tolerate — but the dbt `assignments_name_a_role` test does **not** detect it
 `role_for_span`, so `assignments.role_key ⊆ roles.role_key` holds by
 construction and that query is unfalsifiable; it pins containment, which is
 worth pinning, and nothing more. The fork that can actually happen is ours
-drifting from the Postgres tier that already publishes these keys to Power Map,
+drifting from the Postgres tier that minted these keys (and published them, until #314),
 and the oracle for it is `canonical.roles` — 312 rows against our 312, exact in
 both directions, measured 2026-09-03. `parity_spans` diffs them on its own
 ratchet (`--role-baseline`, default 0), because dbt has no session to reach

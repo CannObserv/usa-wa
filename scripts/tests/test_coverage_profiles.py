@@ -1,6 +1,6 @@
 """The unit tier carries its own coverage gate (#198).
 
-``[tool.coverage.report] fail_under = 80`` measures **all** of ``packages/`` — source
+``[tool.coverage.report] fail_under`` measures **all** of ``packages/`` — source
 *and* tests. The unit tier (#185) deselects every DB-backed harvester, span builder,
 reconciler and route by construction, and with them ~1000 test modules whose bodies then
 never execute, so a green unit run scored ~54% and exited non-zero. Every documented
@@ -44,9 +44,6 @@ import conftest_coverage
 
 REPO = Path(__file__).parent.parent.parent  # scripts/tests/ → repo
 PYPROJECT = REPO / "pyproject.toml"
-
-#: Files the run-level ``omit`` already drops, so the unit scope never sees them.
-OMITTED_PACKAGES = ("powermap-client",)
 
 DOCS_WITH_TEST_COMMANDS = ("AGENTS.md", "README.md", "docs/COMMANDS.md")
 
@@ -108,8 +105,7 @@ def test_every_package_source_tree_is_in_the_unit_scope() -> None:
     missed = sorted(
         src.relative_to(REPO).as_posix()
         for src in REPO.glob("packages/*/src")
-        if src.parent.name not in OMITTED_PACKAGES
-        and not any(matcher.match(str(module)) for module in src.rglob("*.py"))
+        if not any(matcher.match(str(module)) for module in src.rglob("*.py"))
     )
 
     assert missed == [], (
@@ -138,16 +134,27 @@ def test_no_test_module_is_in_the_unit_scope() -> None:
 # --- the floors ------------------------------------------------------------------------
 
 
-def test_the_whole_tree_floor_is_unchanged() -> None:
-    """The unit profile is an addition. The full run's gate must not soften."""
+def test_the_whole_tree_floor_is_the_measured_one() -> None:
+    """The full run's gate is measured, not chosen, and must not soften. Re-measured at
+    #413: ``pytest`` covered 97.14% of ``packages/`` (28,474 / 29,312 statements, source
+    and tests) on 2026-09-24, so the floor sits ~2pp below that. It was 80 from the #1
+    foundation; the full run measured 95.75% at #198 — slack nobody had re-examined."""
     report = tomllib.loads(PYPROJECT.read_text())["tool"]["coverage"]["report"]
 
-    assert report["fail_under"] == 80
+    assert report["fail_under"] == 95
+
+
+def test_the_unit_floor_is_the_measured_one() -> None:
+    """The unit floor is measured, not chosen (#198), and re-measured at #413: the tier
+    covered 73.67% of ``packages/*/src/**`` (8,683 / 11,786 statements) on 2026-09-24,
+    so the floor sits ~1.5pp below that. A different number here means somebody moved
+    the floor without re-measuring — the pyproject comment records the measurement."""
+    assert _ini()["unit_cov_fail_under"] == "72"
 
 
 def test_the_unit_floor_is_below_the_whole_tree_floor() -> None:
-    """A unit floor at or above 80 would be aspirational, not a ratchet — it would fail
-    on a green tree and get switched off within a week."""
+    """A unit floor at or above the whole-tree floor would be aspirational, not a
+    ratchet — it would fail on a green tree and get switched off within a week."""
     unit = float(_ini()["unit_cov_fail_under"])
     whole_tree = tomllib.loads(PYPROJECT.read_text())["tool"]["coverage"]["report"]["fail_under"]
 
@@ -404,7 +411,7 @@ def test_an_explicit_floor_on_the_command_line_wins(tmp_path: Path, spelling: st
     """The profile must never swap a weaker floor in for one the operator asked for.
 
     Before this guard, ``pytest -m 'not db and not integration' --cov-fail-under=90``
-    exited **0** at 65% on this repo: the profile overwrote 90 with its own 64 and
+    exited **0** at 65% on this repo: the profile overwrote 90 with its own floor (64 then) and
     announced the operator's own flag back to them as the whole-tree gate. Someone raising
     the bar in CI got it silently lowered — the exact "a green run and a red run look the
     same" failure #198 exists to end, pointing the other way.

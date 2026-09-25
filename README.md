@@ -52,7 +52,8 @@ Full route inventory, the pagination contract and the identifier form:
 # (#198), so no flags needed. Add --no-cov for a faster, ungated inner loop
 uv run pytest -m 'not db and not integration'
 
-# Full suite (requires TEST_DATABASE_URL) — gates 80% of everything measured
+# Full suite (requires TEST_DATABASE_URL) — gated on the whole-tree floor
+# (fail_under in pyproject.toml)
 uv run pytest
 
 # Single file (--no-cov: neither gate measures a slice)

@@ -256,6 +256,26 @@ def _marker(cls: type[DeclarativeBase]) -> dict[str, object] | None:
     return None
 
 
+def _coverage_omit() -> list[str]:
+    """The run-level ``omit`` list from the root ``pyproject.toml``."""
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    return config["tool"]["coverage"]["run"]["omit"]
+
+
+def _wholly_marked_module_paths(classes: dict[str, type[DeclarativeBase]]) -> set[str]:
+    """Repo-relative paths of modules whose every table carries a module-scope marker —
+    exactly the set ``[tool.coverage.run] omit`` must equal, checked from both sides."""
+    by_module: dict[str, list[type[DeclarativeBase]]] = {}
+    for cls in classes.values():
+        by_module.setdefault(cls.__module__, []).append(cls)
+    paths = set()
+    for module, members in by_module.items():
+        if all((_marker(cls) or {}).get("scope") == "module" for cls in members):
+            path = next(p for p in _source_files() if _module_name(p) == module)
+            paths.add(str(path.relative_to(REPO_ROOT)))
+    return paths
+
+
 @pytest.fixture(scope="module")
 def classes() -> dict[str, type[DeclarativeBase]]:
     return _mapped_classes()
@@ -328,24 +348,20 @@ def test_every_marker_names_an_open_tracking_issue(classes):
 
 
 def test_marked_modules_are_excluded_from_the_coverage_gate(classes):
-    """A wholly marked module must not pad the 80% gate with code nothing runs.
+    """A wholly marked module must not pad the whole-tree gate with code nothing runs.
 
     Same rule for both statuses: `declared` code has never run and `retired` code
     has stopped running, and either way the only lines coverage sees are the class
     body executing on import."""
-    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
-    omitted = set(config["tool"]["coverage"]["run"]["omit"])
-
-    by_module: dict[str, list[type[DeclarativeBase]]] = {}
-    for cls in classes.values():
-        by_module.setdefault(cls.__module__, []).append(cls)
-
-    missing = []
-    for module, members in sorted(by_module.items()):
-        if not all((_marker(cls) or {}).get("scope") == "module" for cls in members):
-            continue
-        path = next(p for p in _source_files() if _module_name(p) == module)
-        rel = str(path.relative_to(REPO_ROOT))
-        if rel not in omitted:
-            missing.append(rel)
+    omitted = set(_coverage_omit())
+    missing = sorted(_wholly_marked_module_paths(classes) - omitted)
     assert not missing, f"declared modules missing from [tool.coverage.run] omit: {missing}"
+
+
+def test_every_coverage_omit_entry_is_a_wholly_marked_module(classes):
+    """The reverse direction: an omit entry must still name a file that exists and whose
+    every table is marked. Without it, deleting or implementing a module leaves its omit
+    entry behind, and a live file of that name would later be dropped from the gate
+    silently. `role_types.py` outlived its deletion under #314 exactly this way (#413)."""
+    stale = sorted(set(_coverage_omit()) - _wholly_marked_module_paths(classes))
+    assert not stale, f"[tool.coverage.run] omit names no wholly marked module: {stale}"
