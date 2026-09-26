@@ -14,6 +14,7 @@ from usa_wa_adapter_legislature.committees.succession_store import (
     supersede_event,
     superseded_events,
 )
+from usa_wa_adapter_legislature.operators.raw import PendingAttestations
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 
@@ -175,3 +176,59 @@ async def test_supersede_same_key_is_plain_update_not_self_superseded(db_session
     assert same.id == prior.id
     assert prior.superseded_by_id is None
     assert same.evidence_url == "https://example.gov/lc-better"
+
+
+# --- raw store (#412 PR A) ----------------------------------------------------
+
+
+async def test_record_lands_the_same_bytes_in_the_raw_store(db_session, usa_wa, tmp_path):
+    """Committee links share the ``usa_wa_operator`` source, so they reach the raw store
+    the same way operator events do, byte-identical to the Postgres RawPayload."""
+    source = await _source(db_session)
+    raw = PendingAttestations.for_operator(tmp_path)
+    event = await record_succession_event(
+        db_session,
+        source,
+        subject_source_id="14294",
+        linked_source_id="28244",
+        slug="succeeded_by",
+        effective_year=2021,
+        evidence_url="https://example.gov/lc",
+        raw=raw,
+    )
+    raw.flush()
+
+    postgres = (
+        await db_session.execute(
+            select(RawPayload.body)
+            .join(FetchEvent, FetchEvent.id == RawPayload.fetch_event_id)
+            .where(FetchEvent.resource_id == event.source_id)
+        )
+    ).scalar_one()
+    latest = raw.store.latest()[event.source_id]
+    assert raw.store.object_path(latest["sha256"]).read_bytes() == postgres
+
+
+async def test_supersede_lands_the_correction_in_the_raw_store(db_session, usa_wa, tmp_path):
+    source = await _source(db_session)
+    raw = PendingAttestations.for_operator(tmp_path)
+    prior = await record_succession_event(
+        db_session,
+        source,
+        subject_source_id="14294",
+        linked_source_id="28244",
+        slug="succeeded_by",
+        evidence_url="https://example.gov/lc",
+        raw=raw,
+    )
+    corrected = await supersede_event(
+        db_session,
+        source,
+        prior,
+        linked_source_id="28245",
+        evidence_url="https://example.gov/lc-2",
+        raw=raw,
+    )
+    raw.flush()
+
+    assert set(raw.store.latest()) == {prior.source_id, corrected.source_id}

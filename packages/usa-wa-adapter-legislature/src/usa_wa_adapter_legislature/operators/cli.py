@@ -53,6 +53,7 @@ from clearinghouse_domain_legislative.operator_events import (
     OperatorEvent,
 )
 from clearinghouse_domain_legislative.span_emit import resolve_person
+from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archive_after_commit
 from usa_wa_adapter_legislature.operators.store import (
     current_events,
     get_or_create_operator_source,
@@ -117,7 +118,9 @@ def _validate(spec: EventSpec) -> None:
         )
 
 
-async def validate_and_record(session: AsyncSession, source, spec: EventSpec) -> OperatorEvent:
+async def validate_and_record(
+    session: AsyncSession, source, spec: EventSpec, *, raw: PendingAttestations | None = None
+) -> OperatorEvent:
     """Validate ``spec`` (shape + member existence) and persist it; return the row.
 
     A ``supersede_id`` records a correction of that prior event — a new date, or a
@@ -180,6 +183,7 @@ async def validate_and_record(session: AsyncSession, source, spec: EventSpec) ->
             effective_date=spec.effective_date,
             evidence_url=spec.evidence_url,
             entered_by=_entered_by(),
+            raw=raw,
         )
     return await record_operator_event(
         session,
@@ -192,6 +196,7 @@ async def validate_and_record(session: AsyncSession, source, spec: EventSpec) ->
         seat_kind=spec.seat_kind,
         seat_discriminator=spec.seat_discriminator,
         entered_by=_entered_by(),
+        raw=raw,
     )
 
 
@@ -255,7 +260,7 @@ def _format_event(event: OperatorEvent) -> str:
     )
 
 
-async def _run(session: AsyncSession, args: argparse.Namespace) -> int:
+async def _run(session: AsyncSession, args: argparse.Namespace, raw: PendingAttestations) -> int:
     if args.list:
         events = await current_events(session)
         for event in events:
@@ -271,7 +276,7 @@ async def _run(session: AsyncSession, args: argparse.Namespace) -> int:
     else:
         specs = [_spec_from_args(args)]
 
-    recorded = [await validate_and_record(session, source, spec) for spec in specs]
+    recorded = [await validate_and_record(session, source, spec, raw=raw) for spec in specs]
     for event in recorded:
         print(_format_event(event))
     print(f"recorded {len(recorded)} operator event(s)")
@@ -308,8 +313,9 @@ async def _record_job(ctx: JobContext) -> JobResult:
     ``--dry-run``.
     """
     session = ctx.require_session()
+    raw = PendingAttestations.for_operator()
     try:
-        await _run(session, ctx.args)
+        await _run(session, ctx.args, raw)
     except OperatorEventError as exc:
         print(f"error: {exc}", file=sys.stderr)
         await session.rollback()
@@ -319,6 +325,9 @@ async def _record_job(ctx: JobContext) -> JobResult:
         print("(dry-run, rolled back)")
     else:
         await session.commit()
+        # After the commit, never before: a manifest must not describe a rolled-back write.
+        if not await archive_after_commit(raw):
+            return JobResult.degraded({"recorded": True, "raw_archived": False})
     return JobResult.ok({"listed" if ctx.args.list else "recorded": True})
 
 

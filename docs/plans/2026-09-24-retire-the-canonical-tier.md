@@ -60,7 +60,7 @@ What survives:
 
 1. **PR A: curated state off canonical.**
    - Move `operator_events` and `committee_succession_events` to the Q1 home (recommended: `registry`, via `ALTER TABLE … SET SCHEMA`). Update the models, grants and `operator_read` to match.
-   - Make `operators.store` record attestation bodies through `RawStore.record_fetch`.
+   - Make `operators.store` record attestation bodies in the raw store. *As built (#429):* the committee-succession store too, since it shares the `usa_wa_operator` source and its Postgres provenance; and through `RawRun.record` behind a post-commit buffer (`operators/raw.py`), not `record_fetch`, which is the harvest loop and has nothing to fetch here.
    - Run `raw_export` once to carry the 15 post-export payloads, then run the file sweep.
    - Done when the nightly is green reading operator events from their new home, and the raw store holds a `usa_wa_operator` run newer than 09-03.
    - #421 lands in parallel and must leave the roster harvest, including the re-check, with no Postgres provenance writes before PR F.
@@ -85,6 +85,8 @@ What survives:
    - Done when 7 consecutive nightlies are green.
 6. **PR F: delete and drop.**
    - Run `raw_export` a final time, now that PR E has stopped every Postgres writer, then the file sweep; only then take a `pg_dump` of `canonical` and the provenance tables. PR A's export cannot be the last one: the refreshes and archive units keep writing `raw_payloads` until PR E.
+   - Make `raw=` required on the operator and committee-succession store functions (optional since PR A only while the Postgres half still records), then delete that half.
+   - Expect the final `raw_export` to re-export the operator payloads PR A's dual write already landed. That adds duplicate manifest rows only: the objects dedup, and `latest.json` cannot regress.
    - Remove the Postgres-tier modules, the oracle-backed `parity_*` probes (not `parity_citations`, not PR B's post-registrar probe), `registry_seed`, `runner.py`, `adapter.py` and `span_emit`.
    - Remove the canonical identity models and the PM-mirror half of `jurisdictions.py`.
    - Cut `provenance.py` down to `Source` + `SourceCoverage`, and delete the retired units' files.

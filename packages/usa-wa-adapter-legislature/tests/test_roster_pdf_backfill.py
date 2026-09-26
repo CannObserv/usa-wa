@@ -8,19 +8,26 @@ is worse than one that writes nothing.
 
 from __future__ import annotations
 
-from datetime import date
+from dataclasses import replace
+from datetime import UTC, date, datetime
+from unittest.mock import patch
 
 from sqlalchemy import select
 
-from clearinghouse_domain_legislative.operator_events import OperatorEvent
+from clearinghouse_core.rawstore import RAW_ROOT_ENV
+from clearinghouse_core.testing import patch_job_runtime
+from clearinghouse_domain_legislative.operator_events import OPERATOR_SOURCE_SLUG, OperatorEvent
+from usa_wa_adapter_legislature.operators.raw import PendingAttestations
 from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
 )
+from usa_wa_adapter_legislature.roster_pdf import backfill
 from usa_wa_adapter_legislature.roster_pdf.backfill import (
     BACKFILL_ENTERED_BY,
     SKIP_ALREADY_ATTESTED,
     SKIP_CONFLICTS_WITH_ATTESTATION,
+    BackfillSummary,
     roster_evidence_url,
     write_events,
 )
@@ -619,3 +626,142 @@ class TestDepartedContradictsVacated:
         )
         summary = await write_events(db_session, source, [self._move()])
         assert summary.written == 1
+
+
+class TestRawStore:
+    """#412 PR A: every boundary the backfill writes also lands in the raw store."""
+
+    async def test_written_and_superseding_events_are_buffered(
+        self, db_session, usa_wa, tmp_path
+    ) -> None:
+        source = await _source(db_session)
+        prior = await record_operator_event(
+            db_session,
+            source,
+            member_id="18517",
+            kind="departed",
+            reason="resigned",
+            effective_date=date(1979, 7, 20),
+            evidence_url="https://en.wikipedia.org/wiki/Someone_Else",
+            entered_by="exedev",
+        )
+        raw = PendingAttestations.for_operator(tmp_path)
+        await write_events(
+            db_session,
+            source,
+            [
+                _resolved("Deceased June 15, 1979", chamber="senate"),
+                _resolved("Deceased June 15, 1979", member_id="20000", chamber="senate"),
+            ],
+            supersede_conflicts=True,
+            raw=raw,
+        )
+        raw.flush()
+
+        live = (
+            (
+                await db_session.execute(
+                    select(OperatorEvent.source_id).where(OperatorEvent.superseded_by_id.is_(None))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert prior.source_id not in live
+        assert set(raw.store.latest()) == set(live)
+
+
+def _summary() -> BackfillSummary:
+    return BackfillSummary(
+        records=1,
+        seatings={},
+        proposed={},
+        resolution={"resolved": 1},
+        written=1,
+        superseded=0,
+        skipped={},
+        conflicts=(),
+    )
+
+
+def _attesting_backfill(calls: list):
+    async def _backfill(_session, *, raw, **kwargs):
+        raw.add("18517:departed:1979-06-15", b"{}", datetime(2026, 9, 25, tzinfo=UTC))
+        calls.append(kwargs)
+        return _summary()
+
+    return _backfill
+
+
+class TestMainRawStore:
+    def test_flushes_after_the_commit(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
+        recording = patch_job_runtime(monkeypatch)
+        commits_at_flush: list[int] = []
+        real_flush = PendingAttestations.flush
+
+        def _flush(self):
+            commits_at_flush.append(recording.committed)
+            return real_flush(self)
+
+        monkeypatch.setattr(PendingAttestations, "flush", _flush)
+        with patch.object(backfill, "backfill_succession", _attesting_backfill([])):
+            assert backfill.main([]) == 0
+
+        assert commits_at_flush == [1]
+        assert (tmp_path / OPERATOR_SOURCE_SLUG / "latest.json").is_file()
+
+    def test_dry_run_rolls_back_and_writes_nothing(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
+        recording = patch_job_runtime(monkeypatch)
+        with patch.object(backfill, "backfill_succession", _attesting_backfill([])):
+            assert backfill.main(["--dry-run"]) == 0
+
+        assert (recording.committed, recording.rolled_back) == (0, 1)
+        assert not (tmp_path / OPERATOR_SOURCE_SLUG).exists()
+
+    def test_a_degraded_run_still_commits_and_flushes(self, monkeypatch, tmp_path) -> None:
+        """Matches the harness rule it replaces: degraded work is real work."""
+        monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
+        recording = patch_job_runtime(monkeypatch)
+
+        async def _empty(_session, *, raw, **_kwargs):
+            raw.add("18517:departed:1979-06-15", b"{}", datetime(2026, 9, 25, tzinfo=UTC))
+            return replace(_summary(), resolution={})
+
+        with patch.object(backfill, "backfill_succession", _empty):
+            assert backfill.main([]) == 4
+
+        assert recording.committed == 1
+        assert (tmp_path / OPERATOR_SOURCE_SLUG / "latest.json").is_file()
+
+    def test_a_failed_archive_is_degraded_not_failed(self, monkeypatch, tmp_path, capsys) -> None:
+        monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
+        recording = patch_job_runtime(monkeypatch)
+
+        def _broken(self):
+            raise PermissionError("raw/ is read-only")
+
+        monkeypatch.setattr(PendingAttestations, "flush", _broken)
+        with patch.object(backfill, "backfill_succession", _attesting_backfill([])):
+            assert backfill.main([]) == 4
+
+        assert recording.committed == 1
+        assert "uv run python -m clearinghouse_core.raw_export" in capsys.readouterr().err
+
+    def test_a_raised_backfill_neither_commits_nor_archives(self, monkeypatch, tmp_path) -> None:
+        """#412 PR A moved this job's transaction from the harness to the handler. A raise
+        now relies on the session closing uncommitted; pin it, so wrapping the handler in
+        ``session.begin()`` can never commit a half-written backfill."""
+        monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
+        recording = patch_job_runtime(monkeypatch)
+
+        async def _raises(_session, *, raw, **_kwargs):
+            raw.add("18517:departed:1979-06-15", b"{}", datetime(2026, 9, 25, tzinfo=UTC))
+            raise RuntimeError("resolver blew up mid-write")
+
+        with patch.object(backfill, "backfill_succession", _raises):
+            assert backfill.main([]) == 1
+
+        assert recording.committed == 0
+        assert not (tmp_path / OPERATOR_SOURCE_SLUG).exists()

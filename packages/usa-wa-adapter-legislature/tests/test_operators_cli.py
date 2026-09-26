@@ -2,7 +2,7 @@
 
 import json
 import threading
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,9 +10,10 @@ import pytest
 from sqlalchemy import select
 
 from clearinghouse_core.job import load_json_batch
+from clearinghouse_core.rawstore import RAW_ROOT_ENV, RawStore
 from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Person
-from clearinghouse_domain_legislative.operator_events import OperatorEvent
+from clearinghouse_domain_legislative.operator_events import OPERATOR_SOURCE_SLUG, OperatorEvent
 from usa_wa_adapter_legislature.operators import cli
 from usa_wa_adapter_legislature.operators.cli import (
     EventSpec,
@@ -20,6 +21,7 @@ from usa_wa_adapter_legislature.operators.cli import (
     load_specs,
     validate_and_record,
 )
+from usa_wa_adapter_legislature.operators.raw import PendingAttestations
 from usa_wa_adapter_legislature.operators.store import get_or_create_operator_source
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
@@ -323,7 +325,7 @@ def test_main_validation_failure_is_still_exit_two(monkeypatch, capsys):
     """Documented contract (COMMANDS-SUCCESSION.md): exit 2 on a validation failure."""
     recording = patch_job_runtime(monkeypatch)
 
-    async def _reject(_session, _args):
+    async def _reject(_session, _args, _raw):
         raise OperatorEventError("--member-id, --kind and --evidence-url are required")
 
     with patch.object(cli, "_run", _reject):
@@ -337,10 +339,86 @@ def test_main_list_commits_even_under_dry_run(monkeypatch):
     """Preserves the pre-#179b ``dry_run and not list`` branch exactly."""
     recording = patch_job_runtime(monkeypatch)
 
-    async def _fake_run(_session, _args):
+    async def _fake_run(_session, _args, _raw):
         return 0
 
     with patch.object(cli, "_run", _fake_run):
         assert cli.main(["--dry-run", "--list"]) == 0
 
     assert (recording.committed, recording.rolled_back) == (1, 0)
+
+
+# --- raw store (#412 PR A) ----------------------------------------------------
+
+
+def _attesting_run(error=None):
+    """A ``_run`` stand-in that buffers one attestation, then optionally fails."""
+
+    async def _run(_session, _args, raw):
+        raw.add("29091:departed:2025-04-19", b"{}", datetime(2026, 9, 25, tzinfo=UTC))
+        if error is not None:
+            raise error
+        return 0
+
+    return _run
+
+
+def _manifests(root):
+    return RawStore(root, OPERATOR_SOURCE_SLUG).manifest_paths()
+
+
+def test_main_flushes_attestations_to_the_raw_store_after_commit(monkeypatch, tmp_path):
+    """The raw manifest lands only once the transaction it describes has committed."""
+    monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
+    recording = patch_job_runtime(monkeypatch)
+    commits_at_flush: list[int] = []
+    real_flush = PendingAttestations.flush
+
+    def _flush(self):
+        commits_at_flush.append(recording.committed)
+        return real_flush(self)
+
+    monkeypatch.setattr(PendingAttestations, "flush", _flush)
+
+    with patch.object(cli, "_run", _attesting_run()):
+        assert cli.main(["--member-id", "29091"]) == 0
+
+    assert commits_at_flush == [1]
+    assert len(_manifests(tmp_path)) == 1
+
+
+def test_main_dry_run_writes_nothing_to_the_raw_store(monkeypatch, tmp_path):
+    monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
+    recording = patch_job_runtime(monkeypatch)
+
+    with patch.object(cli, "_run", _attesting_run()):
+        assert cli.main(["--dry-run", *["--member-id", "29091"]]) == 0
+
+    assert recording.rolled_back == 1
+    assert not (tmp_path / OPERATOR_SOURCE_SLUG).exists()
+
+
+def test_main_validation_failure_writes_nothing_to_the_raw_store(monkeypatch, tmp_path):
+    monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
+    patch_job_runtime(monkeypatch)
+
+    with patch.object(cli, "_run", _attesting_run(OperatorEventError("rejected"))):
+        assert cli.main(["--member-id", "29091"]) == 2
+
+    assert not (tmp_path / OPERATOR_SOURCE_SLUG).exists()
+
+
+def test_main_a_failed_archive_is_degraded_not_failed(monkeypatch, tmp_path, capsys):
+    """The commit landed; only the raw copy did not. Exit 4, with the re-run advice."""
+    monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
+    recording = patch_job_runtime(monkeypatch)
+
+    def _broken(self):
+        raise PermissionError("raw/ is read-only")
+
+    monkeypatch.setattr(PendingAttestations, "flush", _broken)
+    with patch.object(cli, "_run", _attesting_run()):
+        assert cli.main(["--member-id", "29091"]) == 4
+
+    assert recording.committed == 1
+    assert "uv run python -m clearinghouse_core.raw_export" in capsys.readouterr().err

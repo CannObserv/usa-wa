@@ -71,6 +71,7 @@ from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
+from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archive_after_commit
 from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
@@ -299,6 +300,7 @@ async def write_events(
     entered_by: str = BACKFILL_ENTERED_BY,
     supersede_conflicts: bool = False,
     evidence_base: str = DEFAULT_ROSTER_URL,
+    raw: PendingAttestations | None = None,
 ) -> WriteSummary:
     """Record resolved events, deferring to every existing attestation. Idempotent.
 
@@ -310,7 +312,8 @@ async def write_events(
     retracted attestation stays on record pointing at what replaced it.
 
     Operates in the **caller's** transaction — the CLI commits, or the job harness rolls back on
-    ``dry_run``. Rolling back here as well would give one transaction two owners.
+    ``dry_run``. Rolling back here as well would give one transaction two owners. ``raw``
+    buffers each written body for the raw store, flushed by the caller after its commit.
     """
     keys, by_scope = await _live_attestations(session)
     written = 0
@@ -383,6 +386,7 @@ async def write_events(
                         event.proposal.page_number, base_url=evidence_base
                     ),
                     entered_by=entered_by,
+                    raw=raw,
                 )
             keys.add(source_id)
             # The tenure's live attestation is now ours; a further roster boundary on it in
@@ -412,6 +416,7 @@ async def write_events(
             seat_kind=event.seat_kind,
             seat_discriminator=event.seat_discriminator,
             entered_by=entered_by,
+            raw=raw,
         )
         keys.add(source_id)
         # Register what we just wrote, so a *second* roster boundary on the same tenure in the
@@ -583,6 +588,7 @@ async def resolve_roster_events(
 async def backfill_succession(
     session: AsyncSession,
     *,
+    raw: PendingAttestations,
     dry_run: bool = False,
     limit: int | None = None,
     supersede_conflicts: bool = False,
@@ -593,7 +599,9 @@ async def backfill_succession(
     if limit is not None:
         resolved = resolved[:limit]
     source = await get_or_create_operator_source(session, await resolve_jurisdiction(session))
-    write = await write_events(session, source, resolved, supersede_conflicts=supersede_conflicts)
+    write = await write_events(
+        session, source, resolved, supersede_conflicts=supersede_conflicts, raw=raw
+    )
     _log_conflicts(write.conflicts)
     logger.info(
         "roster_backfill_complete",
@@ -636,13 +644,27 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 async def _backfill_job(ctx: JobContext) -> JobResult:
     """Write the resolved boundaries. A run that resolves nothing is **degraded** — the roster
     always states boundaries, so an empty resolution means the archive or the sponsor index is
-    missing rather than that there was no work."""
+    missing rather than that there was no work.
+
+    Owns its transaction (``commit=False``, #412 PR A) so the raw store is flushed **after**
+    the commit: the harness commits only once the handler has returned. The rule is the
+    harness's own — commit on ok and on degraded, roll back on ``--dry-run`` — and a raised
+    exception leaves the session uncommitted, which the harness closes."""
+    session = ctx.require_session()
+    raw = PendingAttestations.for_operator()
     summary = await backfill_succession(
-        ctx.require_session(),
+        session,
+        raw=raw,
         dry_run=ctx.dry_run,
         limit=ctx.args.limit,
         supersede_conflicts=ctx.args.supersede_conflicts,
     )
+    if ctx.dry_run:
+        await session.rollback()
+    else:
+        await session.commit()
+        if not await archive_after_commit(raw):
+            return JobResult.degraded({**summary.counters, "raw_archived": False})
     if not summary.resolution:
         return JobResult.degraded(summary.counters)
     return JobResult.ok(summary.counters)
@@ -661,6 +683,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m usa_wa_adapter_legislature.roster_pdf.backfill",
         description="Back-fill operator succession events from the roster PDF (#226).",
         extra_args=_add_args,
+        commit=False,
     )
 
 

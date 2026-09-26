@@ -2,7 +2,8 @@
 
 Operator succession events are the one span input with no raw-store origin:
 they are human decisions (an appointee seated on a date the wire never
-carries, a mid-biennium departure), curated in Postgres by
+carries, a mid-biennium departure), curated in Postgres
+(``registry.operator_events`` since #412, beside the adjudications) by
 ``usa_wa_adapter_legislature.operators``. The span models read them as a
 **curated input** — exactly as the registry crosswalk is read — so the
 transform stays stateless while the judgment stays durable.

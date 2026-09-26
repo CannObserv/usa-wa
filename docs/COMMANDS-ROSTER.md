@@ -54,7 +54,10 @@ uv run python -m usa_wa_adapter_legislature.roster_pdf.backfill --dry-run
 ```
 
 **Run it, then re-drive the span builders.** Every event written moves a span boundary on the
-next builder re-drive. (Said "sidecar-paused" until #314: each moved boundary re-anchored the
+next builder re-drive. It also archives each written event to the raw store after its commit
+(#412), under `USA_WA_RAW_ROOT`; exit `4` with a `warning:` line means the events committed but
+that copy did not land. Recover with `uv run python -m clearinghouse_core.raw_export`, **not** a re-run:
+the re-run skips every boundary it already attested, so it archives nothing. (Said "sidecar-paused" until #314: each moved boundary re-anchored the
 corresponding PM Assignment, the same sequencing the #101 House builder documented. The
 sidecar is gone; there is nothing left to pause.) Do not merge and let the timer run.
 
