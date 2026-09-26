@@ -5,6 +5,8 @@ Skills are reusable agent instructions. `usa-wa` consumes two upstream catalogs 
 - **`skills/`** — agentskills.io convention (one symlink per skill, plus any local overrides).
 - **`.claude/skills/`** — Claude Code discovery directory (mirrors every entry in `skills/`).
 
+Vendoring a new skill is manual — the daily hook bumps the pointer but creates no symlink. [`scripts/tests/test_skill_inventory.py`](../scripts/tests/test_skill_inventory.py) (#422) fails until both links and its row below exist.
+
 The vendor → symlink → discovery layout means the project carries no skill source code of its own (except local overrides) and stays in sync with upstream via submodule updates. The `SessionStart` hook in [`.claude/settings.json`](../.claude/settings.json) runs the vendored [`skills-submodule-update.sh`](../.claude/hooks/skills-submodule-update.sh) to keep both vendors current — once per UTC day, on `main` only, auto-committing the pointer bump. It also (re)installs `.skills/doctor.sh` on **every** session, outside the daily lock. Three further `SessionStart` hooks are registered there: the SocratiCode prefetch reminder, the daily health check ([§ SocratiCode health](#socraticode-health)), and the daily context-manifest drift report (project-local, not vendored — see [`docs/SOCRATICODE.md` § Manifest coverage](SOCRATICODE.md#manifest-coverage--the-drift-that-grows-silently-300)).
 
 ## `.skills/doctor.sh` — the preflight
@@ -62,6 +64,7 @@ Pinned by [`scripts/tests/test_hook_registration_gate.py`](../scripts/tests/test
 | `reviewing-code-python-fastapi` | Python/FastAPI-stack code review (the review workflow for this repo). |
 | `shipping-work-python-fastapi` | Python/FastAPI ship workflow with `pre-ship.sh` (the ship workflow for this repo). |
 | `using-git-worktrees` | Worktree-based branch workflow for parallel work. |
+| `using-mayfly-chat` | Live agent-to-agent exchange over a [Mayfly Chat](https://mayfly.chat) channel; vendored Node 18+ client + `scripts/mayfly.sh`. Triggers: `mayfly`, `open a channel`, `join the channel`, `chat with <repo>`, `agent chat`. **Never commit a channel URL** (read, write and delete access); nothing here tests for one, so run its `references/security.md` leak check first. |
 | `writing-plans` | Drafting an implementation plan in `docs/plans/` before coding. |
 
 Only the Python/FastAPI variants of the review and ship workflows are symlinked here. The vendor also ships stack-neutral, PHP, and Python/Click variants (`reviewing-code{,-php,-python-click}`, `shipping-work{,-php,-python-click}`); those are intentionally **not** symlinked into this FastAPI repo. They remain available under `skills-vendor/gregoryfoster-skills/skills/` if ever needed.
