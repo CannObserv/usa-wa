@@ -3,7 +3,8 @@
 Split out of [`DEPLOYMENT.md`](DEPLOYMENT.md), which keeps the unit table, alerting, DB
 roles and the lifecycle table. These are the ways the shared host breaks units that are
 themselves correct — a feature branch left checked out (#87), a worktree restamping the
-shared venv (#279), memory exhaustion (#389), a full disk (#394) — and what guards each.
+shared venv (#279), memory exhaustion (#389), a full disk (#394), apt restarting services
+mid-patch (#430) — and what guards each.
 The disk-GC commands came here from [`COMMANDS.md`](COMMANDS.md).
 
 ## Main-only checkout (issue #87)
@@ -195,6 +196,21 @@ cat /sys/fs/cgroup/system.slice/memory.low        # must be non-zero, else the u
 systemctl status earlyoom                          # hourly `mem avail:` report in the journal
 tr '\0' '\n' < /proc/$(systemctl show earlyoom -p MainPID --value)/cmdline
 sysctl vm.min_free_kbytes
+```
+
+## OS security updates (#430)
+
+This image masks the apt timers, and `APT::Periodic::Enable` is `0`, so nothing patches the host
+unattended. Patching is a manual, approved run (#430). Without a drop-in, apt's
+`needrestart -m u` hook runs in Ubuntu mode and **restarts services by itself**, Postgres and
+`usa-wa` included. `deploy/needrestart.conf.d/usa-wa.conf` sets list-only mode
+(`test_needrestart_dropin.py`). It does not cover `postgresql-16`'s own prerm and postinst,
+which stop and start the cluster on every upgrade of that package, so upgrade that package by
+itself (#430).
+
+```bash
+sudo install -m 644 deploy/needrestart.conf.d/usa-wa.conf /etc/needrestart/conf.d/
+sudo needrestart -m u -r l -b    # must print "Disabling Ubuntu mode"; restarts nothing
 ```
 
 ## Host maintenance (#394)
