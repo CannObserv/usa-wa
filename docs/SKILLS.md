@@ -5,6 +5,8 @@ Skills are reusable agent instructions. `usa-wa` consumes two upstream catalogs 
 - **`skills/`** — agentskills.io convention (one symlink per skill, plus any local overrides).
 - **`.claude/skills/`** — Claude Code discovery directory (mirrors every entry in `skills/`).
 
+Vendoring a new skill is manual — the daily hook bumps the pointer but creates no symlink. [`scripts/tests/test_skill_inventory.py`](../scripts/tests/test_skill_inventory.py) (#422) fails until both links and its row below exist.
+
 The vendor → symlink → discovery layout means the project carries no skill source code of its own (except local overrides) and stays in sync with upstream via submodule updates. The `SessionStart` hook in [`.claude/settings.json`](../.claude/settings.json) runs the vendored [`skills-submodule-update.sh`](../.claude/hooks/skills-submodule-update.sh) to keep both vendors current — once per UTC day, on `main` only, auto-committing the pointer bump. It also (re)installs `.skills/doctor.sh` on **every** session, outside the daily lock. Three further `SessionStart` hooks are registered there: the SocratiCode prefetch reminder, the daily health check ([§ SocratiCode health](#socraticode-health)), and the daily context-manifest drift report (project-local, not vendored — see [`docs/SOCRATICODE.md` § Manifest coverage](SOCRATICODE.md#manifest-coverage--the-drift-that-grows-silently-300)).
 
 ## `.skills/doctor.sh` — the preflight
