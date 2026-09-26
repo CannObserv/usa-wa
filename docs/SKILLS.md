@@ -62,6 +62,7 @@ Pinned by [`scripts/tests/test_hook_registration_gate.py`](../scripts/tests/test
 | `reviewing-code-python-fastapi` | Python/FastAPI-stack code review (the review workflow for this repo). |
 | `shipping-work-python-fastapi` | Python/FastAPI ship workflow with `pre-ship.sh` (the ship workflow for this repo). |
 | `using-git-worktrees` | Worktree-based branch workflow for parallel work. |
+| `using-mayfly-chat` | Live agent-to-agent exchange over a [Mayfly Chat](https://mayfly.chat) channel; vendored Node 18+ client + `scripts/mayfly.sh`. Triggers: `mayfly`, `open a channel`, `join the channel`, `chat with <repo>`, `agent chat`. **Never commit a channel URL** (read, write and delete access); nothing here tests for one, so run its `references/security.md` leak check first. |
 | `writing-plans` | Drafting an implementation plan in `docs/plans/` before coding. |
 
 Only the Python/FastAPI variants of the review and ship workflows are symlinked here. The vendor also ships stack-neutral, PHP, and Python/Click variants (`reviewing-code{,-php,-python-click}`, `shipping-work{,-php,-python-click}`); those are intentionally **not** symlinked into this FastAPI repo. They remain available under `skills-vendor/gregoryfoster-skills/skills/` if ever needed.
