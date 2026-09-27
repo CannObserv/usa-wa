@@ -44,11 +44,11 @@ def model(dbt, session):
         current_biennium=current_biennium,
     )
     # The join's counters — `unregistered_spans` above all — are reported by
-    # `usa_wa_pipeline.parity_spans`, not from here (CR 68). A `dbt build`
-    # never calls `configure_logging`, so a logger in a Python model emits
-    # nothing: the info path is dropped and the warning path reaches
+    # `usa_wa_pipeline.registry_coverage`, not from here (CR 68; #412 PR B). A
+    # `dbt build` never calls `configure_logging`, so a logger in a Python model
+    # emits nothing: the info path is dropped and the warning path reaches
     # `logging.lastResort`, which prints the message and discards `extra`.
     # Round 4 logged from here and the counters reached no one; the probe
-    # recomputes the same join under the job harness, where they are real.
+    # recomputes the same join under the job harness, after the registrar.
     rows, _counters = assignment_rows(families, entity_index(crosswalk_frame(KIND_PERSON)))
     return typed_relation(session, rows, ASSIGNMENT_SCHEMA)
