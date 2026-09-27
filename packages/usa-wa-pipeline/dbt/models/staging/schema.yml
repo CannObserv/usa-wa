@@ -47,6 +47,14 @@ models:
         data_tests: [not_null]
       - name: name
         data_tests: [not_null]
+      # `malformed_roster_rows` in-build (#412 PR B): the span resolve drops a
+      # row missing district, year or order, and parity_spans gated that count
+      # from outside the build. order was the one of the three left ungated.
+      # test_staging_roster derives the set, so a new need fails there first.
+      # Quoted: `order` is reserved, and the generic test selects it bare.
+      - name: order
+        quote: true
+        data_tests: [not_null]
   - name: stg_pdc_winners
     description: One row per (chamber, election_year, filer) from the archived SODA winner cohorts (#307).
     columns:
