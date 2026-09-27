@@ -464,6 +464,27 @@ def build_all_spans(
     )
 
 
+def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, list[TenureSpan]]:
+    """Both span families, keyed by source — the one sequence every caller runs.
+
+    The ``assignments`` model, ``parity_spans`` and ``registry_coverage`` (#412
+    PR B) each built this by hand. ONE resolve of the roster corpus feeds both
+    families: the WSL-joined half deepens the sponsor build (#228), the minted
+    half IS the roster family. Resolving twice would double the cost and let the
+    halves disagree about who is WSL-joined. The roster family's
+    ``context_spans`` are the WSL family's (#267): the only other-kind spans a
+    minted identity could hold.
+    """
+    resolution = roster_resolution(inputs.roster, inputs.sponsors)
+    spans = build_all_spans(
+        inputs, current_biennium=current_biennium, extra_observations=resolution.joined
+    )
+    roster_spans = build_roster_spans(
+        resolution, events=inputs.events, current_biennium=current_biennium, context_spans=spans
+    )
+    return {SOURCE: spans, ROSTER_SOURCE: roster_spans}
+
+
 def entity_index(crosswalk: list[dict[str, Any]]) -> dict[str, str]:
     """natural key → LIVE entity id, tombstones resolved to the survivor.
 

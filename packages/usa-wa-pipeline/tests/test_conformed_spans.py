@@ -27,6 +27,7 @@ from usa_wa_pipeline.conformed.spans import (
     SpanInputs,
     assignment_rows,
     build_all_spans,
+    build_families,
     build_roster_spans,
     entity_index,
     roster_records,
@@ -405,6 +406,26 @@ def test_roster_spans_key_on_the_minted_identity() -> None:
         assert span.kind in {KIND_PARTY, KIND_SENATE}
         assert not span.is_active, "every pre-1991 span is closed"
         assert len(span.source_id.split(":")) == 5
+
+
+def test_build_families_runs_one_resolve_for_both_families() -> None:
+    """The sequence the `assignments` model, `parity_spans` and `registry_coverage`
+    share (#412 PR B): one roster resolve, its joined half deepening the WSL
+    family and its minted half the roster family, keyed by source."""
+    roster = [_roster("Wilbur Cranston", 1925), _roster("Wilbur Cranston", 1927)]
+    families = build_families(
+        SpanInputs(sponsors=[], committee_members=[], roster=roster), current_biennium=CURRENT
+    )
+    resolution = roster_resolution(roster, [])
+    assert families == {
+        SOURCE: build_all_spans(
+            SpanInputs(sponsors=[], committee_members=[], roster=roster),
+            current_biennium=CURRENT,
+            extra_observations=resolution.joined,
+        ),
+        ROSTER_SOURCE: build_roster_spans(resolution, events=[], current_biennium=CURRENT),
+    }
+    assert families[ROSTER_SOURCE], "the minted half must reach the roster family"
 
 
 def test_senate_roster_rows_emit_a_seat_span() -> None:

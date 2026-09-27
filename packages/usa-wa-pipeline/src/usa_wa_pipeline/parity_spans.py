@@ -84,11 +84,9 @@ from usa_wa_pipeline.conformed.spans import (
     SOURCE,
     SpanInputs,
     assignment_rows,
-    build_all_spans,
-    build_roster_spans,
+    build_families,
     entity_index,
     roster_records,
-    roster_resolution,
 )
 from usa_wa_pipeline.operator_read import operator_event_rows
 from usa_wa_pipeline.registry_read import crosswalk_rows
@@ -279,24 +277,18 @@ async def run_parity(
         # its absence deletes ~4% of the table, inside the publish shrink floor.
         logger.warning("parity_spans_empty_sos_rows", extra={"source": SOS_SOURCE})
         return JobResult.degraded({"empty_sos_rows": True})
-    events = await operator_event_rows(session)
-    # One resolve, both families — see `conformed.spans.roster_resolution`.
-    resolution = roster_resolution(roster, sponsors)
-    spans = build_all_spans(
+    # One resolve, both families — see `conformed.spans.build_families`.
+    families = build_families(
         SpanInputs(
             sponsors=sponsors,
             committee_members=committee_member_rows(store),
             roster=roster,
             sos_results=sos_results,
-            events=events,
+            events=await operator_event_rows(session),
         ),
         current_biennium=current_biennium,
-        extra_observations=resolution.joined,
     )
-    roster_spans = build_roster_spans(
-        resolution, events=events, current_biennium=current_biennium, context_spans=spans
-    )
-    families = {SOURCE: spans, ROSTER_SOURCE: roster_spans}
+    spans, roster_spans = families[SOURCE], families[ROSTER_SOURCE]
 
     # Keyed by (source, source_id): the two families are disjoint identity
     # spaces sharing one table, and only the pair is unique by construction.
