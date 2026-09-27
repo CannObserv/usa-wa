@@ -88,6 +88,7 @@ What survives:
    - Done when `lint-imports` enforces the contract, and a scratch publish matches that night's catalog digests byte for byte.
 5. **PR E: stop the write path.** All of this is reversible:
    - Disable nine units: the WSL, PDC and SOS refreshes, both archive refreshes, succession invariants, committee lineage invariants, and House and Senate corroboration. Keep the unit files. The integrity sweep unit stays: PR C already repointed it.
+   - **First, make dbt warnings reach the operator.** A dbt `warn` never changes the nightly's exit code, and the chamber-vacancy test is one (PR B). Until this PR, `succession-invariants` emails on a low count. Once it is disabled, a vacancy that never fills — a missing `seated` — would reach only the journal. So the nightly must first read `run_results.json` and fail its run, counted rather than aborting, on any `warn` status. That also covers the seat-occupancy ratchet's "ratchet me down" warning.
    - Remove `usa-wa-pipeline.service`'s `After=` on the refreshes, and update the expected edges `test_unit_ordering` pins for it (the file's other guards stay).
    - Remove the oracle-backed probes from `pipeline-nightly.sh`: `parity_wsl`, `parity_pdc`, `parity_registry`, and what is left of `parity_spans` after PR B's split. **Keep `parity_citations`** (it checks the built artifact, not canonical, and is the only gate that every published entity stays citable) and PR B's post-registrar probe.
    - Done when 7 consecutive nightlies are green.
