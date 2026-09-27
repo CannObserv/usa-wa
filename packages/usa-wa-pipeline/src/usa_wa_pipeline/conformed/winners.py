@@ -43,15 +43,16 @@ SEAT_WINNER_SCHEMA = {
 
 def winner_rows(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Staging SOS result rows → one row per seat a ballot decided, per wire."""
-    wires: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    wires: dict[tuple[str, int, str, str], list[dict[str, Any]]] = {}
     for row in results:
-        if election_year(row) is None:
+        year = election_year(row)
+        if year is None:
             continue
-        key = (str(row["election_date"]), row.get("source"), row.get("resource_id"))
+        key = (str(row["election_date"]), year, row.get("source"), row.get("resource_id"))
         wires.setdefault(key, []).append(result_wire_row(row))
 
     out: list[dict[str, Any]] = []
-    for (election_date, source, resource_id), wire in sorted(wires.items()):
+    for (election_date, year, source, resource_id), wire in sorted(wires.items()):
         seats = [
             (role_for_span(KIND_SENATE, str(ld)).role_key, ld, None)
             for ld in build_senate_winners(wire)
@@ -68,7 +69,7 @@ def winner_rows(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out.extend(
             {
                 "election_date": election_date,
-                "election_year": election_year({"election_date": election_date}),
+                "election_year": year,
                 "role_key": role_key,
                 "district": ld,
                 "qualifier": qualifier,
