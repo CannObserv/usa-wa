@@ -30,8 +30,8 @@ from clearinghouse_core.rawstore import get_raw_root, verify_store
 
 logger = get_logger(__name__)
 
-#: Stable ledger identity (#178) — distinct from the DB sweep's ``integrity-sweep``;
-#: both run while the transition keeps both stores live (#302 step 10 retires the DB one).
+#: Stable ledger identity (#178) — distinct from the DB sweep's ``integrity-sweep``, so
+#: the ledger tells the two apart. The weekly unit runs this one since #412 PR C.
 JOB_SLUG = "raw-integrity-sweep"
 
 DEFAULT_BYTE_BUDGET = 256 * 1024 * 1024

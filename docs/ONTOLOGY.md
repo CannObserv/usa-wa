@@ -277,8 +277,8 @@ code that *walks* the graph must be cycle-guarded — `find_succession_cycles` e
 ### What the two operator tables share
 
 Both are operator attestations under one first-class provenance `Source`, `usa_wa_operator`. Each
-CLI write appends a hashed `FetchEvent` + `RawPayload` (so the integrity sweep covers operator
-facts) alongside the projection row. **Corrections append**: a new row is written and the prior
+CLI write appends a hashed `FetchEvent` + `RawPayload` alongside the projection row, and since
+#412 the same bytes into the raw store, which the weekly integrity sweep covers. **Corrections append**: a new row is written and the prior
 row's `superseded_by_id` is stamped — provenance is never mutated (#54). Consumers read only
 `superseded_by_id IS NULL`.
 

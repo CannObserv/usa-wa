@@ -70,8 +70,8 @@ raw/<source-slug>/
 - Integrity: `python -m clearinghouse_core.raw_integrity` re-hashes objects against
   the sha256 they are stored under (the name is the baseline) — rolling
   `--byte-budget` with a cursor at `<root>/.raw_integrity_state.json`, exit 1 on any
-  mismatch/missing object. The Postgres sweep keeps running beside it until #302
-  cutover.
+  mismatch/missing object. Weekly via `usa-wa-integrity-sweep` since #412, which
+  retired the Postgres sweep's timer.
 - Retention: the tracked sources are archival (#54) — nothing deletes; manifests are
   small and kept indefinitely.
 

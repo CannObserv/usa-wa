@@ -82,6 +82,10 @@ What survives:
      - The probe is `usa_wa_pipeline.registry_coverage`. It rebuilds spans from the built duckdb's staging tables and takes `seat_overlaps_unclipped` with it.
      - Lineage waits for #428, per Q2.
 3. **PR C: wire the file sweep.** Repoint `usa-wa-integrity-sweep.service` at `clearinghouse_core.raw_integrity` and keep the weekly timer. Done when a scheduled run lands in the ledger.
+   - *As built:*
+     - A straight repoint: the Postgres sweep does not run beside it. The raw store already holds every payload up to the last `raw_export`, and PR F's final export re-hashes each body it carries before it lands, so the Postgres copies still get one last check.
+     - The timer keeps Sun 08:00 UTC, overlapping the pipeline's harvests. That is safe because the store writes objects, then the run manifest, each by tmp+replace.
+     - `clearinghouse_core.integrity` stays runnable by hand until PR F removes it.
 4. **PR D: cut the import graph.**
    - Extract the pure functions the pipeline uses from `roster_pdf/build`, `facts_seats/house/build`, `normalize/members` and the adapter modules that staging imports.
    - Add a forbidden contract so neither `usa_wa_pipeline` nor `usa_wa_api` can import the runner, `adapter`, `span_emit`, `operators.store`, `bootstrap`, or any refresh/build module.
