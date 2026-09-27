@@ -51,15 +51,13 @@ from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from clearinghouse_domain_legislative.span_emit import span_key_parts
 from clearinghouse_domain_legislative.terms import biennium_for_date, parse_biennium
 from usa_wa_adapter_legislature.coverage import SPONSOR_ROSTER_COVERAGE
+from usa_wa_common.seats import HOUSE_SEATS, SENATE_SEATS
 
 logger = get_logger(__name__)
 
 #: Stable ledger identity (#178) — a module path can move without orphaning run history.
 JOB_SLUG = "succession-invariants"
 
-#: Current WA chamber sizes (49 LDs). A senator per LD; two representatives (Position 1/2) per LD.
-SENATE_SEATS = 49
-HOUSE_SEATS = 98
 
 #: The earliest year ``--sweep-biennia`` probes — the WSL sponsor-archive Senate floor (#77),
 #: read as a year off the declared coverage claim (#180). The same fact backs
