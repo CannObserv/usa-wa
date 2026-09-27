@@ -1,9 +1,10 @@
 [Unit]
-Description=usa-wa — provenance integrity sweep (re-hash RawPayload vs content_hash, #54) one-shot
-# usa-wa-migrate.service: schema must be at head before the sweep reads the
-# provenance tables. Ordering only — a failed/absent migrate must not wedge the
-# timer on an already-migrated box. DB-only (no WSL/PM egress), so plain
-# network.target, not network-online.target.
+Description=usa-wa — raw-store integrity sweep (re-hash file objects vs their sha256 names, #304) one-shot
+# Since #412 this sweeps the raw file store, not the Postgres RawPayload rows
+# (#54): the store is what every published dataset is built from. The database
+# is only the #178 ledger row, so usa-wa-migrate.service still orders it —
+# ordering only, a failed/absent migrate must not wedge the timer on an
+# already-migrated box. No egress, so plain network.target.
 After=network.target postgresql.service usa-wa-migrate.service
 # Alert the operator on failure (#49). A mismatch (exit 1 — corruption/tamper)
 # on the weekly timer would otherwise wait ≤7 days to be seen; this sweep IS the
@@ -30,21 +31,21 @@ ExecStartPre=/home/exedev/usa-wa/scripts/assert-venv-integrity.sh
 # Pin PATH so `uv` resolves regardless of the inherited systemd default.
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
-# App role only. The sweep reads DATABASE_URL (SELECT on the provenance tables —
-# the #54 grant REVOKE removed only UPDATE/DELETE on those tables, not
-# SELECT/INSERT). Its one write is the #55 rolling cursor upsert on
-# clearinghouse_core.integrity_sweep_state, covered by the app role's DML grant on
-# that (non-provenance) table — so still no owner role. Later EnvironmentFiles
-# override earlier ones.
+# App role only: DATABASE_URL carries the ledger row. USA_WA_RAW_ROOT names the
+# store; unset, it is raw/ under WorkingDirectory — the same store the nightly
+# harvests write. Its one write is the rolling cursor at
+# <root>/.raw_integrity_state.json. Later EnvironmentFiles override earlier ones.
 EnvironmentFile=/etc/usa-wa/.env
 EnvironmentFile=-/home/exedev/usa-wa/.env
 
 # --frozen --no-sync: run against the installed venv as-is; never re-lock or sync
-# at unit start (AGENTS.md § Server Lifecycle, #30).
-ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m clearinghouse_core.integrity
+# at unit start (AGENTS.md § Server Lifecycle, #30). --expect-objects: a missing
+# or empty store exits 4 → operator email, so a moved store or a renamed
+# USA_WA_RAW_ROOT cannot pass as a clean sweep every week.
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m clearinghouse_core.raw_integrity --expect-objects
 
-# Backstop the bounded rolling slice (#55) so a stuck DB or a pathological single
-# payload fails deterministically rather than hanging the manager; the timer
+# Backstop the bounded rolling slice (#55 idiom, default 256 MiB) so a stuck
+# disk fails deterministically rather than hanging the manager; the timer
 # retries next fire. The per-run byte budget keeps a routine run far inside this.
 TimeoutStartSec=600
 

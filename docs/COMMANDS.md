@@ -41,7 +41,7 @@ no ledger row.
 | `python -m usa_wa_adapter_legislature.raw_harvest` | Daily WSL SOAP set + member fan-out into the #302 raw file store (#304; no DB reads); `--root`, `--ttl-days` |
 | `python -m usa_wa_adapter_pdc.raw_harvest` | Winner-cohort wires into the raw file store (#304); exit 4 = whole-source outage |
 | `python -m usa_wa_adapter_sos.raw_harvest` | Filings + results wires into the raw file store (#304), both SOS sources one run. Exit 4 = a source landed nothing, **unless it is named in `ACCEPTED_OUTAGES`** — a known upstream outage exits 0 while still logging `sos_raw_harvest_accepted_outage` with its issue. An accepted source that RECOVERS exits 4 as `stale_acceptances`, which is what forces the entry's removal (#333) |
-| `python -m clearinghouse_core.raw_integrity` | Raw-store integrity sweep — re-hash file objects vs manifests, rolling byte-slice + cursor (#304); exit 1 = corruption |
+| `python -m clearinghouse_core.raw_integrity` | Raw-store integrity sweep — re-hash file objects vs manifests, rolling byte-slice + cursor (#304; weekly since #412); exit 1 = corruption, and with `--expect-objects` (the unit's) exit 4 = a missing or empty store |
 | `python -m clearinghouse_core.raw_export` | Hash-preserving RawPayload corpus export into the raw store (#305); resumable cursor, so safe to re-run, `--reset-cursor`, mismatch = exit 1. Re-run in #412 PR A and PR F, and the recovery for an operator write that exits 4 (committed, raw copy missing) until PR F |
 | `python -m usa_wa_pipeline.parity_wsl` | Write-free parity probe: WSL staging rows vs. canonical Postgres (#306); exit 1 = unexplained divergence |
 | `python -m usa_wa_pipeline.parity_pdc` | Write-free subset parity: canonical `wa_pdc` links ⊆ staging PDC winners (#307) |
@@ -97,7 +97,7 @@ Full options, exit codes and rationale: [COMMANDS-SUCCESSION.md](COMMANDS-SUCCES
 
 | Command | Purpose |
 |---|---|
-| `python -m clearinghouse_core.integrity` | Provenance integrity sweep — rolling byte-slice (#54/#55; weekly) |
+| `python -m clearinghouse_core.integrity` | Provenance integrity sweep — rolling byte-slice (#54/#55); ad-hoc only since #412 PR C moved the weekly unit to `raw_integrity`, removed in PR F |
 | `python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline` | OWNER-role provenance repair (#64) |
 
 ### Historical backfill and probes

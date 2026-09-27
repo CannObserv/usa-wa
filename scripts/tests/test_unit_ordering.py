@@ -131,9 +131,10 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
-    # DB-only sweep (#54) — re-hashes RawPayload vs content_hash. No WSL/PM
-    # egress, so plain network.target (not network-online). Fails (exit 1) on a
-    # mismatch → notify handler, since it IS the at-rest tamper detector.
+    # Raw-store sweep (#304; the unit's target since #412) — re-hashes file objects vs
+    # their names. Postgres holds only its ledger row, hence migrate. No egress, so plain
+    # network.target (not network-online). Fails (exit 1) on a mismatch → notify
+    # handler, since it IS the at-rest tamper detector.
     "usa-wa-integrity-sweep.service": {
         "After": {"network.target", "postgresql.service", "usa-wa-migrate.service"},
         "Before": set(),

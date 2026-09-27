@@ -1,7 +1,7 @@
 """Raw-store integrity sweep (#304): re-hash file objects against their names.
 
     python -m clearinghouse_core.raw_integrity [--root PATH] [--source SLUG]
-                                               [--byte-budget BYTES]
+                                               [--byte-budget BYTES] [--expect-objects]
 
 The file-store successor to :mod:`clearinghouse_core.integrity` (#54/#55), for
 the #302 raw tier: every manifest-referenced object is re-hashed against the
@@ -12,7 +12,10 @@ a rolling byte-slice (``--byte-budget``, default 256 MiB) resuming from a
 cursor persisted at ``<root>/.raw_integrity_state.json`` and wrapping at the
 tail, so per-run cost stays flat as the archive grows; ``--dry-run`` sweeps
 without persisting the cursor (the alert semantics stay: the cursor advances
-past a mismatch, so one corruption emails once per coverage cycle). Runs on
+past a mismatch, so one corruption emails once per coverage cycle).
+``--expect-objects`` turns a missing or empty store into ``degraded`` (exit 4)
+instead of a clean pass — the scheduled unit sets it, so a moved store cannot
+report green every week (#412). Runs on
 the #179 job harness for the ledger row; the database session goes unused.
 """
 
@@ -30,8 +33,8 @@ from clearinghouse_core.rawstore import get_raw_root, verify_store
 
 logger = get_logger(__name__)
 
-#: Stable ledger identity (#178) — distinct from the DB sweep's ``integrity-sweep``;
-#: both run while the transition keeps both stores live (#302 step 10 retires the DB one).
+#: Stable ledger identity (#178) — distinct from the DB sweep's ``integrity-sweep``, so
+#: the ledger tells the two apart. The weekly unit runs this one since #412 PR C.
 JOB_SLUG = "raw-integrity-sweep"
 
 DEFAULT_BYTE_BUDGET = 256 * 1024 * 1024
@@ -89,6 +92,20 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
         default=DEFAULT_BYTE_BUDGET,
         help="Bytes to verify this run (rolling slice, #55 idiom). 0 = unbounded.",
     )
+    parser.add_argument(
+        "--expect-objects",
+        action="store_true",
+        help="Exit 4 (degraded) when the store is missing or holds no objects.",
+    )
+
+
+def _nothing_to_verify(ctx: JobContext, root: Path, counters: dict) -> JobResult:
+    """A store with nothing in it: a fresh box's normal state, but under
+    ``--expect-objects`` a misconfiguration the operator must hear about."""
+    if not ctx.args.expect_objects:
+        return JobResult.ok(counters)
+    logger.error("raw_integrity_no_objects", extra={"root": str(root), **counters})
+    return JobResult.degraded(counters)
 
 
 async def _sweep_job(ctx: JobContext) -> JobResult:
@@ -96,7 +113,7 @@ async def _sweep_job(ctx: JobContext) -> JobResult:
     root = Path(ctx.args.root) if ctx.args.root else get_raw_root()
     if not root.is_dir():
         logger.info("raw_integrity_empty_root", extra={"root": str(root)})
-        return JobResult.ok({"objects_verified": 0, "empty_root": True})
+        return _nothing_to_verify(ctx, root, {"objects_verified": 0, "empty_root": True})
     state_path = root / STATE_FILENAME
     scope = ctx.args.source or ""
     budget = ctx.args.byte_budget or None
@@ -124,6 +141,9 @@ async def _sweep_job(ctx: JobContext) -> JobResult:
         "missing": len(result.missing),
         "exhausted_budget": result.exhausted_budget,
     }
+    if result.clean and result.objects_verified == 0:
+        # a full pass (the wrap above re-ran any tail pass) found no objects at all
+        return _nothing_to_verify(ctx, root, counters)
     if not result.clean:
         logger.error(
             "raw_integrity_mismatch",
@@ -139,7 +159,8 @@ async def _sweep_job(ctx: JobContext) -> JobResult:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Verify the raw store. Exit ``0`` clean · ``1`` mismatch/missing · ``2`` config."""
+    """Verify the raw store. Exit ``0`` clean · ``1`` mismatch/missing · ``2`` config ·
+    ``4`` nothing to verify under ``--expect-objects``."""
     return run_job(
         JOB_SLUG,
         _sweep_job,

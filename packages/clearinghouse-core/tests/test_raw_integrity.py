@@ -8,6 +8,7 @@ cursor persisted beside the store, exit ``1`` on any mismatch/missing object
 
 import json
 
+from clearinghouse_core.job import EXIT_DEGRADED
 from clearinghouse_core.raw_integrity import JOB_SLUG, main
 from clearinghouse_core.rawstore import RawStore
 from clearinghouse_core.testing import patch_job_runtime
@@ -139,3 +140,27 @@ def test_cursor_store_prunes_cleared_scopes_without_leftovers(tmp_path, monkeypa
     state = json.loads(state_path.read_text())
     assert state["cursors"] == {}
     assert not list(tmp_path.glob(".raw_integrity_state.json.*.tmp"))
+
+
+def test_expect_objects_degrades_on_a_missing_root(tmp_path, monkeypatch) -> None:
+    """A scheduled sweep of a store that is not there must alert, not report green
+    forever (#412 CR 1): a moved store or a renamed ``USA_WA_RAW_ROOT`` is exit 4."""
+    patch_job_runtime(monkeypatch)
+    missing = tmp_path / "gone"
+    assert main(["--root", str(missing), "--expect-objects", "--json"]) == EXIT_DEGRADED
+
+
+def test_expect_objects_degrades_on_an_empty_store(tmp_path, monkeypatch) -> None:
+    patch_job_runtime(monkeypatch)
+    assert main(["--root", str(tmp_path), "--expect-objects", "--json"]) == EXIT_DEGRADED
+
+
+def test_expect_objects_passes_once_the_cursor_wraps(tmp_path, monkeypatch) -> None:
+    """A cursor parked at the tail verifies nothing on its first pass; the wrap pass
+    does, so a populated store stays green."""
+    patch_job_runtime(monkeypatch)
+    _seed(tmp_path, [b"aaaa", b"bbbb"])
+    argv = ["--root", str(tmp_path), "--byte-budget", "4", "--expect-objects", "--json"]
+    assert main(argv) == 0
+    assert main(argv) == 0
+    assert main(argv) == 0

@@ -40,8 +40,9 @@ counters either way).
 
 Exit codes: ``0`` clean (all baselined rows verified; unbaselined allowed);
 ``1`` at least one mismatch (the failure the #49 alert path surfaces) — unchanged by
-the harness move, because the weekly oneshot's ``OnFailure=`` is wired to exactly that
-non-zero. A mismatch is corruption, so it maps to ``failed``, never ``degraded``.
+the harness move, because the weekly oneshot's ``OnFailure=`` was wired to exactly that
+non-zero (until #412 PR C moved the unit to :mod:`clearinghouse_core.raw_integrity`).
+A mismatch is corruption, so it maps to ``failed``, never ``degraded``.
 """
 
 import argparse

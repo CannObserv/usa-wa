@@ -82,7 +82,8 @@ three span builders (sponsor / SOS-house / committee) after `build_tenure_spans`
 emit; the daily refreshes re-drive the builders, so the overlay re-applies every run and
 the wire can never win back a corrected span (self-durable). Provenance is first-class:
 each write appends a hashed `FetchEvent` + `RawPayload` under the `usa_wa_operator` Source
-(integrity-sweep covered, #54) and the touched span carries a field-level `Citation`.
+and, since #412, the same bytes into the raw store, which the weekly integrity sweep covers;
+the touched span carries a field-level `Citation`.
 
 ```bash
 # Record operator succession events (#107) — the live interjection surface. Three kinds
