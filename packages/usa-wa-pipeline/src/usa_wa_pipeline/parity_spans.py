@@ -61,9 +61,7 @@ finished (CR 85).
 from __future__ import annotations
 
 import argparse
-import os
 from collections.abc import Callable
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -76,7 +74,6 @@ from clearinghouse_core.rawstore import RawStore, get_raw_root
 from clearinghouse_core.registry import KIND_ORG, KIND_ROLE, RegistryEntity
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.identity import Role as CanonicalRole
-from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_pipeline.conformed.roles import SOURCE as ROLE_SOURCE
 from usa_wa_pipeline.conformed.roles import role_rows
 from usa_wa_pipeline.conformed.spans import (
@@ -84,6 +81,7 @@ from usa_wa_pipeline.conformed.spans import (
     SOURCE,
     SpanInputs,
     build_families,
+    current_biennium,
     entity_index,
     roster_records,
 )
@@ -496,9 +494,7 @@ async def _parity_job(ctx: JobContext) -> JobResult:
         RawStore(root, SOS_SOURCE),
         baseline=ctx.args.baseline,
         role_baseline=ctx.args.role_baseline,
-        current_biennium=(
-            os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
-        ),
+        current_biennium=current_biennium(),
     )
 
 

@@ -29,6 +29,7 @@ from usa_wa_pipeline.conformed.spans import (
     build_all_spans,
     build_families,
     build_roster_spans,
+    current_biennium,
     entity_index,
     roster_records,
     roster_resolution,
@@ -564,3 +565,16 @@ def test_every_assignment_row_carries_its_structural_key() -> None:
         )
     # unique across the set, which is what makes it usable as an identity
     assert len({r["span_key"] for r in rows}) == len(rows)
+
+
+def test_current_biennium_honours_the_pin(monkeypatch) -> None:
+    """One rule for the model and both probes (CR 1): the probe must rebuild the
+    spans the model built, and the biennium decides which of them stay open."""
+    monkeypatch.setenv("USA_WA_BIENNIUM", "2019-20")
+    assert current_biennium() == "2019-20"
+
+
+def test_current_biennium_defaults_to_today(monkeypatch) -> None:
+    monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+    assert current_biennium(today=date(2027, 1, 1)) == "2027-28"
+    assert current_biennium(today=date(2026, 12, 31)) == "2025-26"

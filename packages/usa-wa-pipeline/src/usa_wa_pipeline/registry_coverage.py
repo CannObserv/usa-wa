@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import argparse
 import os
-from datetime import UTC, datetime
 from typing import Any
 
 import duckdb
@@ -47,13 +46,13 @@ from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.registry import KIND_ORG, KIND_PERSON, KIND_ROLE
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
-from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_pipeline.conformed.roles import SOURCE as ROLE_SOURCE
 from usa_wa_pipeline.conformed.roles import role_rows
 from usa_wa_pipeline.conformed.spans import (
     SpanInputs,
     assignment_rows,
     build_families,
+    current_biennium,
     entity_index,
 )
 from usa_wa_pipeline.operator_read import operator_event_rows
@@ -212,9 +211,7 @@ async def _coverage_job(ctx: JobContext) -> JobResult:
         persons=entity_index(await crosswalk_rows(session, KIND_PERSON)),
         orgs=entity_index(await crosswalk_rows(session, KIND_ORG)),
         roles=entity_index(await crosswalk_rows(session, KIND_ROLE)),
-        current_biennium=(
-            os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
-        ),
+        current_biennium=current_biennium(),
     )
 
 

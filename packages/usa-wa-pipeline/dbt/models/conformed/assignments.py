@@ -6,16 +6,13 @@ are imported unchanged from the domain and the adapter; the 4-part span
 `source_id` becomes real columns here.
 """
 
-import os
-from datetime import UTC, datetime
-
 from clearinghouse_core.registry import KIND_PERSON
-from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_pipeline.conformed.spans import (
     ASSIGNMENT_SCHEMA,
     SpanInputs,
     assignment_rows,
     build_families,
+    current_biennium,
     entity_index,
 )
 from usa_wa_pipeline.frames import typed_relation
@@ -25,11 +22,6 @@ from usa_wa_pipeline.registry_read import crosswalk_frame
 
 def model(dbt, session):
     dbt.config(materialized="table")
-    # the repo's convention (USA_WA_BIENNIUM overrides for a scoped rebuild),
-    # matching what every Phase-B builder uses to decide which spans stay open
-    current_biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(
-        datetime.now(UTC).date()
-    )
     # One resolve of the roster corpus feeds both families — see
     # `conformed.spans.build_families`, the sequence `parity_spans` and
     # `registry_coverage` run too.
@@ -41,7 +33,8 @@ def model(dbt, session):
             sos_results=dbt.ref("stg_sos_results").df().to_dict("records"),
             events=operator_events(),
         ),
-        current_biennium=current_biennium,
+        # USA_WA_BIENNIUM pins a scoped rebuild; shared with both probes
+        current_biennium=current_biennium(),
     )
     # The join's counters — `unregistered_spans` above all — are reported by
     # `usa_wa_pipeline.registry_coverage`, not from here (CR 68; #412 PR B). A
