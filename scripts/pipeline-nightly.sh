@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Nightly #302 pipeline chain (#311): raw harvests → dbt build → registrar →
-# publish → serving load → parity probes. ExecStart of usa-wa-pipeline.service.
+# publish → serving load → probes. ExecStart of usa-wa-pipeline.service.
 #
 # The PM anchor export sat between registrar and publish until #314 retired it
 # along with the `pm_anchors` dataset it fed.
@@ -20,7 +20,10 @@
 #   still lists the last good versions;
 # - a SERVING LOAD failure is counted: the API keeps serving the last good
 #   snapshot (the load is one transaction), so this is stale-but-correct;
-# - PARITY divergence is counted — observational, runs after publish.
+# - a PROBE failure is counted — observational, runs after publish. The parity
+#   probes compare against the canonical oracle; registry_coverage (#412 PR B)
+#   gates the registry's coverage of the build, and must run AFTER the
+#   registrar: a first-seen identity is unregistered until it does.
 # Any counted failure exits 1 at the end so OnFailure= emails the operator.
 # Either exit restates every failed stage's last stdout line — the harness
 # summary, counters included — as its closing lines: the email carries only
@@ -111,10 +114,11 @@ if ! run_stage usa_wa_api.serving.load $UV python -m usa_wa_api.serving.load; th
   failures=$((failures + 1))
 fi
 
-for probe in usa_wa_pipeline.parity_wsl usa_wa_pipeline.parity_pdc usa_wa_pipeline.parity_registry \
+for probe in usa_wa_pipeline.registry_coverage \
+             usa_wa_pipeline.parity_wsl usa_wa_pipeline.parity_pdc usa_wa_pipeline.parity_registry \
              usa_wa_pipeline.parity_spans usa_wa_pipeline.parity_citations; do
   if ! run_stage "$probe" $UV python -m "$probe"; then
-    echo "pipeline-nightly: parity divergence: $probe" >&2
+    echo "pipeline-nightly: probe failed: $probe" >&2
     failures=$((failures + 1))
   fi
 done

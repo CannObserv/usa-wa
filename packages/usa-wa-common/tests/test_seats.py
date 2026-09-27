@@ -9,6 +9,8 @@ from __future__ import annotations
 import pytest
 
 from usa_wa_common.seats import (
+    HOUSE_SEATS,
+    SENATE_SEATS,
     canonical_position,
     house_seat_role_source_id,
     house_span_discriminator,
@@ -44,3 +46,9 @@ def test_house_span_discriminator_round_trips() -> None:
     # distinct seats yield distinct discriminators
     assert house_span_discriminator(5, "Position 2") != disc
     assert house_span_discriminator(6, "Position 1") != disc
+
+
+def test_chamber_sizes_are_49_senators_and_two_representatives_per_district():
+    """49 LDs, one senator and two representatives (Position 1/2) each (#412 PR B)."""
+    assert SENATE_SEATS == 49
+    assert HOUSE_SEATS == 2 * SENATE_SEATS

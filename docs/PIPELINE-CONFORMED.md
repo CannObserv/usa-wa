@@ -84,8 +84,9 @@ and carried across from `canonical.roles` so a seeded role keeps the id it was
 already published under. Neither crosswalk may drop a role: a seat exists
 whether or not the registry has reached it, and the nightly runs `dbt build →
 registrar → publish`, so a brand-new seat is unregistered in the build that
-first sees it and bound by the next. `unregistered_roles` and
-`unregistered_orgs` make that one-run latency visible; `role_entity_mismatches`
+first sees it and bound by the next. `registry_coverage` gates
+`unregistered_roles` and `unregistered_orgs` *after* the registrar, so that
+one-run latency reads as zero and only a gap it left open alarms; `role_entity_mismatches`
 separates it from a *seeded* role whose ULID moved (post-seed roles: same
 section, #402). A
 brand-new org has the same latency without a counter: `organizations` is one
@@ -164,22 +165,34 @@ hermetic build) still resolves to an empty partition without complaint.
 so a `get_logger()` call inside a model emits nothing — the info path is
 dropped and the warning path reaches `logging.lastResort`, which prints the
 message and discards `extra`. Counters that must reach an operator therefore
-belong in a job, not a model: `parity_spans` recomputes the crosswalk join and
-reports it under the harness, where records serialize as JSON.
+belong in a job, not a model: `registry_coverage` (#412 PR B) recomputes the
+crosswalk join and reports it under the harness, where records serialize as JSON.
 
-**Reported is not enough — five counters are gated at zero.** The nightly's
+**Reported is not enough — counters are gated at zero.** The nightly's
 `OnFailure=` alerting fires on the *exit code*, so a counter that only reaches
-journald tells nobody while the job passes. `unregistered_spans` (a registrar
-gap silently shrinking the published table), `unregistered_orgs` (the same gap
-in the role dimension — a role whose org is unregistered still publishes, by
-design, so nothing else notices it going headless), `malformed_roster_rows`
-(partial roster corruption quietly degrading the #228 deepening),
-`unparsable_canonical_keys` and `role_attribute_mismatches` (the #110 shape —
-same key, different classification) each carry no known-stale story — unlike the
-two divergence ratchets — and each measures 0 on the live corpus, so any of them
-nonzero exits 1 and names itself in `integrity_failures`. The two ratchets name
-themselves in `ratchet_failures` for the same reason (CR 89): they share the
-exit code, so the alert has to say which one moved.
+journald tells nobody while the job passes. Two probes carry them:
+
+- **`registry_coverage`**, which needs no canonical oracle and outlives it:
+  `unregistered_spans` (a registrar gap silently shrinking the published table),
+  `unregistered_orgs` (the same gap in the role dimension — a role whose org is
+  unregistered still publishes, by design, so nothing else notices it going
+  headless) and `unregistered_roles`. `seat_overlaps_unclipped` (#360) rides
+  along, reported. Split out of `parity_spans` in #412 PR B; each counter names
+  itself in `integrity_failures`.
+- **`parity_spans`**, which retires with the oracle (#412 PR E):
+  `malformed_roster_rows` (partial roster corruption quietly degrading the #228
+  deepening — also gated in-build now, by `stg_roster_members`' `not_null`
+  tests), `unparsable_canonical_keys`, `role_attribute_mismatches` (the #110
+  shape — same key, different classification) and `role_entity_mismatches`.
+  Each carries no known-stale story — unlike the two divergence ratchets — and
+  any of them nonzero exits 1 and names itself in `integrity_failures`. The two
+  ratchets name themselves in `ratchet_failures` for the same reason (CR 89):
+  they share the exit code, so the alert has to say which one moved.
+
+**Post-registrar, never in-build.** The three `unregistered_*` counters cannot
+be dbt tests: a new legislator, seat or committee is unregistered in the first
+build that sees it, by design, and a failed build never reaches the registrar
+that would register it — so every night after would fail the same way.
 
 `unregistered_orgs` reaches the probe rather than the model for the reason
 above, and the role keys are derived there from the **spans**, not from the
@@ -191,8 +204,10 @@ defect — and would *hide* a genuine fork whose only spans happen to be
 unregistered.
 
 The probe's crosswalk read is **not** the read the model made: the nightly runs
-`dbt build → registrar → publish → parity`, so the registrar may have bound
-keys in between. `registered_spans` therefore describes the registry as it
+`dbt build → registrar → publish → probes`, so the registrar may have bound
+keys in between. Its staging read **is** the model's: `registry_coverage`
+rebuilds the families from the built duckdb's own staging tables, not the raw
+store. `registered_spans` therefore describes the registry as it
 stands *now* — the state tomorrow's build publishes from, which is the gap
 worth alarming on. A gap the registrar has since closed is transient and
 correctly reads as zero.
@@ -287,7 +302,7 @@ brand-new seat is unregistered in the build that first sees it — and a role wi
 no ULID has nothing to be cited *by*. Gating that at zero would have failed the
 nightly and emailed the operator every time a committee was created. Those roles
 are counted apart as `unregistered_roles` and reported, not gated; the
-**persistent** case is caught by `parity_spans`, which re-reads the registry
+**persistent** case is caught by `registry_coverage`, which re-reads the registry
 after the registrar rather than the artifact built before it. Ratcheted — `uncited_persons`, baseline **2**: the two Elmer E.
 Johnstons sharing the fold `elmerejohnston`, which the citer refuses to guess
 between. Was 3 — the registered WSL member no wire names left the count when

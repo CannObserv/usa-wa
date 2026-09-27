@@ -38,7 +38,9 @@ named for, is exactly a member who returned only to a House seat.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
 from typing import Any
 
 from clearinghouse_core.logging import get_logger
@@ -59,6 +61,7 @@ from clearinghouse_domain_legislative.tenure_spans import (
     TenureSpan,
     build_tenure_spans,
 )
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.membership.projector import (
     build_committee_membership_observations,
 )
@@ -462,6 +465,38 @@ def build_all_spans(
         [*committee_spans, *house, *sponsor_spans],
         key=lambda s: (s.member_id, s.kind, s.discriminator, s.start_biennium),
     )
+
+
+def current_biennium(*, today: date | None = None) -> str:
+    """The biennium whose spans stay open: ``USA_WA_BIENNIUM`` (a scoped rebuild's
+    pin), else the one containing today (UTC).
+
+    One rule for the ``assignments`` model and both probes that rebuild its
+    spans (CR 1): the biennium decides which spans stay open, so a probe that
+    read it differently would audit a build that never published.
+    """
+    return os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(today or datetime.now(UTC).date())
+
+
+def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, list[TenureSpan]]:
+    """Both span families, keyed by source — the one sequence every caller runs.
+
+    The ``assignments`` model, ``parity_spans`` and ``registry_coverage`` (#412
+    PR B) each built this by hand. ONE resolve of the roster corpus feeds both
+    families: the WSL-joined half deepens the sponsor build (#228), the minted
+    half IS the roster family. Resolving twice would double the cost and let the
+    halves disagree about who is WSL-joined. The roster family's
+    ``context_spans`` are the WSL family's (#267): the only other-kind spans a
+    minted identity could hold.
+    """
+    resolution = roster_resolution(inputs.roster, inputs.sponsors)
+    spans = build_all_spans(
+        inputs, current_biennium=current_biennium, extra_observations=resolution.joined
+    )
+    roster_spans = build_roster_spans(
+        resolution, events=inputs.events, current_biennium=current_biennium, context_spans=spans
+    )
+    return {SOURCE: spans, ROSTER_SOURCE: roster_spans}
 
 
 def entity_index(crosswalk: list[dict[str, Any]]) -> dict[str, str]:

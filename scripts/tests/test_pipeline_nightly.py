@@ -226,3 +226,18 @@ def test_the_seams_default_to_the_production_paths():
     assert '"${PIPELINE_NIGHTLY_ROOT:-/home/exedev/usa-wa}"' in text
     assert '"${PIPELINE_NIGHTLY_UV:-/usr/local/bin/uv run --frozen --no-sync}"' in text
     assert os.access(SCRIPT, os.X_OK)
+
+
+def test_registry_coverage_runs_after_the_registrar_and_is_counted(run_nightly):
+    """#412 PR B: the post-registrar probe runs where the parity probes run.
+    After the registrar, so a first-seen identity it just registered reads as
+    bound; its failure is counted like theirs, never an abort."""
+    code, lines = run_nightly(STUB_FAIL="usa_wa_pipeline.registry_coverage")
+
+    assert code == 1
+    order = [line for line in lines if line.startswith("stub-log usa_wa_pipeline.")]
+    assert order.index("stub-log usa_wa_pipeline.registrar") < order.index(
+        "stub-log usa_wa_pipeline.registry_coverage"
+    )
+    assert "stub-log usa_wa_pipeline.parity_citations" in lines
+    assert any("failed stage: usa_wa_pipeline.registry_coverage (exit 1)" in line for line in lines)

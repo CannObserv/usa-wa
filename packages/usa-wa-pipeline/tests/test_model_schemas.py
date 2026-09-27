@@ -17,6 +17,7 @@ from usa_wa_pipeline.conformed.entities import ORG_SCHEMA, PERSON_SCHEMA
 from usa_wa_pipeline.conformed.namesakes import COLLISION_SCHEMA
 from usa_wa_pipeline.conformed.roles import ROLE_SCHEMA
 from usa_wa_pipeline.conformed.spans import ASSIGNMENT_SCHEMA
+from usa_wa_pipeline.conformed.winners import SEAT_WINNER_SCHEMA
 from usa_wa_pipeline.matching.roster_wsl import LINK_SCHEMA
 from usa_wa_pipeline.registry_read import CROSSWALK_SCHEMA
 from usa_wa_pipeline.staging.fetches import FETCH_SCHEMA
@@ -49,6 +50,7 @@ MODEL_SCHEMAS = {
     "person_name_collisions": COLLISION_SCHEMA,
     "persons": PERSON_SCHEMA,
     "roles": ROLE_SCHEMA,
+    "seat_winners": SEAT_WINNER_SCHEMA,
 }
 
 

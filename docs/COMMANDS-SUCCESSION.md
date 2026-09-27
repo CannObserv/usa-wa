@@ -2,6 +2,11 @@
 
 Split out of [COMMANDS.md](COMMANDS.md), which is where the index lives.
 
+**Ported to dbt tests (#412 PR B).** Both corroborations and the succession invariants' chamber
+count, member-duplicate and #272 checks now also run in-build on the conformed `assignments`
+([PIPELINE.md § Ported from the canonical tier](PIPELINE.md#ported-from-the-canonical-tier-412)).
+The units below still run, against canonical, until #412 PR E disables them.
+
 ## Senate odd-year corroboration (#123)
 
 The odd-year November general seats senators mid-biennium by special (Hunt, LD5, Nov 2025). The

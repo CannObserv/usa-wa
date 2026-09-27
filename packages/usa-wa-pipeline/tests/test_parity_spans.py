@@ -25,6 +25,7 @@ from clearinghouse_core.registry import (
 )
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from usa_wa_pipeline.parity_spans import (
+    INTEGRITY_COUNTERS,
     ROSTER_SOURCE,
     SOS_SOURCE,
     SOURCE,
@@ -220,9 +221,7 @@ async def _seed_assignment(
 async def _bind_key(
     db_session, natural_key: str, *, kind: str = KIND_PERSON, entity_id=None
 ) -> None:
-    """Bind one natural key to a registry entity, so the crosswalk join lands
-    and `unregistered_spans` / `unregistered_orgs` / `unregistered_roles` are
-    genuinely 0.
+    """Bind one natural key to a registry entity, so the crosswalk joins land.
 
     ``entity_id`` pins the entity to an existing id — what the seed does for
     roles (#313), carrying the canonical ULID across so the published id holds.
@@ -413,32 +412,28 @@ async def test_a_roster_store_that_parses_to_nothing_degrades(db_session, tmp_pa
     assert result.counters["empty_roster_rows"] is True
 
 
-async def test_unregistered_spans_are_reported(db_session, tmp_path) -> None:
-    """CR 68: the count of spans dropped on the crosswalk join has to reach an
-    operator. It cannot come from the dbt model — a `dbt build` never calls
-    `configure_logging`, so that logger emits nothing — so the probe, which
-    runs under the job harness, carries it.
-    """
-    role = await _seed_role(db_session)
+async def test_the_registry_counters_moved_to_registry_coverage(db_session, tmp_path) -> None:
+    """#412 PR B: `unregistered_spans` / `_orgs` / `_roles` and the clip residue
+    moved to `registry_coverage`, which needs no canonical oracle and so
+    outlives this probe. Reporting them here too would page twice for one gap.
+    An unregistered member no longer fails THIS probe."""
+    assert not {"unregistered_spans", "unregistered_orgs", "unregistered_roles"} & set(
+        INTEGRITY_COUNTERS
+    )
+    role = await _seed_role(db_session, bind_orgs=False, bind_roles=False)
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
-    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=1)
-    # no registry keys seeded, so every span is unregistered — both families
-    assert result.counters["unregistered_spans"] == 3
-    assert result.counters["registered_spans"] == 0
-
-
-async def test_seat_overlaps_the_clip_declined_are_reported(db_session, tmp_path) -> None:
-    """CR 132: `assignment_rows` counts the overlaps counterpart clipping (#360)
-    could not resolve, but the dbt model discards its counters entirely. The
-    probe is the only thing that runs under the job harness, so it is the only
-    place that number can reach an operator — it was being computed on every
-    build and thrown away.
-    """
-    role = await _seed_role(db_session)
-    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
-    await _bind_key(db_session, f"{SOURCE}:100")
-    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=2)
-    assert result.counters["seat_overlaps_unclipped"] == 0
+    await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
+    await _seed_roster_family(db_session, role)
+    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
+    moved = {
+        "unregistered_spans",
+        "unregistered_orgs",
+        "unregistered_roles",
+        "registered_spans",
+        "seat_overlaps_unclipped",
+    }
+    assert not moved & set(result.counters)
+    assert result.outcome == OUTCOME_OK
 
 
 async def test_a_malformed_oracle_key_is_counted(db_session, tmp_path) -> None:
@@ -451,35 +446,6 @@ async def test_a_malformed_oracle_key_is_counted(db_session, tmp_path) -> None:
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)], baseline=1)
     assert result.counters["unparsable_canonical_keys"] == 1
     assert result.counters["canonical"] == 1
-
-
-async def test_unregistered_spans_fail_the_probe(db_session, tmp_path) -> None:
-    """CR 72: the nightly's OnFailure= alerting fires on the EXIT CODE. A
-    counter that only ever reaches journald is the same silence findings 60 and
-    68 described — a registrar gap shrinks the published dataset and nobody is
-    told. The floor is 0: measured 0 on the live corpus, and the nightly runs
-    the registrar BEFORE this probe, so a newly harvested member is already
-    bound by the time it runs.
-    """
-    role = await _seed_role(db_session)
-    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
-    await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
-    await _seed_assignment(
-        db_session,
-        role,
-        ROSTER_SPAN_ID,
-        source=ROSTER_SOURCE,
-        valid_from=date(1925, 1, 1),
-        valid_to=date(1926, 12, 31),
-        is_active=False,
-    )
-    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
-    # divergence is 0 — only the unregistered spans are wrong
-    assert result.counters["divergence"] == 0
-    assert result.counters["unregistered_spans"] == 3
-    assert result.outcome == OUTCOME_FAILED
-    assert result.resolved_exit_code() == 1
-    assert result.counters["integrity_failures"] == ["unregistered_spans"]
 
 
 async def test_malformed_roster_rows_are_counted_and_gated(db_session, tmp_path) -> None:
@@ -503,7 +469,7 @@ async def test_malformed_roster_rows_are_counted_and_gated(db_session, tmp_path)
 
 
 async def test_a_clean_run_reports_every_integrity_counter_at_zero(db_session, tmp_path) -> None:
-    """The complement: registered spans, no malformed rows, no unparsable keys."""
+    """The complement: no malformed rows, no unparsable keys, no moved role ULID."""
     role = await _seed_role(db_session)
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
@@ -511,11 +477,8 @@ async def test_a_clean_run_reports_every_integrity_counter_at_zero(db_session, t
     await _seed_roster_family(db_session, role)
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
     assert result.outcome == OUTCOME_OK
-    assert result.counters["registered_spans"] == 3
-    assert result.counters["unregistered_spans"] == 0
     assert result.counters["malformed_roster_rows"] == 0
     assert result.counters["unparsable_canonical_keys"] == 0
-    assert result.counters["unregistered_orgs"] == 0
     assert result.counters["role_entity_mismatches"] == 0
     # reported, never gated (#402) — present and zero, not absent
     assert result.counters["role_post_seed"] == 0
@@ -690,27 +653,6 @@ async def test_role_divergence_at_its_baseline_is_ok(db_session, tmp_path) -> No
     assert result.counters["role_divergence"] == 1
 
 
-async def test_unregistered_orgs_are_counted_and_gated(db_session, tmp_path) -> None:
-    """CR 78: increment 4 computed `unregistered_orgs` inside the roles MODEL and
-    threw it away — the exact shape CR 60/68/72 closed for `unregistered_spans`.
-    A role whose org is unregistered still publishes (a seat exists whether or
-    not the registry has minted its chamber), so nothing else would notice the
-    dimension going headless.
-    """
-    role = await _seed_role(db_session, bind_orgs=False)
-    await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
-    await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
-    await _bind_key(db_session, f"{SOURCE}:100")
-    await _seed_roster_family(db_session, role)
-    result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
-    assert result.counters["unregistered_orgs"] == 3
-    assert result.counters["divergence"] == 0
-    assert result.counters["role_divergence"] == 0
-    assert result.outcome == OUTCOME_FAILED
-    assert result.resolved_exit_code() == 1
-    assert result.counters["integrity_failures"] == ["unregistered_orgs"]
-
-
 async def test_roles_are_derived_from_spans_not_from_registered_rows(db_session, tmp_path) -> None:
     """A slot exists whether or not the person filling it is registered, so the
     role derivation reads the SPANS, not the crosswalk-joined rows — which keeps
@@ -722,33 +664,25 @@ async def test_roles_are_derived_from_spans_not_from_registered_rows(db_session,
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
     await _seed_roster_family(db_session, role)
-    # no person key for member 100: two of the three spans drop on the join
+    # no person key for member 100: the role parity must not notice
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
-    assert result.counters["unregistered_spans"] == 2
     assert result.counters["roles"] == 3
     assert result.counters["role_divergence"] == 0
 
 
-async def test_a_role_the_registry_has_not_reached_is_gated(db_session, tmp_path) -> None:
-    """#313: a role with no registry ULID publishes (the dimension row a
-    published assignment names must not vanish) but cannot be addressed by the
-    API, so the gap is gated rather than merely reported. One run of latency is
-    normal — `dbt build -> registrar -> publish` — and the next build closes it.
-
-    No canonical ULID here is a registry entity, so each role has the post-seed
-    shape (#402) — but an UNBOUND key is a registrar gap, never `role_post_seed`.
-    """
+async def test_a_role_the_registry_has_not_reached_is_not_a_mismatch(db_session, tmp_path) -> None:
+    """An UNBOUND role key is a registrar gap — `registry_coverage` gates it
+    (#412 PR B) — never a moved identity, and never `role_post_seed` (#402)."""
     role = await _seed_role(db_session, bind_roles=False)
     await _seed_assignment(db_session, role, f"100:party:democratic:{CURRENT}")
     await _seed_assignment(db_session, role, f"100:chamber-senate:14:{CURRENT}")
     await _bind_key(db_session, f"{SOURCE}:100")
     await _seed_roster_family(db_session, role)
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
-    assert result.counters["unregistered_roles"] == 3
+    assert result.counters["role_entity_mismatches"] == 0
     assert result.counters["role_post_seed"] == 0
     assert result.counters["role_divergence"] == 0
-    assert result.outcome == OUTCOME_FAILED
-    assert result.counters["integrity_failures"] == ["unregistered_roles"]
+    assert result.outcome == OUTCOME_OK
 
 
 async def test_a_seeded_role_ulid_that_moved_is_gated(db_session, tmp_path) -> None:
@@ -774,7 +708,6 @@ async def test_a_seeded_role_ulid_that_moved_is_gated(db_session, tmp_path) -> N
     await _bind_key(db_session, f"{SOURCE}:100")
     await _seed_roster_family(db_session, role)
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
-    assert result.counters["unregistered_roles"] == 0
     assert result.counters["role_entity_mismatches"] == 3
     assert result.counters["role_divergence"] == 0
     assert result.outcome == OUTCOME_FAILED
@@ -797,7 +730,6 @@ async def test_a_role_minted_after_the_seed_is_post_seed_not_a_mismatch(
     await _bind_key(db_session, f"{SOURCE}:100")
     await _seed_roster_family(db_session, role)
     result = await _run(db_session, tmp_path, sponsors=[_sponsor("100", CURRENT)])
-    assert result.counters["unregistered_roles"] == 0
     assert result.counters["role_entity_mismatches"] == 0
     assert result.counters["role_post_seed"] == 1
     assert result.counters["integrity_failures"] == []

@@ -61,9 +61,7 @@ finished (CR 85).
 from __future__ import annotations
 
 import argparse
-import os
 from collections.abc import Callable
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -73,22 +71,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root
-from clearinghouse_core.registry import KIND_ORG, KIND_PERSON, KIND_ROLE, RegistryEntity
+from clearinghouse_core.registry import KIND_ORG, KIND_ROLE, RegistryEntity
 from clearinghouse_domain_legislative.identity import Assignment
 from clearinghouse_domain_legislative.identity import Role as CanonicalRole
-from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_pipeline.conformed.roles import SOURCE as ROLE_SOURCE
 from usa_wa_pipeline.conformed.roles import role_rows
 from usa_wa_pipeline.conformed.spans import (
     ROSTER_SOURCE,
     SOURCE,
     SpanInputs,
-    assignment_rows,
-    build_all_spans,
-    build_roster_spans,
+    build_families,
+    current_biennium,
     entity_index,
     roster_records,
-    roster_resolution,
 )
 from usa_wa_pipeline.operator_read import operator_event_rows
 from usa_wa_pipeline.registry_read import crosswalk_rows
@@ -189,10 +184,14 @@ ROLE_ATTRIBUTES = ("role_type", "name", "qualifier")
 #: are *gated*, not merely reported, because the nightly's ``OnFailure=``
 #: alerting fires on the exit code: a counter that only reaches journald tells
 #: nobody, which is the silence findings 60 and 68 were about.
+#:
+#: **The registry's three moved out (#412 PR B).** ``unregistered_spans`` /
+#: ``_orgs`` / ``_roles`` never needed the canonical oracle, so they now live in
+#: :mod:`usa_wa_pipeline.registry_coverage`, which outlives this probe (PR E).
+#: The four below retire with it: three read canonical, and
+#: ``malformed_roster_rows`` is gated in-build too, by ``stg_roster_members``'
+#: ``not_null`` tests.
 INTEGRITY_COUNTERS = (
-    "unregistered_spans",
-    "unregistered_orgs",
-    "unregistered_roles",
     "malformed_roster_rows",
     "unparsable_canonical_keys",
     "role_attribute_mismatches",
@@ -279,24 +278,18 @@ async def run_parity(
         # its absence deletes ~4% of the table, inside the publish shrink floor.
         logger.warning("parity_spans_empty_sos_rows", extra={"source": SOS_SOURCE})
         return JobResult.degraded({"empty_sos_rows": True})
-    events = await operator_event_rows(session)
-    # One resolve, both families — see `conformed.spans.roster_resolution`.
-    resolution = roster_resolution(roster, sponsors)
-    spans = build_all_spans(
+    # One resolve, both families — see `conformed.spans.build_families`.
+    families = build_families(
         SpanInputs(
             sponsors=sponsors,
             committee_members=committee_member_rows(store),
             roster=roster,
             sos_results=sos_results,
-            events=events,
+            events=await operator_event_rows(session),
         ),
         current_biennium=current_biennium,
-        extra_observations=resolution.joined,
     )
-    roster_spans = build_roster_spans(
-        resolution, events=events, current_biennium=current_biennium, context_spans=spans
-    )
-    families = {SOURCE: spans, ROSTER_SOURCE: roster_spans}
+    spans, roster_spans = families[SOURCE], families[ROSTER_SOURCE]
 
     # Keyed by (source, source_id): the two families are disjoint identity
     # spaces sharing one table, and only the pair is unique by construction.
@@ -339,23 +332,6 @@ async def run_parity(
         logger.warning("parity_spans_empty_canonical", extra={"sources": sorted(families)})
         return JobResult.degraded({"empty_canonical": True, "spans": len(ours)})
 
-    # The crosswalk join the `assignments` model performs, reported HERE
-    # because the model cannot report it (CR 68): a `dbt build` never calls
-    # `configure_logging`, so a logger inside a Python model emits nothing —
-    # the info path is dropped outright and the warning path reaches
-    # `logging.lastResort`, which prints the message and discards `extra`.
-    # This probe runs under the job harness, so its counters are real JSON.
-    #
-    # NOT the same read the model made (CR 75): the nightly runs
-    # `dbt build → registrar → publish → parity`, so the registrar may have
-    # bound keys since. This measures the registry as it stands NOW — which is
-    # the state tomorrow's build will publish from, so a gap here is the one
-    # worth alarming on. A gap the registrar has since closed is transient and
-    # self-healing, and correctly reads as zero.
-    _rows, join = assignment_rows(
-        families, entity_index(await crosswalk_rows(session, KIND_PERSON))
-    )
-
     missing = sorted(set(canonical) - set(ours))
     extra = sorted(set(ours) - set(canonical))
     dated = sorted(k for k in set(ours) & set(canonical) if ours[k] != canonical[k])
@@ -372,13 +348,6 @@ async def run_parity(
         "dated_differently": len(dated),
         "divergence": divergence,
         "baseline": baseline,
-        "registered_spans": join["published"],
-        "unregistered_spans": join["unregistered_spans"],
-        # Counterpart clipping's residue (#360). The dbt model discards its
-        # counters, so without this the number is computed on every build and
-        # reaches nobody. Pre-exclusion, and therefore larger than the
-        # `assignments_seat_occupancy` row count — see `assignment_rows`.
-        "seat_overlaps_unclipped": join["seat_overlaps_unclipped"],
         "malformed_roster_rows": malformed_roster_rows,
         "unparsable_canonical_keys": unparsable,
     }
@@ -393,9 +362,7 @@ async def run_parity(
     # From the crosswalk-joined rows a registrar gap would report as a phantom
     # role fork, sending the operator after the wrong defect, and it would hide
     # a genuine fork whose only spans happen to be unregistered.
-    # `unregistered_orgs` is the roles model's own discarded counter (CR 78),
-    # which a Python model cannot report for the reason above.
-    derived_roles, role_join = role_rows(
+    derived_roles, _role_join = role_rows(
         [
             {"span_kind": s.kind, "span_discriminator": s.discriminator}
             for family in families.values()
@@ -444,8 +411,8 @@ async def run_parity(
     # The ULID the seed carried across from `canonical.roles` must be the one we
     # publish (#313): it is the `entity_id` in `roles` that `assignments` join
     # on, so if it moves every consumer's join silently re-points. A role the
-    # registrar has not reached yet is `unregistered_roles`, not a mismatch:
-    # null is a one-run latency, a DIFFERENT id is a moved identity.
+    # registrar has not reached yet is not a mismatch (`registry_coverage`
+    # gates it): null is a one-run latency, a DIFFERENT id is a moved identity.
     #
     # Only a SEEDED role has an earlier published id to protect (#402). After
     # the seed the adapter and the registrar mint independently, so a canonical
@@ -478,8 +445,6 @@ async def run_parity(
             "role_attribute_mismatches": len(attribute_mismatches),
             "role_entity_mismatches": len(role_entity_mismatches),
             "role_post_seed": len(role_post_seed),
-            "unregistered_roles": role_join["unregistered_roles"],
-            "unregistered_orgs": role_join["unregistered_orgs"],
         }
     )
 
@@ -529,9 +494,7 @@ async def _parity_job(ctx: JobContext) -> JobResult:
         RawStore(root, SOS_SOURCE),
         baseline=ctx.args.baseline,
         role_baseline=ctx.args.role_baseline,
-        current_biennium=(
-            os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
-        ),
+        current_biennium=current_biennium(),
     )
 
 

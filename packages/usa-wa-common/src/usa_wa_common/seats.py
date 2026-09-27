@@ -13,6 +13,12 @@ Pure. No wire, no session.
 
 from __future__ import annotations
 
+#: Current WA chamber sizes: 49 LDs, one senator and two representatives (Position 1/2) each.
+#: A redistricting that changes the district count changes these. Read by the dbt chamber-count
+#: gates (#412 PR B), whose SQL literals are pinned to them, and by ``succession-invariants``.
+SENATE_SEATS = 49
+HOUSE_SEATS = 98
+
 #: WA House positions (the only ones this cut resolves — ballot has Position 1 / 2 per LD).
 _VALID_POSITIONS = {"1", "2"}
 
