@@ -20,8 +20,8 @@ retraction=absence means a degraded build must never ship as mass retraction.
 The API serves the tree at `/datasets/*` with `/health/datasets` as the
 publication probe. The nightly systemd chain (`scripts/pipeline-nightly.sh`,
 `usa-wa-pipeline.timer`, daily 08:00 UTC) runs harvests → dbt build →
-registrar → publish → serving load → parity probes
-(`parity_citations` last); any counted failure exits 1 so `OnFailure=` emails
+registrar → publish → serving load → probes
+(`registry_coverage` first, `parity_citations` last); any counted failure exits 1 so `OnFailure=` emails
 the operator, with each failed stage's summary line restated last (#331).
 
 Three tiers, each answering a different question about who may depend on it.

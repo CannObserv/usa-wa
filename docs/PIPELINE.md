@@ -177,8 +177,8 @@ still `missing`.
 holds only matched pairs, so a legislator no rule pairs — an appointee with no
 PDC winner row, a member newer than the roster PDF — never reached the
 registrar (111 of 640 sponsors on 2026-09-22, registered only by the seed), and
-the next one would fail `parity-registry` (`person_missing`) and `parity-spans`
-(`unregistered_spans`). `registrar.load_sponsor_keys` adds a singleton
+the next one would fail `parity-registry` (`person_missing`) and
+`registry-coverage` (`unregistered_spans`, in `parity-spans` until #412 PR B). `registrar.load_sponsor_keys` adds a singleton
 `(key, key)` pair per staged `usa_wa_legislature:<member_id>`; union-find folds
 a paired sponsor into its component, so matched clusters are unchanged. Only a
 numeric id mints alone — the registry has no delete — and any other (blank,
@@ -189,7 +189,7 @@ duplicate — it stays pair-only and drift surfaces as `missing`, for
 adjudication. A PDC id is a crosswalk key on a WSL person, never a standalone
 one. Like a new seat or committee, a new legislator publishes one build after
 the one that first stages them (`dbt build → registrar → publish`);
-`parity-spans` re-reads the registry after the registrar, so that lag never
+`registry-coverage` re-reads the registry after the registrar, so that lag never
 trips it.
 
 ```bash
@@ -338,6 +338,46 @@ exception list — they are legitimately multi-holder. One caveat if House
 coverage deepens past 1965: pre-1965 House seats were at-large, two per district
 with no Position, so a position-less `seat:house:ld-N` would legitimately carry
 two holders.
+
+### Ported from the canonical tier (#412)
+
+The checks the retiring Postgres units ran, rebuilt on `assignments` (#412 PR B).
+Each was 0 on the production build 2026-09-27; each file's header carries its
+reasoning.
+
+| Test | Replaces | Severity |
+|---|---|---|
+| `assignments_chamber_excess` | `succession-invariants` chamber count, high side | error: more than 49 / 98 open is a ghost-open predecessor |
+| `assignments_chamber_vacancy` | the same count, low side | **warn**: a vacancy is a real state (a death, the 2027-01-01 rollover), and an `error` would stop publishing until the seat filled |
+| `assignments_one_seat_per_member` | `succession-invariants` member duplicates | error, over **all history**, not only the open cohort |
+| `assignments_start_in_key_biennium` | `succession-invariants` #272 misdating | error |
+| `assignments_odd_year_winners_seated` | `house-corroboration`, `senate-corroboration` | error, over **every archived odd year**, probed at December 31 of the election year |
+| `not_null` on `stg_roster_members.order` | `parity_spans`' `malformed_roster_rows` | error |
+
+The chamber gate is split in two because dbt thresholds count result rows and
+cannot tell an excess from a vacancy in one test. Its literals are pinned to
+`usa_wa_common.seats.SENATE_SEATS` / `HOUSE_SEATS`. Corroboration joins
+`seat_winners`, an internal model of each seat a ballot decided, keyed by the
+`role_key` assignments carry, so no SQL re-parses a race label. Not ported: the
+units' surname-`mismatched` report, which was never gated, and the Senate unit's
+SOS citation writer (#412 Q3: published citations exclude SOS by design).
+Lineage INV1 waits for `organizations.active` (#428).
+
+The three `unregistered_*` counters are **not** dbt tests, and must not become
+them: a new identity is unregistered in the first build that sees it, and a
+failed build never reaches the registrar. They moved to a post-registrar
+probe:
+
+```bash
+# Write-free: the registry binds every person, org and role the build derives
+uv run python -m usa_wa_pipeline.registry_coverage --db data/pipeline.duckdb
+```
+
+It rebuilds both span families from the built duckdb's staging tables and the
+operator events, joins them against the registry as the registrar left it, and
+exits 1 on any `unregistered_*`, or 4 when the build holds no sponsors, roster or
+ballot rows. It runs first in the nightly's probe loop and outlives the parity
+probes (PR E).
 
 ## TDD for dbt models
 
