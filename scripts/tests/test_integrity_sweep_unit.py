@@ -26,7 +26,11 @@ from clearinghouse_core.testing import patch_job_runtime
 SERVICE = DEPLOY / "usa-wa-integrity-sweep.service"
 TIMER = DEPLOY / "usa-wa-integrity-sweep.timer"
 PIPELINE = DEPLOY / "usa-wa-pipeline.service"
+NIGHTLY_SCRIPT = DEPLOY.parent / "scripts" / "pipeline-nightly.sh"
 SWEEP_MODULE = "clearinghouse_core.raw_integrity"
+
+#: The nightly's own ``cd`` — the harvests' working directory, whatever the unit's says.
+NIGHTLY_ROOT_RE = re.compile(r'^cd "\$\{PIPELINE_NIGHTLY_ROOT:-(?P<root>[^}]+)\}"', re.MULTILINE)
 
 #: One weekday, every week (``Sun *-*-*``). The docs guard owns the full grammar.
 WEEKLY_RE = re.compile(r"^[A-Z][a-z]{2}\s+\*-\*-\*\s")
@@ -80,11 +84,14 @@ def test_a_tampered_object_exits_one_so_the_alert_fires(tmp_path, monkeypatch) -
 
 def test_the_unit_sweeps_the_store_the_harvests_write() -> None:
     """With ``USA_WA_RAW_ROOT`` unset the store is ``raw/`` under the working directory, so
-    the sweep and the nightly harvests must share one, or the sweep verifies an empty
-    directory and reports ``ok``."""
-    assert unit_value(SERVICE, "Service", "WorkingDirectory") == unit_value(
-        PIPELINE, "Service", "WorkingDirectory"
-    )
+    the sweep and the nightly harvests must share one. The harvests' directory is the one
+    ``pipeline-nightly.sh`` changes into, not the pipeline unit's. ``--expect-objects``
+    catches an empty store; this catches a populated wrong one."""
+    sweep_dir = unit_value(SERVICE, "Service", "WorkingDirectory")
+    match = NIGHTLY_ROOT_RE.search(NIGHTLY_SCRIPT.read_text())
+    assert match, f"{NIGHTLY_SCRIPT.name} no longer changes into a default root"
+    assert sweep_dir == match["root"]
+    assert sweep_dir == unit_value(PIPELINE, "Service", "WorkingDirectory")
     assert unit_values(SERVICE, "Service", "EnvironmentFile") == unit_values(
         PIPELINE, "Service", "EnvironmentFile"
     )
