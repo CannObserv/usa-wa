@@ -1,5 +1,5 @@
-"""One member, one seat per chamber at a time — ported from ``succession-invariants``
-(#412 PR B), and widened from the open cohort to all of history.
+"""One member, one seat at a time — ported from ``succession-invariants`` (#412 PR B),
+and widened from the open cohort to all of history, and from one chamber to both (CR 5).
 
 Same harness split as ``test_seat_occupancy``: the predicate is read from the
 shipped SQL rather than restated.
@@ -98,13 +98,27 @@ def test_a_same_day_move_between_seats_passes():
     )
 
 
-def test_a_house_and_a_senate_seat_at_once_pass():
-    """Scoped per chamber, as the ported gate was. A chamber move's overlap is the
-    span engine's #363 concern, not this gate's."""
+def test_a_house_and_a_senate_seat_at_once_fail():
+    """CR 5: the chamber-mover shape (#145). A representative appointed to the
+    Senate whose House ``vacated`` was never recorded holds both seats; once the
+    House seat has a successor the chamber count is back to 98 and nothing else
+    sees it. The ported gate was per chamber; this one is not."""
     assert (
         _failures(
             [
                 _house("01A", 5, "2019-01-14", "2020-01-10"),
+                _span("01A", "seat:senate:ld-5", "chamber-senate", "2019-12-01"),
+            ]
+        )
+        == 1
+    )
+
+
+def test_a_same_day_move_from_the_house_to_the_senate_passes():
+    assert (
+        _failures(
+            [
+                _house("01A", 5, "2019-01-14", "2019-12-01"),
                 _span("01A", "seat:senate:ld-5", "chamber-senate", "2019-12-01"),
             ]
         )

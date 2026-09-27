@@ -349,7 +349,7 @@ reasoning.
 |---|---|---|
 | `assignments_chamber_excess` | `succession-invariants` chamber count, high side | error: more than 49 / 98 open is a ghost-open predecessor |
 | `assignments_chamber_vacancy` | the same count, low side | **warn**: a vacancy is a real state (a death, the 2027-01-01 rollover), and an `error` would stop publishing until the seat filled |
-| `assignments_one_seat_per_member` | `succession-invariants` member duplicates | error, over **all history**, not only the open cohort |
+| `assignments_one_seat_per_member` | `succession-invariants` member duplicates | error, over **all history** and **across chambers** (the #145 mover), not only the open cohort of one chamber |
 | `assignments_start_in_key_biennium` | `succession-invariants` #272 misdating | error |
 | `assignments_odd_year_winners_seated` | `house-corroboration`, `senate-corroboration` | error, over **every archived odd year**, probed at December 31 of the election year |
 | `not_null` on `stg_roster_members.order` | `parity_spans`' `malformed_roster_rows` | error |
