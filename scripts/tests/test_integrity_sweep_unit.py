@@ -61,6 +61,7 @@ def test_the_unit_runs_the_raw_store_sweep_and_persists_its_cursor(tmp_path, mon
 
     argv = _sweep_argv()
     assert "--dry-run" not in argv
+    assert "--expect-objects" in argv, "a missing or empty store must alert, not pass"
     assert main([*argv, "--byte-budget", "1"]) == 0
     assert json.loads((tmp_path / STATE_FILENAME).read_text())["cursors"][""]
 

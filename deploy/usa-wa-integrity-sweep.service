@@ -39,8 +39,10 @@ EnvironmentFile=/etc/usa-wa/.env
 EnvironmentFile=-/home/exedev/usa-wa/.env
 
 # --frozen --no-sync: run against the installed venv as-is; never re-lock or sync
-# at unit start (AGENTS.md § Server Lifecycle, #30).
-ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m clearinghouse_core.raw_integrity
+# at unit start (AGENTS.md § Server Lifecycle, #30). --expect-objects: a missing
+# or empty store exits 4 → operator email, so a moved store or a renamed
+# USA_WA_RAW_ROOT cannot pass as a clean sweep every week.
+ExecStart=/usr/local/bin/uv run --frozen --no-sync python -m clearinghouse_core.raw_integrity --expect-objects
 
 # Backstop the bounded rolling slice (#55 idiom, default 256 MiB) so a stuck
 # disk fails deterministically rather than hanging the manager; the timer
