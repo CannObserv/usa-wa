@@ -73,7 +73,7 @@ What survives:
    - `malformed_roster_rows` as an in-build dbt test (**error**): it does not depend on the registrar.
    - Split the three `unregistered_*` counters out of `parity_spans` into a **post-registrar probe** that reads the registry and never canonical, runs where the parity stage runs today, and stays gated at zero. They must **not** become in-build dbt tests: a failed build aborts before the registrar (`pipeline-nightly.sh:89`), so the first night a new legislator or committee appears the build would fail, the registrar would never register it, and every night after would fail the same way.
    - Done when each test is green against the production duckdb, and the Postgres units still run.
-   - *As built:*
+   - *As built (#435):*
      - The member-duplicate check covers **all history** and both chambers, not only the open cohort of one chamber.
      - Corroboration covers **every archived odd year**, probed at December 31. It joins a new internal `seat_winners` model, so no SQL re-parses a race label.
      - Both widened checks were 0 on the production build, 2026-09-27.
