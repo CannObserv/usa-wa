@@ -83,18 +83,27 @@ def sos_result_wires(rows: list[dict[str, Any]]) -> dict[int, list[dict[str, Any
     """
     out: dict[int, list[dict[str, Any]]] = {}
     for row in rows:
-        raw = str(row.get("election_date") or "")[:4]
-        if not raw.isdigit():
+        year = election_year(row)
+        if year is None:
             continue
-        out.setdefault(int(raw), []).append(
-            {
-                "Race": row.get("race"),
-                "Candidate": row.get("candidate"),
-                "Party": row.get("party"),
-                "Votes": row.get("votes"),
-            }
-        )
+        out.setdefault(year, []).append(result_wire_row(row))
     return out
+
+
+def election_year(row: dict[str, Any]) -> int | None:
+    """The election year a staging SOS result row belongs to, or ``None``."""
+    raw = str(row.get("election_date") or "")[:4]
+    return int(raw) if raw.isdigit() else None
+
+
+def result_wire_row(row: dict[str, Any]) -> dict[str, Any]:
+    """One staging SOS result row, relabelled with the archived CSV's header keys."""
+    return {
+        "Race": row.get("race"),
+        "Candidate": row.get("candidate"),
+        "Party": row.get("party"),
+        "Votes": row.get("votes"),
+    }
 
 
 def house_positions_by_year(

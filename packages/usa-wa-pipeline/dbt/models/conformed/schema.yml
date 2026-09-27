@@ -90,6 +90,15 @@ models:
                 values: ["party_member", "committee_member", "state_senator", "state_representative"]
       - name: org_source_id
         data_tests: [not_null]
+  - name: seat_winners
+    description: "Each seat a ballot decided, one row per (wire, seat): the SOS normalizers' winner per race, keyed by the role_key assignments carry (#412 PR B). Internal, never published; read by tests/assignments_odd_year_winners_seated.sql. A tie or an unrankable race is omitted, never guessed."
+    columns:
+      - name: election_year
+        data_tests: [not_null]
+      - name: role_key
+        data_tests: [not_null]
+      - name: resource_id
+        data_tests: [not_null]
   - name: citations
     description: "Every published entity → the raw wires that attest it (#313). Internal tier: loaded into the serving schema so /provenance/{type}/{id} keeps answering after the Postgres provenance tables retire, but not part of the subscriber contract. entity_id is a registry ULID for person/organization/role and a 4-part span source_id for assignment, which is the assignment's published identity. Joins stg_raw_fetches on (source, resource_id) for the digest, fetch time and URL — none of which is duplicated here."
     columns:
