@@ -22,18 +22,18 @@ from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
 )
-from usa_wa_adapter_legislature.roster_pdf.build import (
-    OracleViolation,
-    build_pre1991,
-    unattested_spans,
-    verify_pre1991,
-)
+from usa_wa_adapter_legislature.roster_pdf.build import build_pre1991
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.identity import (
     IDENTITY_MINTED,
     RosterIdentity,
 )
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
+from usa_wa_adapter_legislature.roster_pdf.oracle import (
+    OracleViolation,
+    unattested_spans,
+    verify_pre1991,
+)
 from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
 from usa_wa_adapter_legislature.roster_pdf.resources import ROSTER_RESOURCE_PREFIX
 
