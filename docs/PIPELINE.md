@@ -343,8 +343,9 @@ two holders.
 
 ### Ported from the canonical tier (#412)
 
-The checks the retiring Postgres units ran, rebuilt on `assignments` (#412 PR B).
-Each was 0 on the production build 2026-09-27; each file's header carries its
+The checks the retiring Postgres units ran, rebuilt on `assignments` (#412 PR B) —
+and lineage INV1 on `organizations` ⋈ `roles` ⋈ `assignments` (#428). Each was 0 on
+the production build (PR B's 2026-09-27, INV1's 2026-09-28); each file's header carries its
 reasoning.
 
 | Test | Replaces | Severity |
