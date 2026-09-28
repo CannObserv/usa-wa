@@ -39,17 +39,17 @@ from clearinghouse_core.runner import AdapterRunner, RunSummary
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.span_emit import SpanBuildResult
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.adapter import (
-    COMMITTEES_RESOURCE_PREFIX,
-    SPONSORS_RESOURCE_PREFIX,
-    WALegislatureAdapter,
-    committee_members_hist_resource_id,
-)
+from usa_wa_adapter_legislature.adapter import WALegislatureAdapter
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors, bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.membership.build import build_committee_member_spans
 from usa_wa_adapter_legislature.membership.cohort import CommitteeMemberCohortProvider
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
+from usa_wa_adapter_legislature.resources import (
+    COMMITTEES_RESOURCE_PREFIX,
+    SPONSORS_RESOURCE_PREFIX,
+    committee_members_hist_resource_id,
+)
 from usa_wa_adapter_legislature.sponsors import build as sponsor_build
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction

@@ -18,9 +18,9 @@ from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Raw
 from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Person, Role
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
-from usa_wa_adapter_legislature.normalize.members import senate_seat_role_source_id
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_common.jurisdiction import resolve_jurisdiction
+from usa_wa_common.seats import senate_seat_role_source_id
 from usa_wa_facts_seats import senate_corroboration as corroboration_module
 from usa_wa_facts_seats.senate_corroboration import (
     SenateCorroborationResult,

@@ -35,13 +35,13 @@ from clearinghouse_core.job import JobContext, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_pdc.adapter import (
-    HOUSE_WINNERS_RESOURCE_PREFIX,
-    SENATE_WINNERS_RESOURCE_PREFIX,
-    PDCAdapter,
-)
+from usa_wa_adapter_pdc.adapter import PDCAdapter
 from usa_wa_adapter_pdc.coverage import PDC_ELECTION_YEARS
 from usa_wa_adapter_pdc.provisioning import get_or_create_source
+from usa_wa_adapter_pdc.resources import (
+    HOUSE_WINNERS_RESOURCE_PREFIX,
+    SENATE_WINNERS_RESOURCE_PREFIX,
+)
 from usa_wa_adapter_pdc.transport import PDCClient
 from usa_wa_common.elections import election_years_for_biennium, senate_election_years_for_biennium
 from usa_wa_common.jurisdiction import resolve_jurisdiction

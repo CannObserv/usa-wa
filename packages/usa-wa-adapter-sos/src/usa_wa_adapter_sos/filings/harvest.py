@@ -36,7 +36,8 @@ from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_sos.coverage import SOS_FILINGS_ELECTION_YEARS
-from usa_wa_adapter_sos.filings.adapter import SOSAdapter, whofiled_resource_id
+from usa_wa_adapter_sos.filings.adapter import SOSAdapter
+from usa_wa_adapter_sos.filings.resources import whofiled_resource_id
 from usa_wa_adapter_sos.filings.transport import SOSFilingsClient, configure_sos_rate_limit
 from usa_wa_adapter_sos.provisioning import get_or_create_source
 from usa_wa_common.elections import election_year_for_biennium

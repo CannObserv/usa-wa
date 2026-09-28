@@ -18,8 +18,8 @@ from clearinghouse_domain_legislative.identity import (
     Role,
 )
 from usa_wa_adapter_legislature import WALegislatureAdapter
-from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
+from usa_wa_adapter_legislature.resources import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.transport import WireFetch
 
 BIENNIUM = "2025-26"

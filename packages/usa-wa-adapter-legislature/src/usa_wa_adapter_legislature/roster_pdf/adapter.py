@@ -24,12 +24,13 @@ from clearinghouse_core.adapter import BaseAdapter, FetchedPayload, NormalizedBa
 from clearinghouse_core.logging import get_logger
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.extraction import extract_revision_date
+from usa_wa_adapter_legislature.roster_pdf.resources import (
+    revision_from_resource_id,
+    roster_resource_id,
+)
 from usa_wa_adapter_legislature.roster_pdf.transport import RosterPdfClient
 
 logger = get_logger(__name__)
-
-#: ``fetch_one`` resource-id prefix for a roster edition.
-ROSTER_RESOURCE_PREFIX = "legroster:"
 
 
 class RosterRevisionMismatch(ValueError):
@@ -39,18 +40,6 @@ class RosterRevisionMismatch(ValueError):
     requested key would mislabel the bytes, and every citation minted from them would name an
     edition that never attested the fact. Re-run with the new ``--revision``.
     """
-
-
-def roster_resource_id(revision: str) -> str:
-    """The archive resource id for a revision — ``legroster:<YYYY-MM-DD>``."""
-    return f"{ROSTER_RESOURCE_PREFIX}{revision}"
-
-
-def revision_from_resource_id(resource_id: str) -> str:
-    """Recover the revision date from a ``legroster:<YYYY-MM-DD>`` resource id."""
-    if not resource_id.startswith(ROSTER_RESOURCE_PREFIX):
-        raise ValueError(f"unknown resource_id: {resource_id!r}")
-    return resource_id[len(ROSTER_RESOURCE_PREFIX) :]
 
 
 class RosterPdfAdapter(BaseAdapter):

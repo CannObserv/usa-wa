@@ -44,7 +44,7 @@ layer.
 
 **A blank is not a name** (#364). `GetSponsors` answers with a name-blanked
 STUB for a superseded / departed (member, chamber-tenure) — a real `Id`, `Name`
-a single space, no first/last — the shape `normalize.members.is_person` has
+a single space, no first/last — the shape `member_rows.is_person` has
 always screened on the canonical path. Survivorship did not: `' '` is truthy,
 so the stub read as the member's newest attestation and Tina Orwall, Tim
 Sheldon, Robert Sutherland and Simon Sefzik published `' '` as their legal name.

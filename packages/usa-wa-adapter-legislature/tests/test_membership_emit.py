@@ -16,12 +16,12 @@ from sqlalchemy import func, select
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Source
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
-from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.membership.emit import emit_committee_spans
 from usa_wa_adapter_legislature.membership.projector import (
     KIND_COMMITTEE,
     build_committee_membership_observations,
 )
+from usa_wa_adapter_legislature.resources import committee_members_hist_resource_id
 
 CURRENT = "2025-26"
 CID = "31635"

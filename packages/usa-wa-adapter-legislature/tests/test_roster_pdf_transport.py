@@ -12,19 +12,18 @@ import respx
 from clearinghouse_core.source_coverage import CoverageStatus
 from usa_wa_adapter_legislature.ratelimit import RateLimiter
 from usa_wa_adapter_legislature.roster_pdf import transport as roster_transport_module
-from usa_wa_adapter_legislature.roster_pdf.adapter import (
-    ROSTER_RESOURCE_PREFIX,
-    RosterPdfAdapter,
-    RosterRevisionMismatch,
-    revision_from_resource_id,
-    roster_resource_id,
-)
+from usa_wa_adapter_legislature.roster_pdf.adapter import RosterPdfAdapter, RosterRevisionMismatch
 from usa_wa_adapter_legislature.roster_pdf.coverage import (
     MEMBER_ROSTER,
     ROSTER_COVERAGE,
     ROSTER_SOURCE_SLUG,
 )
 from usa_wa_adapter_legislature.roster_pdf.extraction import extract_revision_date
+from usa_wa_adapter_legislature.roster_pdf.resources import (
+    ROSTER_RESOURCE_PREFIX,
+    revision_from_resource_id,
+    roster_resource_id,
+)
 from usa_wa_adapter_legislature.roster_pdf.transport import (
     DEFAULT_LEG_MIN_REQUEST_INTERVAL,
     DEFAULT_ROSTER_URL,

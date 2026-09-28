@@ -21,12 +21,12 @@ from clearinghouse_core.config import DATABASE_ROLE_OWNER
 from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person
-from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.membership import migrate_spans as migrate_module
 from usa_wa_adapter_legislature.membership.migrate_spans import (
     MigrationResult,
     migrate_committee_spans,
 )
+from usa_wa_adapter_legislature.resources import committee_members_hist_resource_id
 
 # Run under the LIVE #86 partial unique indexes (as prod has them, #95) — the retire must be
 # index-safe (delete the stranded row to free its anchor *before* moving it to the keeper).

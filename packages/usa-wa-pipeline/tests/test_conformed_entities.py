@@ -162,7 +162,7 @@ def test_org_rows_drop_tombstoned_entities() -> None:
 # `GetSponsors` returns a name-blanked STUB for a superseded / departed (member,
 # chamber-tenure): a real `Id`, `Name` a single space, no first/last, no
 # district, no party. The canonical path has always screened those
-# (`normalize.members.is_person`); the conformed survivorship did not, so four
+# (`member_rows.is_person`); the conformed survivorship did not, so four
 # sitting legislators published `' '` as their legal name — found downstream by
 # power-map#497, not here.
 

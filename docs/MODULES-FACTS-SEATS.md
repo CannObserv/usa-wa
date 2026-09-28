@@ -27,6 +27,8 @@ packages/
                         Position 1/2), PDC supplies the chamber-mover exclusion.
         projector.py  —   pure: roster x ballot -> positioned Observations (+ the #103 within-LD
                           elimination and #118 back-chain seeds)
+        positions.py  —   pure: a biennium's position map, even candidacies + odd-special winners
+                          (`merge_positions`, #123); shared with the pipeline's conformed House (#412)
         build.py      —   Phase B driver: read the cohorts offline, merge into TenureSpans, emit
         emit.py       —   bind spans to the Layer-2 generic emitter, cite every biennium
         backchain.py  —   #118 carry-back of a Position from a later ballot anchor

@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from usa_wa_adapter_sos.provisioning import RESULTS_SOURCE_SLUG, get_or_create_results_source
-from usa_wa_adapter_sos.results.adapter import (
-    ResultsAdapter,
+from usa_wa_adapter_sos.results.adapter import ResultsAdapter
+from usa_wa_adapter_sos.results.resources import (
     election_year_from_resource_id,
     legresults_resource_id,
 )

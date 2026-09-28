@@ -65,11 +65,6 @@ from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.membership.projector import (
     build_committee_membership_observations,
 )
-from usa_wa_adapter_legislature.roster_pdf.build import (
-    OracleViolation,
-    unattested_spans,
-    verify_pre1991,
-)
 from usa_wa_adapter_legislature.roster_pdf.identity import (
     IDENTITY_WSL,
     ROSTER_IDENTITY_FLOOR,
@@ -77,6 +72,11 @@ from usa_wa_adapter_legislature.roster_pdf.identity import (
     resolve_identities,
 )
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
+from usa_wa_adapter_legislature.roster_pdf.oracle import (
+    OracleViolation,
+    unattested_spans,
+    verify_pre1991,
+)
 from usa_wa_adapter_legislature.roster_pdf.projector import build_pre1991_observations
 from usa_wa_adapter_legislature.sponsors.artifacts import with_artifact_exclusions
 from usa_wa_adapter_legislature.sponsors.projector import build_sponsor_observations

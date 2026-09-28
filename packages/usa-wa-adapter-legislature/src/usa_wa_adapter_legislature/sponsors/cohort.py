@@ -25,7 +25,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
-from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
+from usa_wa_adapter_legislature.resources import SPONSORS_RESOURCE_PREFIX
 
 logger = get_logger(__name__)
 

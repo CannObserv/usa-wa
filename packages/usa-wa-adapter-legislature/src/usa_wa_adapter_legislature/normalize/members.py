@@ -39,6 +39,7 @@ from clearinghouse_domain_legislative.identity import (
     PersonIdentifier,
     Role,
 )
+from usa_wa_adapter_legislature.member_rows import is_person
 
 logger = get_logger(__name__)
 
@@ -83,14 +84,6 @@ _PARTY_CANON = {
 }
 
 
-def is_person(member: dict[str, Any]) -> bool:
-    """True when a ``Member`` row is a named legislator (both first + last present).
-
-    Filters the name-blanked stubs ``GetSponsors`` returns for a superseded / departed
-    (member, chamber-tenure) — a real ``Id`` but no name/district/party (step 0 finding)."""
-    return bool((member.get("FirstName") or "").strip() and (member.get("LastName") or "").strip())
-
-
 def canonicalize_party(raw: str | None) -> str | None:
     """Fold a WSL ``Party`` value (either endpoint encoding) to a canonical slug.
 
@@ -127,21 +120,6 @@ def ld_slug(district: str | None) -> str | None:
     matching the synced PM jurisdictions), or ``None`` for a blank/malformed district."""
     number = district_number(district)
     return f"usa-wa-ld-{number}" if number is not None else None
-
-
-def party_role_source_id(slug: str) -> str:
-    """Deterministic ``source_id`` for a party's ``Member`` Role (one per party Org)."""
-    return f"party-role:{slug}"
-
-
-def committee_member_role_source_id(committee_source_id: str) -> str:
-    """Deterministic ``source_id`` for a committee's ``Member`` Role (one per committee)."""
-    return f"committee-member-role:{committee_source_id}"
-
-
-def senate_seat_role_source_id(ld_number: int) -> str:
-    """Deterministic ``source_id`` for a Senate seat Role (one per LD)."""
-    return f"seat:senate:ld-{ld_number}"
 
 
 def build_person(member: dict[str, Any]) -> Person:

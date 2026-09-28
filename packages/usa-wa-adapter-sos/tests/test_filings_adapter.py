@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from usa_wa_adapter_sos.filings.adapter import (
-    SOSAdapter,
+from usa_wa_adapter_sos.filings.adapter import SOSAdapter
+from usa_wa_adapter_sos.filings.resources import (
     election_year_from_resource_id,
     whofiled_resource_id,
 )

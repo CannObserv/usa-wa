@@ -14,11 +14,13 @@ reading the CSV, with no ULID mediation (the first subscriber matches seats on
 it — an alignment, not a constraint). Only the *organization* the slot belongs to is registered, and
 that comes in from the crosswalk.
 
-Every key function is imported UNCHANGED — ``party_role_source_id``,
-``committee_member_role_source_id``, ``senate_seat_role_source_id`` from the
-adapter's normalizer, ``house_seat_role_source_id`` and
+Every key function is imported UNCHANGED — ``party_role_source_id`` and
+``committee_member_role_source_id`` from the adapter's ``role_keys``, and
+``senate_seat_role_source_id``, ``house_seat_role_source_id`` and
 ``parse_house_span_discriminator`` from the WA vocabulary. Re-deriving any of
 them here would fork the seat identity from the tier that already publishes it.
+They left the adapter's member normalizer in #412, because that module is the
+Postgres write path this package may not import.
 """
 
 from __future__ import annotations
@@ -32,12 +34,15 @@ from clearinghouse_domain_legislative.span_kinds import (
     KIND_PARTY,
     KIND_SENATE,
 )
-from usa_wa_adapter_legislature.normalize.members import (
+from usa_wa_adapter_legislature.role_keys import (
     committee_member_role_source_id,
     party_role_source_id,
+)
+from usa_wa_common.seats import (
+    house_seat_role_source_id,
+    parse_house_span_discriminator,
     senate_seat_role_source_id,
 )
-from usa_wa_common.seats import house_seat_role_source_id, parse_house_span_discriminator
 
 #: The source every role key is asserted under — roles are WSL-space slots even
 #: when the tenure filling them came from the roster PDF.

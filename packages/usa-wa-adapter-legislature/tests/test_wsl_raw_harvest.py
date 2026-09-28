@@ -12,9 +12,9 @@ import pytest
 
 from clearinghouse_core.job import JobFailure
 from clearinghouse_core.rawstore import RawRun, RawStore
-from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.raw_harvest import SOURCE_SLUG, harvest_raw, job_outcome
+from usa_wa_adapter_legislature.resources import committee_members_hist_resource_id
 
 BIENNIUM = "2025-26"
 

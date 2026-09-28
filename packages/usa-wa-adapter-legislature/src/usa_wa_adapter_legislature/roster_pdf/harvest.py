@@ -36,12 +36,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
-from usa_wa_adapter_legislature.roster_pdf.adapter import (
-    RosterPdfAdapter,
-    RosterRevisionMismatch,
-    roster_resource_id,
-)
+from usa_wa_adapter_legislature.roster_pdf.adapter import RosterPdfAdapter, RosterRevisionMismatch
 from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
+from usa_wa_adapter_legislature.roster_pdf.resources import roster_resource_id
 from usa_wa_adapter_legislature.roster_pdf.transport import (
     DEFAULT_LEG_MIN_REQUEST_INTERVAL,
     RosterUnavailable,

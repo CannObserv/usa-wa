@@ -23,15 +23,12 @@ from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.identity import Role
 from clearinghouse_domain_legislative.span_emit import CitationTarget, emit_spans
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
-from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.bootstrap import BootstrapAnchors
-from usa_wa_adapter_legislature.normalize.members import (
-    get_or_create_role,
-    party_role_source_id,
-    resolve_ld_jurisdiction,
-    senate_seat_role_source_id,
-)
+from usa_wa_adapter_legislature.normalize.members import get_or_create_role, resolve_ld_jurisdiction
+from usa_wa_adapter_legislature.resources import SPONSORS_RESOURCE_PREFIX
+from usa_wa_adapter_legislature.role_keys import party_role_source_id
 from usa_wa_adapter_legislature.sponsors.projector import KIND_PARTY, KIND_SENATE
+from usa_wa_common.seats import senate_seat_role_source_id
 
 logger = get_logger(__name__)
 

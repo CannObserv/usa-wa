@@ -20,15 +20,15 @@ from ulid import ULID as _ULID
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
 from clearinghouse_domain_legislative.span_emit import CitationTarget
-from usa_wa_adapter_legislature.roster_pdf.adapter import (
-    ROSTER_RESOURCE_PREFIX,
-    revision_from_resource_id,
-)
 from usa_wa_adapter_legislature.roster_pdf.extraction import extract_pages
 from usa_wa_adapter_legislature.roster_pdf.normalize import (
     ParseReport,
     RosterRecord,
     parse_district_pages_reporting,
+)
+from usa_wa_adapter_legislature.roster_pdf.resources import (
+    ROSTER_RESOURCE_PREFIX,
+    revision_from_resource_id,
 )
 
 logger = get_logger(__name__)

@@ -25,7 +25,7 @@ from clearinghouse_domain_legislative.span_kinds import (
     KIND_COMMITTEE,  # noqa: F401 (re-export for this package's builders/tests)
 )
 from clearinghouse_domain_legislative.tenure_spans import Observation
-from usa_wa_adapter_legislature.normalize.members import is_person
+from usa_wa_adapter_legislature.member_rows import is_person
 
 # Tenure ``kind`` for committee membership is the canonical domain span kind
 # (imported above so this package and the domain guard cannot drift, #114).

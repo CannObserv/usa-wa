@@ -21,11 +21,11 @@ from ulid import ULID as _ULID
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
 from clearinghouse_domain_legislative.span_emit import CitationTarget
-from usa_wa_adapter_sos.filings.adapter import (
+from usa_wa_adapter_sos.filings.normalize import HouseFiling, build_house_filings
+from usa_wa_adapter_sos.filings.resources import (
     WHOFILED_RESOURCE_PREFIX,
     election_year_from_resource_id,
 )
-from usa_wa_adapter_sos.filings.normalize import HouseFiling, build_house_filings
 from usa_wa_adapter_sos.filings.transport import parse_whofiled
 
 logger = get_logger(__name__)

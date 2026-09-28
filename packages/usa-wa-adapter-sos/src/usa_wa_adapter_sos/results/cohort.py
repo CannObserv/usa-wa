@@ -22,14 +22,14 @@ from ulid import ULID as _ULID
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
 from clearinghouse_domain_legislative.span_emit import CitationTarget
-from usa_wa_adapter_sos.results.adapter import (
-    LEGRESULTS_RESOURCE_PREFIX,
-    election_year_from_resource_id,
-)
 from usa_wa_adapter_sos.results.normalize import (
     build_house_positions,
     build_house_winners,
     build_senate_winners,
+)
+from usa_wa_adapter_sos.results.resources import (
+    LEGRESULTS_RESOURCE_PREFIX,
+    election_year_from_resource_id,
 )
 from usa_wa_adapter_sos.results.transport import parse_legislative_results
 from usa_wa_common.ballot import HousePosition, SenateWinner

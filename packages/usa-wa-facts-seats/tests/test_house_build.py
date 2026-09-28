@@ -21,11 +21,11 @@ from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Raw
 from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Person
 from clearinghouse_domain_legislative.operator_events import KIND_SEATED, KIND_VACATED
-from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
 )
+from usa_wa_adapter_legislature.resources import committee_members_hist_resource_id
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 from usa_wa_facts_seats.house import build as build_module
 from usa_wa_facts_seats.house.build import HouseSpanResult, build_house_position_spans

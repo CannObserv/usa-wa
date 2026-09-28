@@ -56,7 +56,6 @@ from clearinghouse_domain_legislative.span_emit import (
 )
 from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.cohorts import (
     committee_member_provider,
@@ -75,6 +74,7 @@ from usa_wa_adapter_legislature.operators.store import (
 from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
 )
+from usa_wa_adapter_legislature.resources import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.sponsors.cohort import (
     SponsorClient,
     SponsorRosterCohortProvider,
@@ -86,14 +86,15 @@ from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
 )
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.cohort import SosResultsCohortProvider
-from usa_wa_common.ballot import HousePosition, position_for
-from usa_wa_common.elections import election_year_for_biennium, election_years_for_biennium
+from usa_wa_common.ballot import position_for
+from usa_wa_common.elections import election_year_for_biennium
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 from usa_wa_facts_seats.house.backchain import (
     MAX_BACKCHAIN_HOPS_DEFAULT,
     backchain_house_observations,
 )
 from usa_wa_facts_seats.house.emit import emit_house_position_spans
+from usa_wa_facts_seats.house.positions import biennium_election_years, merge_positions
 from usa_wa_facts_seats.pdc.matching import build_house_roster, house_mover_ids
 from usa_wa_facts_seats.pdc.observations import KIND_HOUSE
 
@@ -107,41 +108,6 @@ JOB_SLUG = "house-position-span-build"
 #: it to find a member's Position) cannot drift — a rename would otherwise make the reader
 #: match nothing and silently degrade every House event to `no_position` (CR-5 finding 33).
 _HOUSE_ASSIGNMENT_SOURCE = WSL_SOURCE_SLUG
-
-HousePositionsByLd = dict[int, list[HousePosition]]
-
-
-def biennium_election_years(biennium: str) -> tuple[int, int]:
-    """``(even_seating_year, odd_special_year)`` for a biennium (#123).
-
-    Public since #309: the conformed tier composes the same map, and a second
-    implementation of the even/odd split is a divergence waiting to happen. ``election_years_for_
-    biennium`` returns ``[start-1, start]`` — the even November that seats the chamber and the odd
-    November that fills mid-biennium vacancies by special. ``even == odd`` never happens (start-1 is
-    always even), so the two are distinct sources to merge."""
-    years = election_years_for_biennium(biennium)
-    return years[0], years[-1]
-
-
-def merge_positions(
-    biennium: str,
-    positions: dict[int, HousePositionsByLd],
-    house_winners: dict[int, HousePositionsByLd],
-) -> HousePositionsByLd:
-    """The biennium's House position map = even seating candidacies ∪ odd-special **winners**
-    (#123 §1). ``position_for`` is name-keyed, so appended entries only *add* resolution power —
-    nothing existing is retracted. The even seating cohort keeps its full candidacy set (the #103
-    elimination depends on the losers); only the odd side is winner-filtered (hazard b — a losing
-    special candidacy must not false-match a member). An absent/empty odd cohort (no special that
-    biennium, or the odd November not yet held) leaves the even map unchanged — backward
-    compatible with the pre-#123 single-year lookup."""
-    even_year, odd_year = biennium_election_years(biennium)
-    merged: HousePositionsByLd = {
-        ld: list(entries) for ld, entries in positions.get(even_year, {}).items()
-    }
-    for ld, entries in house_winners.get(odd_year, {}).items():
-        merged.setdefault(ld, []).extend(entries)
-    return merged
 
 
 @dataclass

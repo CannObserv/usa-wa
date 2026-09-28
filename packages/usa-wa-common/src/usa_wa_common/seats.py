@@ -57,6 +57,11 @@ def canonical_position(raw: object) -> str | None:
     return f"Position {text}"
 
 
+def senate_seat_role_source_id(ld_number: int) -> str:
+    """Deterministic ``source_id`` for a Senate seat Role (one per LD)."""
+    return f"seat:senate:ld-{ld_number}"
+
+
 def house_seat_role_source_id(ld_number: int, qualifier: str) -> str:
     """Deterministic ``source_id`` for a House ``state_representative`` seat Role (one per
     ``(LD, position)``) — aligns 1:1 with PM's seat match key."""

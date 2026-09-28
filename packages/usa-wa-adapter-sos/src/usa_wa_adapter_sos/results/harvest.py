@@ -43,7 +43,8 @@ from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
 from usa_wa_adapter_sos.coverage import SOS_RESULTS_ELECTION_YEARS
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
-from usa_wa_adapter_sos.results.adapter import ResultsAdapter, legresults_resource_id
+from usa_wa_adapter_sos.results.adapter import ResultsAdapter
+from usa_wa_adapter_sos.results.resources import legresults_resource_id
 from usa_wa_adapter_sos.results.transport import (
     LegislativeExportNotFound,
     SOSResultsClient,

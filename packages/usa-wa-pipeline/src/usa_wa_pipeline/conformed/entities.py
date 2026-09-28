@@ -51,7 +51,7 @@ def _name(value: Any) -> str | None:
     Two upstream shapes, one rule. `GetSponsors` returns a name-blanked STUB
     for a superseded / departed (member, chamber-tenure) — a real ``Id``, a
     single-space ``Name``, no first/last, no district (the shape
-    `normalize.members.is_person` has always screened on the canonical path).
+    `member_rows.is_person` has always screened on the canonical path).
     Truthiness does not screen it: ``' '`` is truthy, so the stub read as the
     member's newest attestation and four sitting legislators — Tina Orwall,
     Tim Sheldon, Robert Sutherland, Simon Sefzik — published ``' '`` as their

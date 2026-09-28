@@ -37,13 +37,11 @@ from clearinghouse_core.job import EXIT_CONFIG, JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.runner import AdapterRunner
 from clearinghouse_domain_legislative.terms import biennium_for_date, bienniums_in_range
-from usa_wa_adapter_legislature.adapter import (
-    COMMITTEES_ROSTER_RESOURCE_PREFIX,
-    WALegislatureAdapter,
-)
+from usa_wa_adapter_legislature.adapter import WALegislatureAdapter
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.committees.probe_extent import probe_floor
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
+from usa_wa_adapter_legislature.resources import COMMITTEES_ROSTER_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.transport import WSLClient
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 

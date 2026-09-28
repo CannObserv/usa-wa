@@ -37,7 +37,7 @@ from ulid import ULID as _ULID
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
 from clearinghouse_domain_legislative.span_emit import CitationTarget
-from usa_wa_adapter_legislature.adapter import (
+from usa_wa_adapter_legislature.resources import (
     COMMITTEE_MEMBERS_HIST_RESOURCE_PREFIX,
     parse_committee_members_hist_resource_id,
 )
