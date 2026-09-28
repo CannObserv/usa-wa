@@ -60,7 +60,7 @@ from usa_wa_facts_seats.house.backchain import (
     MAX_BACKCHAIN_HOPS_DEFAULT,
     backchain_house_observations,
 )
-from usa_wa_facts_seats.house.build import merge_positions
+from usa_wa_facts_seats.house.positions import merge_positions
 from usa_wa_facts_seats.pdc.matching import build_house_roster, house_mover_ids
 from usa_wa_pipeline.conformed.wire import committee_rosters, sponsor_wire_rows
 
