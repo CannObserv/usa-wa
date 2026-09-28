@@ -111,6 +111,7 @@ What survives:
    - Expect the final `raw_export` to re-export the operator payloads PR A's dual write already landed. That adds duplicate manifest rows only: the objects dedup, and `latest.json` cannot regress.
    - Remove the Postgres-tier modules, the oracle-backed `parity_*` probes (not `parity_citations`, not PR B's post-registrar probe), `registry_seed`, `runner.py`, `adapter.py` and `span_emit`.
    - Remove the canonical identity models and the PM-mirror half of `jurisdictions.py`.
+   - In the same commit, add the canonical model modules (`clearinghouse_domain_legislative.identity` and its siblings) to PR D's contract, "…never import the retiring Postgres tier". PR D could not: the parity probes and `registry_seed` import them until they are removed above.
    - Cut `provenance.py` down to `Source` + `SourceCoverage`, and delete the retired units' files.
    - Trim `clearinghouse_core/models.py`'s side-effect registration to the surviving models. The job harness reaches `provenance` and `jurisdictions` only through it, and both modules survive in trimmed form, so PR D need not touch the harness.
    - Resolve `source_coverage.evidence_citation_id` per Q5 before its target goes.
