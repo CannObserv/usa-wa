@@ -18,7 +18,11 @@ meeting-ref fallback for Joint/`Other`, and the synthesized structural orgs —
 legislature, chambers, parties — from `usa_wa_common.orgs.STRUCTURAL_ORGS`).
 An organization's name goes through the same blank screen as a person's
 (#364 CR 5); its `acronym` deliberately does not, because 35 are space-padded
-in the wire and trimming them would restate 35 published values.
+in the wire and trimming them would restate 35 published values. Its `active`
+(#428) is "attested in the current biennium" — the roster wire for a committee,
+a meeting window for a Joint/`Other` body, the declared `STRUCTURAL_ORGS` flag
+otherwise — on `spans.current_biennium()`, the clock that keeps spans open, so
+the INV1 dbt test ([`PIPELINE.md`](PIPELINE.md)) cannot fire on a rollover.
 
 **A merge re-points, it does not delete** (#366). Every conformed reader of the
 crosswalk attributes a tombstoned entity's keys to its survivor — the tombstone
