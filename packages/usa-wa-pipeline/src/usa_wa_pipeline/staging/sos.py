@@ -13,8 +13,8 @@ from typing import Any
 
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_sos import parsing
-from usa_wa_adapter_sos.filings.adapter import WHOFILED_RESOURCE_PREFIX
-from usa_wa_adapter_sos.results.adapter import LEGRESULTS_RESOURCE_PREFIX
+from usa_wa_adapter_sos.filings.resources import WHOFILED_RESOURCE_PREFIX
+from usa_wa_adapter_sos.results.resources import LEGRESULTS_RESOURCE_PREFIX
 from usa_wa_pipeline.staging.common import PROVENANCE_SCHEMA
 from usa_wa_pipeline.staging.common import latest_wires as _latest_wires
 from usa_wa_pipeline.staging.common import provenance as _provenance

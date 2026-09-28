@@ -31,12 +31,12 @@ from clearinghouse_core.provenance import Citation, FetchEvent, FetchStatus, Raw
 from clearinghouse_core.testing import assert_test_url_safety, reset_migration_schemas
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.sessions import LegislativeSession
-from usa_wa_adapter_legislature.adapter import (
+from usa_wa_adapter_legislature.meetings.windows import COMMITTEE_MEETINGS_RESOURCE_PREFIX
+from usa_wa_adapter_legislature.resources import (
     COMMITTEE_MEMBERS_HIST_RESOURCE_PREFIX,
     COMMITTEES_RESOURCE_PREFIX,
     SPONSORS_RESOURCE_PREFIX,
 )
-from usa_wa_adapter_legislature.meetings.windows import COMMITTEE_MEETINGS_RESOURCE_PREFIX
 
 #: Every archive the daily refresh is expected to pull, by ``resource_id`` prefix
 #: (`refresh.py`: committees for the biennium, the sponsors roster, the per-committee

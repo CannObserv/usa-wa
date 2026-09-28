@@ -22,7 +22,6 @@ from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
 )
-from usa_wa_adapter_legislature.roster_pdf.adapter import ROSTER_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.roster_pdf.build import (
     OracleViolation,
     build_pre1991,
@@ -36,6 +35,7 @@ from usa_wa_adapter_legislature.roster_pdf.identity import (
 )
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
+from usa_wa_adapter_legislature.roster_pdf.resources import ROSTER_RESOURCE_PREFIX
 
 CURRENT = "2025-26"
 

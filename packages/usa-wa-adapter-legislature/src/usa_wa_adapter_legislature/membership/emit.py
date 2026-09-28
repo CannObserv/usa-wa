@@ -26,10 +26,8 @@ from clearinghouse_domain_legislative.identity import Organization, Role
 from clearinghouse_domain_legislative.span_emit import SOURCE, CitationTarget, emit_spans
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 from usa_wa_adapter_legislature.membership.projector import KIND_COMMITTEE
-from usa_wa_adapter_legislature.normalize.members import (
-    committee_member_role_source_id,
-    get_or_create_role,
-)
+from usa_wa_adapter_legislature.normalize.members import get_or_create_role
+from usa_wa_adapter_legislature.role_keys import committee_member_role_source_id
 
 logger = get_logger(__name__)
 

@@ -56,7 +56,6 @@ from clearinghouse_domain_legislative.span_emit import (
 )
 from clearinghouse_domain_legislative.tenure_spans import build_tenure_spans
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.bootstrap import bootstrap_synthetic_anchors
 from usa_wa_adapter_legislature.cohorts import (
     committee_member_provider,
@@ -75,6 +74,7 @@ from usa_wa_adapter_legislature.operators.store import (
 from usa_wa_adapter_legislature.provisioning import (
     get_or_create_source as get_or_create_wsl_source,
 )
+from usa_wa_adapter_legislature.resources import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.sponsors.cohort import (
     SponsorClient,
     SponsorRosterCohortProvider,

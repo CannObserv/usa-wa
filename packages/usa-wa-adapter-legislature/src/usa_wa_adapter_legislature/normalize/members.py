@@ -129,21 +129,6 @@ def ld_slug(district: str | None) -> str | None:
     return f"usa-wa-ld-{number}" if number is not None else None
 
 
-def party_role_source_id(slug: str) -> str:
-    """Deterministic ``source_id`` for a party's ``Member`` Role (one per party Org)."""
-    return f"party-role:{slug}"
-
-
-def committee_member_role_source_id(committee_source_id: str) -> str:
-    """Deterministic ``source_id`` for a committee's ``Member`` Role (one per committee)."""
-    return f"committee-member-role:{committee_source_id}"
-
-
-def senate_seat_role_source_id(ld_number: int) -> str:
-    """Deterministic ``source_id`` for a Senate seat Role (one per LD)."""
-    return f"seat:senate:ld-{ld_number}"
-
-
 def build_person(member: dict[str, Any]) -> Person:
     """Construct a :class:`Person` from a member row (name recomposed from first+last)."""
     first = (member.get("FirstName") or "").strip()

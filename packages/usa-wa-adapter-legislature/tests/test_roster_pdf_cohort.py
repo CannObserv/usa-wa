@@ -10,11 +10,11 @@ from sqlalchemy import select
 
 from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload
 from clearinghouse_core.source_coverage import SourceCoverage
-from usa_wa_adapter_legislature.roster_pdf.adapter import roster_resource_id
 from usa_wa_adapter_legislature.roster_pdf.cohort import RosterCohortProvider
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.harvest import harvest_roster
 from usa_wa_adapter_legislature.roster_pdf.provisioning import get_or_create_roster_source
+from usa_wa_adapter_legislature.roster_pdf.resources import roster_resource_id
 from usa_wa_adapter_legislature.roster_pdf.transport import DEFAULT_ROSTER_URL
 
 # The ``db`` marker is derived from the fixture closure (root conftest), not declared here.

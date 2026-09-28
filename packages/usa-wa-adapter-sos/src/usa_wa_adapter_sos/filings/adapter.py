@@ -16,6 +16,10 @@ from collections.abc import AsyncIterable
 from datetime import UTC, datetime
 
 from clearinghouse_core.adapter import BaseAdapter, FetchedPayload, NormalizedBatch, ResourceRef
+from usa_wa_adapter_sos.filings.resources import (
+    election_year_from_resource_id,
+    whofiled_resource_id,
+)
 from usa_wa_adapter_sos.filings.transport import (
     SOS_BASE_URL,
     WHOFILED_EXPORT_PATH,
@@ -23,25 +27,10 @@ from usa_wa_adapter_sos.filings.transport import (
     general_election_date,
 )
 
-#: ``fetch_one`` resource-id prefix for a general-election candidate-filing cohort.
-WHOFILED_RESOURCE_PREFIX = "sos-whofiled:"
-
 #: The real votewa endpoint the bytes came from (#54 provenance). ``fetch_one`` stamps
 #: ``FetchEvent.url`` as ``{endpoint}?{query}#{resource_id}`` — derived from module constants so
 #: URL provenance is independent of the (possibly faked) client.
 _EXPORT_ENDPOINT = f"{SOS_BASE_URL}{WHOFILED_EXPORT_PATH}"
-
-
-def whofiled_resource_id(election_year: int) -> str:
-    """The archive resource id for a general election's filings — ``sos-whofiled:<YYYYMM>``."""
-    return f"{WHOFILED_RESOURCE_PREFIX}{general_election_date(election_year)}"
-
-
-def election_year_from_resource_id(resource_id: str) -> int:
-    """Recover the election year from a ``sos-whofiled:<YYYYMM>`` resource id."""
-    if not resource_id.startswith(WHOFILED_RESOURCE_PREFIX):
-        raise ValueError(f"unknown resource_id: {resource_id!r}")
-    return int(resource_id[len(WHOFILED_RESOURCE_PREFIX) : len(WHOFILED_RESOURCE_PREFIX) + 4])
 
 
 def _query(election_year: int) -> str:

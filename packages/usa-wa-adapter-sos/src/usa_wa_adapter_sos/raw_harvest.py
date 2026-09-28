@@ -26,7 +26,7 @@ from clearinghouse_core.job import JobContext, JobFailure, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_sos.filings.adapter import whofiled_resource_id
+from usa_wa_adapter_sos.filings.resources import whofiled_resource_id
 from usa_wa_adapter_sos.filings.transport import (
     SOSFilingsClient,
 )
@@ -34,7 +34,7 @@ from usa_wa_adapter_sos.filings.transport import (
     general_election_date as filings_election_date,
 )
 from usa_wa_adapter_sos.provisioning import RESULTS_SOURCE_SLUG, SOS_SOURCE_SLUG
-from usa_wa_adapter_sos.results.adapter import legresults_resource_id
+from usa_wa_adapter_sos.results.resources import legresults_resource_id
 from usa_wa_adapter_sos.results.transport import (
     SOSResultsClient,
 )

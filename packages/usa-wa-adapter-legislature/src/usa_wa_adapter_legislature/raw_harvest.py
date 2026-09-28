@@ -28,14 +28,14 @@ from clearinghouse_core.job import JobContext, JobFailure, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.adapter import (
+from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
+from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
+from usa_wa_adapter_legislature.resources import (
     COMMITTEES_RESOURCE_PREFIX,
     COMMITTEES_ROSTER_RESOURCE_PREFIX,
     SPONSORS_RESOURCE_PREFIX,
     committee_members_hist_resource_id,
 )
-from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
-from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.transport import WSL_BASE_URL, WSLClient
 
 logger = get_logger(__name__)

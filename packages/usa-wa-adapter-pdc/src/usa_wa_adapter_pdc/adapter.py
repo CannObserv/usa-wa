@@ -18,17 +18,15 @@ from datetime import UTC, datetime
 
 from clearinghouse_core.adapter import BaseAdapter, FetchedPayload, NormalizedBatch, ResourceRef
 from clearinghouse_domain_legislative.terms import parse_biennium
+from usa_wa_adapter_pdc.resources import (
+    HOUSE_WINNERS_RESOURCE_PREFIX,
+    SENATE_WINNERS_RESOURCE_PREFIX,
+)
 from usa_wa_adapter_pdc.transport import (
     CAMPAIGN_FINANCE_SUMMARY_RESOURCE,
     PDC_BASE_URL,
     PDCClient,
 )
-
-#: ``fetch_one`` resource-id prefix for the seated House winner cohort.
-HOUSE_WINNERS_RESOURCE_PREFIX = "house-winners:"
-
-#: ``fetch_one`` resource-id prefix for a seated Senate winner cohort (#75).
-SENATE_WINNERS_RESOURCE_PREFIX = "senate-winners:"
 
 #: The real SODA endpoint the bytes came from (#54 provenance). ``fetch_one`` stamps
 #: ``FetchEvent.url`` as ``{endpoint}#{resource_id}`` — the office is a query filter, so the

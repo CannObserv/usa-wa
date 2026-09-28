@@ -27,7 +27,7 @@ from clearinghouse_core.job import JobContext, JobFailure, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_pdc.harvest import (
+from usa_wa_adapter_pdc.resources import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
     SENATE_WINNERS_RESOURCE_PREFIX,
 )

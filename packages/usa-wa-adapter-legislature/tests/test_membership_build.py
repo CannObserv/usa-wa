@@ -19,13 +19,13 @@ from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Assignment, Organization, Person, Role
 from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED
 from clearinghouse_domain_legislative.span_emit import SpanBuildResult
-from usa_wa_adapter_legislature.adapter import committee_members_hist_resource_id
 from usa_wa_adapter_legislature.membership import build as build_module
 from usa_wa_adapter_legislature.membership.build import build_committee_member_spans
 from usa_wa_adapter_legislature.operators.store import (
     get_or_create_operator_source,
     record_operator_event,
 )
+from usa_wa_adapter_legislature.resources import committee_members_hist_resource_id
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 CURRENT = "2025-26"

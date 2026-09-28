@@ -15,7 +15,7 @@ from typing import Any
 
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_pdc import parsing
-from usa_wa_adapter_pdc.harvest import (
+from usa_wa_adapter_pdc.resources import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
     SENATE_WINNERS_RESOURCE_PREFIX,
 )

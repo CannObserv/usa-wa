@@ -69,7 +69,6 @@ from clearinghouse_domain_legislative.operator_events import (
 )
 from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 from clearinghouse_domain_legislative.terms import biennium_for_date
-from usa_wa_adapter_legislature.adapter import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archive_after_commit
 from usa_wa_adapter_legislature.operators.store import (
@@ -78,6 +77,7 @@ from usa_wa_adapter_legislature.operators.store import (
     supersede_event,
 )
 from usa_wa_adapter_legislature.provisioning import get_or_create_source as get_or_create_wsl
+from usa_wa_adapter_legislature.resources import SPONSORS_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.roster_pdf.cohort import RosterCohortProvider
 from usa_wa_adapter_legislature.roster_pdf.identity import (
     identity_seatings,

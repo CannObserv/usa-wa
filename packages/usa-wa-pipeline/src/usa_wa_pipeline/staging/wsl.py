@@ -16,14 +16,14 @@ from typing import Any
 
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_legislature import parsing
-from usa_wa_adapter_legislature.adapter import (
+from usa_wa_adapter_legislature.meetings.windows import (
+    COMMITTEE_MEETINGS_RESOURCE_PREFIX,
+)
+from usa_wa_adapter_legislature.resources import (
     COMMITTEE_MEMBERS_HIST_RESOURCE_PREFIX,
     COMMITTEES_ROSTER_RESOURCE_PREFIX,
     SPONSORS_RESOURCE_PREFIX,
     parse_committee_members_hist_resource_id,
-)
-from usa_wa_adapter_legislature.meetings.windows import (
-    COMMITTEE_MEETINGS_RESOURCE_PREFIX,
 )
 from usa_wa_pipeline.staging.common import PROVENANCE_SCHEMA
 from usa_wa_pipeline.staging.common import latest_wires as _latest_wires

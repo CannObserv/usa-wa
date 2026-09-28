@@ -8,7 +8,7 @@ import pytest
 
 from clearinghouse_core.job import JobFailure
 from clearinghouse_core.rawstore import RawRun, RawStore
-from usa_wa_adapter_sos.filings.adapter import whofiled_resource_id
+from usa_wa_adapter_sos.filings.resources import whofiled_resource_id
 from usa_wa_adapter_sos.filings.transport import SOSFilingsClient
 from usa_wa_adapter_sos.raw_harvest import (
     ACCEPTED_OUTAGES,
@@ -16,7 +16,7 @@ from usa_wa_adapter_sos.raw_harvest import (
     harvest_raw,
     job_outcome,
 )
-from usa_wa_adapter_sos.results.adapter import legresults_resource_id
+from usa_wa_adapter_sos.results.resources import legresults_resource_id
 from usa_wa_common.elections import election_years_for_biennium
 
 BIENNIUM = "2025-26"

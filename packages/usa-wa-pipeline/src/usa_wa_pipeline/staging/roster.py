@@ -13,9 +13,9 @@ from dataclasses import asdict
 from typing import Any
 
 from clearinghouse_core.rawstore import RawStore
-from usa_wa_adapter_legislature.roster_pdf.adapter import ROSTER_RESOURCE_PREFIX
 from usa_wa_adapter_legislature.roster_pdf.extraction import extract_pages
 from usa_wa_adapter_legislature.roster_pdf.normalize import parse_district_pages_reporting
+from usa_wa_adapter_legislature.roster_pdf.resources import ROSTER_RESOURCE_PREFIX
 from usa_wa_pipeline.staging.common import PROVENANCE_SCHEMA
 from usa_wa_pipeline.staging.common import provenance as _provenance
 
