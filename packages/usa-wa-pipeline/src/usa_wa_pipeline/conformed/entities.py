@@ -318,7 +318,7 @@ def org_rows(
                     "org_type": _COMMITTEE_TYPES.get(latest.get("agency"), "other"),
                     "first_biennium": attested[0]["biennium"],
                     "last_biennium": latest["biennium"],
-                    "active": latest["biennium"] == current_biennium,
+                    "active": any(r["biennium"] == current_biennium for r in attested),
                 }
             )
             continue

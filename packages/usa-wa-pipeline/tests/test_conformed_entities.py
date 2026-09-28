@@ -578,3 +578,13 @@ def test_a_structural_org_takes_active_from_the_vocabulary() -> None:
     crosswalk = [_org("03A", "usa_wa_house"), _org("03B", "party-populist")]
     rows = org_rows(crosswalk, committees=[], meetings=[], current_biennium="2025-26")
     assert {r["entity_id"]: r["active"] for r in rows} == {"03A": True, "03B": False}
+
+
+def test_a_pinned_past_biennium_still_reads_its_committees_active() -> None:
+    """CR 2: `active` is "attested in the current biennium", not "the newest
+    attestation is current". Under a `USA_WA_BIENNIUM` pin to 2023-24 (a scoped
+    rebuild), that biennium's spans stay open, so a committee attested then must
+    read active too, or INV1 fails the build on a committee that was live."""
+    [row] = org_rows(ORG_CROSSWALK, committees=COMMITTEES, meetings=[], current_biennium="2023-24")
+    assert row["active"] is True
+    assert row["last_biennium"] == "2025-26"
