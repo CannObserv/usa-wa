@@ -48,7 +48,7 @@ from clearinghouse_core.job import JobContext, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.terms import biennium_for_date, previous_biennium
 from usa_wa_adapter_legislature.coverage import SPONSOR_ROSTER_COVERAGE
-from usa_wa_adapter_legislature.normalize.members import is_person
+from usa_wa_adapter_legislature.member_rows import is_person
 from usa_wa_adapter_legislature.transport import WSLClient, _is_biennium_out_of_range
 
 logger = get_logger(__name__)

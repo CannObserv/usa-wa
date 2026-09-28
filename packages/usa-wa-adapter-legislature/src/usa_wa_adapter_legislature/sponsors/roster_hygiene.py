@@ -31,7 +31,7 @@ from __future__ import annotations
 from typing import Any
 
 from clearinghouse_core.logging import get_logger
-from usa_wa_adapter_legislature.normalize.members import is_person
+from usa_wa_adapter_legislature.member_rows import is_person
 
 logger = get_logger(__name__)
 

@@ -24,7 +24,7 @@ from clearinghouse_domain_legislative.span_kinds import (
     KIND_SENATE,  # noqa: F401 (re-export for this package's builders/tests)
 )
 from clearinghouse_domain_legislative.tenure_spans import Observation
-from usa_wa_adapter_legislature.normalize.members import is_person
+from usa_wa_adapter_legislature.member_rows import is_person
 from usa_wa_common.parties import canonicalize_party
 from usa_wa_common.seats import district_number
 
