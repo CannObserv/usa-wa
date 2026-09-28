@@ -27,6 +27,12 @@ root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py
 - `usa_wa_api`, `usa_wa_facts_*`, `usa_wa_pipeline ↛ usa_wa_adapter_*.transport`
 - `usa_wa_common ↛` any adapter, fact or deployment package
 - the layer order above, with no back-edges
+- `usa_wa_pipeline`, `usa_wa_api` and the three `raw_harvest` modules ↛ the Postgres write
+  path — the runner, the adapter bases, `span_emit`, the operator stores, and every Phase-A
+  `harvest`, `refresh`, `build` and `backfill` — **by any chain** (#412 PR D). They survive
+  the canonical tier's retirement and that code does not. What they shared with it (resource
+  ids, role keys, the roster oracle, the House position map) lives in pure modules the writers
+  import too
 
 Layers **2b** and **3b** were added by #189. Before them there was no home for composition, so
 it happened inside whichever target-keyed adapter package first needed it: `usa-wa-adapter-sos`

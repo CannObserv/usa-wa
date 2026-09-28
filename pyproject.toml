@@ -268,3 +268,44 @@ forbidden_modules = [
     "usa_wa_facts_seats",
     "usa_wa_api",
 ]
+
+[[tool.importlinter.contracts]]
+# #412 PR D. The Postgres canonical tier's write path — the adapter runner, the span
+# emitter, the operator stores, the Phase-A harvests and every refresh/build/backfill
+# driver — is deleted in PR F. The raw harvests fill the store, the pipeline builds
+# every published dataset from it and the API serves them, so none may reach that code
+# by any chain, or PR F cannot delete it without breaking the nightly. What they need
+# from those modules (resource ids, role keys, pure span functions) lives in pure
+# modules the writers import too. Indirect imports count: that is the whole point.
+name = "The pipeline, the API and the raw harvests never import the Postgres write path"
+type = "forbidden"
+source_modules = [
+    "usa_wa_pipeline",
+    "usa_wa_api",
+    # The nightly's raw harvests survive PR F too: they are the pipeline's only input.
+    "usa_wa_adapter_legislature.raw_harvest",
+    "usa_wa_adapter_pdc.raw_harvest",
+    "usa_wa_adapter_sos.raw_harvest",
+]
+forbidden_modules = [
+    "clearinghouse_core.adapter",
+    "clearinghouse_core.runner",
+    "clearinghouse_domain_legislative.span_emit",
+    "usa_wa_adapter_legislature.adapter",
+    "usa_wa_adapter_legislature.bootstrap",
+    "usa_wa_adapter_legislature.refresh",
+    "usa_wa_adapter_legislature.operators.store",
+    "usa_wa_adapter_legislature.committees.succession_store",
+    "usa_wa_adapter_legislature.**.adapter",
+    "usa_wa_adapter_legislature.**.build",
+    "usa_wa_adapter_legislature.**.harvest",
+    "usa_wa_adapter_legislature.**.backfill",
+    "usa_wa_adapter_pdc.adapter",
+    "usa_wa_adapter_pdc.harvest",
+    "usa_wa_adapter_pdc.archive_refresh",
+    "usa_wa_adapter_sos.**.adapter",
+    "usa_wa_adapter_sos.**.harvest",
+    "usa_wa_adapter_sos.**.archive_refresh",
+    "usa_wa_facts_seats.**.build",
+    "usa_wa_facts_seats.**.refresh",
+]

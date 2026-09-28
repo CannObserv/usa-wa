@@ -92,6 +92,12 @@ What survives:
    - Extract the pure functions the pipeline uses from `roster_pdf/build`, `facts_seats/house/build`, `normalize/members` and the adapter modules that staging imports.
    - Add a forbidden contract so neither `usa_wa_pipeline` nor `usa_wa_api` can import the runner, `adapter`, `span_emit`, `operators.store`, `bootstrap`, or any refresh/build module.
    - Done when `lint-imports` enforces the contract, and a scratch publish matches that night's catalog digests byte for byte.
+   - *As built:*
+     - The contract also covers the three `raw_harvest` modules: they fill the store the pipeline reads and survive PR F, but took their resource ids from the adapters and Phase-A harvests.
+     - It follows indirect imports, with no exceptions. The pipeline's chains ran through `roster_pdf.build`, `facts_seats.house.build`, `normalize.members` and the staging models' adapter imports.
+     - Nine pure modules now hold what was shared: five `resources` modules (WSL, roster, PDC, SOS filings, SOS results), `role_keys`, `member_rows`, `roster_pdf.oracle` and `facts_seats.house.positions`. `senate_seat_role_source_id` joined the House key in `usa_wa_common.seats`. Every definition moved verbatim.
+     - The API needed nothing: it already imported none of the write path.
+     - Verified 2026-09-28: a scratch build and publish from the branch matched that night's catalog on all 16 datasets (hash, rows, bytes, contract hash, schema version).
 5. **PR E: stop the write path.** All of this is reversible:
    - Disable nine units: the WSL, PDC and SOS refreshes, both archive refreshes, succession invariants, committee lineage invariants, and House and Senate corroboration. Keep the unit files. The integrity sweep unit stays: PR C already repointed it.
    - **First, make dbt warnings reach the operator.** A dbt `warn` never changes the nightly's exit code, and the chamber-vacancy test is one (PR B). Until this PR, `succession-invariants` emails on a low count. Once it is disabled, a vacancy that never fills — a missing `seated` — would reach only the journal. So the nightly must first read `run_results.json` and fail its run, counted rather than aborting, on any `warn` status. That also covers the seat-occupancy ratchet's "ratchet me down" warning.

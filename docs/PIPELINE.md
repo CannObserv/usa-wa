@@ -25,7 +25,9 @@ Layer rules are the spec's: staging never joins across sources and never sees a 
 matching proposes and never writes identity; conformed is a stateless join against the
 registry crosswalk. `usa_wa_pipeline` sits beside `usa_wa_facts_seats` in the
 import-linter layer order and, like it, may never import an adapter `transport` —
-models re-parse the archive, they do not drive wires.
+models re-parse the archive, they do not drive wires. Nor may it reach the Postgres write path
+by any chain (#412 PR D): what a model shares with a Phase-B builder lives in a pure module
+both import, never in the builder (ARCHITECTURE.md lists the contract).
 
 ## Commands
 
