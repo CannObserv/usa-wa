@@ -374,8 +374,8 @@ class OrganizationOut(ApiModel):
     active: bool | None = Field(
         default=None,
         description="Attested in the current biennium: a committee on the roster wire, a "
-        "Joint/Other body by a meeting. Always true for a chamber or the legislature; true "
-        "for a party only if it is Democratic or Republican.",
+        "Joint/Other body by a meeting. Declared, not attested, for a chamber, the "
+        "legislature or a party.",
     )
 
 
