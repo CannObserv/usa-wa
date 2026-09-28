@@ -343,8 +343,9 @@ two holders.
 
 ### Ported from the canonical tier (#412)
 
-The checks the retiring Postgres units ran, rebuilt on `assignments` (#412 PR B).
-Each was 0 on the production build 2026-09-27; each file's header carries its
+The checks the retiring Postgres units ran, rebuilt on `assignments` (#412 PR B) —
+and lineage INV1 on `organizations` ⋈ `roles` ⋈ `assignments` (#428). Each was 0 on
+the production build (PR B's 2026-09-27, INV1's 2026-09-28); each file's header carries its
 reasoning.
 
 | Test | Replaces | Severity |
@@ -355,6 +356,7 @@ reasoning.
 | `assignments_start_in_key_biennium` | `succession-invariants` #272 misdating | error |
 | `assignments_odd_year_winners_seated` | `house-corroboration`, `senate-corroboration` | error, over **every archived odd year**, probed at December 31 of the election year |
 | `not_null` on `stg_roster_members.order` | `parity_spans`' `malformed_roster_rows` | error |
+| `organizations_inactive_have_no_live_members` | `committee-lineage-invariants` INV1 (#428) | error, over **every org type**, not only committees |
 
 The chamber gate is split in two because dbt thresholds count result rows and
 cannot tell an excess from a vacancy in one test. Its literals are pinned to
@@ -363,7 +365,15 @@ cannot tell an excess from a vacancy in one test. Its literals are pinned to
 `role_key` assignments carry, so no SQL re-parses a race label. Not ported: the
 units' surname-`mismatched` report, which was never gated, and the Senate unit's
 SOS citation writer (#412 Q3: published citations exclude SOS by design).
-Lineage INV1 waits for `organizations.active` (#428).
+INV1 rides on `organizations.active` (#428, `organizations` 1.1.0): a committee
+is active when the current biennium's roster wire attests it, a Joint/Other body
+when it met this biennium, a structural org by its declared `STRUCTURAL_ORGS`
+flag. `active` and the open spans both read `spans.current_biennium()`, so the
+2027-01-01 rollover retires the old committees and closes their spans in the
+same build. INV2 (a succeeded or merged predecessor is inactive) and a published
+succession dataset are **deferred**: the conformed tier does not read the
+attested links. When they return they read `registry.committee_succession_events`
+(moved there in #412 PR A) from the duckdb.
 
 The three `unregistered_*` counters are **not** dbt tests, and must not become
 them: a new identity is unregistered in the first build that sees it, and a

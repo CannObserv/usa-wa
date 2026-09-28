@@ -4,7 +4,7 @@ import pandas as pd
 
 import usa_wa_pipeline.conformed.entities as mod
 from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold
-from usa_wa_pipeline.conformed.entities import org_rows, person_rows
+from usa_wa_pipeline.conformed.entities import ORG_COLUMNS, org_rows, person_rows
 
 CROSSWALK = [
     {
@@ -93,7 +93,7 @@ COMMITTEES = [
 
 
 def test_org_rows_take_latest_biennium_attributes() -> None:
-    rows = org_rows(ORG_CROSSWALK, committees=COMMITTEES, meetings=[])
+    rows = org_rows(ORG_CROSSWALK, committees=COMMITTEES, meetings=[], current_biennium="2025-26")
     [row] = rows
     assert row["entity_id"] == "02A"
     assert row["name"] == "Ag & Water"
@@ -120,7 +120,7 @@ def test_org_rows_meeting_derived_fallback() -> None:
             "meeting_window": "2023-01-01:2024-12-31",
         }
     ]
-    [row] = org_rows(crosswalk, committees=[], meetings=meetings)
+    [row] = org_rows(crosswalk, committees=[], meetings=meetings, current_biennium="2025-26")
     assert row["name"] == "JLARC"
     assert row["agency"] == "Joint"
 
@@ -136,7 +136,7 @@ def test_org_rows_structural_branch_uses_verbatim_vocabulary() -> None:
             "merged_into": None,
         },
     ]
-    [row] = org_rows(crosswalk, committees=COMMITTEES, meetings=[])
+    [row] = org_rows(crosswalk, committees=COMMITTEES, meetings=[], current_biennium="2025-26")
     assert row["name"] == "Washington State House of Representatives"
     assert row["org_type"] == "chamber"
     assert row["first_biennium"] is None
@@ -152,7 +152,7 @@ def test_org_rows_drop_tombstoned_entities() -> None:
     the retired id stops being addressable — is unchanged, and stated directly.
     """
     merged = [dict(ORG_CROSSWALK[0], merged_into="09Z")]
-    rows = org_rows(merged, committees=COMMITTEES, meetings=[])
+    rows = org_rows(merged, committees=COMMITTEES, meetings=[], current_biennium="2025-26")
     assert [r["entity_id"] for r in rows] == ["09Z"]
     assert not [r for r in rows if r["entity_id"] == "02A"]
 
@@ -254,7 +254,7 @@ def test_org_names_get_the_same_blank_screen(monkeypatch) -> None:
     committees = [
         dict(COMMITTEES[0], biennium="2025-26", name=" ", long_name=" Agriculture ", acronym="AG  ")
     ]
-    [row] = org_rows(ORG_CROSSWALK, committees=committees, meetings=[])
+    [row] = org_rows(ORG_CROSSWALK, committees=committees, meetings=[], current_biennium="2025-26")
     assert row["name"] is None
     assert row["long_name"] == "Agriculture"
     # the acronym is deliberately NOT screened — CR 8, held
@@ -262,7 +262,7 @@ def test_org_names_get_the_same_blank_screen(monkeypatch) -> None:
 
     meetings = [{"committee_id": "-5", "committee_agency": "Joint", "committee_name": "  "}]
     crosswalk = [dict(ORG_CROSSWALK[0], entity_id="02B", key_value="-5")]
-    [ref_row] = org_rows(crosswalk, committees=[], meetings=meetings)
+    [ref_row] = org_rows(crosswalk, committees=[], meetings=meetings, current_biennium="2025-26")
     assert ref_row["name"] is None
 
 
@@ -341,7 +341,7 @@ def test_org_rows_follow_a_merge_too() -> None:
         },
         dict(ORG_CROSSWALK[0], merged_into="02NEW"),
     ]
-    [row] = org_rows(crosswalk, committees=COMMITTEES, meetings=[])
+    [row] = org_rows(crosswalk, committees=COMMITTEES, meetings=[], current_biennium="2025-26")
     assert row["entity_id"] == "02NEW"
     assert row["name"] == "Ag & Water"
 
@@ -510,3 +510,81 @@ def test_a_note_and_a_suffix_on_one_name_both_go() -> None:
 def test_a_name_that_is_only_a_suffix_is_absent_not_blank() -> None:
     """CR 151's lesson, applied to the second screen rather than relearned."""
     assert mod._display_name("– 19B") is None
+
+
+def _org(entity_id: str, committee_id: str) -> dict:
+    return {
+        "entity_id": entity_id,
+        "key_namespace": "usa_wa_legislature",
+        "key_value": committee_id,
+        "merged_into": None,
+    }
+
+
+def _meeting(committee_id: str, window: str) -> dict:
+    return {
+        "committee_id": committee_id,
+        "committee_agency": "Joint",
+        "committee_name": "JLARC",
+        "meeting_window": window,
+    }
+
+
+def test_active_is_the_last_published_column() -> None:
+    """#428 is additive: `active` is appended, so a positional reader of 1.0.0's
+    eight columns still reads them where they were."""
+    assert ORG_COLUMNS[-1] == "active"
+    assert mod.ORG_SCHEMA["active"] == "BOOLEAN"
+
+
+def test_a_committee_is_active_iff_the_current_biennium_attests_it() -> None:
+    """The committees-roster wire is the attestation. Prod, 2026-09-28: this rule
+    and canonical's `active` agreed on all 186 committees (34 active, 152 not)."""
+    [row] = org_rows(ORG_CROSSWALK, committees=COMMITTEES, meetings=[], current_biennium="2025-26")
+    assert row["active"] is True
+
+    [row] = org_rows(ORG_CROSSWALK, committees=COMMITTEES, meetings=[], current_biennium="2027-28")
+    assert row["active"] is False
+
+
+def test_a_meeting_derived_body_is_active_iff_it_met_this_biennium() -> None:
+    """Joint/`Other` bodies (#39) have no roster wire, only meetings — so the
+    same rule on the one wire they have. Canonical never demoted them."""
+    crosswalk = [_org("02B", "-5"), _org("02C", "-4")]
+    meetings = [
+        _meeting("-5", "2023-01-01:2024-12-31"),
+        _meeting("-5", "2025-01-01:2026-12-31"),
+        _meeting("-4", "2023-01-01:2024-12-31"),
+    ]
+    rows = org_rows(crosswalk, committees=[], meetings=meetings, current_biennium="2025-26")
+    assert {r["entity_id"]: r["active"] for r in rows} == {"02B": True, "02C": False}
+
+
+def test_a_meeting_window_that_does_not_parse_attests_nothing() -> None:
+    """The window is our own resource id, but a malformed one must not abort the
+    nightly build: it simply attests no biennium."""
+    rows = org_rows(
+        [_org("02B", "-5")],
+        committees=[],
+        meetings=[_meeting("-5", "not-a-window")],
+        current_biennium="2025-26",
+    )
+    assert rows[0]["active"] is False
+
+
+def test_a_structural_org_takes_active_from_the_vocabulary() -> None:
+    """A historical party stays inactive whatever biennium it is; a chamber stays
+    active. Neither is attested by a wire."""
+    crosswalk = [_org("03A", "usa_wa_house"), _org("03B", "party-populist")]
+    rows = org_rows(crosswalk, committees=[], meetings=[], current_biennium="2025-26")
+    assert {r["entity_id"]: r["active"] for r in rows} == {"03A": True, "03B": False}
+
+
+def test_a_pinned_past_biennium_still_reads_its_committees_active() -> None:
+    """CR 2: `active` is "attested in the current biennium", not "the newest
+    attestation is current". Under a `USA_WA_BIENNIUM` pin to 2023-24 (a scoped
+    rebuild), that biennium's spans stay open, so a committee attested then must
+    read active too, or INV1 fails the build on a committee that was live."""
+    [row] = org_rows(ORG_CROSSWALK, committees=COMMITTEES, meetings=[], current_biennium="2023-24")
+    assert row["active"] is True
+    assert row["last_biennium"] == "2025-26"

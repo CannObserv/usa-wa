@@ -59,6 +59,7 @@ class Organization(ServingBase):
     org_type: Mapped[str | None] = mapped_column(String(64))
     first_biennium: Mapped[str | None] = mapped_column(String(16))
     last_biennium: Mapped[str | None] = mapped_column(String(16))
+    active: Mapped[bool | None] = mapped_column(Boolean)
 
 
 class Role(ServingBase):

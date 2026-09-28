@@ -113,6 +113,12 @@ DDL and DML rights are split across roles so a misconfigured DSN can't migrate/d
   the published datasets, so `scripts/grants.sql` creates it and grants the app role `CREATE`
   *inside* it; the loader builds its own tables there and replaces every row each run. Drop the
   schema and the next `python -m usa_wa_api.serving.load` rebuilds it from `published/` alone.
+  **A serving model that gains a column is a two-step deploy** (#428). Only the loader rebuilds a
+  drifted table (#370); the API never does. Restart `usa-wa` onto the new model before the loader
+  has run, and every route reading that table 500s on the missing column until the next nightly.
+  So after the merge: run the pipeline (`sudo systemctl start usa-wa-pipeline`, or wait for the
+  08:00 UTC nightly), which publishes the new field and then loads it; *then* restart `usa-wa`. The
+  old API process is safe meanwhile, since it selects its columns by name.
   The app role deliberately cannot `CREATE SCHEMA` — Postgres checks that privilege before
   `IF NOT EXISTS` short-circuits, so the loader never issues one.
 - [`scripts/grants.sql`](../scripts/grants.sql) is the version-controlled source of truth for grants — idempotent, re-applied after every migration by [`scripts/migrate.sh`](../scripts/migrate.sh). `ALTER DEFAULT PRIVILEGES` means new tables auto-grant DML to the app role. **Add new schemas to it** when a migration introduces one — and **remove one when a migration drops it**, in the same change. The two directions are not symmetric: a missing schema merely under-grants, while a `GRANT` naming a schema that no longer exists is an **error**, which would wedge `usa-wa-migrate` on the very deploy that dropped it. `sync` left the lists with #314 step C.

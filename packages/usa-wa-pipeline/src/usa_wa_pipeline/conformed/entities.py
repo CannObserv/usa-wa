@@ -13,13 +13,18 @@ Stateless joins of the registry crosswalk against staging attributes:
   wire; bodies only ever seen in meeting wires (Joint/`Other`, #39) fall back
   to their meeting ref names. Names go through the same :func:`_name` screen as
   a person's (CR 5): a committee wire has never answered blank, but an
-  organization's name is published under the same contract.
+  organization's name is published under the same contract. ``active`` (#428)
+  is "attested in the current biennium" on whichever wire the org has — the
+  roster wire for a committee, a meeting window for a Joint/`Other` body — and
+  the declared vocabulary flag for a structural anchor.
 """
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
+from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold, strip_position_suffix
 from usa_wa_common.names import strip_tenure_notes
 from usa_wa_common.orgs import STRUCTURAL_ORGS
@@ -36,6 +41,7 @@ ORG_SCHEMA = {
     "org_type": "VARCHAR",
     "first_biennium": "VARCHAR",
     "last_biennium": "VARCHAR",
+    "active": "BOOLEAN",
 }
 ORG_COLUMNS = list(ORG_SCHEMA)
 
@@ -231,22 +237,45 @@ def person_rows(
     return rows
 
 
+def _window_biennium(window: Any) -> str | None:
+    """A ``<begin>:<end>`` meeting window → the biennium its begin date falls in.
+
+    The window is this repo's own resource id, not an upstream string, but a
+    malformed one attests nothing rather than aborting the nightly build.
+    """
+    if not isinstance(window, str):
+        return None
+    try:
+        return biennium_for_date(date.fromisoformat(window.split(":", 1)[0]))
+    except ValueError:
+        return None
+
+
 def org_rows(
     crosswalk: list[dict[str, Any]],
     *,
     committees: list[dict[str, Any]],
     meetings: list[dict[str, Any]],
+    current_biennium: str,
 ) -> list[dict[str, Any]]:
-    """One conformed organization per live registry entity."""
+    """One conformed organization per live registry entity.
+
+    ``current_biennium`` is the assignments model's (``spans.current_biennium``):
+    the same clock decides which spans stay open and which orgs are active, so a
+    rollover flips both together and INV1 (#428) cannot fire on the calendar.
+    """
     by_committee: dict[str, list[dict[str, Any]]] = {}
     for row in committees:
         if row.get("committee_id"):
             by_committee.setdefault(row["committee_id"], []).append(row)
     meeting_refs: dict[str, dict[str, Any]] = {}
+    met_in: dict[str, set[str]] = {}
     for row in meetings:
         cid = row.get("committee_id")
         if cid and cid not in meeting_refs:
             meeting_refs[cid] = row
+        if cid and (biennium := _window_biennium(row.get("meeting_window"))):
+            met_in.setdefault(cid, set()).add(biennium)
 
     rows = []
     for entity_id, keys in sorted(_live_entities(crosswalk).items()):
@@ -265,6 +294,7 @@ def org_rows(
                     "org_type": structural.org_type,
                     "first_biennium": None,
                     "last_biennium": None,
+                    "active": structural.active,
                 }
             )
             continue
@@ -288,6 +318,7 @@ def org_rows(
                     "org_type": _COMMITTEE_TYPES.get(latest.get("agency"), "other"),
                     "first_biennium": attested[0]["biennium"],
                     "last_biennium": latest["biennium"],
+                    "active": any(r["biennium"] == current_biennium for r in attested),
                 }
             )
             continue
@@ -302,6 +333,7 @@ def org_rows(
                 "org_type": "other",
                 "first_biennium": None,
                 "last_biennium": None,
+                "active": any(current_biennium in met_in.get(cid, ()) for cid in committee_ids),
             }
         )
     return rows

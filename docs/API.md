@@ -43,7 +43,7 @@ suite until the table below matches.
 |---|---|---|---|
 | GET | `/api/v1/persons` | `Page[PersonSummary]` | People. Filters: `source` (key namespace), `name_contains`. |
 | GET | `/api/v1/persons/{person_id}` | `PersonDetail` | One person plus every natural key the registry binds to them. |
-| GET | `/api/v1/organizations` | `Page[OrganizationOut]` | Filters: `org_type`, `agency`. |
+| GET | `/api/v1/organizations` | `Page[OrganizationOut]` | Filters: `org_type`, `agency`, `active` (#428: attested in the current biennium; `organizations` 1.1.0). At a biennium rollover every committee and Joint body reads `active=false` until the new biennium's first roster or meeting is harvested — a gap in attestation, not a mass dissolution. |
 | GET | `/api/v1/organizations/{organization_id}` | `OrganizationOut` | One organization. |
 | GET | `/api/v1/roles` | `Page[RoleOut]` | Filters: `organization_id`, `role_type`, `district`. Ordered by `role_key`. |
 | GET | `/api/v1/roles/{role_id}` | `RoleOut` | One role, by its registry ULID. |

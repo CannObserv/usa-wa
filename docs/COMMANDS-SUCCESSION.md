@@ -212,6 +212,9 @@ python -m usa_wa_adapter_legislature.committees.succession_cli --list           
 # → the OnFailure=usa-wa-notify-failure@ handler emails the operator. Prod runs it daily at
 # 07:30 UTC via usa-wa-committee-lineage-invariants.timer, AFTER the refreshes + reconcile
 # have deactivated defunct committees + closed their spans (else it pages on pre-existing drift).
+# Since #428 INV1 is ALSO a dbt error test on the published tier
+# (organizations_inactive_have_no_live_members, docs/PIPELINE.md), so #412 PR E can retire this
+# unit without losing it. INV2 has no successor yet: deferred, reason in docs/PIPELINE.md.
 python -m usa_wa_adapter_legislature.committees.lineage_invariants
 
 # C5 — advisory candidate report (read-only; suggests which era-Id pairs to attest via C2).

@@ -20,3 +20,20 @@ def test_every_party_slug_has_exactly_one_structural_party_org():
     party_orgs = {key for key, org in STRUCTURAL_ORGS.items() if org.org_type == "party"}
 
     assert party_orgs == {f"party-{slug}" for slug in PARTY_SLUGS}
+
+
+def test_structural_orgs_declare_whether_they_are_active():
+    """``organizations.active`` (#428) for the synthesized anchors is a WA fact, not
+    something a wire attests: the legislature and its chambers stand, the two major
+    parties seat members today, and the six historical parties are gone for good.
+    Seat-holding is not the test — a party with no seated member is still a party —
+    so the flag is declared here rather than derived from assignments."""
+    active = {key for key, org in STRUCTURAL_ORGS.items() if org.active}
+
+    assert active == {
+        "usa_wa_legislature",
+        "usa_wa_house",
+        "usa_wa_senate",
+        "party-democratic",
+        "party-republican",
+    }
