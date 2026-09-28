@@ -80,7 +80,7 @@ What survives:
      - The chamber gate is split into two tests (`_excess`, `_vacancy`), because dbt thresholds count rows.
      - `malformed_roster_rows` is the one missing `not_null`, on roster `order`.
      - The probe is `usa_wa_pipeline.registry_coverage`. It rebuilds spans from the built duckdb's staging tables and takes `seat_overlaps_unclipped` with it.
-     - Lineage waits for #428, per Q2.
+     - Lineage INV1 landed separately in #428 (`organizations.active`, 1.1.0), per Q2.
 3. **PR C: wire the file sweep.** Repoint `usa-wa-integrity-sweep.service` at `clearinghouse_core.raw_integrity` and keep the weekly timer. Done when a scheduled run lands in the ledger.
    - *As built:*
      - A straight repoint: the Postgres sweep does not run beside it. The raw store already holds every payload up to the last `raw_export`, and PR F's final export re-hashes each body it carries before it lands, so the Postgres copies still get one last check.
@@ -125,7 +125,7 @@ What survives:
 ## Open questions / risks
 
 - **Q1: where do operator events live?** Recommend the `registry` schema, beside `adjudications`: human-entered corrections belong together, it takes one `SET SCHEMA`, and the operator CLI does not change. Git-tracked files would be reviewable, but the CLI writes at runtime and attestations need the raw store either way.
-- **Q2: committee lineage (#124).** Published `organizations` has carried no `active` flag and no succession since #313, so this is already a product gap. Recommend porting `active` in the bundled 2.1.0 contract bump (#384, #369), gating INV1 on it, and deferring a succession dataset. INV2 waits with it, and `committee_succession_events` moves in PR A so the option stays open.
+- **Q2: committee lineage (#124).** Published `organizations` has carried no `active` flag and no succession since #313, so this is already a product gap. Recommended porting `active` in a bundled 2.1.0 contract bump (#384, #369), gating INV1 on it, and deferring a succession dataset. *Decided 2026-09-25, not bundled:* versions are per-dataset since #385, so #428 ships `organizations` 1.1.0 on its own, before PR E, with INV1 as a dbt test. INV2 and the succession dataset stay deferred, and `committee_succession_events` moved in PR A so the option stays open.
 - **Q3: the Senate corroboration citation writer.** It cites SOS on `valid_from`, and the citations artifact excludes SOS by design. Recommend keeping the check (PR B) and dropping the writer, with that reason recorded.
 - **Q4: `sources.jurisdiction_id` is in the API (`SourceOut`).** Recommend keeping a trimmed `jurisdictions` table seeded from `usa_wa_common` as the FK target, rather than changing the contract.
 - **Q5: `source_coverage.evidence_citation_id`.** It FKs `citations`, which PR F drops, and `/sources/{slug}/coverage` publishes it as `SourceCoverageOut.evidence_citation_id`. It has never carried a value (0 of 5 rows). Recommend dropping the column and the API field in PR F, with an API.md migration note; keeping the field as always-null is the alternative if removing a field counts as breaking for `/api/v1`'s consumers.
