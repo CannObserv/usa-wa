@@ -109,6 +109,7 @@ async def corpus(serving_schema):
                 "org_type": "committee",
                 "first_biennium": "2019-20",
                 "last_biennium": "2025-26",
+                "active": True,
             },
             {
                 "entity_id": ORG_B,
@@ -117,7 +118,8 @@ async def corpus(serving_schema):
                 "agency": "Senate",
                 "org_type": "other",
                 "first_biennium": "2021-22",
-                "last_biennium": "2025-26",
+                "last_biennium": "2023-24",
+                "active": False,
             },
         ],
     )
@@ -296,6 +298,15 @@ class TestOrganizations:
         body = (await client.get(f"/api/v1/organizations/{ORG_A}")).json()
         assert (body["first_biennium"], body["last_biennium"]) == ("2019-20", "2025-26")
         assert body["long_name"] == "Agriculture"
+
+    async def test_carries_and_filters_on_active(self, client, corpus) -> None:
+        """#428: a consumer can tell a current committee from a retired one."""
+        assert (await client.get(f"/api/v1/organizations/{ORG_A}")).json()["active"] is True
+        body = (await client.get("/api/v1/organizations", params={"active": "false"})).json()
+        assert [item["entity_id"] for item in body["items"]] == [ORG_B]
+        assert body["items"][0]["active"] is False
+        body = (await client.get("/api/v1/organizations", params={"active": "true"})).json()
+        assert [item["entity_id"] for item in body["items"]] == [ORG_A]
 
 
 class TestRoles:

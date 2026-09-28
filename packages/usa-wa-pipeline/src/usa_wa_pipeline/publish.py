@@ -489,6 +489,23 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 ),
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
+            ContractRelease(
+                "1.1.0",
+                (
+                    "entity_id",
+                    "name",
+                    "long_name",
+                    "acronym",
+                    "agency",
+                    "org_type",
+                    "first_biennium",
+                    "last_biennium",
+                    "active",
+                ),
+                "#428: `active` appended — attested in the current biennium (committees: "
+                "the roster wire; Joint/Other: a meeting window; structural: declared). "
+                "Additive, so a minor",
+            ),
         ),
     ),
     PublishedDataset(

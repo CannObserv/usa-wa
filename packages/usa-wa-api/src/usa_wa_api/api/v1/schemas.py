@@ -371,6 +371,12 @@ class OrganizationOut(ApiModel):
     org_type: str | None = Field(default=None, description="`committee` | `other` | …")
     first_biennium: str | None = None
     last_biennium: str | None = None
+    active: bool | None = Field(
+        default=None,
+        description="Attested in the current biennium: a committee on the roster wire, a "
+        "Joint/Other body by a meeting. Always true for a chamber or the legislature; true "
+        "for a party only if it is Democratic or Republican.",
+    )
 
 
 class RoleOut(ApiModel):

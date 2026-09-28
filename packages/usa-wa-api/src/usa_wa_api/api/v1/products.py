@@ -217,6 +217,7 @@ async def list_organizations(
     session: AsyncSession = Depends(get_db_session),
     org_type: str | None = Query(default=None, description="`committee` | `other` | …"),
     agency: str | None = Query(default=None, description="`House` | `Senate` | `Joint` | `Other`."),
+    active: bool | None = Query(default=None, description="Current organizations only when true."),
     limit: LimitQuery = DEFAULT_LIMIT,
     cursor: CursorQuery = None,
 ) -> Page[OrganizationOut]:
@@ -226,6 +227,8 @@ async def list_organizations(
         stmt = stmt.where(Organization.org_type == org_type)
     if agency is not None:
         stmt = stmt.where(Organization.agency == agency)
+    if active is not None:
+        stmt = stmt.where(Organization.active.is_(active))
     return await _page(
         session,
         _keyset(stmt, Organization.entity_id, cursor=_ulid_cursor(cursor), limit=limit),
