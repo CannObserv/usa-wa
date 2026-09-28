@@ -34,9 +34,7 @@ LINT_IMPORTS = Path(sys.executable).parent / "lint-imports"
 PYPROJECT = REPO / "pyproject.toml"
 PRECOMMIT = REPO / ".pre-commit-config.yaml"
 
-WRITE_PATH_CONTRACT = (
-    "The pipeline, the API and the raw harvests never import the Postgres write path"
-)
+TIER_CONTRACT = "The pipeline, the API and the raw harvests never import the retiring Postgres tier"
 
 #: Every contract #189 wrote. Named individually so deleting one fails here, which is the
 #: cheapest way a future change could make a violation "go away".
@@ -47,7 +45,7 @@ EXPECTED_CONTRACTS = {
     "Facts depend on cohort interfaces, never on a transport",
     "usa-wa-common is source-free",
     # #412 PR D: what survives the Postgres tier must not reach its write path.
-    WRITE_PATH_CONTRACT,
+    TIER_CONTRACT,
 }
 
 
@@ -86,12 +84,12 @@ def test_the_facts_transport_contract_carries_no_exceptions():
     )
 
 
-def test_the_write_path_contract_follows_indirect_imports():
+def test_the_tier_contract_follows_indirect_imports():
     """#412 PR F deletes the write path, so a chain through any module counts as much as a
     direct import: the pipeline reached ``span_emit`` only through ``roster_pdf.build``.
     ``allow_indirect_imports`` would let exactly that chain back in, and so would an
     exception, which is the cheapest way to make a violation "go away"."""
-    contract = next(c for c in _contracts() if c["name"] == WRITE_PATH_CONTRACT)
+    contract = next(c for c in _contracts() if c["name"] == TIER_CONTRACT)
     assert not contract.get("allow_indirect_imports", False)
     assert not contract.get("ignore_imports")
 
@@ -167,14 +165,14 @@ def test_contracts_are_currently_kept():
         (
             "packages/usa-wa-pipeline/src/usa_wa_pipeline/_contract_probe.py",
             "from usa_wa_adapter_legislature.roster_pdf import build  # noqa: F401",
-            WRITE_PATH_CONTRACT,
+            TIER_CONTRACT,
         ),
         # ... and through a module that is not itself forbidden: the member normalizer is
         # not on the list, but it imports the Postgres adapter base, so the chain counts.
         (
             "packages/usa-wa-pipeline/src/usa_wa_pipeline/_contract_probe_indirect.py",
             "from usa_wa_adapter_legislature.normalize import members  # noqa: F401",
-            WRITE_PATH_CONTRACT,
+            TIER_CONTRACT,
         ),
         # Vocabulary reaching down into a source — how the first shared kernel formed.
         (
@@ -210,4 +208,6 @@ def test_a_real_violation_is_rejected(module, illegal_import, contract):
         probe.unlink()
     output = result.stdout + result.stderr
     assert result.returncode != 0, f"the linter accepted an illegal import:\n{output}"
-    assert f"{contract} BROKEN" in output, output
+    # The report wraps at the terminal width, so a long contract name can break across
+    # lines; compare with whitespace folded.
+    assert f"{contract} BROKEN" in " ".join(output.split()), output

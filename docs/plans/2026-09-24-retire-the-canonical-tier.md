@@ -93,7 +93,8 @@ What survives:
    - Add a forbidden contract so neither `usa_wa_pipeline` nor `usa_wa_api` can import the runner, `adapter`, `span_emit`, `operators.store`, `bootstrap`, or any refresh/build module.
    - Done when `lint-imports` enforces the contract, and a scratch publish matches that night's catalog digests byte for byte.
    - *As built:*
-     - The contract also covers the three `raw_harvest` modules: they fill the store the pipeline reads and survive PR F, but took their resource ids from the adapters and Phase-A harvests.
+     - The contract also forbids the one-shot migrations and every adapter `cohort` provider (they read Postgres `raw_payloads`), which no writer chain reaches. It is named for the tier, not the write path.
+     - It also covers the three `raw_harvest` modules as sources: they fill the store the pipeline reads and survive PR F, but took their resource ids from the adapters and Phase-A harvests.
      - It follows indirect imports, with no exceptions. The pipeline's chains ran through `roster_pdf.build`, `facts_seats.house.build`, `normalize.members` and the staging models' adapter imports.
      - Nine pure modules now hold what was shared: five `resources` modules (WSL, roster, PDC, SOS filings, SOS results), `role_keys`, `member_rows`, `roster_pdf.oracle` and `facts_seats.house.positions`. `senate_seat_role_source_id` joined the House key in `usa_wa_common.seats`. Every definition moved verbatim.
      - The API needed nothing: it already imported none of the write path.

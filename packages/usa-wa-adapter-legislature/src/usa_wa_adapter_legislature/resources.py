@@ -3,9 +3,9 @@
 Pure strings, shared by the Postgres adapter, the raw-store harvest and the #302
 pipeline's staging models. They live apart from :mod:`usa_wa_adapter_legislature.adapter`
 because that module is the Postgres write path, which #412 PR F deletes: the pipeline and
-the raw harvest must not import it (the import-linter contract "The pipeline and the API
-never import the Postgres write path"). The committee-meetings key lives beside its window
-arithmetic in :mod:`usa_wa_adapter_legislature.meetings.windows`.
+the raw harvest must not import it (the import-linter contract "The pipeline, the API and
+the raw harvests never import the retiring Postgres tier"). The committee-meetings key
+lives beside its window arithmetic in :mod:`usa_wa_adapter_legislature.meetings.windows`.
 """
 
 from __future__ import annotations
