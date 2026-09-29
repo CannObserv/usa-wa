@@ -27,6 +27,11 @@ def test_a_newer_edition_refuses_the_old_revision(roster_pdf_bytes) -> None:
         verify_edition(roster_pdf_bytes, "2019-01-01", url="https://example.test/roster.pdf")
 
 
-def test_an_unreadable_stamp_warns_and_passes() -> None:
-    """Unreadable means *unknown*, not *mismatched*: refusing would block a layout change."""
-    verify_edition(_blank_pdf(), "2025-06-05", url="https://example.test/roster.pdf")
+def test_an_unreadable_stamp_warns_and_returns_none() -> None:
+    """Unreadable means *unknown*, not *mismatched*: the caller decides whether that blocks."""
+    assert verify_edition(_blank_pdf(), "2025-06-05", url="https://example.test/roster.pdf") is None
+
+
+def test_a_matching_stamp_is_returned(roster_pdf_bytes) -> None:
+    url = "https://example.test/roster.pdf"
+    assert verify_edition(roster_pdf_bytes, "2025-06-05", url=url) == "2025-06-05"

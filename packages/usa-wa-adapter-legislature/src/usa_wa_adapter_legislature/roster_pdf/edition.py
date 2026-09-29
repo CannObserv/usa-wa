@@ -28,11 +28,12 @@ class RosterRevisionMismatch(ValueError):
     """
 
 
-def verify_edition(wire: bytes, revision: str, *, url: str) -> None:
-    """Raise :class:`RosterRevisionMismatch` unless ``wire`` stamps ``revision``.
+def verify_edition(wire: bytes, revision: str, *, url: str) -> str | None:
+    """Raise :class:`RosterRevisionMismatch` unless ``wire`` stamps ``revision``; return the stamp.
 
-    A stamp we cannot read is a warning, not a refusal — only a *disagreement* raises
-    (CR findings 1 and 8 on #225).
+    A stamp we cannot read is a warning here, not a refusal — only a *disagreement* raises
+    (CR findings 1 and 8 on #225). ``None`` hands the caller the decision: the raw harvest
+    refuses to archive on it (#421 CR 4), since the stamp is its only stale-edition guard.
     """
     stamped = extract_revision_date(wire)
     if stamped is None:
@@ -42,3 +43,4 @@ def verify_edition(wire: bytes, revision: str, *, url: str) -> None:
             f"document stamps Revision Date {stamped}, not {revision} — a new edition is "
             f"published; re-run with --revision {stamped}"
         )
+    return stamped

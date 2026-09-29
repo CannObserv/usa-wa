@@ -145,6 +145,27 @@ class TestOperatorConditions:
             await harvest_roster_raw(tmp_path, revision=REVISION)
         assert not any(tmp_path.iterdir())
 
+    async def test_an_unreadable_stamp_refuses_to_archive(self, tmp_path, roster_route) -> None:
+        """The stale-edition guard is the stamp check, so it only holds when the stamp reads. A
+        new edition whose front matter changed layout, forced under the old ``--revision``,
+        would otherwise land new bytes under the old key as the newest edition (CR 4)."""
+        with _stamped(None):
+            summary = await harvest_roster_raw(tmp_path, revision=REVISION, force=True)
+
+        assert summary.unreadable is True
+        assert summary.fetched == 0
+        assert not any(tmp_path.iterdir())
+
+    async def test_a_dry_run_with_an_unreadable_stamp_only_warns(
+        self, tmp_path, roster_route
+    ) -> None:
+        """Scope of CR 4: refusing is about what gets *archived*; a dry run archives nothing."""
+        with _stamped(None):
+            summary = await harvest_roster_raw(tmp_path, revision=REVISION, dry_run=True)
+
+        assert summary.unreadable is False
+        assert summary.fetched == 1
+
     async def test_a_stale_revision_cannot_overtake_a_newer_edition(
         self, tmp_path, roster_route
     ) -> None:
@@ -244,8 +265,8 @@ class TestCli:
 
     @pytest.mark.parametrize(
         "condition",
-        [{"mismatch": "stamps 2027-06-01"}, {"unavailable": True}],
-        ids=["new-edition", "unlocatable"],
+        [{"mismatch": "stamps 2027-06-01"}, {"unavailable": True}, {"unreadable": True}],
+        ids=["new-edition", "unlocatable", "unreadable-stamp"],
     )
     def test_operator_conditions_exit_degraded(self, monkeypatch, condition) -> None:
         patch_job_runtime(monkeypatch)

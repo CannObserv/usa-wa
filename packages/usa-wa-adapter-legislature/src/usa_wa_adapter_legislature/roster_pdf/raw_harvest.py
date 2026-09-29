@@ -19,6 +19,11 @@ re-run fetch nothing; ``--force`` fetches past it.
 edition exits ``4`` and alerts through ``OnFailure=``, monthly until the edition is archived and
 the default is bumped.
 
+**An unreadable stamp refuses a real run** (exit ``4``), where the Postgres adapter only warned:
+the stamp check is what stops a forced run under an old ``--revision`` landing a new edition's
+bytes under the old key, and ``fetched_at`` would make them the edition staging parses. A dry
+run still only warns — it archives nothing.
+
 **Why not** :func:`~clearinghouse_core.rawstore.record_fetch`: it records every fetch exception
 as a generic ``err`` entry, which would flatten the two operator conditions (a new edition, an
 unlocatable document) into one, and it cannot skip the write for a dry run. With one resource
@@ -73,6 +78,10 @@ class RosterRawHarvestSummary:
     unchanged: int = 0
     skipped_fresh: int = 0
     unavailable: bool = False
+    #: The document's ``Revision Date`` could not be read, so nothing proves the bytes are the
+    #: edition ``revision`` names. Refused on a real run: the stamp is the only guard against
+    #: new bytes landing under an old key as the newest edition (CR 4). A dry run only warns.
+    unreadable: bool = False
     #: Set when the fetched document stamps a different edition than ``revision`` — a new
     #: edition is published and the operator must re-run with it.
     mismatch: str | None = None
@@ -101,13 +110,19 @@ async def harvest_roster_raw(
         logger.warning("roster_raw_harvest_unavailable", extra={"revision": revision})
         return RosterRawHarvestSummary(revision=revision, unavailable=True, dry_run=dry_run)
     try:
-        verify_edition(fetched.wire, revision, url=fetched.url)
+        stamped = verify_edition(fetched.wire, revision, url=fetched.url)
     except RosterRevisionMismatch as exc:
         logger.warning(
             "roster_raw_harvest_revision_mismatch",
             extra={"revision": revision, "detail": str(exc)},
         )
         return RosterRawHarvestSummary(revision=revision, mismatch=str(exc), dry_run=dry_run)
+    if stamped is None and not dry_run:
+        logger.warning(
+            "roster_raw_harvest_stamp_unreadable",
+            extra={"revision": revision, "url": fetched.url},
+        )
+        return RosterRawHarvestSummary(revision=revision, unreadable=True)
     unchanged = 0
     if not dry_run:
         run = store.open_run()
@@ -156,8 +171,8 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 
 
 async def _harvest_job(ctx: JobContext) -> JobResult:
-    """Archive the edition; a source we cannot locate — or a newer edition than the one
-    requested — is ``degraded``, since both need an operator rather than a retry."""
+    """Archive the edition; a source we cannot locate, a newer edition than the one requested,
+    or a stamp we cannot read is ``degraded``, since each needs an operator, not a retry."""
     # Only when the operator asked (#169): an unconditional call would let the flag's default
     # silently overwrite the env-seeded interval.
     if ctx.args.pause_seconds is not None:
@@ -168,7 +183,7 @@ async def _harvest_job(ctx: JobContext) -> JobResult:
         dry_run=ctx.dry_run,
         force=ctx.args.force,
     )
-    if summary.unavailable or summary.mismatch:
+    if summary.unavailable or summary.mismatch or summary.unreadable:
         return JobResult.degraded(summary)
     return JobResult.ok(summary)
 
@@ -177,8 +192,9 @@ def main(argv: list[str] | None = None) -> int:
     """Archive the roster PDF into the raw store.
 
     Exit ``0`` clean · ``1`` failed · ``2`` config · ``4``
-    (:data:`~clearinghouse_core.job.EXIT_DEGRADED`) the document could not be located, **or** a
-    new edition is published and ``--revision`` names the old one.
+    (:data:`~clearinghouse_core.job.EXIT_DEGRADED`) the document could not be located, a new
+    edition is published and ``--revision`` names the old one, **or** (not on ``--dry-run``)
+    its ``Revision Date`` could not be read.
     """
     return run_job(
         JOB_SLUG,
