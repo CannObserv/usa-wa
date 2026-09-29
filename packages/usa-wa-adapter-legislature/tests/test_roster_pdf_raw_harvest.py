@@ -156,15 +156,17 @@ class TestOperatorConditions:
         assert summary.fetched == 0
         assert not any(tmp_path.iterdir())
 
-    async def test_a_dry_run_with_an_unreadable_stamp_only_warns(
+    async def test_a_dry_run_with_an_unreadable_stamp_alerts_too(
         self, tmp_path, roster_route
     ) -> None:
-        """Scope of CR 4: refusing is about what gets *archived*; a dry run archives nothing."""
+        """The monthly re-check is a dry run, and it sees a new edition only through the stamp.
+        Warn-only there would leave it green every month after a layout change (CR 6)."""
         with _stamped(None):
             summary = await harvest_roster_raw(tmp_path, revision=REVISION, dry_run=True)
 
-        assert summary.unreadable is False
-        assert summary.fetched == 1
+        assert summary.unreadable is True
+        assert summary.dry_run is True
+        assert not any(tmp_path.iterdir())
 
     async def test_a_stale_revision_cannot_overtake_a_newer_edition(
         self, tmp_path, roster_route

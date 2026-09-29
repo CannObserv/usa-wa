@@ -28,9 +28,8 @@ and verifies the stamp but writes nothing; `--pause-seconds` sets the
 1.0s, in force — #236). Exit `0` clean · `1` failed · `2` config · **`4` degraded** — the document
 could not be located (the CMS media key rotated *and* the href could not be re-discovered, so an
 operator must re-point the source), a newer edition is published, or the document's `Revision
-Date` could not be read (`unreadable=true`, not on `--dry-run`). An unreadable stamp archives
-nothing: it is the only guard against a new edition landing under an old `--revision`, so check
-the front matter by hand and fix `extract_revision_date` for the new layout before re-running.
+Date` could not be read (`unreadable=true`). An unreadable stamp archives nothing: it is the only
+guard against a new edition landing under an old `--revision`.
 
 Re-checked **monthly** by `usa-wa-roster-pdf-recheck.timer` (#237, 1st 09:00 UTC) — never in
 the daily refresh. Closed history does not drift, and the edition lags the current biennium by
@@ -49,6 +48,10 @@ fetches. When its `OnFailure=` email arrives, the summary line says which exit 4
   The next nightly publishes it: staging reads the newest edition in the raw store.
 - **`unavailable=true`** — the media key rotated and the href could not be re-discovered from
   the index page; re-point `DEFAULT_ROSTER_URL` in `roster_pdf/transport.py`.
+- **`unreadable=true`** — the document's `Revision Date` no longer parses, most likely a new
+  edition with a changed front-matter layout. The check cannot see editions until this is fixed:
+  read the stamp off the PDF by hand, fix `extract_revision_date` in `roster_pdf/extraction.py`
+  for the new layout, then treat it as `mismatch=…` if the edition is new.
 
 The check compares the **stamp**, not the bytes: a re-upload that keeps the `Revision Date`
 stays green. Exit `1` is an outage (a non-404 status, a timeout); the next month's run retries.

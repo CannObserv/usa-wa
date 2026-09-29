@@ -19,10 +19,11 @@ re-run fetch nothing; ``--force`` fetches past it.
 edition exits ``4`` and alerts through ``OnFailure=``, monthly until the edition is archived and
 the default is bumped.
 
-**An unreadable stamp refuses a real run** (exit ``4``), where the Postgres adapter only warned:
-the stamp check is what stops a forced run under an old ``--revision`` landing a new edition's
-bytes under the old key, and ``fetched_at`` would make them the edition staging parses. A dry
-run still only warns — it archives nothing.
+**An unreadable stamp is exit** ``4`` **on every run**, where the Postgres adapter only warned.
+On a real run the stamp check is what stops a forced run under an old ``--revision`` landing a
+new edition's bytes under the old key, which ``fetched_at`` would make the edition staging
+parses. On the re-check's dry run the stamp is the only way a new edition is seen, so warning
+there would leave the check green every month after a front-matter layout change.
 
 **Why not** :func:`~clearinghouse_core.rawstore.record_fetch`: it records every fetch exception
 as a generic ``err`` entry, which would flatten the two operator conditions (a new edition, an
@@ -79,8 +80,9 @@ class RosterRawHarvestSummary:
     skipped_fresh: int = 0
     unavailable: bool = False
     #: The document's ``Revision Date`` could not be read, so nothing proves the bytes are the
-    #: edition ``revision`` names. Refused on a real run: the stamp is the only guard against
-    #: new bytes landing under an old key as the newest edition (CR 4). A dry run only warns.
+    #: edition ``revision`` names. Refused: on a real run the stamp is the only guard against
+    #: new bytes landing under an old key as the newest edition (CR 4), and on the monthly
+    #: re-check's dry run it is the only way a new edition is seen at all (CR 6).
     unreadable: bool = False
     #: Set when the fetched document stamps a different edition than ``revision`` — a new
     #: edition is published and the operator must re-run with it.
@@ -117,12 +119,12 @@ async def harvest_roster_raw(
             extra={"revision": revision, "detail": str(exc)},
         )
         return RosterRawHarvestSummary(revision=revision, mismatch=str(exc), dry_run=dry_run)
-    if stamped is None and not dry_run:
+    if stamped is None:
         logger.warning(
             "roster_raw_harvest_stamp_unreadable",
             extra={"revision": revision, "url": fetched.url},
         )
-        return RosterRawHarvestSummary(revision=revision, unreadable=True)
+        return RosterRawHarvestSummary(revision=revision, unreadable=True, dry_run=dry_run)
     unchanged = 0
     if not dry_run:
         run = store.open_run()
@@ -193,8 +195,8 @@ def main(argv: list[str] | None = None) -> int:
 
     Exit ``0`` clean · ``1`` failed · ``2`` config · ``4``
     (:data:`~clearinghouse_core.job.EXIT_DEGRADED`) the document could not be located, a new
-    edition is published and ``--revision`` names the old one, **or** (not on ``--dry-run``)
-    its ``Revision Date`` could not be read.
+    edition is published and ``--revision`` names the old one, **or** its ``Revision Date``
+    could not be read.
     """
     return run_job(
         JOB_SLUG,

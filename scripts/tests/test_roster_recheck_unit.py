@@ -74,8 +74,8 @@ def test_the_unit_pins_no_revision_of_its_own() -> None:
 
 @pytest.mark.parametrize(
     "condition",
-    [{"mismatch": "stamps 2027-06-01"}, {"unavailable": True}],
-    ids=["new-edition", "unlocatable"],
+    [{"mismatch": "stamps 2027-06-01"}, {"unavailable": True}, {"unreadable": True}],
+    ids=["new-edition", "unlocatable", "unreadable-stamp"],
 )
 def test_both_operator_conditions_exit_degraded_so_the_alert_fires(monkeypatch, condition) -> None:
     """``OnFailure=`` fires on any non-zero exit, but the alert's subject line carries the

@@ -33,7 +33,8 @@ def verify_edition(wire: bytes, revision: str, *, url: str) -> str | None:
 
     A stamp we cannot read is a warning here, not a refusal — only a *disagreement* raises
     (CR findings 1 and 8 on #225). ``None`` hands the caller the decision: the raw harvest
-    refuses to archive on it (#421 CR 4), since the stamp is its only stale-edition guard.
+    exits 4 on it (#421 CR 4, CR 6) — the stamp is its only stale-edition guard and the
+    monthly re-check's only view of a new edition.
     """
     stamped = extract_revision_date(wire)
     if stamped is None:
