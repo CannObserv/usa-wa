@@ -1,14 +1,13 @@
 [Unit]
 Description=usa-wa — nightly #302 dataset pipeline (harvests → dbt → registrar → publish) one-shot
 Documentation=https://github.com/CannObserv/usa-wa/issues/311
-# After the canonical daily refreshes: they are the parity oracle, so the
-# probes at the chain's tail compare against a same-day canonical state.
-# Best-effort ordering (no Wants=): a failed refresh alerts on its own unit
-# and this chain still runs off the archives.
-After=network-online.target postgresql.service usa-wa-migrate.service usa-wa-wsl-refresh.service usa-wa-pdc-refresh.service usa-wa-sos-refresh.service
+# It ordered After the three canonical daily refreshes while they were the parity
+# oracle. #412 PR E disabled them and retired the oracle probes: the chain reads
+# only its own raw harvests, the registry and the operator events.
+After=network-online.target postgresql.service usa-wa-migrate.service
 Wants=network-online.target
 # Alert on any counted stage failure (#49): harvest outage, registrar triage
-# backlog, publish-gate refusal, parity divergence — all exit 1 here.
+# backlog, a dbt warning, publish-gate refusal, a probe failure — all exit 1 here.
 OnFailure=usa-wa-notify-failure@%n.service
 
 [Service]

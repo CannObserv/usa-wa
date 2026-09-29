@@ -75,15 +75,12 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     # Nightly #302 dataset pipeline (#311): harvests → dbt → registrar → publish →
     # parity. Ordered after the canonical refreshes (best-effort, no Wants=) because
     # the parity probes at its tail compare against the same-day canonical oracle.
+    # The nightly pipeline ordered After the three canonical refreshes while they were its
+    # parity oracle. #412 PR E disabled them and retired the oracle probes, so it orders
+    # after nothing of theirs: a leftover edge would only delay it behind a dead unit
+    # someone started by hand.
     "usa-wa-pipeline.service": {
-        "After": {
-            "network-online.target",
-            "postgresql.service",
-            "usa-wa-migrate.service",
-            "usa-wa-wsl-refresh.service",
-            "usa-wa-pdc-refresh.service",
-            "usa-wa-sos-refresh.service",
-        },
+        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
         "Before": set(),
         "OnFailure": NOTIFY,
     },
