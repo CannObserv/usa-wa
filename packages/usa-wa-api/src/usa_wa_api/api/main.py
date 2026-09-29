@@ -48,7 +48,9 @@ async def ready() -> JSONResponse:
         try:
             await session.execute(text("SELECT 1"))
             return JSONResponse(status_code=200, content={"status": "ready", "db": True})
-        except SQLAlchemyError:
+        # OSError too (#433): a *new* connection to a stopped server raises
+        # asyncio's bare ConnectionRefusedError, which SQLAlchemy never wraps.
+        except (SQLAlchemyError, OSError):
             return JSONResponse(status_code=503, content={"status": "not_ready", "db": False})
 
 
