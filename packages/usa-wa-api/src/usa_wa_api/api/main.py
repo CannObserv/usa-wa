@@ -51,7 +51,7 @@ async def ready() -> JSONResponse:
         # wraps no connect-time error, so a stopped server's bare
         # ConnectionRefusedError and asyncpg's "starting up" both escaped as 500s.
         except Exception:  # noqa: BLE001 — every failed SELECT 1 means not ready
-            # Swallowed, the cause would leave the journal with the 500's traceback.
+            # Catching it drops the cause the 500's traceback put in the journal.
             logger.warning("readiness check failed", exc_info=True)
             return JSONResponse(status_code=503, content={"status": "not_ready", "db": False})
 
