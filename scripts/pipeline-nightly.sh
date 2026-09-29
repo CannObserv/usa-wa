@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Nightly #302 pipeline chain (#311): raw harvests → dbt build → registrar →
-# publish → serving load → probes. ExecStart of usa-wa-pipeline.service.
+# Nightly #302 pipeline chain (#311): raw harvests → dbt build → build warnings →
+# registrar → publish → serving load → coverage seed → probes.
+# ExecStart of usa-wa-pipeline.service.
 #
 # The PM anchor export sat between registrar and publish until #314 retired it
 # along with the `pm_anchors` dataset it fed.
@@ -13,6 +14,9 @@
 #   nobody can act on is how alerting stops being read. The outage is still in
 #   the journal, and the acceptance fails the run once upstream recovers;
 # - a BUILD failure aborts (nothing downstream can run without the duckdb);
+# - a BUILD WARNING is counted, not fatal (#412 PR E): `dbt build` exits 0 on a
+#   `warn` test, so build_warnings reads run_results.json and fails on it. A
+#   vacancy is news, not a defect, so the registrar and publish still run;
 # - REGISTRAR conflicts (exit 4) are counted, not fatal: the pipeline stays
 #   publishable during a triage backlog — yesterday's identity universe with
 #   today's attributes, never a guessed identity (spec § registrar);
@@ -20,10 +24,15 @@
 #   still lists the last good versions;
 # - a SERVING LOAD failure is counted: the API keeps serving the last good
 #   snapshot (the load is one transaction), so this is stale-but-correct;
-# - a PROBE failure is counted — observational, runs after publish. The parity
-#   probes compare against the canonical oracle; registry_coverage (#412 PR B)
-#   gates the registry's coverage of the build, and must run AFTER the
-#   registrar: a first-seen identity is unregistered until it does.
+# - a COVERAGE SEED failure is counted: /sources keeps yesterday's claims. The
+#   seed reconciles each adapter's declared coverage (#180), which the canonical
+#   refreshes did until #412 PR E disabled them;
+# - a PROBE failure is counted — observational, runs after publish.
+#   registry_coverage (#412 PR B) gates the registry's coverage of the build, and
+#   must run AFTER the registrar: a first-seen identity is unregistered until it
+#   does. parity_citations gates that every published entity stays citable. The
+#   canonical-oracle probes (parity_wsl, _pdc, _registry, _spans) retired with
+#   the canonical refreshes in #412 PR E.
 # Any counted failure exits 1 at the end so OnFailure= emails the operator.
 # Either exit restates every failed stage's last stdout line — the harness
 # summary, counters included — as its closing lines: the email carries only
@@ -94,6 +103,12 @@ if ! run_stage "dbt build" $UV dbt build \
   exit 1
 fi
 
+if ! run_stage usa_wa_pipeline.build_warnings $UV python -m usa_wa_pipeline.build_warnings \
+    --run-results /home/exedev/usa-wa/data/target/run_results.json; then
+  echo "pipeline-nightly: dbt build warned (publish continues)" >&2
+  failures=$((failures + 1))
+fi
+
 if ! run_stage usa_wa_pipeline.registrar $UV python -m usa_wa_pipeline.registrar --db data/pipeline.duckdb; then
   echo "pipeline-nightly: registrar reported conflicts/failure (triage; publish continues)" >&2
   failures=$((failures + 1))
@@ -114,9 +129,12 @@ if ! run_stage usa_wa_api.serving.load $UV python -m usa_wa_api.serving.load; th
   failures=$((failures + 1))
 fi
 
-for probe in usa_wa_pipeline.registry_coverage \
-             usa_wa_pipeline.parity_wsl usa_wa_pipeline.parity_pdc usa_wa_pipeline.parity_registry \
-             usa_wa_pipeline.parity_spans usa_wa_pipeline.parity_citations; do
+if ! run_stage usa_wa_pipeline.coverage_seed $UV python -m usa_wa_pipeline.coverage_seed; then
+  echo "pipeline-nightly: coverage seed failed (/sources keeps yesterday's claims)" >&2
+  failures=$((failures + 1))
+fi
+
+for probe in usa_wa_pipeline.registry_coverage usa_wa_pipeline.parity_citations; do
   if ! run_stage "$probe" $UV python -m "$probe"; then
     echo "pipeline-nightly: probe failed: $probe" >&2
     failures=$((failures + 1))

@@ -56,6 +56,11 @@ NUMBER_WORDS = {
 ENABLE_RE = re.compile(
     r"^\s*sudo systemctl enable --now\s+(?P<units>[^#]+?)\s*(?:#\s*(?P<note>.*))?$"
 )
+#: A shipped timer the deploy keeps but must not run (#412 PR E retired the canonical tier's
+#: seven): its unit files stay for a by-hand re-derive, so it is still in deploy/.
+DISABLE_RE = re.compile(
+    r"^\s*sudo systemctl disable --now\s+(?P<units>[^#]+?)\s*(?:#\s*(?P<note>.*))?$"
+)
 ONCALENDAR_RE = re.compile(
     r"^(?:(?P<weekday>[A-Za-z]{3})\s+)?\*-\*-(?P<day>\*|\d{2})\s+"
     r"(?P<hh>\d{2}):(?P<mm>\d{2}):\d{2}\s+UTC$"
@@ -197,6 +202,17 @@ def fenced_block(lines: list[str]) -> list[str]:
     raise AssertionError("no fenced block found — the guard is pinned to the fenced snippet")
 
 
+def _block_entries(pattern: re.Pattern[str]) -> dict[str, str]:
+    entries: dict[str, str] = {}
+    for line in fenced_block(section_lines(README, "### Scheduled units")):
+        match = pattern.match(line)
+        if not match:
+            continue
+        for unit in match["units"].split():
+            entries[unit] = (match["note"] or "").strip()
+    return entries
+
+
 def enable_block() -> dict[str, str]:
     """Parse README's `### Scheduled units` snippet → {enabled unit: trailing comment}.
 
@@ -205,14 +221,12 @@ def enable_block() -> dict[str, str]:
     written — a `.timer` suffix left off (which would enable the `.service`
     instead) must fail, not be silently normalized.
     """
-    entries: dict[str, str] = {}
-    for line in fenced_block(section_lines(README, "### Scheduled units")):
-        match = ENABLE_RE.match(line)
-        if not match:
-            continue
-        for unit in match["units"].split():
-            entries[unit] = (match["note"] or "").strip()
-    return entries
+    return _block_entries(ENABLE_RE)
+
+
+def disable_block() -> dict[str, str]:
+    """Parse the same snippet's `disable --now` lines → {retired unit: trailing comment}."""
+    return _block_entries(DISABLE_RE)
 
 
 def timer_rows(lines: list[str]) -> dict[str, str]:
@@ -242,14 +256,43 @@ def deployment_rows() -> dict[str, str]:
     return timer_rows(section_lines(DEPLOYMENT_DOC, "## Services"))
 
 
-def test_every_shipped_timer_is_enabled_by_the_readme():
-    """A new deploy/*.timer must be added to the provisioning block (the #167 ratchet)."""
-    assert set(enable_block()) == shipped_timers()
+def test_every_shipped_timer_is_enabled_or_retired_by_the_readme():
+    """A new deploy/*.timer must be added to the provisioning block (the #167 ratchet),
+    either enabled or, if the deploy keeps it without running it, disabled (#412 PR E).
+    Never both: the second line would silently undo the first."""
+    enabled, retired = set(enable_block()), set(disable_block())
+    assert not enabled & retired, f"both enabled and disabled: {sorted(enabled & retired)}"
+    assert enabled | retired == shipped_timers()
+
+
+#: The canonical tier's timers, retired by #412 PR E: the three refreshes that rebuilt it
+#: and the four invariant gates that checked it. Their checks run as dbt tests on the
+#: conformed tier since PR B and #428; their unit files stay until PR F deletes them.
+RETIRED_BY_412 = {
+    "usa-wa-wsl-refresh.timer",
+    "usa-wa-pdc-refresh.timer",
+    "usa-wa-sos-refresh.timer",
+    "usa-wa-senate-corroboration.timer",
+    "usa-wa-house-corroboration.timer",
+    "usa-wa-succession-invariants.timer",
+    "usa-wa-committee-lineage-invariants.timer",
+}
+
+
+def test_exactly_the_canonical_tiers_timers_are_retired():
+    """A host provisioned from README must not re-enable a canonical refresh, and must
+    not lose a live timer to a stray `disable` line."""
+    assert set(disable_block()) == RETIRED_BY_412
 
 
 @pytest.mark.parametrize("timer", sorted(shipped_timers()))
 def test_enable_comment_states_the_units_own_cadence(timer):
-    """Each entry's comment opens with the cadence parsed from that timer's OnCalendar=."""
+    """Each enabled entry's comment opens with the cadence parsed from that timer's
+    OnCalendar=; a retired one's opens with "retired" instead, and names why."""
+    if timer in disable_block():
+        note = disable_block()[timer]
+        assert note.startswith("retired (#"), f"{timer}: comment {note!r} must say why it retired"
+        return
     note = enable_block().get(timer, "")
     expected = cadence_phrase(timer)
     assert note.startswith(expected), f"{timer}: comment {note!r} does not open with {expected!r}"

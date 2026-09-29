@@ -179,7 +179,7 @@ journald tells nobody while the job passes. Two probes carry them:
   headless) and `unregistered_roles`. `seat_overlaps_unclipped` (#360) rides
   along, reported. Split out of `parity_spans` in #412 PR B; each counter names
   itself in `integrity_failures`.
-- **`parity_spans`**, which retires with the oracle (#412 PR E):
+- **`parity_spans`**, out of the nightly since #412 PR E stopped the oracle refreshing (by hand only until PR F):
   `malformed_roster_rows` (partial roster corruption quietly degrading the #228
   deepening — also gated in-build now, by `stg_roster_members`' `not_null`
   tests), `unparsable_canonical_keys`, `role_attribute_mismatches` (the #110
@@ -212,7 +212,7 @@ stands *now* — the state tomorrow's build publishes from, which is the gap
 worth alarming on. A gap the registrar has since closed is transient and
 correctly reads as zero.
 
-**The canonical oracle is stale.** `python -m usa_wa_pipeline.parity_spans`
+**The canonical oracle is stale** (and frozen since #412 PR E disabled its refreshes; the section below is history). `python -m usa_wa_pipeline.parity_spans`
 diffs both families against `canonical.assignments` — keyed on
 `(source, source_id)` — and gates on a **ratchet**, not equality: measured
 2026-09-03 the stored rows diverge by 82 (79 missing / 2 extra / 1 dated
