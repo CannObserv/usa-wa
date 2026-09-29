@@ -79,6 +79,19 @@ class TestHarvest:
         assert entry["status"] == "ok"
         assert entry["content_type"] == "application/pdf"
 
+    async def test_the_journal_names_the_absolute_store_it_landed_in(
+        self, tmp_path, roster_route, caplog, monkeypatch
+    ) -> None:
+        """The default root is ``raw/`` under the cwd: run from a worktree, the edition lands
+        where the pipeline never looks and the run still exits 0. The completion line names
+        the store, so a stray landing is visible (CR 1)."""
+        monkeypatch.chdir(tmp_path)
+        with caplog.at_level("INFO"):
+            await harvest_roster_raw("raw", revision=REVISION)
+
+        [record] = [r for r in caplog.records if r.getMessage() == "roster_raw_harvest_complete"]
+        assert record.store == str(tmp_path / "raw" / ROSTER_SOURCE_SLUG)
+
     async def test_a_rerun_inside_the_freshness_window_does_not_fetch(
         self, tmp_path, roster_route
     ) -> None:

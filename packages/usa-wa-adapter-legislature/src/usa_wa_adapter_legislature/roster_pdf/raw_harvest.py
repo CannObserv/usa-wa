@@ -123,7 +123,14 @@ async def harvest_roster_raw(
     )
     logger.info(
         "roster_raw_harvest_complete",
-        extra={"revision": revision, "unchanged": unchanged, "dry_run": dry_run},
+        extra={
+            "revision": revision,
+            "unchanged": unchanged,
+            "dry_run": dry_run,
+            # Absolute: the default root is cwd-relative, and an edition that lands in a
+            # worktree's raw/ never reaches the pipeline — the one place that shows it (CR 1).
+            "store": str(store.source_dir.resolve()),
+        },
     )
     return summary
 

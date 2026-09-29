@@ -18,7 +18,10 @@ uv run python -m usa_wa_adapter_legislature.roster_pdf.raw_harvest --revision 20
 ```
 
 It writes `raw/usa_wa_legislature_roster/` (`--root` or `USA_WA_RAW_ROOT` to override) and no
-Postgres provenance. Roster staging parses the newest `legroster:` there, so the next nightly
+Postgres provenance. **Load the env first** (`export $(cat /etc/usa-wa/.env .env | xargs)`, which
+sets `USA_WA_RAW_ROOT` to the prod store) **or run from the primary checkout**: the default root is
+`raw/` under the cwd, so a worktree run lands the edition where the pipeline never looks and still
+exits 0. The `roster_raw_harvest_complete` line names the absolute store it wrote. Roster staging parses the newest `legroster:` there, so the next nightly
 publishes the edition. `--force` re-fetches past the 90-day freshness window; `--dry-run` fetches
 and verifies the stamp but writes nothing; `--pause-seconds` sets the
 `leg.wa.gov` courtesy limiter for the run (unset leaves `USA_WA_LEG_MIN_REQUEST_INTERVAL`, default
