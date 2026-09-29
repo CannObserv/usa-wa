@@ -27,7 +27,8 @@ root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py
 - `usa_wa_api`, `usa_wa_facts_*`, `usa_wa_pipeline ↛ usa_wa_adapter_*.transport`
 - `usa_wa_common ↛` any adapter, fact or deployment package
 - the layer order above, with no back-edges
-- `usa_wa_pipeline`, `usa_wa_api` and the three `raw_harvest` modules ↛ the retiring
+- `usa_wa_pipeline`, `usa_wa_api` and the four `raw_harvest` modules (the three nightly ones
+  and the on-demand `roster_pdf.raw_harvest`, #421) ↛ the retiring
   Postgres tier — the runner, the adapter bases, `span_emit`, the operator stores, every
   Phase-A `harvest`, `refresh`, `build`, `backfill` and one-shot migration, and the `cohort`
   providers that read `raw_payloads` — **by any chain** (#412 PR D). They survive
