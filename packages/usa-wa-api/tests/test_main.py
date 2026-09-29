@@ -60,3 +60,16 @@ async def test_ready_returns_503_when_db_unreachable(bare_client, monkeypatch, e
 
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready", "db": False}
+
+
+async def test_ready_logs_why_it_is_not_ready(bare_client, monkeypatch, caplog):
+    """The 503 keeps the cause the 500's traceback used to put in the journal."""
+    error = ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 5432)")
+    monkeypatch.setattr(main, "get_session_factory", lambda: lambda: _FailingSession(error))
+
+    with caplog.at_level("WARNING", logger=main.__name__):
+        await bare_client.get("/ready")
+
+    [record] = [r for r in caplog.records if r.name == main.__name__]
+    assert record.levelname == "WARNING"
+    assert record.exc_info is not None and record.exc_info[1] is error
