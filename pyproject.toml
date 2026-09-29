@@ -287,6 +287,9 @@ source_modules = [
     "usa_wa_adapter_legislature.raw_harvest",
     "usa_wa_adapter_pdc.raw_harvest",
     "usa_wa_adapter_sos.raw_harvest",
+    # The roster's on-demand raw harvest (#421), its only Phase A once PR F deletes
+    # `roster_pdf.harvest`: the pipeline stages the roster from what it writes.
+    "usa_wa_adapter_legislature.roster_pdf.raw_harvest",
 ]
 forbidden_modules = [
     "clearinghouse_core.adapter",

@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from clearinghouse_core.provenance import FetchEvent
 from clearinghouse_core.testing import patch_job_runtime
-from usa_wa_adapter_legislature.roster_pdf import adapter as adapter_module
+from usa_wa_adapter_legislature.roster_pdf import edition as edition_module
 from usa_wa_adapter_legislature.roster_pdf import harvest as harvest_module
 from usa_wa_adapter_legislature.roster_pdf.audit import (
     RosterAudit,
@@ -98,7 +98,7 @@ class TestScheduledRecheck:
         await get_or_create_roster_source(db_session, usa_wa)
         assert (await harvest_roster(db_session, revision="2025-06-05")).archived == 1
 
-        with patch.object(adapter_module, "extract_revision_date", return_value="2027-06-01"):
+        with patch.object(edition_module, "extract_revision_date", return_value="2027-06-01"):
             summary = await harvest_roster(db_session, revision="2025-06-05", force=True)
 
         assert route.call_count == 2
@@ -116,7 +116,7 @@ class TestScheduledRecheck:
         await get_or_create_roster_source(db_session, usa_wa)
         assert (await harvest_roster(db_session, revision="2025-06-05")).archived == 1
 
-        with patch.object(adapter_module, "extract_revision_date", return_value="2027-06-01"):
+        with patch.object(edition_module, "extract_revision_date", return_value="2027-06-01"):
             summary = await harvest_roster(db_session, revision="2025-06-05")
 
         assert route.call_count == 1
