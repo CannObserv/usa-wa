@@ -11,7 +11,7 @@ import pytest
 import respx
 
 from clearinghouse_core.job import EXIT_DEGRADED
-from clearinghouse_core.rawstore import RawStore
+from clearinghouse_core.rawstore import RAW_ROOT_ENV, RawStore
 from clearinghouse_core.testing import patch_job_runtime
 from usa_wa_adapter_legislature.roster_pdf import edition as edition_module
 from usa_wa_adapter_legislature.roster_pdf import raw_harvest as raw_harvest_module
@@ -208,6 +208,21 @@ class TestCli:
 
         with patch.object(raw_harvest_module, "harvest_roster_raw", _fake):
             assert raw_harvest_module.main(["--root", str(tmp_path)]) == 0
+        assert [str(r) for r in calls] == [str(tmp_path)]
+
+    def test_without_root_the_store_is_usa_wa_raw_root(self, monkeypatch, tmp_path) -> None:
+        """The recheck unit and the runbook pass no ``--root``: the prod store comes from
+        ``USA_WA_RAW_ROOT`` in ``/etc/usa-wa/.env`` (CR 3)."""
+        patch_job_runtime(monkeypatch)
+        monkeypatch.setenv(RAW_ROOT_ENV, str(tmp_path))
+        calls: list = []
+
+        async def _fake(root, **kwargs):
+            calls.append(root)
+            return RosterRawHarvestSummary(revision=kwargs["revision"])
+
+        with patch.object(raw_harvest_module, "harvest_roster_raw", _fake):
+            assert raw_harvest_module.main([]) == 0
         assert [str(r) for r in calls] == [str(tmp_path)]
 
     def test_pause_seconds_overrides_the_host_limiter_only_when_passed(self, monkeypatch):
