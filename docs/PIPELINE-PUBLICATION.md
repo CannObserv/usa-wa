@@ -20,11 +20,12 @@ retraction=absence means a degraded build must never ship as mass retraction.
 The API serves the tree at `/datasets/*` with `/health/datasets` as the
 publication probe. The nightly systemd chain (`scripts/pipeline-nightly.sh`,
 `usa-wa-pipeline.timer`, daily 08:00 UTC) runs harvests → dbt build →
-`build_warnings` → registrar → publish → serving load → probes
+`build_warnings` → registrar → publish → serving load → `coverage_seed` → probes
 (`registry_coverage`, then `parity_citations`); any counted failure exits 1 so `OnFailure=` emails
 the operator, with each failed stage's summary line restated last (#331). `build_warnings`
 (#412 PR E) fails the run on any dbt `warn`, which `dbt build` alone exits 0 on; the four
-canonical-oracle parity probes left the chain in the same PR.
+canonical-oracle parity probes left the chain in the same PR, and `coverage_seed` joined it:
+the refreshes it disabled were the only writer of `/sources`' coverage claims (#180).
 
 Three tiers, each answering a different question about who may depend on it.
 `tier` is per-dataset in the catalog and `/health/datasets` returns it, so the

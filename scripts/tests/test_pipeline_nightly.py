@@ -267,3 +267,15 @@ def test_the_oracle_backed_probes_are_retired(run_nightly):
     for retired in ("parity_wsl", "parity_pdc", "parity_registry", "parity_spans"):
         assert f"usa_wa_pipeline.{retired}" not in stages
     assert {"usa_wa_pipeline.registry_coverage", "usa_wa_pipeline.parity_citations"} <= stages
+
+
+def test_coverage_seed_runs_after_the_serving_load_and_is_counted(run_nightly):
+    """#412 PR E CR 1: the refreshes that reconciled ``source_coverage`` are disabled, so
+    the nightly does it. Counted, like every stage after the build."""
+    code, lines = run_nightly(STUB_FAIL="usa_wa_pipeline.coverage_seed")
+
+    assert code == 1
+    stages = [line.removeprefix("stub-log ") for line in lines if line.startswith("stub-log ")]
+    assert stages.index("usa_wa_api.serving.load") < stages.index("usa_wa_pipeline.coverage_seed")
+    assert "usa_wa_pipeline.parity_citations" in stages
+    assert any("failed stage: usa_wa_pipeline.coverage_seed (exit 1)" in line for line in lines)

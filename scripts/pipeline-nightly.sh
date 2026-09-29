@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Nightly #302 pipeline chain (#311): raw harvests → dbt build → build warnings →
-# registrar → publish → serving load → probes. ExecStart of usa-wa-pipeline.service.
+# registrar → publish → serving load → coverage seed → probes.
+# ExecStart of usa-wa-pipeline.service.
 #
 # The PM anchor export sat between registrar and publish until #314 retired it
 # along with the `pm_anchors` dataset it fed.
@@ -23,6 +24,9 @@
 #   still lists the last good versions;
 # - a SERVING LOAD failure is counted: the API keeps serving the last good
 #   snapshot (the load is one transaction), so this is stale-but-correct;
+# - a COVERAGE SEED failure is counted: /sources keeps yesterday's claims. The
+#   seed reconciles each adapter's declared coverage (#180), which the canonical
+#   refreshes did until #412 PR E disabled them;
 # - a PROBE failure is counted — observational, runs after publish.
 #   registry_coverage (#412 PR B) gates the registry's coverage of the build, and
 #   must run AFTER the registrar: a first-seen identity is unregistered until it
@@ -122,6 +126,11 @@ fi
 # beside them rather than discovered by a 200 answering stale rows.
 if ! run_stage usa_wa_api.serving.load $UV python -m usa_wa_api.serving.load; then
   echo "pipeline-nightly: serving load failed (API still serves the last snapshot)" >&2
+  failures=$((failures + 1))
+fi
+
+if ! run_stage usa_wa_pipeline.coverage_seed $UV python -m usa_wa_pipeline.coverage_seed; then
+  echo "pipeline-nightly: coverage seed failed (/sources keeps yesterday's claims)" >&2
   failures=$((failures + 1))
 fi
 

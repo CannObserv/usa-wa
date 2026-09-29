@@ -109,6 +109,7 @@ What survives:
      - The warning gate is `usa_wa_pipeline.build_warnings`, a stage right after `dbt build`. It fails on any node whose status is not `pass`/`success`, not only `warn`, and is degraded (exit 4) on a missing or empty `run_results.json` or one from a run that was not a `build`.
      - The docs guard gained a notion of a retired timer: README's provisioning block now `disable --now`s the seven, and `test_docs_timer_drift` requires enabled and retired to partition `deploy/*.timer`. It pins the retired set, so a host provisioned from README cannot re-enable a refresh.
      - DEPLOYMENT.md's lifecycle table no longer says to `restart` a retired timer after an edit, which would start it again.
+     - The refreshes were also the only writer of `source_coverage` (#180), which survives PR F: each reconciled its adapter's declared claims through `provisioning`. The nightly now runs `usa_wa_pipeline.coverage_seed` after the serving load, so a re-audited claim still reaches `/sources`.
      - The archive refreshes have no timer: they stop because nothing pulls them in (`Wants=` from the disabled rebuild units).
 6. **PR F: delete and drop.**
    - Run `raw_export` a final time, now that PR E has stopped every Postgres writer, then the file sweep; only then take a `pg_dump` of `canonical` and the provenance tables. PR A's export cannot be the last one: the refreshes and archive units keep writing `raw_payloads` until PR E.
