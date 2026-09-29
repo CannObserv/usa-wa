@@ -77,7 +77,8 @@ Full options, exit codes and rationale: [COMMANDS-ROSTER.md](COMMANDS-ROSTER.md)
 
 | Command | Purpose |
 |---|---|
-| `python -m usa_wa_adapter_legislature.roster_pdf.harvest` | Archive the WA Legislature roster PDF (1889–2025, `usa_wa_legislature_roster`) — Phase A (#225); one edition, not a sweep; exit 4 = document unlocatable or a newer edition published. Run `--dry-run --force` monthly by `usa-wa-roster-pdf-recheck.timer` as the edition check (#237) |
+| `python -m usa_wa_adapter_legislature.roster_pdf.raw_harvest` | Archive the WA Legislature roster PDF (1889–2025, `usa_wa_legislature_roster`) into the raw store the #302 pipeline stages from — Phase A (#421); on demand, one edition, not a sweep; exit 4 = document unlocatable or a newer edition published. Run `--dry-run --force` monthly by `usa-wa-roster-pdf-recheck.timer` as the edition check (#237) |
+| `python -m usa_wa_adapter_legislature.roster_pdf.harvest` | **Superseded by `roster_pdf.raw_harvest` (#421); #412 PR F deletes it.** Archives a roster edition into Postgres only, which the #302 pipeline never reads — do not use to publish a new edition |
 | `python -m usa_wa_adapter_legislature.roster_pdf.backfill` | Roster succession dates → operator events (#226); defers to every existing attestation, `--dry-run` rolls back; exit 4 = nothing resolved |
 | `python -m usa_wa_adapter_legislature.roster_pdf.build` | Pre-1991 roster Persons, party spans and Senate seat spans — Phase B (#228); `--dry-run` rolls back |
 

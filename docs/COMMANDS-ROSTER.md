@@ -13,11 +13,14 @@ refresh**: the source publishes one document per revision (~biennially; 18 editi
 so the harvest archives exactly one resource and re-running is a cache hit.
 
 ```bash
-# Phase A — archive one edition (archive-only, #54 hashed)
-uv run python -m usa_wa_adapter_legislature.roster_pdf.harvest --revision 2025-06-05
+# Phase A — archive one edition into the raw store the #302 pipeline stages from (#421)
+uv run python -m usa_wa_adapter_legislature.roster_pdf.raw_harvest --revision 2025-06-05
 ```
 
-`--force` re-fetches past the freshness cache; `--dry-run` rolls back; `--pause-seconds` sets the
+It writes `raw/usa_wa_legislature_roster/` (`--root` or `USA_WA_RAW_ROOT` to override) and no
+Postgres provenance. Roster staging parses the newest `legroster:` there, so the next nightly
+publishes the edition. `--force` re-fetches past the 90-day freshness window; `--dry-run` fetches
+and verifies the stamp but writes nothing; `--pause-seconds` sets the
 `leg.wa.gov` courtesy limiter for the run (unset leaves `USA_WA_LEG_MIN_REQUEST_INTERVAL`, default
 1.0s, in force — #236). Exit `0` clean · `1` failed · `2` config · **`4` degraded** — the document
 could not be located, meaning the CMS media key rotated *and* the href could not be re-discovered,
@@ -29,17 +32,15 @@ design, so it is never authority there. Phase B parses **offline** from the arch
 parser and re-run without re-fetching 5.7MB.
 
 The timer runs this same harvest `--dry-run --force`: one GET (~69MB/yr), the stamp verified
-against `DEFAULT_REVISION` in `roster_pdf/harvest.py`, the archive write rolled back. `--force`
-is load-bearing — the source's 90-day freshness cache would otherwise make the check a cache hit
-that never fetches. When its `OnFailure=` email arrives, the summary line says which exit 4:
+against `DEFAULT_REVISION` in `roster_pdf/edition.py`, nothing written. `--force` is
+load-bearing — the 90-day freshness window would otherwise make the check a cache hit that never
+fetches. When its `OnFailure=` email arrives, the summary line says which exit 4:
 
 - **`mismatch=…`** — a new edition is published. Archive it with the `--revision` the message
   names, then bump `DEFAULT_REVISION` on `main`: the check compares against the code, so it
   alerts every month until both land. Audit the new edition before building on it (the
   `coverage.py` claim is closed at the old ceiling, and the parser has only seen this layout).
-  **The harvest archives to Postgres only**: the #302 pipeline stages the roster from the raw
-  store, which nothing writes on a schedule, so the published datasets stay on the old edition
-  until #421 lands.
+  The next nightly publishes it: staging reads the newest edition in the raw store.
 - **`unavailable=true`** — the media key rotated and the href could not be re-discovered from
   the index page; re-point `DEFAULT_ROSTER_URL` in `roster_pdf/transport.py`.
 
