@@ -64,7 +64,9 @@ raw/<source-slug>/
 - Harvesters: `python -m usa_wa_adapter_legislature.raw_harvest` (daily SOAP set +
   member fan-out, committees enumerated from the run's own roster wire — no DB),
   `…usa_wa_adapter_pdc.raw_harvest` (winner cohorts), `…usa_wa_adapter_sos.raw_harvest`
-  (filings + results). All reuse the adapters' transports, rate limiters, and the
+  (filings + results), nightly; `…usa_wa_adapter_legislature.roster_pdf.raw_harvest`
+  (#421), **on demand** — one roster edition, the input `stg_roster_members` parses, with
+  its own 90-day freshness window and stamp check (runbook: COMMANDS-ROSTER.md). All reuse the adapters' transports, rate limiters, and the
   Postgres archive's resource-id vocabulary; per-resource failures are contained as
   `err` manifest entries; a byte-identical re-fetch is recorded but stored once
   (`skip_unchanged` parity). `--ttl-days N` skips fresh resources; the default 0

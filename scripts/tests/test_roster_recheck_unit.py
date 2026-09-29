@@ -1,13 +1,13 @@
 """The roster edition re-check is a read-only, cache-bypassing fetch on a monthly timer (#237).
 
-``usa-wa-roster-pdf-recheck.service`` is the roster harvest (#225) with a fixed argv, and
-that argv is the whole design:
+``usa-wa-roster-pdf-recheck.service`` is the roster raw harvest (#421) with a fixed argv,
+and that argv is the whole design:
 
-* ``--dry-run`` — the harness rolls the archive write back, so a timer can never mutate
+* ``--dry-run`` — fetch and verify, never open a raw-store run, so a timer can never mutate
   the archive or move what a ``legroster:<revision>`` citation names.
-* ``--force`` — the source's freshness cache is 90 days. Unforced, the check is a cache
+* ``--force`` — the harvest's freshness window is 90 days. Unforced, the check is a cache
   hit that fetches nothing for 90 days after every real harvest and reports ``ok``
-  throughout: a detector that cannot see. A dry run never refreshes that cache, which is
+  throughout: a detector that cannot see. A dry run never refreshes that window, which is
   why forcing it costs nothing but the one GET the check exists to make.
 * no ``--revision`` — the check compares against ``DEFAULT_REVISION`` in code, the one
   place an operator bumps after archiving a new edition. A revision pinned here would be
@@ -29,12 +29,13 @@ from systemd_units import DEPLOY, unit_value, unit_values
 
 from clearinghouse_core.job import EXIT_DEGRADED
 from clearinghouse_core.testing import patch_job_runtime
-from usa_wa_adapter_legislature.roster_pdf import harvest as harvest_module
-from usa_wa_adapter_legislature.roster_pdf.harvest import DEFAULT_REVISION, RosterHarvestSummary
+from usa_wa_adapter_legislature.roster_pdf import raw_harvest as harvest_module
+from usa_wa_adapter_legislature.roster_pdf.edition import DEFAULT_REVISION
+from usa_wa_adapter_legislature.roster_pdf.raw_harvest import RosterRawHarvestSummary
 
 SERVICE = DEPLOY / "usa-wa-roster-pdf-recheck.service"
 TIMER = DEPLOY / "usa-wa-roster-pdf-recheck.timer"
-HARVEST_MODULE = "usa_wa_adapter_legislature.roster_pdf.harvest"
+HARVEST_MODULE = "usa_wa_adapter_legislature.roster_pdf.raw_harvest"
 
 #: A day of the month, every month (``*-*-01``). The docs guard owns the full grammar.
 MONTHLY_RE = re.compile(r"^\*-\*-\d{2}\s")
@@ -52,19 +53,18 @@ def _harvest_argv() -> list[str]:
 
 
 def test_the_unit_runs_a_forced_dry_run_against_the_code_default(monkeypatch) -> None:
-    """The unit's argv, parsed by the harvest itself: rolled back, forced, default revision."""
-    session = patch_job_runtime(monkeypatch)
+    """The unit's argv, parsed by the harvest itself: dry, forced, default revision."""
+    patch_job_runtime(monkeypatch)
     calls: list[dict] = []
 
-    async def _fake_harvest(_session, **kwargs):
+    async def _fake_harvest(_root, **kwargs):
         calls.append(kwargs)
-        return RosterHarvestSummary(revision=kwargs["revision"], archived=1)
+        return RosterRawHarvestSummary(revision=kwargs["revision"], fetched=1, dry_run=True)
 
-    with patch.object(harvest_module, "harvest_roster", _fake_harvest):
+    with patch.object(harvest_module, "harvest_roster_raw", _fake_harvest):
         assert harvest_module.main(_harvest_argv()) == 0
 
     assert calls == [{"revision": DEFAULT_REVISION, "dry_run": True, "force": True}]
-    assert (session.committed, session.rolled_back) == (0, 1), "a dry run must roll back"
 
 
 def test_the_unit_pins_no_revision_of_its_own() -> None:
@@ -74,8 +74,8 @@ def test_the_unit_pins_no_revision_of_its_own() -> None:
 
 @pytest.mark.parametrize(
     "condition",
-    [{"mismatch": "stamps 2027-06-01"}, {"unavailable": True}],
-    ids=["new-edition", "unlocatable"],
+    [{"mismatch": "stamps 2027-06-01"}, {"unavailable": True}, {"unreadable": True}],
+    ids=["new-edition", "unlocatable", "unreadable-stamp"],
 )
 def test_both_operator_conditions_exit_degraded_so_the_alert_fires(monkeypatch, condition) -> None:
     """``OnFailure=`` fires on any non-zero exit, but the alert's subject line carries the
@@ -83,10 +83,10 @@ def test_both_operator_conditions_exit_degraded_so_the_alert_fires(monkeypatch, 
     operator conditions must therefore exit exactly 4 (CR 3)."""
     patch_job_runtime(monkeypatch)
 
-    async def _degraded(_session, **kwargs):
-        return RosterHarvestSummary(revision=kwargs["revision"], archived=0, **condition)
+    async def _degraded(_root, **kwargs):
+        return RosterRawHarvestSummary(revision=kwargs["revision"], **condition)
 
-    with patch.object(harvest_module, "harvest_roster", _degraded):
+    with patch.object(harvest_module, "harvest_roster_raw", _degraded):
         assert harvest_module.main(_harvest_argv()) == EXIT_DEGRADED
     assert unit_values(SERVICE, "Unit", "OnFailure") == ["usa-wa-notify-failure@%n.service"]
 
