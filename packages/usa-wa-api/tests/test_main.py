@@ -4,11 +4,14 @@ Unit tier: the session factory is faked, so no database is needed. A stopped
 Postgres is the case the probe exists for. A pooled connection that the server
 terminates arrives wrapped as a ``SQLAlchemyError``, but a *new* connection
 attempt raises asyncio's bare ``ConnectionRefusedError`` (an ``OSError``), which
-escaped the handler as a 500 during the #430 upgrade.
+escaped the handler as a 500 during the #430 upgrade. SQLAlchemy's asyncpg
+dialect translates no connect-time error, so asyncpg's own — "the database
+system is starting up", which is neither of those — escapes the same way.
 """
 
 from collections.abc import AsyncGenerator
 
+import asyncpg
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.exc import OperationalError
@@ -46,8 +49,9 @@ async def bare_client() -> AsyncGenerator[AsyncClient]:
         OperationalError("SELECT 1", {}, Exception("terminating connection")),
         ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 5432)"),
         OSError("network unreachable"),
+        asyncpg.exceptions.CannotConnectNowError("the database system is starting up"),
     ],
-    ids=["sqlalchemy-error", "connection-refused", "os-error"],
+    ids=["sqlalchemy-error", "connection-refused", "os-error", "starting-up"],
 )
 async def test_ready_returns_503_when_db_unreachable(bare_client, monkeypatch, error):
     monkeypatch.setattr(main, "get_session_factory", lambda: lambda: _FailingSession(error))
