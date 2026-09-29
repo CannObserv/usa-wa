@@ -99,9 +99,9 @@ environment) are indexed under **Detail Docs** in [`AGENTS.md`](AGENTS.md).
 ## Deploy
 
 The systemd units live under [`deploy/`](deploy/) — the live API, a migrate
-oneshot, and eleven timer-driven oneshots. (The PM sync sidecar and its three
-weekly committee reconcilers were four more until usa-wa#314 retired the PM sync
-stack.)
+oneshot, and eleven timer-driven oneshots, seven of them retired and kept
+disabled (#412). (The PM sync sidecar and its three weekly committee reconcilers
+were four more until usa-wa#314 retired the PM sync stack.)
 
 Production secrets live in `/etc/usa-wa/.env` (managed manually on the VM, not in
 the repo) — **this file must exist before enabling any unit**, or migrate (owner
@@ -138,10 +138,11 @@ The deploy also ships timer-driven oneshots; a fresh host must `enable` their
 **timers** explicitly — they are not pulled in by `usa-wa.service`. (The units
 above already landed in `/etc/systemd/system/` via the `usa-wa*` copy.)
 
-Enable **all** of them. Four of the dailies are invariant gates whose whole job
-is to exit 1 and email the operator (`OnFailure=`, #49) when the data drifts —
-skip one and nothing fails, nothing alerts, and the absence looks identical to
-"no drift". The disk GC (#394) is the same bargain one layer down: it exits 1
+Enable **every** timer the block enables. The nightly pipeline is the one that
+matters most: its dbt tests and probes are the invariant gates, and they exit 1 and
+email the operator (`OnFailure=`, #49) when the data drifts — skip it and nothing
+fails, nothing alerts, and the absence looks identical to "no drift". The disk GC
+(#394) is the same bargain one layer down: it exits 1
 when free space runs out, which is how a nightly publish dies on ENOSPC instead
 of publishing. The monthly roster re-check (#237) is the same bargain for a
 document revised about twice a decade: it archives nothing and exits 4 when a new
@@ -151,17 +152,6 @@ edition is published — the alert is the only notice that one exists.
 # Host hygiene (daily) — reclaim before the day's work, not after it fails
 sudo systemctl enable --now usa-wa-disk-gc.timer                            # daily 05:45 UTC (#394)
 
-# Ingest (daily)
-sudo systemctl enable --now usa-wa-wsl-refresh.timer                        # daily 06:00 UTC
-sudo systemctl enable --now usa-wa-pdc-refresh.timer                        # daily 06:30 UTC (#69 identifier links)
-sudo systemctl enable --now usa-wa-sos-refresh.timer                        # daily 06:45 UTC (#101 House Position)
-
-# Invariant gates (daily) — exit 1 → operator email
-sudo systemctl enable --now usa-wa-senate-corroboration.timer               # daily 07:00 UTC (#123)
-sudo systemctl enable --now usa-wa-house-corroboration.timer                # daily 07:05 UTC (#149)
-sudo systemctl enable --now usa-wa-succession-invariants.timer              # daily 07:15 UTC (#107)
-sudo systemctl enable --now usa-wa-committee-lineage-invariants.timer       # daily 07:30 UTC (#124 C4)
-
 # Dataset pipeline (daily) — the #302 publish chain
 sudo systemctl enable --now usa-wa-pipeline.timer                           # daily 08:00 UTC (#311)
 
@@ -170,6 +160,17 @@ sudo systemctl enable --now usa-wa-integrity-sweep.timer                    # we
 
 # Edition re-check (monthly) — dry-run fetch; exit 4 = new roster edition → operator email
 sudo systemctl enable --now usa-wa-roster-pdf-recheck.timer                 # monthly 1st 09:00 UTC (#237)
+
+# Retired (#412): the Postgres canonical tier's refreshes and invariant gates. The
+# unit files stay, so a by-hand `systemctl start <unit>.service` can still re-derive
+# canonical until #412 PR F deletes them; their checks run as dbt tests in the nightly.
+sudo systemctl disable --now usa-wa-wsl-refresh.timer                       # retired (#412 PR E)
+sudo systemctl disable --now usa-wa-pdc-refresh.timer                       # retired (#412 PR E)
+sudo systemctl disable --now usa-wa-sos-refresh.timer                       # retired (#412 PR E)
+sudo systemctl disable --now usa-wa-senate-corroboration.timer              # retired (#412 PR E)
+sudo systemctl disable --now usa-wa-house-corroboration.timer               # retired (#412 PR E)
+sudo systemctl disable --now usa-wa-succession-invariants.timer             # retired (#412 PR E)
+sudo systemctl disable --now usa-wa-committee-lineage-invariants.timer      # retired (#412 PR E)
 
 sudo systemctl list-timers 'usa-wa-*'                                       # verify next-elapse
 ```

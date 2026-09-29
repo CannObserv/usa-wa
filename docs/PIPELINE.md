@@ -209,10 +209,10 @@ uv run python -m usa_wa_pipeline.adjudicate merge --kind person --loser <ULID> -
 # THIS order (`move` refuses a tombstoned destination, so the revive comes
 # first). Unmerge reports `keys_moved_away` in its counters — the keys still
 # bound elsewhere; move each back onto the revived entity, or it stays keyless
-# (absent from conformed, and the registry parity probe + seed alarm nightly):
+# (absent from conformed, and registry_coverage alarms nightly once a span needs it):
 uv run python -m usa_wa_pipeline.adjudicate unmerge --kind person --entity <revived-ULID> --note "…"
 uv run python -m usa_wa_pipeline.adjudicate move --kind person --key <each reported key> --to <revived-ULID> --note "…"
-# Invariant probe: canonical identity ⊆ registry crosswalk
+# Invariant probe: canonical identity ⊆ registry crosswalk (by hand since #412 PR E froze canonical)
 uv run python -m usa_wa_pipeline.parity_registry
 ```
 
@@ -388,8 +388,8 @@ uv run python -m usa_wa_pipeline.registry_coverage --db data/pipeline.duckdb
 It rebuilds both span families from the built duckdb's staging tables and the
 operator events, joins them against the registry as the registrar left it, and
 exits 1 on any `unregistered_*`, or 4 when the build holds no sponsors, roster or
-ballot rows. It runs first in the nightly's probe loop and outlives the parity
-probes (PR E).
+ballot rows. It runs first in the nightly's probe loop, beside `parity_citations`;
+the canonical-oracle parity probes left the loop in PR E.
 
 ## TDD for dbt models
 
