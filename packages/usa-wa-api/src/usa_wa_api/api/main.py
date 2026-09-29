@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
 
 from clearinghouse_core.config import get_settings
 from clearinghouse_core.database import get_session_factory, log_connection_fingerprint
@@ -48,7 +47,12 @@ async def ready() -> JSONResponse:
         try:
             await session.execute(text("SELECT 1"))
             return JSONResponse(status_code=200, content={"status": "ready", "db": True})
-        except SQLAlchemyError:
+        # Any exception, not SQLAlchemyError (#433): SQLAlchemy's asyncpg dialect
+        # wraps no connect-time error, so a stopped server's bare
+        # ConnectionRefusedError and asyncpg's "starting up" both escaped as 500s.
+        except Exception:  # noqa: BLE001 — every failed SELECT 1 means not ready
+            # Catching it drops the cause the 500's traceback put in the journal.
+            logger.warning("readiness check failed", exc_info=True)
             return JSONResponse(status_code=503, content={"status": "not_ready", "db": False})
 
 

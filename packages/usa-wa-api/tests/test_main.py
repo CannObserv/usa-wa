@@ -1,0 +1,75 @@
+"""``GET /ready`` answers 503, never 500, whatever way the database is down (#433).
+
+Unit tier: the session factory is faked, so no database is needed. A stopped
+Postgres is the case the probe exists for. A pooled connection that the server
+terminates arrives wrapped as a ``SQLAlchemyError``, but a *new* connection
+attempt raises asyncio's bare ``ConnectionRefusedError`` (an ``OSError``), which
+escaped the handler as a 500 during the #430 upgrade. SQLAlchemy's asyncpg
+dialect translates no connect-time error, so asyncpg's own — "the database
+system is starting up", which is neither of those — escapes the same way.
+"""
+
+from collections.abc import AsyncGenerator
+
+import asyncpg
+import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.exc import OperationalError
+
+from usa_wa_api.api import main
+
+
+class _FailingSession:
+    """An ``AsyncSession`` stand-in whose ``execute`` raises ``error``."""
+
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+
+    async def __aenter__(self) -> "_FailingSession":
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        return None
+
+    async def execute(self, *args: object, **kwargs: object) -> None:
+        raise self._error
+
+
+@pytest.fixture
+async def bare_client() -> AsyncGenerator[AsyncClient]:
+    """An ``AsyncClient`` on the app with no lifespan and no database."""
+    transport = ASGITransport(app=main.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        OperationalError("SELECT 1", {}, Exception("terminating connection")),
+        ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 5432)"),
+        OSError("network unreachable"),
+        asyncpg.exceptions.CannotConnectNowError("the database system is starting up"),
+    ],
+    ids=["sqlalchemy-error", "connection-refused", "os-error", "starting-up"],
+)
+async def test_ready_returns_503_when_db_unreachable(bare_client, monkeypatch, error):
+    monkeypatch.setattr(main, "get_session_factory", lambda: lambda: _FailingSession(error))
+
+    response = await bare_client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "not_ready", "db": False}
+
+
+async def test_ready_logs_why_it_is_not_ready(bare_client, monkeypatch, caplog):
+    """The 503 keeps the cause the 500's traceback used to put in the journal."""
+    error = ConnectionRefusedError(111, "Connect call failed ('127.0.0.1', 5432)")
+    monkeypatch.setattr(main, "get_session_factory", lambda: lambda: _FailingSession(error))
+
+    with caplog.at_level("WARNING", logger=main.__name__):
+        await bare_client.get("/ready")
+
+    [record] = [r for r in caplog.records if r.name == main.__name__]
+    assert record.levelname == "WARNING"
+    assert record.exc_info is not None and record.exc_info[1] is error
