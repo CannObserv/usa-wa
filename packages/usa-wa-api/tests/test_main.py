@@ -1,19 +1,20 @@
 """``GET /ready`` answers 503, never 500, whatever way the database is down (#433).
 
-Unit tier except the last test: the session factory is faked, so no database is
-needed. A stopped
-Postgres is the case the probe exists for. A pooled connection that the server
-terminates arrives wrapped as a ``SQLAlchemyError``, but a *new* connection
-attempt raises asyncio's bare ``ConnectionRefusedError`` (an ``OSError``), which
-escaped the handler as a 500 during the #430 upgrade. SQLAlchemy's asyncpg
-dialect translates no connect-time error, so asyncpg's own — "the database
-system is starting up", which is neither of those — escapes the same way.
+Unit tier except the last two tests: the session factory is faked, so no
+database is needed. A stopped Postgres is the case the probe exists for. A
+pooled connection that the server terminates arrives wrapped as a
+``SQLAlchemyError``, but a *new* connection attempt raises asyncio's bare
+``ConnectionRefusedError`` (an ``OSError``), which escaped the handler as a 500
+during the #430 upgrade. SQLAlchemy's asyncpg dialect translates no connect-time
+error, so asyncpg's own — "the database system is starting up", which is
+neither of those — escapes the same way.
 
 A database that never answers must not hold the probe either (#442): a
 saturated pool, a stalled server or a dropped connect would otherwise wait out
 SQLAlchemy's or asyncpg's own timeouts (30 s, 60 s, or none at all). The last
-test runs that bound against a real pool, since the fakes cannot show what a
-cancelled query leaves behind.
+two tests run that bound against real connections, since a fake cannot show
+what a cancelled query leaves behind — the fakes once passed while a real
+black-holed connection held the probe well past it.
 """
 
 import asyncio
