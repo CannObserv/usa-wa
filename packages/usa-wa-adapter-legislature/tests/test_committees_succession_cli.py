@@ -124,10 +124,10 @@ async def test_other_body_with_a_negative_wsl_id_links(db_session, usa_wa):
     await _committee(db_session, "-5")
     await _committee(db_session, "21488")
     source = await _source(db_session)
-    event = await validate_and_record(
-        db_session, source, _link(subject="-5", linked="21488", slug="split_from", year=None)
+    event = await validate_and_record(  # the I-900 subcommittee split from JLARC
+        db_session, source, _link(subject="21488", linked="-5", slug="split_from", year=None)
     )
-    assert event.subject_source_id == "-5"
+    assert event.linked_source_id == "-5"
 
 
 async def test_registered_non_integer_key_rejected(db_session, usa_wa):
