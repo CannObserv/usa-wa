@@ -187,13 +187,39 @@ async def test_ready_returns_503_within_its_bound_when_db_never_answers(
     )
 
     started = time.monotonic()
-    # wait_for keeps a regression a failure, not a hung suite.
-    response = await asyncio.wait_for(bare_client.get("/ready"), timeout=5)
+    try:
+        # wait_for keeps a regression a failure, not a hung suite.
+        response = await asyncio.wait_for(bare_client.get("/ready"), timeout=5)
+    finally:
+        release.set()
 
     assert time.monotonic() - started < 1
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready", "db": False}
-    release.set()
+    await _assert_abandoned_checks_drain()
+
+
+async def test_ready_abandons_its_check_when_the_request_is_cancelled(monkeypatch):
+    """A client that hangs up mid-probe cancels ``ready()``; its check must not be
+    left running untracked."""
+    release = asyncio.Event()
+    monkeypatch.setattr(main, "READY_TIMEOUT_S", 5.0)
+    monkeypatch.setattr(
+        main,
+        "get_session_factory",
+        lambda: lambda: _HangingSession(hang_on="both", release=release),
+    )
+
+    probe = asyncio.create_task(main.ready())
+    try:
+        await asyncio.sleep(0.05)  # let the check start and hang
+        probe.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await probe
+        assert len(main._abandoned_checks) == 1
+    finally:
+        release.set()  # a regression fails here, not hangs the loop's teardown
     await _assert_abandoned_checks_drain()
 
 
