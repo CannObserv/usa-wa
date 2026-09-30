@@ -24,6 +24,7 @@ import asyncpg
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -47,14 +48,16 @@ class _FailingSession:
 
 
 class _HangingSession:
-    """An ``AsyncSession`` stand-in that never answers ``execute``, ``close`` or both.
+    """An ``AsyncSession`` stand-in whose ``execute``, ``close`` or both hang until
+    ``release`` is set.
 
     ``__aexit__`` shields its close in a task, as ``AsyncSession.__aexit__`` does,
     so a cancel that arrives mid-``execute`` cannot interrupt the close after it.
     """
 
-    def __init__(self, *, hang_on: str) -> None:
+    def __init__(self, *, hang_on: str, release: asyncio.Event) -> None:
         self._hang_on = hang_on
+        self._release = release
 
     async def __aenter__(self) -> "_HangingSession":
         return self
@@ -64,11 +67,68 @@ class _HangingSession:
 
     async def _close(self) -> None:
         if self._hang_on in ("close", "both"):
-            await asyncio.Event().wait()
+            await self._release.wait()
 
     async def execute(self, *args: object, **kwargs: object) -> None:
         if self._hang_on in ("execute", "both"):
-            await asyncio.Event().wait()
+            await self._release.wait()
+
+
+class _BlackHoleProxy:
+    """A TCP proxy to Postgres that, once ``drop()`` is called, swallows traffic.
+
+    No reply and no RST: the firewall-drop or vanished-host shape, where a client
+    learns nothing until its own timeout. ``close()`` shuts every socket, which is
+    what finally fails a client still waiting on one.
+    """
+
+    def __init__(self, host: str, port: int) -> None:
+        self._upstream = (host, port)
+        self._dropping = asyncio.Event()
+        self._tasks: set[asyncio.Task[None]] = set()
+        self._writers: list[asyncio.StreamWriter] = []
+        self._server: asyncio.Server | None = None
+
+    async def start(self) -> int:
+        """Listen on an ephemeral loopback port and return it."""
+        self._server = await asyncio.start_server(self._accept, "127.0.0.1", 0)
+        return self._server.sockets[0].getsockname()[1]
+
+    def drop(self) -> None:
+        """Stop forwarding in both directions, silently."""
+        self._dropping.set()
+
+    async def close(self) -> None:
+        """Close the listener and every proxied socket, and reap the pipes."""
+        assert self._server is not None
+        self._server.close()
+        for writer in self._writers:
+            writer.close()
+        for task in self._tasks:
+            task.cancel()
+        await asyncio.gather(*self._tasks, return_exceptions=True)
+        await self._server.wait_closed()
+
+    async def _accept(self, client_r: asyncio.StreamReader, client_w: asyncio.StreamWriter) -> None:
+        upstream_r, upstream_w = await asyncio.open_connection(*self._upstream)
+        self._writers += [client_w, upstream_w]
+        for reader, writer in ((client_r, upstream_w), (upstream_r, client_w)):
+            task = asyncio.create_task(self._pipe(reader, writer))
+            self._tasks.add(task)
+
+    async def _pipe(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        while data := await reader.read(65536):
+            if self._dropping.is_set():
+                await asyncio.Event().wait()
+            writer.write(data)
+            await writer.drain()
+
+
+async def _assert_abandoned_checks_drain() -> None:
+    """Every check ``/ready`` gave up on finishes once its connection frees up."""
+    if main._abandoned_checks:
+        await asyncio.wait(set(main._abandoned_checks), timeout=5)
+    assert not main._abandoned_checks
 
 
 @pytest.fixture
@@ -117,9 +177,12 @@ async def test_ready_returns_503_within_its_bound_when_db_never_answers(
 ):
     """``both`` is a wedged server: the cancelled ``execute`` hands off to a shielded
     close that hangs on the same connection, and the answer must not wait for it."""
+    release = asyncio.Event()
     monkeypatch.setattr(main, "READY_TIMEOUT_S", 0.05)
     monkeypatch.setattr(
-        main, "get_session_factory", lambda: lambda: _HangingSession(hang_on=hang_on)
+        main,
+        "get_session_factory",
+        lambda: lambda: _HangingSession(hang_on=hang_on, release=release),
     )
 
     started = time.monotonic()
@@ -129,6 +192,8 @@ async def test_ready_returns_503_within_its_bound_when_db_never_answers(
     assert time.monotonic() - started < 1
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready", "db": False}
+    release.set()
+    await _assert_abandoned_checks_drain()
 
 
 @pytest.mark.db  # opens its own engine; the fixture sweep marks it too
@@ -157,3 +222,40 @@ async def test_ready_recovers_once_its_bound_cancels_a_live_query(
         assert engine.pool.checkedout() == 0
     finally:
         await engine.dispose()
+
+
+@pytest.mark.db  # opens its own engine; the fixture sweep marks it too
+async def test_ready_answers_within_its_bound_when_the_db_drops_packets(
+    bare_client, monkeypatch, test_engine
+):
+    """A pooled connection whose packets vanish mid-probe: the real wedged server.
+
+    SQLAlchemy's ``AsyncSession`` closes in a shielded task, so the cancelled
+    ``SELECT 1`` hands off to a ROLLBACK on the same dead connection. The answer
+    must not wait for it. Closing the proxy then kills that connection, and the
+    abandoned check must finish rather than linger on the loop.
+    """
+    url = test_engine.url
+    proxy = _BlackHoleProxy(url.host or "127.0.0.1", url.port or 5432)
+    port = await proxy.start()
+    engine = create_async_engine(
+        make_url(url.render_as_string(hide_password=False)).set(host="127.0.0.1", port=port),
+        pool_size=1,
+        max_overflow=0,
+    )
+    monkeypatch.setattr(main, "get_session_factory", lambda: async_sessionmaker(engine))
+    try:
+        async with async_sessionmaker(engine)() as session:
+            await session.execute(text("SELECT 1"))  # pool the connection first
+        proxy.drop()
+        monkeypatch.setattr(main, "READY_TIMEOUT_S", 0.2)
+
+        started = time.monotonic()
+        response = await asyncio.wait_for(bare_client.get("/ready"), timeout=5)
+
+        assert time.monotonic() - started < 2
+        assert response.status_code == 503
+    finally:
+        await proxy.close()
+        await engine.dispose()
+    await _assert_abandoned_checks_drain()

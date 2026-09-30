@@ -16,8 +16,13 @@ from usa_wa_api.api.v1 import router as v1_router
 
 logger = get_logger(__name__)
 
-# /ready's whole budget (#442): connect, pool checkout, SELECT 1 and close.
+# How long /ready waits for its SELECT 1 before answering 503 (#442).
 READY_TIMEOUT_S = 3.0
+
+# Checks /ready stopped waiting for, held until their cleanup ends: the event loop
+# keeps only weak references to tasks, and a ROLLBACK on a dead connection can
+# take minutes to fail.
+_abandoned_checks: set[asyncio.Task[None]] = set()
 
 
 @asynccontextmanager
@@ -43,25 +48,62 @@ async def health() -> dict:
     return {"status": "ok", "build": get_settings().build_id}
 
 
+def _not_ready() -> JSONResponse:
+    """The 503 body every failed or timed-out readiness check answers with."""
+    return JSONResponse(status_code=503, content={"status": "not_ready", "db": False})
+
+
 @health_router.get("/ready")
 async def ready() -> JSONResponse:
-    """Readiness probe — checks DB connectivity. Returns 503 on failure."""
-    session_factory = get_session_factory()
+    """Readiness probe — checks DB connectivity. Returns 503 on failure.
+
+    Answers within ``READY_TIMEOUT_S`` whatever the database does. The check runs
+    in its own task (#442) because a timeout inside it cannot bound it:
+    ``AsyncSession`` closes in a shielded task, so a cancelled ``SELECT 1`` on a
+    wedged connection hands off to a ROLLBACK on that same connection, unbounded.
+    Past the bound the check is abandoned, not awaited.
+    """
+    check = asyncio.create_task(_select_one())
     try:
-        # The bound wraps the session, not just execute (#442): a close stuck on a
-        # wedged connection would otherwise hold the probe past it.
-        async with asyncio.timeout(READY_TIMEOUT_S):
-            async with session_factory() as session:
-                await session.execute(text("SELECT 1"))
+        done, _ = await asyncio.wait({check}, timeout=READY_TIMEOUT_S)
+    except asyncio.CancelledError:
+        _abandon(check)
+        raise
+    if not done:
+        _abandon(check)
+        logger.warning("readiness check timed out", extra={"timeout_s": READY_TIMEOUT_S})
+        return _not_ready()
+    try:
+        check.result()
     # Any exception, not SQLAlchemyError (#433): SQLAlchemy's asyncpg dialect
     # wraps no connect-time error, so a stopped server's bare
     # ConnectionRefusedError and asyncpg's "starting up" both escaped as 500s.
-    # The #442 bound's TimeoutError lands here too.
     except Exception:  # noqa: BLE001 — every failed SELECT 1 means not ready
         # Catching it drops the cause the 500's traceback put in the journal.
         logger.warning("readiness check failed", exc_info=True)
-        return JSONResponse(status_code=503, content={"status": "not_ready", "db": False})
+        return _not_ready()
     return JSONResponse(status_code=200, content={"status": "ready", "db": True})
+
+
+async def _select_one() -> None:
+    """Run ``SELECT 1`` on a fresh session from the shared factory."""
+    async with get_session_factory()() as session:
+        await session.execute(text("SELECT 1"))
+
+
+def _abandon(check: asyncio.Task[None]) -> None:
+    """Cancel a check /ready no longer waits for, and hold it until it ends."""
+    check.cancel()
+    _abandoned_checks.add(check)
+    check.add_done_callback(_reap)
+
+
+def _reap(check: asyncio.Task[None]) -> None:
+    """Drop a finished abandoned check, retrieving its outcome so none is reported
+    as never retrieved — nobody is waiting for it any more."""
+    _abandoned_checks.discard(check)
+    if not check.cancelled():
+        check.exception()
 
 
 app.include_router(health_router)
