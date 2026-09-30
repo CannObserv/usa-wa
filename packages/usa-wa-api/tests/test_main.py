@@ -174,7 +174,7 @@ async def test_ready_logs_why_it_is_not_ready(bare_client, monkeypatch, caplog):
 
 @pytest.mark.parametrize("hang_on", ["execute", "close", "both"])
 async def test_ready_returns_503_within_its_bound_when_db_never_answers(
-    bare_client, monkeypatch, hang_on
+    bare_client, monkeypatch, caplog, hang_on
 ):
     """``both`` is a wedged server: the cancelled ``execute`` hands off to a shielded
     close that hangs on the same connection, and the answer must not wait for it."""
@@ -188,14 +188,21 @@ async def test_ready_returns_503_within_its_bound_when_db_never_answers(
 
     started = time.monotonic()
     try:
-        # wait_for keeps a regression a failure, not a hung suite.
-        response = await asyncio.wait_for(bare_client.get("/ready"), timeout=5)
+        with caplog.at_level("WARNING", logger=main.__name__):
+            # wait_for keeps a regression a failure, not a hung suite.
+            response = await asyncio.wait_for(bare_client.get("/ready"), timeout=5)
     finally:
         release.set()
 
     assert time.monotonic() - started < 1
     assert response.status_code == 503
     assert response.json() == {"status": "not_ready", "db": False}
+    # Its own message, so the journal tells a timeout from a refused connection.
+    [record] = [r for r in caplog.records if r.name == main.__name__]
+    assert record.levelname == "WARNING"
+    assert record.getMessage() == "readiness check timed out"
+    assert record.timeout_s == 0.05
+    assert record.exc_info is None
     await _assert_abandoned_checks_drain()
 
 
