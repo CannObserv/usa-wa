@@ -14,9 +14,12 @@ App-role DML (writes ``committee_succession_events`` + provenance under
 orgs before writing (a typo'd WSL Id would otherwise be a silent no-op link) — standing,
 Joint or Other, never a structural org; the registry is the authority, not the canonical
 tier #412 froze (#445). ``--dry-run``
-rolls back. The event producer (C3) emits each as a PM ``succeeded_by`` / ``split_from`` /
-``merged_with`` linked-entity event; a re-link correction via ``--supersede`` is applied as
-create-new + retract-old (power-map#322).
+rolls back. A ``--supersede`` correction is a new row stamping the prior's
+``superseded_by_id`` (provenance stays append-only).
+
+Links are recorded locally only. The C3 producer that pushed each to PM as a linked-entity
+event retired with the sync (#314), and no published dataset carries them yet — a
+succession dataset is deferred (``docs/PIPELINE.md`` § Ported from the canonical tier).
 """
 
 from __future__ import annotations
@@ -266,8 +269,12 @@ async def _run(session: AsyncSession, args: argparse.Namespace, raw: PendingAtte
 
 def _add_args(parser: argparse.ArgumentParser) -> None:
     """Contribute the recorder's own flags to the harness's shared parser."""
-    parser.add_argument("--subject", help="the subject WSL committee Id (the event host / PM org)")
-    parser.add_argument("--linked", help="the linked WSL committee Id (PM linked_entity)")
+    parser.add_argument(
+        "--subject", help="the subject WSL committee Id (predecessor / split child / merged body)"
+    )
+    parser.add_argument(
+        "--linked", help="the linked WSL committee Id (successor / parent / surviving body)"
+    )
     parser.add_argument(
         "--slug", choices=sorted(SLUGS), help="succeeded_by | split_from | merged_with"
     )
