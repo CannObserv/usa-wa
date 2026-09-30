@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import select
 
 from clearinghouse_core.job import load_json_batch
 from clearinghouse_core.rawstore import RAW_ROOT_ENV, RawStore
@@ -149,6 +150,25 @@ async def test_joint_committee_born_after_the_canonical_freeze_links(db_session,
         db_session, source, _link(subject="35341", linked="36500", year=2026)
     )
     assert (event.subject_source_id, event.linked_source_id) == ("35341", "36500")
+
+
+async def test_a_key_on_a_merged_entity_still_links(db_session, usa_wa):
+    """CR 3: a tombstoned entity's key still names a live body (its merge survivor), so
+    it links — registered means live; the resolver must not demand ``merged_into IS NULL``."""
+    await _committee(db_session, "14294")
+    await _committee(db_session, "28244")
+    await _committee(db_session, "31000")
+    key = await db_session.scalar(
+        select(RegistryKey).where(RegistryKey.natural_key == "usa_wa_legislature:28244")
+    )
+    survivor = await db_session.scalar(
+        select(RegistryKey.entity_id).where(RegistryKey.natural_key == "usa_wa_legislature:31000")
+    )
+    (await db_session.get(RegistryEntity, key.entity_id)).merged_into = survivor
+    await db_session.flush()
+    source = await _source(db_session)
+    event = await validate_and_record(db_session, source, _link())
+    assert event.linked_source_id == "28244"
 
 
 async def test_canonical_only_committee_rejected(db_session, usa_wa):
