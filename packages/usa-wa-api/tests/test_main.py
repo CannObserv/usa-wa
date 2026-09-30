@@ -47,7 +47,11 @@ class _FailingSession:
 
 
 class _HangingSession:
-    """An ``AsyncSession`` stand-in that never answers ``execute`` or ``close``."""
+    """An ``AsyncSession`` stand-in that never answers ``execute``, ``close`` or both.
+
+    ``__aexit__`` shields its close in a task, as ``AsyncSession.__aexit__`` does,
+    so a cancel that arrives mid-``execute`` cannot interrupt the close after it.
+    """
 
     def __init__(self, *, hang_on: str) -> None:
         self._hang_on = hang_on
@@ -56,11 +60,14 @@ class _HangingSession:
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:
-        if self._hang_on == "close":
+        await asyncio.shield(asyncio.create_task(self._close()))
+
+    async def _close(self) -> None:
+        if self._hang_on in ("close", "both"):
             await asyncio.Event().wait()
 
     async def execute(self, *args: object, **kwargs: object) -> None:
-        if self._hang_on == "execute":
+        if self._hang_on in ("execute", "both"):
             await asyncio.Event().wait()
 
 
@@ -104,12 +111,12 @@ async def test_ready_logs_why_it_is_not_ready(bare_client, monkeypatch, caplog):
     assert record.exc_info is not None and record.exc_info[1] is error
 
 
-@pytest.mark.parametrize("hang_on", ["execute", "close"])
+@pytest.mark.parametrize("hang_on", ["execute", "close", "both"])
 async def test_ready_returns_503_within_its_bound_when_db_never_answers(
     bare_client, monkeypatch, hang_on
 ):
-    """The bound spans the whole session, so a close stuck on a wedged connection
-    cannot outlive it either."""
+    """``both`` is a wedged server: the cancelled ``execute`` hands off to a shielded
+    close that hangs on the same connection, and the answer must not wait for it."""
     monkeypatch.setattr(main, "READY_TIMEOUT_S", 0.05)
     monkeypatch.setattr(
         main, "get_session_factory", lambda: lambda: _HangingSession(hang_on=hang_on)
