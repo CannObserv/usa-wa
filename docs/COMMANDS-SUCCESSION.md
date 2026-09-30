@@ -219,6 +219,8 @@ python -m usa_wa_adapter_legislature.committees.succession_cli --list           
 # Since #428 INV1 is ALSO a dbt error test on the published tier
 # (organizations_inactive_have_no_live_members, docs/PIPELINE.md), so #412 PR E can retire this
 # unit without losing it. INV2 has no successor yet: deferred, reason in docs/PIPELINE.md.
+# Both invariants read canonical org_type='committee' only, so a Joint/Other link (C2 accepts
+# them since #445) is outside INV2: a by-hand run passes an active Joint predecessor unchecked.
 python -m usa_wa_adapter_legislature.committees.lineage_invariants
 
 # C5 — advisory candidate report (read-only; suggests which era-Id pairs to attest via C2).
