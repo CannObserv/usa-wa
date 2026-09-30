@@ -180,8 +180,11 @@ the loop. See [`docs/specs/2026-07-25-committee-lineage-lifecycle-design.md`](sp
 # local C1a lifecycle windows below are unaffected — they were never this CLI's work.
 
 # C2 — record an operator-attested succession link (the judgment layer). Both --subject and
-# --linked are WSL committee Ids that must resolve to live usa_wa_legislature committee Orgs
-# (a typo is a hard error, not a silent no-op link). App-role DML (writes
+# --linked are WSL committee Ids that must be registered org keys (usa_wa_legislature:<Id>
+# in registry.entity_keys) — standing, Joint or Other alike, never a STRUCTURAL_ORGS id
+# (#445: the registry, not the canonical tier #412 froze, so a committee first staged after
+# the freeze links once the nightly registrar binds it). A typo is a hard error, not a
+# silent no-op link. App-role DML (writes
 # registry.committee_succession_events + provenance under usa_wa_operator, and the body to the
 # raw store after the commit, exit 4 if only that copy failed, as C1 above); provenance is
 # append-only.

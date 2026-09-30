@@ -10,8 +10,10 @@
 
 App-role DML (writes ``committee_succession_events`` + provenance under
 ``usa_wa_operator``); shell access is the trust boundary, as with #107. Validates that
-**both** ``--subject`` and ``--linked`` resolve to live ``usa_wa_legislature`` committee
-Orgs before writing (a typo'd WSL Id would otherwise be a silent no-op link). ``--dry-run``
+**both** ``--subject`` and ``--linked`` are registered ``usa_wa_legislature`` committee
+orgs before writing (a typo'd WSL Id would otherwise be a silent no-op link) — standing,
+Joint or Other, never a structural org; the registry is the authority, not the canonical
+tier #412 froze (#445). ``--dry-run``
 rolls back. The event producer (C3) emits each as a PM ``succeeded_by`` / ``split_from`` /
 ``merged_with`` linked-entity event; a re-link correction via ``--supersede`` is applied as
 create-new + retract-old (power-map#322).
@@ -35,12 +37,11 @@ from clearinghouse_core.job import (
     run_job,
 )
 from clearinghouse_core.logging import get_logger
+from clearinghouse_core.registry import KIND_ORG, RegistryKey
 from clearinghouse_domain_legislative.committee_succession import (
     SLUGS,
     CommitteeSuccessionEvent,
 )
-from clearinghouse_domain_legislative.identity import Organization
-from clearinghouse_domain_legislative.queries import live_only
 from usa_wa_adapter_legislature.committees.succession_store import (
     INHERIT_YEAR,
     current_events,
@@ -50,15 +51,15 @@ from usa_wa_adapter_legislature.committees.succession_store import (
 )
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archive_after_commit
 from usa_wa_common.jurisdiction import resolve_jurisdiction
+from usa_wa_common.orgs import STRUCTURAL_ORGS
 
 logger = get_logger(__name__)
 
 #: Stable ledger identity (#178) — a module path can move without orphaning run history.
 JOB_SLUG = "committee-succession-record"
 
-#: The producer source of committee Orgs — both ends of a link must be one of these.
+#: The namespace of committee org keys — both ends of a link must be registered in it.
 _COMMITTEE_SOURCE = "usa_wa_legislature"
-_COMMITTEE_ORG_TYPE = "committee"
 
 
 class SuccessionError(ValueError):
@@ -95,35 +96,39 @@ def _validate_shape(spec: LinkSpec) -> None:
         raise SuccessionError("--clear-year and --year are mutually exclusive")
 
 
-async def _resolve_committee(session: AsyncSession, source_id: str) -> Organization | None:
-    """The live ``usa_wa_legislature`` committee Org for a WSL ``Id``, or None."""
-    return (
-        await session.execute(
-            live_only(
-                select(Organization).where(
-                    Organization.source == _COMMITTEE_SOURCE,
-                    Organization.org_type == _COMMITTEE_ORG_TYPE,
-                    Organization.source_id == source_id,
-                ),
-                Organization,
-            )
+async def _is_registered_committee(session: AsyncSession, source_id: str) -> bool:
+    """Whether a WSL ``Id`` is a registered committee org (#445).
+
+    The registrar binds every staged committee id — standing, Joint and Other alike —
+    plus the ``STRUCTURAL_ORGS`` ids under one namespace, so a committee is a registered
+    key that is not structural. A key never unbinds and a merge chain ends at a live
+    survivor, so registered means live.
+    """
+    if source_id in STRUCTURAL_ORGS:
+        return False
+    key = await session.scalar(
+        select(RegistryKey.id).where(
+            RegistryKey.kind == KIND_ORG,
+            RegistryKey.natural_key == f"{_COMMITTEE_SOURCE}:{source_id}",
         )
-    ).scalar_one_or_none()
+    )
+    return key is not None
 
 
 async def validate_and_record(
     session: AsyncSession, source, spec: LinkSpec, *, raw: PendingAttestations | None = None
 ) -> CommitteeSuccessionEvent:
-    """Validate ``spec`` (shape + both ends resolve to committee Orgs) and persist it.
+    """Validate ``spec`` (shape + both ends registered committee orgs) and persist it.
 
     A ``supersede_id`` records a correction of that prior link (a re-link or year change).
     Raises :class:`SuccessionError` on any validation failure (no partial write)."""
     _validate_shape(spec)
     for role, sid in (("subject", spec.subject_source_id), ("linked", spec.linked_source_id)):
-        if await _resolve_committee(session, sid) is None:
+        if not await _is_registered_committee(session, sid):
             raise SuccessionError(
-                f"--{role} {sid!r} resolves to no live usa_wa_legislature committee Org "
-                "(typo, or run the committee harvest first)"
+                f"--{role} {sid!r} is no registered usa_wa_legislature committee org "
+                "(typo, a structural org, or not yet registered — the nightly registrar "
+                "binds a committee the build after it is first staged)"
             )
     if spec.supersede_id is not None:
         prior = (
