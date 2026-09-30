@@ -260,7 +260,7 @@ async def test_an_abandoned_check_that_fails_later_says_how(bare_client, monkeyp
         await _assert_abandoned_checks_drain()
 
     assert response.status_code == 503
-    [record] = [r for r in caplog.records if r.levelname == "INFO"]
+    [record] = [r for r in caplog.records if r.name == main.__name__ and r.levelname == "INFO"]
     assert record.getMessage() == "abandoned readiness check ended"
     assert record.exc_info is not None and record.exc_info[1] is error
 
