@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from dataclasses import dataclass
 
@@ -63,6 +64,9 @@ JOB_SLUG = "committee-succession-record"
 
 #: The namespace of committee org keys — both ends of a link must be registered in it.
 _COMMITTEE_SOURCE = "usa_wa_legislature"
+
+#: A WSL committee ``Id`` is an integer — negative for some Other bodies (JLARC is ``-5``).
+_WSL_COMMITTEE_ID = re.compile(r"-?\d+")
 
 
 class SuccessionError(ValueError):
@@ -104,10 +108,12 @@ async def _is_registered_committee(session: AsyncSession, source_id: str) -> boo
 
     The registrar binds every staged committee id — standing, Joint and Other alike —
     plus the ``STRUCTURAL_ORGS`` ids under one namespace, so a committee is a registered
-    key that is not structural. A key never unbinds and a merge chain ends at a live
-    survivor, so registered means live.
+    key that is not structural. The integer shape backs the denylist: a key never unbinds,
+    so a structural org later dropped from ``STRUCTURAL_ORGS`` keeps its key, and only the
+    shape still refuses it (CR 2). A merge chain ends at a live survivor, so registered
+    means live.
     """
-    if source_id in STRUCTURAL_ORGS:
+    if source_id in STRUCTURAL_ORGS or not _WSL_COMMITTEE_ID.fullmatch(source_id):
         return False
     key = await session.scalar(
         select(RegistryKey.id).where(

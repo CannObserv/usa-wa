@@ -118,6 +118,27 @@ async def test_structural_org_rejected(db_session, usa_wa, structural_id):
         await validate_and_record(db_session, source, _link(linked=structural_id))
 
 
+async def test_other_body_with_a_negative_wsl_id_links(db_session, usa_wa):
+    """WSL numbers some Other bodies negatively (JLARC is ``-5``) — still a committee id."""
+    await _committee(db_session, "-5")
+    await _committee(db_session, "21488")
+    source = await _source(db_session)
+    event = await validate_and_record(
+        db_session, source, _link(subject="-5", linked="21488", slug="split_from", year=None)
+    )
+    assert event.subject_source_id == "-5"
+
+
+async def test_registered_non_integer_key_rejected(db_session, usa_wa):
+    """CR 2: a registered key that is no WSL committee Id — e.g. a structural org since
+    dropped from ``STRUCTURAL_ORGS``, whose key the registry keeps forever — is refused."""
+    await _committee(db_session, "14294")
+    await _register_org(db_session, "party-whig")
+    source = await _source(db_session)
+    with pytest.raises(SuccessionError, match="--linked"):
+        await validate_and_record(db_session, source, _link(linked="party-whig"))
+
+
 async def test_joint_committee_born_after_the_canonical_freeze_links(db_session, usa_wa):
     """#445: the Civic Health re-key — a Joint body (canonical ``org_type='other'``)
     registered only by the registrar, after #412 froze canonical — is a valid end."""

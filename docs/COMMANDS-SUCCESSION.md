@@ -181,7 +181,8 @@ the loop. See [`docs/specs/2026-07-25-committee-lineage-lifecycle-design.md`](sp
 
 # C2 — record an operator-attested succession link (the judgment layer). Both --subject and
 # --linked are WSL committee Ids that must be registered org keys (usa_wa_legislature:<Id>
-# in registry.entity_keys) — standing, Joint or Other alike, never a STRUCTURAL_ORGS id
+# in registry.entity_keys) — standing, Joint or Other alike (an integer Id, negative for some
+# Other bodies), never a STRUCTURAL_ORGS id
 # (#445: the registry, not the canonical tier #412 froze, so a committee first staged after
 # the freeze links once the nightly registrar binds it). A typo is a hard error, not a
 # silent no-op link. App-role DML (writes
