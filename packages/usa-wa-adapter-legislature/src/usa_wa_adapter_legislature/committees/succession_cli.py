@@ -11,10 +11,10 @@
 App-role DML (writes ``committee_succession_events`` + provenance under
 ``usa_wa_operator``); shell access is the trust boundary, as with #107. Validates that
 **both** ``--subject`` and ``--linked`` are registered ``usa_wa_legislature`` committee
-orgs before writing (a typo'd WSL Id would otherwise be a silent no-op link) — standing,
-Joint or Other, never a structural org; the registry is the authority, not the canonical
-tier #412 froze (#445). ``--dry-run``
-rolls back. A ``--supersede`` correction is a new row stamping the prior's
+orgs before writing (a typo'd WSL Id would otherwise be a silent no-op link): an integer
+WSL Id (negative for some Other bodies) — standing, Joint or Other, never a structural
+org. The registry is the authority, not the canonical tier #412 froze (#445).
+``--dry-run`` rolls back. A ``--supersede`` correction is a new row stamping the prior's
 ``superseded_by_id`` (provenance stays append-only).
 
 Links are recorded locally only. The C3 producer that pushed each to PM as a linked-entity
