@@ -19,7 +19,7 @@ and the publication contract in [PIPELINE-PUBLICATION.md](PIPELINE-PUBLICATION.m
 ```
   usa-wa-api/                         — Layer 4: WA deployment (FastAPI + MCP + REST)
     src/usa_wa_api/api/               — the HTTP surface
-      main.py         — App factory, lifespan, router registration
+      main.py         — App factory, lifespan, router registration · the `/health` liveness and `/ready` readiness probes: `/ready` maps every failed `SELECT 1` to 503, never 500 (#433), and answers within `READY_TIMEOUT_S` by running the check in a task it abandons past the bound (#442) — `AsyncSession` closes in a shielded task, so a timeout inside the check cannot bound a wedged connection
       deps.py         — FastAPI dependencies (DB session). The `X-Operator-Token` gate retired at #313 with the one route it guarded
       datasets.py     — **the published-dataset surface (#311)**: `GET /datasets/{path}` serves the publisher's output tree (`catalog.json`, `<name>/<version>/data.csv|datapackage.json`) off `USA_WA_DATASETS_ROOT`, resolved per request and traversal-guarded — an unpublished box is a 404, not an error · `GET /health/datasets` is the pipeline's ops probe
       serving.py      — `GET /health/serving` (#313): did THIS deployment load what the pipeline published? The sibling probe to `/health/datasets`, and a version comparison rather than a row count, since an unchanged count is the normal case for this corpus. Not to be confused with the `serving/` package below
