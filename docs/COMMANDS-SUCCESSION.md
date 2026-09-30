@@ -180,8 +180,12 @@ the loop. See [`docs/specs/2026-07-25-committee-lineage-lifecycle-design.md`](sp
 # local C1a lifecycle windows below are unaffected — they were never this CLI's work.
 
 # C2 — record an operator-attested succession link (the judgment layer). Both --subject and
-# --linked are WSL committee Ids that must resolve to live usa_wa_legislature committee Orgs
-# (a typo is a hard error, not a silent no-op link). App-role DML (writes
+# --linked are WSL committee Ids that must be registered org keys (usa_wa_legislature:<Id>
+# in registry.entity_keys) — standing, Joint or Other alike (an integer Id, negative for some
+# Other bodies), never a STRUCTURAL_ORGS id
+# (#445: the registry, not the canonical tier #412 froze, so a committee first staged after
+# the freeze links once the nightly registrar binds it). A typo is a hard error, not a
+# silent no-op link. App-role DML (writes
 # registry.committee_succession_events + provenance under usa_wa_operator, and the body to the
 # raw store after the commit, exit 4 if only that copy failed, as C1 above); provenance is
 # append-only.
@@ -215,6 +219,8 @@ python -m usa_wa_adapter_legislature.committees.succession_cli --list           
 # Since #428 INV1 is ALSO a dbt error test on the published tier
 # (organizations_inactive_have_no_live_members, docs/PIPELINE.md), so #412 PR E can retire this
 # unit without losing it. INV2 has no successor yet: deferred, reason in docs/PIPELINE.md.
+# Both invariants read canonical org_type='committee' only, so a Joint/Other link (C2 accepts
+# them since #445) is outside INV2: a by-hand run passes an active Joint predecessor unchecked.
 python -m usa_wa_adapter_legislature.committees.lineage_invariants
 
 # C5 — advisory candidate report (read-only; suggests which era-Id pairs to attest via C2).

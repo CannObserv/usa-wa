@@ -7,9 +7,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import select
 
 from clearinghouse_core.job import load_json_batch
 from clearinghouse_core.rawstore import RAW_ROOT_ENV, RawStore
+from clearinghouse_core.registry import KIND_ORG, RegistryEntity, RegistryKey
 from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.operator_events import OPERATOR_SOURCE_SLUG
@@ -23,22 +25,33 @@ from usa_wa_adapter_legislature.committees.succession_cli import (
 from usa_wa_adapter_legislature.committees.succession_store import get_or_create_operator_source
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations
 from usa_wa_common.jurisdiction import resolve_jurisdiction
+from usa_wa_common.orgs import STRUCTURAL_ORGS
 
 
 async def _source(session):
     return await get_or_create_operator_source(session, await resolve_jurisdiction(session))
 
 
-async def _committee(session, source_id):
+async def _register_org(session, source_id):
+    """Bind ``usa_wa_legislature:<source_id>`` to a fresh registry org entity."""
+    entity = RegistryEntity(kind=KIND_ORG)
+    session.add(entity)
+    await session.flush()
     session.add(
-        Organization(
-            source="usa_wa_legislature",
-            source_id=source_id,
-            name=f"Committee {source_id}",
-            org_type="committee",
+        RegistryKey(
+            kind=KIND_ORG,
+            natural_key=f"usa_wa_legislature:{source_id}",
+            entity_id=entity.id,
+            registered_by="test",
         )
     )
     await session.flush()
+
+
+async def _committee(session, source_id):
+    """A committee as the registry knows it — the identity authority since #412 froze
+    canonical (#445). No canonical row: a committee born after the freeze has none."""
+    await _register_org(session, source_id)
 
 
 def _link(
@@ -96,16 +109,78 @@ async def test_unresolvable_linked_rejected(db_session, usa_wa):
         await validate_and_record(db_session, source, _link(linked="00000"))
 
 
-async def test_non_committee_org_rejected(db_session, usa_wa):
-    """A same-source non-committee org (e.g. a chamber) is not a valid link end."""
+@pytest.mark.parametrize("structural_id", sorted(STRUCTURAL_ORGS))
+async def test_structural_org_rejected(db_session, usa_wa, structural_id):
+    """A registered structural org (legislature, chamber, party) is not a link end."""
+    await _committee(db_session, "14294")
+    await _register_org(db_session, structural_id)
+    source = await _source(db_session)
+    with pytest.raises(SuccessionError, match="--linked"):
+        await validate_and_record(db_session, source, _link(linked=structural_id))
+
+
+async def test_other_body_with_a_negative_wsl_id_links(db_session, usa_wa):
+    """WSL numbers some Other bodies negatively (JLARC is ``-5``) — still a committee id."""
+    await _committee(db_session, "-5")
+    await _committee(db_session, "21488")
+    source = await _source(db_session)
+    event = await validate_and_record(  # the I-900 subcommittee split from JLARC
+        db_session, source, _link(subject="21488", linked="-5", slug="split_from", year=None)
+    )
+    assert event.linked_source_id == "-5"
+
+
+async def test_registered_non_integer_key_rejected(db_session, usa_wa):
+    """CR 2: a registered key that is no WSL committee Id — e.g. a structural org since
+    dropped from ``STRUCTURAL_ORGS``, whose key the registry keeps forever — is refused."""
+    await _committee(db_session, "14294")
+    await _register_org(db_session, "party-whig")
+    source = await _source(db_session)
+    with pytest.raises(SuccessionError, match="--linked"):
+        await validate_and_record(db_session, source, _link(linked="party-whig"))
+
+
+async def test_joint_committee_born_after_the_canonical_freeze_links(db_session, usa_wa):
+    """#445: the Civic Health re-key — a Joint body (canonical ``org_type='other'``)
+    registered only by the registrar, after #412 froze canonical — is a valid end."""
+    await _committee(db_session, "35341")
+    await _committee(db_session, "36500")
+    source = await _source(db_session)
+    event = await validate_and_record(
+        db_session, source, _link(subject="35341", linked="36500", year=2026)
+    )
+    assert (event.subject_source_id, event.linked_source_id) == ("35341", "36500")
+
+
+async def test_a_key_on_a_merged_entity_still_links(db_session, usa_wa):
+    """CR 3: a tombstoned entity's key still names a live body (its merge survivor), so
+    it links — registered means live; the resolver must not demand ``merged_into IS NULL``."""
+    await _committee(db_session, "14294")
+    await _committee(db_session, "28244")
+    await _committee(db_session, "31000")
+    key = await db_session.scalar(
+        select(RegistryKey).where(RegistryKey.natural_key == "usa_wa_legislature:28244")
+    )
+    survivor = await db_session.scalar(
+        select(RegistryKey.entity_id).where(RegistryKey.natural_key == "usa_wa_legislature:31000")
+    )
+    (await db_session.get(RegistryEntity, key.entity_id)).merged_into = survivor
+    await db_session.flush()
+    source = await _source(db_session)
+    event = await validate_and_record(db_session, source, _link())
+    assert event.linked_source_id == "28244"
+
+
+async def test_canonical_only_committee_rejected(db_session, usa_wa):
+    """A canonical committee row the registry never bound is not an identity (#445)."""
     await _committee(db_session, "14294")
     db_session.add(
-        Organization(source="usa_wa_legislature", source_id="55", name="House", org_type="chamber")
+        Organization(source="usa_wa_legislature", source_id="28244", name="C", org_type="committee")
     )
     await db_session.flush()
     source = await _source(db_session)
     with pytest.raises(SuccessionError, match="--linked"):
-        await validate_and_record(db_session, source, _link(linked="55"))
+        await validate_and_record(db_session, source, _link())
 
 
 async def test_supersede_relink(db_session, usa_wa):
