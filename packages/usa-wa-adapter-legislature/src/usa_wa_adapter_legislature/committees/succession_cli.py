@@ -2,7 +2,7 @@
 
     python -m usa_wa_adapter_legislature.committees.succession_cli \
         --subject 14294 --linked 28244 --slug succeeded_by --year 2021 \
-        --evidence-url https://... [--notes "renamed + re-scoped"] [--entered-by greg]
+        --evidence-url https://... [--notes "renamed + re-scoped"]
 
     python -m usa_wa_adapter_legislature.committees.succession_cli --file links.json   # batch
     python -m usa_wa_adapter_legislature.committees.succession_cli --supersede <id> ... # correction
@@ -15,7 +15,8 @@ orgs before writing (a typo'd WSL Id would otherwise be a silent no-op link): an
 WSL Id (negative for some Other bodies) — standing, Joint or Other, never a structural
 org. The registry is the authority, not the canonical tier #412 froze (#445).
 ``--dry-run`` rolls back. A ``--supersede`` correction is a new row stamping the prior's
-``superseded_by_id`` (provenance stays append-only).
+``superseded_by_id`` (provenance stays append-only). ``entered_by`` is recorded from
+``$USA_WA_OPERATOR``, else ``$USER`` — there is no flag for it.
 
 Links are recorded locally only. The C3 producer that pushed each to PM as a linked-entity
 event retired with the sync (#314), and no published dataset carries them yet — a
