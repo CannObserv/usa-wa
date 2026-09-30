@@ -151,3 +151,29 @@ def test_an_empty_corpus_needs_no_ballot() -> None:
         )
         == []
     )
+
+
+def test_the_next_seating_ballot_positions_nobody_before_the_rollover() -> None:
+    """#135: from November the SOS harvest captures the ballot that seats 2027-28, and that
+    biennium has no sponsor roster until the rollover. The ballot must not reach 2025-26:
+    neither re-positioning an incumbent it lists in another Position nor, via the #118
+    back-chain, seating a member the 2024 ballot never positioned."""
+    sponsors = [
+        _sponsor("100", CURRENT, "5", "Rivera"),
+        _sponsor("200", CURRENT, "9", "Vance"),
+    ]
+    seated_2024 = [_result("2024", 5, 1, "Pat Rivera")]
+    ballot_2026 = [_result("2026", 5, 2, "Pat Rivera"), _result("2026", 9, 1, "Chris Vance")]
+
+    def spans(results: list[dict]) -> list:
+        return build_house_spans(
+            sponsors=sponsors,
+            committee_members=[],
+            sos_results=results,
+            events=[],
+            current_biennium=CURRENT,
+        )
+
+    before = spans(seated_2024)
+    assert [(s.member_id, s.discriminator) for s in before] == [("100", "ld-5-position-1")]
+    assert spans(seated_2024 + ballot_2026) == before
