@@ -12,13 +12,19 @@ parallel with the old pipeline until #302 cutover; per-cohort failures are
 contained as ``err`` manifest entries (the SAVEPOINT analog). ``--ttl-days``
 skips resources with a fresh ``latest.json`` entry; the default 0 forces the
 daily wire, as the archive refresh does.
+
+**Early capture (#135).** From the day after the NEXT biennium's seating
+general (``start + 1``), its House and Senate cohorts are fetched too, so the
+November winners land when PDC marks them rather than at the Jan 1 rollover.
+Raw capture only: ``match_pdc_wsl`` pairs a cohort with the sponsors of the
+biennium it seats, which has none until the rollover.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -32,7 +38,11 @@ from usa_wa_adapter_pdc.resources import (
     SENATE_WINNERS_RESOURCE_PREFIX,
 )
 from usa_wa_adapter_pdc.transport import PDCClient
-from usa_wa_common.elections import election_years_for_biennium, senate_election_years_for_biennium
+from usa_wa_common.elections import (
+    election_years_for_biennium,
+    lookahead_election_year,
+    senate_election_years_for_biennium,
+)
 
 logger = get_logger(__name__)
 
@@ -48,21 +58,28 @@ async def harvest_raw(
     biennium: str | None = None,
     pdc_client: Any | None = None,
     ttl_days: float = 0.0,
+    today: date | None = None,
 ) -> dict[str, int]:
-    """Fetch the biennium's winner cohorts into the raw store. Returns counters."""
+    """Fetch the biennium's winner cohorts into the raw store. Returns counters.
+
+    Plus the next biennium's seating cohorts once that election is held (#135): ``today``
+    decides both, and defaults to the UTC date."""
+    today = today or datetime.now(UTC).date()
     if biennium is None:
-        biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
+        biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(today)
     client = pdc_client or PDCClient()
     store = RawStore(root, SOURCE_SLUG)
     run = store.open_run()
     counters = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
 
+    lookahead = lookahead_election_year(biennium, today=today)
+    early = [lookahead] if lookahead is not None else []
     plan: list[tuple[str, str, Any]] = [
         (f"{HOUSE_WINNERS_RESOURCE_PREFIX}{y}", "house", y)
-        for y in election_years_for_biennium(biennium)
+        for y in [*election_years_for_biennium(biennium), *early]
     ] + [
         (f"{SENATE_WINNERS_RESOURCE_PREFIX}{y}", "senate", y)
-        for y in senate_election_years_for_biennium(biennium)
+        for y in [*senate_election_years_for_biennium(biennium), *early]
     ]
     # from the client actually fetching when it can say (CR 45): a mirror or
     # test host must not record a URL that was never requested
@@ -97,7 +114,10 @@ async def harvest_raw(
         # The alert must still say how far the run got (#331) — outside the
         # finally, so a failed manifest write is wrapped too (CR 1).
         raise JobFailure(counters) from exc
-    logger.info("pdc_raw_harvest_complete", extra={"biennium": biennium, **counters})
+    logger.info(
+        "pdc_raw_harvest_complete",
+        extra={"biennium": biennium, "lookahead_year": lookahead, **counters},
+    )
     return counters
 
 

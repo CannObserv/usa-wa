@@ -10,6 +10,13 @@ same resource ids the Postgres archive uses (``sos-whofiled:<date>`` /
 ``sos-legresults:<date>``) into their own source slices (``usa_wa_sos`` /
 ``usa_wa_sos_results``). Per-cohort and per-source failures are contained as
 ``err`` manifest entries; both stores close their run manifests regardless.
+
+**Early capture (#135).** From the day after the NEXT biennium's seating
+general (``start + 1``), that year is fetched too: election-night returns, then
+the certified export (~early Dec), each land as a new sha256 of the same
+resource rather than waiting for the Jan 1 rollover. Raw capture only: the
+House Position join seats a ballot only through the sponsor roster of the
+biennium it seats, which has none until the rollover.
 """
 
 from __future__ import annotations
@@ -17,7 +24,7 @@ from __future__ import annotations
 import argparse
 import os
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -41,7 +48,7 @@ from usa_wa_adapter_sos.results.transport import (
 from usa_wa_adapter_sos.results.transport import (
     general_election_date as results_election_date,
 )
-from usa_wa_common.elections import election_years_for_biennium
+from usa_wa_common.elections import election_years_for_biennium, lookahead_election_year
 
 logger = get_logger(__name__)
 
@@ -113,13 +120,22 @@ async def harvest_raw(
     filings_client: Any | None = None,
     results_client: Any | None = None,
     ttl_days: float = 0.0,
+    today: date | None = None,
 ) -> dict[str, int]:
-    """Fetch the biennium's filings + results wires into the raw store."""
+    """Fetch the biennium's filings + results wires into the raw store.
+
+    Plus the next biennium's seating year once that election is held (#135): ``today``
+    decides both, and defaults to the UTC date."""
+    today = today or datetime.now(UTC).date()
     if biennium is None:
-        biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
+        biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(today)
     filings = filings_client or SOSFilingsClient()
     results = results_client or SOSResultsClient()
-    years = election_years_for_biennium(biennium)
+    lookahead = lookahead_election_year(biennium, today=today)
+    years = [
+        *election_years_for_biennium(biennium),
+        *([lookahead] if lookahead is not None else []),
+    ]
     # Per-source counters (#302 CR): a total filings outage must not be masked
     # by healthy results — the sibling Postgres-tier jobs alert per source.
     filings_counters = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
@@ -173,7 +189,10 @@ async def harvest_raw(
         raise JobFailure(_summarize(filings_counters, results_counters)) from exc
 
     counters = _summarize(filings_counters, results_counters)
-    logger.info("sos_raw_harvest_complete", extra={"biennium": biennium, "summary": counters})
+    logger.info(
+        "sos_raw_harvest_complete",
+        extra={"biennium": biennium, "lookahead_year": lookahead, "summary": counters},
+    )
     return counters
 
 
