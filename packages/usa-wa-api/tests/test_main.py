@@ -54,11 +54,20 @@ class _HangingSession:
 
     ``__aexit__`` shields its close in a task, as ``AsyncSession.__aexit__`` does,
     so a cancel that arrives mid-``execute`` cannot interrupt the close after it.
+    Once released, the close raises ``close_error`` if one is given: the ROLLBACK
+    on a dead connection that finally fails.
     """
 
-    def __init__(self, *, hang_on: str, release: asyncio.Event) -> None:
+    def __init__(
+        self,
+        *,
+        hang_on: str,
+        release: asyncio.Event,
+        close_error: BaseException | None = None,
+    ) -> None:
         self._hang_on = hang_on
         self._release = release
+        self._close_error = close_error
 
     async def __aenter__(self) -> "_HangingSession":
         return self
@@ -69,6 +78,8 @@ class _HangingSession:
     async def _close(self) -> None:
         if self._hang_on in ("close", "both"):
             await self._release.wait()
+        if self._close_error is not None:
+            raise self._close_error
 
     async def execute(self, *args: object, **kwargs: object) -> None:
         if self._hang_on in ("execute", "both"):
@@ -228,6 +239,30 @@ async def test_ready_abandons_its_check_when_the_request_is_cancelled(monkeypatc
     finally:
         release.set()  # a regression fails here, not hangs the loop's teardown
     await _assert_abandoned_checks_drain()
+
+
+async def test_an_abandoned_check_that_fails_later_says_how(bare_client, monkeypatch, caplog):
+    """The 503 has long gone out; the journal still learns how the connection died."""
+    release = asyncio.Event()
+    error = ConnectionResetError(104, "Connection reset by peer")
+    monkeypatch.setattr(main, "READY_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(
+        main,
+        "get_session_factory",
+        lambda: lambda: _HangingSession(hang_on="both", release=release, close_error=error),
+    )
+
+    with caplog.at_level("INFO", logger=main.__name__):
+        try:
+            response = await asyncio.wait_for(bare_client.get("/ready"), timeout=5)
+        finally:
+            release.set()
+        await _assert_abandoned_checks_drain()
+
+    assert response.status_code == 503
+    [record] = [r for r in caplog.records if r.levelname == "INFO"]
+    assert record.getMessage() == "abandoned readiness check ended"
+    assert record.exc_info is not None and record.exc_info[1] is error
 
 
 @pytest.mark.db  # opens its own engine; the fixture sweep marks it too
