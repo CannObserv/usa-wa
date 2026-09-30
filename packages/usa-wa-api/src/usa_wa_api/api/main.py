@@ -99,11 +99,18 @@ def _abandon(check: asyncio.Task[None]) -> None:
 
 
 def _reap(check: asyncio.Task[None]) -> None:
-    """Drop a finished abandoned check, retrieving its outcome so none is reported
-    as never retrieved — nobody is waiting for it any more."""
+    """Drop a finished abandoned check, logging how it ended if not by the cancel.
+
+    The 503 went out long ago; this is the journal's only word on what became of
+    the connection — typically a ROLLBACK on it that finally failed. Retrieving
+    the exception also keeps it from being reported as never retrieved.
+    """
     _abandoned_checks.discard(check)
-    if not check.cancelled():
-        check.exception()
+    if check.cancelled():
+        return
+    error = check.exception()
+    if error is not None:
+        logger.info("abandoned readiness check ended", exc_info=error)
 
 
 app.include_router(health_router)
