@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
@@ -14,6 +15,9 @@ from usa_wa_api.api.serving import router as serving_router
 from usa_wa_api.api.v1 import router as v1_router
 
 logger = get_logger(__name__)
+
+# /ready's whole budget (#442): connect, pool checkout, SELECT 1 and close.
+READY_TIMEOUT_S = 3.0
 
 
 @asynccontextmanager
@@ -43,17 +47,21 @@ async def health() -> dict:
 async def ready() -> JSONResponse:
     """Readiness probe — checks DB connectivity. Returns 503 on failure."""
     session_factory = get_session_factory()
-    async with session_factory() as session:
-        try:
-            await session.execute(text("SELECT 1"))
-            return JSONResponse(status_code=200, content={"status": "ready", "db": True})
-        # Any exception, not SQLAlchemyError (#433): SQLAlchemy's asyncpg dialect
-        # wraps no connect-time error, so a stopped server's bare
-        # ConnectionRefusedError and asyncpg's "starting up" both escaped as 500s.
-        except Exception:  # noqa: BLE001 — every failed SELECT 1 means not ready
-            # Catching it drops the cause the 500's traceback put in the journal.
-            logger.warning("readiness check failed", exc_info=True)
-            return JSONResponse(status_code=503, content={"status": "not_ready", "db": False})
+    try:
+        # The bound wraps the session, not just execute (#442): a close stuck on a
+        # wedged connection would otherwise hold the probe past it.
+        async with asyncio.timeout(READY_TIMEOUT_S):
+            async with session_factory() as session:
+                await session.execute(text("SELECT 1"))
+    # Any exception, not SQLAlchemyError (#433): SQLAlchemy's asyncpg dialect
+    # wraps no connect-time error, so a stopped server's bare
+    # ConnectionRefusedError and asyncpg's "starting up" both escaped as 500s.
+    # The #442 bound's TimeoutError lands here too.
+    except Exception:  # noqa: BLE001 — every failed SELECT 1 means not ready
+        # Catching it drops the cause the 500's traceback put in the journal.
+        logger.warning("readiness check failed", exc_info=True)
+        return JSONResponse(status_code=503, content={"status": "not_ready", "db": False})
+    return JSONResponse(status_code=200, content={"status": "ready", "db": True})
 
 
 app.include_router(health_router)

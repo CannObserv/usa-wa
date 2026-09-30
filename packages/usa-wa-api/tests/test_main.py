@@ -1,20 +1,31 @@
 """``GET /ready`` answers 503, never 500, whatever way the database is down (#433).
 
-Unit tier: the session factory is faked, so no database is needed. A stopped
+Unit tier except the last test: the session factory is faked, so no database is
+needed. A stopped
 Postgres is the case the probe exists for. A pooled connection that the server
 terminates arrives wrapped as a ``SQLAlchemyError``, but a *new* connection
 attempt raises asyncio's bare ``ConnectionRefusedError`` (an ``OSError``), which
 escaped the handler as a 500 during the #430 upgrade. SQLAlchemy's asyncpg
 dialect translates no connect-time error, so asyncpg's own — "the database
 system is starting up", which is neither of those — escapes the same way.
+
+A database that never answers must not hold the probe either (#442): a
+saturated pool, a stalled server or a dropped connect would otherwise wait out
+SQLAlchemy's or asyncpg's own timeouts (30 s, 60 s, or none at all). The last
+test runs that bound against a real pool, since the fakes cannot show what a
+cancelled query leaves behind.
 """
 
+import asyncio
+import time
 from collections.abc import AsyncGenerator
 
 import asyncpg
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from usa_wa_api.api import main
 
@@ -33,6 +44,24 @@ class _FailingSession:
 
     async def execute(self, *args: object, **kwargs: object) -> None:
         raise self._error
+
+
+class _HangingSession:
+    """An ``AsyncSession`` stand-in that never answers ``execute`` or ``close``."""
+
+    def __init__(self, *, hang_on: str) -> None:
+        self._hang_on = hang_on
+
+    async def __aenter__(self) -> "_HangingSession":
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        if self._hang_on == "close":
+            await asyncio.Event().wait()
+
+    async def execute(self, *args: object, **kwargs: object) -> None:
+        if self._hang_on == "execute":
+            await asyncio.Event().wait()
 
 
 @pytest.fixture
@@ -73,3 +102,51 @@ async def test_ready_logs_why_it_is_not_ready(bare_client, monkeypatch, caplog):
     [record] = [r for r in caplog.records if r.name == main.__name__]
     assert record.levelname == "WARNING"
     assert record.exc_info is not None and record.exc_info[1] is error
+
+
+@pytest.mark.parametrize("hang_on", ["execute", "close"])
+async def test_ready_returns_503_within_its_bound_when_db_never_answers(
+    bare_client, monkeypatch, hang_on
+):
+    """The bound spans the whole session, so a close stuck on a wedged connection
+    cannot outlive it either."""
+    monkeypatch.setattr(main, "READY_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(
+        main, "get_session_factory", lambda: lambda: _HangingSession(hang_on=hang_on)
+    )
+
+    started = time.monotonic()
+    # wait_for keeps a regression a failure, not a hung suite.
+    response = await asyncio.wait_for(bare_client.get("/ready"), timeout=5)
+
+    assert time.monotonic() - started < 1
+    assert response.status_code == 503
+    assert response.json() == {"status": "not_ready", "db": False}
+
+
+@pytest.mark.db  # opens its own engine; the fixture sweep marks it too
+async def test_ready_recovers_once_its_bound_cancels_a_live_query(
+    bare_client, monkeypatch, test_engine
+):
+    """A query the bound cancels must not poison the pool it came from.
+
+    One connection, no overflow: if the cancelled connection went back to the
+    pool checked out or broken, the second probe would get it and answer 503.
+    """
+    engine = create_async_engine(
+        test_engine.url.render_as_string(hide_password=False), pool_size=1, max_overflow=0
+    )
+    statements = iter(["SELECT pg_sleep(10)", "SELECT 1"])
+    monkeypatch.setattr(main, "text", lambda _sql: text(next(statements)))
+    monkeypatch.setattr(main, "get_session_factory", lambda: async_sessionmaker(engine))
+    try:
+        monkeypatch.setattr(main, "READY_TIMEOUT_S", 0.2)
+        stalled = await asyncio.wait_for(bare_client.get("/ready"), timeout=5)
+        monkeypatch.setattr(main, "READY_TIMEOUT_S", 5.0)
+        recovered = await asyncio.wait_for(bare_client.get("/ready"), timeout=10)
+
+        assert stalled.status_code == 503
+        assert recovered.status_code == 200
+        assert engine.pool.checkedout() == 0
+    finally:
+        await engine.dispose()
