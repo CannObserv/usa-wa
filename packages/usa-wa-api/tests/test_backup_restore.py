@@ -7,6 +7,7 @@ import hashlib
 import json
 import subprocess
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from gcs_fakes import CREATED, FakeBucket, FakeClient
@@ -213,30 +214,35 @@ class TestCheckRestored:
         assert problems == ["alembic head zzz, dump recorded abc123"]
 
 
-def published(root, kind: str, rows) -> None:
-    """A catalog naming one ``<kind>_crosswalk`` version holding ``rows``."""
-    version = "v20260919T080505Z-a09d08"
+#: The dump the crosswalk tests restore, and publishes either side of it.
+DUMPED_AT = datetime(2026, 10, 1, 10, 17, 3, tzinfo=UTC)
+BEFORE = "v20260930T080505Z-a09d08"
+AFTER = "v20261002T080505Z-b1c2d3"
+
+
+def published(root, kind: str, rows, version: str = BEFORE, *, intact: bool = True) -> None:
+    """One ``<kind>_crosswalk`` version holding ``rows``, as the publisher lays it out:
+    ``data.csv`` beside a ``datapackage.json`` carrying its hash. ``intact=False`` is a
+    publish that crashed before the data was whole."""
     target = root / f"{kind}_crosswalk" / version
     target.mkdir(parents=True)
-    with (target / "data.csv").open("w", newline="") as handle:
+    data = target / "data.csv"
+    with data.open("w", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(
-            [
-                "entity_id",
-                "natural_key",
-                "key_namespace",
-                "key_value",
-                "registered_by",
-                "merged_into",
-            ]
-        )
+        writer.writerow(["entity_id", "natural_key", "registered_by", "merged_into"])
         for key, entity, merged in rows:
-            namespace, _, value = key.partition(":")
-            writer.writerow([entity, key, namespace, value, "seed", merged or ""])
-    catalog = root / "catalog.json"
-    datasets = json.loads(catalog.read_text())["datasets"] if catalog.exists() else []
-    datasets.append({"name": f"{kind}_crosswalk", "latest_version": version})
-    catalog.write_text(json.dumps({"datasets": datasets}))
+            writer.writerow([entity, key, "seed", merged or ""])
+    digest = hashlib.sha256(data.read_bytes()).hexdigest()
+    if not intact:
+        data.write_text(data.read_text()[:-5])
+    package = {"resources": [{"path": "data.csv", "hash": f"sha256:{digest}"}]}
+    (target / "datapackage.json").write_text(json.dumps(package))
+
+
+def crosswalk(root, keys, *, dumped_at=DUMPED_AT):
+    return check_crosswalk(
+        "scratch", root, dumped_at=dumped_at, run_as=None, runner=RestoreRunner(keys=keys)
+    )
 
 
 def ids(n: int) -> tuple[str, str]:
@@ -254,9 +260,10 @@ class TestCheckCrosswalk:
         )
         published(tmp_path, "org", [])
         keys = [("usa_wa_legislature:1", a_uuid, None), ("usa_wa_legislature:2", b_uuid, a_uuid)]
-        result = check_crosswalk("scratch", tmp_path, run_as=None, runner=RestoreRunner(keys=keys))
+        result = crosswalk(tmp_path, keys)
         assert result["problems"] == []
         assert result["person"] == {
+            "version": BEFORE,
             "published": 2,
             "matched": 2,
             "missing": 0,
@@ -273,7 +280,7 @@ class TestCheckCrosswalk:
         published(tmp_path, "person", [("k:1", a, None), ("k:2", b, None), ("k:3", c, None)])
         published(tmp_path, "org", [])
         keys = [("k:1", b_uuid, None), ("k:2", b_uuid, a_uuid), ("k:4", c_uuid, None)]
-        result = check_crosswalk("scratch", tmp_path, run_as=None, runner=RestoreRunner(keys=keys))
+        result = crosswalk(tmp_path, keys)
         assert result["person"]["reassigned"] == 1
         assert result["person"]["merge_changed"] == 1
         assert result["person"]["missing"] == 1
@@ -283,10 +290,41 @@ class TestCheckCrosswalk:
             "person: 1 published key(s) on a different ULID (k:1)",
         ]
 
-    def test_no_catalog_is_a_skip_not_a_pass(self, tmp_path) -> None:
-        result = check_crosswalk("scratch", tmp_path / "none", run_as=None, runner=RestoreRunner())
-        assert result["skipped"].startswith("no catalog")
+    def test_a_publish_after_the_dump_is_not_the_reference(self, tmp_path) -> None:
+        """Restoring a dump older than the newest publish (a rollback, or a night the
+        backup failed but the pipeline published) must not read every key registered
+        since as missing."""
+        a, a_uuid = ids(1)
+        b, _ = ids(2)
+        published(tmp_path, "person", [("k:1", a, None)], BEFORE)
+        published(tmp_path, "person", [("k:1", a, None), ("k:2", b, None)], AFTER)
+        published(tmp_path, "org", [])
+        result = crosswalk(tmp_path, [("k:1", a_uuid, None)])
         assert result["problems"] == []
+        assert result["person"]["version"] == BEFORE
+
+    def test_a_partial_publish_is_passed_over(self, tmp_path) -> None:
+        """A crash mid-publish leaves a version directory whose data is not whole."""
+        a, a_uuid = ids(1)
+        published(tmp_path, "person", [("k:1", a, None)], "v20260929T080505Z-000000")
+        published(tmp_path, "person", [("k:1", a, None), ("k:9", a, None)], BEFORE, intact=False)
+        published(tmp_path, "org", [])
+        result = crosswalk(tmp_path, [("k:1", a_uuid, None)])
+        assert result["problems"] == []
+        assert result["person"]["version"] == "v20260929T080505Z-000000"
+
+    def test_nothing_published_before_the_dump_is_a_skip_not_a_pass(self, tmp_path) -> None:
+        a, _ = ids(1)
+        published(tmp_path, "person", [("k:1", a, None)], AFTER)
+        result = crosswalk(tmp_path, [])
+        assert result["problems"] == []
+        assert result["person"]["skipped"].startswith("no complete person_crosswalk")
+        assert result["org"]["skipped"].startswith("no complete org_crosswalk")
+
+    def test_no_datasets_at_all_is_a_skip(self, tmp_path) -> None:
+        result = crosswalk(tmp_path / "none", [])
+        assert result["problems"] == []
+        assert "skipped" in result["person"]
 
 
 class TestMain:

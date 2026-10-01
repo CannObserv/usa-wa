@@ -197,11 +197,16 @@ transaction on stdin as `postgres`, then checks, failing the run on any finding:
 
 - the schema version equals the dump's `alembic_head`;
 - every registry table's row count equals the dump's `registry_rows`;
-- every key in the newest published `person_crosswalk` / `org_crosswalk`
-  (`--datasets-root`, default `USA_WA_DATASETS_ROOT` or `data/datasets`) resolves to
-  the same ULID. A missing key or a moved ULID is a failure; a `merged_into` that
-  changed since the publish, or a key registered since, is counted only. On a fresh
-  host with no datasets the check reports `skipped`.
+- every key in the `person_crosswalk` / `org_crosswalk` published **at or before the
+  dump** (`--datasets-root`, default `USA_WA_DATASETS_ROOT` or `data/datasets`) resolves
+  to the same ULID. Not the catalog's latest: a dump older than the newest publish
+  (`--object`, or a night the backup failed and the pipeline did not) would read every
+  key registered since as missing. A version whose `data.csv` does not match its
+  `datapackage.json` hash — a crashed publish — is passed over. A missing key or a
+  moved ULID is a failure (an adjudicated key move since that publish reads as one:
+  check `registry.adjudications`); a `merged_into` that changed since, or a key
+  registered since, is counted only. With no such version — a fresh host has no
+  datasets — the check reports `skipped`.
 
 **`--raw-into`** fetches into a new private directory, proves every object hashes to
 its name and every manifest to its recorded digest, then rebuilds each source's

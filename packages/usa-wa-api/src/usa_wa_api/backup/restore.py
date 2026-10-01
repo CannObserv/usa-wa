@@ -92,6 +92,8 @@ _NAMED = 5
 # What --list prints beside each name, in this order.
 _LISTED_METADATA = ("dumped_at", "alembic_head", "size_bytes", "source_host", "sha256")
 _TABLE_RE = re.compile(rf"^{COUNTED_SCHEMA}\.[a-z_]+$")
+#: A publisher version directory: ``v<YYYYMMDDTHHMMSSZ>-<hex>`` (usa_wa_pipeline.publish).
+_VERSION_RE = re.compile(r"^v(\d{8}T\d{6}Z)-[0-9a-f]+$")
 
 #: How the restore runs pg_restore and psql. A seam for the tests, read at call time.
 run_command: Runner = subprocess.run
@@ -339,6 +341,7 @@ def check_restored(
 class CrosswalkCheck:
     """One crosswalk's published keys against the restored registry."""
 
+    version: str = ""
     published: int = 0
     matched: int = 0
     missing: int = 0
@@ -347,14 +350,45 @@ class CrosswalkCheck:
     newer: int = 0
 
 
-def _published_crosswalk(root: Path, kind: str) -> dict[str, tuple[str, str | None]] | None:
-    """``natural_key -> (entity_id, merged_into)`` from the newest published version."""
-    catalog = json.loads((root / "catalog.json").read_text())
-    entry = next((d for d in catalog["datasets"] if d["name"] == f"{kind}_crosswalk"), None)
-    if entry is None:
+def _complete(version: Path) -> bool:
+    """Whether ``data.csv`` is the file its ``datapackage.json`` describes. A publish
+    that crashed leaves its version directory behind, unlisted and possibly partial."""
+    try:
+        package = json.loads((version / "datapackage.json").read_text())
+    except (OSError, ValueError):
+        return False
+    resource = next((r for r in package.get("resources", []) if r.get("path") == "data.csv"), None)
+    data = version / "data.csv"
+    return (
+        resource is not None
+        and data.is_file()
+        and resource.get("hash") == f"sha256:{sha256_file(data)}"
+    )
+
+
+def published_version(root: Path, kind: str, at: datetime | None) -> Path | None:
+    """The newest complete ``<kind>_crosswalk`` version published at or before ``at``.
+
+    Not the catalog's latest: a dump older than the newest publish — a rollback to an
+    older object, or a night the backup failed while the pipeline published — would
+    read every key registered since as missing.
+    """
+    base = root / f"{kind}_crosswalk"
+    if not base.is_dir():
         return None
-    path = root / f"{kind}_crosswalk" / entry["latest_version"] / "data.csv"
-    with path.open(newline="") as handle:
+    stamped = []
+    for path in base.iterdir():
+        match = _VERSION_RE.match(path.name)
+        if match and path.is_dir():
+            when = datetime.strptime(match[1], KEY_TIME_FORMAT).replace(tzinfo=UTC)
+            if at is None or when <= at:
+                stamped.append((when, path))
+    return next((path for _, path in sorted(stamped, reverse=True) if _complete(path)), None)
+
+
+def _published_crosswalk(data: Path) -> dict[str, tuple[str, str | None]]:
+    """``natural_key -> (entity_id, merged_into)`` from one version's ``data.csv``."""
+    with data.open(newline="") as handle:
         return {
             row["natural_key"]: (row["entity_id"], row["merged_into"] or None)
             for row in csv.DictReader(handle)
@@ -380,25 +414,35 @@ def _restored_crosswalk(
 
 
 def check_crosswalk(
-    database: str, datasets_root: Path, *, run_as: str | None, runner: Runner
+    database: str,
+    datasets_root: Path,
+    *,
+    dumped_at: datetime | None,
+    run_as: str | None,
+    runner: Runner,
 ) -> dict[str, Any]:
-    """Every published crosswalk key against the restored registry.
+    """Every key the dump's own publish carried, against the restored registry.
 
-    A key missing, or on a different ULID, is a problem — ULIDs never move. A
-    ``merged_into`` that differs is counted but not a problem (a merge may have
-    landed since the publish), and nor is a key registered since.
+    The reference is the newest complete version published at or before the dump
+    (:func:`published_version`). A key missing, or on a different ULID, is a problem —
+    ULIDs never move (an adjudicated key move since that publish reads as one too:
+    check ``registry.adjudications``). A ``merged_into`` that differs is counted but
+    not a problem, and nor is a key registered since. A kind with no such version is
+    ``skipped`` — a fresh host has no datasets.
     """
-    if not (datasets_root / "catalog.json").is_file():
-        return {"skipped": f"no catalog under {datasets_root}", "problems": []}
     result: dict[str, Any] = {"problems": []}
     for kind in CROSSWALK_KINDS:
-        published = _published_crosswalk(datasets_root, kind)
-        if published is None:
-            result["problems"].append(f"{kind}: no {kind}_crosswalk in the catalog")
+        version = published_version(datasets_root, kind, dumped_at)
+        if version is None:
+            reason = f"no complete {kind}_crosswalk published at or before the dump"
+            result[kind] = {"skipped": f"{reason} under {datasets_root}"}
             continue
+        published = _published_crosswalk(version / "data.csv")
         restored = _restored_crosswalk(database, kind, run_as=run_as, runner=runner)
         check = CrosswalkCheck(
-            published=len(published), newer=len(restored.keys() - published.keys())
+            version=version.name,
+            published=len(published),
+            newer=len(restored.keys() - published.keys()),
         )
         missing, reassigned = [], []
         for key, (entity, merged) in sorted(published.items()):
@@ -416,6 +460,16 @@ def check_crosswalk(
                 result["problems"].append(f"{kind}: {len(keys)} published key(s) {label} ({named})")
         result[kind] = asdict(check)
     return result
+
+
+def _dumped_at(metadata: Mapping[str, str]) -> datetime | None:
+    """The dump's recorded start; ``None`` for an object without one."""
+    try:
+        return datetime.strptime(metadata.get("dumped_at", ""), "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=UTC
+        )
+    except ValueError:
+        return None
 
 
 def _print_listing(client: Any, bucket: str, prefix: str | None) -> int:
@@ -443,7 +497,11 @@ def _restore_database(ctx: JobContext, client: Any, bucket: str) -> JobResult:
         restore_into(path, args.into, run_as=args.run_as, runner=run_command)
     problems = check_restored(args.into, metadata, run_as=args.run_as, runner=run_command)
     crosswalk = check_crosswalk(
-        args.into, args.datasets_root, run_as=args.run_as, runner=run_command
+        args.into,
+        args.datasets_root,
+        dumped_at=_dumped_at(metadata),
+        run_as=args.run_as,
+        runner=run_command,
     )
     problems += crosswalk.pop("problems")
     counters = {

@@ -14,6 +14,7 @@ create one. That half is the restore drill, run by hand on the host
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 import subprocess
@@ -83,17 +84,25 @@ async def committed_registry(test_engine):
 
 
 def published(root, rows) -> None:
-    """A catalog naming a person crosswalk of ``rows`` and an empty org crosswalk."""
-    datasets = []
+    """A person crosswalk of ``rows`` and an empty org one, laid out as the publisher
+    does: ``<kind>_crosswalk/<version>/data.csv`` beside a hash-carrying datapackage."""
     for kind, kind_rows in (("person", rows), ("org", [])):
-        target = root / f"{kind}_crosswalk" / "v1"
+        target = root / f"{kind}_crosswalk" / "v20260930T080505Z-a09d08"
         target.mkdir(parents=True)
-        with (target / "data.csv").open("w", newline="") as handle:
+        data = target / "data.csv"
+        with data.open("w", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow(["entity_id", "natural_key", "merged_into"])
             writer.writerows([str(entity), key, ""] for key, entity in kind_rows)
-        datasets.append({"name": f"{kind}_crosswalk", "latest_version": "v1"})
-    (root / "catalog.json").write_text(json.dumps({"datasets": datasets}))
+        digest = hashlib.sha256(data.read_bytes()).hexdigest()
+        package = {"resources": [{"path": "data.csv", "hash": f"sha256:{digest}"}]}
+        (target / "datapackage.json").write_text(json.dumps(package))
+
+
+def crosswalk(root):
+    return check_crosswalk(
+        libpq_dsn(), root, dumped_at=datetime.now(UTC), run_as=None, runner=subprocess.run
+    )
 
 
 async def test_a_real_dump_verifies_and_describes_the_database(
@@ -113,12 +122,12 @@ async def test_the_crosswalk_check_reads_the_registry_as_published(
     committed_registry, tmp_path
 ) -> None:
     published(tmp_path, KEYS)
-    result = check_crosswalk(libpq_dsn(), tmp_path, run_as=None, runner=subprocess.run)
+    result = crosswalk(tmp_path)
     assert result["problems"] == []
     assert result["person"]["matched"] == len(KEYS)
 
 
 async def test_the_crosswalk_check_catches_a_moved_ulid(committed_registry, tmp_path) -> None:
     published(tmp_path, [(KEYS[0][0], KEYS[1][1]), KEYS[1]])
-    result = check_crosswalk(libpq_dsn(), tmp_path, run_as=None, runner=subprocess.run)
+    result = crosswalk(tmp_path)
     assert result["problems"] == ["person: 1 published key(s) on a different ULID (rehearsal:1)"]
