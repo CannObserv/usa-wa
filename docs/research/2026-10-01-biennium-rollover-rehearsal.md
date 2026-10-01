@@ -12,7 +12,8 @@ each result below says whether it held.
 `scripts/rollover-rehearsal.sh <empty|partial>` copies production `raw/` and
 `data/datasets/` into `~/rehearsal/<biennium>-<scenario>-<stamp>/` and runs the **real**
 `scripts/pipeline-nightly.sh` with `USA_WA_BIENNIUM=2027-28` in its rehearsal mode:
-- every root lives in the scratch dir, or the chain refuses to start;
+- every root lives in the scratch dir, and none of them (nor the dir itself) in the checkout
+  or the production checkout, or the chain refuses to start;
 - the registrar, the serving load and the coverage seed are skipped;
 - `USA_WA_JOB_LEDGER=0`.
 

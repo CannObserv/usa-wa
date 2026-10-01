@@ -11,8 +11,10 @@
 # duckdb, dbt run_results and published catalog stay there for reading. Exit = the chain's.
 #
 # Isolation is pipeline-nightly.sh's rehearsal mode, which refuses to start unless every root
-# lies in the scratch dir: it skips the registrar, the serving load and the coverage seed, and
-# this script sets USA_WA_JOB_LEDGER=0 so no run reaches /health/jobs. What it still READS from
+# lies in the scratch dir and none of them (nor the dir) lies in the checkout or the
+# production checkout: it skips the registrar, the serving load and the coverage seed, and
+# this script sets USA_WA_JOB_LEDGER=0 so no run reaches /health/jobs. This script also
+# refuses an existing scratch dir and a running nightly. What it still READS from
 # production: the registry crosswalk and operator events (DATABASE_URL), because the build
 # joins them — read-only, as every nightly does.
 #
