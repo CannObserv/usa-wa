@@ -64,6 +64,24 @@ class TestRunBackup:
         assert counters["raw"]["uploaded"] == 2
         assert not any(name.startswith("db/") for name in bucket.objects)
 
+    def test_an_unexpected_error_keeps_its_traceback(self, tmp_path, caplog) -> None:
+        """A programming error in one half is a one-line failure in the email — and a
+        traceback in the journal, or nobody can debug it."""
+
+        def broken(argv, **kwargs):
+            raise TypeError("unexpected keyword")
+
+        with caplog.at_level("ERROR", logger="usa_wa_api.backup.run"):
+            counters = backup(tmp_path, runner=broken)
+        assert counters["failures"] == ["db: TypeError: unexpected keyword"]
+        [record] = [r for r in caplog.records if r.exc_info]
+        assert record.exc_info[0] is TypeError
+
+    def test_an_expected_failure_logs_no_traceback(self, tmp_path, caplog) -> None:
+        with caplog.at_level("ERROR", logger="usa_wa_api.backup.run"):
+            backup(tmp_path, runner=FakeRunner(fail="pg_dump"))
+        assert not [r for r in caplog.records if r.exc_info]
+
     def test_a_corrupted_raw_object_is_a_failure(self, tmp_path) -> None:
         store = harvest(tmp_path / "raw", "usa_wa_sos", {"r": b"one"})
         store.object_path(hashlib.sha256(b"one").hexdigest()).write_bytes(b"tampered")

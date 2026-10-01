@@ -73,6 +73,14 @@ def make_client() -> Any:
     return storage.Client()
 
 
+def _record(failures: list[str], half: str, exc: BaseException) -> None:
+    """One line for the email; and for anything but a :class:`BackupError` — a
+    programming error, an SDK surprise — the traceback in the journal too."""
+    if not isinstance(exc, BackupError):
+        logger.exception("backup_unexpected_error", extra={"half": half})
+    failures.append(f"{half}: {_describe(exc)}")
+
+
 def _describe(exc: BaseException) -> str:
     """One line for any failure: a revoked key surfaces from google.auth as a
     ``RefreshError``, a transport fault as a ``TransportError`` — neither a
@@ -181,7 +189,7 @@ def run_backup(
             dry_run=dry_run,
         )
     except Exception as exc:
-        failures.append(f"db: {_describe(exc)}")
+        _record(failures, "db", exc)
     try:
         counters["raw"] = _mirror_raw(
             client=client,
@@ -192,7 +200,7 @@ def run_backup(
             failures=failures,
         )
     except Exception as exc:
-        failures.append(f"raw: {_describe(exc)}")
+        _record(failures, "raw", exc)
     counters["failures"] = failures
     return counters
 
