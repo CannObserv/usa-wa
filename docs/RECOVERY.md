@@ -70,15 +70,21 @@ object is a `pg_dump` error, never a thinner dump. Production has neither (check
 
 ## Provisioning — needs the GCP project owner
 
-The node has no `gcloud` and no credential that can create any of this. Mirrors
-watcher's, with the lifecycle scoped by prefix:
+The node has no `gcloud` and no credential that can create any of this. Run from a
+workstation holding `storage.admin`, `iam.serviceAccountAdmin` and
+`iam.serviceAccountKeyAdmin` on `co-gcs` (the owner has all three). Mirrors broker's
+as-run block, with the lifecycle scoped by prefix and the location read from
+`co-gcs-blobs` rather than typed:
 
 ```bash
 PROJECT=co-gcs
 BUCKET=co-gcs-usa-wa-backup
 SA=co-usa-wa-backup
+SA_EMAIL="$SA@$PROJECT.iam.gserviceaccount.com"
+LOCATION=$(gcloud storage buckets describe gs://co-gcs-blobs --format="value(location)")
+echo "location: $LOCATION"    # must print one; an empty value would let create pick a default
 
-gcloud storage buckets create "gs://$BUCKET" --project="$PROJECT" --location=<same as co-gcs-blobs> \
+gcloud storage buckets create "gs://$BUCKET" --project="$PROJECT" --location="$LOCATION" \
     --uniform-bucket-level-access --public-access-prevention
 cat > /tmp/lifecycle.json <<'EOF'
 {"rule": [
@@ -87,15 +93,26 @@ cat > /tmp/lifecycle.json <<'EOF'
 ]}
 EOF
 gcloud storage buckets update "gs://$BUCKET" --lifecycle-file=/tmp/lifecycle.json
+gcloud storage buckets describe "gs://$BUCKET" --format="yaml(location, lifecycle_config)"
+#   gcloud storage's key names; the API's camelCase spellings print nothing (broker)
 
-gcloud iam service-accounts create "$SA" --project="$PROJECT" --display-name="usa-wa backup writer"
+gcloud iam service-accounts create "$SA" --project="$PROJECT" \
+    --display-name="usa-wa backup writer (usa-wa#434)"
 for role in roles/storage.objectCreator roles/storage.objectViewer; do
     gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" \
-        --member="serviceAccount:$SA@$PROJECT.iam.gserviceaccount.com" --role="$role"
+        --member="serviceAccount:$SA_EMAIL" --role="$role"
 done
-gcloud iam service-accounts keys create co-usa-wa-backup.json \
-    --iam-account="$SA@$PROJECT.iam.gserviceaccount.com"
+gcloud storage buckets get-iam-policy "gs://$BUCKET" \
+    --flatten="bindings[].members" --filter="bindings.members:$SA_EMAIL" \
+    --format="value(bindings.role)"    # exactly objectCreator + objectViewer
+
+gcloud iam service-accounts keys create co-usa-wa-backup.json --iam-account="$SA_EMAIL"
+scp co-usa-wa-backup.json usa-wa.exe.xyz:    # however #430's dump came off the node
+shred -u co-usa-wa-backup.json
 ```
+
+Bucket-level bindings only — nothing at the project. Soft-delete left at its
+seven-day default (a second net against an administrator's mistake); versioning off.
 
 `raw/` has no lifecycle rule on purpose: the store it mirrors never deletes.
 
@@ -103,8 +120,8 @@ On the host — the key `0400 root:root`, read only by systemd; `backup.env` hol
 secret and **no `GOOGLE_APPLICATION_CREDENTIALS`**:
 
 ```bash
-sudo install -m 0400 -o root -g root co-usa-wa-backup.json /etc/usa-wa/co-usa-wa-backup.json
-shred -u co-usa-wa-backup.json
+sudo install -m 0400 -o root -g root ~/co-usa-wa-backup.json /etc/usa-wa/co-usa-wa-backup.json
+shred -u ~/co-usa-wa-backup.json
 sudo install -m 0644 -o root -g root /dev/null /etc/usa-wa/backup.env
 echo 'USA_WA_BACKUP_BUCKET=co-gcs-usa-wa-backup' | sudo tee /etc/usa-wa/backup.env >/dev/null
 ```
