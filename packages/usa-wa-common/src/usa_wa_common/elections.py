@@ -11,10 +11,14 @@ WA holds a general election **every** November, not only in even years:
 - the **even** ``start - 1`` cycle seats the chamber for the biennium starting ``start``;
 - the **odd** ``start`` November fills mid-biennium vacancies by special (#121 — Nov 2025
   seated Hunt in the LD5 Senate plus four House appointees);
-- November of ``start + 1`` is deliberately excluded — it seats the *next* biennium.
+- November of ``start + 1`` is deliberately excluded — it seats the *next* biennium. Once it
+  has been held, :func:`lookahead_election_year` names it, so its winners are captured before
+  the Jan 1 rollover makes it the next biennium's own (#135).
 """
 
 from __future__ import annotations
+
+from datetime import date, timedelta
 
 from clearinghouse_domain_legislative.terms import parse_biennium
 
@@ -66,3 +70,29 @@ def senate_election_years_for_biennium(biennium: str) -> tuple[int, int, int]:
     and the builder reads every archived cohort). For ``2025-26``: ``(2024, 2022, 2025)``."""
     start_year, _ = parse_biennium(biennium)
     return (start_year - 1, start_year - 3, start_year)
+
+
+def general_election_day(election_year: int) -> date:
+    """A year's WA general-election day: the first Tuesday after the first Monday of November.
+    ``2026`` → ``2026-11-03``; ``2022`` → ``2022-11-08`` (Nov 1 fell on a Tuesday)."""
+    first_monday = date(election_year, 11, 1)
+    while first_monday.weekday() != 0:
+        first_monday += timedelta(days=1)
+    return first_monday + timedelta(days=1)
+
+
+def lookahead_election_year(biennium: str, *, today: date) -> int | None:
+    """The NEXT biennium's seating election (``start + 1``) once it has been held, else ``None``.
+
+    The early-capture year (#135). :func:`election_years_for_biennium` excludes November of
+    ``start + 1`` because it seats the next biennium — so a date-current harvest would not fetch
+    its winners (PDC, early Dec) or certified results (SOS, early Dec) until Jan 1. Harvesting it
+    as well from the day **after** election day closes that gap. Not election day itself: the
+    nightly runs 08:00 UTC, midnight in WA, before any returns exist.
+
+    Raw capture only. Every consumer era-matches a cohort to the biennium it seats, which has no
+    roster until the rollover, so nothing is derived from it early. From Jan 1 the year leads the
+    next biennium's own decisive set, so the hand-off needs no switch."""
+    start_year, _ = parse_biennium(biennium)
+    year = start_year + 1
+    return year if today > general_election_day(year) else None

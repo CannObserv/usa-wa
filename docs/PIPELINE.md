@@ -64,7 +64,8 @@ raw/<source-slug>/
 - Harvesters: `python -m usa_wa_adapter_legislature.raw_harvest` (daily SOAP set +
   member fan-out, committees enumerated from the run's own roster wire — no DB),
   `…usa_wa_adapter_pdc.raw_harvest` (winner cohorts), `…usa_wa_adapter_sos.raw_harvest`
-  (filings + results), nightly; `…usa_wa_adapter_legislature.roster_pdf.raw_harvest`
+  (filings + results), nightly — both also fetch the next biennium's seating election
+  from the day after it is held (#135 early capture); `…usa_wa_adapter_legislature.roster_pdf.raw_harvest`
   (#421), **on demand** — one roster edition, the input `stg_roster_members` parses, with
   its own 90-day freshness window and stamp check (runbook: COMMANDS-ROSTER.md). All reuse the adapters' transports, rate limiters, and the
   Postgres archive's resource-id vocabulary; per-resource failures are contained as
@@ -94,7 +95,7 @@ bindings as the live pulls; one WSDL GET per service, amortized):
 | `stg_wsl_meetings` | none (raw refs) | all agencies kept; Joint/`Other` filter is downstream policy |
 | `stg_roster_members` | (year, chamber, district, order, name) | order is seat-lineage order (#229): a successor inherits it |
 | `stg_pdc_winners` | (chamber, election_year, filer_id) | #307; `person_id` is the `wa_pdc` link value |
-| `stg_sos_results` | (election_date, race, candidate) | #307 |
+| `stg_sos_results` | (election_date, race, candidate) | #307. **Provisional rows (#135):** the early capture stages the next biennium's seating election from the day after it is held, so from election night until SOS certifies (~30 days) that election's votes change nightly — each export replaces the last under the same `resource_id`. No column marks it yet |
 | `stg_sos_filings` | — | #307; store empty until the raw harvest runs (no archived filings payloads existed to export) |
 | `stg_raw_fetches` | (source, resource_id) | #313; the attestation dimension — sources DISCOVERED from the raw root, never configured |
 

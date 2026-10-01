@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import dataclass
+from datetime import date
 
 import pytest
 
@@ -13,6 +14,13 @@ from usa_wa_adapter_pdc.transport import PDCClient
 from usa_wa_common.elections import election_years_for_biennium
 
 BIENNIUM = "2025-26"
+
+#: Before the Nov 2026 general, so no lookahead cohort (#135): the plan is exactly the
+#: biennium's decisive set. Pinned because the real date passes the election.
+TODAY = date(2026, 9, 30)
+
+#: The cohorts the Nov 2026 general decides — they seat 2027-28.
+COHORTS_2026 = {"house-winners:2026", "senate-winners:2026"}
 
 
 @dataclass
@@ -41,7 +49,7 @@ class FakePDCClient:
 
 async def test_harvests_every_winner_cohort(tmp_path) -> None:
     client = FakePDCClient()
-    summary = await harvest_raw(tmp_path, biennium=BIENNIUM, pdc_client=client)
+    summary = await harvest_raw(tmp_path, biennium=BIENNIUM, today=TODAY, pdc_client=client)
 
     store = RawStore(tmp_path, SOURCE_SLUG)
     [manifest_path] = store.manifest_paths()
@@ -57,7 +65,7 @@ async def test_one_cohort_failure_is_contained(tmp_path) -> None:
     years = {int(r.rsplit(":", 1)[-1]) for r in biennium_resource_ids(BIENNIUM)}
     bad_year = sorted(years)[0]
     client = FakePDCClient(fail_years={bad_year})
-    summary = await harvest_raw(tmp_path, biennium=BIENNIUM, pdc_client=client)
+    summary = await harvest_raw(tmp_path, biennium=BIENNIUM, today=TODAY, pdc_client=client)
     assert summary["errors"] >= 1
     assert summary["fetched"] >= 1
 
@@ -77,7 +85,9 @@ async def test_broken_transport_contract_fails_with_the_counters_reached(tmp_pat
     """#331: ``wire=None`` raises (CR 44), and the failure carries the House cohorts
     that landed before it, so the alert says how far the run got."""
     with pytest.raises(JobFailure) as caught:
-        await harvest_raw(tmp_path, biennium=BIENNIUM, pdc_client=_NullWireSenateClient())
+        await harvest_raw(
+            tmp_path, biennium=BIENNIUM, today=TODAY, pdc_client=_NullWireSenateClient()
+        )
     assert isinstance(caught.value.__cause__, ValueError)
     assert caught.value.counters["fetched"] == len(election_years_for_biennium(BIENNIUM))
     manifest = json.loads(RawStore(tmp_path, SOURCE_SLUG).manifest_paths()[0].read_text())
@@ -93,24 +103,28 @@ async def test_a_failed_manifest_write_still_reports_the_counters(tmp_path, monk
 
     monkeypatch.setattr(RawRun, "close", _disk_full)
     with pytest.raises(JobFailure) as caught:
-        await harvest_raw(tmp_path, biennium=BIENNIUM, pdc_client=FakePDCClient())
+        await harvest_raw(tmp_path, biennium=BIENNIUM, today=TODAY, pdc_client=FakePDCClient())
     assert isinstance(caught.value.__cause__, OSError)
     assert caught.value.counters["fetched"] == len(biennium_resource_ids(BIENNIUM))
 
 
 async def test_ttl_skips_fresh_resources(tmp_path) -> None:
     client = FakePDCClient()
-    await harvest_raw(tmp_path, biennium=BIENNIUM, pdc_client=client)
+    await harvest_raw(tmp_path, biennium=BIENNIUM, today=TODAY, pdc_client=client)
     second = FakePDCClient()
-    summary = await harvest_raw(tmp_path, biennium=BIENNIUM, pdc_client=second, ttl_days=1)
+    summary = await harvest_raw(
+        tmp_path, biennium=BIENNIUM, today=TODAY, pdc_client=second, ttl_days=1
+    )
     assert second.calls == []
     assert summary["skipped_fresh"] == len(biennium_resource_ids(BIENNIUM))
     assert summary["fetched"] == 0
 
 
 async def test_refetch_is_deduped_not_restored(tmp_path) -> None:
-    await harvest_raw(tmp_path, biennium=BIENNIUM, pdc_client=FakePDCClient())
-    summary = await harvest_raw(tmp_path, biennium=BIENNIUM, pdc_client=FakePDCClient())
+    await harvest_raw(tmp_path, biennium=BIENNIUM, today=TODAY, pdc_client=FakePDCClient())
+    summary = await harvest_raw(
+        tmp_path, biennium=BIENNIUM, today=TODAY, pdc_client=FakePDCClient()
+    )
     assert summary["unchanged"] == len(biennium_resource_ids(BIENNIUM))
     store = RawStore(tmp_path, SOURCE_SLUG)
     assert len(store.manifest_paths()) == 2
@@ -124,7 +138,7 @@ def test_resource_ids_reuse_archive_prefixes(prefix: str) -> None:
 
 
 async def test_manifest_url_is_replayable_soda_request(tmp_path) -> None:
-    await harvest_raw(tmp_path, biennium=BIENNIUM, pdc_client=FakePDCClient())
+    await harvest_raw(tmp_path, biennium=BIENNIUM, today=TODAY, pdc_client=FakePDCClient())
     store = RawStore(tmp_path, SOURCE_SLUG)
     manifest = json.loads(store.manifest_paths()[0].read_text())
     for entry in manifest["entries"]:
@@ -149,7 +163,43 @@ async def test_manifest_url_honors_the_injected_clients_base(tmp_path) -> None:
         def winners_url(self) -> str:
             return "https://mirror.example/resource/abc.json"
 
-    await harvest_raw(tmp_path, biennium=BIENNIUM, pdc_client=MirrorClient())
+    await harvest_raw(tmp_path, biennium=BIENNIUM, today=TODAY, pdc_client=MirrorClient())
     store = RawStore(tmp_path, SOURCE_SLUG)
     manifest = json.loads(store.manifest_paths()[0].read_text())
     assert all(e["url"].startswith("https://mirror.example/") for e in manifest["entries"])
+
+
+def _recorded(root) -> set[str]:
+    [manifest_path] = RawStore(root, SOURCE_SLUG).manifest_paths()
+    return {e["resource_id"] for e in json.loads(manifest_path.read_text())["entries"]}
+
+
+async def test_the_next_seating_election_is_captured_once_held(tmp_path, monkeypatch) -> None:
+    """#135 early capture: from the day after the Nov 2026 general, its cohorts are fetched too,
+    so the winners reach raw/ when PDC marks them (~early Dec), not on the Jan 1 rollover."""
+    monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+    await harvest_raw(tmp_path, today=date(2026, 11, 4), pdc_client=FakePDCClient())
+    assert _recorded(tmp_path) == set(biennium_resource_ids(BIENNIUM)) | COHORTS_2026
+
+
+async def test_no_lookahead_on_election_day(tmp_path, monkeypatch) -> None:
+    """The nightly runs before the polls close: election day has no winners to fetch."""
+    monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+    await harvest_raw(tmp_path, today=date(2026, 11, 3), pdc_client=FakePDCClient())
+    assert _recorded(tmp_path) == set(biennium_resource_ids(BIENNIUM))
+
+
+async def test_the_rollover_hands_the_2026_cohorts_off_without_a_gap(tmp_path, monkeypatch) -> None:
+    """Dec 31 fetches 2026 as 2025-26's lookahead; Jan 1 fetches it as 2027-28's own."""
+    monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+    await harvest_raw(tmp_path / "dec", today=date(2026, 12, 31), pdc_client=FakePDCClient())
+    await harvest_raw(tmp_path / "jan", today=date(2027, 1, 1), pdc_client=FakePDCClient())
+    assert _recorded(tmp_path / "jan") == set(biennium_resource_ids("2027-28"))
+    assert COHORTS_2026 <= _recorded(tmp_path / "dec") & _recorded(tmp_path / "jan")
+
+
+async def test_a_pinned_biennium_looks_ahead_on_its_own_calendar(tmp_path, monkeypatch) -> None:
+    """The rehearsal's pin (#135 item 2): 2027-28's lookahead is 2028, not yet held."""
+    monkeypatch.setenv("USA_WA_BIENNIUM", "2027-28")
+    await harvest_raw(tmp_path, today=date(2026, 12, 1), pdc_client=FakePDCClient())
+    assert _recorded(tmp_path) == set(biennium_resource_ids("2027-28"))

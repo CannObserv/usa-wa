@@ -23,12 +23,12 @@ import csv
 import io
 import re
 from dataclasses import dataclass
-from datetime import date, timedelta
 from typing import Any
 
 import httpx
 
 from usa_wa_adapter_sos.ratelimit import AsyncRateLimiter, env_float
+from usa_wa_common.elections import general_election_day
 
 #: The WA SOS election-results host.
 RESULTS_BASE_URL = "https://results.vote.wa.gov"
@@ -82,10 +82,7 @@ def configure_results_rate_limit(min_interval: float) -> None:
 def general_election_date(election_year: int) -> str:
     """The ``YYYYMMDD`` of a year's WA **general** election — the first Tuesday after the first
     Monday of November. ``2024`` → ``"20241105"``, ``2012`` → ``"20121106"``."""
-    d = date(election_year, 11, 1)
-    while d.weekday() != 0:  # advance to November's first Monday (Monday == 0)
-        d += timedelta(days=1)
-    return (d + timedelta(days=1)).strftime("%Y%m%d")  # the Tuesday after it
+    return general_election_day(election_year).strftime("%Y%m%d")
 
 
 #: The Legislative results CSV href inside an election's ``export.html`` — matches both the clean

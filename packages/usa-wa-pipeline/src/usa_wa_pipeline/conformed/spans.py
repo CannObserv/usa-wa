@@ -39,7 +39,8 @@ named for, is exactly a member who returned only to a House seat.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from collections import Counter
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -61,7 +62,7 @@ from clearinghouse_domain_legislative.tenure_spans import (
     TenureSpan,
     build_tenure_spans,
 )
-from clearinghouse_domain_legislative.terms import biennium_for_date
+from clearinghouse_domain_legislative.terms import biennium_for_date, parse_biennium
 from usa_wa_adapter_legislature.membership.projector import (
     build_committee_membership_observations,
 )
@@ -478,6 +479,56 @@ def current_biennium(*, today: date | None = None) -> str:
     return os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(today or datetime.now(UTC).date())
 
 
+def without_future_bienniums(inputs: SpanInputs, *, current_biennium: str) -> SpanInputs:
+    """``inputs`` minus every WSL row from a biennium AFTER ``current_biennium`` (#135).
+
+    Staging stages every wire the raw store holds, and :func:`build_tenure_spans` keeps open
+    only the run that reaches the current biennium. So a next-biennium sponsor wire — an early
+    capture, a harvest under a stale ``USA_WA_BIENNIUM`` — would close every returning member's
+    span at the NEW biennium's end and publish a newcomer's before it starts. Until the rollover
+    makes it current it is not an observation. A row whose biennium does not parse is kept:
+    judging it is not this guard's job.
+
+    **Spans only.** Four other readers still take every staged biennium: the registrar's
+    ``load_sponsor_keys`` (mints a person per staged sponsor), ``persons`` (name survivorship),
+    ``organizations`` (the committee rosters) and ``citations`` (``newest_biennium``, which open
+    spans run to). A WSL lookahead must settle each of them before it lands a future wire.
+
+    Logged at WARNING because no harvest fetches a future biennium today, so one is an anomaly.
+    The ``assignments`` model's log reaches nobody (see there); ``registry_coverage`` runs this
+    same sequence under the job harness, which is where the line lands.
+    """
+    ceiling = parse_biennium(current_biennium)[0]
+    future: Counter[str] = Counter()
+
+    def _current_or_past(row: dict[str, Any]) -> bool:
+        biennium = str(row.get("biennium"))
+        try:
+            start = parse_biennium(biennium)[0]
+        except ValueError:
+            return True
+        if start > ceiling:
+            future[biennium] += 1
+            return False
+        return True
+
+    kept = replace(
+        inputs,
+        sponsors=[r for r in inputs.sponsors if _current_or_past(r)],
+        committee_members=[r for r in inputs.committee_members if _current_or_past(r)],
+    )
+    if future:
+        logger.warning(
+            "spans_future_bienniums_excluded",
+            extra={
+                "current_biennium": current_biennium,
+                "bienniums": sorted(future),
+                "rows": sum(future.values()),
+            },
+        )
+    return kept
+
+
 def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, list[TenureSpan]]:
     """Both span families, keyed by source — the one sequence every caller runs.
 
@@ -487,8 +538,11 @@ def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, li
     half IS the roster family. Resolving twice would double the cost and let the
     halves disagree about who is WSL-joined. The roster family's
     ``context_spans`` are the WSL family's (#267): the only other-kind spans a
-    minted identity could hold.
+    minted identity could hold. Rows from a biennium after the current one are
+    dropped first (:func:`without_future_bienniums`, #135), so no span is built
+    from one — the guard's reach ends at the spans; see there.
     """
+    inputs = without_future_bienniums(inputs, current_biennium=current_biennium)
     resolution = roster_resolution(inputs.roster, inputs.sponsors)
     spans = build_all_spans(
         inputs, current_biennium=current_biennium, extra_observations=resolution.joined

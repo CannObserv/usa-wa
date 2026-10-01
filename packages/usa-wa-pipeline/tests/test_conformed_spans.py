@@ -578,3 +578,69 @@ def test_current_biennium_defaults_to_today(monkeypatch) -> None:
     monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
     assert current_biennium(today=date(2027, 1, 1)) == "2027-28"
     assert current_biennium(today=date(2026, 12, 31)) == "2025-26"
+
+
+def _ballot(district: int = 14) -> dict:
+    """One SOS result row — the House family refuses a live sponsor corpus without one."""
+    return {
+        "election_date": "20241105",
+        "race": f"Legislative District {district} - State Representative Pos. 1",
+        "candidate": "Pat Rivera",
+        "party": "(Prefers Democratic Party)",
+        "votes": "30000",
+        "percentage_of_total_votes": "60.0",
+        "jurisdiction_name": "Legislative",
+    }
+
+
+def _inputs(*bienniums: str, newcomer_in: str | None = None) -> SpanInputs:
+    sponsors = [_sponsor("1", b) for b in bienniums]
+    members = [_committee_member("1", b) for b in bienniums]
+    if newcomer_in:
+        # their own seat and name: a leak must read as a newcomer's span, not a doubled LD-14
+        sponsors.append(
+            _sponsor(
+                "2",
+                newcomer_in,
+                name="Sam Cole",
+                long_name="Senator Cole",
+                first_name="Sam",
+                last_name="Cole",
+                district="15",
+            )
+        )
+    return SpanInputs(
+        sponsors=sponsors,
+        committee_members=members,
+        roster=[_roster("Wilbur Cranston", 1925)],
+        sos_results=[_ballot()],
+    )
+
+
+def test_a_wire_from_after_the_current_biennium_changes_nothing(caplog) -> None:
+    """#135: staging stages every ``sponsors:``/``committee-members-hist:`` wire the raw
+    store holds, and nothing kept a NEXT-biennium wire (an early capture, a harvest under a
+    stale pin) out of the spans. Its rows extended every returning member's run past the
+    current biennium, which closes it — ``is_active=False``, ``valid_to`` 2028-12-31 — and
+    published a newcomer's spans before they started. Until the rollover makes it current
+    it is not an observation, so the build is the one it would be without it."""
+    before = build_families(_inputs(BIENNIUM, CURRENT), current_biennium=CURRENT)
+    with caplog.at_level("WARNING"):
+        after = build_families(
+            _inputs(BIENNIUM, CURRENT, "2027-28", newcomer_in="2027-28"), current_biennium=CURRENT
+        )
+    assert after == before
+    assert any(s.is_active for s in before[SOURCE]), "the fixture must hold a live span"
+    [record] = [r for r in caplog.records if r.getMessage() == "spans_future_bienniums_excluded"]
+    assert record.bienniums == ["2027-28"]
+    assert record.rows == 3
+
+
+def test_the_rollover_closes_every_span_until_the_new_roster_lands() -> None:
+    """#135's Jan 1 prediction, pinned: 2027-28 current with no 2027-28 wire yet. Every
+    member's spans close at the old biennium's last day and none stays active — the state
+    `assignments_chamber_vacancy` warns on, not a mass deletion (the rows remain)."""
+    spans = build_families(_inputs(BIENNIUM, CURRENT), current_biennium="2027-28")[SOURCE]
+    assert spans
+    assert not any(s.is_active for s in spans)
+    assert {s.valid_to for s in spans} == {date(2026, 12, 31)}

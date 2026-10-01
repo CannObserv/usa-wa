@@ -3,6 +3,7 @@
 import json
 import logging
 from dataclasses import dataclass
+from datetime import date
 
 import pytest
 
@@ -20,6 +21,10 @@ from usa_wa_adapter_sos.results.resources import legresults_resource_id
 from usa_wa_common.elections import election_years_for_biennium
 
 BIENNIUM = "2025-26"
+
+#: Before the Nov 2026 general, so no lookahead year (#135): the harvest fetches exactly the
+#: biennium's decisive years. Pinned because the real date passes the election.
+TODAY = date(2026, 9, 30)
 
 
 @dataclass
@@ -52,6 +57,7 @@ async def test_harvests_filings_and_results_per_year(tmp_path) -> None:
     summary = await harvest_raw(
         tmp_path,
         biennium=BIENNIUM,
+        today=TODAY,
         filings_client=FakeFilingsClient(),
         results_client=FakeResultsClient(),
     )
@@ -74,6 +80,7 @@ async def test_one_source_failing_does_not_stop_the_other(tmp_path) -> None:
     summary = await harvest_raw(
         tmp_path,
         biennium=BIENNIUM,
+        today=TODAY,
         filings_client=FakeFilingsClient(fail_years=set(years)),
         results_client=FakeResultsClient(),
     )
@@ -96,6 +103,7 @@ async def test_broken_transport_contract_fails_with_the_counters_reached(tmp_pat
         await harvest_raw(
             tmp_path,
             biennium=BIENNIUM,
+            today=TODAY,
             filings_client=FakeFilingsClient(),
             results_client=_NullWireResultsClient(),
         )
@@ -121,6 +129,7 @@ async def test_a_failed_filings_manifest_write_still_reports_the_counters(
         await harvest_raw(
             tmp_path,
             biennium=BIENNIUM,
+            today=TODAY,
             filings_client=FakeFilingsClient(),
             results_client=FakeResultsClient(),
         )
@@ -132,6 +141,7 @@ async def test_ttl_skips_fresh_resources(tmp_path) -> None:
     await harvest_raw(
         tmp_path,
         biennium=BIENNIUM,
+        today=TODAY,
         filings_client=FakeFilingsClient(),
         results_client=FakeResultsClient(),
     )
@@ -147,6 +157,7 @@ async def test_ttl_skips_fresh_resources(tmp_path) -> None:
     summary = await harvest_raw(
         tmp_path,
         biennium=BIENNIUM,
+        today=TODAY,
         filings_client=MustNotFetchFilings(),
         results_client=MustNotFetchResults(),
         ttl_days=1,
@@ -159,12 +170,14 @@ async def test_refetch_is_deduped_not_restored(tmp_path) -> None:
     await harvest_raw(
         tmp_path,
         biennium=BIENNIUM,
+        today=TODAY,
         filings_client=FakeFilingsClient(),
         results_client=FakeResultsClient(),
     )
     summary = await harvest_raw(
         tmp_path,
         biennium=BIENNIUM,
+        today=TODAY,
         filings_client=FakeFilingsClient(),
         results_client=FakeResultsClient(),
     )
@@ -178,6 +191,7 @@ async def test_manifest_urls_are_real_endpoints(tmp_path) -> None:
     await harvest_raw(
         tmp_path,
         biennium=BIENNIUM,
+        today=TODAY,
         filings_client=FakeFilingsClient(),
         results_client=FakeResultsClient(),
     )
@@ -301,6 +315,7 @@ async def test_manifest_url_honors_injected_client_bases(tmp_path) -> None:
     await harvest_raw(
         tmp_path,
         biennium=BIENNIUM,
+        today=TODAY,
         filings_client=MirrorFilings(),
         results_client=MirrorResults(),
     )
@@ -308,3 +323,49 @@ async def test_manifest_url_honors_injected_client_bases(tmp_path) -> None:
     assert all(e["url"].startswith("https://mirror.example/whofiled?") for e in filings["entries"])
     results = json.loads(RawStore(tmp_path, "usa_wa_sos_results").manifest_paths()[0].read_text())
     assert all(e["url"].startswith("https://mirror.example/results/") for e in results["entries"])
+
+
+def _recorded(root, slug: str) -> set[str]:
+    [manifest_path] = RawStore(root, slug).manifest_paths()
+    return {e["resource_id"] for e in json.loads(manifest_path.read_text())["entries"]}
+
+
+async def _harvest_on(root, today: date) -> tuple[set[str], set[str]]:
+    await harvest_raw(
+        root, today=today, filings_client=FakeFilingsClient(), results_client=FakeResultsClient()
+    )
+    return _recorded(root, "usa_wa_sos"), _recorded(root, "usa_wa_sos_results")
+
+
+async def test_the_next_seating_election_is_captured_once_held(tmp_path, monkeypatch) -> None:
+    """#135 early capture: from the day after the Nov 2026 general its results are fetched
+    nightly, so election-night returns and then the certified export (~early Dec) reach raw/
+    as each is published, not on the Jan 1 rollover."""
+    monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+    filings, results = await _harvest_on(tmp_path, date(2026, 11, 4))
+    assert results == {legresults_resource_id(y) for y in (2024, 2025, 2026)}
+    assert filings == {whofiled_resource_id(y) for y in (2024, 2025, 2026)}
+
+
+async def test_no_lookahead_on_election_day(tmp_path, monkeypatch) -> None:
+    """The nightly runs before the polls close: election day has no export to fetch, and
+    asking would only log an error."""
+    monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+    _filings, results = await _harvest_on(tmp_path, date(2026, 11, 3))
+    assert results == {legresults_resource_id(y) for y in election_years_for_biennium(BIENNIUM)}
+
+
+async def test_the_rollover_hands_2026_off_without_a_gap(tmp_path, monkeypatch) -> None:
+    """Dec 31 fetches 2026 as 2025-26's lookahead; Jan 1 fetches it as 2027-28's own."""
+    monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+    _f, december = await _harvest_on(tmp_path / "dec", date(2026, 12, 31))
+    _f, january = await _harvest_on(tmp_path / "jan", date(2027, 1, 1))
+    assert january == {legresults_resource_id(y) for y in election_years_for_biennium("2027-28")}
+    assert legresults_resource_id(2026) in december & january
+
+
+async def test_a_pinned_biennium_looks_ahead_on_its_own_calendar(tmp_path, monkeypatch) -> None:
+    """The rehearsal's pin (#135 item 2): 2027-28's lookahead is 2028, not yet held."""
+    monkeypatch.setenv("USA_WA_BIENNIUM", "2027-28")
+    _filings, results = await _harvest_on(tmp_path, date(2026, 12, 1))
+    assert results == {legresults_resource_id(y) for y in election_years_for_biennium("2027-28")}
