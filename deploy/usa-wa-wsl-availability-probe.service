@@ -10,8 +10,9 @@ Documentation=https://github.com/CannObserv/usa-wa/issues/135
 After=network-online.target
 Wants=network-online.target
 # The alert IS the product (#49, the roster re-check's convention, #237). Exit 4
-# (EXIT_DEGRADED): a count changed since the last measurement — WSL started (or kept)
-# publishing 2027-28. Exit 1: an outage. Runbook: docs/RUNBOOK-ROLLOVER.md. %n → this unit.
+# (EXIT_DEGRADED): a count changed state since the last measurement (faulting → empty → has
+# rows; growth alone is logged, not mailed) — WSL started (or stopped) publishing 2027-28.
+# Exit 1: an outage. Runbook: docs/RUNBOOK-ROLLOVER.md. %n → this unit.
 OnFailure=usa-wa-notify-failure@%n.service
 
 [Service]

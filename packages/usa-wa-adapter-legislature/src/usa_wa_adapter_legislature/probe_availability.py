@@ -10,12 +10,14 @@ raw harvest's degraded run until ``GetCommittees`` stops faulting (the 2026-10-0
 this asks the three roster operations about one biennium and appends the counts to a JSONL
 log, one line per run, which ``docs/research/`` turns into dates.
 
-**A change is the news** — the roster re-check's convention (#237): a run whose counts differ
-from the previous measurement of the same biennium exits ``4`` (``EXIT_DEGRADED``), so the
-``OnFailure=`` mail says "WSL started publishing" the morning it does; an unchanged run exits
-``0``. A first measurement that finds nothing is a baseline, not news. The fault text is
-recorded but never compared: a reworded server error is not a measurement. An outage that is
-not a ``GetCommittees`` fault — a transport error, a ``GetSponsors`` fault — fails the run.
+**A change of state is the news** — the roster re-check's convention (#237): a run in which
+a count moved between faulting, empty and has-rows since the previous measurement of the
+same biennium exits ``4`` (``EXIT_DEGRADED``), so the ``OnFailure=`` mail says "WSL started
+publishing" the morning it does. Growth between published counts is logged and exits ``0``,
+as does an unchanged run. A first measurement that finds nothing is a baseline, not news.
+The fault text is recorded but never compared: a reworded server error is not a measurement.
+An outage that is not a ``GetCommittees`` fault — a transport error, a ``GetSponsors`` fault
+— fails the run.
 
 Write-free: it touches neither the raw store nor the database (``needs_db=False``, no ledger
 row), so it can run beside the nightly without moving anything the pipeline reads.
@@ -108,14 +110,21 @@ async def measure(
     )
 
 
+def _state(count: int | None) -> bool | None:
+    """What a count says about availability: ``None`` faulting, ``False`` empty, ``True`` rows."""
+    return None if count is None else bool(count)
+
+
 def changed_fields(previous: dict[str, Any] | None, current: Availability) -> list[str]:
-    """The measured fields that moved since ``previous`` (a logged record of the same
-    biennium). With no previous record, the non-empty ones: a first look that finds rows is
-    news, a first look that finds nothing is the baseline."""
+    """The measured fields whose STATE moved since ``previous`` (a logged record of the same
+    biennium): faulting, empty, or has rows. Growth between published counts is logged but is
+    not news (CR 3) — January's committee reshuffles would otherwise mail daily. With no
+    previous record, the fields that have rows: a first look that finds nothing is the
+    baseline."""
     now = asdict(current)
     if previous is None:
         return [name for name in MEASURED if now[name]]
-    return [name for name in MEASURED if previous.get(name) != now[name]]
+    return [name for name in MEASURED if _state(previous.get(name)) != _state(now[name])]
 
 
 def _previous(log: Path, biennium: str) -> dict[str, Any] | None:

@@ -15,7 +15,7 @@ run with `scripts/rollover-rehearsal.sh`.
 | Unit | When | What it does in this window |
 |---|---|---|
 | `usa-wa-pipeline.timer` | daily 08:00 UTC | From **2026-11-04** the PDC and SOS harvests also fetch the 2026 general (`lookahead_election_year`). From **2027-01-01** every harvest targets `2027-28`. |
-| `usa-wa-wsl-availability-probe.timer` | daily 09:20 UTC, through 2027-02-28 | Measures how much of `2027-28` WSL serves (`data/research/wsl-availability.jsonl`). **Exit 4 = a count changed**: the morning WSL starts publishing. |
+| `usa-wa-wsl-availability-probe.timer` | daily 09:20 UTC, through 2027-02-28 | Measures how much of `2027-28` WSL serves (`data/research/wsl-availability.jsonl`). **Exit 4 = a roster changed state** (faulting, empty, has rows): the morning WSL starts publishing. Growth alone is logged, not mailed. |
 | claude.ai routine `trig_01RrbHtAt554TKzoHDsBxAbc` | 2026-11-04 16:07 UTC, once | Checks the upstream sources from outside, then @mentions the owner on #135 with the 11-04 checklist below. |
 
 ## 2026-11-04 — the first early-capture nightly
@@ -79,7 +79,7 @@ The data state the same night, which is correct and needs no repair:
 
 ## When WSL publishes 2027-28
 
-The availability probe mails (exit 4) the morning a count moves. `jq . data/research/wsl-availability.jsonl` shows what moved.
+The availability probe mails (exit 4) the morning a roster changes state: first rows, or `GetCommittees` stops faulting. `jq . data/research/wsl-availability.jsonl` shows what moved.
 
 - **Sponsors land.** The next nightly stages them. Returning members' Senate and party
   spans reopen with their original start (same span keys). The registrar mints

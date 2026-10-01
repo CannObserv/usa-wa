@@ -229,3 +229,22 @@ async def test_a_dry_run_measures_without_logging(tmp_path) -> None:
 
     assert result.counters["sponsors_house"] == 98
     assert not log.exists()
+
+
+def test_growth_between_published_counts_is_logged_not_news() -> None:
+    """CR 3: once WSL publishes, January's committee reshuffles move the counts daily; mailing
+    each would teach the operator to ignore the one email that matters."""
+    previous = _availability(
+        sponsors_house=60, committees=30, committee_fault=None, committee_members=300
+    ).as_record(datetime.now(UTC))
+    current = _availability(
+        sponsors_house=98, committees=34, committee_fault=None, committee_members=482
+    )
+
+    assert changed_fields(previous, current) == []
+
+
+def test_a_published_count_going_empty_is_news() -> None:
+    """The other direction is a state change too: a roster that vanishes is worth a look."""
+    previous = _availability(sponsors_house=98).as_record(datetime.now(UTC))
+    assert changed_fields(previous, _availability(sponsors_house=0)) == ["sponsors_house"]

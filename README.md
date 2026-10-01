@@ -155,7 +155,7 @@ sudo systemctl enable --now usa-wa-disk-gc.timer                            # da
 # Dataset pipeline (daily) — the #302 publish chain
 sudo systemctl enable --now usa-wa-pipeline.timer                           # daily 08:00 UTC (#311)
 
-# Rollover measurement (daily, through 2027-02-28) — write-free; exit 4 = WSL's 2027-28 counts changed
+# Rollover measurement (daily, through 2027-02-28) — write-free; exit 4 = a WSL 2027-28 roster changed state
 sudo systemctl enable --now usa-wa-wsl-availability-probe.timer             # daily 09:20 UTC (#135)
 
 # Sweep (weekly)
