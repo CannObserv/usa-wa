@@ -81,7 +81,8 @@ distinguishable from the email alone),
 `usa-wa-succession-invariants`,
 `usa-wa-committee-lineage-invariants`, `usa-wa-pipeline` (#311), `usa-wa-disk-gc` (#394),
 `usa-wa-roster-pdf-recheck` (#237 — its exit 4 is the new-edition notice),
-`usa-wa-wsl-availability-probe` (#135 — its exit 4 is "a WSL 2027-28 roster changed state")) carries
+`usa-wa-wsl-availability-probe` (#135 — its exit 4 is "a WSL 2027-28 roster changed state"),
+`usa-wa-backup` (#434 — exit 1 = a half did not ship, exit 2 = no bucket or a misplaced key)) carries
 `OnFailure=usa-wa-notify-failure@%n.service`, so systemd starts the templated
 handler on a non-zero exit **or** a `TimeoutStartSec=` hang. `%n` (the failing
 unit's full name) becomes the handler's instance.
