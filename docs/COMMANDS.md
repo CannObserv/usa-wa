@@ -103,6 +103,15 @@ Full options, exit codes and rationale: [COMMANDS-SUCCESSION.md](COMMANDS-SUCCES
 | `python -m clearinghouse_core.integrity` | Provenance integrity sweep — rolling byte-slice (#54/#55); ad-hoc only since #412 PR C moved the weekly unit to `raw_integrity`, removed in PR F |
 | `python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline` | OWNER-role provenance repair (#64) |
 
+### Backup and recovery — [RECOVERY.md](RECOVERY.md)
+
+Both hold no database credential and write no `job_runs` row (`needs_db=False`).
+
+| Command | Purpose |
+|---|---|
+| `python -m usa_wa_api.backup.run` | Nightly backup (#434): the database dump to `gs://<bucket>/db/<host>/<stamp>.dump`, verified, with the registry's row counts as metadata, and the raw store's new objects and manifests mirrored under `raw/` — create-only. `--dry-run` dumps, verifies and hashes but uploads nothing. Exit 1 = either half did not ship; 2 = no `USA_WA_BACKUP_BUCKET`, or a misplaced key. Daily on `usa-wa-backup.timer`, sandboxed |
+| `python -m usa_wa_api.backup.restore` | By hand, as root: `--list` the dumps; `--latest --prefix HOST` or `--object KEY` with `--download-only DIR` (fetch + prove) or `--into DB --run-as postgres` (load into an **empty** database, then check schema version, registry row counts and the published crosswalks' ULIDs); `--raw-into DIR` the raw store, `latest.json` rebuilt. Exit 1 = any refusal or failed check |
+
 ### Historical backfill and probes
 
 Full options, exit codes and rationale: [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md).

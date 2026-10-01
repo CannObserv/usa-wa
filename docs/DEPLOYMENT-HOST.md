@@ -4,7 +4,8 @@ Split out of [`DEPLOYMENT.md`](DEPLOYMENT.md), which keeps the unit table, alert
 roles and the lifecycle table. These are the ways the shared host breaks units that are
 themselves correct — a feature branch left checked out (#87), a worktree restamping the
 shared venv (#279), memory exhaustion (#389), a full disk (#394), apt restarting services
-mid-patch (#430) — and what guards each.
+mid-patch (#430) — and what guards each. Losing the host itself is
+[RECOVERY.md](RECOVERY.md)'s: the nightly backup to GCS and the restore (#434).
 The disk-GC commands came here from [`COMMANDS.md`](COMMANDS.md).
 
 ## Main-only checkout (issue #87)
@@ -212,6 +213,15 @@ itself (#430).
 sudo install -m 644 deploy/needrestart.conf.d/usa-wa.conf /etc/needrestart/conf.d/
 sudo needrestart -m u -r l -b    # must print "Disabling Ubuntu mode"; restarts nothing
 ```
+
+## Secrets on disk (#434)
+
+`/etc/usa-wa/.env` is `0640 root` and **is not backed up** — keep its copy in the password
+manager; the restore's replacement-host runbook needs its passwords to recreate the roles
+([RECOVERY.md](RECOVERY.md)). The checkout's `.env` (the agent tokens) is mode `0644`:
+readable by any local user. The backup unit masks it (`InaccessiblePaths=`) rather than
+relying on its mode, since its dynamic user would otherwise read it through the bound
+checkout.
 
 ## Host maintenance (#394)
 

@@ -160,25 +160,57 @@ class RawStore:
             finally:
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
 
+    def rebuild_latest(self) -> int:
+        """Rebuild ``latest.json`` from the run manifests alone; returns its entry count.
+
+        The index is mutable, so the #434 backup mirrors only the objects and the
+        manifests, and a restore calls this to bring the index back. It starts from
+        nothing — an entry no manifest supports is dropped — and replays every
+        manifest oldest first under the same rule a closing run applies, so it
+        reproduces the index a store built run by run. (Two runs recording one
+        resource at the *same* ``fetched_at`` are the only case where replay order
+        could matter; run ids sort by their start second first.)
+        """
+        self.source_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.source_dir / ".latest.lock", "w") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                latest: dict[str, dict] = {}
+                for manifest in self.manifest_paths():
+                    document = json.loads(manifest.read_text())
+                    _merge_latest(latest, document["entries"], document["run_id"])
+                self._write_latest(latest)
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+        return len(latest)
+
     def _update_latest_locked(self, entries: list[dict], run_id: str) -> None:
-        path = self.source_dir / "latest.json"
         latest = self.latest()
-        for entry in entries:
-            if entry["status"] != "ok":
-                continue
-            current = latest.get(entry["resource_id"])
-            if current is not None and current["fetched_at"] >= entry["fetched_at"]:
-                # A later run recording an older fetch (the #305 corpus export)
-                # must not regress the index past the live harvest.
-                continue
-            latest[entry["resource_id"]] = {
-                "sha256": entry["sha256"],
-                "fetched_at": entry["fetched_at"],
-                "run_id": run_id,
-            }
+        _merge_latest(latest, entries, run_id)
+        self._write_latest(latest)
+
+    def _write_latest(self, latest: dict[str, dict]) -> None:
+        path = self.source_dir / "latest.json"
         tmp = path.with_name(f".latest.{secrets.token_hex(4)}.tmp")
         tmp.write_text(json.dumps(latest, indent=2, sort_keys=True) + "\n")
         tmp.replace(path)
+
+
+def _merge_latest(latest: dict[str, dict], entries: list[dict], run_id: str) -> None:
+    """Advance ``latest`` by one run's entries: ok fetches only, newest ``fetched_at`` wins."""
+    for entry in entries:
+        if entry["status"] != "ok":
+            continue
+        current = latest.get(entry["resource_id"])
+        if current is not None and current["fetched_at"] >= entry["fetched_at"]:
+            # A later run recording an older fetch (the #305 corpus export)
+            # must not regress the index past the live harvest.
+            continue
+        latest[entry["resource_id"]] = {
+            "sha256": entry["sha256"],
+            "fetched_at": entry["fetched_at"],
+            "run_id": run_id,
+        }
 
 
 class RawRun:

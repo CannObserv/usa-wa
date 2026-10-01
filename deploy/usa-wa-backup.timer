@@ -1,0 +1,16 @@
+[Unit]
+Description=usa-wa — nightly backup to GCS
+Documentation=https://github.com/CannObserv/usa-wa/issues/434
+
+[Timer]
+# Daily at 10:17 UTC — two hours clear of the 08:00 pipeline (whose registrar run is
+# what changes the registry), so each night's backup carries that day's registrations.
+# Persistent=true runs a night a reboot skipped; the jitter keeps it off the minute
+# other timers on the host share.
+OnCalendar=*-*-* 10:17:00 UTC
+RandomizedDelaySec=10min
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
