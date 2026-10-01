@@ -91,5 +91,23 @@ wrong direction to fail in.
   **Test-only** (#331 CR 6): the suite points them at a tmp dir and a stub `uv`,
   and refuses to run the script at all if they are missing — unset, it runs the
   real harvests, build and publish. `usa-wa-pipeline.service` sets neither.
+- `PIPELINE_NIGHTLY_REHEARSAL` — a scratch dir: the #135 rollover rehearsal's mode.
+  Every written path moves under it, and the registrar, serving load and coverage
+  seed are skipped. The chain refuses to start unless `USA_WA_RAW_ROOT`,
+  `USA_WA_PIPELINE_DB` and `USA_WA_DATASETS_ROOT` all lie inside it, none of them
+  (nor the dir itself) lies in `$PWD` or the production checkout, and
+  `USA_WA_JOB_LEDGER=0`. Set by `scripts/rollover-rehearsal.sh`; never by a unit.
+- `PIPELINE_NIGHTLY_SKIP` — space-separated stage labels a **rehearsal** leaves out
+  (the partial scenario skips the three harvests). Ignored outside a rehearsal.
+
+### Rollover rehearsal — `scripts/rollover-rehearsal.sh`
+
+Test seams, unset in real use ([RUNBOOK-ROLLOVER.md](RUNBOOK-ROLLOVER.md)):
+`ROLLOVER_REHEARSAL_SOURCE` (the checkout whose `raw/` and `data/datasets/` are
+copied; default `/home/exedev/usa-wa`), `ROLLOVER_REHEARSAL_ENV_FILES` (env files
+read literally before the overrides; default `/etc/usa-wa/.env` and the source's
+`.env`), `ROLLOVER_REHEARSAL_DIR` (the scratch dir, which must not exist yet;
+default `~/rehearsal/<biennium>-<scenario>-<UTC stamp>`), and
+`ROLLOVER_REHEARSAL_BIENNIUM` (default `2027-28`).
 
 The PM sidecar's own tunables (`SidecarSettings` — `POWERMAP_BASE_URL`, `POWERMAP_API_KEY`, the drain/replay/reconcile cadences and the request-rate governor) were documented here until usa-wa#314 deleted the sidecar. Nothing reads them; they can be removed from `/etc/usa-wa/.env` — and `POWERMAP_API_KEY` **should** be, since a live credential nothing uses is a credential nobody rotates.
