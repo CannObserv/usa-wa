@@ -421,3 +421,31 @@ def test_the_skip_list_is_ignored_outside_a_rehearsal(run_nightly):
     _code, lines = run_nightly(PIPELINE_NIGHTLY_SKIP=" ".join((*HARVESTS, *SHARED_STATE_WRITERS)))
 
     assert {*HARVESTS, *SHARED_STATE_WRITERS} <= set(_stages(lines))
+
+
+#: (scratch dir, its root prefix) — each lets a root land on production's own files.
+PRODUCTION_SHAPES = {
+    # above production: every root under it passes "under <dir>" — production's included
+    "above-production": ("/home/exedev", "/home/exedev/usa-wa"),
+    # inside production: <dir>/datasets IS production's data/datasets
+    "inside-production": ("/home/exedev/usa-wa/data", "/home/exedev/usa-wa/data"),
+}
+
+
+@pytest.mark.parametrize("shape", PRODUCTION_SHAPES)
+def test_a_rehearsal_never_reaches_the_production_checkout(run_nightly, shape):
+    """CR 1: from a worktree $PWD is the worktree, so "inside the checkout" alone let a
+    scratch dir above or inside the production checkout through, with roots that are
+    production's own raw store, catalog and duckdb. Refused before any stage."""
+    scratch_dir, prefix = PRODUCTION_SHAPES[shape]
+    code, lines = run_nightly(
+        PIPELINE_NIGHTLY_REHEARSAL=scratch_dir,
+        USA_WA_RAW_ROOT=f"{prefix}/raw",
+        USA_WA_PIPELINE_DB=f"{prefix}/pipeline.duckdb",
+        USA_WA_DATASETS_ROOT=f"{prefix}/datasets",
+        USA_WA_JOB_LEDGER="0",
+    )
+
+    assert code == 2
+    assert _stages(lines) == []
+    assert any("production checkout" in line for line in lines)

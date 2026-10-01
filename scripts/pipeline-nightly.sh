@@ -67,22 +67,39 @@ failed=()
 REHEARSAL="${PIPELINE_NIGHTLY_REHEARSAL:-}"
 WRITERS=""
 SKIP=""
+# The production checkout is checked by name, not only as $PWD: rehearsing a worktree's
+# code, $PWD is the worktree, and a scratch dir above or inside production would otherwise
+# pass with roots that are production's own raw store, catalog and duckdb (CR 1).
+PRODUCTION=/home/exedev/usa-wa
 if [ -n "$REHEARSAL" ]; then
   REHEARSAL=$(realpath -m "$REHEARSAL")
-  case "$REHEARSAL/" in
-    "$PWD"/*)
-      echo "pipeline-nightly: rehearsal refusing: $REHEARSAL is inside the checkout $PWD" >&2
-      exit 2
-      ;;
-  esac
+  for checkout in "$PWD" "$PRODUCTION"; do
+    case "$REHEARSAL/" in
+      "$checkout"/*)
+        echo "pipeline-nightly: rehearsal refusing: $REHEARSAL is inside the checkout $checkout" \
+          "(the production checkout is $PRODUCTION)" >&2
+        exit 2
+        ;;
+    esac
+  done
   for var in USA_WA_RAW_ROOT USA_WA_PIPELINE_DB USA_WA_DATASETS_ROOT; do
-    case "$(realpath -m "${!var:-.}")" in
+    root=$(realpath -m "${!var:-.}")
+    case "$root" in
       "$REHEARSAL"/*) ;;
       *)
         echo "pipeline-nightly: rehearsal refusing: $var=${!var:-} is outside $REHEARSAL" >&2
         exit 2
         ;;
     esac
+    for checkout in "$PWD" "$PRODUCTION"; do
+      case "$root/" in
+        "$checkout"/*)
+          echo "pipeline-nightly: rehearsal refusing: $var=$root is inside the checkout $checkout" \
+            "(the production checkout is $PRODUCTION)" >&2
+          exit 2
+          ;;
+      esac
+    done
   done
   if [ "${USA_WA_JOB_LEDGER:-}" != 0 ]; then
     echo "pipeline-nightly: rehearsal refusing: USA_WA_JOB_LEDGER must be 0 (the run ledger is shared state)" >&2
