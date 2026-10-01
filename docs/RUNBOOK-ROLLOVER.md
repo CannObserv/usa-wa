@@ -44,7 +44,7 @@ From the same night, the published `stg_sos_results` carries the 2026 election's
   scripts/rollover-rehearsal.sh partial    # a synthesized half-published 2027-28 roster
   ```
   Each prints its scratch dir under `~/rehearsal/`; record the outcome lines in the
-  research doc beside the October run. Delete the scratch dirs afterwards (~200 MB each).
+  research doc beside the October run. Delete the scratch dirs afterwards (~135 MB each).
 - **Appointments dated in December** still need their operator `seated` event (#107).
   #282 tracks why an even-year November/December seating can be inert.
 
