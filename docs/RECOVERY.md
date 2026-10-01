@@ -224,19 +224,32 @@ sudo test ! -e /home/exedev/usa-wa/raw && sudo mv /root/usa-wa-raw /home/exedev/
 
 ### A replacement host
 
-The dump carries table owners and grants, not the roles. In order:
+The dump carries table owners and grants — not the roles, not the database itself. In
+order:
 
-1. Provision Postgres; create `usa_wa_owner` and `usa_wa_app` with the passwords from
-   the password manager's copy of `/etc/usa-wa/.env`, and the database owned by the
-   owner role ([DEPLOYMENT.md § DB role topology](DEPLOYMENT.md)).
+0. The host: clone the repo to `/home/exedev/usa-wa`, `uv sync --locked`, restore
+   `/etc/usa-wa/.env` from the password manager, copy the units
+   ([README § Deploy](../README.md)) — and enable nothing yet.
+1. Postgres 16; `usa_wa_owner` and `usa_wa_app` with the passwords `/etc/usa-wa/.env`
+   carries ([DEPLOYMENT.md § DB role topology](DEPLOYMENT.md)); then the database as
+   production's is — that owner, UTF8, `C.UTF-8` (checked 2026-10-01; no database-level
+   grants or settings to carry):
+
+   ```bash
+   sudo -u postgres createdb -O usa_wa_owner -E UTF8 --locale=C.UTF-8 -T template0 usa_wa
+   ```
 2. `scripts/setup-backup-role.sql`, the key and `backup.env` (above).
 3. `$R --latest --prefix <old host> --into usa_wa --run-as postgres` — `usa_wa` is new
    and empty here.
-4. `scripts/grants.sql`, as DEPLOYMENT.md says — idempotent.
-5. `$R --raw-into …`, moved into place as above; then the integrity sweep
-   (`python -m clearinghouse_core.raw_integrity --expect-objects`).
+4. `sudo systemctl restart usa-wa-migrate` — alembic is already at head; it re-applies
+   `scripts/grants.sql`.
+5. `$R --raw-into …`, moved into place as above; then
+   `sudo systemctl start usa-wa-integrity-sweep.service` and read its journal — one run
+   covers the whole store, well inside its 256 MiB slice. (Not a bare
+   `python -m clearinghouse_core.raw_integrity`: the unit carries the environment its
+   ledger row needs.)
 6. `sudo systemctl start usa-wa-pipeline` — rebuilds duckdb, republishes, reloads
-   `serving`. Then the API.
+   `serving`. Then enable the API and the timers (README § Deploy).
 
 ## Rehearsals
 
