@@ -103,8 +103,8 @@ for role in roles/storage.objectCreator roles/storage.objectViewer; do
         --member="serviceAccount:$SA_EMAIL" --role="$role"
 done
 gcloud storage buckets get-iam-policy "gs://$BUCKET" \
-    --flatten="bindings[].members" --filter="bindings.members:$SA_EMAIL" \
-    --format="value(bindings.role)"    # exactly objectCreator + objectViewer
+    --flatten="bindings[].members" --format="table(bindings.role, bindings.members)" \
+    | grep "$SA_EMAIL"    # exactly objectCreator + objectViewer (no --filter on this command)
 
 gcloud iam service-accounts keys create co-usa-wa-backup.json --iam-account="$SA_EMAIL"
 scp co-usa-wa-backup.json usa-wa.exe.xyz:    # however #430's dump came off the node
