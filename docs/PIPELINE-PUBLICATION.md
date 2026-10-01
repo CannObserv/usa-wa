@@ -26,6 +26,9 @@ the operator, with each failed stage's summary line restated last (#331). `build
 (#412 PR E) fails the run on any dbt `warn`, which `dbt build` alone exits 0 on; the four
 canonical-oracle parity probes left the chain in the same PR, and `coverage_seed` joined it:
 the refreshes it disabled were the only writer of `/sources`' coverage claims (#180).
+`USA_WA_JOB_LEDGER=0` outside a rehearsal is counted too: it blinds `/health/jobs` (#135).
+`PIPELINE_NIGHTLY_REHEARSAL` runs the same chain against scratch roots with the registrar,
+serving load and coverage seed skipped — the rollover rehearsal ([RUNBOOK-ROLLOVER.md](RUNBOOK-ROLLOVER.md)).
 
 Three tiers, each answering a different question about who may depend on it.
 `tier` is per-dataset in the catalog and `/health/datasets` returns it, so the
