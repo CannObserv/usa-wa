@@ -539,6 +539,10 @@ def _usage_error(args: argparse.Namespace) -> str | None:
         )
     if (args.latest or args.object) and not (args.into or args.download_only):
         return "say where: --into DATABASE or --download-only DIR"
+    if args.into and args.run_as is None and os.geteuid() == 0:
+        # Peer auth maps the OS user to the role of the same name; root has none, and
+        # psql's 'role "root" does not exist' does not name the missing flag.
+        return "--into as root needs --run-as postgres (peer auth: the OS user is the role)"
     return None
 
 

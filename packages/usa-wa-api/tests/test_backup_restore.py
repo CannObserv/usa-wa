@@ -378,6 +378,31 @@ class TestMain:
         assert restore.main(argv) == EXIT_CONFIG
         assert runner.calls == []
 
+    def test_into_as_root_needs_run_as(self, wired, monkeypatch, capsys) -> None:
+        """psql as root fails 'role "root" does not exist' — name the flag instead."""
+        bucket, runner = wired
+        ship(bucket, "db/usa-wa/20261001T101703Z.dump")
+        monkeypatch.setattr(restore.os, "geteuid", lambda: 0)
+        assert restore.main(["--latest", "--prefix", "usa-wa", "--into", "scratch"]) == EXIT_CONFIG
+        assert "--run-as postgres" in capsys.readouterr().err
+        assert runner.calls == []
+
+    def test_into_as_a_non_root_operator_may_omit_run_as(self, wired, monkeypatch, tmp_path):
+        """An operator whose own role can load needs no privilege drop."""
+        bucket, _ = wired
+        ship(bucket, "db/usa-wa/20261001T101703Z.dump")
+        monkeypatch.setattr(restore.os, "geteuid", lambda: 1000)
+        argv = [
+            "--latest",
+            "--prefix",
+            "usa-wa",
+            "--into",
+            "scratch",
+            "--datasets-root",
+            str(tmp_path),
+        ]
+        assert restore.main(argv) == EXIT_OK
+
     def test_no_bucket(self, wired, monkeypatch) -> None:
         monkeypatch.delenv("USA_WA_BACKUP_BUCKET")
         assert restore.main(["--list"]) == EXIT_CONFIG
