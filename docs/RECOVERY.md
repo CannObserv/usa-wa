@@ -257,5 +257,9 @@ The dump carries table owners and grants, not the roles. In order:
   restore of that night's object into a scratch database on this cluster
   (`sudo -u postgres createdb usa_wa_restore_drill`, `$R --latest --prefix usa-wa --into
   usa_wa_restore_drill --run-as postgres`, then `dropdb`) plus `$R --raw-into` a scratch
-  directory, compared with `diff -r -x '.*'` against the live store. Record the result
-  here.
+  directory, compared with `diff -r -x '.*'` against the live store. Reading the diff:
+  `Only in /home/exedev/usa-wa/raw…` lines for objects and manifests newer than the
+  night's backup are expected (an attestation after 10:17, a harvest since), and so is
+  a differing `latest.json` *if* the live store has runs the backup has not seen. A
+  difference inside any object or manifest both sides hold, or an `Only in` the
+  restored side, is never expected — stop there. Record the result here.
