@@ -197,6 +197,13 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     # which fetches the document, verifies its stamp and archives nothing. Egress to
     # leg.wa.gov, so network-online; no refresh predecessor — it reads no cohort. Exit 4 on a
     # new edition (or an unlocatable document) → notify handler: the alert is the product.
+    # #135: write-free (needs_db=False, no ledger row), so no Postgres/migrate edge — only
+    # the egress to wslwebservices.leg.wa.gov.
+    "usa-wa-wsl-availability-probe.service": {
+        "After": {"network-online.target"},
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
     "usa-wa-roster-pdf-recheck.service": {
         "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
         "Before": set(),
@@ -218,6 +225,7 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     "usa-wa-sos-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-integrity-sweep.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-roster-pdf-recheck.timer": {"After": set(), "Before": set(), "OnFailure": set()},
+    "usa-wa-wsl-availability-probe.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-succession-invariants.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-senate-corroboration.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-house-corroboration.timer": {"After": set(), "Before": set(), "OnFailure": set()},

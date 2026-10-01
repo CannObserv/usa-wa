@@ -28,7 +28,7 @@
     {
       "name": "integration-contracts",
       "path": "./docs/research",
-      "description": "Discovery outputs and integration contracts \u2014 Archiver/Watcher/Power Map contracts, multi-state legislative IA delta, jurisdictional information architecture, and Power Map reseed guidance."
+      "description": "Discovery outputs and integration contracts \u2014 Archiver/Watcher/Power Map contracts, multi-state legislative IA delta, jurisdictional information architecture, and Power Map reseed guidance, and the #135 biennium-rollover rehearsal record (what the nightly does when 2027-28 becomes current; when WSL, PDC and SOS start answering for the new cycle)."
     },
     {
       "name": "modules-framework",
@@ -124,6 +124,11 @@
       "name": "deployment-host",
       "path": "./docs/DEPLOYMENT-HOST.md",
       "description": "Host hazards that break correct units \u2014 the assert-main-checkout gate that keeps the prod checkout on main (#87), the shared-venv integrity guard (#279), memory-pressure protection (MemoryLow, OOMScoreAdjust, earlyoom, #389), and the disk GC + slim ollama image host-maintenance commands (#394)."
+    },
+    {
+      "name": "runbook-rollover",
+      "path": "./docs/RUNBOOK-ROLLOVER.md",
+      "description": "Biennium-rollover runbook (#135, Nov 2026 to Feb 2027): what runs on its own (early capture from 2026-11-04, the daily WSL availability probe), the 2026-11-04 checklist, the exact nightly email expected from 2027-01-01 (WSL harvest degraded on GetCommittees' fault + assignments_chamber_vacancy) and the data state that is correct that night, what happens as WSL publishes sponsors then committees (House seats need the 2026 ballot), and the manual steps."
     },
     {
       "name": "environment",

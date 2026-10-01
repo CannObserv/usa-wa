@@ -24,6 +24,7 @@ Currently defined:
 - `USA_WA_PIPELINE_HERMETIC` — `1` lets the conformed crosswalk **and span** models build with no database (no registry crosswalk, no operator events) (set by `scripts/dbt-gate.sh` and the dbt tests only); any other state makes a missing `DATABASE_URL` fail the `dbt build` loudly (#302 CR). Never set it in `/etc/usa-wa/.env`.
 - `USA_WA_PIPELINE_DB` — the dbt-duckdb database file the #302 pipeline builds into (#303, read by `packages/usa-wa-pipeline/dbt/profiles.yml`). Default `data/pipeline.duckdb` relative to the invoker's cwd; the commit gate (`scripts/dbt-gate.sh`) and the test suite always override it with a throwaway path.
 - `USA_WA_DATASETS_ROOT` — root of the published-dataset tree (#311): the publisher writes immutable `<name>/<version>/` dirs + `catalog.json` here, and the API serves it at `/datasets/*` (resolved per request). Default `data/datasets` relative to the invoker's cwd / the service's WorkingDirectory — the primary checkout, so publisher and API agree without configuration.
+- `USA_WA_JOB_LEDGER` — `0` turns the #178 run ledger off for every `run_job` job, an explicit `ledger=True` included, and logs `job_ledger_disabled` (#135). Set only by the rollover rehearsal (`scripts/rollover-rehearsal.sh`), which runs the real nightly jobs against scratch roots — without it `/health/jobs` would serve a rehearsal run as its slug's latest. Any other value, unset included, records. **Never set in `/etc/usa-wa/.env`**: outside a rehearsal the nightly counts it as a failed stage (mailed) and keeps publishing.
 - `USA_WA_ALERT_EMAIL` — recipient for oneshot failure alerts (#49). Consumed by `scripts/notify-failure.sh` (the `usa-wa-notify-failure@.service` `OnFailure=` handler). Must be **you / an exe.dev team member** (gateway recipient allow-list). The script **fails closed** if unset, so set it in `/etc/usa-wa/.env` to arm alerting. See [DEPLOYMENT.md](DEPLOYMENT.md) § Failure alerting.
 
 ### Host maintenance (#394) — `scripts/disk-gc.sh`, `scripts/slim-ollama-image.sh`
@@ -90,5 +91,25 @@ wrong direction to fail in.
   **Test-only** (#331 CR 6): the suite points them at a tmp dir and a stub `uv`,
   and refuses to run the script at all if they are missing — unset, it runs the
   real harvests, build and publish. `usa-wa-pipeline.service` sets neither.
+- `PIPELINE_NIGHTLY_REHEARSAL` — a scratch dir: the #135 rollover rehearsal's mode.
+  Every written path moves under it, and the registrar, serving load and coverage
+  seed are skipped. The chain refuses to start unless `USA_WA_RAW_ROOT`,
+  `USA_WA_PIPELINE_DB` and `USA_WA_DATASETS_ROOT` all lie inside it, none of them
+  (nor the dir itself) lies in `$PWD` or the production checkout, and
+  `USA_WA_JOB_LEDGER=0`. Set by `scripts/rollover-rehearsal.sh`; never by a unit.
+- `PIPELINE_NIGHTLY_SKIP` — space-separated stage labels a **rehearsal** leaves out
+  (the partial scenario skips the three harvests). Ignored outside a rehearsal.
+
+### Rollover rehearsal — `scripts/rollover-rehearsal.sh`
+
+Test seams, unset in real use ([RUNBOOK-ROLLOVER.md](RUNBOOK-ROLLOVER.md)):
+`ROLLOVER_REHEARSAL_SOURCE` (the checkout whose `raw/` and `data/datasets/` are
+copied; default `/home/exedev/usa-wa`), `ROLLOVER_REHEARSAL_ENV_FILES` (env files
+read literally before the overrides; default `/etc/usa-wa/.env` and the source's
+`.env`), `ROLLOVER_REHEARSAL_DIR` (the scratch dir, which must not exist yet;
+default `~/rehearsal/<biennium>-<scenario>-<UTC stamp>`),
+`ROLLOVER_REHEARSAL_BIENNIUM` (default `2027-28`) and `ROLLOVER_REHEARSAL_SYSTEMCTL`
+(the `systemctl` asked whether `usa-wa-pipeline.service` is running; the wrapper refuses
+while it is).
 
 The PM sidecar's own tunables (`SidecarSettings` — `POWERMAP_BASE_URL`, `POWERMAP_API_KEY`, the drain/replay/reconcile cadences and the request-rate governor) were documented here until usa-wa#314 deleted the sidecar. Nothing reads them; they can be removed from `/etc/usa-wa/.env` — and `POWERMAP_API_KEY` **should** be, since a live credential nothing uses is a credential nobody rotates.

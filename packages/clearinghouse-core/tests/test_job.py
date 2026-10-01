@@ -27,6 +27,7 @@ from clearinghouse_core.job import (
     EXIT_DEGRADED,
     EXIT_FAILED,
     EXIT_OK,
+    LEDGER_ENV,
     JobContext,
     JobFailure,
     JobResult,
@@ -660,6 +661,38 @@ def test_ledger_can_be_disabled(fake_db, ledger_calls):
 
     run_job("demo", handler, argv=[], ledger=False)
     assert ledger_calls == []
+
+
+def test_the_ledger_switch_overrides_every_job(fake_db, ledger_calls, monkeypatch, capsys):
+    """#135: the rollover rehearsal runs the real nightly jobs against scratch roots, and
+    every one of them would otherwise write the production run ledger — a rehearsal run
+    would then be the "latest run" ``/health/jobs`` serves for its slug. The switch wins
+    even over an explicit ``ledger=True``: its whole point is that nothing shared is written.
+    The job itself still runs, and says the ledger was skipped."""
+    monkeypatch.setenv(LEDGER_ENV, "0")
+    ran = []
+
+    async def handler(ctx: JobContext) -> JobResult:
+        ran.append(ctx.name)
+        return JobResult.ok()
+
+    assert run_job("demo", handler, argv=[], ledger=True) == EXIT_OK
+    assert ran == ["demo"]
+    assert ledger_calls == []
+    # configure_logging() writes the JSON records to stdout, beside the summary line
+    assert '"message": "job_ledger_disabled"' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("value", ["", "1", "on"])
+def test_only_an_explicit_zero_turns_the_ledger_off(fake_db, ledger_calls, monkeypatch, value):
+    """Fail toward recording: a typo must not silently blind ``/health/jobs``."""
+    monkeypatch.setenv(LEDGER_ENV, value)
+
+    async def handler(ctx: JobContext) -> JobResult:
+        return JobResult.ok()
+
+    run_job("demo", handler, argv=[], ledger=True)
+    assert [c[0] for c in ledger_calls] == ["open", "close"]
 
 
 # --- CR #191 regression pins ------------------------------------------------
