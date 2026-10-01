@@ -362,6 +362,22 @@ class TestMain:
     def test_a_restore_needs_a_destination(self, wired) -> None:
         assert restore.main(["--latest", "--prefix", "usa-wa"]) == EXIT_CONFIG
 
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--list", "--into", "scratch"],
+            ["--list", "--download-only", "/tmp/x"],
+            ["--raw-into", "/tmp/r", "--into", "scratch"],
+            ["--raw-into", "/tmp/r", "--download-only", "/tmp/x"],
+        ],
+    )
+    def test_a_destination_the_mode_would_ignore_is_refused(self, wired, argv) -> None:
+        """Mid-incident, an ignored --into reads as a load that happened."""
+        bucket, runner = wired
+        ship(bucket, "db/usa-wa/20261001T101703Z.dump")
+        assert restore.main(argv) == EXIT_CONFIG
+        assert runner.calls == []
+
     def test_no_bucket(self, wired, monkeypatch) -> None:
         monkeypatch.delenv("USA_WA_BACKUP_BUCKET")
         assert restore.main(["--list"]) == EXIT_CONFIG

@@ -528,6 +528,10 @@ def _restore_database(ctx: JobContext, client: Any, bucket: str) -> JobResult:
 
 
 def _usage_error(args: argparse.Namespace) -> str | None:
+    if (args.list or args.raw_into) and (args.into or args.download_only):
+        # Mid-incident, an ignored --into reads as a load that happened.
+        mode = "--list" if args.list else "--raw-into"
+        return f"{mode} takes no --into or --download-only; a database restore is --latest/--object"
     if args.latest and not args.prefix:
         return (
             "say whose: --latest needs --prefix HOST, the host that shipped the dump "
