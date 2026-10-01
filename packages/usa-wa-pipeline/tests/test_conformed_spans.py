@@ -597,7 +597,18 @@ def _inputs(*bienniums: str, newcomer_in: str | None = None) -> SpanInputs:
     sponsors = [_sponsor("1", b) for b in bienniums]
     members = [_committee_member("1", b) for b in bienniums]
     if newcomer_in:
-        sponsors.append(_sponsor("2", newcomer_in, name="Sam Cole", last_name="Cole"))
+        # their own seat and name: a leak must read as a newcomer's span, not a doubled LD-14
+        sponsors.append(
+            _sponsor(
+                "2",
+                newcomer_in,
+                name="Sam Cole",
+                long_name="Senator Cole",
+                first_name="Sam",
+                last_name="Cole",
+                district="15",
+            )
+        )
     return SpanInputs(
         sponsors=sponsors,
         committee_members=members,
