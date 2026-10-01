@@ -95,7 +95,7 @@ bindings as the live pulls; one WSDL GET per service, amortized):
 | `stg_wsl_meetings` | none (raw refs) | all agencies kept; Joint/`Other` filter is downstream policy |
 | `stg_roster_members` | (year, chamber, district, order, name) | order is seat-lineage order (#229): a successor inherits it |
 | `stg_pdc_winners` | (chamber, election_year, filer_id) | #307; `person_id` is the `wa_pdc` link value |
-| `stg_sos_results` | (election_date, race, candidate) | #307 |
+| `stg_sos_results` | (election_date, race, candidate) | #307. **Provisional rows (#135):** the early capture stages the next biennium's seating election from the day after it is held, so from election night until SOS certifies (~30 days) that election's votes change nightly — each export replaces the last under the same `resource_id`. No column marks it yet |
 | `stg_sos_filings` | — | #307; store empty until the raw harvest runs (no archived filings payloads existed to export) |
 | `stg_raw_fetches` | (source, resource_id) | #313; the attestation dimension — sources DISCOVERED from the raw root, never configured |
 
