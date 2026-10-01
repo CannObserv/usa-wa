@@ -42,6 +42,7 @@
 # Paths are absolute or resolved from the primary checkout (WorkingDirectory):
 # raw/ + data/pipeline.duckdb + data/datasets are the documented defaults, and
 # dbt resolves --target-path relative to the PROJECT dir, so it is spelled out.
+# $DATA and $DB hold them, so a rehearsal (below) can move all of them at once.
 set -u
 # Guarded (#302 CR): with no -e, a failed cd would scatter raw/ and data/
 # under whatever cwd a by-hand invocation inherited.
@@ -52,6 +53,60 @@ cd "${PIPELINE_NIGHTLY_ROOT:-/home/exedev/usa-wa}" || exit 1
 UV="${PIPELINE_NIGHTLY_UV:-/usr/local/bin/uv run --frozen --no-sync}"
 failures=0
 failed=()
+
+# PIPELINE_NIGHTLY_REHEARSAL=<dir> — the #135 rollover rehearsal's scratch mode
+# (scripts/rollover-rehearsal.sh sets it). The chain is the real one, but every
+# path it writes moves under <dir>, and the three stages that write state no
+# scratch root holds are skipped: the registrar (the registry), the serving
+# load (the API's tables) and the coverage seed (/sources). The run ledger is
+# the fourth such writer, so USA_WA_JOB_LEDGER=0 is required. It fails closed
+# before the first stage: prod sets USA_WA_RAW_ROOT in /etc/usa-wa/.env, so one
+# missed override would harvest into the production raw store.
+# PIPELINE_NIGHTLY_SKIP (stage labels) is honoured only in a rehearsal, so a
+# stray variable can never talk production out of a stage.
+REHEARSAL="${PIPELINE_NIGHTLY_REHEARSAL:-}"
+WRITERS=""
+SKIP=""
+if [ -n "$REHEARSAL" ]; then
+  REHEARSAL=$(realpath -m "$REHEARSAL")
+  case "$REHEARSAL/" in
+    "$PWD"/*)
+      echo "pipeline-nightly: rehearsal refusing: $REHEARSAL is inside the checkout $PWD" >&2
+      exit 2
+      ;;
+  esac
+  for var in USA_WA_RAW_ROOT USA_WA_PIPELINE_DB USA_WA_DATASETS_ROOT; do
+    case "$(realpath -m "${!var:-.}")" in
+      "$REHEARSAL"/*) ;;
+      *)
+        echo "pipeline-nightly: rehearsal refusing: $var=${!var:-} is outside $REHEARSAL" >&2
+        exit 2
+        ;;
+    esac
+  done
+  if [ "${USA_WA_JOB_LEDGER:-}" != 0 ]; then
+    echo "pipeline-nightly: rehearsal refusing: USA_WA_JOB_LEDGER must be 0 (the run ledger is shared state)" >&2
+    exit 2
+  fi
+  DATA="$REHEARSAL"
+  DB=$(realpath -m "$USA_WA_PIPELINE_DB")
+  WRITERS=" usa_wa_pipeline.registrar usa_wa_api.serving.load usa_wa_pipeline.coverage_seed "
+  SKIP=" ${PIPELINE_NIGHTLY_SKIP:-} "
+else
+  DATA=/home/exedev/usa-wa/data
+  DB=data/pipeline.duckdb
+fi
+
+# skipped LABEL — true, and says so, when a rehearsal leaves LABEL out.
+skipped() {
+  case "$WRITERS" in
+    *" $1 "*) echo "pipeline-nightly: rehearsal skipped $1 (writes shared state)"; return 0 ;;
+  esac
+  case "$SKIP" in
+    *" $1 "*) echo "pipeline-nightly: rehearsal skipped $1 (PIPELINE_NIGHTLY_SKIP)"; return 0 ;;
+  esac
+  return 1
+}
 
 # run_stage LABEL CMD... — run one stage, its stdout streamed as before; on
 # failure, keep "LABEL (exit N): <its last stdout line>" for report_failures.
@@ -87,6 +142,7 @@ report_failures() {
 }
 
 for job in usa_wa_adapter_legislature.raw_harvest usa_wa_adapter_pdc.raw_harvest usa_wa_adapter_sos.raw_harvest; do
+  skipped "$job" && continue
   if ! run_stage "$job" $UV python -m "$job"; then
     echo "pipeline-nightly: harvest failed (contained): $job" >&2
     failures=$((failures + 1))
@@ -96,27 +152,28 @@ done
 if ! run_stage "dbt build" $UV dbt build \
     --project-dir packages/usa-wa-pipeline/dbt \
     --profiles-dir packages/usa-wa-pipeline/dbt \
-    --target-path /home/exedev/usa-wa/data/target \
-    --log-path /home/exedev/usa-wa/data/dbt-logs; then
+    --target-path "$DATA/target" \
+    --log-path "$DATA/dbt-logs"; then
   echo "pipeline-nightly: dbt build failed — aborting before registrar/publish" >&2
   report_failures
   exit 1
 fi
 
 if ! run_stage usa_wa_pipeline.build_warnings $UV python -m usa_wa_pipeline.build_warnings \
-    --run-results /home/exedev/usa-wa/data/target/run_results.json; then
+    --run-results "$DATA/target/run_results.json"; then
   echo "pipeline-nightly: dbt build warned (publish continues)" >&2
   failures=$((failures + 1))
 fi
 
-if ! run_stage usa_wa_pipeline.registrar $UV python -m usa_wa_pipeline.registrar --db data/pipeline.duckdb; then
+if ! skipped usa_wa_pipeline.registrar \
+    && ! run_stage usa_wa_pipeline.registrar $UV python -m usa_wa_pipeline.registrar --db "$DB"; then
   echo "pipeline-nightly: registrar reported conflicts/failure (triage; publish continues)" >&2
   failures=$((failures + 1))
 fi
 
 if ! run_stage usa_wa_pipeline.publish $UV python -m usa_wa_pipeline.publish \
-    --db data/pipeline.duckdb \
-    --manifest /home/exedev/usa-wa/data/target/manifest.json; then
+    --db "$DB" \
+    --manifest "$DATA/target/manifest.json"; then
   echo "pipeline-nightly: publish refused/failed (last good catalog stands)" >&2
   failures=$((failures + 1))
 fi
@@ -124,18 +181,20 @@ fi
 # The deployment's own projection of what just published (#313). After publish
 # so it loads the new catalog; before the probes so a load failure is counted
 # beside them rather than discovered by a 200 answering stale rows.
-if ! run_stage usa_wa_api.serving.load $UV python -m usa_wa_api.serving.load; then
+if ! skipped usa_wa_api.serving.load \
+    && ! run_stage usa_wa_api.serving.load $UV python -m usa_wa_api.serving.load; then
   echo "pipeline-nightly: serving load failed (API still serves the last snapshot)" >&2
   failures=$((failures + 1))
 fi
 
-if ! run_stage usa_wa_pipeline.coverage_seed $UV python -m usa_wa_pipeline.coverage_seed; then
+if ! skipped usa_wa_pipeline.coverage_seed \
+    && ! run_stage usa_wa_pipeline.coverage_seed $UV python -m usa_wa_pipeline.coverage_seed; then
   echo "pipeline-nightly: coverage seed failed (/sources keeps yesterday's claims)" >&2
   failures=$((failures + 1))
 fi
 
 for probe in usa_wa_pipeline.registry_coverage usa_wa_pipeline.parity_citations; do
-  if ! run_stage "$probe" $UV python -m "$probe"; then
+  if ! run_stage "$probe" $UV python -m "$probe" --db "$DB"; then
     echo "pipeline-nightly: probe failed: $probe" >&2
     failures=$((failures + 1))
   fi

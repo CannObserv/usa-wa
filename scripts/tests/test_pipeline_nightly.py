@@ -35,6 +35,7 @@ for i in "${!args[@]}"; do
   if [ "${args[$i]}" = "dbt" ]; then stage="dbt"; break; fi
 done
 case " ${STUB_SILENT:-} " in *" $stage "*) exit 1 ;; esac
+echo "stub-argv $stage $*"
 echo "stub-log $stage"
 for _ in $(seq 1 "${STUB_NOISE:-0}"); do echo "stub-noise $stage"; done
 case " ${STUB_FAIL:-} " in
@@ -279,3 +280,144 @@ def test_coverage_seed_runs_after_the_serving_load_and_is_counted(run_nightly):
     assert stages.index("usa_wa_api.serving.load") < stages.index("usa_wa_pipeline.coverage_seed")
     assert "usa_wa_pipeline.parity_citations" in stages
     assert any("failed stage: usa_wa_pipeline.coverage_seed (exit 1)" in line for line in lines)
+
+
+# --- the #135 rollover rehearsal ---------------------------------------------
+
+#: The three stages that write state other than the scratch roots: the registry, the
+#: API's serving tables, and ``/sources``. A rehearsal never runs them.
+SHARED_STATE_WRITERS = (
+    "usa_wa_pipeline.registrar",
+    "usa_wa_api.serving.load",
+    "usa_wa_pipeline.coverage_seed",
+)
+HARVESTS = (
+    "usa_wa_adapter_legislature.raw_harvest",
+    "usa_wa_adapter_pdc.raw_harvest",
+    "usa_wa_adapter_sos.raw_harvest",
+)
+
+
+@pytest.fixture
+def scratch(tmp_path_factory):
+    """A rehearsal's scratch dir — outside the checkout, as the script requires — and the
+    environment that points every root into it."""
+    root = tmp_path_factory.mktemp("rehearsal")
+    return root, {
+        "PIPELINE_NIGHTLY_REHEARSAL": str(root),
+        "USA_WA_RAW_ROOT": str(root / "raw"),
+        "USA_WA_PIPELINE_DB": str(root / "pipeline.duckdb"),
+        "USA_WA_DATASETS_ROOT": str(root / "datasets"),
+        "USA_WA_JOB_LEDGER": "0",
+    }
+
+
+def _stages(lines: list[str]) -> list[str]:
+    return [line.removeprefix("stub-log ") for line in lines if line.startswith("stub-log ")]
+
+
+def _argv(lines: list[str], stage: str) -> str:
+    [line] = [line for line in lines if line.startswith(f"stub-argv {stage} ")]
+    return line
+
+
+def test_a_rehearsal_skips_the_shared_state_writers(run_nightly, scratch):
+    """#135: the rehearsal runs the real chain, so anything it writes outside its scratch
+    roots would land in production. It says which stages it skipped, and why."""
+    _root, env = scratch
+    code, lines = run_nightly(**env)
+
+    assert code == 0
+    stages = _stages(lines)
+    assert not set(SHARED_STATE_WRITERS) & set(stages)
+    assert {*HARVESTS, "dbt", "usa_wa_pipeline.build_warnings", "usa_wa_pipeline.publish"} <= set(
+        stages
+    )
+    assert {"usa_wa_pipeline.registry_coverage", "usa_wa_pipeline.parity_citations"} <= set(stages)
+    for writer in SHARED_STATE_WRITERS:
+        assert f"pipeline-nightly: rehearsal skipped {writer} (writes shared state)" in lines
+
+
+def test_a_rehearsal_writes_only_under_its_scratch_dir(run_nightly, scratch):
+    """The build, its warnings, publish and the probes all read and write the scratch
+    duckdb and target dir — never the production `data/` paths the unit uses."""
+    root, env = scratch
+    _code, lines = run_nightly(**env)
+
+    dbt = _argv(lines, "dbt")
+    assert f"--target-path {root}/target" in dbt
+    assert f"--log-path {root}/dbt-logs" in dbt
+    assert f"--run-results {root}/target/run_results.json" in _argv(
+        lines, "usa_wa_pipeline.build_warnings"
+    )
+    publish = _argv(lines, "usa_wa_pipeline.publish")
+    assert f"--db {root}/pipeline.duckdb" in publish
+    assert f"--manifest {root}/target/manifest.json" in publish
+    for probe in ("usa_wa_pipeline.registry_coverage", "usa_wa_pipeline.parity_citations"):
+        assert f"--db {root}/pipeline.duckdb" in _argv(lines, probe)
+    assert not [line for line in lines if line.startswith("stub-argv") and "/data/" in line]
+
+
+def test_production_paths_are_unchanged(run_nightly):
+    """Unset, every stage gets exactly the paths it got before the rehearsal mode."""
+    _code, lines = run_nightly()
+
+    dbt = _argv(lines, "dbt")
+    assert "--target-path /home/exedev/usa-wa/data/target" in dbt
+    assert "--log-path /home/exedev/usa-wa/data/dbt-logs" in dbt
+    assert "--db data/pipeline.duckdb" in _argv(lines, "usa_wa_pipeline.registrar")
+    assert "--db data/pipeline.duckdb" in _argv(lines, "usa_wa_pipeline.publish")
+    assert set(SHARED_STATE_WRITERS) <= set(_stages(lines))
+
+
+@pytest.mark.parametrize(
+    ("var", "value"),
+    [
+        ("USA_WA_RAW_ROOT", "/home/exedev/usa-wa/raw"),
+        ("USA_WA_PIPELINE_DB", "data/pipeline.duckdb"),
+        ("USA_WA_DATASETS_ROOT", "/home/exedev/usa-wa/data/datasets"),
+        ("USA_WA_JOB_LEDGER", ""),
+    ],
+)
+def test_a_rehearsal_refuses_any_root_outside_its_scratch_dir(run_nightly, scratch, var, value):
+    """Fail closed before the first stage: prod sets USA_WA_RAW_ROOT in /etc/usa-wa/.env, so
+    a wrapper that forgot one override would harvest into the production raw store."""
+    _root, env = scratch
+    code, lines = run_nightly(**{**env, var: value})
+
+    assert code == 2
+    assert _stages(lines) == []
+    assert any(var in line and "refusing" in line for line in lines)
+
+
+def test_a_rehearsal_inside_the_checkout_is_refused(run_nightly, tmp_path):
+    """The checkout holds the production raw/ and data/; a scratch dir under it is not one."""
+    root = tmp_path / "scratch"
+    code, lines = run_nightly(
+        PIPELINE_NIGHTLY_REHEARSAL=str(root),
+        USA_WA_RAW_ROOT=str(root / "raw"),
+        USA_WA_PIPELINE_DB=str(root / "pipeline.duckdb"),
+        USA_WA_DATASETS_ROOT=str(root / "datasets"),
+        USA_WA_JOB_LEDGER="0",
+    )
+
+    assert code == 2
+    assert _stages(lines) == []
+
+
+def test_a_rehearsal_can_skip_the_harvests(run_nightly, scratch):
+    """The partial-roster scenario builds from a wire injected into scratch raw; a live
+    harvest would re-fetch that resource and supersede it."""
+    _root, env = scratch
+    code, lines = run_nightly(**env, PIPELINE_NIGHTLY_SKIP=" ".join(HARVESTS))
+
+    assert code == 0
+    assert not set(HARVESTS) & set(_stages(lines))
+    assert "dbt" in _stages(lines)
+
+
+def test_the_skip_list_is_ignored_outside_a_rehearsal(run_nightly):
+    """Production can never be talked into skipping a stage by a stray variable."""
+    _code, lines = run_nightly(PIPELINE_NIGHTLY_SKIP=" ".join((*HARVESTS, *SHARED_STATE_WRITERS)))
+
+    assert {*HARVESTS, *SHARED_STATE_WRITERS} <= set(_stages(lines))
