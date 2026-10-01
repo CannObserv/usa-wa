@@ -242,8 +242,13 @@ The dump carries table owners and grants, not the roles. In order:
   this unit's `DynamicUser`/`ProtectHome`/`BindReadOnlyPaths`/`ProtectSystem` ran both
   guards and the venv interpreter: exit 0 with the `GIT_CONFIG_*` lines, branch guard
   exit 1 without.
-- **Pending — the production drill.** Needs the bucket and key (Provisioning) and the
-  role (Install). Then: the first hand-started run; the create-only probe; and a
+- **Provisioned, and create-only by observation (2026-10-01)**: the owner ran the
+  Provisioning block (`co-usa-wa-backup@co-gcs`, bucket in `co-gcs-blobs`' location)
+  and installed the key `0400 root:root`. The probe, as root on the key file: the bucket
+  listed, `probe/20261001T181733Z` was created, and both the overwrite and the delete
+  answered **403**.
+- **Pending — the production drill.** Needs the role (Install). Then: the first
+  hand-started run, and a
   restore of that night's object into a scratch database on this cluster
   (`sudo -u postgres createdb usa_wa_restore_drill`, `$R --latest --prefix usa-wa --into
   usa_wa_restore_drill --run-as postgres`, then `dropdb`) plus `$R --raw-into` a scratch
