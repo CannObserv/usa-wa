@@ -489,6 +489,11 @@ def without_future_bienniums(inputs: SpanInputs, *, current_biennium: str) -> Sp
     makes it current it is not an observation. A row whose biennium does not parse is kept:
     judging it is not this guard's job.
 
+    **Spans only.** Four other readers still take every staged biennium: the registrar's
+    ``load_sponsor_keys`` (mints a person per staged sponsor), ``persons`` (name survivorship),
+    ``organizations`` (the committee rosters) and ``citations`` (``newest_biennium``, which open
+    spans run to). A WSL lookahead must settle each of them before it lands a future wire.
+
     Logged at WARNING because no harvest fetches a future biennium today, so one is an anomaly.
     The ``assignments`` model's log reaches nobody (see there); ``registry_coverage`` runs this
     same sequence under the job harness, which is where the line lands.
@@ -534,8 +539,8 @@ def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, li
     halves disagree about who is WSL-joined. The roster family's
     ``context_spans`` are the WSL family's (#267): the only other-kind spans a
     minted identity could hold. Rows from a biennium after the current one are
-    dropped first (:func:`without_future_bienniums`, #135), so no caller can
-    build from one.
+    dropped first (:func:`without_future_bienniums`, #135), so no span is built
+    from one — the guard's reach ends at the spans; see there.
     """
     inputs = without_future_bienniums(inputs, current_biennium=current_biennium)
     resolution = roster_resolution(inputs.roster, inputs.sponsors)

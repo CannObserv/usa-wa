@@ -66,13 +66,16 @@ back-chain and the #103 within-LD elimination are imported unchanged from
 the DB half — a stateless rebuild is unconditionally the unrestricted, deep
 one, so the #100 depth-mismatch question cannot arise here at all.
 
-**A biennium after the current one is not an observation** (#135).
+**A biennium after the current one builds no span** (#135).
 `build_families` first drops WSL sponsor and committee-member rows from any
 biennium after `spans.current_biennium()` (`without_future_bienniums`, logged
 `spans_future_bienniums_excluded`). Staging stages every wire the raw root holds,
 and a run ending past the current biennium reads as closed: one early
 `sponsors:2027-28` wire would close every returning member at 2028-12-31 and
-publish newcomers' spans before they start. The rollover itself needs no switch:
+publish newcomers' spans before they start. **Spans only:** the registrar
+(`load_sponsor_keys`), `persons`, `organizations` and `citations` (`newest_biennium`)
+still read every staged biennium, so a WSL lookahead must settle those first.
+The rollover itself needs no switch:
 on Jan 1 the clock flips, every 2025-26 span closes at 2026-12-31 (the
 `assignments_chamber_vacancy` warning), and the new roster reopens them.
 
