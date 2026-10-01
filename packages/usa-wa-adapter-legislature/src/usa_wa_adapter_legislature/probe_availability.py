@@ -136,22 +136,25 @@ async def probe(
     *,
     until: date | None = None,
     today: date | None = None,
+    record: bool = True,
     sponsor_client: Any | None = None,
     committee_client: Any | None = None,
 ) -> JobResult:
     """Measure, append to ``log``, and report a change as degraded (the alert, #237).
 
     Past ``until`` it asks nothing and logs nothing: the question is the rollover's, and
-    once it is answered a mid-biennium committee reshuffle would only keep mailing "news"."""
+    once it is answered a mid-biennium committee reshuffle would only keep mailing "news".
+    ``record=False`` (``--dry-run``) measures and compares but appends nothing."""
     if until is not None and (today or datetime.now(UTC).date()) > until:
         return JobResult.ok({"window_closed": until.isoformat()})
     current = await measure(
         biennium, sponsor_client=sponsor_client, committee_client=committee_client
     )
     changed = changed_fields(_previous(log, biennium), current)
-    log.parent.mkdir(parents=True, exist_ok=True)
-    with log.open("a") as handle:
-        handle.write(json.dumps(current.as_record(datetime.now(UTC))) + "\n")
+    if record:
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with log.open("a") as handle:
+            handle.write(json.dumps(current.as_record(datetime.now(UTC))) + "\n")
 
     counters = {**asdict(current), "changed": changed}
     if changed:
@@ -177,7 +180,9 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 
 
 async def _probe_job(ctx: JobContext) -> JobResult:
-    return await probe(ctx.args.biennium, ctx.args.log, until=ctx.args.until)
+    return await probe(
+        ctx.args.biennium, ctx.args.log, until=ctx.args.until, record=not ctx.dry_run
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

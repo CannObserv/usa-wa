@@ -213,3 +213,19 @@ async def test_the_last_day_of_the_window_still_measures(tmp_path) -> None:
     )
 
     assert log.exists()
+
+
+async def test_a_dry_run_measures_without_logging(tmp_path) -> None:
+    """``--dry-run`` (every job's flag, CR #196): a by-hand look must not become a data point,
+    nor move the baseline the next timer run compares against."""
+    log = tmp_path / "availability.jsonl"
+    result = await probe(
+        BIENNIUM,
+        log,
+        record=False,
+        sponsor_client=FakeSponsors(_members(98, 49)),
+        committee_client=FakeCommittees(None),
+    )
+
+    assert result.counters["sponsors_house"] == 98
+    assert not log.exists()

@@ -1,0 +1,17 @@
+[Unit]
+Description=usa-wa — daily WSL next-biennium availability probe
+Documentation=https://github.com/CannObserv/usa-wa/issues/135
+
+[Timer]
+# Daily at 09:20 UTC — after the 08:00 nightly, clear of the monthly 09:00 roster re-check.
+# Daily rather than weekly: the measurement dates the rollover's warnings, and a week of
+# slack would blur exactly the boundary #135 asks for. Plain daily (the timer-doc guard reads
+# no date ranges); the service's --until 2027-02-28 closes the window.
+OnCalendar=*-*-* 09:20:00 UTC
+# Run on next boot if the box was down at the scheduled time.
+Persistent=true
+# Jitter to avoid firing on the dot.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

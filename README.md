@@ -99,7 +99,7 @@ environment) are indexed under **Detail Docs** in [`AGENTS.md`](AGENTS.md).
 ## Deploy
 
 The systemd units live under [`deploy/`](deploy/) — the live API, a migrate
-oneshot, and eleven timer-driven oneshots, seven of them retired and kept
+oneshot, and twelve timer-driven oneshots, seven of them retired and kept
 disabled (#412). (The PM sync sidecar and its three weekly committee reconcilers
 were four more until usa-wa#314 retired the PM sync stack.)
 
@@ -154,6 +154,9 @@ sudo systemctl enable --now usa-wa-disk-gc.timer                            # da
 
 # Dataset pipeline (daily) — the #302 publish chain
 sudo systemctl enable --now usa-wa-pipeline.timer                           # daily 08:00 UTC (#311)
+
+# Rollover measurement (daily, through 2027-02-28) — write-free; exit 4 = WSL's 2027-28 counts changed
+sudo systemctl enable --now usa-wa-wsl-availability-probe.timer             # daily 09:20 UTC (#135)
 
 # Sweep (weekly)
 sudo systemctl enable --now usa-wa-integrity-sweep.timer                    # weekly Sun 08:00 UTC

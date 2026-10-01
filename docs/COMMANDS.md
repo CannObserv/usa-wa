@@ -111,6 +111,7 @@ Full options, exit codes and rationale: [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL
 |---|---|
 | `python -m usa_wa_adapter_legislature.committees.probe_extent` | Write-free: how much committee history exists (#64) |
 | `python -m usa_wa_adapter_legislature.sponsors.probe_identity [--history]` | Write-free: is the WSL member Id stable (#27/#81) |
+| `python -m usa_wa_adapter_legislature.probe_availability --biennium B [--log PATH] [--until YYYY-MM-DD]` | Write-free (#135): how much of biennium B's rosters WSL serves — `GetSponsors` by chamber, `GetCommittees` (`null` while it faults), committee members — appended to a JSONL log; exit 4 when a count changed (the news), 0 unchanged or past `--until`. `--dry-run` measures without logging. Daily on `usa-wa-wsl-availability-probe.timer` for 2027-28 through 2027-02-28; runbook `docs/RUNBOOK-ROLLOVER.md` |
 | `python -m usa_wa_adapter_legislature.meetings.harvest` | Joint/Other backfill + seed freeze (#39) |
 | `python -m usa_wa_adapter_legislature.committees.ingest_seed` | No-WSL Joint/Other seed loader (#39) |
 | `python -m usa_wa_adapter_legislature.sponsors.harvest` | Historical member backfill — Persons only, Phase A (#77) |
