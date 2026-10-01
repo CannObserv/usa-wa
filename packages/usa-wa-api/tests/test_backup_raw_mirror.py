@@ -12,7 +12,12 @@ from gcs_fakes import FakeBucket, FakeClient
 
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_api.backup.gcs import BackupError
-from usa_wa_api.backup.raw_mirror import fetch_mirror, local_inventory, mirror
+from usa_wa_api.backup.raw_mirror import (
+    fetch_mirror,
+    local_inventory,
+    mirror,
+    unrecognized_files,
+)
 
 BUCKET = "a-backup-bucket"
 
@@ -53,6 +58,26 @@ class TestLocalInventory:
             key.endswith(("latest.json", ".latest.lock")) for key in local_inventory(tmp_path)
         )
 
+    def test_expected_exclusions_are_not_unrecognized(self, tmp_path) -> None:
+        store = harvest(tmp_path, "usa_wa_sos", {"r1": b"one"})
+        (tmp_path / ".raw_integrity_state.json").write_text("{}")
+        (store.runs_dir / ".r.json.abcd.tmp").write_text("{}")
+        assert unrecognized_files(tmp_path) == []
+
+    def test_a_file_outside_the_layout_is_named(self, tmp_path) -> None:
+        """A layout change the mirror does not know would otherwise stop being backed
+        up without a word."""
+        store = harvest(tmp_path, "usa_wa_sos", {"r1": b"one"})
+        (store.source_dir / "notes.txt").write_text("x")
+        (store.objects_dir / "ab").mkdir(exist_ok=True)
+        (store.objects_dir / "ab" / "not-a-sha").write_bytes(b"x")
+        (tmp_path / "stray.json").write_text("{}")
+        assert unrecognized_files(tmp_path) == [
+            "stray.json",
+            "usa_wa_sos/notes.txt",
+            "usa_wa_sos/objects/ab/not-a-sha",
+        ]
+
     def test_a_missing_root_is_an_empty_inventory(self, tmp_path) -> None:
         assert local_inventory(tmp_path / "absent") == {}
 
@@ -88,6 +113,15 @@ class TestMirror:
         result = mirror(FakeClient(bucket), BUCKET, tmp_path, host="usa-wa")
         assert result.mismatched == [f"raw/usa_wa_sos/objects/{sha(b'one')[:2]}/{sha(b'one')}"]
         assert not any("/objects/" in name for name in bucket.objects)
+
+    def test_unrecognized_files_are_counted_and_never_uploaded(self, tmp_path) -> None:
+        store = harvest(tmp_path, "usa_wa_sos", {"r1": b"one"})
+        (store.source_dir / "notes.txt").write_text("x")
+        bucket = FakeBucket()
+        result = mirror(FakeClient(bucket), BUCKET, tmp_path, host="usa-wa")
+        assert result.unrecognized == ["usa_wa_sos/notes.txt"]
+        assert result.uploaded == 2
+        assert not any(name.endswith("notes.txt") for name in bucket.objects)
 
     def test_dry_run_plans_and_uploads_nothing(self, tmp_path) -> None:
         harvest(tmp_path, "usa_wa_sos", {"r1": b"one"})

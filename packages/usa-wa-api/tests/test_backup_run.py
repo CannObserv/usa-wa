@@ -72,6 +72,16 @@ class TestRunBackup:
         assert len(counters["failures"]) == 1
         assert counters["failures"][0].startswith("raw: 1 object(s) no longer hash")
 
+    def test_a_file_outside_the_layout_fails_the_run(self, tmp_path) -> None:
+        store = harvest(tmp_path / "raw", "usa_wa_sos", {"r": b"one"})
+        (store.source_dir / "notes.txt").write_text("x")
+        counters = backup(tmp_path)
+        assert counters["raw"]["unrecognized"] == 1
+        assert counters["failures"] == [
+            "raw: 1 file(s) outside the mirrored layout, not shipped: usa_wa_sos/notes.txt "
+            "— teach usa_wa_api.backup.raw_mirror the layout, or move them out of the store"
+        ]
+
     def test_an_absent_raw_store_is_a_failure_not_an_empty_success(self, tmp_path) -> None:
         """A moved store or a renamed USA_WA_RAW_ROOT reads as zero files; the
         integrity sweep exits 4 on the same state for the same reason."""

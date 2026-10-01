@@ -59,7 +59,7 @@ logger = get_logger(__name__)
 #: the job holds no database credential that could write one.
 JOB_SLUG = "backup"
 DEFAULT_DATABASE = "usa_wa"
-#: How many unshippable raw objects a failure names before it counts the rest.
+#: How many unshippable raw files a failure names before it counts the rest.
 _NAMED = 3
 
 
@@ -127,17 +127,27 @@ def _mirror_raw(
     if not result.local:
         failures.append(f"raw: the store at {raw_root} holds nothing")
     if result.mismatched:
-        named = ", ".join(result.mismatched[:_NAMED])
-        more = (
-            f" and {len(result.mismatched) - _NAMED} more"
-            if len(result.mismatched) > _NAMED
-            else ""
-        )
         failures.append(
             f"raw: {len(result.mismatched)} object(s) no longer hash to their names, "
-            f"not shipped: {named}{more} — run the integrity sweep"
+            f"not shipped: {_name_some(result.mismatched)} — run the integrity sweep"
         )
-    return {**asdict(result), "mismatched": len(result.mismatched)}
+    if result.unrecognized:
+        failures.append(
+            f"raw: {len(result.unrecognized)} file(s) outside the mirrored layout, not "
+            f"shipped: {_name_some(result.unrecognized)} — teach "
+            "usa_wa_api.backup.raw_mirror the layout, or move them out of the store"
+        )
+    return {
+        **asdict(result),
+        "mismatched": len(result.mismatched),
+        "unrecognized": len(result.unrecognized),
+    }
+
+
+def _name_some(paths: list[str]) -> str:
+    """The first few of ``paths``, and a count of the rest."""
+    named = ", ".join(paths[:_NAMED])
+    return f"{named} and {len(paths) - _NAMED} more" if len(paths) > _NAMED else named
 
 
 def run_backup(

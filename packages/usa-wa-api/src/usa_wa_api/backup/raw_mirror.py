@@ -10,7 +10,8 @@ never rewritten, and a run manifest lands once, by rename, after its objects.
   path. Not ``latest.json`` — a mutable index no create-only object could follow,
   which a restore rebuilds from the manifests (``RawStore.rebuild_latest``) — and
   not the dot-files: temp files mid-rename, locks, the sweep's and the export's
-  cursors.
+  cursors. **Anything else is a failure** (:func:`unrecognized_files`): a layout the
+  mirror does not know would otherwise stop being backed up without a word.
 - **What is uploaded:** each night, whatever the bucket does not already list. An
   object is hashed first and refused if its bytes no longer match its name: that is
   the integrity sweep's finding, and copying it would launder it.
@@ -58,6 +59,7 @@ class MirrorResult:
     planned: int = 0
     remote_only: int = 0
     mismatched: list[str] = field(default_factory=list)
+    unrecognized: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -111,6 +113,31 @@ def local_inventory(root: Path) -> dict[str, Path]:
     return inventory
 
 
+def _excluded(parts: tuple[str, ...]) -> bool:
+    """Deliberately not mirrored: any dot-named path (temp files, locks, cursors) and
+    each source's ``latest.json``, which a restore rebuilds."""
+    return any(part.startswith(".") for part in parts) or (
+        len(parts) == 2 and parts[1] == "latest.json"
+    )
+
+
+def unrecognized_files(root: Path) -> list[str]:
+    """Every file under ``root`` that is neither mirrored nor deliberately excluded,
+    relative to ``root``."""
+    if not root.is_dir():
+        return []
+    stray = []
+    for path in root.rglob("*"):
+        if path.is_dir() and not path.is_symlink():
+            continue
+        parts = path.relative_to(root).parts
+        if _excluded(parts):
+            continue
+        if path.is_symlink() or not _mirrored(parts):
+            stray.append("/".join(parts))
+    return sorted(stray)
+
+
 def mirror(
     client: Any, bucket: str, root: Path, *, host: str, dry_run: bool = False
 ) -> MirrorResult:
@@ -121,6 +148,7 @@ def mirror(
     remote = list_names(client, bucket, f"{RAW_PREFIX}/")
     result.local = len(local)
     result.remote_only = len(remote - local.keys())
+    result.unrecognized = unrecognized_files(root)
     for key, path in local.items():
         if key in remote:
             result.present += 1
