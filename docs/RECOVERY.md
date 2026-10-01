@@ -297,14 +297,37 @@ order:
   and installed the key `0400 root:root`. The probe, as root on the key file: the bucket
   listed, `probe/20261001T181733Z` was created, and both the overwrite and the delete
   answered **403**.
-- **Pending — the production drill.** Needs the role (Install). Then: the first
-  hand-started run, and a
-  restore of that night's object into a scratch database on this cluster
-  (`sudo -u postgres createdb usa_wa_restore_drill`, `$R --latest --prefix usa-wa --into
-  usa_wa_restore_drill --run-as postgres`, then `dropdb`) plus `$R --raw-into` a scratch
-  directory, compared with `diff -r -x '.*'` against the live store. Reading the diff:
-  `Only in /home/exedev/usa-wa/raw…` lines for objects and manifests newer than the
-  night's backup are expected (an attestation after 10:17, a harvest since), and so is
-  a differing `latest.json` *if* the live store has runs the backup has not seen. A
-  difference inside any object or manifest both sides hold, or an `Only in` the
-  restored side, is never expected — stop there. Record the result here.
+- **Installed, and the first run by hand (2026-10-01)**: merge `710f882`, `uv sync
+  --locked`, the role script (`t`/`f` as above, `0 0 0`), units copied. The run
+  succeeded, sandboxed, in 104 s: `db/usa-wa/20261001T205616Z.dump` (13,220,714
+  bytes, alembic `746b53a33587`, registry rows 18 / 166 / 3,667 / 5,128 / 553 for
+  adjudications / succession / entities / keys / operator events) and the whole raw
+  store, 1,566 files, none mismatched or unrecognized. Timer enabled after it.
+- **The production drill (2026-10-01, 21:14Z)**, that object, on this cluster, with
+  nothing scheduled to write in the 8 hours around it:
+  - `--into usa_wa_restore_drill` (a new, empty database): fetched, proved and loaded in
+    **5.9 s**, `outcome=ok`. Every check passed. The schema version and all five
+    registry counts matched. The crosswalk check compared against
+    `person_crosswalk` v20260919 (4,596 / 4,596 matched) and `org_crosswalk` v20260924
+    (220 / 220), with none missing, reassigned or merge-changed.
+  - Beyond the built-in checks, restored against live: 61 tables, 219 indexes and 217
+    constraints on both sides, the same alembic head, and **every table's row count
+    identical** (122,979 rows). The grants came back with it (`usa_wa_app` DML yes,
+    DDL no, owner `usa_wa_owner`).
+  - `--raw-into` a scratch directory: 1,566 files (46,850,286 bytes) fetched and proved
+    in **86 s**, and `latest.json` rebuilt for all six sources. `diff -r -x '.*'`
+    against the live store showed no differences, `latest.json` included, and
+    `verify_store` over the restored copy was clean (1,393 objects, 0 mismatched,
+    0 missing).
+  - Both scratch copies removed.
+
+**Repeating the drill** — the same steps against any night's object:
+`sudo -u postgres createdb usa_wa_restore_drill`, `$R --latest --prefix usa-wa --into
+usa_wa_restore_drill --run-as postgres`, `$R --raw-into /root/usa-wa-raw-drill`,
+`sudo diff -r -x '.*' /home/exedev/usa-wa/raw /root/usa-wa-raw-drill`, then `dropdb`
+and `rm -rf` the two. Reading the diff: `Only in /home/exedev/usa-wa/raw…` lines for
+objects and manifests newer than the night's backup are expected (an attestation after
+10:17, a harvest since), and so is a differing `latest.json` *if* the live store has
+runs the backup has not seen. A difference inside any object or manifest both sides
+hold, or an `Only in` the restored side, is never expected — stop there. Record the
+result here.
