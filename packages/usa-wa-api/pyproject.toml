@@ -8,6 +8,8 @@ dependencies = [
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
     "fastapi>=0.115.0,<1",
+    # The nightly backup's create-only writer and the restore's reader (#434).
+    "google-cloud-storage>=2,<4",
     "uvicorn>=0.34.0,<1",
 ]
 
