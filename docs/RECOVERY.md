@@ -44,9 +44,9 @@ dump #430 took is not needed for recovery.
 pipeline whose registrar is what changes the registry. An operator attestation made
 during the day is in the next morning's backup.
 
-**Silence is not yet alarmed.** A failed run emails; a run that never starts (timer
-disabled, unit not installed) does not. Watcher closes that with a co-status dead-man
-check-in; this repo has no co-status integration yet.
+**Silence is not yet alarmed** (#455). A failed run emails; a run that never starts
+(timer disabled, unit not installed) does not. Watcher closes that with a co-status
+dead-man check-in; this repo has no co-status integration yet.
 
 ## The sandbox, and why it is this shape
 
