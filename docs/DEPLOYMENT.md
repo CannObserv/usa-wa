@@ -197,6 +197,7 @@ silently deploys nothing.
 | After editing `deploy/usa-wa-roster-pdf-recheck.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-roster-pdf-recheck.timer` |
 | After editing `deploy/usa-wa-wsl-availability-probe.{service,timer}` | `sudo cp deploy/usa-wa-wsl-availability-probe.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa-wsl-availability-probe.timer` — the 2029 rollover bumps `--biennium`/`--until` here (#135). Write-free, so a by-hand `systemctl start usa-wa-wsl-availability-probe.service` is safe; after `--until` it asks nothing |
 | After editing `deploy/usa-wa-disk-gc.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-disk-gc.timer` |
+| After editing `deploy/usa-wa-backup.{service,timer}` | `sudo cp deploy/usa-wa-backup.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa-backup.timer`. A sandbox line changed? Prove it with one by-hand run before the next 10:17 ([RECOVERY.md](RECOVERY.md) § The sandbox) |
 | After editing `deploy/usa-wa-notify-failure@.service` | `sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
 | After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
 | Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
@@ -209,6 +210,7 @@ silently deploys nothing.
 | Run the succession invariant check now (ad-hoc) | `sudo systemctl start usa-wa-succession-invariants.service` |
 | Run the committee lineage invariant check now (ad-hoc) | `sudo systemctl start usa-wa-committee-lineage-invariants.service` |
 | Re-check the roster PDF edition now (ad-hoc) | `sudo systemctl start usa-wa-roster-pdf-recheck.service` (one 5.7MB GET; archives nothing) |
+| Run the backup now (ad-hoc) | `sudo systemctl start usa-wa-backup.service`, then `sudo journalctl -u usa-wa-backup.service -n 30`. Safe to repeat: each run is a new dump name, and the raw mirror uploads only what the bucket lacks |
 | Reclaim disk / check free space now (ad-hoc) | `sudo systemctl start usa-wa-disk-gc.service`, or `scripts/disk-gc.sh` for a report that removes nothing. Needs no DB and no venv — it is the one unit that still runs with a feature branch checked out |
 
 ## Validating unit edits (#51)
