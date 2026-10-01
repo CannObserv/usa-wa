@@ -94,25 +94,6 @@ def _mirrored(parts: tuple[str, ...]) -> bool:
     )
 
 
-def local_inventory(root: Path) -> dict[str, Path]:
-    """Every mirrorable file under ``root``, by the object name it is mirrored to."""
-    if not root.is_dir():
-        return {}
-    inventory: dict[str, Path] = {}
-    for source in sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")):
-        for sub in ("objects", "runs"):
-            base = source / sub
-            if not base.is_dir():
-                continue
-            for path in sorted(base.rglob("*")):
-                if not path.is_file() or path.is_symlink():
-                    continue
-                parts = path.relative_to(root).parts
-                if _mirrored(parts):
-                    inventory["/".join((RAW_PREFIX, *parts))] = path
-    return inventory
-
-
 def _excluded(parts: tuple[str, ...]) -> bool:
     """Deliberately not mirrored: any dot-named path (temp files, locks, cursors) and
     each source's ``latest.json``, which a restore rebuilds."""
@@ -121,13 +102,35 @@ def _excluded(parts: tuple[str, ...]) -> bool:
     )
 
 
-def unrecognized_files(root: Path) -> list[str]:
-    """Every file under ``root`` that is neither mirrored nor deliberately excluded,
-    relative to ``root``."""
+def _is_manifest_path(root: Path, path: Path) -> bool:
+    parts = path.relative_to(root).parts
+    return len(parts) == 3 and parts[1] == "runs"
+
+
+def _manifests(root: Path) -> list[Path]:
+    """Every ``<source>/runs/*`` entry — listed first, see :func:`scan`."""
+    return list(root.glob("*/runs/*"))
+
+
+def _others(root: Path) -> list[Path]:
+    """Every other entry under ``root``, listed after the manifests."""
+    return [path for path in root.rglob("*") if not _is_manifest_path(root, path)]
+
+
+def scan(root: Path) -> tuple[dict[str, Path], list[str]]:
+    """One walk of the store: every mirrorable file by the object name it is mirrored
+    to, and every file that is neither mirrored nor deliberately excluded.
+
+    **Manifests are listed first.** A run's manifest lands, by rename, only after its
+    objects, so every manifest this walk sees has its objects on disk by the time the
+    second pass lists them. Listed the other way round, a run landing between the
+    passes would put its manifest in the bucket a night before its objects.
+    """
     if not root.is_dir():
-        return []
-    stray = []
-    for path in root.rglob("*"):
+        return {}, []
+    files: dict[str, Path] = {}
+    stray: list[str] = []
+    for path in [*_manifests(root), *_others(root)]:
         if path.is_dir() and not path.is_symlink():
             continue
         parts = path.relative_to(root).parts
@@ -135,7 +138,20 @@ def unrecognized_files(root: Path) -> list[str]:
             continue
         if path.is_symlink() or not _mirrored(parts):
             stray.append("/".join(parts))
-    return sorted(stray)
+        else:
+            files["/".join((RAW_PREFIX, *parts))] = path
+    return dict(sorted(files.items())), sorted(stray)
+
+
+def local_inventory(root: Path) -> dict[str, Path]:
+    """Every mirrorable file under ``root``, by the object name it is mirrored to."""
+    return scan(root)[0]
+
+
+def unrecognized_files(root: Path) -> list[str]:
+    """Every file under ``root`` that is neither mirrored nor deliberately excluded,
+    relative to ``root``."""
+    return scan(root)[1]
 
 
 def mirror(
@@ -144,11 +160,10 @@ def mirror(
     """Upload every local file the bucket does not list yet; never delete, never
     overwrite. ``dry_run`` hashes and plans but uploads nothing."""
     result = MirrorResult()
-    local = local_inventory(root)
+    local, result.unrecognized = scan(root)
     remote = list_names(client, bucket, f"{RAW_PREFIX}/")
     result.local = len(local)
     result.remote_only = len(remote - local.keys())
-    result.unrecognized = unrecognized_files(root)
     for key, path in local.items():
         if key in remote:
             result.present += 1

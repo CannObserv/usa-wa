@@ -11,6 +11,7 @@ import pytest
 from gcs_fakes import FakeBucket, FakeClient
 
 from clearinghouse_core.rawstore import RawStore
+from usa_wa_api.backup import raw_mirror
 from usa_wa_api.backup.gcs import BackupError
 from usa_wa_api.backup.raw_mirror import (
     fetch_mirror,
@@ -80,6 +81,38 @@ class TestLocalInventory:
 
     def test_a_missing_root_is_an_empty_inventory(self, tmp_path) -> None:
         assert local_inventory(tmp_path / "absent") == {}
+
+
+class TestScanOrder:
+    def test_a_run_landing_mid_scan_never_ships_a_manifest_without_its_objects(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A run's manifest lands only after its objects. Listed manifests-first, any
+        manifest the scan sees has its objects on disk by the time they are listed — so
+        a harvest landing between the two passes costs a night's delay, never a manifest
+        in the bucket whose objects are not."""
+        harvest(tmp_path, "usa_wa_sos", {"r1": b"one"})
+        others = raw_mirror._others
+
+        def a_run_lands_between_the_passes(root):
+            harvest(root, "usa_wa_operator", {"m:departed:2020-01-01": b"late"})
+            return others(root)
+
+        monkeypatch.setattr(raw_mirror, "_others", a_run_lands_between_the_passes)
+        inventory = local_inventory(tmp_path)
+
+        objects = {key.rsplit("/", 1)[1] for key in inventory if "/objects/" in key}
+        for key, path in inventory.items():
+            if "/runs/" in key:
+                shas = {e["sha256"] for e in json.loads(path.read_text())["entries"] if e["sha256"]}
+                assert shas <= objects, f"{key} would ship without its objects"
+
+    def test_one_scan_feeds_both_views(self, tmp_path) -> None:
+        store = harvest(tmp_path, "usa_wa_sos", {"r1": b"one"})
+        (store.source_dir / "notes.txt").write_text("x")
+        files, stray = raw_mirror.scan(tmp_path)
+        assert files == local_inventory(tmp_path)
+        assert stray == unrecognized_files(tmp_path) == ["usa_wa_sos/notes.txt"]
 
 
 class TestMirror:
