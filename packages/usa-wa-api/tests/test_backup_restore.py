@@ -78,7 +78,7 @@ class RestoreRunner(FakeRunner):
             return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
         if "entity_keys" in sql:
             self.calls.append(list(argv))
-            out = "".join(f"{k},{e},{m or ''}\n" for k, e, m in self.keys)
+            out = "".join(f"person,{k},{e},{m or ''}\n" for k, e, m in self.keys)
             return subprocess.CompletedProcess(argv, 0, stdout=out, stderr="")
         return super().__call__(command, **kwargs)
 
@@ -289,6 +289,17 @@ class TestCheckCrosswalk:
             "person: 1 published key(s) missing (k:3)",
             "person: 1 published key(s) on a different ULID (k:1)",
         ]
+
+    def test_one_query_reads_both_crosswalks(self, tmp_path) -> None:
+        """No per-kind query, so nothing is interpolated into the SQL."""
+        a, a_uuid = ids(1)
+        published(tmp_path, "person", [("k:1", a, None)])
+        published(tmp_path, "org", [])
+        runner = RestoreRunner(keys=[("k:1", a_uuid, None)])
+        check_crosswalk("scratch", tmp_path, dumped_at=DUMPED_AT, run_as=None, runner=runner)
+        queries = [c for c in runner.calls if any("entity_keys" in arg for arg in c)]
+        assert len(queries) == 1
+        assert not any("'person'" in arg or "'org'" in arg for arg in queries[0])
 
     def test_a_publish_after_the_dump_is_not_the_reference(self, tmp_path) -> None:
         """Restoring a dump older than the newest publish (a rollback, or a night the

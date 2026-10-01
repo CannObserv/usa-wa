@@ -399,18 +399,24 @@ def _ulid(text: str) -> str | None:
     return str(ULID.from_uuid(uuid.UUID(text))) if text else None
 
 
-def _restored_crosswalk(
-    database: str, kind: str, *, run_as: str | None, runner: Runner
-) -> dict[str, tuple[str, str | None]]:
-    if kind not in CROSSWALK_KINDS:
-        raise ValueError(f"not a crosswalk kind: {kind!r}")
-    # kind is one of CROSSWALK_KINDS, checked above.
-    join = "JOIN registry.entities e ON e.id = k.entity_id"
-    sql = f"SELECT k.natural_key, k.entity_id, e.merged_into FROM registry.entity_keys k {join} WHERE k.kind = '{kind}'"  # noqa: S608, E501
-    out = _psql(database, sql, run_as=run_as, runner=runner, csv_out=True)
-    return {
-        key: (_ulid(entity), _ulid(merged)) for key, entity, merged in csv.reader(io.StringIO(out))
-    }
+#: Every registered key with its entity's tombstone — one query, nothing interpolated.
+_CROSSWALK_SQL = (
+    "SELECT k.kind, k.natural_key, k.entity_id, e.merged_into FROM registry.entity_keys k "
+    "JOIN registry.entities e ON e.id = k.entity_id"
+)
+
+
+def _restored_crosswalks(
+    database: str, *, run_as: str | None, runner: Runner
+) -> dict[str, dict[str, tuple[str, str | None]]]:
+    """``kind -> natural_key -> (entity_id, merged_into)`` from the restored registry,
+    for the kinds that publish a crosswalk."""
+    out = _psql(database, _CROSSWALK_SQL, run_as=run_as, runner=runner, csv_out=True)
+    crosswalks: dict[str, dict[str, tuple[str, str | None]]] = {k: {} for k in CROSSWALK_KINDS}
+    for kind, key, entity, merged in csv.reader(io.StringIO(out)):
+        if kind in crosswalks:
+            crosswalks[kind][key] = (_ulid(entity), _ulid(merged))
+    return crosswalks
 
 
 def check_crosswalk(
@@ -431,6 +437,7 @@ def check_crosswalk(
     ``skipped`` — a fresh host has no datasets.
     """
     result: dict[str, Any] = {"problems": []}
+    restored_all: dict[str, dict[str, tuple[str, str | None]]] | None = None
     for kind in CROSSWALK_KINDS:
         version = published_version(datasets_root, kind, dumped_at)
         if version is None:
@@ -438,7 +445,9 @@ def check_crosswalk(
             result[kind] = {"skipped": f"{reason} under {datasets_root}"}
             continue
         published = _published_crosswalk(version / "data.csv")
-        restored = _restored_crosswalk(database, kind, run_as=run_as, runner=runner)
+        if restored_all is None:
+            restored_all = _restored_crosswalks(database, run_as=run_as, runner=runner)
+        restored = restored_all[kind]
         check = CrosswalkCheck(
             version=version.name,
             published=len(published),
