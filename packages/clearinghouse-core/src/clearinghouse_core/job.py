@@ -51,6 +51,7 @@ import argparse
 import asyncio
 import dataclasses
 import json
+import os
 import subprocess
 import sys
 import time
@@ -89,6 +90,12 @@ EXIT_FAILED = 1
 EXIT_CONFIG = 2
 """Environment/configuration error (missing ``DATABASE_URL``). Matches argparse's own
 usage-error exit so "the operator invoked this wrong" is one code, not two."""
+
+LEDGER_ENV = "USA_WA_JOB_LEDGER"
+"""``0`` turns the run ledger off for every job, an explicit ``ledger=True`` included (#135).
+The rollover rehearsal runs the real nightly jobs against scratch roots; without this each
+would write the production ledger, and ``/health/jobs`` would serve a rehearsal run as its
+slug's latest. Only ``0`` counts — a typo must fail toward recording, not blind the ledger."""
 
 EXIT_DEGRADED = 4
 """The run completed but its work did not land (#178). Its own code — never 0 (which
@@ -612,6 +619,9 @@ def run_job(
     configure_logging()
     args = build_parser(name, description, prog, extra_args, dry_run, dry_run_help).parse_args(argv)
     write_ledger = needs_db if ledger is None else ledger
+    if write_ledger and os.environ.get(LEDGER_ENV) == "0":
+        logger.warning("job_ledger_disabled", extra={"job": name, "env": LEDGER_ENV})
+        write_ledger = False
 
     if needs_db:
         try:
