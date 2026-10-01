@@ -131,6 +131,11 @@
       "description": "Biennium-rollover runbook (#135, Nov 2026 to Feb 2027): what runs on its own (early capture from 2026-11-04, the daily WSL availability probe), the 2026-11-04 checklist, the exact nightly email expected from 2027-01-01 (WSL harvest degraded on GetCommittees' fault + assignments_chamber_vacancy) and the data state that is correct that night, what happens as WSL publishes sponsors then committees (House seats need the 2026 ballot), and the manual steps."
     },
     {
+      "name": "recovery",
+      "path": "./docs/RECOVERY.md",
+      "description": "Backup and recovery runbook (#434): what in Postgres and on disk cannot be rebuilt (the registry, the raw store) and what can; the nightly create-only backup to gs://co-gcs-usa-wa-backup (db/<host>/<stamp>.dump + the raw-store mirror under raw/), its sandbox (dynamic user, peer-auth pg_read_all_data role, key as a systemd credential, guards via GIT_CONFIG safe.directory, .env masked), GCP provisioning for the project owner, install and the create-only probe, the restore (list / fetch + prove / load into an empty database + identity checks / --raw-into) and the replacement-host order, and the rehearsal log."
+    },
+    {
       "name": "environment",
       "path": "./docs/ENVIRONMENT.md",
       "description": "Every environment variable the deployment reads, with defaults, including the Power Map sidecar tunables."
