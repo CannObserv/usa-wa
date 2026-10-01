@@ -449,3 +449,16 @@ def test_a_rehearsal_never_reaches_the_production_checkout(run_nightly, shape):
     assert code == 2
     assert _stages(lines) == []
     assert any("production checkout" in line for line in lines)
+
+
+def test_a_ledger_switch_leaked_into_production_is_counted(run_nightly):
+    """CR 5: USA_WA_JOB_LEDGER=0 copied into /etc/usa-wa/.env would blind /health/jobs for
+    every job, with only a per-job WARNING in the journal. Production still publishes — a
+    monitoring loss is no reason to stop the chain — but the run fails, so it is mailed."""
+    code, lines = run_nightly(USA_WA_JOB_LEDGER="0")
+
+    assert code == 1
+    assert {*HARVESTS, *SHARED_STATE_WRITERS, "usa_wa_pipeline.publish"} <= set(_stages(lines))
+    assert any(
+        line.startswith("pipeline-nightly: failed stage: USA_WA_JOB_LEDGER=0") for line in lines
+    )

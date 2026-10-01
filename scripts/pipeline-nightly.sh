@@ -112,6 +112,13 @@ if [ -n "$REHEARSAL" ]; then
 else
   DATA=/home/exedev/usa-wa/data
   DB=data/pipeline.duckdb
+  # A rehearsal variable leaked into production (CR 5) blinds /health/jobs for every job.
+  # Publishing continues — a monitoring loss is no reason to stop the chain — but it is mailed.
+  if [ "${USA_WA_JOB_LEDGER:-}" = 0 ]; then
+    echo "pipeline-nightly: USA_WA_JOB_LEDGER=0 outside a rehearsal — no job records a run" >&2
+    failures=$((failures + 1))
+    failed+=("USA_WA_JOB_LEDGER=0 in production: /health/jobs records nothing — remove it from the env files")
+  fi
 fi
 
 # skipped LABEL — true, and says so, when a rehearsal leaves LABEL out.
