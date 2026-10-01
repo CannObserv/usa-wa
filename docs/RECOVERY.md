@@ -222,6 +222,33 @@ sudo test ! -e /home/exedev/usa-wa/raw && sudo mv /root/usa-wa-raw /home/exedev/
   || echo "raw/ still exists — refusing to nest the restored store inside it"
 ```
 
+### In place — the host survives, the database does not
+
+The likeliest incident. Stop every writer first — `dropdb` and `RENAME` both refuse
+while anything is connected — and keep the damaged database until the restored one has
+passed its checks:
+
+```bash
+cd /home/exedev/usa-wa
+sudo systemctl stop usa-wa usa-wa-pipeline.timer usa-wa-backup.timer
+systemctl is-active usa-wa-pipeline.service usa-wa-backup.service   # both must read inactive
+sudo -u postgres psql -c 'ALTER DATABASE usa_wa RENAME TO usa_wa_damaged'
+sudo -u postgres createdb -O usa_wa_owner -E UTF8 --locale=C.UTF-8 -T template0 usa_wa
+$R --latest --prefix usa-wa --into usa_wa --run-as postgres     # load + checks; exit 0 or stop
+sudo systemctl restart usa-wa-migrate                           # re-applies scripts/grants.sql
+sudo -u postgres psql -d usa_wa < scripts/setup-backup-role.sql # database-level CONNECT
+sudo systemctl start usa-wa usa-wa-backup.timer
+```
+
+**Before restarting `usa-wa-pipeline.timer`**: whatever the registry gained after the
+dump is gone, and the next registrar run mints those keys **fresh ULIDs** — not the ones
+PM may already hold. The nightly registers at ~08:03 and the backup runs at 10:17, so
+the window is a publish between 08:05 and the next 10:17, plus any hand adjudication
+since the dump. Compare the newest published `person_crosswalk` / `org_crosswalk`
+against the restored registry first; a key there that the registry lacks needs its
+ULID carried over by hand before the pipeline runs. Then
+`sudo systemctl start usa-wa-pipeline.timer`, and `dropdb usa_wa_damaged` once satisfied.
+
 ### A replacement host
 
 The dump carries table owners and grants — not the roles, not the database itself. In
