@@ -73,7 +73,10 @@ SKIP=""
 PRODUCTION=/home/exedev/usa-wa
 if [ -n "$REHEARSAL" ]; then
   REHEARSAL=$(realpath -m "$REHEARSAL")
-  for checkout in "$PWD" "$PRODUCTION"; do
+  # Physical, like every path compared against it (CR 10): after a `cd` through a symlink
+  # $PWD is the link, and a resolved root never matched it.
+  here=$(pwd -P)
+  for checkout in "$here" "$PRODUCTION"; do
     case "$REHEARSAL/" in
       "$checkout"/*)
         echo "pipeline-nightly: rehearsal refusing: $REHEARSAL is inside the checkout $checkout" \
@@ -91,7 +94,7 @@ if [ -n "$REHEARSAL" ]; then
         exit 2
         ;;
     esac
-    for checkout in "$PWD" "$PRODUCTION"; do
+    for checkout in "$here" "$PRODUCTION"; do
       case "$root/" in
         "$checkout"/*)
           echo "pipeline-nightly: rehearsal refusing: $var=$root is inside the checkout $checkout" \

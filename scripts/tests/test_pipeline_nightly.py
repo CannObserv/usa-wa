@@ -462,3 +462,23 @@ def test_a_ledger_switch_leaked_into_production_is_counted(run_nightly):
     assert any(
         line.startswith("pipeline-nightly: failed stage: USA_WA_JOB_LEDGER=0") for line in lines
     )
+
+
+def test_a_checkout_reached_through_a_symlink_is_still_the_checkout(run_nightly, tmp_path_factory):
+    """CR 10: after `cd` through a symlink, $PWD is the link while every root is resolved, so
+    the two never compared equal and a scratch dir inside the checkout passed."""
+    real = tmp_path_factory.mktemp("checkout")
+    link = tmp_path_factory.mktemp("links") / "checkout"
+    link.symlink_to(real)
+    scratch = f"{link}/scratch"
+    code, lines = run_nightly(
+        PIPELINE_NIGHTLY_ROOT=str(link),
+        PIPELINE_NIGHTLY_REHEARSAL=scratch,
+        USA_WA_RAW_ROOT=f"{scratch}/raw",
+        USA_WA_PIPELINE_DB=f"{scratch}/pipeline.duckdb",
+        USA_WA_DATASETS_ROOT=f"{scratch}/datasets",
+        USA_WA_JOB_LEDGER="0",
+    )
+
+    assert code == 2
+    assert _stages(lines) == []
