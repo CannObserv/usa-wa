@@ -170,3 +170,34 @@ def test_the_chains_exit_code_is_the_rehearsals(rehearse) -> None:
 
     assert code == 1
     assert any(line.startswith("rollover-rehearsal: empty exit 1") for line in lines)
+
+
+def test_an_existing_scratch_dir_is_refused(tmp_path_factory, source) -> None:
+    """CR 2: `cp -a` into an existing dir nests the copy (raw/raw) and the build reads a
+    previous run's leftovers — a stale rehearsal reported as today's."""
+    stale = tmp_path_factory.mktemp("stale")
+    (stale / "pipeline.duckdb").write_text("yesterday")
+    stub = tmp_path_factory.mktemp("bin") / "uv"
+    stub.write_text(STUB_UV)
+    stub.chmod(0o755)
+    proc = subprocess.run(
+        ["bash", str(SCRIPT), "empty"],
+        env={
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(tmp_path_factory.getbasetemp()),
+            # the stub even here: a regression must never reach the real chain
+            "PIPELINE_NIGHTLY_UV": str(stub),
+            "ROLLOVER_REHEARSAL_SOURCE": str(source),
+            "ROLLOVER_REHEARSAL_ENV_FILES": str(source / "env"),
+            "ROLLOVER_REHEARSAL_DIR": str(stale),
+        },
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert proc.returncode == 2
+    assert "exists" in proc.stdout
+    assert sorted(p.name for p in stale.iterdir()) == ["pipeline.duckdb"]

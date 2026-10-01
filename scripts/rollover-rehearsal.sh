@@ -53,7 +53,14 @@ for env_file in ${ROLLOVER_REHEARSAL_ENV_FILES-/etc/usa-wa/.env $source_root/.en
   done <"$env_file"
 done
 
-mkdir -p "$scratch"
+# A fresh dir every run (CR 2): `cp -a` into an existing one nests the copies and the build
+# would read a previous run's leftovers.
+if [ -e "$scratch" ]; then
+  echo "rollover-rehearsal: refusing: $scratch exists — every rehearsal starts from a fresh copy" >&2
+  exit 2
+fi
+mkdir -p "$(dirname "$scratch")"
+mkdir "$scratch"
 echo "$biennium $scenario" >"$scratch/.rehearsal"
 cp -a "$source_root/raw" "$scratch/raw"
 cp -a "$source_root/data/datasets" "$scratch/datasets"
