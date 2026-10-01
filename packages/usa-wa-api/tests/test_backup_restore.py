@@ -10,9 +10,8 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from backup_fakes import FULL, FakeRunner, data_sql, harvest
 from gcs_fakes import CREATED, FakeBucket, FakeClient
-from test_backup_dump import FULL, FakeRunner, data_sql
-from test_backup_raw_mirror import harvest
 from ulid import ULID
 
 from clearinghouse_core.job import EXIT_CONFIG, EXIT_FAILED, EXIT_OK

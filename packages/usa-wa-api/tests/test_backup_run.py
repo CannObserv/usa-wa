@@ -7,9 +7,8 @@ import json
 from datetime import UTC, datetime
 
 import pytest
+from backup_fakes import FakeRunner, harvest
 from gcs_fakes import FakeBucket, FakeClient
-from test_backup_dump import FakeRunner
-from test_backup_raw_mirror import harvest
 
 from clearinghouse_core.job import EXIT_CONFIG, EXIT_FAILED, EXIT_OK
 from usa_wa_api.backup import run as backup_run

@@ -5,9 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from datetime import UTC, datetime
 
 import pytest
+from backup_fakes import harvest
 from gcs_fakes import FakeBucket, FakeClient
 
 from clearinghouse_core.rawstore import RawStore
@@ -21,18 +21,6 @@ from usa_wa_api.backup.raw_mirror import (
 )
 
 BUCKET = "a-backup-bucket"
-
-
-def harvest(root, source: str, bodies: dict[str, bytes]) -> RawStore:
-    """One closed run recording ``bodies`` under ``source``."""
-    store = RawStore(root, source)
-    run = store.open_run()
-    for resource, body in bodies.items():
-        run.record(
-            resource, body, url=f"urn:{resource}", fetched_at=datetime(2026, 9, 1, tzinfo=UTC)
-        )
-    run.close()
-    return store
 
 
 def sha(body: bytes) -> str:
