@@ -128,6 +128,16 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
+    # Nightly backup to GCS (#434): dumps the database and mirrors the raw store. It
+    # reads the database (peer auth, read-only role), hence postgresql + migrate, and
+    # ships to GCS, hence network-online. Not ordered after the pipeline unit: the
+    # timer's 10:17 slot keeps it clear, and an edge would only delay a backup
+    # behind a pipeline run someone started by hand.
+    "usa-wa-backup.service": {
+        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
+        "Before": set(),
+        "OnFailure": NOTIFY,
+    },
     # Raw-store sweep (#304; the unit's target since #412) — re-hashes file objects vs
     # their names. Postgres holds only its ledger row, hence migrate. No egress, so plain
     # network.target (not network-online). Fails (exit 1) on a mismatch → notify
@@ -221,6 +231,7 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     "usa-wa-disk-gc.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-wsl-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-pipeline.timer": {"After": set(), "Before": set(), "OnFailure": set()},
+    "usa-wa-backup.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-pdc-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-sos-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-integrity-sweep.timer": {"After": set(), "Before": set(), "OnFailure": set()},

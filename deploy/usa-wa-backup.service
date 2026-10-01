@@ -1,0 +1,80 @@
+[Unit]
+Description=usa-wa — nightly backup of the database and the raw store to GCS, create-only (#434) one-shot
+Documentation=https://github.com/CannObserv/usa-wa/issues/434
+# Not bound to usa-wa.service: the artifacts are the database and the raw store,
+# and a stopped service still has both worth shipping. After postgresql so a
+# boot-time catch-up run (Persistent=true on the timer) does not race the server.
+After=network-online.target postgresql.service usa-wa-migrate.service
+Wants=network-online.target
+# Alert on failure (#49): a dump that did not ship, a raw object that no longer
+# hashes to its name, a bucket or key that is not there — all exit 1; a missing
+# USA_WA_BACKUP_BUCKET or a misplaced key exits 2.
+OnFailure=usa-wa-notify-failure@%n.service
+
+[Service]
+Type=oneshot
+# Its own unprivileged user, allocated by systemd for each run (CannObserv/watcher#297):
+# nothing to provision, no account to log in to, and a uid no other process holds.
+# The database knows it as the role of the same name — pg_read_all_data and nothing
+# more (scripts/setup-backup-role.sql) — reached by peer auth over the local socket,
+# so no database credential exists for this job at all.
+DynamicUser=yes
+User=usa_wa_backup
+WorkingDirectory=/home/exedev/usa-wa
+
+# The two guards every code-running unit carries (#87, #279), run as the dynamic
+# user, which does not own the checkout: git's ownership check refuses it unless the
+# checkout is named safe. Command-scope config, so no gitconfig is read or written.
+Environment=GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=/home/exedev/usa-wa
+ExecStartPre=/home/exedev/usa-wa/scripts/assert-main-checkout.sh
+ExecStartPre=/home/exedev/usa-wa/scripts/assert-venv-integrity.sh
+
+# The writer key, as a credential rather than environment: systemd reads the
+# 0400 root:root file and hands the run a private copy under $CREDENTIALS_DIRECTORY,
+# gone when it exits. A missing source file fails the start (243/CREDENTIALS).
+LoadCredential=gcs:/etc/usa-wa/co-usa-wa-backup.json
+# The SDK takes a path; this is the private copy's. An env file that set the
+# variable too would win over this line — the job refuses that (exit 2).
+Environment=GOOGLE_APPLICATION_CREDENTIALS=%d/gcs
+
+# USA_WA_BACKUP_BUCKET — no secret. NOT /etc/usa-wa/.env: the database URLs are in
+# it, and this unit needs none of them. No leading '-': a backup unit without its
+# configuration must fail loudly.
+EnvironmentFile=/etc/usa-wa/backup.env
+# The store the nightly harvests write (pipeline-nightly.sh's root + raw/).
+Environment=USA_WA_RAW_ROOT=/home/exedev/usa-wa/raw
+Environment=PATH=/usr/bin:/bin
+# The tree is read-only to this unit anyway; say so rather than let Python try.
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+# The sandbox. A read-only filesystem but for a private /tmp (the dump is written
+# there); an empty /home with only the checkout bound back in, read-only — the venv
+# and the raw store, and nothing else of exedev's. The checkout's .env is 0644 and
+# carries the agent tokens, and worktrees carry their own, so both are masked.
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/exedev/usa-wa
+InaccessiblePaths=-/home/exedev/usa-wa/.env -/home/exedev/usa-wa/.worktrees
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+# The local socket for pg_dump, and IP for GCS.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# No capabilities at all.
+CapabilityBoundingSet=
+
+# The dump measured 13.2 MB in 2.2 s and the raw store 52 MB (2026-09-26/10-01). An
+# hour is generous for the dump, the first night's full raw upload and the rest, and
+# short enough that a wedged run is a failed unit, not a hang.
+TimeoutStartSec=3600
+
+# The venv's interpreter directly rather than `uv run --frozen --no-sync`: uv wants
+# a writable cache and may touch the environment, both refused by the sandbox. It
+# links to /usr/bin/python3.12, outside the hidden /home.
+ExecStart=/home/exedev/usa-wa/.venv/bin/python -m usa_wa_api.backup.run
+
+# This unit is started by usa-wa-backup.timer; no [Install] WantedBy.
