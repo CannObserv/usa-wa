@@ -210,11 +210,16 @@ transaction on stdin as `postgres`, then checks, failing the run on any finding:
 
 **`--raw-into`** fetches into a new private directory, proves every object hashes to
 its name and every manifest to its recorded digest, then rebuilds each source's
-`latest.json`. Move it into place as `exedev`:
+`latest.json`. Move it into place as `exedev` — **only where no `raw/` exists**: `mv`
+onto an existing directory moves the store *into* it (`raw/usa-wa-raw/…`), which reads
+as an empty store. Over a damaged store, move that one aside first; keep it until the
+restored one has passed the integrity sweep:
 
 ```bash
+sudo test -e /home/exedev/usa-wa/raw && sudo mv /home/exedev/usa-wa/raw /home/exedev/usa-wa-raw.damaged
 sudo chown -R exedev:exedev /root/usa-wa-raw && sudo chmod -R u=rwX,go=rX /root/usa-wa-raw
-sudo mv /root/usa-wa-raw /home/exedev/usa-wa/raw
+sudo test ! -e /home/exedev/usa-wa/raw && sudo mv /root/usa-wa-raw /home/exedev/usa-wa/raw \
+  || echo "raw/ still exists — refusing to nest the restored store inside it"
 ```
 
 ### A replacement host
