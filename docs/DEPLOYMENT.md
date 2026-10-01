@@ -142,8 +142,11 @@ entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
 `usa-wa-house-corroboration.service`, `usa-wa-succession-invariants.service`,
 `usa-wa-committee-lineage-invariants.service`, `usa-wa-roster-pdf-recheck.service`,
 `usa-wa-wsl-availability-probe.service`,
-`scripts/migrate.sh`, `scripts/pipeline-nightly.sh`). The one exception is
-`usa-wa-disk-gc.service`, which runs plain bash and no Python at all (#394).
+`scripts/migrate.sh`, `scripts/pipeline-nightly.sh`). Two exceptions, neither of
+which syncs either: `usa-wa-disk-gc.service`, which runs plain bash and no Python at
+all (#394), and `usa-wa-backup.service` (#434), which runs the venv's own
+`.venv/bin/python` — its sandbox leaves uv no writable cache, and the venv is checked
+by `assert-venv-integrity.sh` like every other unit's ([RECOVERY.md](RECOVERY.md)).
 `--no-sync` runs against the installed venv as-is; `--frozen` skips re-locking.
 So unit start never mutates the environment — the daily WSL refresh timer can't
 silently apply a dependency change a `git pull` landed in `uv.lock`. (Note:
