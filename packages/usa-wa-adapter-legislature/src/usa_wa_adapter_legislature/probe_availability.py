@@ -1,7 +1,7 @@
 """Write-free availability probe for a biennium's WSL rosters (#135 item 4).
 
     python -m usa_wa_adapter_legislature.probe_availability --biennium 2027-28 \\
-        --log data/research/wsl-availability.jsonl
+        --log data/research/wsl-availability.jsonl --until 2027-02-28
 
 Measured, not assumed: the rollover's nightly warnings last exactly as long as WSL takes to
 publish the new biennium — ``assignments_chamber_vacancy`` until ``GetSponsors`` has rows, the
@@ -26,7 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -134,10 +134,17 @@ async def probe(
     biennium: str,
     log: Path,
     *,
+    until: date | None = None,
+    today: date | None = None,
     sponsor_client: Any | None = None,
     committee_client: Any | None = None,
 ) -> JobResult:
-    """Measure, append to ``log``, and report a change as degraded (the alert, #237)."""
+    """Measure, append to ``log``, and report a change as degraded (the alert, #237).
+
+    Past ``until`` it asks nothing and logs nothing: the question is the rollover's, and
+    once it is answered a mid-biennium committee reshuffle would only keep mailing "news"."""
+    if until is not None and (today or datetime.now(UTC).date()) > until:
+        return JobResult.ok({"window_closed": until.isoformat()})
     current = await measure(
         biennium, sponsor_client=sponsor_client, committee_client=committee_client
     )
@@ -161,10 +168,16 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
         default=Path("data/research/wsl-availability.jsonl"),
         help="JSONL measurement log, appended per run (default data/research/…).",
     )
+    parser.add_argument(
+        "--until",
+        type=date.fromisoformat,
+        default=None,
+        help="Last day to measure (YYYY-MM-DD); later runs ask nothing and exit 0.",
+    )
 
 
 async def _probe_job(ctx: JobContext) -> JobResult:
-    return await probe(ctx.args.biennium, ctx.args.log)
+    return await probe(ctx.args.biennium, ctx.args.log, until=ctx.args.until)
 
 
 def main(argv: list[str] | None = None) -> int:

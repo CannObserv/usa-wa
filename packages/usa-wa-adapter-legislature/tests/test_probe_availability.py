@@ -9,7 +9,7 @@ roster re-check also uses as its product); an unchanged measurement is a quiet e
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from zeep.exceptions import Fault
 
@@ -173,3 +173,43 @@ async def test_the_log_is_per_biennium(tmp_path) -> None:
     )
 
     assert result.outcome == OUTCOME_OK
+
+
+class Unreachable:
+    """A client that must never be called."""
+
+    def __getattr__(self, name):
+        raise AssertionError(f"the probe asked WSL ({name}) after its window closed")
+
+
+async def test_after_its_window_the_probe_asks_nothing_and_logs_nothing(tmp_path) -> None:
+    """The timer is a plain daily one (the timer-doc drift guard reads no date ranges), so
+    the window closes here: past ``until``, mid-biennium committee churn must not keep
+    mailing "news" for a question the rollover already answered."""
+    log = tmp_path / "availability.jsonl"
+    result = await probe(
+        BIENNIUM,
+        log,
+        until=date(2027, 2, 28),
+        today=date(2027, 3, 1),
+        sponsor_client=Unreachable(),
+        committee_client=Unreachable(),
+    )
+
+    assert result.outcome == OUTCOME_OK
+    assert result.counters == {"window_closed": "2027-02-28"}
+    assert not log.exists()
+
+
+async def test_the_last_day_of_the_window_still_measures(tmp_path) -> None:
+    log = tmp_path / "availability.jsonl"
+    await probe(
+        BIENNIUM,
+        log,
+        until=date(2027, 2, 28),
+        today=date(2027, 2, 28),
+        sponsor_client=FakeSponsors([]),
+        committee_client=FakeCommittees(None),
+    )
+
+    assert log.exists()
