@@ -175,6 +175,42 @@ def test_latest_index_keeps_newest_fetched_at(store: RawStore) -> None:
     assert store.latest()["r"]["fetched_at"].startswith("2026-09-01")
 
 
+def test_rebuild_latest_reproduces_the_index_from_the_manifests(store: RawStore) -> None:
+    """``latest.json`` is mutable, so a restore brings back only the objects and
+    manifests (#434) — the index must come back from them, byte for byte."""
+    first = store.open_run()
+    first.record("r1", BODY, url="u", fetched_at=datetime(2026, 9, 1, tzinfo=UTC))
+    first.record("r2", None, url="u", status="err")
+    first.close()
+    export = store.open_run()
+    export.record("r1", b"historical", url="u", fetched_at=datetime(2020, 1, 1, tzinfo=UTC))
+    export.record("r3", b"three", url="u", fetched_at=datetime(2026, 9, 2, tzinfo=UTC))
+    export.close()
+    original = (store.source_dir / "latest.json").read_bytes()
+    (store.source_dir / "latest.json").unlink()
+
+    assert store.rebuild_latest() == 2
+    assert (store.source_dir / "latest.json").read_bytes() == original
+
+
+def test_rebuild_latest_replaces_a_stale_index(store: RawStore) -> None:
+    """A rebuild starts from nothing: an entry no manifest supports is dropped,
+    never carried forward from the index it replaces."""
+    run = store.open_run()
+    run.record("r1", BODY, url="u")
+    run.close()
+    (store.source_dir / "latest.json").write_text(json.dumps({"ghost": {"sha256": "x"}}))
+
+    store.rebuild_latest()
+
+    assert set(store.latest()) == {"r1"}
+
+
+def test_rebuild_latest_of_an_empty_source_writes_an_empty_index(store: RawStore) -> None:
+    assert store.rebuild_latest() == 0
+    assert store.latest() == {}
+
+
 def test_update_latest_serializes_on_source_lock(store: RawStore) -> None:
     """Concurrent closes on one source must not lose each other's entries: the
     read-modify-write of ``latest.json`` holds an exclusive per-source flock."""
