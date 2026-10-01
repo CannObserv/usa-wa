@@ -52,11 +52,22 @@ def source(tmp_path_factory):
     return root
 
 
+#: Stub `systemctl`: `is-active` answers as STUB_PIPELINE says (default: not running).
+STUB_SYSTEMCTL = r"""#!/usr/bin/env bash
+[ "$1" = is-active ] || exit 1
+[ "${STUB_PIPELINE:-inactive}" = active ]
+"""
+
+
 @pytest.fixture
 def rehearse(tmp_path_factory, source):
-    stub = tmp_path_factory.mktemp("bin") / "uv"
+    bin_dir = tmp_path_factory.mktemp("bin")
+    stub = bin_dir / "uv"
     stub.write_text(STUB_UV)
     stub.chmod(0o755)
+    systemctl = bin_dir / "systemctl"
+    systemctl.write_text(STUB_SYSTEMCTL)
+    systemctl.chmod(0o755)
 
     def _run(*args: str, **extra: str) -> tuple[int, list[str], Path]:
         scratch = tmp_path_factory.mktemp("scratch") / "run"
@@ -69,6 +80,7 @@ def rehearse(tmp_path_factory, source):
                 "ROLLOVER_REHEARSAL_SOURCE": str(source),
                 "ROLLOVER_REHEARSAL_ENV_FILES": str(source / "env"),
                 "ROLLOVER_REHEARSAL_DIR": str(scratch),
+                "ROLLOVER_REHEARSAL_SYSTEMCTL": str(systemctl),
                 **extra,
             },
             stdout=subprocess.PIPE,
@@ -201,3 +213,21 @@ def test_an_existing_scratch_dir_is_refused(tmp_path_factory, source) -> None:
     assert proc.returncode == 2
     assert "exists" in proc.stdout
     assert sorted(p.name for p in stale.iterdir()) == ["pipeline.duckdb"]
+
+
+def test_a_rehearsal_waits_for_the_nightly_to_finish(rehearse) -> None:
+    """CR 9: copying the raw store and catalog mid-nightly can catch a half-written run —
+    objects without their manifest, a catalog mid-publish — and rehearse a state production
+    never had. Refused, before anything is copied."""
+    code, lines, scratch = rehearse("empty", STUB_PIPELINE="active")
+
+    assert code == 2
+    assert any("usa-wa-pipeline.service" in line for line in lines)
+    assert not scratch.exists()
+
+
+def test_an_idle_nightly_lets_the_rehearsal_run(rehearse) -> None:
+    code, _lines, scratch = rehearse("empty", STUB_PIPELINE="inactive")
+
+    assert code == 0
+    assert (scratch / "raw").is_dir()

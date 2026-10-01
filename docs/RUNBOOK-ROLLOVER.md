@@ -43,6 +43,7 @@ From the same night, the published `stg_sos_results` carries the 2026 election's
   scripts/rollover-rehearsal.sh empty      # what upstream serves that day
   scripts/rollover-rehearsal.sh partial    # a synthesized half-published 2027-28 roster
   ```
+  Not while the 08:00 nightly runs (the wrapper refuses: it would copy a half-written run).
   Each prints its scratch dir under `~/rehearsal/`; record the outcome lines in the
   research doc beside the October run. Delete the scratch dirs afterwards (~135 MB each).
 - **Appointments dated in December** still need their operator `seated` event (#107).

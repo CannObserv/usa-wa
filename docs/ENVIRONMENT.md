@@ -107,7 +107,9 @@ Test seams, unset in real use ([RUNBOOK-ROLLOVER.md](RUNBOOK-ROLLOVER.md)):
 copied; default `/home/exedev/usa-wa`), `ROLLOVER_REHEARSAL_ENV_FILES` (env files
 read literally before the overrides; default `/etc/usa-wa/.env` and the source's
 `.env`), `ROLLOVER_REHEARSAL_DIR` (the scratch dir, which must not exist yet;
-default `~/rehearsal/<biennium>-<scenario>-<UTC stamp>`), and
-`ROLLOVER_REHEARSAL_BIENNIUM` (default `2027-28`).
+default `~/rehearsal/<biennium>-<scenario>-<UTC stamp>`),
+`ROLLOVER_REHEARSAL_BIENNIUM` (default `2027-28`) and `ROLLOVER_REHEARSAL_SYSTEMCTL`
+(the `systemctl` asked whether `usa-wa-pipeline.service` is running; the wrapper refuses
+while it is).
 
 The PM sidecar's own tunables (`SidecarSettings` — `POWERMAP_BASE_URL`, `POWERMAP_API_KEY`, the drain/replay/reconcile cadences and the request-rate governor) were documented here until usa-wa#314 deleted the sidecar. Nothing reads them; they can be removed from `/etc/usa-wa/.env` — and `POWERMAP_API_KEY` **should** be, since a live credential nothing uses is a credential nobody rotates.

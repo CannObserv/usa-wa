@@ -19,8 +19,9 @@
 # The code that runs is this checkout's (so a worktree rehearses its branch); the data copied
 # is the production checkout's. Seams for the suite, unset in real use:
 # ROLLOVER_REHEARSAL_SOURCE (production checkout), ROLLOVER_REHEARSAL_ENV_FILES (the env files
-# loaded before the overrides), ROLLOVER_REHEARSAL_DIR (the scratch dir), and
-# ROLLOVER_REHEARSAL_BIENNIUM (default 2027-28).
+# loaded before the overrides), ROLLOVER_REHEARSAL_DIR (the scratch dir),
+# ROLLOVER_REHEARSAL_BIENNIUM (default 2027-28) and ROLLOVER_REHEARSAL_SYSTEMCTL (the
+# `systemctl` asked whether the nightly is running).
 set -euo pipefail
 
 scenario=${1:-}
@@ -52,6 +53,14 @@ for env_file in ${ROLLOVER_REHEARSAL_ENV_FILES-/etc/usa-wa/.env $source_root/.en
     fi
   done <"$env_file"
 done
+
+# Never mid-nightly (CR 9): copying raw/ and the catalog while the 08:00 chain writes them can
+# catch a half-written run — objects without their manifest, a catalog mid-publish — and the
+# rehearsal would report a state production never had.
+if ${ROLLOVER_REHEARSAL_SYSTEMCTL:-systemctl} is-active --quiet usa-wa-pipeline.service; then
+  echo "rollover-rehearsal: refusing: usa-wa-pipeline.service is running — retry when it finishes" >&2
+  exit 2
+fi
 
 # A fresh dir every run (CR 2): `cp -a` into an existing one nests the copies and the build
 # would read a previous run's leftovers.
