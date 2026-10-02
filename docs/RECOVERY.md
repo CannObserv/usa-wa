@@ -456,8 +456,8 @@ order:
     Mailgun and Slack. `PATCH` back to 86400/7200 at 21:07:35.99Z, still `missing`.
   - Recovery: run started 21:08:48Z, check-in 202 at 21:08:56.227Z. co-status: event
     `recovered` at 21:08:55.626Z, dispatch `01M3Z75Q76P2SAGDM421HMD7EJ` accepted by
-    notifier; state `ok`. Its receipt in the channels is co-status's operator's to
-    confirm, on status#17.
+    notifier; state `ok`; received in Mailgun and Slack. co-status's pending copy of the
+    key was shredded after it: `/etc/usa-wa/backup-checkin.key` is the only copy.
   - This side logs the check-in's status code only, not the 202's `dispatches` ids:
     #458.
 
