@@ -36,7 +36,8 @@ and the publication contract in [PIPELINE-PUBLICATION.md](PIPELINE-PUBLICATION.m
       gcs.py          — the bucket half both share: create-only `create_object` (412 = `unchanged` only on a matching sha256), the listing preflight, the misplaced-key refusal
       dump.py         — `pg_dump -Fc` as the peer-auth backup role; verified by `pg_restore --list` (registry tables present) and a `--data-only` read-through that counts each table's `COPY` rows
       raw_mirror.py   — the raw store's objects + manifests mirrored under `raw/`, from one manifests-first `scan` (a run landing mid-scan never ships its manifest ahead of its objects); hashed before upload (a corrupted object is never shipped); a file outside the layout fails the run rather than going unshipped unnoticed; `fetch_mirror` brings it back and rebuilds `latest.json`
-      run.py          — the nightly job (`usa-wa-backup.service`): preflight, then the two halves independently; either failing exits 1
+      run.py          — the nightly job (`usa-wa-backup.service`): preflight, then the two halves independently; either failing exits 1; then the check-in, on every path out but a dry run
+      checkin.py      — the dead-man check-in to co-status (#455): `ok` with the summary, `alert` with the error; key from the unit's `checkin-key` credential, never the environment; never raises, never changes the exit
       restore.py      — by hand, as root: list / fetch + prove / load into an empty database, then check the schema version, registry counts and the ULIDs of the crosswalks published at or before the dump (a crashed publish passed over); `--raw-into`
     src/usa_wa_api/cli/               — operator CLIs, thin wrappers over the API's service functions. Indexed by name in [COMMANDS.md](COMMANDS.md)
     tests/            — API tests; conftest adds the AsyncClient over the root db_session

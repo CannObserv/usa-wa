@@ -10,6 +10,8 @@ dependencies = [
     "fastapi>=0.115.0,<1",
     # The nightly backup's create-only writer and the restore's reader (#434).
     "google-cloud-storage>=2,<4",
+    # The backup's dead-man check-in to co-status (#455).
+    "httpx>=0.27,<1",
     "uvicorn>=0.34.0,<1",
 ]
 
