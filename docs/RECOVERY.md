@@ -432,9 +432,14 @@ order:
     0 missing).
   - Both scratch copies removed.
 
-- **Pending — the dead-man alarm (#455)**: the tailnet join, the tenant and monitor,
-  the first check-in, and the alarm seen to fire and recover (§ The dead-man monitor,
-  steps 1–4). Until then every run logs `backup_checkin_unconfigured`.
+- **Joined the tailnet (2026-10-02, #455)**: node `usa-wa`, `100.124.127.41`,
+  `tag:usa-wa`, no `--ssh`. `http://status:9000/health` answered `production`;
+  `status:9001` and `notifier:9000` did not — the ACL grants `:9000` on co-status only.
+  Public DNS (GitHub, `storage.googleapis.com`) still resolves through MagicDNS.
+- **Pending — the dead-man alarm (#455)**: the tenant and monitor
+  (CannObserv/status#17), the first check-in, and the alarm seen to fire and recover
+  (§ The dead-man monitor, steps 2–4). Until then every run logs
+  `backup_checkin_unconfigured`.
 
 **Repeating the drill** — the same steps against any night's object:
 `sudo -u postgres createdb usa_wa_restore_drill`, `$R --latest --prefix usa-wa --into
