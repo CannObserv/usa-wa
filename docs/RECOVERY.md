@@ -187,7 +187,8 @@ PY
 
 ## The dead-man monitor — needs the tailnet and co-status
 
-`co-usa-wa-backup`, in co-status tenant `co-usa-wa`, at `http://status:9000` — the
+`co-usa-wa-backup` (id `01M3YZA6ERMXRM6W5P5XKGFR48`), in co-status tenant
+`co-usa-wa`, at `http://status:9000` — CannObserv/status#17; the
 shape of watcher's `co-watcher-backup` (its RECOVERY.md § Provisioning; co-status's
 own runbook is CannObserv/status `docs/RUNBOOK.md`, its API `docs/reference/monitors.md`).
 
@@ -271,12 +272,20 @@ sudo journalctl -u usa-wa-backup.service -n 30 | grep backup_checkin   # backup_
 Then on co-status: the monitor's `state` is `ok`, `last_checkin_at` fresh; then
 `sudo shred -u /etc/status/pending/co-usa-wa.key`.
 
-**4. See the alarm fire** before relying on it. On co-status, `PATCH` the monitor to
-`{"interval_seconds": 60, "grace_seconds": 0}`; within a sweep or two, *"[co-status]
-co-usa-wa-backup has stopped reporting"* must reach the channels. Then
-`sudo systemctl start usa-wa-backup.service` here — *"has recovered"* — and `PATCH` it
-back to `{"interval_seconds": 86400, "grace_seconds": 7200}`, reading the response to
-confirm. Record the result under § Rehearsals.
+**4. See the alarm fire** before relying on it, in this order — no run between the
+first `PATCH` and the second, since any check-in pushes the deadline out:
+
+1. On co-status, `PATCH` the monitor to `{"interval_seconds": 60, "grace_seconds": 0}`;
+   within a sweep (60 s), *"[co-status] co-usa-wa-backup has stopped reporting"* must
+   reach the channels.
+2. `PATCH` it straight back to `{"interval_seconds": 86400, "grace_seconds": 7200}`. A
+   `PATCH` never changes state, so it stays `missing`. Back *before* the run, or a slow
+   `PATCH` lets the 60-second window lapse again after the recovery: a second false alarm.
+3. `sudo systemctl start usa-wa-backup.service` here. The check-in that ends an outage
+   dispatches *"has recovered"* inside the same request (~10 s after the start), not on
+   the next sweep.
+
+Record the result under § Rehearsals.
 
 ## Restore
 
@@ -436,10 +445,21 @@ order:
   `tag:usa-wa`, no `--ssh`. `http://status:9000/health` answered `production`;
   `status:9001` and `notifier:9000` did not — the ACL grants `:9000` on co-status only.
   Public DNS (GitHub, `storage.googleapis.com`) still resolves through MagicDNS.
-- **Pending — the dead-man alarm (#455)**: the tenant and monitor
-  (CannObserv/status#17), the first check-in, and the alarm seen to fire and recover
-  (§ The dead-man monitor, steps 2–4). Until then every run logs
-  `backup_checkin_unconfigured`.
+- **The dead-man alarm, seen to fire and recover (2026-10-02, #455, CannObserv/status#17)**,
+  coordinated live with co-status's agent; co-status figures are from its database
+  and journals:
+  - Deployed `603e937`; `backup.env` gained the base URL and monitor id.
+  - First check-in: run started 20:51:15Z, `backup_checkin_sent status=ok` at
+    20:51:23.763Z (202). co-status: `pending → ok`, event `first_checkin`.
+  - Alarm: `PATCH` 60/0; the 21:06:38.77Z sweep marked it `missing` and sent *"stopped
+    reporting"* (dispatch `01M3Z71HMA31AFZRZ8WH7J1P86`, `succeeded`), received in
+    Mailgun and Slack. `PATCH` back to 86400/7200 at 21:07:35.99Z, still `missing`.
+  - Recovery: run started 21:08:48Z, check-in 202 at 21:08:56.227Z. co-status: event
+    `recovered` at 21:08:55.626Z, dispatch `01M3Z75Q76P2SAGDM421HMD7EJ` accepted by
+    notifier; state `ok`. Its receipt in the channels is co-status's operator's to
+    confirm, on status#17.
+  - This side logs the check-in's status code only, not the 202's `dispatches` ids:
+    #458.
 
 **Repeating the drill** — the same steps against any night's object:
 `sudo -u postgres createdb usa_wa_restore_drill`, `$R --latest --prefix usa-wa --into
