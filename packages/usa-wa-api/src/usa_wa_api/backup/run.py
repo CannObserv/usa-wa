@@ -20,6 +20,11 @@ configuration error (exit 2) that ships nothing. ``--dry-run`` dumps, verifies a
 hashes everything but uploads nothing — the rehearsal for a new host or a changed
 sandbox.
 
+Every run but a dry one then checks in to its dead-man monitor
+(:mod:`usa_wa_api.backup.checkin`, #455): ``ok`` with the night's summary, ``alert``
+with what failed. The email reports a run that failed; the monitor, one that never
+ran.
+
     python -m usa_wa_api.backup.run [--database usa_wa] [--dry-run]
 """
 
@@ -41,6 +46,8 @@ from google.cloud import storage
 from clearinghouse_core.job import EXIT_CONFIG, JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import get_raw_root
+from clearinghouse_core.runs import OUTCOME_OK
+from usa_wa_api.backup.checkin import post_checkin
 from usa_wa_api.backup.dump import Runner, dump_key, dump_metadata, take_dump
 from usa_wa_api.backup.gcs import (
     BUCKET_ENV,
@@ -206,6 +213,49 @@ def run_backup(
 
 
 async def _handler(ctx: JobContext) -> JobResult:
+    """The run, then its check-in — on every path out, a raised one included."""
+    host = socket.gethostname()
+    try:
+        result = _backup(ctx, host)
+    except Exception as exc:
+        _check_in(ctx, host, JobResult.failed({"error": _describe(exc)}))
+        raise
+    _check_in(ctx, host, result)
+    return result
+
+
+def _check_in(ctx: JobContext, host: str, result: JobResult) -> None:
+    """Report the run to the dead-man monitor. A dry run reports nothing: an ``ok``
+    from a rehearsal would tell the monitor the night's backup is in the bucket."""
+    if ctx.dry_run:
+        return
+    if result.outcome != OUTCOME_OK:
+        counters = result.counters
+        error = counters.get("error") or "; ".join(counters.get("failures", []))
+        post_checkin(
+            "alert",
+            {"source_host": host, "outcome": "failed", "error": error},
+            environ=os.environ,
+        )
+        return
+    db, raw = result.counters["db"], result.counters["raw"]
+    post_checkin(
+        "ok",
+        {
+            "source_host": host,
+            "outcome": "ok",
+            "object": db["object"],
+            "dumped_at": db["dumped_at"],
+            "size_bytes": db["size_bytes"],
+            "alembic_head": db["alembic_head"],
+            "raw_uploaded": raw["uploaded"],
+            "raw_local": raw["local"],
+        },
+        environ=os.environ,
+    )
+
+
+def _backup(ctx: JobContext, host: str) -> JobResult:
     environ = os.environ
     bucket = environ.get(BUCKET_ENV, "").strip()
     if not bucket:
@@ -215,7 +265,6 @@ async def _handler(ctx: JobContext) -> JobResult:
     if misplaced := misplaced_key(environ):
         logger.error("backup_config_error", extra={"error": misplaced})
         return JobResult.failed({"error": misplaced}, exit_code=EXIT_CONFIG)
-    host = socket.gethostname()
     prefix = environ.get(PREFIX_ENV, "").strip() or host
     try:
         # Built first, so a missing or unreadable key fails before the dump.

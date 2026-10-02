@@ -6,9 +6,15 @@ Documentation=https://github.com/CannObserv/usa-wa/issues/434
 # boot-time catch-up run (Persistent=true on the timer) does not race the server.
 After=network-online.target postgresql.service usa-wa-migrate.service
 Wants=network-online.target
+# The dead-man check-in reaches co-status over the tailnet (#455). Ordering only: a
+# catch-up run at boot must not race MagicDNS, but no Wants=/Requires= — a Tailscale
+# restart must never touch the backup, and one off the tailnet still ships (the
+# monitor then reports the missing check-in).
+After=tailscaled.service
 # Alert on failure (#49): a dump that did not ship, a raw object that no longer
 # hashes to its name, a bucket or key that is not there — all exit 1; a missing
-# USA_WA_BACKUP_BUCKET or a misplaced key exits 2.
+# USA_WA_BACKUP_BUCKET or a misplaced key exits 2. A run that never starts sends
+# nothing from here: that is the co-status dead-man monitor's to notice (#455).
 OnFailure=usa-wa-notify-failure@%n.service
 
 [Service]
@@ -36,9 +42,15 @@ LoadCredential=gcs:/etc/usa-wa/co-usa-wa-backup.json
 # The SDK takes a path; this is the private copy's. An env file that set the
 # variable too would win over this line — the job refuses that (exit 2).
 Environment=GOOGLE_APPLICATION_CREDENTIALS=%d/gcs
+# The dead-man check-in key (#455), read by the job from $CREDENTIALS_DIRECTORY.
+# The file MUST exist — systemd 255 fails a missing source 243 and ignores an empty
+# SetCredential= fallback — so it is created empty and filled once the co-status
+# monitor exists; the job reads empty as unconfigured and warns.
+LoadCredential=checkin-key:/etc/usa-wa/backup-checkin.key
 
-# USA_WA_BACKUP_BUCKET — no secret. NOT /etc/usa-wa/.env: the database URLs are in
-# it, and this unit needs none of them. No leading '-': a backup unit without its
+# USA_WA_BACKUP_BUCKET, and the check-in's USA_WA_BACKUP_CHECKIN_BASE_URL and
+# USA_WA_BACKUP_MONITOR_ID — no secret. NOT /etc/usa-wa/.env: the database URLs are
+# in it, and this unit needs none of them. No leading '-': a backup unit without its
 # configuration must fail loudly.
 EnvironmentFile=/etc/usa-wa/backup.env
 # The store the nightly harvests write (pipeline-nightly.sh's root + raw/).

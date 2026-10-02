@@ -133,8 +133,15 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     # ships to GCS, hence network-online. Not ordered after the pipeline unit: the
     # timer's 10:17 slot keeps it clear, and an edge would only delay a backup
     # behind a pipeline run someone started by hand.
+    # tailscaled (#455): ordering only, so a boot-time run's co-status check-in does
+    # not race MagicDNS; never Wants/Requires — the backup ships off the tailnet too.
     "usa-wa-backup.service": {
-        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
+        "After": {
+            "network-online.target",
+            "postgresql.service",
+            "usa-wa-migrate.service",
+            "tailscaled.service",
+        },
         "Before": set(),
         "OnFailure": NOTIFY,
     },

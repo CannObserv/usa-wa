@@ -20,6 +20,8 @@ from pathlib import Path
 
 from systemd_units import DEPLOY, unit_value, unit_values
 
+from usa_wa_api.backup.checkin import KEY_CREDENTIAL
+
 SERVICE = DEPLOY / "usa-wa-backup.service"
 TIMER = DEPLOY / "usa-wa-backup.timer"
 PIPELINE_TIMER = DEPLOY / "usa-wa-pipeline.timer"
@@ -66,9 +68,16 @@ def test_a_home_holding_only_the_checkout_and_not_its_secrets() -> None:
     assert hidden == {f"{CHECKOUT}/.env", f"{CHECKOUT}/.worktrees"}
 
 
-def test_the_key_is_a_credential_never_the_environment() -> None:
-    assert _service("LoadCredential") == ["gcs:/etc/usa-wa/co-usa-wa-backup.json"]
+def test_the_keys_are_credentials_never_the_environment() -> None:
+    """The GCS key and the dead-man check-in key (#455). systemd 255 fails the start
+    (243/CREDENTIALS) on a missing source, so the check-in key's file must exist —
+    empty until the monitor does — and the job reads empty as unconfigured."""
+    assert _service("LoadCredential") == [
+        "gcs:/etc/usa-wa/co-usa-wa-backup.json",
+        f"{KEY_CREDENTIAL}:/etc/usa-wa/backup-checkin.key",
+    ]
     assert _environment()["GOOGLE_APPLICATION_CREDENTIALS"] == "%d/gcs"
+    assert not any("CHECKIN_KEY" in name for name in _environment())
 
 
 def test_its_configuration_and_nothing_else() -> None:
@@ -128,3 +137,14 @@ def test_the_timer_fires_daily_after_the_pipeline_and_catches_up() -> None:
     assert backup_at and pipeline_at, (backup, pipeline)
     assert int(backup_at[1]) >= int(pipeline_at[1]) + 2, "too close behind the pipeline"
     assert unit_value(TIMER, "Timer", "Persistent") == "true"
+
+
+def test_ordered_after_the_tailnet_but_never_bound_to_it() -> None:
+    """The check-in reaches co-status over the tailnet (#455). A boot-time catch-up run
+    must not race MagicDNS, but a Tailscale restart must never touch the backup — and
+    a host off the tailnet still ships its backup, which the monitor then reports."""
+    after = " ".join(unit_values(SERVICE, "Unit", "After")).split()
+    assert "tailscaled.service" in after
+    for key in ("Wants", "Requires", "BindsTo", "PartOf"):
+        bound = " ".join(unit_values(SERVICE, "Unit", key)).split()
+        assert "tailscaled.service" not in bound, key

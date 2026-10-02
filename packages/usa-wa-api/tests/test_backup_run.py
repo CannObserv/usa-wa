@@ -119,21 +119,41 @@ class TestRunBackup:
         assert counters["raw"]["planned"] == 2
 
 
-class TestMain:
-    @pytest.fixture
-    def wired(self, tmp_path, monkeypatch):
-        """``main`` with the SDK client and subprocess replaced, the raw root and the
-        bucket configured — the unit's environment, minus the unit."""
-        bucket = FakeBucket()
-        harvest(tmp_path / "raw", "usa_wa_operator", {"m:departed:2020-01-01": b"{}"})
-        monkeypatch.setattr(backup_run, "make_client", lambda: FakeClient(bucket))
-        monkeypatch.setattr(backup_run, "run_command", FakeRunner())
-        monkeypatch.setenv("USA_WA_RAW_ROOT", str(tmp_path / "raw"))
-        monkeypatch.setenv("USA_WA_BACKUP_BUCKET", BUCKET)
-        monkeypatch.setenv("USA_WA_BACKUP_PREFIX", "usa-wa")
-        monkeypatch.delenv("CREDENTIALS_DIRECTORY", raising=False)
-        return bucket
+class CheckIns:
+    """Stands in for :func:`usa_wa_api.backup.checkin.post_checkin`, which has its own
+    tests; here only what the job reports, and when."""
 
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+
+    def __call__(self, status, variables, *, environ) -> bool:
+        self.calls.append((status, variables))
+        return True
+
+
+@pytest.fixture
+def checkins() -> CheckIns:
+    return CheckIns()
+
+
+@pytest.fixture
+def wired(tmp_path, monkeypatch, checkins):
+    """``main`` with the SDK client and subprocess replaced, the raw root and the
+    bucket configured — the unit's environment, minus the unit."""
+    bucket = FakeBucket()
+    harvest(tmp_path / "raw", "usa_wa_operator", {"m:departed:2020-01-01": b"{}"})
+    monkeypatch.setattr(backup_run, "make_client", lambda: FakeClient(bucket))
+    monkeypatch.setattr(backup_run, "run_command", FakeRunner())
+    monkeypatch.setenv("USA_WA_RAW_ROOT", str(tmp_path / "raw"))
+    monkeypatch.setenv("USA_WA_BACKUP_BUCKET", BUCKET)
+    monkeypatch.setenv("USA_WA_BACKUP_PREFIX", "usa-wa")
+    monkeypatch.delenv("CREDENTIALS_DIRECTORY", raising=False)
+    monkeypatch.setattr(backup_run, "post_checkin", checkins)
+    monkeypatch.setattr(backup_run.socket, "gethostname", lambda: "usa-wa")
+    return bucket
+
+
+class TestMain:
     def test_a_clean_run_exits_zero(self, wired) -> None:
         assert backup_run.main([]) == EXIT_OK
         assert any(name.startswith("db/usa-wa/") for name in wired.objects)
@@ -162,3 +182,99 @@ class TestMain:
     def test_dry_run_ships_nothing(self, wired) -> None:
         assert backup_run.main(["--dry-run"]) == EXIT_OK
         assert wired.objects == {}
+
+
+class TestCheckIn:
+    """Every run reports to the dead-man monitor, success or not (#455): the monitor
+    alarms on silence, so a run that ends without a check-in reads as a dead job."""
+
+    def test_a_clean_run_checks_in_ok_with_its_summary(self, wired, checkins) -> None:
+        assert backup_run.main([]) == EXIT_OK
+        [(status, variables)] = checkins.calls
+        assert status == "ok"
+        assert variables["source_host"] == "usa-wa"
+        assert variables["outcome"] == "ok"
+        assert variables["object"].startswith(f"gs://{BUCKET}/db/usa-wa/")
+        assert variables["alembic_head"] == "abc123"
+        assert variables["raw_uploaded"] == 2
+
+    def test_a_failed_half_checks_in_alert_naming_it(self, wired, checkins, monkeypatch) -> None:
+        monkeypatch.setattr(backup_run, "run_command", FakeRunner(fail="pg_dump"))
+        assert backup_run.main([]) == EXIT_FAILED
+        assert checkins.calls == [
+            (
+                "alert",
+                {
+                    "source_host": "usa-wa",
+                    "outcome": "failed",
+                    "error": "db: pg_dump exited 1: pg_dump: boom",
+                },
+            )
+        ]
+
+    def test_two_failed_halves_are_one_alert(self, wired, checkins, monkeypatch, tmp_path) -> None:
+        monkeypatch.setattr(backup_run, "run_command", FakeRunner(fail="pg_dump"))
+        monkeypatch.setenv("USA_WA_RAW_ROOT", str(tmp_path / "nowhere"))
+        assert backup_run.main([]) == EXIT_FAILED
+        [(status, variables)] = checkins.calls
+        assert status == "alert"
+        assert variables["error"] == (
+            f"db: pg_dump exited 1: pg_dump: boom; raw: no raw store at {tmp_path / 'nowhere'}"
+        )
+
+    def test_a_config_error_checks_in_alert(self, wired, checkins, monkeypatch) -> None:
+        monkeypatch.delenv("USA_WA_BACKUP_BUCKET")
+        assert backup_run.main([]) == EXIT_CONFIG
+        assert checkins.calls == [
+            (
+                "alert",
+                {
+                    "source_host": "usa-wa",
+                    "outcome": "failed",
+                    "error": "USA_WA_BACKUP_BUCKET not set",
+                },
+            )
+        ]
+
+    def test_a_failed_preflight_checks_in_alert(self, wired, checkins, monkeypatch) -> None:
+        monkeypatch.setattr(backup_run, "make_client", lambda: FakeClient(missing=True))
+        assert backup_run.main([]) == EXIT_FAILED
+        [(status, variables)] = checkins.calls
+        assert status == "alert"
+        assert "not found" in variables["error"]
+
+    def test_a_client_that_cannot_be_built_checks_in_alert(
+        self, wired, checkins, monkeypatch
+    ) -> None:
+        def broken():
+            raise OSError("key unreadable")
+
+        monkeypatch.setattr(backup_run, "make_client", broken)
+        assert backup_run.main([]) == EXIT_FAILED
+        assert checkins.calls[0][1]["error"] == "OSError: key unreadable"
+
+    def test_an_error_that_escapes_still_checks_in(self, wired, checkins, monkeypatch) -> None:
+        """A programming error the handler did not anticipate still fails the run —
+        and still reports, or the monitor hears silence and calls it a dead job."""
+
+        def broken(environ):
+            raise TypeError("unexpected")
+
+        monkeypatch.setattr(backup_run, "misplaced_key", broken)
+        assert backup_run.main([]) == EXIT_FAILED
+        assert checkins.calls == [
+            (
+                "alert",
+                {"source_host": "usa-wa", "outcome": "failed", "error": "TypeError: unexpected"},
+            )
+        ]
+
+    def test_a_dry_run_never_checks_in(self, wired, checkins) -> None:
+        """A rehearsal ships nothing; an ``ok`` from it would tell the monitor the
+        night's backup is in the bucket."""
+        assert backup_run.main(["--dry-run"]) == EXIT_OK
+        assert checkins.calls == []
+
+    def test_a_check_in_that_does_not_land_leaves_the_exit_alone(self, wired, monkeypatch) -> None:
+        monkeypatch.setattr(backup_run, "post_checkin", lambda *a, **k: False)
+        assert backup_run.main([]) == EXIT_OK
