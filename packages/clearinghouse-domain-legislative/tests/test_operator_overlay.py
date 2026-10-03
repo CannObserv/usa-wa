@@ -759,3 +759,128 @@ def test_a_same_day_departure_spares_a_synthesized_seating():
     assert senate.valid_from == date(2025, 6, 3)
     assert senate.valid_to is None
     assert senate.is_active is True
+
+
+def test_a_seating_in_the_prior_biennium_dates_the_span_that_opens_after_it():
+    """usa-wa#282, the Saldaña shape. Appointed to Senate LD37 on 2016-12-12, in the tail of
+    2015-16; the wire first lists her in 2017-18, so her span opens on that biennium's floor.
+    The date is before the span's window, so `_matches_seat` finds nothing, and the event was
+    recorded, provenanced and inert. The span keeps its key: only `valid_from` moves."""
+    span = _span("27290", "chamber-senate", "37", start="2017-18", frm=date(2017, 1, 1))
+    (out,) = apply_operator_events(
+        [span],
+        [SuccessionEvent("27290", "seated", date(2016, 12, 12), "chamber-senate", "37")],
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-senate"},
+    )
+    assert out.valid_from == date(2016, 12, 12)
+    assert out.source_id == "27290:chamber-senate:37:2017-18", "the span keeps its key"
+
+
+def test_a_seating_early_in_the_prior_biennium_dates_the_following_span_too():
+    """The lookback is a biennium, not a month window. Graham Hunt, appointed 2014-01-18,
+    has only `ld-2-position-1:2015-16` opening on its floor: the same absence from the
+    appointment biennium's roster, eleven months earlier than the December cases."""
+    span = _span(
+        "18517",
+        "chamber-house",
+        "ld-2-position-1",
+        start="2015-16",
+        frm=date(2015, 1, 1),
+        to=date(2016, 2, 2),
+        active=False,
+    )
+    (out,) = apply_operator_events(
+        [span],
+        [SuccessionEvent("18517", "seated", date(2014, 1, 18), "chamber-house", "ld-2-position-1")],
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+    )
+    assert out.valid_from == date(2014, 1, 18)
+
+
+def test_a_seating_two_bienniums_early_dates_nothing():
+    """One biennium is the whole reach. A seating four years before the span opens is not
+    the appointment that started it — there is a biennium between them the member was not
+    listed in at all."""
+    span = _span("x", "chamber-senate", "37", start="2017-18", frm=date(2017, 1, 1))
+    (out,) = apply_operator_events(
+        [span],
+        [SuccessionEvent("x", "seated", date(2014, 12, 12), "chamber-senate", "37")],
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-senate"},
+    )
+    assert out.valid_from == date(2017, 1, 1)
+
+
+def test_a_prior_biennium_seating_leaves_a_stated_start_alone():
+    """The lookback corrects a QUANTIZED start — a span opening on its biennium floor because
+    the builder derived it there. A span whose start some source already dated begins when
+    that source says; a seating months before it did not start it."""
+    span = _span("x", "chamber-senate", "37", start="2017-18", frm=date(2017, 3, 1))
+    (out,) = apply_operator_events(
+        [span],
+        [SuccessionEvent("x", "seated", date(2016, 12, 12), "chamber-senate", "37")],
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-senate"},
+    )
+    assert out.valid_from == date(2017, 3, 1)
+
+
+def test_a_covering_span_outranks_the_lookback():
+    """A seating inside a span's window dates THAT span; the lookback is only for a seating
+    no window holds. Gap-and-return in one seat, split at the return: the 2016 seating starts
+    the 2015-16 tenure, never the one that reopens in 2017."""
+    first = _span(
+        "x",
+        "chamber-senate",
+        "37",
+        start="2015-16",
+        frm=date(2015, 1, 1),
+        to=date(2016, 12, 31),
+        active=False,
+    )
+    second = _span("x", "chamber-senate", "37", start="2017-18", frm=date(2017, 1, 1))
+    out = {
+        s.start_biennium: s
+        for s in apply_operator_events(
+            [first, second],
+            [SuccessionEvent("x", "seated", date(2016, 3, 1), "chamber-senate", "37")],
+            current_biennium=CURRENT,
+            owned_kinds={"chamber-senate"},
+        )
+    }
+    assert out["2015-16"].valid_from == date(2016, 3, 1)
+    assert out["2017-18"].valid_from == date(2017, 1, 1)
+
+
+def test_a_lookback_seating_counts_as_the_tenures_one_seating():
+    """A tenure dated by the lookback is seated, like any other (#267): a second seating
+    that its new window now covers is a re-seating, not a later start."""
+    span = _span("27290", "chamber-senate", "37", start="2017-18", frm=date(2017, 1, 1))
+    (out,) = apply_operator_events(
+        [span],
+        [
+            SuccessionEvent("27290", "seated", date(2016, 12, 12), "chamber-senate", "37"),
+            SuccessionEvent("27290", "seated", date(2017, 1, 9), "chamber-senate", "37"),
+        ],
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-senate"},
+    )
+    assert out.valid_from == date(2016, 12, 12)
+
+
+def test_a_lookback_seating_is_not_reported_as_inverted(caplog):
+    """`operator_event_predates_span` flags an event dated before the span it names — an
+    inverted date the overlay would otherwise skip silently. A seating the lookback applies
+    is not that: predating the span is the shape it corrects, so warning on it would raise
+    the alarm on every correct application, each run."""
+    span = _span("27290", "chamber-senate", "37", start="2017-18", frm=date(2017, 1, 1))
+    with caplog.at_level("WARNING"):
+        apply_operator_events(
+            [span],
+            [SuccessionEvent("27290", "seated", date(2016, 12, 12), "chamber-senate", "37")],
+            current_biennium=CURRENT,
+            owned_kinds={"chamber-senate"},
+        )
+    assert "operator_event_predates_span" not in caplog.messages

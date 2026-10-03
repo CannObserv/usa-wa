@@ -318,6 +318,11 @@ listed the successor *before* the predecessor's dated exit — the sources
 contradict each other), and **both sides dated** (two stated dates that still
 overlap: the #358 shape, for adjudication).
 
+**The member axis (#282)** runs first: a member's dated seating into a new seat
+closes their old seat's quantized ceiling (Holmquist's 2006 House-to-Senate
+move), never an open one. Declined member overlaps are
+`assignments_one_seat_per_member`'s to report. Rationale: the module docstring.
+
 ### A tenure has duration (#363)
 
 `dbt/tests/assignments_span_duration.sql` asserts `valid_to is null or valid_to >

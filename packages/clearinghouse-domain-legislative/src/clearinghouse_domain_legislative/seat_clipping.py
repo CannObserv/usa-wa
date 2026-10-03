@@ -32,6 +32,19 @@ every span family, because a seat's two holders routinely come from different
 builders (a WSL-joined incumbent and a minted pre-1991 successor), and a clip
 scoped to one family is blind across exactly the seam the handoff crosses.
 
+**The member axis (usa-wa#282).** One member holds one seat at a time, so the
+same rule applies to a member's two seats: a dated seating into the new seat
+closes the old one's quantized ceiling. The overlay's prior-biennium lookback is
+what made it reachable — Janéa Holmquist, sworn into Senate LD13 on 2006-12-06,
+kept her House span's 2006-12-31 ceiling and held two seats for 25 days::
+
+    3430  seat:house:ld-13:position-1  2003-01-01 → 2006-12-31   ← runs to the ceiling
+    3430  seat:senate:ld-13            2006-12-06 → 2014-12-31   dated seating
+
+An *open* old seat is the live cohort, which a ``vacated`` dates (#145), so it is
+never clipped from geometry. A declined member overlap is left for
+``assignments_one_seat_per_member`` to report; ``unclipped`` is the seat axis's.
+
 **Known gap — usa-wa#362.** This module sees only span geometry, so it has no
 notion of a seat that legitimately holds more than one person. The 1889 Senate
 had multi-member districts; the `assignments_seat_occupancy` gate excludes those
@@ -151,9 +164,28 @@ def clip_seat_counterparts(spans: Iterable[TenureSpan]) -> SeatClipResult:
     work = list(spans)
     unclipped: list[UnclippedOverlap] = []
     # Positions whose boundary this pass moved. A clipped edge is DERIVED, and
-    # must never be read back as a stated date by a later pair on the same seat
-    # — see `_stated_start`/`_stated_exit`.
+    # must never be read back as a stated date by any later pair, on either axis
+    # — see `_stated_start`/`_stated_exit`/`_quantized_exit`.
     derived: set[tuple[int, str]] = set()
+
+    # The member axis runs FIRST (#282). Run second, the seat pass has already
+    # clipped a mover's old ceiling onto their successor's later seating and
+    # marked it derived, so the move could no longer close it: the member holds
+    # both seats between the two dates. First, no seat-derived start exists yet
+    # to pose as a stated seating, and the seat pass works on — and reports the
+    # residue of — the geometry the member axis leaves.
+    members: dict[str, list[int]] = defaultdict(list)
+    for i, span in enumerate(work):
+        if span.kind in SINGLE_HOLDER_KINDS:
+            members[span.member_id].append(i)
+    for _member, positions in sorted(members.items()):
+        ordered = sorted(
+            positions, key=lambda p: (*_tenure_order(work[p]), work[p].kind, work[p].discriminator)
+        )
+        for outer, i in enumerate(ordered):
+            for j in ordered[outer + 1 :]:
+                _resolve_move(work, i, j, derived)
+
     seats: dict[tuple[str, str], list[int]] = defaultdict(list)
     for i, span in enumerate(work):
         if span.kind in SINGLE_HOLDER_KINDS:
@@ -177,7 +209,37 @@ def clip_seat_counterparts(spans: Iterable[TenureSpan]) -> SeatClipResult:
                             reason=reason,
                         )
                     )
+
     return SeatClipResult(spans=tuple(work), unclipped=tuple(unclipped))
+
+
+def _quantized_exit(span: TenureSpan, position: int, derived: set[tuple[int, str]]) -> bool:
+    """The span closes on its own biennium ceiling, which the builder derived —
+    not open, not a stated date, and not an edge this pass already moved."""
+    if span.valid_to is None or (position, "end") in derived:
+        return False
+    return span.valid_to == date(parse_biennium(span.end_biennium)[1], 12, 31)
+
+
+def _resolve_move(work: list[TenureSpan], i: int, j: int, derived: set[tuple[int, str]]) -> None:
+    """Close the member's old seat at a dated seating into a new one (usa-wa#282).
+
+    ``i`` ranks before ``j`` in tenure order, so ``work[i]`` is the seat the member
+    left. Every refusal leaves the overlap standing for the member gate."""
+    old, new = work[i], work[j]
+    if (old.kind, old.discriminator) == (new.kind, new.discriminator):
+        return  # one seat held twice — a merged tenure (#267), not a move
+    if not _overlaps(old, new):
+        return
+    if not (_quantized_exit(old, i, derived) and _stated_start(new, j, derived)):
+        return
+    boundary = new.valid_from
+    if boundary <= old.valid_from:
+        return  # the old seat would have no duration at all
+    if (old.valid_to or _OPEN) > (new.valid_to or _OPEN):
+        return  # the old row outlives the new seat: two tenures merged (#267)
+    work[i] = replace(old, valid_to=boundary, is_active=False)
+    derived.add((i, "end"))
 
 
 def _resolve_pair(

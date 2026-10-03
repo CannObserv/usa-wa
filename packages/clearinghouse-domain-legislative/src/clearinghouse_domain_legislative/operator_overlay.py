@@ -10,11 +10,13 @@ facts as precise sub-biennium boundaries the wire can't supply:
   and truncating it discards the second. Skipped-and-logged, never silent.
 - ``vacated`` (seat-scoped) — close the member's **one** named seat span at the date.
 - ``seated`` (seat-scoped) — open the member's named seat span at the date (adjust the
-  built span's ``valid_from``, or **synthesize** the span if the wire built none — but only
-  for a *current-biennium* appointee: a seated event dated outside ``current_biennium`` with
-  no built span is a historical appointee the daily restricted rebuild doesn't build, and
-  synthesizing would mint a bogus current-biennium seat for a departed member (#119); the
-  unrestricted backfill builds their span, so the event matches there instead).
+  built span's ``valid_from`` — the span whose window holds the date, else one opening on
+  the floor of the *next* biennium (usa-wa#282) — or **synthesize** the span if the wire
+  built none — but only for a *current-biennium* appointee: a seated event dated outside
+  ``current_biennium`` with no built span is a historical appointee the daily restricted
+  rebuild doesn't build, and synthesizing would mint a bogus current-biennium seat for a
+  departed member (#119); the unrestricted backfill builds their span, so the event matches
+  there instead).
 
 Each builder passes ``owned_kinds`` — the span ``kind``\\s it produces — so an event for a
 seat another builder owns is ignored here (a ``seated chamber-house`` event is the SOS House
@@ -42,7 +44,12 @@ from clearinghouse_domain_legislative.operator_events import (
     KIND_VACATED,
 )
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan, merge_party_continuity
-from clearinghouse_domain_legislative.terms import biennium_for_date, parse_biennium
+from clearinghouse_domain_legislative.terms import (
+    biennium_for_date,
+    biennium_start_date,
+    parse_biennium,
+    previous_biennium,
+)
 
 logger = get_logger(__name__)
 
@@ -129,6 +136,34 @@ def _matches_seat(span: TenureSpan, event: SuccessionEvent) -> bool:
     )
 
 
+def _opens_after_seating(span: TenureSpan, event: SuccessionEvent) -> bool:
+    """The seat's span that opens on the floor of the biennium **after** the seating's
+    (usa-wa#282) — the tenure a seating no window holds still starts.
+
+    A mid-biennium appointee is absent from the sponsor roster of the biennium they were
+    appointed into, so the wire first lists them at the *following* one and their span opens
+    on its floor: Saldaña, seated 2016-12-12, holds ``senate-37:2017-18`` from 2017-01-01;
+    Graham Hunt, seated 2014-01-18, holds ``ld-2-position-1:2015-16`` from 2015-01-01. The date
+    lies before the window, so :func:`_matches_seat` cannot see it, and the event was recorded,
+    provenanced and inert — the one place the asymmetry ``POSITION_LOOKBACK_YEARS`` and
+    ``SEATING_ADJACENT_BIENNIA`` already handle on the resolve side went unhandled here.
+
+    Two bounds keep it to that shape. **One biennium**: a seating further back has a biennium
+    between it and the span in which the member was listed nowhere. **A quantized start**: the
+    span opens on its floor because the builder derived it there; a start some source already
+    dated is when that tenure began, and an earlier seating did not start it.
+
+    ``start_biennium`` is left as it is, so the span's key — and the published ``span_key``
+    built on it — survives the re-date; a subscriber sees an update, not archive + create."""
+    return (
+        span.member_id == event.member_id
+        and span.kind == event.seat_kind
+        and span.discriminator == event.seat_discriminator
+        and span.valid_from == biennium_start_date(span.start_biennium)
+        and previous_biennium(span.start_biennium) == biennium_for_date(event.effective_date)
+    )
+
+
 def _seating_starts_tenure(span: TenureSpan, effective_date: date) -> bool:
     """A seating dates the tenure it **starts**, not any tenure it merely falls inside
     (usa-wa#272).
@@ -145,7 +180,9 @@ def _seating_starts_tenure(span: TenureSpan, effective_date: date) -> bool:
     appointed into, so their first span opens at the *following* one (Graham Hunt, appointed
     2014-01-17, has only ``ld-2-position-1:2015-16``). Requiring containment would refuse
     exactly the events worth applying — the same asymmetry ``POSITION_LOOKBACK_YEARS`` encodes
-    on the resolve side."""
+    on the resolve side. Under :func:`_matches_seat` the window must also hold the date, so a
+    span keyed a biennium late reaches this only once something earlier dated it; the floor-
+    quantized case is :func:`_opens_after_seating`'s (usa-wa#282)."""
     return (
         parse_biennium(span.start_biennium)[0]
         >= parse_biennium(biennium_for_date(effective_date))[0]
@@ -361,41 +398,47 @@ def apply_operator_events(
             if event.seat_kind not in owned:
                 continue
             hit = False
-            for i, span in enumerate(result):
-                if _matches_seat(span, event):
-                    if not _seating_starts_tenure(span, event.effective_date):
-                        # The event sits inside this tenure's window but years after it began,
-                        # so it is a successor's seating (or a later tenure's) mis-resolved onto
-                        # it (#272). Applying it would record the whole tenure as its final
-                        # weeks. Not a match: a current-biennium appointee still falls through
-                        # to synthesis below, which is the correct home for a seating the wire
-                        # built no tenure for.
-                        logger.info(
-                            "operator_seated_does_not_start_tenure",
-                            extra={
-                                "member_id": event.member_id,
-                                "seat": event.seat_discriminator,
-                                "effective_date": event.effective_date.isoformat(),
-                                "span_start_biennium": span.start_biennium,
-                            },
-                        )
-                        continue
-                    key = (span.member_id, span.kind, span.discriminator, span.start_biennium)
-                    if key in seated_spans:
-                        logger.info(
-                            "operator_seated_tenure_already_dated",
-                            extra={
-                                "member_id": event.member_id,
-                                "seat": event.seat_discriminator,
-                                "effective_date": event.effective_date.isoformat(),
-                                "span_valid_from": span.valid_from.isoformat(),
-                            },
-                        )
-                        hit = True
-                        continue
-                    seated_spans[key] = event.effective_date
-                    result[i] = replace(span, valid_from=event.effective_date)
+            # The span whose window holds the date; failing that, the one opening on the
+            # next biennium's floor that the seating started (usa-wa#282). Never both: a
+            # seating a window holds belongs to that tenure, not to a later one.
+            targets = [i for i, span in enumerate(result) if _matches_seat(span, event)] or [
+                i for i, span in enumerate(result) if _opens_after_seating(span, event)
+            ]
+            for i in targets:
+                span = result[i]
+                if not _seating_starts_tenure(span, event.effective_date):
+                    # The event sits inside this tenure's window but years after it began,
+                    # so it is a successor's seating (or a later tenure's) mis-resolved onto
+                    # it (#272). Applying it would record the whole tenure as its final
+                    # weeks. Not a match: a current-biennium appointee still falls through
+                    # to synthesis below, which is the correct home for a seating the wire
+                    # built no tenure for.
+                    logger.info(
+                        "operator_seated_does_not_start_tenure",
+                        extra={
+                            "member_id": event.member_id,
+                            "seat": event.seat_discriminator,
+                            "effective_date": event.effective_date.isoformat(),
+                            "span_start_biennium": span.start_biennium,
+                        },
+                    )
+                    continue
+                key = (span.member_id, span.kind, span.discriminator, span.start_biennium)
+                if key in seated_spans:
+                    logger.info(
+                        "operator_seated_tenure_already_dated",
+                        extra={
+                            "member_id": event.member_id,
+                            "seat": event.seat_discriminator,
+                            "effective_date": event.effective_date.isoformat(),
+                            "span_valid_from": span.valid_from.isoformat(),
+                        },
+                    )
                     hit = True
+                    continue
+                seated_spans[key] = event.effective_date
+                result[i] = replace(span, valid_from=event.effective_date)
+                hit = True
             if not hit:
                 # Synthesis is only ever legitimate for a *current-biennium* appointee the wire
                 # hasn't caught up on (#107). A seated event whose date lands outside the current
@@ -465,6 +508,8 @@ def _warn_if_predates(spans: list[TenureSpan], event: SuccessionEvent) -> None:
             span.kind != event.seat_kind or span.discriminator != event.seat_discriminator
         ):
             continue
+        if event.kind == KIND_SEATED and _opens_after_seating(span, event):
+            continue  # predating this span is the shape the lookback applies (usa-wa#282)
         if event.effective_date < span.valid_from:
             logger.warning(
                 "operator_event_predates_span",
