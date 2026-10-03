@@ -323,8 +323,9 @@ own seats, because one member holds one seat at a time: a dated seating into a
 new seat closes the old seat's quantized ceiling. The overlay's prior-biennium
 lookback made it reachable — Janéa Holmquist, sworn into Senate LD-13 on
 2006-12-06, otherwise kept her House span to its 2006-12-31 ceiling, and
-`assignments_one_seat_per_member` errors on the 25 days between. It runs after
-the seat pass, so a start that pass derived is never read as a seating. It never
+`assignments_one_seat_per_member` errors on the 25 days between. It runs before
+the seat pass, which would otherwise clip the old ceiling onto a later-sworn
+successor first and leave the move nothing to close. It never
 closes an **open** seat — the live cohort is dated by a `vacated` (#145), not
 inferred from geometry — and a declined member overlap is the member gate's to
 report, not `seat_overlaps_unclipped`'s.

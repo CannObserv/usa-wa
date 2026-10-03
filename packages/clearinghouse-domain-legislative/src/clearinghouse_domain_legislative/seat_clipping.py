@@ -167,6 +167,25 @@ def clip_seat_counterparts(spans: Iterable[TenureSpan]) -> SeatClipResult:
     # must never be read back as a stated date by a later pair on the same seat
     # — see `_stated_start`/`_stated_exit`.
     derived: set[tuple[int, str]] = set()
+
+    # The member axis runs FIRST (#282). Run second, the seat pass has already
+    # clipped a mover's old ceiling onto their successor's later seating and
+    # marked it derived, so the move could no longer close it: the member holds
+    # both seats between the two dates. First, no seat-derived start exists yet
+    # to pose as a stated seating, and the seat pass works on — and reports the
+    # residue of — the geometry the member axis leaves.
+    members: dict[str, list[int]] = defaultdict(list)
+    for i, span in enumerate(work):
+        if span.kind in SINGLE_HOLDER_KINDS:
+            members[span.member_id].append(i)
+    for _member, positions in sorted(members.items()):
+        ordered = sorted(
+            positions, key=lambda p: (*_tenure_order(work[p]), work[p].kind, work[p].discriminator)
+        )
+        for outer, i in enumerate(ordered):
+            for j in ordered[outer + 1 :]:
+                _resolve_move(work, i, j, derived)
+
     seats: dict[tuple[str, str], list[int]] = defaultdict(list)
     for i, span in enumerate(work):
         if span.kind in SINGLE_HOLDER_KINDS:
@@ -191,19 +210,6 @@ def clip_seat_counterparts(spans: Iterable[TenureSpan]) -> SeatClipResult:
                         )
                     )
 
-    # The member axis runs SECOND, so a start the seat pass derived is already
-    # marked and cannot pose as a stated seating here.
-    members: dict[str, list[int]] = defaultdict(list)
-    for i, span in enumerate(work):
-        if span.kind in SINGLE_HOLDER_KINDS:
-            members[span.member_id].append(i)
-    for _member, positions in sorted(members.items()):
-        ordered = sorted(
-            positions, key=lambda p: (*_tenure_order(work[p]), work[p].kind, work[p].discriminator)
-        )
-        for outer, i in enumerate(ordered):
-            for j in ordered[outer + 1 :]:
-                _resolve_move(work, i, j, derived)
     return SeatClipResult(spans=tuple(work), unclipped=tuple(unclipped))
 
 

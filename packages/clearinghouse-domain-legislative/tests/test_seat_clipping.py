@@ -518,8 +518,9 @@ class TestMemberMove:
         assert house.valid_to == date(2010, 12, 31)
 
     def test_a_derived_start_is_no_evidence(self):
-        """A start the seat pass clipped onto a predecessor's exit is an
-        inference, and must not then close the member's own other seat."""
+        """A start the seat pass clips onto a predecessor's exit is an inference,
+        and must not close the member's own other seat — the member axis runs
+        first, and reads that start while it is still a biennium floor."""
         pred = _span(
             "pred",
             start="2007-08",
@@ -533,6 +534,24 @@ class TestMemberMove:
         out = clip_seat_counterparts([pred, senate, house]).spans
         assert out[1].valid_from == date(2007, 3, 1), "the seat pass clipped it"
         assert out[2].valid_to == date(2008, 12, 31), "and that clip dates nothing"
+
+    def test_a_successor_seated_later_does_not_strand_the_move(self):
+        """The ordinary chamber move: the member leaves the House on 12-06, and
+        the House successor is sworn in on 12-20. Clipped on the seat axis first,
+        the House ceiling lands on 12-20 and is marked derived, so the member
+        axis may no longer touch it — and the member holds two seats for two
+        weeks, which `assignments_one_seat_per_member` errors on."""
+        succ = _span(
+            "x",
+            start="2007-08",
+            end="2009-10",
+            frm=date(2006, 12, 20),
+            to=date(2010, 12, 31),
+            kind=KIND_HOUSE,
+            disc="ld-13-position-1",
+        )
+        house, senate, _ = clip_seat_counterparts([self._house(), self._senate(), succ]).spans
+        assert house.valid_to == senate.valid_from == date(2006, 12, 6)
 
     def test_two_members_are_never_paired(self):
         house = self._house()
