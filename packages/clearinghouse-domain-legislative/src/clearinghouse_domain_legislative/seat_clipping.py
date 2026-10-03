@@ -164,8 +164,8 @@ def clip_seat_counterparts(spans: Iterable[TenureSpan]) -> SeatClipResult:
     work = list(spans)
     unclipped: list[UnclippedOverlap] = []
     # Positions whose boundary this pass moved. A clipped edge is DERIVED, and
-    # must never be read back as a stated date by a later pair on the same seat
-    # — see `_stated_start`/`_stated_exit`.
+    # must never be read back as a stated date by any later pair, on either axis
+    # — see `_stated_start`/`_stated_exit`/`_quantized_exit`.
     derived: set[tuple[int, str]] = set()
 
     # The member axis runs FIRST (#282). Run second, the seat pass has already
