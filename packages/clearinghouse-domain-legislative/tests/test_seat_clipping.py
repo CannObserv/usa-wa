@@ -454,3 +454,90 @@ class TestNeverDegenerate:
         result = clip_seat_counterparts([pred, succ])
         assert _by_member(result)["succ"].valid_from == date(1957, 1, 1)
         assert result.unclipped[0].reason == "predecessor_outlives_successor"
+
+
+class TestMemberMove:
+    """usa-wa#282 — one member, two seats: the counterpart rule on the member axis.
+
+    Janéa Holmquist was sworn into Senate LD13 on 2006-12-06 to serve an unexpired
+    term. The overlay dates her Senate span there, but her House span keeps its
+    quantized 2006-12-31 ceiling, so for 25 days she holds two seats at once — the
+    shape `assignments_one_seat_per_member` errors on. The seating is the stated
+    date and the ceiling the derived one, so the ceiling yields."""
+
+    def _house(self, **kw):
+        base = dict(
+            start="2003-04",
+            end="2005-06",
+            frm=date(2003, 1, 1),
+            to=date(2006, 12, 31),
+            kind=KIND_HOUSE,
+            disc="ld-13-position-1",
+        )
+        return _span("3430", **{**base, **kw})
+
+    def _senate(self, **kw):
+        base = dict(
+            start="2007-08", end="2013-14", frm=date(2006, 12, 6), to=date(2014, 12, 31), disc="13"
+        )
+        return _span("3430", **{**base, **kw})
+
+    def test_the_old_seat_closes_at_the_dated_seating(self):
+        house, senate = clip_seat_counterparts([self._house(), self._senate()]).spans
+        assert house.valid_to == date(2006, 12, 6)
+        assert house.is_active is False
+        assert senate.valid_from == date(2006, 12, 6), "the stated side never moves"
+
+    def test_a_quantized_seating_is_no_evidence(self):
+        """Neither side dated: the overlap is the builder's, with nothing to clip to."""
+        house, senate = clip_seat_counterparts(
+            [self._house(), self._senate(frm=date(2005, 1, 1), start="2005-06")]
+        ).spans
+        assert house.valid_to == date(2006, 12, 31)
+        assert senate.valid_from == date(2005, 1, 1)
+
+    def test_a_stated_exit_is_left_alone(self):
+        """Both sides dated and still overlapping is the sources disagreeing."""
+        house, _ = clip_seat_counterparts(
+            [self._house(to=date(2006, 12, 20)), self._senate()]
+        ).spans
+        assert house.valid_to == date(2006, 12, 20)
+
+    def test_an_open_old_seat_is_left_alone(self):
+        """An open seat is the live cohort, which a `vacated` dates (#145) — not
+        an inference from geometry."""
+        house, _ = clip_seat_counterparts([self._house(to=None, active=True), self._senate()]).spans
+        assert house.valid_to is None
+
+    def test_an_old_seat_outliving_the_new_one_is_left_alone(self):
+        """The old row runs past the new seat's end, so it is two tenures merged
+        (#267) and closing it would discard the second."""
+        house, _ = clip_seat_counterparts(
+            [self._house(end="2009-10", to=date(2010, 12, 31)), self._senate(to=date(2008, 6, 1))]
+        ).spans
+        assert house.valid_to == date(2010, 12, 31)
+
+    def test_a_derived_start_is_no_evidence(self):
+        """A start the seat pass clipped onto a predecessor's exit is an
+        inference, and must not then close the member's own other seat."""
+        pred = _span(
+            "pred",
+            start="2007-08",
+            end="2007-08",
+            frm=date(2007, 1, 1),
+            to=date(2007, 3, 1),
+            disc="13",
+        )
+        senate = self._senate(frm=date(2007, 1, 1))
+        house = self._house(end="2007-08", to=date(2008, 12, 31))
+        out = clip_seat_counterparts([pred, senate, house]).spans
+        assert out[1].valid_from == date(2007, 3, 1), "the seat pass clipped it"
+        assert out[2].valid_to == date(2008, 12, 31), "and that clip dates nothing"
+
+    def test_two_members_are_never_paired(self):
+        house = self._house()
+        other = _span(
+            "other", start="2007-08", end="2013-14", frm=date(2006, 12, 6), to=None, disc="13"
+        )
+        out, _ = clip_seat_counterparts([house, other]).spans
+        assert out.valid_to == date(2006, 12, 31)

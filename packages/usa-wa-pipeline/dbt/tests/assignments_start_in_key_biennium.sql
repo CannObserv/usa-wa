@@ -12,7 +12,9 @@
 -- One-sided, as the Postgres predicate was. A start INSIDE the key biennium is
 -- the ordinary mid-biennium appointee. A start BEFORE it is a derived edge:
 -- counterpart clipping (#360) moves a quantized `valid_from` earlier onto a
--- predecessor's dated exit, and that is a correction, not this defect.
+-- predecessor's dated exit, and that is a correction, not this defect. So is
+-- the overlay's prior-biennium lookback (#282): a member seated 2016-12-12 whose
+-- span opens on the 2017-18 floor starts that tenure in 2016, key unchanged.
 --
 -- The biennium's last year is its first year + 1, never its two-digit tail:
 -- `1999-00` ends in 2000.

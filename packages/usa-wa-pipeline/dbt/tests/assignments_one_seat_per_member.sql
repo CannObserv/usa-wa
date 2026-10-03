@@ -25,7 +25,10 @@
 -- (#145): a representative appointed to the Senate whose House `vacated` was
 -- never recorded. Once the House seat has a successor the chamber count is back
 -- to 98, so no other gate sees it. 0 across all history on the production
--- build 2026-09-27. A same-day move is a handoff, as above.
+-- build 2026-09-27. A same-day move is a handoff, as above. A DATED move whose
+-- old seat ran to its quantized ceiling is clipped before it gets here — the
+-- member axis of `seat_clipping` (#282, Holmquist's 2006 House-to-Senate move);
+-- an open old seat or a stated exit is still this gate's.
 {{ config(severity='error') }}
 select
     a.entity_id,
