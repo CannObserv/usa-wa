@@ -553,6 +553,12 @@ class TestMemberMove:
         house, senate, _ = clip_seat_counterparts([self._house(), self._senate(), succ]).spans
         assert house.valid_to == senate.valid_from == date(2006, 12, 6)
 
+    def test_the_member_axis_is_idempotent(self):
+        """The nightly rebuild clips every run. The closed ceiling is a stated
+        date the second time round, so nothing moves again."""
+        once = clip_seat_counterparts([self._house(), self._senate()]).spans
+        assert clip_seat_counterparts(once).spans == once
+
     def test_two_members_are_never_paired(self):
         house = self._house()
         other = _span(
