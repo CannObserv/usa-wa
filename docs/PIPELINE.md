@@ -318,17 +318,10 @@ listed the successor *before* the predecessor's dated exit — the sources
 contradict each other), and **both sides dated** (two stated dates that still
 overlap: the #358 shape, for adjudication).
 
-**The member axis (#282).** The same rule runs a second time over each member's
-own seats, because one member holds one seat at a time: a dated seating into a
-new seat closes the old seat's quantized ceiling. The overlay's prior-biennium
-lookback made it reachable — Janéa Holmquist, sworn into Senate LD-13 on
-2006-12-06, otherwise kept her House span to its 2006-12-31 ceiling, and
-`assignments_one_seat_per_member` errors on the 25 days between. It runs before
-the seat pass, which would otherwise clip the old ceiling onto a later-sworn
-successor first and leave the move nothing to close. It never
-closes an **open** seat — the live cohort is dated by a `vacated` (#145), not
-inferred from geometry — and a declined member overlap is the member gate's to
-report, not `seat_overlaps_unclipped`'s.
+**The member axis (#282)** runs first: a member's dated seating into a new seat
+closes their old seat's quantized ceiling (Holmquist's 2006 House-to-Senate
+move), never an open one. Declined member overlaps are
+`assignments_one_seat_per_member`'s to report. Rationale: the module docstring.
 
 ### A tenure has duration (#363)
 
