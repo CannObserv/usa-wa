@@ -480,10 +480,16 @@ def _synthesize_mover_tenures(
     span is there for the seating to date and for the ``vacated`` itself to close.
 
     Gated on the per-biennium mover signal: a ``vacated`` matching no span for a member who is
-    not a mover that biennium is a typo/inverted event, never a bogus span. Each mint joins
-    the candidates, so a duplicated ``vacated`` does not mint the tenure twice."""
+    not a mover that biennium is a typo/inverted event, never a bogus span.
+
+    **One mint per key.** Every mint for a seat in a biennium keys to the same ``source_id``,
+    and a window check cannot see that: the earlier vacate's window ends before a later one's
+    date, so two ``vacated`` events would publish two rows under one ``span_key``. The
+    earliest (events arrive date-ordered) ends the tenure; a later one finds the span already
+    closed and is the main loop's logged miss."""
     candidates = list(spans)
     minted: list[TenureSpan] = []
+    keys: set[str] = set()
     for event in events:
         if event.kind != KIND_VACATED or event.seat_kind not in owned:
             continue
@@ -493,6 +499,9 @@ def _synthesize_mover_tenures(
         if any(_matches_seat(span, event) for span in candidates):
             continue
         synthesized = _synthesize_closed(event, biennium)
+        if synthesized.source_id in keys:
+            continue
+        keys.add(synthesized.source_id)
         candidates.append(synthesized)
         minted.append(synthesized)
         logger.info(

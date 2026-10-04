@@ -275,6 +275,26 @@ def test_a_movers_prior_biennium_seating_dates_the_synthesized_span():
     assert (out.valid_from, out.valid_to) == (date(2010, 3, 9), date(2012, 6, 25))
 
 
+def test_two_vacateds_in_one_biennium_mint_one_movers_span(caplog):
+    """Both would key ``…:2013-14``: the earlier's window ends before the later's date, so a
+    window check mints twice and publishes two rows under one ``span_key``. The earliest
+    vacate ends the tenure; the later one is a logged miss."""
+    events = [
+        SuccessionEvent("13546", "vacated", date(2014, 1, 22), "chamber-house", "ld-21-position-2"),
+        SuccessionEvent("13546", "vacated", date(2014, 3, 1), "chamber-house", "ld-21-position-2"),
+    ]
+    with caplog.at_level("INFO"):
+        (out,) = apply_operator_events(
+            [],
+            events,
+            current_biennium=CURRENT,
+            owned_kinds={"chamber-house"},
+            movers_by_biennium={"2013-14": {"13546"}},
+        )
+    assert (out.valid_from, out.valid_to) == (date(2013, 1, 1), date(2014, 1, 22))
+    assert "operator_vacated_no_span" in caplog.messages
+
+
 def test_latest_event_biennium_by_member():
     """Each member's latest operator-event biennium (by biennium_for_date of the max
     effective_date); a member with events in two biennia resolves to the later one."""
