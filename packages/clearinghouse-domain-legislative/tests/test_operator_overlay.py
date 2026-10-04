@@ -256,6 +256,25 @@ def test_a_movers_seating_dates_the_house_span_its_vacated_synthesizes(caplog):
     assert "operator_seated_no_span_out_of_biennium" not in caplog.messages
 
 
+def test_a_movers_prior_biennium_seating_dates_the_synthesized_span():
+    """#461 × #282: the synthesized span opens on its biennium's floor, so a mover seated in
+    the biennium before — a mid-biennium appointee absent from that roster — dates it through
+    the lookback, exactly as for a built span. Its key stays the vacated's biennium."""
+    events = [
+        SuccessionEvent("15814", "seated", date(2010, 3, 9), "chamber-house", "ld-18-position-1"),
+        SuccessionEvent("15814", "vacated", date(2012, 6, 25), "chamber-house", "ld-18-position-1"),
+    ]
+    (out,) = apply_operator_events(
+        [],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+        movers_by_biennium={"2011-12": {"15814"}},
+    )
+    assert out.source_id == "15814:chamber-house:ld-18-position-1:2011-12"
+    assert (out.valid_from, out.valid_to) == (date(2010, 3, 9), date(2012, 6, 25))
+
+
 def test_latest_event_biennium_by_member():
     """Each member's latest operator-event biennium (by biennium_for_date of the max
     effective_date); a member with events in two biennia resolves to the later one."""
