@@ -396,7 +396,10 @@ def build_all_spans(
     no WSL-family span can match one, so every overlay here dropped them as a
     logged miss — 54 of the 90 inert seatings #282 measured. They are dropped
     before any overlay instead. Only a member another family OWNS goes: an id
-    no family holds still reaches the overlays, whose miss is the signal.
+    no family holds still reaches the overlays, whose miss is the signal. The
+    caller states it (:func:`build_families`, from the resolve it already ran);
+    a build that derives its own deepening derives no roster members, so it
+    keeps the noise.
 
     Raises ``ValueError`` when the #228 deepening would be derived from an
     **empty** roster under a non-empty sponsor corpus (CR 57). That combination
