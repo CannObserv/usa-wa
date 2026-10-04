@@ -487,10 +487,12 @@ def _synthesize_mover_tenures(
     and a window check cannot see that: the earlier vacate's window ends before a later one's
     date, so two ``vacated`` events would publish two rows under one ``span_key``. The
     earliest (events arrive date-ordered) ends the tenure; a later one finds the span already
-    closed and is the main loop's logged miss."""
+    closed and is the main loop's logged miss. A **built** span's key is taken too: one keyed
+    in the vacate's biennium but starting after its date does not hold it, and the event
+    against it is inverted — `operator_event_predates_span`'s, not a tenure to mint."""
     candidates = list(spans)
     minted: list[TenureSpan] = []
-    keys: set[str] = set()
+    keys = {span.source_id for span in spans}
     for event in events:
         if event.kind != KIND_VACATED or event.seat_kind not in owned:
             continue

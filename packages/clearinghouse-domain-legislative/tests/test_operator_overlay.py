@@ -295,6 +295,27 @@ def test_two_vacateds_in_one_biennium_mint_one_movers_span(caplog):
     assert "operator_vacated_no_span" in caplog.messages
 
 
+def test_a_movers_vacated_never_mints_a_built_spans_key():
+    """A built span keyed in the vacate's biennium but starting after its date does not hold
+    it, so the window check would mint beside it — two rows under one ``span_key``. The key
+    is taken; the inverted event stays a logged no-op (`operator_event_predates_span`)."""
+    built = _span(
+        "13546", "chamber-house", "ld-21-position-2", start="2013-14", frm=date(2014, 2, 1)
+    )
+    out = apply_operator_events(
+        [built],
+        [
+            SuccessionEvent(
+                "13546", "vacated", date(2014, 1, 22), "chamber-house", "ld-21-position-2"
+            )
+        ],
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+        movers_by_biennium={"2013-14": {"13546"}},
+    )
+    assert out == [built]
+
+
 def test_latest_event_biennium_by_member():
     """Each member's latest operator-event biennium (by biennium_for_date of the max
     effective_date); a member with events in two biennia resolves to the later one."""
