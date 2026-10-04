@@ -506,6 +506,49 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "the roster wire; Joint/Other: a meeting window; structural: declared). "
                 "Additive, so a minor",
             ),
+            ContractRelease(
+                "1.2.0",
+                (
+                    "entity_id",
+                    "name",
+                    "long_name",
+                    "acronym",
+                    "agency",
+                    "org_type",
+                    "first_biennium",
+                    "last_biennium",
+                    "active",
+                ),
+                "#447: `active` is also false for a succeeded or merged predecessor "
+                "(INV2, derived from `org_lineage`). No field moved, so `contract_hash` "
+                "holds; the minor says the column's meaning narrowed",
+            ),
+        ),
+    ),
+    # Committee succession links (#447): the operator-attested edges usa-wa
+    # holds in `registry.committee_succession_events` (#124), which reached
+    # nobody once the C3 push retired with the sync (#314). A dataset of its own
+    # rather than columns on `organizations`: links are many-to-many and carry
+    # their own evidence. Key: (subject_entity_id, slug, linked_entity_id).
+    PublishedDataset(
+        "org_lineage",
+        "conformed",
+        (
+            ContractRelease(
+                "1.0.0",
+                (
+                    "subject_entity_id",
+                    "slug",
+                    "linked_entity_id",
+                    "subject_source_id",
+                    "linked_source_id",
+                    "effective_year",
+                    "evidence_url",
+                    "notes",
+                ),
+                "#447: first release — one row per current succession link, ends "
+                "resolved through `org_crosswalk`, the raw WSL ids beside them",
+            ),
         ),
     ),
     PublishedDataset(

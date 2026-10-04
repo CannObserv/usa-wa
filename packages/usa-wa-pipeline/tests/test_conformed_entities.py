@@ -588,3 +588,36 @@ def test_a_pinned_past_biennium_still_reads_its_committees_active() -> None:
     [row] = org_rows(ORG_CROSSWALK, committees=COMMITTEES, meetings=[], current_biennium="2023-24")
     assert row["active"] is True
     assert row["last_biennium"] == "2025-26"
+
+
+def test_a_succeeded_predecessor_reads_inactive_though_it_met_this_biennium() -> None:
+    """INV2, derived (#447). Civic Health: 35341 met in 2025-26 and expired in
+    January 2026 when SCR 8406 re-established it as 36500 — "met this biennium"
+    kept it `active=true` until the 2027-01-01 rollover (power-map#592). Its
+    `succeeded_by` link is the fact the meeting wire cannot carry."""
+    crosswalk = [_org("04A", "35341"), _org("04B", "36500")]
+    meetings = [
+        _meeting("35341", "2025-01-01:2026-12-31"),
+        _meeting("36500", "2025-01-01:2026-12-31"),
+    ]
+    rows = org_rows(
+        crosswalk,
+        committees=[],
+        meetings=meetings,
+        current_biennium="2025-26",
+        retired={"04A"},
+    )
+    assert {r["entity_id"]: r["active"] for r in rows} == {"04A": False, "04B": True}
+
+
+def test_a_retired_committee_reads_inactive_on_a_current_roster_too() -> None:
+    """The same rule on the roster branch: a link outranks a back-stamped
+    attestation (WSL stamps a re-keyed id onto the biennium before the rename)."""
+    [row] = org_rows(
+        ORG_CROSSWALK,
+        committees=COMMITTEES,
+        meetings=[],
+        current_biennium="2025-26",
+        retired={ORG_CROSSWALK[0]["entity_id"]},
+    )
+    assert row["active"] is False
