@@ -114,8 +114,6 @@ def _year(value: Any) -> int | None:
     as numpy ints. Reading a float year as undated would refuse every
     legitimate round trip the night one link lost its year.
     """
-    if isinstance(value, bool):
-        return None
     if isinstance(value, Integral):
         return int(value)
     if isinstance(value, float) and value.is_integer():
