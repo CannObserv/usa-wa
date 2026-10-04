@@ -44,12 +44,43 @@ models:
       - name: entity_id
         data_tests: [not_null]
   - name: organizations
-    description: "One row per LIVE org entity; newest-biennium committee attributes. `active` (#428) = attested in the current biennium: the roster wire for a committee, a meeting window for a Joint/Other body, the declared vocabulary flag for a chamber, the legislature or a party."
+    description: "One row per LIVE org entity; newest-biennium committee attributes. `active` (#428) = attested in the current biennium: the roster wire for a committee, a meeting window for a Joint/Other body, the declared vocabulary flag for a chamber, the legislature or a party — and false for a succeeded or merged predecessor in org_lineage (INV2, #447; tests/organizations_succeeded_are_inactive.sql)."
     columns:
       - name: entity_id
         data_tests: [not_null, unique]
       - name: active
         data_tests: [not_null]
+  - name: org_lineage
+    description: "One row per CURRENT operator-attested committee succession link (#447; registry.committee_succession_events, #124): succeeded_by (subject = predecessor), split_from (subject = child), merged_with (subject = a predecessor). Ends resolved through org_crosswalk (merge tombstones followed), the raw WSL committee ids beside them. Key: (subject_entity_id, slug, linked_entity_id) — tests/org_lineage_key.sql. A superseded link is absent, which is its retraction."
+    columns:
+      - name: subject_entity_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('organizations')
+                field: entity_id
+      - name: linked_entity_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('organizations')
+                field: entity_id
+      - name: slug
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["succeeded_by", "split_from", "merged_with"]
+      - name: subject_source_id
+        data_tests: [not_null]
+      - name: linked_source_id
+        data_tests: [not_null]
+      - name: evidence_url
+        data_tests: [not_null]
+  - name: org_lineage_cycles
+    description: "Cycles among forward-flow lineage links (succeeded_by, merged_with) that cannot be read in time order (#447) — empty on a clean build, the hand-review work order otherwise. Not published; tests/org_lineage_time_ordered.sql gates it at zero. Time-ordered round trips are legitimate (#126) and never listed."
   - name: assignments
     description: "Merged tenure spans joined to the person crosswalk; the span source_id's parts as real columns (#309). Two families in disjoint identity spaces — the WSL archive (numeric member ids, 1991-) and the roster PDF (minted <fold>:<year> identities, pre-1991) — so `source` names which space `member_id` belongs to. All four kinds: party, chamber-senate, committee, and chamber-house (the WSL roster x SOS ballot join)."
     columns:

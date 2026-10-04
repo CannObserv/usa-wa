@@ -16,11 +16,13 @@ Stateless joins of the registry crosswalk against staging attributes:
   organization's name is published under the same contract. ``active`` (#428)
   is "attested in the current biennium" on whichever wire the org has — the
   roster wire for a committee, a meeting window for a Joint/`Other` body — and
-  the declared vocabulary flag for a structural anchor.
+  the declared vocabulary flag for a structural anchor — and false, whatever the
+  wire says, for a succeeded or merged predecessor (INV2, #447).
 """
 
 from __future__ import annotations
 
+from collections.abc import Set as AbstractSet
 from datetime import date
 from typing import Any
 
@@ -257,12 +259,19 @@ def org_rows(
     committees: list[dict[str, Any]],
     meetings: list[dict[str, Any]],
     current_biennium: str,
+    retired: AbstractSet[str] = frozenset(),
 ) -> list[dict[str, Any]]:
     """One conformed organization per live registry entity.
 
     ``current_biennium`` is the assignments model's (``spans.current_biennium``):
     the same clock decides which spans stay open and which orgs are active, so a
     rollover flips both together and INV1 (#428) cannot fire on the calendar.
+
+    ``retired`` — the entities a ``succeeded_by`` / ``merged_with`` link names as
+    predecessor (``lineage.retired_entities``, #447) — read inactive whatever
+    their wire attests: INV2, derived. A wire can say a body met this biennium;
+    only the link says it has since been succeeded (Civic Health 35341, which
+    expired in January 2026 and read active until the rollover).
     """
     by_committee: dict[str, list[dict[str, Any]]] = {}
     for row in committees:
@@ -294,7 +303,7 @@ def org_rows(
                     "org_type": structural.org_type,
                     "first_biennium": None,
                     "last_biennium": None,
-                    "active": structural.active,
+                    "active": structural.active and entity_id not in retired,
                 }
             )
             continue
@@ -318,7 +327,8 @@ def org_rows(
                     "org_type": _COMMITTEE_TYPES.get(latest.get("agency"), "other"),
                     "first_biennium": attested[0]["biennium"],
                     "last_biennium": latest["biennium"],
-                    "active": any(r["biennium"] == current_biennium for r in attested),
+                    "active": entity_id not in retired
+                    and any(r["biennium"] == current_biennium for r in attested),
                 }
             )
             continue
@@ -333,7 +343,8 @@ def org_rows(
                 "org_type": "other",
                 "first_biennium": None,
                 "last_biennium": None,
-                "active": any(current_biennium in met_in.get(cid, ()) for cid in committee_ids),
+                "active": entity_id not in retired
+                and any(current_biennium in met_in.get(cid, ()) for cid in committee_ids),
             }
         )
     return rows

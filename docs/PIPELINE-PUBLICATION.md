@@ -37,7 +37,7 @@ tier is published rather than inferred:
 | Tier | Datasets | Contract |
 |---|---|---|
 | `staging` | `stg_*` | The triage/lineage surface — one row per wire, source coordinates attached |
-| `conformed` | `persons`, `organizations`, `roles`, `assignments`, the crosswalks | The subscriber contract; schema-stable, semver'd |
+| `conformed` | `persons`, `organizations`, `roles`, `assignments`, `org_lineage`, the crosswalks | The subscriber contract; schema-stable, semver'd |
 | `internal` | `citations` | Published bytes, no stability promise; its columns follow the API, not consumers |
 
 A fourth tier, `cutover`, held one dataset — `pm_anchors`, the PM crosswalk

@@ -14,6 +14,7 @@ import pytest
 import usa_wa_pipeline
 from usa_wa_pipeline.conformed.citations import CITATION_SCHEMA
 from usa_wa_pipeline.conformed.entities import ORG_SCHEMA, PERSON_SCHEMA
+from usa_wa_pipeline.conformed.lineage import CYCLE_SCHEMA, LINEAGE_SCHEMA
 from usa_wa_pipeline.conformed.namesakes import COLLISION_SCHEMA
 from usa_wa_pipeline.conformed.roles import ROLE_SCHEMA
 from usa_wa_pipeline.conformed.spans import ASSIGNMENT_SCHEMA
@@ -46,6 +47,8 @@ MODEL_SCHEMAS = {
     "citations": CITATION_SCHEMA,
     "org_crosswalk": CROSSWALK_SCHEMA,
     "organizations": ORG_SCHEMA,
+    "org_lineage": LINEAGE_SCHEMA,
+    "org_lineage_cycles": CYCLE_SCHEMA,
     "person_crosswalk": CROSSWALK_SCHEMA,
     "person_name_collisions": COLLISION_SCHEMA,
     "persons": PERSON_SCHEMA,

@@ -169,8 +169,8 @@ lifecycle. Three layers restore a coherent timeline. **Objective** facts auto-de
 from the roster archive: each `Id`'s founded/dissolved window (C1a) + the `active` flag
 (C1b bulk deactivation of the ~150 defunct-era backfill Ids). The **judgment** layer is
 operator-attested succession links (C2) — which era-`Id` continued / split from / merged
-with which — emitted to PM as `succeeded_by` / `split_from` / `merged_with` entity events
-(C3). A daily **coherence** invariant (C4) + an advisory **candidate report** (C5) close
+with which — published as the `org_lineage` dataset since #447 (the C3 push of PM
+`succeeded_by` / `split_from` / `merged_with` entity events retired with #314). A daily **coherence** invariant (C4) + an advisory **candidate report** (C5) close
 the loop. See [`docs/specs/2026-07-25-committee-lineage-lifecycle-design.md`](specs/2026-07-25-committee-lineage-lifecycle-design.md).
 
 ```bash
@@ -207,8 +207,10 @@ python -m usa_wa_adapter_legislature.committees.succession_cli --supersede <id> 
 python -m usa_wa_adapter_legislature.committees.succession_cli --list               # current links
 
 # C3 — emitting the C1a windows + C2 links to PM as org entity events. RETIRED at #314
-# with committee_event_producer. C2's links are still recorded locally and still gate C4;
-# what went is the push of them to PM, which #314 replaced with PM's nightly pull.
+# with committee_event_producer. Since #447 the nightly publishes C2's current links as the
+# `org_lineage` dataset (PM pulls it), so a link recorded here publishes after the next
+# pipeline run — and a --supersede retracts the old edge the same way. Gates and contract:
+# docs/PIPELINE-CONFORMED-ENTITIES.md § Conformed: committee lineage.
 
 # C4 — daily coherence invariant (read-only anti-drift backstop): INV1 no active=false
 # committee carries a live membership Assignment; INV2 the subject of a non-superseded
@@ -218,9 +220,10 @@ python -m usa_wa_adapter_legislature.committees.succession_cli --list           
 # have deactivated defunct committees + closed their spans (else it pages on pre-existing drift).
 # Since #428 INV1 is ALSO a dbt error test on the published tier
 # (organizations_inactive_have_no_live_members, docs/PIPELINE.md), so #412 PR E can retire this
-# unit without losing it. INV2 has no successor yet: deferred, reason in docs/PIPELINE.md.
-# Both invariants read canonical org_type='committee' only, so a Joint/Other link (C2 accepts
-# them since #445) is outside INV2: a by-hand run passes an active Joint predecessor unchecked.
+# unit without losing it. INV2 likewise since #447: organizations.active DERIVES false for a
+# succeeded/merged predecessor and organizations_succeeded_are_inactive gates it, over every
+# org type. This unit reads canonical org_type='committee' only, so a by-hand run is blind
+# to a Joint/Other link (C2 accepts them since #445); the dbt test is not.
 python -m usa_wa_adapter_legislature.committees.lineage_invariants
 
 # C5 — advisory candidate report (read-only; suggests which era-Id pairs to attest via C2).
