@@ -18,9 +18,10 @@ org. The registry is the authority, not the canonical tier #412 froze (#445).
 ``superseded_by_id`` (provenance stays append-only). ``entered_by`` is recorded from
 ``$USA_WA_OPERATOR``, else ``$USER`` — there is no flag for it.
 
-Links are recorded locally only. The C3 producer that pushed each to PM as a linked-entity
-event retired with the sync (#314), and no published dataset carries them yet — a
-succession dataset is deferred (``docs/PIPELINE.md`` § Ported from the canonical tier).
+The C3 producer that pushed each link to PM as a linked-entity event retired with the sync
+(#314). The nightly pipeline publishes the current links as the ``org_lineage`` dataset
+instead (#447), so a link recorded here reaches subscribers after the next run, and a
+``--supersede`` retracts the old edge from the next version.
 """
 
 from __future__ import annotations

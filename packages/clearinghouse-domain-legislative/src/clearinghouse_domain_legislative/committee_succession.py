@@ -4,9 +4,9 @@ WA re-keys standing committees across eras (new WSL ``Id`` ~each decade). The
 *objective* lifecycle facts — each ``Id``'s ``active`` flag + founded/dissolved window —
 are auto-derived from the roster archive. What is **not** derivable is which era-``Id``
 continued, split from, or merged with which: the re-orgs are irregular and there is no
-upstream link. Operators know these (news/journals) and attest them here, feeding the
-event producer that emits PM ``succeeded_by`` / ``split_from`` / ``merged_with`` linked
-entity events (power-map#321).
+upstream link. Operators know these (news/journals) and attest them here. The current
+links publish as the ``org_lineage`` dataset (usa-wa#447); the event producer that pushed
+them to PM as linked-entity events (power-map#321) retired with the sync (#314).
 
 A :class:`CommitteeSuccessionEvent` is **link-shaped**, matching PM's linked-entity event
 directly: it is recorded on a *subject* org (``subject_source_id``, PM ``org_id``) and

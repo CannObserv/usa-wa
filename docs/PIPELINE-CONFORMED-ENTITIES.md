@@ -1,6 +1,7 @@
 # The conformed tier — crosswalks + entities
 
-The identity surface of the #302 pipeline's conformed tier, split out of
+The identity surface of the #302 pipeline's conformed tier — and the committee
+lineage published on it (#447) — split out of
 [`PIPELINE-CONFORMED.md`](PIPELINE-CONFORMED.md), which keeps the tenure spans and the
 citations chain built on it.
 
@@ -153,3 +154,76 @@ This does not fix the cause. `registry_seed` still has no `deleted_at` filter,
 so a producer-side soft-delete is still ignored and an 18th duplicate can still
 be *minted*; the gate catches it at build time. That split is deliberate — the
 gate survives `canonical.*` retiring at #314, the seed fix does not.
+
+## Conformed: committee lineage (#447)
+
+`org_lineage` publishes the operator-attested committee succession links — 162
+on 2026-10-04 (105 `succeeded_by`, 34 `merged_with`, 23 `split_from`). They live
+in `registry.committee_succession_events` (#124, curated with
+`committees.succession_cli`). The C3 producer pushed them to power-map as
+linked-entity events until it retired with the sync (#314); from then until this
+dataset, every link recorded reached no one. Logic:
+`usa_wa_pipeline.conformed.lineage`. Read seam: `operator_read.succession_links`,
+the operator events' pattern (own engine, empty only under
+`USA_WA_PIPELINE_HERMETIC=1`).
+
+| Column | Meaning |
+|---|---|
+| `subject_entity_id` | the org the link is recorded on: the predecessor (`succeeded_by`, `merged_with`) or the child (`split_from`) |
+| `slug` | `succeeded_by` · `split_from` · `merged_with` |
+| `linked_entity_id` | the successor, the parent, or the org merged into |
+| `subject_source_id`, `linked_source_id` | the raw WSL committee ids (negative for some Other bodies) |
+| `effective_year` | the boundary year; nullable |
+| `evidence_url`, `notes` | the operator's evidence |
+
+**A dataset, not columns on `organizations`.** A committee can have several
+links, and each link carries its own evidence. **The key is the edge**,
+`(subject_entity_id, slug, linked_entity_id)`, not the registry row. Correcting
+a year supersedes the row and mints a new ULID, but the edge stays the same
+and is updated in place (#127). **Only current links publish**, so a superseded
+link drops out of the next version, and that absence is how it is retracted. The
+same pair under two slugs is two edges, and production has one: `8265
+split_from 438` plus `8265 succeeded_by 438`, a dormancy blip on a live head.
+
+**Ends resolve through the crosswalk**, following merge tombstones like every
+other conformed reader (#366). An end that resolves to nothing publishes NULL
+instead of dropping the row. A dropped row would retract the link without
+anyone noticing. A NULL fails the build, and the table shows what needs review.
+
+**Gates**, all `error`, all 0 on the production build of 2026-10-04:
+
+| Test | Refuses |
+|---|---|
+| `not_null` + `relationships` → `organizations` on both ends | a link to an unregistered or unpublished org |
+| `accepted_values` on `slug` | a fourth relation nobody decided on |
+| `org_lineage_key` | two current rows on one edge, meaning two years asserted at once |
+| `org_lineage_distinct_ends` | a link whose ends a merge collapsed into one entity |
+| `org_lineage_time_ordered` | a cycle that cannot be read in time order (below) |
+
+**Cycles are legitimate. Untimely ones are not.** WSL re-uses committee ids,
+so a round-trip rename is a real cycle. Production has five among
+`succeeded_by` links, for example `924 → 966 → 924` (1993/1995) and `1 → 3492 →
+8254 → 1` (2001/2003/2005), and #126 records them as data. A plain "no cycles"
+gate would refuse correct history every night. What no history can produce is a
+cycle whose years, read once around, wrap back more than once. A same-year
+reversal does this: if both `A → B` and `B → A` are dated 2001, one of them has
+its direction wrong. A cycle with an undated link cannot be ordered at all, so
+it fails too. The gate walks both forward-flow slugs (`succeeded_by` and
+`merged_with`, each predecessor → successor). `split_from` runs child → parent
+and is left out. `org_lineage_cycles` is the internal model the gate reads. It
+is empty on a clean build and lists every cycle that needs review otherwise.
+
+**INV2 is derived, not only flagged.** `organizations.active` is false for the
+subject of a `succeeded_by` or `merged_with` link (`organizations` 1.2.0), and
+`organizations_succeeded_are_inactive` gates the hand-off between the two
+models (PIPELINE.md § Ported from the canonical tier). The deciding case is
+Civic Health. 35341 expired after its January 2026 final report, and SCR 8406
+re-established the committee as 36500. Under the Joint/Other rule ("met this
+biennium") 35341 would publish `active=true` until 2027-01-01. Flagging alone
+would have failed the nightly on that one row. Deriving changes one published
+value and no field, so `contract_hash` holds and the hash-gated power-map puller
+needs no re-pin. The minor bump records that the meaning of `active` narrowed.
+A wrong `succeeded_by` on a live standing committee would now deactivate it
+silently, but INV1 (`organizations_inactive_have_no_live_members`) catches it:
+a live committee has live members. A Joint/Other body has no membership spans,
+so that backstop does not cover it.

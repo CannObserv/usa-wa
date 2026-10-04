@@ -352,9 +352,10 @@ two holders.
 ### Ported from the canonical tier (#412)
 
 The checks the retiring Postgres units ran, rebuilt on `assignments` (#412 PR B) —
-and lineage INV1 on `organizations` ⋈ `roles` ⋈ `assignments` (#428). Each was 0 on
-the production build (PR B's 2026-09-27, INV1's 2026-09-28); each file's header carries its
-reasoning.
+and lineage INV1 on `organizations` ⋈ `roles` ⋈ `assignments` (#428), INV2 on
+`organizations` ⋈ `org_lineage` (#447). Each was 0 on the production build (PR B's
+2026-09-27, INV1's 2026-09-28, INV2's 2026-10-04 once derived); each file's header
+carries its reasoning.
 
 | Test | Replaces | Severity |
 |---|---|---|
@@ -365,6 +366,7 @@ reasoning.
 | `assignments_odd_year_winners_seated` | `house-corroboration`, `senate-corroboration` | error, over **every archived odd year**, probed at December 31 of the election year |
 | `not_null` on `stg_roster_members.order` | `parity_spans`' `malformed_roster_rows` | error |
 | `organizations_inactive_have_no_live_members` | `committee-lineage-invariants` INV1 (#428) | error, over **every org type**, not only committees |
+| `organizations_succeeded_are_inactive` | `committee-lineage-invariants` INV2 (#447) | error, over **every org type** — the unit read canonical `committee` rows, blind to Joint/Other links |
 
 The chamber gate is split in two because dbt thresholds count result rows and
 cannot tell an excess from a vacancy in one test. Its literals are pinned to
@@ -378,10 +380,13 @@ is active when the current biennium's roster wire attests it, a Joint/Other body
 when it met this biennium, a structural org by its declared `STRUCTURAL_ORGS`
 flag. `active` and the open spans both read `spans.current_biennium()`, so the
 2027-01-01 rollover retires the old committees and closes their spans in the
-same build. INV2 (a succeeded or merged predecessor is inactive) and a published
-succession dataset are **deferred**: the conformed tier does not read the
-attested links. When they return they read `registry.committee_succession_events`
-(moved there in #412 PR A) from the duckdb.
+same build. INV2 (a succeeded or merged predecessor is inactive; `split_from`
+exempt) is **derived** since #447: `org_lineage` publishes the attested links from
+`registry.committee_succession_events`, and `organizations` reads them, so Civic
+Health 35341 — expired January 2026, met in 2025-26 — publishes inactive instead of
+waiting for the rollover. The dbt test guards the hand-off between the two models.
+`org_lineage`'s own gates (resolvable ends, edge key, distinct ends, time-ordered
+cycles): [`PIPELINE-CONFORMED-ENTITIES.md`](PIPELINE-CONFORMED-ENTITIES.md).
 
 The three `unregistered_*` counters are **not** dbt tests, and must not become
 them: a new identity is unregistered in the first build that sees it, and a
