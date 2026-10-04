@@ -109,7 +109,7 @@ def retired_entities(lineage: Iterable[dict[str, Any]]) -> set[str]:
 def _year(value: Any) -> int | None:
     """An ``effective_year`` as an int, or ``None`` for undated.
 
-    The cycle model reads ``org_lineage`` back through ``.df()``: an INTEGER
+    The cycle model reads ``org_lineage`` back through ``.df()``: a BIGINT
     column holding a NULL arrives as float64 (``1993.0``, ``NaN``), one without
     as numpy ints. Reading a float year as undated would refuse every
     legitimate round trip the night one link lost its year.

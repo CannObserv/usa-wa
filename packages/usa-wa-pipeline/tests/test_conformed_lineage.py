@@ -216,7 +216,7 @@ def test_self_loops_and_unresolved_ends_are_left_to_their_own_gates() -> None:
 
 
 def test_years_read_through_pandas_null_and_numeric_shapes() -> None:
-    """The model reads `org_lineage` back via `.df()`: an INTEGER column with a
+    """The model reads `org_lineage` back via `.df()`: a BIGINT column with a
     NULL arrives as float64 (1993.0, NaN), one without as numpy ints. A float
     year read as 'undated' would fail every legitimate round trip."""
     numpy_int = pd.Series([1995]).iloc[0]
