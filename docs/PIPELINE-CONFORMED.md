@@ -30,7 +30,12 @@ unasserted rows, the anchor bootstrap, citation writes); what it keeps is the
 operator overlay scoped to its own members — every pre-1991 span is this
 builder's, so the roster's 922 dated mid-term boundaries take effect here or
 nowhere (#226) — and the unattested-span check, which refuses a seat the
-overlay synthesized from an event the edition never listed.
+overlay synthesized from an event the edition never listed. The scoping runs
+the other way too (#460): `build_families` hands `build_all_spans` the minted
+ids as `roster_members`, whose events never reach the WSL overlays — they could
+match nothing there, and each logged miss was noise in
+`operator_seated_no_span_out_of_biennium` (54 of the 90 seatings #282 measured).
+An id no family holds still reaches them, so a typo's miss is still reported.
 
 **One resolve feeds both.** `roster_resolution()` runs the ~8,600-record
 identity resolve once and partitions by disposition: WSL-joined observations
