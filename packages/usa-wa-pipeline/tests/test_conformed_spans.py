@@ -473,6 +473,28 @@ def test_an_event_no_family_owns_still_logs_its_miss(caplog) -> None:
     assert "operator_departed_no_open_span" in caplog.messages
 
 
+def test_the_house_overlay_receives_only_wsl_family_events(monkeypatch) -> None:
+    """usa-wa#460 names three overlays; the House one runs inside `build_house_spans`,
+    which an empty sponsor corpus returns from before reading its events. Record what
+    it is handed instead, so the scoping cannot slip below that call unnoticed."""
+    handed: list = []
+
+    def _house(**kwargs):
+        handed.extend(kwargs["events"])
+        return []
+
+    monkeypatch.setattr("usa_wa_pipeline.conformed.spans.build_house_spans", _house)
+    roster_event = SuccessionEvent("wilburcranston:1925", "departed", date(1928, 6, 1))
+    wsl_event = SuccessionEvent("100", "departed", date(2024, 6, 1))
+    build_all_spans(
+        SpanInputs(sponsors=[], committee_members=[], events=[roster_event, wsl_event]),
+        current_biennium=CURRENT,
+        extra_observations=NO_DEEPENING,
+        roster_members={"wilburcranston:1925"},
+    )
+    assert handed == [wsl_event]
+
+
 def test_senate_roster_rows_emit_a_seat_span() -> None:
     resolution = roster_resolution(
         [_roster("Wilbur Cranston", 1925, district=30, chamber="senate")], []
