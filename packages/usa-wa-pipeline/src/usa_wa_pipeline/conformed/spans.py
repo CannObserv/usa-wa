@@ -555,9 +555,9 @@ def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, li
     halves disagree about who is WSL-joined. The roster family's
     ``context_spans`` are the WSL family's (#267): the only other-kind spans a
     minted identity could hold; the minted identities' events, in turn, are
-    the roster family's alone (usa-wa#460). Rows from a biennium after the current one are
-    dropped first (:func:`without_future_bienniums`, #135), so no span is built
-    from one — the guard's reach ends at the spans; see there.
+    the roster family's alone (usa-wa#460). Rows from a biennium after the
+    current one are dropped first (:func:`without_future_bienniums`, #135), so
+    no span is built from one — the guard's reach ends at the spans; see there.
     """
     inputs = without_future_bienniums(inputs, current_biennium=current_biennium)
     resolution = roster_resolution(inputs.roster, inputs.sponsors)
