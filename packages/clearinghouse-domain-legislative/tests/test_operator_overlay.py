@@ -233,6 +233,29 @@ def test_vacated_closes_built_span_even_for_a_mover():
     assert len(out) == 1 and out[0].valid_to == date(2025, 6, 3)  # closed, not a second synth
 
 
+def test_a_movers_seating_dates_the_house_span_its_vacated_synthesizes(caplog):
+    """usa-wa#461 (member 15814): seated ld-18-position-1 2011-01-05, vacated 2012-06-25 on
+    moving to the Senate. The wire builds no House span (mover exclusion), so `vacated`
+    synthesizes it — but events apply in date order, so the seating ran first, matched
+    nothing and left the synthesized span on its 2011-01-01 floor."""
+    events = [
+        SuccessionEvent("15814", "seated", date(2011, 1, 5), "chamber-house", "ld-18-position-1"),
+        SuccessionEvent("15814", "vacated", date(2012, 6, 25), "chamber-house", "ld-18-position-1"),
+    ]
+    with caplog.at_level("INFO"):
+        (out,) = apply_operator_events(
+            [],
+            events,
+            current_biennium=CURRENT,
+            owned_kinds={"chamber-house"},
+            movers_by_biennium={"2011-12": {"15814"}},
+        )
+    assert out.source_id == "15814:chamber-house:ld-18-position-1:2011-12"
+    assert (out.valid_from, out.valid_to) == (date(2011, 1, 5), date(2012, 6, 25))
+    assert out.is_active is False
+    assert "operator_seated_no_span_out_of_biennium" not in caplog.messages
+
+
 def test_latest_event_biennium_by_member():
     """Each member's latest operator-event biennium (by biennium_for_date of the max
     effective_date); a member with events in two biennia resolves to the later one."""

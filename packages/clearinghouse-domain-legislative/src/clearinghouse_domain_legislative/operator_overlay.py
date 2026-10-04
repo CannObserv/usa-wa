@@ -257,6 +257,8 @@ def apply_operator_events(
     **synthesizes** the mover's closed House tenure iff the member is a mover *that biennium* —
     the House builder passes this so a chamber-mover's House span is dated without re-including
     them in the roster (which perturbs the #103 elimination). Senate/committee builders omit it.
+    The synthesis runs before any event applies (usa-wa#461), so the mover's earlier ``seated``
+    dates the span it mints rather than finding nothing.
 
     **Party continuity is restored last** (#289, :func:`merge_party_continuity`): everything
     above is about seats, and the seat boundaries were leaking into the member's party span —
@@ -276,6 +278,7 @@ def apply_operator_events(
     # floor to the real swearing-in. Ordering by phase rather than by input makes the split
     # read settled starts: Huntley's party tenure reopens 1967-04-24, not 1967-01-01.
     ordered = sorted(events, key=lambda e: (e.kind == KIND_DEPARTED, e.effective_date))
+    result.extend(_synthesize_mover_tenures(result, ordered, owned, movers))
     # A member is seated ONCE per tenure. A second `seated` matching a span it has already
     # dated is a re-seating that belongs to a different tenure, or — as the #226 backfill
     # produced for Christine Rolfes — a successor's seating mis-resolved onto the incumbent.
@@ -374,26 +377,12 @@ def apply_operator_events(
                     result[i] = _close(span, event.effective_date)
                     hit = True
             if not hit:
-                # No built span for the seat. For a #105-excluded chamber-mover (gated on the
-                # per-biennium mover signal) synthesize their closed House tenure directly (#145);
-                # otherwise it is a typo/inverted event — a logged no-op, never a bogus span.
-                biennium = biennium_for_date(event.effective_date)
-                if event.member_id in movers.get(biennium, set()):
-                    result.append(_synthesize_closed(event, biennium))
-                    logger.info(
-                        "operator_vacated_synthesized_closed",
-                        extra={
-                            "member_id": event.member_id,
-                            "seat": event.seat_discriminator,
-                            "biennium": biennium,
-                            "effective_date": event.effective_date.isoformat(),
-                        },
-                    )
-                else:
-                    logger.info(
-                        "operator_vacated_no_span",
-                        extra={"member_id": event.member_id, "seat": event.seat_discriminator},
-                    )
+                # No span for the seat, and a mover's was synthesized up front — so a
+                # typo/inverted event: a logged no-op, never a bogus span.
+                logger.info(
+                    "operator_vacated_no_span",
+                    extra={"member_id": event.member_id, "seat": event.seat_discriminator},
+                )
         elif event.kind == KIND_SEATED:
             if event.seat_kind not in owned:
                 continue
@@ -474,6 +463,48 @@ def apply_operator_events(
                         },
                     )
     return merge_party_continuity(result)
+
+
+def _synthesize_mover_tenures(
+    spans: list[TenureSpan],
+    events: list[SuccessionEvent],
+    owned: set[str],
+    movers: dict[str, set[str]],
+) -> list[TenureSpan]:
+    """The closed House tenures a #105-excluded chamber-mover's ``vacated`` events imply
+    (#145) — minted BEFORE any event applies (usa-wa#461).
+
+    Events apply in date order, so a mover's ``seated`` precedes the ``vacated`` that would
+    synthesize the span it dates: it matched nothing, logged as inert, and the span kept its
+    biennium floor (member 15814, seated 2011-01-05, kept 2011-01-01). Minted up front, the
+    span is there for the seating to date and for the ``vacated`` itself to close.
+
+    Gated on the per-biennium mover signal: a ``vacated`` matching no span for a member who is
+    not a mover that biennium is a typo/inverted event, never a bogus span. Each mint joins
+    the candidates, so a duplicated ``vacated`` does not mint the tenure twice."""
+    candidates = list(spans)
+    minted: list[TenureSpan] = []
+    for event in events:
+        if event.kind != KIND_VACATED or event.seat_kind not in owned:
+            continue
+        biennium = biennium_for_date(event.effective_date)
+        if event.member_id not in movers.get(biennium, set()):
+            continue
+        if any(_matches_seat(span, event) for span in candidates):
+            continue
+        synthesized = _synthesize_closed(event, biennium)
+        candidates.append(synthesized)
+        minted.append(synthesized)
+        logger.info(
+            "operator_vacated_synthesized_closed",
+            extra={
+                "member_id": event.member_id,
+                "seat": event.seat_discriminator,
+                "biennium": biennium,
+                "effective_date": event.effective_date.isoformat(),
+            },
+        )
+    return minted
 
 
 def _seated_at_this_instant(
