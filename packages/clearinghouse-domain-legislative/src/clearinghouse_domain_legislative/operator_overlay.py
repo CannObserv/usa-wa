@@ -377,8 +377,9 @@ def apply_operator_events(
                     result[i] = _close(span, event.effective_date)
                     hit = True
             if not hit:
-                # No span for the seat, and a mover's was synthesized up front — so a
-                # typo/inverted event: a logged no-op, never a bogus span.
+                # No span for the seat is open at the date — a typo/inverted event, or a
+                # later vacate of a tenure an earlier one already closed (a mover's span
+                # was minted up front). A logged no-op, never a bogus span.
                 logger.info(
                     "operator_vacated_no_span",
                     extra={"member_id": event.member_id, "seat": event.seat_discriminator},
