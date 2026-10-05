@@ -191,13 +191,17 @@ collapses into one empty response:
 | Feed exists, nobody has audited it | **200**, `coverage_recorded: false`, `items: []` |
 | Feed exists, audited, and known not to serve a range | **200**, `coverage_recorded: true`, an `absent` span in `items` and in `known_gaps` |
 
-The middle row is the common case today: the #180 migration is additive and rows seed from
-`get_or_create_source`, so the table is empty in production until the next harvest run. Returning
-404 or a bare `[]` there would restore exactly the silence #180 exists to remove.
+The middle row is a feed whose adapter declares no claims yet: rows reconcile nightly from each
+adapter's declared claims (`usa_wa_pipeline.coverage_seed`, #412 PR E). Returning 404 or a bare
+`[]` there would restore exactly the silence #180 exists to remove.
 
 `status` is reported verbatim per span — `verified` | `assumed` | `absent` — and the `absent`
 subset is repeated as `known_gaps`. The duplication is deliberate: `absent` is the load-bearing
 value (a gap the system *knows about*), and a consumer that renders only `items` still shows it.
+
+**Removed in #412 PR F:** a span's `evidence_citation_id`. It pointed into the Postgres
+`citations` table that PR F dropped, and no coverage row ever carried a value, so every
+response had sent `null`. A client reading it should drop the field.
 
 ### `/health/jobs` when nothing has run
 

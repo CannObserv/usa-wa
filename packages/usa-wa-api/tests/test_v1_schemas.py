@@ -123,9 +123,13 @@ class TestSourceCoverageOut:
             range_end=None if status != "absent" else "2024",
             status=status,
             audited_at=datetime(2026, 8, 1, tzinfo=UTC),
-            evidence_citation_id=None,
             notes="audited",
         )
+
+    def test_a_span_carries_no_evidence_citation(self):
+        """#412 PR F (Q5): the field pointed into the dropped ``citations`` table, and no
+        coverage row ever carried one."""
+        assert "evidence_citation_id" not in CoverageSpan.model_fields
 
     def test_preserves_all_three_statuses(self):
         out = SourceCoverageOut(

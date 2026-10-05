@@ -243,14 +243,6 @@ class SourceCoverage(Base, TimestampMixin):
     column is the automated form of the votewa lesson (a feed's range moving without
     anyone noticing)."""
 
-    evidence_citation_id: Mapped[_ULID | None] = mapped_column(
-        ULID(),
-        ForeignKey(f"{SCHEMA}.citations.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    """Optional link to the :class:`~clearinghouse_core.provenance.Citation` recording the
-    probe that established the claim."""
-
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 

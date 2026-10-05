@@ -145,6 +145,11 @@ def test_model_check_constraint_matches_the_migrations_copy():
     assert STATUS_CHECK_NAME in migration
 
 
+def test_a_claim_row_carries_no_evidence_citation():
+    """#412 PR F (Q5): the column FK'd the dropped ``citations`` table and was never set."""
+    assert "evidence_citation_id" not in SourceCoverage.__table__.c
+
+
 def test_claim_for_refuses_an_ambiguous_match():
     """Two verified spans on one dimension means a builder asking for "the floor" has no single
     answer — fail rather than silently pick one."""
