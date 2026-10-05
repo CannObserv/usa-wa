@@ -64,11 +64,10 @@ non-GET operation anywhere. That is what let Power Map revoke usa-wa's write sco
 API that provably cannot write rather than one that promises not to.
 `test_v1_contract.py` asserts both — the prefixed set and the whole route table.
 
-Re-driving dead-lettered outbox work is now on-box only:
-`python -m usa_wa_api.cli.redrive`, with the same scoping
-and dry-run semantics. Shell access was always a stronger trust boundary than the single shared
-`X-Operator-Token` header the route carried, and that header — and
-`USA_WA_OPERATOR_TOKEN` — are gone with it.
+Re-driving dead-lettered outbox work moved on-box with the route, then retired outright when
+#314 deleted the outbox and its `usa_wa_api.cli.redrive` CLI: usa-wa pushes nothing to Power
+Map, so there is nothing to re-drive. The single shared `X-Operator-Token` header the route
+carried — and `USA_WA_OPERATOR_TOKEN` — went with the route.
 
 ### There is no `/spans`
 
