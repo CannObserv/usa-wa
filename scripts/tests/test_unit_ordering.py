@@ -42,7 +42,7 @@ from systemd_units import (
 #
 # Note the deliberate asymmetry: usa-wa-migrate.service declares Before= only
 # the long-running serving unit (usa-wa — the PM sync sidecar was the second
-# until #314), while every oneshot/timer-driven unit (e.g. wsl-refresh) asserts
+# until #314), while every oneshot/timer-driven unit (e.g. pipeline) asserts
 # After=migrate from its own side. Ordering is symmetric in effect (one side suffices), so this
 # is correct — captured faithfully rather than normalized.
 #

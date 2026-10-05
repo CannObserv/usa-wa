@@ -466,9 +466,10 @@ def test_a_db_free_job_never_touches_the_database(monkeypatch):
 
 
 def test_owner_role_resolves_the_owner_dsn(monkeypatch):
-    """Five migrations hard-delete citations the app role is REVOKEd on (#54), so they
-    run under ``DATABASE_URL_OWNER``. Before #179b each read it off ``os.environ``
-    itself — the same split brain #179 closed for ``DATABASE_URL``."""
+    """Five migrations hard-deleted citations the app role was REVOKEd on (#54), so they
+    ran under ``DATABASE_URL_OWNER``. Before #179b each read it off ``os.environ``
+    itself — the same split brain #179 closed for ``DATABASE_URL``. #412 PR F deleted
+    them with the table; the role stays a ``run_job`` option."""
     asked: list[str] = []
 
     def _url(role: str = DATABASE_ROLE_APP) -> str:

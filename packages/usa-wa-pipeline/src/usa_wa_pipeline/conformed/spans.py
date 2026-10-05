@@ -155,7 +155,8 @@ class SpanInputs:
 def seatings_from_sponsors(rows: list[dict[str, Any]]) -> list[Seating]:
     """Staging sponsor rows → per-YEAR seatings, the identity resolve's index.
 
-    Mirrors ``roster_pdf.backfill.load_seatings`` exactly, including its rule
+    Ported exactly from ``roster_pdf.backfill.load_seatings`` (deleted in #412
+    PR F), including its rule
     that a biennium's roster attests to BOTH of its years (a succession
     boundary is dated in one of them).
     """

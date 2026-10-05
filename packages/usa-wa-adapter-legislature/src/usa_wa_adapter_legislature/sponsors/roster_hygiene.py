@@ -44,7 +44,7 @@ def committee_member_ids_by_biennium(
     rosters: dict[tuple[str, str], list[dict[str, Any]]],
 ) -> dict[str, set[str]]:
     """Collapse the committee-member archive (``{(biennium, committee_id): [rows]}``, the
-    :class:`CommitteeMemberCohortProvider.archived_rosters` shape) into the per-biennium
+    shape :func:`usa_wa_pipeline.conformed.wire.committee_rosters` builds) into the per-biennium
     committee-active member-id sets the exclusion consults. Ids stringified (the wire carries
     ints); id-less rows skipped."""
     ids: dict[str, set[str]] = {}

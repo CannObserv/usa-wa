@@ -3,8 +3,9 @@
 Nothing in this system recorded "job X ran at T, took D, processed N, ended in state
 S". Alerting is exit-code driven (``OnFailure=usa-wa-notify-failure@``), so the failure
 mode that actually bites — **a job that exits 0 having silently done nothing** — was
-invisible by construction. ``usa_wa_adapter_sos.results.harvest`` names it exactly: a
-whole-source outage logs a WARNING and returns 0, and nothing consumes that signal.
+invisible by construction. ``usa_wa_adapter_sos.results.harvest`` (deleted in #412 PR F)
+named it exactly: a whole-source outage logged a WARNING and returned 0, and nothing
+consumed that signal.
 
 This table is the missing record. Three things make it useful:
 
