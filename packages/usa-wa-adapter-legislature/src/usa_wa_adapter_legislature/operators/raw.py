@@ -102,7 +102,8 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
     its natural key and always buffers its body, and the flush deduplicates only against
     the resource's newest record, so the missing bytes land. Not the original command
     when it was a ``--supersede``: that refuses a prior it has already superseded, so the
-    corrected event is recorded plainly instead. (Until #412 PR F the recovery was
+    corrected event is recorded plainly instead — for a ``--file`` batch, the same file
+    re-run with every ``supersede_id`` removed. (Until #412 PR F the recovery was
     ``raw_export`` from the Postgres copy, which no longer exists.)
     """
     try:
@@ -111,8 +112,9 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
         logger.exception("operator_raw_flush_failed", extra={"raw_root": str(raw.store.root)})
         raise AttestationArchiveError(
             f"the database write committed, but archiving it to {raw.store.source_dir} "
-            f"failed ({exc}); record the event again as it now stands, without --supersede: "
-            "the write is idempotent and archives its bytes"
+            f"failed ({exc}); record the event again as it now stands, without --supersede "
+            "(a --file batch: re-run it with every supersede_id removed): the write is "
+            "idempotent and archives its bytes"
         ) from exc
 
 

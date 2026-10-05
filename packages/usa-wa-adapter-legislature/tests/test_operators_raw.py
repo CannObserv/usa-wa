@@ -152,8 +152,10 @@ async def test_a_failed_flush_says_the_database_write_committed(tmp_path, monkey
     pending.add(_SID, b"{}", _AT)
 
     recovery = "committed.*record the event again as it now stands"
-    with pytest.raises(AttestationArchiveError, match=recovery):
+    with pytest.raises(AttestationArchiveError, match=recovery) as raised:
         await flush_after_commit(pending)
+    # A --file batch that superseded cannot be re-run as it was: the priors refuse.
+    assert "re-run it with every supersede_id removed" in str(raised.value)
 
 
 async def test_any_failure_after_the_commit_is_an_archive_error(tmp_path):

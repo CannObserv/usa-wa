@@ -42,8 +42,8 @@ the weekly integrity sweep covers — its only provenance since #412 PR F droppe
 # provenance since #412 PR F — to the raw store after the commit: run it from the primary
 # checkout, or set USA_WA_RAW_ROOT, so it lands in the prod raw/ and not a worktree's; exit 4 =
 # the write committed but the raw copy did not land — record the event again as it now
-# stands, without --supersede, which a superseded prior refuses: the write is idempotent and
-# archives its bytes); shell access is the trust boundary. Provenance is append-only — a
+# stands, without --supersede, which a superseded prior refuses — a --file batch is re-run
+# with every supersede_id removed: the write is idempotent and archives its bytes); shell access is the trust boundary. Provenance is append-only — a
 # date-correction is --supersede (a NEW row stamping the prior one's superseded_by_id), never
 # a mutation (#54).
 # A supersede may also RECLASSIFY, within endings only (#363): departed <-> vacated are
@@ -92,7 +92,7 @@ candidate report with the canonical tier (#412 PR F). See
 # registry.committee_succession_events, and the attestation body to the raw store under
 # usa_wa_operator after the commit — its only provenance since #412 PR F; exit 4 if only that
 # copy failed, recovered as for operator events above: record the link again as it now
-# stands, without --supersede); provenance is append-only.
+# stands, without --supersede or a batch's supersede_id); provenance is append-only.
 # A wrong-successor / year fix is --supersede (a NEW row stamping the prior's superseded_by_id).
 # On a supersede: --year sets, --clear-year clears, omitting both inherits the prior's year.
 # --dry-run validates + writes, then rolls back — but --list is read-only and commits even
