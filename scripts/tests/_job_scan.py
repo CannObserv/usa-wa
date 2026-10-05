@@ -49,7 +49,7 @@ def jobs() -> list[Path]:
 
 
 def relative(path: Path) -> str:
-    """``usa_wa_api/cli/redrive.py`` — the package-relative module path."""
+    """``usa_wa_api/backup/run.py`` — the package-relative module path."""
     parts = path.parts
     return "/".join(parts[parts.index("src") + 1 :])
 

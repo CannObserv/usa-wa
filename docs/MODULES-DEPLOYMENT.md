@@ -39,7 +39,6 @@ and the publication contract in [PIPELINE-PUBLICATION.md](PIPELINE-PUBLICATION.m
       run.py          — the nightly job (`usa-wa-backup.service`): preflight, then the two halves independently; either failing exits 1; then the check-in, on every path out but a dry run
       checkin.py      — the dead-man check-in to co-status (#455): `ok` with the summary, `alert` with the error; key from the unit's `checkin-key` credential, never the environment; never raises, never changes the exit
       restore.py      — by hand, as root: list / fetch + prove / load into an empty database, then check the schema version, registry counts and the ULIDs of the crosswalks published at or before the dump (a crashed publish passed over); `--raw-into`
-    src/usa_wa_api/cli/               — operator CLIs, thin wrappers over the API's service functions. Indexed by name in [COMMANDS.md](COMMANDS.md)
     tests/            — API tests; conftest adds the AsyncClient over the root db_session
 alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base
 conftest.py           — DB-free test base: prod-DSN guard (CR #191), `db` auto-marker (#185)
