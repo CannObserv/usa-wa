@@ -11,8 +11,8 @@ from sqlalchemy import select
 
 from clearinghouse_core.job import load_json_batch
 from clearinghouse_core.rawstore import RAW_ROOT_ENV, RawStore
+from clearinghouse_core.registry import KIND_PERSON, RegistryEntity, RegistryKey
 from clearinghouse_core.testing import patch_job_runtime
-from clearinghouse_domain_legislative.identity import Person
 from clearinghouse_domain_legislative.operator_events import OPERATOR_SOURCE_SLUG, OperatorEvent
 from usa_wa_adapter_legislature.operators import cli
 from usa_wa_adapter_legislature.operators.cli import (
@@ -22,16 +22,27 @@ from usa_wa_adapter_legislature.operators.cli import (
     validate_and_record,
 )
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations
-from usa_wa_adapter_legislature.operators.store import get_or_create_operator_source
-from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 
-async def _source(session):
-    return await get_or_create_operator_source(session, await resolve_jurisdiction(session))
+@pytest.fixture
+def raw(tmp_path):
+    return PendingAttestations.for_operator(tmp_path)
 
 
 async def _person(session, mid):
-    session.add(Person(source="usa_wa_legislature", source_id=mid, name_full="M"))
+    """Register WSL member ``mid`` the way the nightly registrar does — the identity
+    authority since #412 PR F dropped the canonical persons table."""
+    entity = RegistryEntity(kind=KIND_PERSON)
+    session.add(entity)
+    await session.flush()
+    session.add(
+        RegistryKey(
+            kind=KIND_PERSON,
+            natural_key=f"usa_wa_legislature:{mid}",
+            entity_id=entity.id,
+            registered_by="test",
+        )
+    )
     await session.flush()
 
 
@@ -45,24 +56,21 @@ def _departed(member="100", d=date(2025, 4, 19)):
     )
 
 
-async def test_records_a_valid_departed_event(db_session, usa_wa):
+async def test_records_a_valid_departed_event(db_session, raw):
     await _person(db_session, "100")
-    source = await _source(db_session)
-    event = await validate_and_record(db_session, source, _departed())
+    event = await validate_and_record(db_session, _departed(), raw=raw)
     assert event.kind == "departed" and event.member_id == "100"
 
 
-async def test_unknown_member_rejected(db_session, usa_wa):
-    source = await _source(db_session)
+async def test_unknown_member_rejected(db_session, raw):
     with pytest.raises(OperatorEventError, match="resolves to no"):
-        await validate_and_record(db_session, source, _departed(member="999"))
+        await validate_and_record(db_session, _departed(member="999"), raw=raw)
 
 
-async def test_records_a_vacated_defeated_event(db_session, usa_wa):
+async def test_records_a_vacated_defeated_event(db_session, raw):
     """A member defeated at an election vacates the seat (#152) — the reason an
     appointee's loss of the ensuing special/general election needs (Grant-Herriot, #144)."""
     await _person(db_session, "100")
-    source = await _source(db_session)
     spec = EventSpec(
         member_id="100",
         kind="vacated",
@@ -72,13 +80,12 @@ async def test_records_a_vacated_defeated_event(db_session, usa_wa):
         seat_kind="chamber-house",
         seat_discriminator="ld-16-position-2",
     )
-    event = await validate_and_record(db_session, source, spec)
+    event = await validate_and_record(db_session, spec, raw=raw)
     assert event.kind == "vacated" and event.reason == "defeated"
 
 
-async def test_bad_reason_for_kind_rejected(db_session, usa_wa):
+async def test_bad_reason_for_kind_rejected(db_session, raw):
     await _person(db_session, "100")
-    source = await _source(db_session)
     bad = EventSpec(
         member_id="100",
         kind="departed",
@@ -87,12 +94,11 @@ async def test_bad_reason_for_kind_rejected(db_session, usa_wa):
         evidence_url="https://x",
     )
     with pytest.raises(OperatorEventError, match="reason"):
-        await validate_and_record(db_session, source, bad)
+        await validate_and_record(db_session, bad, raw=raw)
 
 
-async def test_seated_without_seat_rejected(db_session, usa_wa):
+async def test_seated_without_seat_rejected(db_session, raw):
     await _person(db_session, "100")
-    source = await _source(db_session)
     bad = EventSpec(
         member_id="100",
         kind="seated",
@@ -101,12 +107,11 @@ async def test_seated_without_seat_rejected(db_session, usa_wa):
         evidence_url="https://x",
     )
     with pytest.raises(OperatorEventError, match="requires --seat"):
-        await validate_and_record(db_session, source, bad)
+        await validate_and_record(db_session, bad, raw=raw)
 
 
-async def test_departed_with_seat_rejected(db_session, usa_wa):
+async def test_departed_with_seat_rejected(db_session, raw):
     await _person(db_session, "100")
-    source = await _source(db_session)
     bad = EventSpec(
         member_id="100",
         kind="departed",
@@ -117,12 +122,11 @@ async def test_departed_with_seat_rejected(db_session, usa_wa):
         seat_discriminator="5",
     )
     with pytest.raises(OperatorEventError, match="must not carry a seat"):
-        await validate_and_record(db_session, source, bad)
+        await validate_and_record(db_session, bad, raw=raw)
 
 
-async def test_unknown_seat_kind_rejected(db_session, usa_wa):
+async def test_unknown_seat_kind_rejected(db_session, raw):
     await _person(db_session, "100")
-    source = await _source(db_session)
     bad = EventSpec(
         member_id="100",
         kind="seated",
@@ -133,21 +137,19 @@ async def test_unknown_seat_kind_rejected(db_session, usa_wa):
         seat_discriminator="5",
     )
     with pytest.raises(OperatorEventError, match="not a known seat kind"):
-        await validate_and_record(db_session, source, bad)
+        await validate_and_record(db_session, bad, raw=raw)
 
 
-async def test_supersede_may_reclassify_one_ending_as_another(db_session, usa_wa):
+async def test_supersede_may_reclassify_one_ending_as_another(db_session, raw):
     """usa-wa#363. `departed` and `vacated` are two readings of one boundary — the
     member left the legislature, or moved seats within it. A projection that
     changes its mind has no other way to say so: provenance is append-only (#54),
     so the correction IS the supersede. The seat travels with the new kind.
     """
     await _person(db_session, "100")
-    source = await _source(db_session)
-    prior = await validate_and_record(db_session, source, _departed(d=date(2025, 4, 19)))
+    prior = await validate_and_record(db_session, _departed(d=date(2025, 4, 19)), raw=raw)
     corrected = await validate_and_record(
         db_session,
-        source,
         EventSpec(
             member_id="100",
             kind="vacated",
@@ -158,24 +160,23 @@ async def test_supersede_may_reclassify_one_ending_as_another(db_session, usa_wa
             seat_discriminator="ld-5-position-1",
             supersede_id=str(prior.id),
         ),
+        raw=raw,
     )
     assert corrected.kind == "vacated"
     assert corrected.seat_discriminator == "ld-5-position-1"
     assert prior.superseded_by_id == corrected.id
 
 
-async def test_supersede_cannot_turn_an_ending_into_a_beginning(db_session, usa_wa):
+async def test_supersede_cannot_turn_an_ending_into_a_beginning(db_session, raw):
     """The latitude stops at the boundary's direction. A seating is a different
     fact, not a better reading of a departure."""
     await _person(db_session, "100")
-    source = await _source(db_session)
-    prior = await validate_and_record(db_session, source, _departed(d=date(2025, 4, 19)))
+    prior = await validate_and_record(db_session, _departed(d=date(2025, 4, 19)), raw=raw)
     # OperatorEventError, not a bare ValueError (CR 139): this is the path that prints
     # `error:`, rolls back and exits EXIT_CONFIG. The library check stays the arbiter.
     with pytest.raises(OperatorEventError, match="ending"):
         await validate_and_record(
             db_session,
-            source,
             EventSpec(
                 member_id="100",
                 kind="seated",
@@ -186,15 +187,14 @@ async def test_supersede_cannot_turn_an_ending_into_a_beginning(db_session, usa_
                 seat_discriminator="5",
                 supersede_id=str(prior.id),
             ),
+            raw=raw,
         )
 
 
-async def test_supersede_with_mismatched_seat_rejected(db_session, usa_wa):
+async def test_supersede_with_mismatched_seat_rejected(db_session, raw):
     await _person(db_session, "100")
-    source = await _source(db_session)
     prior = await validate_and_record(
         db_session,
-        source,
         EventSpec(
             member_id="100",
             kind="seated",
@@ -204,6 +204,7 @@ async def test_supersede_with_mismatched_seat_rejected(db_session, usa_wa):
             seat_kind="chamber-senate",
             seat_discriminator="5",
         ),
+        raw=raw,
     )
     mismatched = EventSpec(
         member_id="100",
@@ -216,16 +217,14 @@ async def test_supersede_with_mismatched_seat_rejected(db_session, usa_wa):
         supersede_id=str(prior.id),
     )
     with pytest.raises(OperatorEventError, match="seat differs"):
-        await validate_and_record(db_session, source, mismatched)
+        await validate_and_record(db_session, mismatched, raw=raw)
 
 
-async def test_supersede_records_correction(db_session, usa_wa):
+async def test_supersede_records_correction(db_session, raw):
     await _person(db_session, "100")
-    source = await _source(db_session)
-    prior = await validate_and_record(db_session, source, _departed(d=date(2025, 4, 19)))
+    prior = await validate_and_record(db_session, _departed(d=date(2025, 4, 19)), raw=raw)
     corrected = await validate_and_record(
         db_session,
-        source,
         EventSpec(
             member_id="100",
             kind="departed",
@@ -234,6 +233,7 @@ async def test_supersede_records_correction(db_session, usa_wa):
             evidence_url="https://x",
             supersede_id=str(prior.id),
         ),
+        raw=raw,
     )
     assert corrected.effective_date == date(2025, 4, 20)
     refreshed = (
@@ -421,4 +421,4 @@ def test_main_a_failed_archive_is_degraded_not_failed(monkeypatch, tmp_path, cap
         assert cli.main(["--member-id", "29091"]) == 4
 
     assert recording.committed == 1
-    assert "uv run python -m clearinghouse_core.raw_export" in capsys.readouterr().err
+    assert "record the event again as it now stands" in capsys.readouterr().err

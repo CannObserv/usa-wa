@@ -180,6 +180,14 @@ class RawPayload(Base, CreatedAtMixin):
     closed biennium's roster cheaply). A retention GC must exclude those resource prefixes.
     """
 
+    # Retired tier (#412 PR F) — see the domain package's tests/test_declared_tier.py.
+    __implementation_status__ = "retired"
+    __implementation_tracking_issues__ = (412,)
+    __implementation_rationale__ = (
+        "Its last writers were the operator stores, which archive to the raw store only "
+        "since PR F; the table drops with the provenance tables."
+    )
+
     __tablename__ = "raw_payloads"
     __table_args__ = (
         UniqueConstraint("fetch_event_id", name="uq_raw_payloads_fetch_event"),

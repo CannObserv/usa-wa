@@ -1,25 +1,34 @@
-"""Committee-succession store: provenance write + dedup + supersede + read (usa-wa#124 C2)."""
+"""Committee-succession store: raw-store attestation + idempotency + supersede + read
+(usa-wa#124 C2)."""
 
 import hashlib
+import json
 
+import pytest
 from sqlalchemy import func, select
 
-from clearinghouse_core.provenance import FetchEvent, RawPayload, Source
 from clearinghouse_domain_legislative.committee_succession import CommitteeSuccessionEvent
 from usa_wa_adapter_legislature.committees.succession_store import (
     current_events,
-    get_or_create_operator_source,
     record_succession_event,
     succession_source_id,
     supersede_event,
     superseded_events,
 )
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations
-from usa_wa_common.jurisdiction import resolve_jurisdiction
+
+_LINK = dict(
+    subject_source_id="14294",
+    linked_source_id="28244",
+    slug="succeeded_by",
+    effective_year=2021,
+    evidence_url="https://example.gov/lc",
+)
 
 
-async def _source(session) -> Source:
-    return await get_or_create_operator_source(session, await resolve_jurisdiction(session))
+@pytest.fixture
+def raw(tmp_path):
+    return PendingAttestations.for_operator(tmp_path)
 
 
 def test_source_id_deterministic_with_and_without_year():
@@ -31,69 +40,50 @@ def test_source_id_deterministic_with_and_without_year():
     )
 
 
-async def test_record_writes_hashed_provenance_and_projection(db_session, usa_wa):
-    source = await _source(db_session)
+async def test_record_lands_its_attestation_and_projection(db_session, raw):
+    """Committee links share the ``usa_wa_operator`` source, so they reach the raw store
+    the way operator events do: the canonical JSON, under its sha256 and the link's key."""
     event = await record_succession_event(
-        db_session,
-        source,
-        subject_source_id="14294",
-        linked_source_id="28244",
-        slug="succeeded_by",
-        effective_year=2021,
-        evidence_url="https://example.gov/lc",
-        notes="renamed",
-        entered_by="greg",
+        db_session, raw=raw, notes="renamed", entered_by="greg", **_LINK
     )
+    raw.flush()
     assert event.source_id == "succeeded_by:14294:28244:2021"
 
-    fe = (
-        await db_session.execute(
-            select(FetchEvent).where(FetchEvent.resource_id == event.source_id)
-        )
-    ).scalar_one()
-    payload = (
-        await db_session.execute(select(RawPayload).where(RawPayload.fetch_event_id == fe.id))
-    ).scalar_one()
-    assert fe.content_hash == hashlib.sha256(payload.body).digest()
+    latest = raw.store.latest()[event.source_id]
+    body = raw.store.object_path(latest["sha256"]).read_bytes()
+    assert latest["sha256"] == hashlib.sha256(body).hexdigest()
+    assert json.loads(body)["notes"] == "renamed"
 
 
-async def test_record_is_idempotent_on_natural_key(db_session, usa_wa):
-    source = await _source(db_session)
+async def test_the_raw_buffer_is_required(db_session):
+    """The raw store is the link's only provenance since #412 PR F."""
+    with pytest.raises(TypeError, match="raw"):
+        await record_succession_event(db_session, **_LINK)
+
+
+async def test_record_is_idempotent_on_natural_key(db_session, raw):
     for _ in range(2):
-        await record_succession_event(
-            db_session,
-            source,
-            subject_source_id="14294",
-            linked_source_id="28244",
-            slug="succeeded_by",
-            effective_year=2021,
-            evidence_url="https://example.gov/lc",
-        )
+        await record_succession_event(db_session, raw=raw, **_LINK)
+    raw.flush()
     n_events = (
         await db_session.execute(select(func.count()).select_from(CommitteeSuccessionEvent))
     ).scalar_one()
-    n_fetch = (await db_session.execute(select(func.count()).select_from(FetchEvent))).scalar_one()
     assert n_events == 1
-    assert n_fetch == 1  # byte-identical re-ingest appends no fresh provenance
+    assert len(raw.store.manifest_paths()) == 1  # a byte-identical re-ingest archives once
 
 
-async def test_supersede_relink_stamps_prior_and_appends_new(db_session, usa_wa):
+async def test_supersede_relink_stamps_prior_and_appends_new(db_session, raw):
     """A re-link correction (wrong successor) is a distinct natural key: the prior link is
     superseded and a new row created (the create-new + retract-old shape, power-map#322)."""
-    source = await _source(db_session)
     prior = await record_succession_event(
         db_session,
-        source,
-        subject_source_id="14294",
-        linked_source_id="99999",  # wrong successor
-        slug="succeeded_by",
-        effective_year=2021,
-        evidence_url="https://example.gov/lc",
+        raw=raw,
+        **{**_LINK, "linked_source_id": "99999"},  # wrong successor
     )
     corrected = await supersede_event(
         db_session,
-        source,
         prior,
+        raw=raw,
         linked_source_id="28244",  # the real successor
         evidence_url="https://example.gov/lc-fixed",
     )
@@ -108,40 +98,22 @@ async def test_supersede_relink_stamps_prior_and_appends_new(db_session, usa_wa)
     assert [e.id for e in superseded] == [prior.id]
 
 
-async def test_supersede_can_clear_year(db_session, usa_wa):
+async def test_supersede_can_clear_year(db_session, raw):
     """Passing ``effective_year=None`` explicitly CLEARS the year (a distinct key), vs
     omitting it (inherit prior's) — the sentinel distinguishes the two."""
-    source = await _source(db_session)
-    prior = await record_succession_event(
-        db_session,
-        source,
-        subject_source_id="14294",
-        linked_source_id="28244",
-        slug="succeeded_by",
-        effective_year=2021,
-        evidence_url="https://example.gov/lc",
-    )
+    prior = await record_succession_event(db_session, raw=raw, **_LINK)
     corrected = await supersede_event(
-        db_session, source, prior, effective_year=None, evidence_url="https://example.gov/lc-fixed"
+        db_session, prior, raw=raw, effective_year=None, evidence_url="https://example.gov/fix"
     )
     assert corrected.id != prior.id
     assert corrected.effective_year is None
     assert prior.superseded_by_id == corrected.id
 
 
-async def test_current_events_excludes_non_operator_source(db_session, usa_wa):
+async def test_current_events_excludes_non_operator_source(db_session, raw):
     """The producer's input set is operator attestations only — a stray row under a
     different source must not leak in."""
-    source = await _source(db_session)
-    await record_succession_event(
-        db_session,
-        source,
-        subject_source_id="14294",
-        linked_source_id="28244",
-        slug="succeeded_by",
-        effective_year=2021,
-        evidence_url="https://example.gov/lc",
-    )
+    await record_succession_event(db_session, raw=raw, **_LINK)
     db_session.add(
         CommitteeSuccessionEvent(
             source="some_other_source",
@@ -157,77 +129,26 @@ async def test_current_events_excludes_non_operator_source(db_session, usa_wa):
     assert [e.source for e in current] == ["usa_wa_operator"]
 
 
-async def test_supersede_same_key_is_plain_update_not_self_superseded(db_session, usa_wa):
+async def test_supersede_same_key_is_plain_update_not_self_superseded(db_session, raw):
     """A correction that changes only evidence/notes resolves to the prior row (same key) —
     an idempotent update, never self-superseded."""
-    source = await _source(db_session)
-    prior = await record_succession_event(
-        db_session,
-        source,
-        subject_source_id="14294",
-        linked_source_id="28244",
-        slug="succeeded_by",
-        effective_year=2021,
-        evidence_url="https://example.gov/lc",
-    )
+    prior = await record_succession_event(db_session, raw=raw, **_LINK)
     same = await supersede_event(
-        db_session, source, prior, evidence_url="https://example.gov/lc-better"
+        db_session, prior, raw=raw, evidence_url="https://example.gov/lc-better"
     )
     assert same.id == prior.id
     assert prior.superseded_by_id is None
     assert same.evidence_url == "https://example.gov/lc-better"
 
 
-# --- raw store (#412 PR A) ----------------------------------------------------
-
-
-async def test_record_lands_the_same_bytes_in_the_raw_store(db_session, usa_wa, tmp_path):
-    """Committee links share the ``usa_wa_operator`` source, so they reach the raw store
-    the same way operator events do, byte-identical to the Postgres RawPayload."""
-    source = await _source(db_session)
-    raw = PendingAttestations.for_operator(tmp_path)
-    event = await record_succession_event(
-        db_session,
-        source,
-        subject_source_id="14294",
-        linked_source_id="28244",
-        slug="succeeded_by",
-        effective_year=2021,
-        evidence_url="https://example.gov/lc",
-        raw=raw,
-    )
-    raw.flush()
-
-    postgres = (
-        await db_session.execute(
-            select(RawPayload.body)
-            .join(FetchEvent, FetchEvent.id == RawPayload.fetch_event_id)
-            .where(FetchEvent.resource_id == event.source_id)
-        )
-    ).scalar_one()
-    latest = raw.store.latest()[event.source_id]
-    assert raw.store.object_path(latest["sha256"]).read_bytes() == postgres
-
-
-async def test_supersede_lands_the_correction_in_the_raw_store(db_session, usa_wa, tmp_path):
-    source = await _source(db_session)
-    raw = PendingAttestations.for_operator(tmp_path)
-    prior = await record_succession_event(
-        db_session,
-        source,
-        subject_source_id="14294",
-        linked_source_id="28244",
-        slug="succeeded_by",
-        evidence_url="https://example.gov/lc",
-        raw=raw,
-    )
+async def test_supersede_lands_the_correction_in_the_raw_store(db_session, raw):
+    prior = await record_succession_event(db_session, raw=raw, **{**_LINK, "effective_year": None})
     corrected = await supersede_event(
         db_session,
-        source,
         prior,
+        raw=raw,
         linked_source_id="28245",
         evidence_url="https://example.gov/lc-2",
-        raw=raw,
     )
     raw.flush()
 

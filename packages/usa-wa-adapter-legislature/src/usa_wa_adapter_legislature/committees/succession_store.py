@@ -1,21 +1,19 @@
 """Committee succession attestation store (usa-wa#124 C2).
 
 The write side of the operator-attested lineage layer: persist a
-:class:`CommitteeSuccessionEvent` (provenance + projection), idempotent on its
+:class:`CommitteeSuccessionEvent` (attestation + projection), idempotent on its
 deterministic natural key, with append-only supersede-for-corrections — the same
-convention as the #107 operator-events store, and sharing its ``usa_wa_operator``
-provenance :class:`Source`.
+convention as the #107 operator-events store, and sharing its ``usa_wa_operator`` source.
 
-Every write appends a hashed ``FetchEvent`` + ``RawPayload`` (the serialized event, so
-the integrity sweep covers operator committee-lineage facts, #54), and buffers the same
-bytes for the raw store (:mod:`usa_wa_adapter_legislature.operators.raw`, #412). A
-correction appends a new row and stamps the prior one's ``superseded_by_id``; provenance
-is never mutated.
+Every write buffers the serialized event for the raw store
+(:mod:`usa_wa_adapter_legislature.operators.raw`), its only provenance since #412 PR F
+dropped the Postgres ``FetchEvent`` + ``RawPayload`` copy; the raw-store integrity sweep
+covers it (#54). A correction appends a new row and stamps the prior one's
+``superseded_by_id``; provenance is never mutated.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -23,21 +21,11 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.provenance import FetchEvent, FetchStatus, RawPayload, Source
 from clearinghouse_domain_legislative.committee_succession import (
     OPERATOR_SOURCE_SLUG,
     CommitteeSuccessionEvent,
 )
-from usa_wa_adapter_legislature.operators.raw import (
-    ATTESTATION_CONTENT_TYPE,
-    PendingAttestations,
-    attestation_url,
-)
-
-# Re-export the shared operator Source getter so callers need one import.
-from usa_wa_adapter_legislature.operators.store import (  # noqa: F401
-    get_or_create_operator_source,
-)
+from usa_wa_adapter_legislature.operators.raw import PendingAttestations
 
 
 class _InheritYear:
@@ -86,26 +74,10 @@ def _serialize_event(
     ).encode("utf-8")
 
 
-async def _provenance_recorded(
-    session: AsyncSession, source_id, resource_id: str, content_hash: bytes
-) -> bool:
-    """True if a byte-identical attestation is already on record (append-only dedup)."""
-    hit = (
-        await session.execute(
-            select(FetchEvent.id).where(
-                FetchEvent.source_id == source_id,
-                FetchEvent.resource_id == resource_id,
-                FetchEvent.content_hash == content_hash,
-            )
-        )
-    ).first()
-    return hit is not None
-
-
 async def record_succession_event(
     session: AsyncSession,
-    source: Source,
     *,
+    raw: PendingAttestations,
     subject_source_id: str,
     linked_source_id: str,
     slug: str,
@@ -113,15 +85,14 @@ async def record_succession_event(
     evidence_url: str,
     notes: str | None = None,
     entered_by: str | None = None,
-    raw: PendingAttestations | None = None,
 ) -> CommitteeSuccessionEvent:
-    """Persist a succession attestation (provenance + projection). Idempotent on the
+    """Persist a succession attestation (attestation + projection). Idempotent on the
     natural key.
 
-    Returns the projection row. A byte-identical re-ingest neither duplicates the
-    FetchEvent/RawPayload nor changes the row; a changed evidence_url/notes updates the
-    row and appends fresh provenance (a new content_hash). ``raw`` buffers the same body
-    for the raw store; every production entry point passes one (#412 PR A)."""
+    Returns the projection row. ``raw`` buffers the attestation body for the raw store,
+    which deduplicates a byte-identical re-ingest against the resource's newest record;
+    a changed evidence_url/notes updates the row and archives the new body. Required
+    since #412 PR F: the raw store is the attestation's only provenance."""
     sid = succession_source_id(subject_source_id, linked_source_id, slug, effective_year)
     body = _serialize_event(
         subject_source_id=subject_source_id,
@@ -131,32 +102,7 @@ async def record_succession_event(
         evidence_url=evidence_url,
         notes=notes,
     )
-    content_hash = hashlib.sha256(body).digest()
-    fetched_at = datetime.now(UTC)
-    if raw is not None:
-        raw.add(sid, body, fetched_at)
-
-    if not await _provenance_recorded(session, source.id, sid, content_hash):
-        fetch_event = FetchEvent(
-            source_id=source.id,
-            resource_id=sid,
-            resource_version_key=content_hash.hex(),
-            url=attestation_url(sid),
-            fetched_at=fetched_at,
-            http_status=None,
-            content_hash=content_hash,
-            status=FetchStatus.ok,
-        )
-        session.add(fetch_event)
-        await session.flush()
-        session.add(
-            RawPayload(
-                fetch_event_id=fetch_event.id,
-                content_type=ATTESTATION_CONTENT_TYPE,
-                body=body,
-                size_bytes=len(body),
-            )
-        )
+    raw.add(sid, body, datetime.now(UTC))
 
     existing = (
         await session.execute(
@@ -191,16 +137,15 @@ async def record_succession_event(
 
 async def supersede_event(
     session: AsyncSession,
-    source: Source,
     prior: CommitteeSuccessionEvent,
     *,
+    raw: PendingAttestations,
     subject_source_id: str | None = None,
     linked_source_id: str | None = None,
     effective_year: int | None | _InheritYear = INHERIT_YEAR,
     evidence_url: str,
     notes: str | None = None,
     entered_by: str | None = None,
-    raw: PendingAttestations | None = None,
 ) -> CommitteeSuccessionEvent:
     """Record a correction of ``prior`` and stamp ``prior.superseded_by_id``.
 
@@ -214,7 +159,7 @@ async def supersede_event(
     year = prior.effective_year if isinstance(effective_year, _InheritYear) else effective_year
     corrected = await record_succession_event(
         session,
-        source,
+        raw=raw,
         subject_source_id=subject_source_id or prior.subject_source_id,
         linked_source_id=linked_source_id or prior.linked_source_id,
         slug=prior.slug,
@@ -222,7 +167,6 @@ async def supersede_event(
         evidence_url=evidence_url,
         notes=notes,
         entered_by=entered_by,
-        raw=raw,
     )
     if corrected.id != prior.id:
         prior.superseded_by_id = corrected.id

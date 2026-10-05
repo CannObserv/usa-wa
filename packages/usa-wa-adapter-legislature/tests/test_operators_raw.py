@@ -73,7 +73,7 @@ def test_unflushed_attestations_leave_no_trace(tmp_path):
 
 
 def test_a_body_identical_to_the_newest_is_not_rerecorded(tmp_path):
-    """The raw-side twin of the Postgres dedup: a byte-identical re-ingest adds nothing."""
+    """A byte-identical re-ingest adds nothing."""
     first = PendingAttestations.for_operator(tmp_path)
     first.add(_SID, b"{}", _AT)
     first.flush()
@@ -94,7 +94,7 @@ def test_a_repeat_within_one_batch_is_recorded_once(tmp_path):
 
 
 def test_a_changed_body_is_recorded(tmp_path):
-    """A changed evidence_url is fresh provenance, as it is in Postgres."""
+    """A changed evidence_url is fresh provenance."""
     first = PendingAttestations.for_operator(tmp_path)
     first.add(_SID, b'{"evidence_url": "a"}', _AT)
     first.flush()
@@ -151,7 +151,7 @@ async def test_a_failed_flush_says_the_database_write_committed(tmp_path, monkey
     pending = PendingAttestations.for_operator(tmp_path)
     pending.add(_SID, b"{}", _AT)
 
-    recovery = "committed.*uv run python -m clearinghouse_core.raw_export"
+    recovery = "committed.*record the event again as it now stands"
     with pytest.raises(AttestationArchiveError, match=recovery):
         await flush_after_commit(pending)
 

@@ -8,12 +8,13 @@
     python -m usa_wa_adapter_legislature.committees.succession_cli --supersede <id> ... # correction
     python -m usa_wa_adapter_legislature.committees.succession_cli --list               # inspect
 
-App-role DML (writes ``committee_succession_events`` + provenance under
-``usa_wa_operator``); shell access is the trust boundary, as with #107. Validates that
-**both** ``--subject`` and ``--linked`` are registered ``usa_wa_legislature`` committee
-orgs before writing (a typo'd WSL Id would otherwise be a silent no-op link): an integer
-WSL Id (negative for some Other bodies) — standing, Joint or Other, never a structural
-org. The registry is the authority, not the canonical tier #412 froze (#445).
+App-role DML (writes ``registry.committee_succession_events``; the attestation lands in the
+raw store under ``usa_wa_operator`` once the transaction commits); shell access is the trust
+boundary, as with #107. Validates that **both** ``--subject`` and ``--linked`` are registered
+``usa_wa_legislature`` committee orgs before writing (a typo'd WSL Id would otherwise be a
+silent no-op link): an integer WSL Id (negative for some Other bodies) — standing, Joint or
+Other, never a structural org. The registry is the authority (#445); #412 PR F dropped the
+canonical tier.
 ``--dry-run`` rolls back. A ``--supersede`` correction is a new row stamping the prior's
 ``superseded_by_id`` (provenance stays append-only). ``entered_by`` is recorded from
 ``$USA_WA_OPERATOR``, else ``$USER`` — there is no flag for it.
@@ -51,12 +52,10 @@ from clearinghouse_domain_legislative.committee_succession import (
 from usa_wa_adapter_legislature.committees.succession_store import (
     INHERIT_YEAR,
     current_events,
-    get_or_create_operator_source,
     record_succession_event,
     supersede_event,
 )
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archive_after_commit
-from usa_wa_common.jurisdiction import resolve_jurisdiction
 from usa_wa_common.orgs import STRUCTURAL_ORGS
 
 logger = get_logger(__name__)
@@ -127,7 +126,7 @@ async def _is_registered_committee(session: AsyncSession, source_id: str) -> boo
 
 
 async def validate_and_record(
-    session: AsyncSession, source, spec: LinkSpec, *, raw: PendingAttestations | None = None
+    session: AsyncSession, spec: LinkSpec, *, raw: PendingAttestations
 ) -> CommitteeSuccessionEvent:
     """Validate ``spec`` (shape + both ends registered committee orgs) and persist it.
 
@@ -171,18 +170,17 @@ async def validate_and_record(
             year_arg = INHERIT_YEAR
         return await supersede_event(
             session,
-            source,
             prior,
+            raw=raw,
             linked_source_id=spec.linked_source_id,
             effective_year=year_arg,
             evidence_url=spec.evidence_url,
             notes=spec.notes,
             entered_by=_entered_by(),
-            raw=raw,
         )
     return await record_succession_event(
         session,
-        source,
+        raw=raw,
         subject_source_id=spec.subject_source_id,
         linked_source_id=spec.linked_source_id,
         slug=spec.slug,
@@ -190,7 +188,6 @@ async def validate_and_record(
         evidence_url=spec.evidence_url,
         notes=spec.notes,
         entered_by=_entered_by(),
-        raw=raw,
     )
 
 
@@ -260,15 +257,12 @@ async def _run(session: AsyncSession, args: argparse.Namespace, raw: PendingAtte
         print(f"{len(events)} current committee-succession link(s)")
         return 0
 
-    jurisdiction = await resolve_jurisdiction(session)
-    source = await get_or_create_operator_source(session, jurisdiction)
-
     if args.file:
         specs = await load_json_batch(args.file, load_specs)
     else:
         specs = [_spec_from_args(args)]
 
-    recorded = [await validate_and_record(session, source, spec, raw=raw) for spec in specs]
+    recorded = [await validate_and_record(session, spec, raw=raw) for spec in specs]
     for event in recorded:
         print(_format_event(event))
     print(f"recorded {len(recorded)} committee-succession link(s)")

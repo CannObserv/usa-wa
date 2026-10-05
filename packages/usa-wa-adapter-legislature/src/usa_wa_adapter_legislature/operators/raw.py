@@ -1,11 +1,11 @@
-"""Operator attestations into the #304 raw store (#412 PR A).
+"""Operator attestations into the #304 raw store (#412).
 
 Every operator write — a succession event (#107), a committee-succession link (#124) —
-lands its serialized body in Postgres provenance (``FetchEvent`` + ``RawPayload``) under
-the ``usa_wa_operator`` source. #412 retires those tables, so each body now also lands
-in the raw store, under the same ``resource_id``, ``url`` and content type the #305
-export gave the pre-2026-09-03 corpus: the operator source reads as one ledger across
-the cutover.
+lands its serialized body in the raw store under the ``usa_wa_operator`` source, with the
+same ``resource_id``, ``url`` and content type the #305 export gave the Postgres-era
+corpus: the operator source reads as one ledger across the cutover. PR A added this
+store beside Postgres provenance (``FetchEvent`` + ``RawPayload``); PR F dropped those
+tables, so the raw store is now the attestation's only provenance.
 
 **Buffered, flushed after commit.** The stores write inside the caller's transaction,
 and a rolled-back write (``--dry-run``, a validation failure) must leave nothing behind
@@ -13,11 +13,10 @@ and a rolled-back write (``--dry-run``, a validation failure) must leave nothing
 entry point that owns the commit awaits :func:`flush_after_commit` after it — off the
 event loop, since the flush is file I/O and those entry points are async handlers.
 
-**Deduplicated against the newest record**, the raw-side twin of the Postgres dedup: a
-byte-identical re-ingest adds nothing. Deliberately *newest* rather than *any earlier*
-record, which is where the two differ: an attestation restated as X, then Y, then X again
-gets a third raw entry but no third ``FetchEvent``. The raw ledger is right to record it —
-the projection row carries X again, and ``latest.json`` should name the bytes it holds.
+**Deduplicated against the newest record**: a byte-identical re-ingest adds nothing.
+Deliberately *newest* rather than *any earlier* record: an attestation restated as X, then
+Y, then X again gets a third entry, because the projection row carries X again and
+``latest.json`` should name the bytes it holds.
 
 Not ``record_fetch``, which the plan named: that is the harvest loop (TTL fresh-skip, a
 fetcher to call); an attestation has neither.
@@ -38,7 +37,7 @@ from clearinghouse_domain_legislative.operator_events import OPERATOR_SOURCE_SLU
 
 logger = get_logger(__name__)
 
-#: The content type every attestation body is recorded under, in Postgres and raw alike.
+#: The content type every attestation body is recorded under.
 ATTESTATION_CONTENT_TYPE = "application/json"
 
 
@@ -99,14 +98,12 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
     so every one is re-raised as :class:`AttestationArchiveError`, whose message says the
     write landed: the caller reports the run degraded, not failed.
 
-    The recovery is ``raw_export``, not a re-run. Re-running does not reach the store
-    for two of the three writers: the roster backfill skips every boundary already
-    attested, and ``--supersede`` refuses a prior that is now superseded. The export's
-    resumable cursor carries every ``FetchEvent`` written since its last run, and each of
-    these writes has one until PR F retires the Postgres half — with one exception: a
-    restatement Postgres deduplicated (X, then Y, then X again) writes no new
-    ``FetchEvent``, so the export cannot carry it. Nothing is lost, since X's bytes were
-    archived the first time; only ``latest.json`` names Y while the projection holds X.
+    The recovery is recording the event again as it now stands. A write is idempotent on
+    its natural key and always buffers its body, and the flush deduplicates only against
+    the resource's newest record, so the missing bytes land. Not the original command
+    when it was a ``--supersede``: that refuses a prior it has already superseded, so the
+    corrected event is recorded plainly instead. (Until #412 PR F the recovery was
+    ``raw_export`` from the Postgres copy, which no longer exists.)
     """
     try:
         return await asyncio.to_thread(raw.flush)
@@ -114,8 +111,8 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
         logger.exception("operator_raw_flush_failed", extra={"raw_root": str(raw.store.root)})
         raise AttestationArchiveError(
             f"the database write committed, but archiving it to {raw.store.source_dir} "
-            f"failed ({exc}); run `uv run python -m clearinghouse_core.raw_export` from the "
-            "primary checkout to carry it over"
+            f"failed ({exc}); record the event again as it now stands, without --supersede: "
+            "the write is idempotent and archives its bytes"
         ) from exc
 
 

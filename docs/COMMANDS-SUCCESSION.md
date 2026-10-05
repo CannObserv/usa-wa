@@ -98,12 +98,13 @@ the touched span carries a field-level `Citation`.
 # the builder that owns that seat kind. seat_kind/seat_discriminator name the seat the same
 # way the builders key it: chamber-senate + LD, chamber-house + ld-{n}-position-{p},
 # committee + the WSL committee id. Validates kind/reason/seat shape AND that member_id
-# resolves to a usa_wa_legislature Person (a typo would be a silent no-op overlay).
-# App-role DML (writes registry.operator_events + provenance, and the attestation body to the
-# raw store after the commit — run it from the primary checkout, or set USA_WA_RAW_ROOT, so it
-# lands in the prod raw/ and not a worktree's, #412; exit 4 = the write committed but the raw
-# copy did not land — run `uv run python -m clearinghouse_core.raw_export` to carry it over, not a
-# re-run, which a --supersede refuses); shell access is the trust boundary,
+# is a registered usa_wa_legislature person (a typo would be a silent no-op overlay).
+# App-role DML (writes registry.operator_events, and the attestation body — its only
+# provenance since #412 PR F — to the raw store after the commit: run it from the primary
+# checkout, or set USA_WA_RAW_ROOT, so it lands in the prod raw/ and not a worktree's; exit 4 =
+# the write committed but the raw copy did not land — record the event again as it now
+# stands, without --supersede, which a superseded prior refuses: the write is idempotent and
+# archives its bytes); shell access is the trust boundary,
 # as with the redrive CLI. Provenance is append-only — a date-correction is --supersede
 # (a NEW row stamping the prior one's superseded_by_id), never a mutation (#54).
 # A supersede may also RECLASSIFY, within endings only (#363): departed <-> vacated are
