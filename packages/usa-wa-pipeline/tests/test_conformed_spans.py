@@ -12,6 +12,7 @@ from datetime import date
 
 import pytest
 
+from clearinghouse_domain_legislative.operator_overlay import SuccessionEvent
 from clearinghouse_domain_legislative.span_kinds import (
     KIND_COMMITTEE,
     KIND_PARTY,
@@ -427,6 +428,71 @@ def test_build_families_runs_one_resolve_for_both_families() -> None:
         ROSTER_SOURCE: build_roster_spans(resolution, events=[], current_biennium=CURRENT),
     }
     assert families[ROSTER_SOURCE], "the minted half must reach the roster family"
+
+
+#: Inert-event lines the WSL-family overlays log for a member they hold nothing for.
+_MISS_LINES = {"operator_seated_no_span_out_of_biennium", "operator_departed_no_open_span"}
+
+
+def test_a_roster_family_event_logs_nothing_from_the_wsl_family(caplog) -> None:
+    """usa-wa#460: a minted roster member's events are the roster family's, which
+    applies them. The WSL overlays (committee, House, sponsor) can never match one,
+    and logging each miss buried the real inert seatings #282 is measured on — 54
+    of 90 were roster members whose span the roster builder had dated."""
+    roster = [
+        _roster("Wilbur Cranston", 1925, district=30, chamber="senate"),
+        _roster("Wilbur Cranston", 1927, district=30, chamber="senate"),
+    ]
+    events = [
+        SuccessionEvent("wilburcranston:1925", "seated", date(1925, 3, 2), KIND_SENATE, "30"),
+        SuccessionEvent("wilburcranston:1925", "departed", date(1928, 6, 1)),
+    ]
+    with caplog.at_level("INFO"):
+        families = build_families(
+            SpanInputs(sponsors=[], committee_members=[], roster=roster, events=events),
+            current_biennium=CURRENT,
+        )
+    assert not _MISS_LINES & set(caplog.messages)
+    seat = next(s for s in families[ROSTER_SOURCE] if s.kind == KIND_SENATE)
+    assert (seat.valid_from, seat.valid_to) == (date(1925, 3, 2), date(1928, 6, 1))
+
+
+def test_an_event_no_family_owns_still_logs_its_miss(caplog) -> None:
+    """The scoping drops only a member another family holds: a typo'd id belongs to
+    no family, so its miss is still the WSL family's to report."""
+    with caplog.at_level("INFO"):
+        build_families(
+            SpanInputs(
+                sponsors=[],
+                committee_members=[],
+                roster=[_roster("Wilbur Cranston", 1925)],
+                events=[SuccessionEvent("99999", "departed", date(2020, 6, 1))],
+            ),
+            current_biennium=CURRENT,
+        )
+    assert "operator_departed_no_open_span" in caplog.messages
+
+
+def test_the_house_overlay_receives_only_wsl_family_events(monkeypatch) -> None:
+    """usa-wa#460 names three overlays; the House one runs inside `build_house_spans`,
+    which an empty sponsor corpus returns from before reading its events. Record what
+    it is handed instead, so the scoping cannot slip below that call unnoticed."""
+    handed: list = []
+
+    def _house(**kwargs):
+        handed.extend(kwargs["events"])
+        return []
+
+    monkeypatch.setattr("usa_wa_pipeline.conformed.spans.build_house_spans", _house)
+    roster_event = SuccessionEvent("wilburcranston:1925", "departed", date(1928, 6, 1))
+    wsl_event = SuccessionEvent("100", "departed", date(2024, 6, 1))
+    build_all_spans(
+        SpanInputs(sponsors=[], committee_members=[], events=[roster_event, wsl_event]),
+        current_biennium=CURRENT,
+        extra_observations=NO_DEEPENING,
+        roster_members={"wilburcranston:1925"},
+    )
+    assert handed == [wsl_event]
 
 
 def test_senate_roster_rows_emit_a_seat_span() -> None:

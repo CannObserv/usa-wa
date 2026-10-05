@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import os
 from collections import Counter
+from collections.abc import Collection
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from typing import Any
@@ -383,11 +384,22 @@ def build_all_spans(
     stale_min_coverage: float = STALE_MIN_COVERAGE_DEFAULT,
     extra_observations: list[Observation] | None = None,
     house_spans: list[TenureSpan] | None = None,
+    roster_members: Collection[str] = frozenset(),
 ) -> list[TenureSpan]:
     """Every span this module owns, in the Postgres tier's own order.
 
     Committee spans build FIRST, then House, so both serve as the sponsor
     build's ``context_spans`` (#267) — see the module docstring.
+
+    ``roster_members`` are the minted identities the roster family holds
+    (usa-wa#460). Their events are :func:`build_roster_spans`' to apply, and
+    no WSL-family span can match one, so every overlay here dropped them as a
+    logged miss — 54 of the 90 inert seatings #282 measured. They are dropped
+    before any overlay instead. Only a member another family OWNS goes: an id
+    no family holds still reaches the overlays, whose miss is the signal. The
+    caller states it (:func:`build_families`, from the resolve it already ran);
+    a build that derives its own deepening derives no roster members, so it
+    keeps the noise.
 
     Raises ``ValueError`` when the #228 deepening would be derived from an
     **empty** roster under a non-empty sponsor corpus (CR 57). That combination
@@ -397,6 +409,10 @@ def build_all_spans(
     runs after publish. Pass ``extra_observations`` — ``[]`` included — to
     state the deepening instead of deriving it.
     """
+    if roster_members:
+        inputs = replace(
+            inputs, events=[e for e in inputs.events if e.member_id not in roster_members]
+        )
     events = from_rows(inputs.events)
     rosters = committee_rosters(inputs.committee_members)
     roster_map = sponsor_wire_rows(inputs.sponsors)
@@ -538,14 +554,18 @@ def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, li
     half IS the roster family. Resolving twice would double the cost and let the
     halves disagree about who is WSL-joined. The roster family's
     ``context_spans`` are the WSL family's (#267): the only other-kind spans a
-    minted identity could hold. Rows from a biennium after the current one are
-    dropped first (:func:`without_future_bienniums`, #135), so no span is built
-    from one — the guard's reach ends at the spans; see there.
+    minted identity could hold; the minted identities' events, in turn, are
+    the roster family's alone (usa-wa#460). Rows from a biennium after the
+    current one are dropped first (:func:`without_future_bienniums`, #135), so
+    no span is built from one — the guard's reach ends at the spans; see there.
     """
     inputs = without_future_bienniums(inputs, current_biennium=current_biennium)
     resolution = roster_resolution(inputs.roster, inputs.sponsors)
     spans = build_all_spans(
-        inputs, current_biennium=current_biennium, extra_observations=resolution.joined
+        inputs,
+        current_biennium=current_biennium,
+        extra_observations=resolution.joined,
+        roster_members={o.member_id for o in resolution.minted},
     )
     roster_spans = build_roster_spans(
         resolution, events=inputs.events, current_biennium=current_biennium, context_spans=spans

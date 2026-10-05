@@ -233,6 +233,89 @@ def test_vacated_closes_built_span_even_for_a_mover():
     assert len(out) == 1 and out[0].valid_to == date(2025, 6, 3)  # closed, not a second synth
 
 
+def test_a_movers_seating_dates_the_house_span_its_vacated_synthesizes(caplog):
+    """usa-wa#461 (member 15814): seated ld-18-position-1 2011-01-05, vacated 2012-06-25 on
+    moving to the Senate. The wire builds no House span (mover exclusion), so `vacated`
+    synthesizes it — but events apply in date order, so the seating ran first, matched
+    nothing and left the synthesized span on its 2011-01-01 floor."""
+    events = [
+        SuccessionEvent("15814", "seated", date(2011, 1, 5), "chamber-house", "ld-18-position-1"),
+        SuccessionEvent("15814", "vacated", date(2012, 6, 25), "chamber-house", "ld-18-position-1"),
+    ]
+    with caplog.at_level("INFO"):
+        (out,) = apply_operator_events(
+            [],
+            events,
+            current_biennium=CURRENT,
+            owned_kinds={"chamber-house"},
+            movers_by_biennium={"2011-12": {"15814"}},
+        )
+    assert out.source_id == "15814:chamber-house:ld-18-position-1:2011-12"
+    assert (out.valid_from, out.valid_to) == (date(2011, 1, 5), date(2012, 6, 25))
+    assert out.is_active is False
+    assert "operator_seated_no_span_out_of_biennium" not in caplog.messages
+
+
+def test_a_movers_prior_biennium_seating_dates_the_synthesized_span():
+    """#461 × #282: the synthesized span opens on its biennium's floor, so a mover seated in
+    the biennium before — a mid-biennium appointee absent from that roster — dates it through
+    the lookback, exactly as for a built span. Its key stays the vacated's biennium."""
+    events = [
+        SuccessionEvent("15814", "seated", date(2010, 3, 9), "chamber-house", "ld-18-position-1"),
+        SuccessionEvent("15814", "vacated", date(2012, 6, 25), "chamber-house", "ld-18-position-1"),
+    ]
+    (out,) = apply_operator_events(
+        [],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+        movers_by_biennium={"2011-12": {"15814"}},
+    )
+    assert out.source_id == "15814:chamber-house:ld-18-position-1:2011-12"
+    assert (out.valid_from, out.valid_to) == (date(2010, 3, 9), date(2012, 6, 25))
+
+
+def test_two_vacateds_in_one_biennium_mint_one_movers_span(caplog):
+    """Both would key ``…:2013-14``: the earlier's window ends before the later's date, so a
+    window check mints twice and publishes two rows under one ``span_key``. The earliest
+    vacate ends the tenure; the later one is a logged miss."""
+    events = [
+        SuccessionEvent("13546", "vacated", date(2014, 1, 22), "chamber-house", "ld-21-position-2"),
+        SuccessionEvent("13546", "vacated", date(2014, 3, 1), "chamber-house", "ld-21-position-2"),
+    ]
+    with caplog.at_level("INFO"):
+        (out,) = apply_operator_events(
+            [],
+            events,
+            current_biennium=CURRENT,
+            owned_kinds={"chamber-house"},
+            movers_by_biennium={"2013-14": {"13546"}},
+        )
+    assert (out.valid_from, out.valid_to) == (date(2013, 1, 1), date(2014, 1, 22))
+    assert "operator_vacated_no_span" in caplog.messages
+
+
+def test_a_movers_vacated_never_mints_a_built_spans_key():
+    """A built span keyed in the vacate's biennium but starting after its date does not hold
+    it, so the window check would mint beside it — two rows under one ``span_key``. The key
+    is taken; the inverted event stays a logged no-op (`operator_event_predates_span`)."""
+    built = _span(
+        "13546", "chamber-house", "ld-21-position-2", start="2013-14", frm=date(2014, 2, 1)
+    )
+    out = apply_operator_events(
+        [built],
+        [
+            SuccessionEvent(
+                "13546", "vacated", date(2014, 1, 22), "chamber-house", "ld-21-position-2"
+            )
+        ],
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+        movers_by_biennium={"2013-14": {"13546"}},
+    )
+    assert out == [built]
+
+
 def test_latest_event_biennium_by_member():
     """Each member's latest operator-event biennium (by biennium_for_date of the max
     effective_date); a member with events in two biennia resolves to the later one."""
