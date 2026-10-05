@@ -29,17 +29,25 @@ def raw(tmp_path):
     return PendingAttestations.for_operator(tmp_path)
 
 
-async def _person(session, mid, *, kind=KIND_PERSON):
+async def _person(session, mid):
     """Register WSL member ``mid`` the way the nightly registrar does — the identity
-    authority since #412 PR F dropped the canonical persons table. ``kind=KIND_ORG``
-    registers a committee under the same ``usa_wa_legislature:<id>`` key instead."""
+    authority since #412 PR F dropped the canonical persons table."""
+    await _register(session, mid, KIND_PERSON)
+
+
+async def _committee(session, cid):
+    """Register WSL committee ``cid`` — the same ``usa_wa_legislature:<id>`` namespace."""
+    await _register(session, cid, KIND_ORG)
+
+
+async def _register(session, wsl_id, kind):
     entity = RegistryEntity(kind=kind)
     session.add(entity)
     await session.flush()
     session.add(
         RegistryKey(
             kind=kind,
-            natural_key=f"usa_wa_legislature:{mid}",
+            natural_key=f"usa_wa_legislature:{wsl_id}",
             entity_id=entity.id,
             registered_by="test",
         )
@@ -71,7 +79,7 @@ async def test_unknown_member_rejected(db_session, raw):
 async def test_a_committee_key_is_not_a_member(db_session, raw):
     """WSL committee ids share the ``usa_wa_legislature:<id>`` namespace with member ids,
     and both are small integers: only the key's kind tells a committee from a member."""
-    await _person(db_session, "100", kind=KIND_ORG)
+    await _committee(db_session, "100")
     with pytest.raises(OperatorEventError, match="resolves to no"):
         await validate_and_record(db_session, _departed(member="100"), raw=raw)
 
@@ -96,7 +104,7 @@ async def test_a_committee_seat_names_a_registered_committee(db_session, raw):
     with pytest.raises(OperatorEventError, match="no registered usa_wa_legislature committee"):
         await validate_and_record(db_session, _left_committee("31999"), raw=raw)
 
-    await _person(db_session, "31999", kind=KIND_ORG)
+    await _committee(db_session, "31999")
     event = await validate_and_record(db_session, _left_committee("31999"), raw=raw)
     assert event.seat_discriminator == "31999"
 
