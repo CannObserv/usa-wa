@@ -75,9 +75,9 @@ unit's full name) becomes the handler's instance.
 runs [`scripts/notify-failure.sh`](../scripts/notify-failure.sh), which emails the
 operator via the **exe.dev email gateway** (`POST
 http://169.254.169.254/gateway/email/send`, a documented VM feature — no MTA/SMTP
-creds needed). The reconcile exit-code contract (#44: 1 rejected / 2 auth / 3
-guardrail abort) is surfaced **in the subject line** so a mass-retirement abort is
-triageable without opening the journal. Recipient is `USA_WA_ALERT_EMAIL`
+creds needed). The failing unit's exit code and systemd result (`exit-code`,
+`timeout`) are surfaced **in the subject line**, and the journal's tail in the body,
+so a failure is triageable without opening the journal. Recipient is `USA_WA_ALERT_EMAIL`
 (`/etc/usa-wa/.env`); the script **fails closed** if it's unset — set it before
 relying on alerts. The handler has no `OnFailure=` on itself (a failed send must
 not recurse); a dropped alert still leaves the failure in the journal. The

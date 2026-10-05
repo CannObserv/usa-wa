@@ -8,10 +8,9 @@
 # gateway (a documented VM feature: https://exe.dev/docs/send-email.md), so it
 # needs no MTA and no SMTP creds on this single headless VM.
 #
-# The reconcile CLI's exit-code contract (#44: 1 rejected / 2 auth / 3 guardrail
-# abort) is surfaced in the subject line so the operator can triage without
-# opening the journal — the whole point #49 makes about the codes being
-# "observable" only if something is watching.
+# The failing unit's exit code and systemd result are surfaced in the subject
+# line so the operator can triage without opening the journal — the whole point
+# #49 makes about exit codes being "observable" only if something is watching.
 #
 # Fail-closed: a missing recipient aborts loudly rather than silently dropping
 # the alert. A failed send is logged but does not retry (no OnFailure on the
