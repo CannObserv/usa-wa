@@ -156,9 +156,10 @@ async def test_a_failed_flush_says_the_database_write_committed(tmp_path, monkey
     recovery = "committed.*record the event again as it now stands"
     with pytest.raises(AttestationArchiveError, match=recovery) as raised:
         await flush_after_commit(pending)
-    # A --file batch that superseded cannot be re-run as it was: the priors refuse. And
-    # --clear-year is refused without --supersede, so the advice drops it too.
-    assert "without --supersede or --clear-year" in str(raised.value)
+    # A --file batch that superseded cannot be re-run as it was: the priors refuse. And a
+    # committee link's --clear-year is refused without --supersede, so the advice drops it
+    # too — named as the committee CLI's, since the operator CLI has no such flag.
+    assert "without --supersede (or a committee link's --clear-year" in str(raised.value)
     assert "every supersede_id and clear_year removed" in str(raised.value)
 
 

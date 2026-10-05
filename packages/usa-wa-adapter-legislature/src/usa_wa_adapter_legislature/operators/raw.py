@@ -124,8 +124,9 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
         raise AttestationArchiveError(
             f"the database write committed, but archiving it to {raw.store.source_dir} "
             f"failed ({exc}); record the event again as it now stands, without --supersede "
-            "or --clear-year (a --file batch: re-run it with every supersede_id and "
-            "clear_year removed): the write is idempotent and archives its bytes"
+            "(or a committee link's --clear-year; a --file batch: re-run it with every "
+            "supersede_id and clear_year removed): the write is idempotent and archives its "
+            "bytes"
         ) from exc
 
 
