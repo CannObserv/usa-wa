@@ -153,3 +153,17 @@ async def test_supersede_lands_the_correction_in_the_raw_store(db_session, raw):
     raw.flush()
 
     assert set(raw.store.latest()) == {prior.source_id, corrected.source_id}
+
+
+async def test_rerecording_restores_a_lost_raw_copy(db_session, tmp_path):
+    """The recovery the post-commit warning names, for a link: a write whose raw copy never
+    landed is re-recorded as it stands, and the idempotent write archives its bytes."""
+    lost = PendingAttestations.for_operator(tmp_path)
+    event = await record_succession_event(db_session, raw=lost, **_LINK)  # never flushed
+
+    raw = PendingAttestations.for_operator(tmp_path)
+    again = await record_succession_event(db_session, raw=raw, **_LINK)
+    raw.flush()
+
+    assert again.id == event.id
+    assert event.source_id in raw.store.latest()
