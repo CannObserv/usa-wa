@@ -76,6 +76,31 @@ async def test_a_committee_key_is_not_a_member(db_session, raw):
         await validate_and_record(db_session, _departed(member="100"), raw=raw)
 
 
+def _left_committee(committee_id):
+    return EventSpec(
+        member_id="100",
+        kind="vacated",
+        reason="resigned",
+        effective_date=date(2025, 4, 19),
+        evidence_url="https://example.gov/x",
+        seat_kind="committee",
+        seat_discriminator=committee_id,
+    )
+
+
+async def test_a_committee_seat_names_a_registered_committee(db_session, raw):
+    """A committee seat's discriminator is checked against the registry the way the
+    committee-succession CLI checks its ids (#445): a typo'd id would be an overlay that
+    silently applies to nothing."""
+    await _person(db_session, "100")
+    with pytest.raises(OperatorEventError, match="no registered usa_wa_legislature committee"):
+        await validate_and_record(db_session, _left_committee("31999"), raw=raw)
+
+    await _person(db_session, "31999", kind=KIND_ORG)
+    event = await validate_and_record(db_session, _left_committee("31999"), raw=raw)
+    assert event.seat_discriminator == "31999"
+
+
 async def test_records_a_vacated_defeated_event(db_session, raw):
     """A member defeated at an election vacates the seat (#152) — the reason an
     appointee's loss of the ensuing special/general election needs (Grant-Herriot, #144)."""

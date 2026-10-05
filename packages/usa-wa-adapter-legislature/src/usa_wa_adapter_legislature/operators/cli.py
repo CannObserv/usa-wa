@@ -54,6 +54,8 @@ from clearinghouse_domain_legislative.operator_events import (
     VACATED_REASONS,
     OperatorEvent,
 )
+from clearinghouse_domain_legislative.span_kinds import KIND_COMMITTEE
+from usa_wa_adapter_legislature.committees.succession_cli import is_registered_committee
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archive_after_commit
 from usa_wa_adapter_legislature.operators.store import (
@@ -144,6 +146,15 @@ async def validate_and_record(
         raise OperatorEventError(
             f"member_id {spec.member_id!r} resolves to no registered {WSL_SOURCE_SLUG} person "
             "(typo, or a member the nightly has not registered yet)"
+        )
+    if spec.seat_kind == KIND_COMMITTEE and not await is_registered_committee(
+        session, spec.seat_discriminator
+    ):
+        # The committee-succession CLI's check (#445), for the same reason as the member's:
+        # an unregistered committee id is an overlay no committee span ever meets.
+        raise OperatorEventError(
+            f"seat_discriminator {spec.seat_discriminator!r} is no registered "
+            f"{WSL_SOURCE_SLUG} committee org (typo, a structural org, or not yet registered)"
         )
     if spec.supersede_id is not None:
         prior = (

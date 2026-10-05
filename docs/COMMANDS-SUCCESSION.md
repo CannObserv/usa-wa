@@ -36,8 +36,9 @@ the weekly integrity sweep covers — its only provenance since #412 PR F droppe
 # the span family that owns that seat kind. seat_kind/seat_discriminator name the seat the same
 # way the pipeline keys it: chamber-senate + LD, chamber-house + ld-{n}-position-{p},
 # committee + the WSL committee id. Validates kind/reason/seat shape AND that member_id
-# is a registered person key (usa_wa_legislature:<id> in registry.entity_keys) — a typo
-# would be a silent no-op overlay.
+# is a registered person key (usa_wa_legislature:<id> in registry.entity_keys), and a
+# committee seat's id a registered committee org (the #445 check) — a typo would be a
+# silent no-op overlay.
 # App-role DML (writes registry.operator_events, and the attestation body — its only
 # provenance since #412 PR F — to the raw store after the commit: run it from the primary
 # checkout, or set USA_WA_RAW_ROOT, so it lands in the prod raw/ and not a worktree's; exit 4 =

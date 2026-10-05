@@ -104,7 +104,7 @@ def _validate_shape(spec: LinkSpec) -> None:
         raise SuccessionError("--clear-year and --year are mutually exclusive")
 
 
-async def _is_registered_committee(session: AsyncSession, source_id: str) -> bool:
+async def is_registered_committee(session: AsyncSession, source_id: str) -> bool:
     """Whether a WSL ``Id`` is a registered committee org (#445).
 
     The registrar binds every staged committee id — standing, Joint and Other alike —
@@ -134,7 +134,7 @@ async def validate_and_record(
     Raises :class:`SuccessionError` on any validation failure (no partial write)."""
     _validate_shape(spec)
     for role, sid in (("subject", spec.subject_source_id), ("linked", spec.linked_source_id)):
-        if not await _is_registered_committee(session, sid):
+        if not await is_registered_committee(session, sid):
             raise SuccessionError(
                 f"--{role} {sid!r} is no registered usa_wa_legislature committee org "
                 "(typo, a structural org, or not yet registered — the nightly registrar "
