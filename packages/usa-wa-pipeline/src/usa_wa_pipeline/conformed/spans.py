@@ -47,9 +47,11 @@ from typing import Any
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.operator_overlay import (
+    SuccessionEvent,
     apply_operator_events,
     from_rows,
     latest_event_biennium_by_member,
+    log_departure_misses,
     stale_exempt_members,
 )
 from clearinghouse_domain_legislative.seat_clipping import clip_seat_families
@@ -401,6 +403,15 @@ def build_all_spans(
     a build that derives its own deepening derives no roster members, so it
     keeps the noise.
 
+    A ``departed`` miss is reported **per family**, not per overlay (usa-wa#466):
+    the event is person-scoped, so the committee overlay misses a senator who sits
+    on no committee at the date and the House overlay misses every senator, while
+    the sponsor overlay closed the seat and party. Each overlay adds what it
+    applied to one tally, and only an event none applied is logged — as
+    ``operator_departed_already_closed`` when the tenure already ended there. A
+    stated ``house_spans`` ran its overlay elsewhere, so its departures reach no
+    tally; one it closed reads as ``already_closed`` against the family.
+
     Raises ``ValueError`` when the #228 deepening would be derived from an
     **empty** roster under a non-empty sponsor corpus (CR 57). That combination
     silently re-asserts shallow 1991-start spans (the #97 collapse shape), and
@@ -429,6 +440,7 @@ def build_all_spans(
         else deepening_observations(inputs.roster, inputs.sponsors)
     )
 
+    applied_departures: set[SuccessionEvent] = set()
     committee_spans = apply_operator_events(
         build_tenure_spans(
             build_committee_membership_observations(rosters), current_biennium=current_biennium
@@ -436,6 +448,7 @@ def build_all_spans(
         events,
         current_biennium=current_biennium,
         owned_kinds=set(COMMITTEE_KINDS),
+        applied_departures=applied_departures,
     )
     # House SECOND: it needs no other family, and both it and the committee
     # spans are #267 context for the sponsor build below. `house_spans` is the
@@ -452,6 +465,7 @@ def build_all_spans(
             current_biennium=current_biennium,
             stale_min_coverage=stale_min_coverage,
             context_spans=committee_spans,
+            applied_departures=applied_departures,
         )
     )
 
@@ -477,11 +491,14 @@ def build_all_spans(
         current_biennium=current_biennium,
         owned_kinds=set(SPONSOR_KINDS),
         context_spans=[*committee_spans, *house],
+        applied_departures=applied_departures,
     )
-    return sorted(
+    spans = sorted(
         [*committee_spans, *house, *sponsor_spans],
         key=lambda s: (s.member_id, s.kind, s.discriminator, s.start_biennium),
     )
+    log_departure_misses(events, applied=applied_departures, spans=spans)
+    return spans
 
 
 def current_biennium(*, today: date | None = None) -> str:

@@ -495,6 +495,69 @@ def test_the_house_overlay_receives_only_wsl_family_events(monkeypatch) -> None:
     assert handed == [wsl_event]
 
 
+def _departure_lines(caplog) -> list[str]:
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.getMessage().startswith("operator_departed") and r.levelname == "INFO"
+    ]
+
+
+def test_a_senators_departure_logs_no_miss_from_the_overlays_holding_nothing(caplog) -> None:
+    """usa-wa#466: the sponsor overlay closes a senator's seat and party; the
+    committee overlay holds nothing for them at the date. A miss is the family's
+    to report, not each overlay's — 88 of 110 departures were this noise."""
+    events = [SuccessionEvent("100", "departed", date(2025, 4, 19))]
+    with caplog.at_level("INFO"):
+        spans = build_all_spans(
+            SpanInputs(
+                sponsors=[_sponsor("100", BIENNIUM), _sponsor("100", CURRENT)],
+                committee_members=[],
+                events=events,
+            ),
+            current_biennium=CURRENT,
+            extra_observations=NO_DEEPENING,
+            house_spans=NO_HOUSE,
+        )
+    assert {s.valid_to for s in spans} == {date(2025, 4, 19)}
+    assert _departure_lines(caplog) == []
+
+
+def test_a_term_end_departure_logs_already_closed_once(caplog) -> None:
+    """usa-wa#466: dated just after the biennium end the wire already closed the
+    tenure at, the event is redundant — one `already_closed` for the family, not a
+    miss per overlay."""
+    events = [SuccessionEvent("100", "departed", date(2025, 1, 4))]
+    with caplog.at_level("INFO"):
+        build_all_spans(
+            SpanInputs(sponsors=[_sponsor("100", BIENNIUM)], committee_members=[], events=events),
+            current_biennium=CURRENT,
+            extra_observations=NO_DEEPENING,
+            house_spans=NO_HOUSE,
+        )
+    assert _departure_lines(caplog) == ["operator_departed_already_closed"]
+
+
+def test_the_house_overlay_reports_its_departures_to_the_family(monkeypatch, caplog) -> None:
+    """The House overlay runs inside `build_house_spans`; a departure only it closes
+    (a representative with no committee span at the date) must reach the family's
+    tally, or the family logs a miss for an event that was applied."""
+    rep_event = SuccessionEvent("200", "departed", date(2025, 4, 19))
+
+    def _house(**kwargs):
+        kwargs["applied_departures"].add(rep_event)
+        return []
+
+    monkeypatch.setattr("usa_wa_pipeline.conformed.spans.build_house_spans", _house)
+    with caplog.at_level("INFO"):
+        build_all_spans(
+            SpanInputs(sponsors=[], committee_members=[], events=[rep_event]),
+            current_biennium=CURRENT,
+            extra_observations=NO_DEEPENING,
+        )
+    assert _departure_lines(caplog) == []
+
+
 def test_senate_roster_rows_emit_a_seat_span() -> None:
     resolution = roster_resolution(
         [_roster("Wilbur Cranston", 1925, district=30, chamber="senate")], []

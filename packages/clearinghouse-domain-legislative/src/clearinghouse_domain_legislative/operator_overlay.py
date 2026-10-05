@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
-from datetime import date
+from datetime import date, timedelta
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.operator_events import (
@@ -52,6 +52,14 @@ from clearinghouse_domain_legislative.terms import (
 )
 
 logger = get_logger(__name__)
+
+#: How long after a member's last span end a ``departed`` that closed nothing still reads as
+#: that tenure's own end (usa-wa#466). The wire closes a tenure at its biennium's last day,
+#: and the operator dates the departure at the term's real end — up to the next session's
+#: convening on the second Monday of January, or a successor's swearing-in just after it
+#: (186: 1993-01-13, thirteen days past 1992-12-31). A month holds every term end measured;
+#: member 656's sixteen-month gap is a missing tenure or a misdated event, not a term end.
+DEPARTED_ALREADY_CLOSED_GRACE = timedelta(days=31)
 
 
 @dataclass(frozen=True)
@@ -239,8 +247,9 @@ def apply_operator_events(
     owned_kinds: Iterable[str],
     movers_by_biennium: dict[str, set[str]] | None = None,
     context_spans: Iterable[TenureSpan] = (),
+    applied_departures: set[SuccessionEvent] | None = None,
 ) -> list[TenureSpan]:
-    """Return ``spans`` with the operator events applied (a new list; inputs untouched).
+    """Return ``spans`` with the operator events applied (``spans`` untouched).
 
     ``owned_kinds`` scopes the seat-scoped events to the kinds this builder produces — a
     seated/vacated for a foreign seat kind is ignored (another builder owns it). ``departed``
@@ -267,7 +276,14 @@ def apply_operator_events(
     producer already passes through (the sponsor build in both tiers, and the roster-family
     build); five call sites would be five chances for the two tiers to disagree, which is the
     shape #366 CR 12 had just finished removing elsewhere. A builder that owns no party spans
-    passes none, so the pass is a no-op for it."""
+    passes none, so the pass is a no-op for it.
+
+    ``applied_departures`` (usa-wa#466) hands the ``departed`` miss report to the caller. A
+    family runs one overlay per builder, and ``departed`` is person-scoped, so an overlay that
+    holds nothing for the member — the House one, for a senator — misses an event a sibling
+    applied. Passed a set, the overlay adds each ``departed`` it acted on and logs its own miss
+    at DEBUG; the caller reports the family's misses once with :func:`log_departure_misses`.
+    Omitted, the overlay is the whole family and reports its own misses."""
     owned = set(owned_kinds)
     movers = movers_by_biennium or {}
     context = list(context_spans)
@@ -358,16 +374,15 @@ def apply_operator_events(
                             "tail_biennium": tail.start_biennium,
                         },
                     )
-            if not hit:
+            if hit and applied_departures is not None:
+                applied_departures.add(event)
+            elif not hit and applied_departures is not None:
+                # A sibling overlay may hold the member; the caller decides (usa-wa#466).
+                logger.debug("operator_departed_no_open_span", extra=_departure_extra(event))
+            elif not hit:
                 # No open span to close in this builder — a bad member id, an inverted date,
                 # or the member is already fully closed here. Never silent (CR finding 10).
-                logger.info(
-                    "operator_departed_no_open_span",
-                    extra={
-                        "member_id": event.member_id,
-                        "effective_date": event.effective_date.isoformat(),
-                    },
-                )
+                _log_departure_miss(result, event)
         elif event.kind == KIND_VACATED:
             if event.seat_kind not in owned:
                 continue
@@ -464,6 +479,59 @@ def apply_operator_events(
                         },
                     )
     return merge_party_continuity(result)
+
+
+def log_departure_misses(
+    events: Iterable[SuccessionEvent],
+    *,
+    applied: set[SuccessionEvent],
+    spans: Iterable[TenureSpan],
+) -> None:
+    """Report each ``departed`` in ``events`` that no overlay of a family applied — once,
+    classified against the family's ``spans`` (usa-wa#466).
+
+    The counterpart of ``apply_operator_events(..., applied_departures=...)``: per overlay, a
+    senator's departure is a miss in the House builder and a member with no committee seat at
+    the date is one in the committee builder, which buried the family's real misses (191 lines
+    for 110 departures, 88 of them structural). Other kinds are each one builder's, scoped by
+    ``owned_kinds``, so their reports stay with the overlay."""
+    family = list(spans)
+    for event in events:
+        if event.kind == KIND_DEPARTED and event not in applied:
+            _log_departure_miss(family, event)
+
+
+def _log_departure_miss(spans: list[TenureSpan], event: SuccessionEvent) -> None:
+    """Log a ``departed`` that closed nothing: redundant if the member's tenure already
+    ended at it (:func:`_already_closed`), else the overlay's miss signal (CR finding 10)."""
+    if _already_closed(spans, event):
+        logger.info("operator_departed_already_closed", extra=_departure_extra(event))
+    else:
+        logger.info("operator_departed_no_open_span", extra=_departure_extra(event))
+
+
+def _already_closed(spans: list[TenureSpan], event: SuccessionEvent) -> bool:
+    """The member's spans all ended on or before the date, the last of them within
+    :data:`DEPARTED_ALREADY_CLOSED_GRACE` of it (usa-wa#466).
+
+    That is a term-end departure the wire already closed at the biennium's end:
+    :func:`_is_open_through` needs ``valid_to > date``, so the sweep has nothing to close and
+    the event is redundant, not a miss. A span running past the date — open, or a later
+    tenure (member 321, departed 1997-01-15 and holding spans from 1999) — means the event
+    and the record disagree, and a member with no span at all is a bad id; both stay misses."""
+    ends: list[date] = []
+    for span in spans:
+        if span.member_id != event.member_id:
+            continue
+        if span.valid_to is None or span.valid_to > event.effective_date:
+            return False
+        ends.append(span.valid_to)
+    return bool(ends) and event.effective_date - max(ends) <= DEPARTED_ALREADY_CLOSED_GRACE
+
+
+def _departure_extra(event: SuccessionEvent) -> dict[str, str]:
+    """The structured fields every ``operator_departed_*`` miss line carries."""
+    return {"member_id": event.member_id, "effective_date": event.effective_date.isoformat()}
 
 
 def _synthesize_mover_tenures(

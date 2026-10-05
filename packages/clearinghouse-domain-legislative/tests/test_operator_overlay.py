@@ -6,6 +6,7 @@ from clearinghouse_domain_legislative.operator_overlay import (
     SuccessionEvent,
     apply_operator_events,
     latest_event_biennium_by_member,
+    log_departure_misses,
     stale_exempt_members,
 )
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
@@ -967,3 +968,132 @@ def test_a_lookback_seating_is_not_reported_as_inverted(caplog):
             owned_kinds={"chamber-senate"},
         )
     assert "operator_event_predates_span" not in caplog.messages
+
+
+def _departure_lines(caplog, level="INFO"):
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.getMessage().startswith("operator_departed") and r.levelname == level
+    ]
+
+
+def test_a_departure_dated_at_its_tenures_end_is_already_closed(caplog):
+    """usa-wa#466: a term-end departure the wire already closed at the biennium end
+    (21520, departed 2025-01-04, last span end 2024-12-31) is redundant, not a miss."""
+    spans = [_span("21520", "party", "democratic", start="2023-24", to=date(2024, 12, 31))]
+    events = [SuccessionEvent("21520", "departed", date(2025, 1, 4))]
+    with caplog.at_level("INFO"):
+        apply_operator_events(spans, events, current_biennium=CURRENT, owned_kinds={"party"})
+    assert _departure_lines(caplog) == ["operator_departed_already_closed"]
+
+
+def test_a_departure_on_the_span_end_itself_is_already_closed(caplog):
+    """`_is_open_through` needs ``valid_to > date``, so a span ending ON the date is
+    not swept — and nothing is left for the event to do."""
+    spans = [_span("12082", "party", "republican", start="2013-14", to=date(2014, 12, 31))]
+    events = [SuccessionEvent("12082", "departed", date(2014, 12, 31))]
+    with caplog.at_level("INFO"):
+        apply_operator_events(spans, events, current_biennium=CURRENT, owned_kinds={"party"})
+    assert _departure_lines(caplog) == ["operator_departed_already_closed"]
+
+
+def test_a_departure_long_after_the_last_span_end_is_still_a_miss(caplog):
+    """Member 656's shape: departed 1996-05-13, last span end 1994-12-31. Sixteen
+    months is not a term end — a missing tenure or a misdated event — so it stays
+    the overlay's miss signal."""
+    spans = [_span("656", "party", "democratic", start="1993-94", to=date(1994, 12, 31))]
+    events = [SuccessionEvent("656", "departed", date(1996, 5, 13))]
+    with caplog.at_level("INFO"):
+        apply_operator_events(spans, events, current_biennium=CURRENT, owned_kinds={"party"})
+    assert _departure_lines(caplog) == ["operator_departed_no_open_span"]
+
+
+def test_a_departure_before_a_later_tenure_is_still_a_miss(caplog):
+    """Member 321's shape: a span closed just before the date, but another runs past
+    it. The member is not "already closed" — something after the date says they
+    came back — so the event is still worth a look."""
+    spans = [
+        _span("321", "committee", "500", start="1995-96", to=date(1996, 12, 31)),
+        _span(
+            "321", "committee", "501", start="1999-00", frm=date(1999, 1, 1), to=date(2012, 12, 31)
+        ),
+    ]
+    events = [SuccessionEvent("321", "departed", date(1997, 1, 15))]
+    with caplog.at_level("INFO"):
+        apply_operator_events(spans, events, current_biennium=CURRENT, owned_kinds={"committee"})
+    assert _departure_lines(caplog) == ["operator_departed_no_open_span"]
+
+
+def test_a_member_with_no_span_is_a_miss_not_already_closed(caplog):
+    """A typo'd id holds nothing; there is no tenure for the event to have ended."""
+    events = [SuccessionEvent("99999", "departed", date(2025, 1, 4))]
+    with caplog.at_level("INFO"):
+        apply_operator_events([], events, current_biennium=CURRENT, owned_kinds={"party"})
+    assert _departure_lines(caplog) == ["operator_departed_no_open_span"]
+
+
+def test_a_caller_collecting_applied_departures_takes_over_the_miss(caplog):
+    """usa-wa#466: a family runs one overlay per builder, and a senator's departure
+    closes nothing in the House one. Passing ``applied_departures`` hands the
+    report to the caller: the overlay records what it applied and logs its own
+    miss at DEBUG only."""
+    senate = [_span("29091", "chamber-senate", "5")]
+    departure = SuccessionEvent("29091", "departed", date(2025, 4, 19))
+    applied: set[SuccessionEvent] = set()
+    with caplog.at_level("DEBUG"):
+        apply_operator_events(
+            [],
+            [departure],
+            current_biennium=CURRENT,
+            owned_kinds={"chamber-house"},
+            applied_departures=applied,
+        )
+        assert applied == set()
+        apply_operator_events(
+            senate,
+            [departure],
+            current_biennium=CURRENT,
+            owned_kinds={"chamber-senate"},
+            applied_departures=applied,
+        )
+    assert applied == {departure}
+    assert _departure_lines(caplog) == []
+    assert _departure_lines(caplog, "DEBUG") == ["operator_departed_no_open_span"]
+
+
+def test_a_spared_same_instant_seating_counts_as_applied():
+    """A chamber move (#363) is a departure the overlay acted on — it closed the seat
+    moved out of and spared the one moved into — so it is no miss for the family."""
+    spans = [_span("27181", "chamber-senate", "1", frm=date(2019, 1, 1))]
+    events = [
+        SuccessionEvent("27181", "seated", date(2019, 7, 1), "chamber-senate", "1"),
+        SuccessionEvent("27181", "departed", date(2019, 7, 1)),
+    ]
+    applied: set[SuccessionEvent] = set()
+    apply_operator_events(
+        spans,
+        events,
+        current_biennium="2019-20",
+        owned_kinds={"chamber-senate"},
+        applied_departures=applied,
+    )
+    assert applied == {events[1]}
+
+
+def test_log_departure_misses_reports_each_unapplied_departure_once(caplog):
+    """The family-level report: a departure no overlay applied is classified once
+    against the family's spans; an applied one, and every other kind, says nothing."""
+    applied_event = SuccessionEvent("1", "departed", date(2025, 4, 19))
+    term_end = SuccessionEvent("2", "departed", date(2025, 1, 4))
+    missed = SuccessionEvent("3", "departed", date(2025, 4, 19))
+    seated = SuccessionEvent("4", "seated", date(2025, 4, 19), "chamber-senate", "5")
+    spans = [_span("2", "party", "democratic", start="2023-24", to=date(2024, 12, 31))]
+    with caplog.at_level("INFO"):
+        log_departure_misses(
+            [applied_event, term_end, missed, seated], applied={applied_event}, spans=spans
+        )
+    assert [(r.getMessage(), r.member_id) for r in caplog.records] == [
+        ("operator_departed_already_closed", "2"),
+        ("operator_departed_no_open_span", "3"),
+    ]
