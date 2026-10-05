@@ -374,12 +374,13 @@ def apply_operator_events(
                             "tail_biennium": tail.start_biennium,
                         },
                     )
-            if hit and applied_departures is not None:
-                applied_departures.add(event)
-            elif not hit and applied_departures is not None:
+            if hit:
+                if applied_departures is not None:
+                    applied_departures.add(event)
+            elif applied_departures is not None:
                 # A sibling overlay may hold the member; the caller decides (usa-wa#466).
                 logger.debug("operator_departed_no_open_span", extra=_departure_extra(event))
-            elif not hit:
+            else:
                 # No open span to close in this builder — a bad member id, an inverted date,
                 # or the member is already fully closed here. Never silent (CR finding 10).
                 _log_departure_miss(result, event)
