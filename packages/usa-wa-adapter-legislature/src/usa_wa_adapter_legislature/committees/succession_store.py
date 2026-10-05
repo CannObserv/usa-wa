@@ -15,17 +15,20 @@ covers it (#54). A correction appends a new row and stamps the prior one's
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from clearinghouse_core.registry import KIND_ORG, RegistryKey
 from clearinghouse_domain_legislative.committee_succession import (
     OPERATOR_SOURCE_SLUG,
     CommitteeSuccessionEvent,
 )
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations
+from usa_wa_common.orgs import STRUCTURAL_ORGS
 
 
 class _InheritYear:
@@ -36,6 +39,33 @@ class _InheritYear:
 #: Pass to :func:`supersede_event` (the default) to inherit ``prior``'s year; pass an
 #: explicit ``None`` to clear it, or an ``int`` to set it.
 INHERIT_YEAR = _InheritYear()
+
+#: The namespace of committee org keys — both ends of a link must be registered in it.
+_COMMITTEE_SOURCE = "usa_wa_legislature"
+
+#: A WSL committee ``Id`` is an integer — negative for some Other bodies (JLARC is ``-5``).
+_WSL_COMMITTEE_ID = re.compile(r"-?\d+")
+
+
+async def is_registered_committee(session: AsyncSession, source_id: str) -> bool:
+    """Whether a WSL ``Id`` is a registered committee org (#445).
+
+    The registrar binds every staged committee id — standing, Joint and Other alike —
+    plus the ``STRUCTURAL_ORGS`` ids under one namespace, so a committee is a registered
+    key that is not structural. The integer shape backs the denylist: a key never unbinds,
+    so a structural org later dropped from ``STRUCTURAL_ORGS`` keeps its key, and only the
+    shape still refuses it (CR 2). A merge chain ends at a live survivor, so registered
+    means live.
+    """
+    if source_id in STRUCTURAL_ORGS or not _WSL_COMMITTEE_ID.fullmatch(source_id):
+        return False
+    key = await session.scalar(
+        select(RegistryKey.id).where(
+            RegistryKey.kind == KIND_ORG,
+            RegistryKey.natural_key == f"{_COMMITTEE_SOURCE}:{source_id}",
+        )
+    )
+    return key is not None
 
 
 def succession_source_id(

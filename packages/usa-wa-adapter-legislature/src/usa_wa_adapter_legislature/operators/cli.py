@@ -55,7 +55,7 @@ from clearinghouse_domain_legislative.operator_events import (
     OperatorEvent,
 )
 from clearinghouse_domain_legislative.span_kinds import KIND_COMMITTEE
-from usa_wa_adapter_legislature.committees.succession_cli import is_registered_committee
+from usa_wa_adapter_legislature.committees.succession_store import is_registered_committee
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archive_after_commit
 from usa_wa_adapter_legislature.operators.store import (

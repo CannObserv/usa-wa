@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 from dataclasses import dataclass
 
@@ -44,7 +43,6 @@ from clearinghouse_core.job import (
     run_job,
 )
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.registry import KIND_ORG, RegistryKey
 from clearinghouse_domain_legislative.committee_succession import (
     SLUGS,
     CommitteeSuccessionEvent,
@@ -52,22 +50,16 @@ from clearinghouse_domain_legislative.committee_succession import (
 from usa_wa_adapter_legislature.committees.succession_store import (
     INHERIT_YEAR,
     current_events,
+    is_registered_committee,
     record_succession_event,
     supersede_event,
 )
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archive_after_commit
-from usa_wa_common.orgs import STRUCTURAL_ORGS
 
 logger = get_logger(__name__)
 
 #: Stable ledger identity (#178) — a module path can move without orphaning run history.
 JOB_SLUG = "committee-succession-record"
-
-#: The namespace of committee org keys — both ends of a link must be registered in it.
-_COMMITTEE_SOURCE = "usa_wa_legislature"
-
-#: A WSL committee ``Id`` is an integer — negative for some Other bodies (JLARC is ``-5``).
-_WSL_COMMITTEE_ID = re.compile(r"-?\d+")
 
 
 class SuccessionError(ValueError):
@@ -102,27 +94,6 @@ def _validate_shape(spec: LinkSpec) -> None:
         )
     if spec.clear_year and spec.effective_year is not None:
         raise SuccessionError("--clear-year and --year are mutually exclusive")
-
-
-async def is_registered_committee(session: AsyncSession, source_id: str) -> bool:
-    """Whether a WSL ``Id`` is a registered committee org (#445).
-
-    The registrar binds every staged committee id — standing, Joint and Other alike —
-    plus the ``STRUCTURAL_ORGS`` ids under one namespace, so a committee is a registered
-    key that is not structural. The integer shape backs the denylist: a key never unbinds,
-    so a structural org later dropped from ``STRUCTURAL_ORGS`` keeps its key, and only the
-    shape still refuses it (CR 2). A merge chain ends at a live survivor, so registered
-    means live.
-    """
-    if source_id in STRUCTURAL_ORGS or not _WSL_COMMITTEE_ID.fullmatch(source_id):
-        return False
-    key = await session.scalar(
-        select(RegistryKey.id).where(
-            RegistryKey.kind == KIND_ORG,
-            RegistryKey.natural_key == f"{_COMMITTEE_SOURCE}:{source_id}",
-        )
-    )
-    return key is not None
 
 
 async def validate_and_record(
