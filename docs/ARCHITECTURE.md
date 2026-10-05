@@ -81,7 +81,7 @@ The split is physical: each job runs as a different process, owned by a differen
   publisher writes versioned datasets, which the API loads into Postgres `serving`.
 
 `scripts/pipeline-nightly.sh` runs both in order: the three nightly harvests, `dbt build`,
-registrar, publish, serving load, `coverage_seed`, probes. A harvest failure is contained there —
+`build_warnings`, registrar, publish, serving load, `coverage_seed`, probes. A harvest failure is contained there —
 the raw store keeps the last good wires — while a build failure aborts before anything publishes.
 
 **One input has no wire.** Operator attestations (mid-biennium successions, committee lineage)
