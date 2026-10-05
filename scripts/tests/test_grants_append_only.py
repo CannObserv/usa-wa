@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+import clearinghouse_domain_legislative  # noqa: F401 — registers the domain's registry tables
 from clearinghouse_core.models import Base
 
 REPO = Path(__file__).parent.parent.parent  # scripts/tests/ → repo
@@ -137,7 +138,9 @@ def test_every_table_grants_sql_names_still_exists():
 
     Every model-declared schema, not only ``clearinghouse_core``: a ``registry`` table is
     dropped the same way. ``serving`` is out of reach — its tables are the serving load's,
-    created at run time, and no model declares them."""
+    created at run time, and no model declares them. The domain import at the top puts
+    ``registry.operator_events`` and its sibling in the metadata whichever tests ran
+    first."""
     declared = {t.schema for t in Base.metadata.tables.values() if t.schema}
     pattern = rf"\b({'|'.join(sorted(declared))})\.(\w+)"
     named = {f"{schema}.{table}" for schema, table in re.findall(pattern, _statements())}
