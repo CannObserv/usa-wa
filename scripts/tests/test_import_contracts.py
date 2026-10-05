@@ -34,7 +34,7 @@ LINT_IMPORTS = Path(sys.executable).parent / "lint-imports"
 PYPROJECT = REPO / "pyproject.toml"
 PRECOMMIT = REPO / ".pre-commit-config.yaml"
 
-TIER_CONTRACT = "The pipeline, the API and the raw harvests never import the retiring Postgres tier"
+TIER_CONTRACT = "The pipeline, the API and the raw harvests never import the retired Postgres tier"
 
 #: Every contract #189 wrote. Named individually so deleting one fails here, which is the
 #: cheapest way a future change could make a violation "go away".
@@ -92,6 +92,26 @@ def test_the_tier_contract_follows_indirect_imports():
     contract = next(c for c in _contracts() if c["name"] == TIER_CONTRACT)
     assert not contract.get("allow_indirect_imports", False)
     assert not contract.get("ignore_imports")
+
+
+#: The canonical tier's model modules, deleted in #412 PR F. PR D could not forbid them:
+#: the parity probes and ``registry_seed`` imported them until PR F removed both.
+CANONICAL_MODELS = {
+    "clearinghouse_core.provenance",
+    "clearinghouse_domain_legislative.identity",
+    "clearinghouse_domain_legislative.bills",
+    "clearinghouse_domain_legislative.sessions",
+    "clearinghouse_domain_legislative.votes",
+    "clearinghouse_domain_legislative.statutes",
+    "clearinghouse_domain_legislative.pdc",
+}
+
+
+def test_the_tier_contract_tombstones_the_canonical_models():
+    """A missing forbidden module is vacuously kept, so the entries cost nothing now and
+    refuse the import the day any of those names comes back."""
+    contract = next(c for c in _contracts() if c["name"] == TIER_CONTRACT)
+    assert CANONICAL_MODELS <= set(contract["forbidden_modules"])
 
 
 def test_every_workspace_package_is_a_root_package():

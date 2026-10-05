@@ -171,3 +171,8 @@ def test_declared_schemas_includes_every_workspace_schema():
         "drop them from LEGACY_MIGRATION_SCHEMAS so the set stops carrying a "
         "hand-maintained entry the metadata now supplies"
     )
+    # #412 PR F: ``canonical`` is the second legacy entry, on the same terms.
+    assert "canonical" not in {t.schema for t in Base.metadata.tables.values() if t.schema}, (
+        "`canonical` is declared by a live model again — drop it from "
+        "LEGACY_MIGRATION_SCHEMAS so the set stops carrying a hand-maintained entry"
+    )

@@ -87,15 +87,11 @@ unit_cov_fail_under = "72"
 [tool.coverage.run]
 source = ["packages"]
 omit = [
-    # Declared-not-implemented tier (#182). These modules are pure table declarations
-    # with no producer: every line executes on import, so they scored 100% and padded
-    # the gate with code that never runs in anger. Their classes stay marked
-    # IMPLEMENTATION_STATUS = "declared"; test_declared_tier.py keeps this list and the
-    # markers in agreement, so wiring a module to a source forces its removal here.
-    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/bills.py",
-    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/pdc.py",
-    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/statutes.py",
-    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/votes.py",
+    # Declared-not-implemented tier (#182): a module of pure table declarations with no
+    # producer scores 100% on import and pads the gate with code that never runs, so it
+    # is omitted here while its classes carry IMPLEMENTATION_STATUS markers.
+    # test_declared_tier.py keeps this list and the markers in agreement. Empty since
+    # #412 PR F deleted the last four (bills, pdc, statutes, votes) with the canonical tier.
 ]
 
 [tool.coverage.report]
@@ -192,7 +188,7 @@ layers = [
 # `clearinghouse_core` cannot hide behind it. The sync package was the second entry
 # until #314.
 ignore_imports = [
-    "clearinghouse_core.testing -> clearinghouse_domain_legislative.identity",
+    "clearinghouse_core.testing -> clearinghouse_domain_legislative",
 ]
 
 [[tool.importlinter.contracts]]
@@ -271,14 +267,18 @@ forbidden_modules = [
 
 [[tool.importlinter.contracts]]
 # #412 PR D. The Postgres canonical tier — its write path (the adapter runner, the span
-# emitter, the operator stores, the Phase-A harvests, every refresh/build/backfill driver
-# and one-shot migration) and the cohort providers that read its `raw_payloads` archive —
-# is deleted in PR F. The raw harvests fill the store, the pipeline builds
-# every published dataset from it and the API serves them, so none may reach that code
-# by any chain, or PR F cannot delete it without breaking the nightly. What they need
-# from those modules (resource ids, role keys, pure span functions) lives in pure
-# modules the writers import too. Indirect imports count: that is the whole point.
-name = "The pipeline, the API and the raw harvests never import the retiring Postgres tier"
+# emitter, the Phase-A harvests, every refresh/build/backfill driver and one-shot
+# migration), the cohort providers that read its `raw_payloads` archive, and its models —
+# was deleted in PR F. The raw harvests fill the store, the pipeline builds every
+# published dataset from it and the API serves them, so none could reach that code by any
+# chain, or PR F could not have deleted it without breaking the nightly. What they needed
+# from those modules (resource ids, role keys, pure span functions) lives in pure modules.
+# Indirect imports count: that is the whole point.
+#
+# Since PR F most entries are tombstones: a missing module is vacuously kept, and the day
+# one of those names comes back the import is refused. The two operator stores are the
+# live entries — attestation writers the pipeline reads through SQL, never imports.
+name = "The pipeline, the API and the raw harvests never import the retired Postgres tier"
 type = "forbidden"
 source_modules = [
     "usa_wa_pipeline",
@@ -317,10 +317,19 @@ forbidden_modules = [
     "usa_wa_adapter_legislature.committees.migrate_fetch_baseline",
     "usa_wa_facts_seats.house.migrate",
     "usa_wa_facts_seats.pdc.migrate_pdc_spans",
-    # The archive side: every cohort provider reads Postgres `raw_payloads`, which PR F
-    # drops. The pure Protocols in `clearinghouse_domain_legislative.cohorts` stay allowed.
+    # The archive side: every cohort provider read Postgres `raw_payloads`, which PR F
+    # dropped.
     "usa_wa_adapter_legislature.cohorts",
     "usa_wa_adapter_legislature.**.cohort",
     "usa_wa_adapter_pdc.cohort",
     "usa_wa_adapter_sos.**.cohort",
+    # The tier's models (PR F): PR D could not list them while the parity probes and
+    # `registry_seed` imported them.
+    "clearinghouse_core.provenance",
+    "clearinghouse_domain_legislative.identity",
+    "clearinghouse_domain_legislative.bills",
+    "clearinghouse_domain_legislative.sessions",
+    "clearinghouse_domain_legislative.votes",
+    "clearinghouse_domain_legislative.statutes",
+    "clearinghouse_domain_legislative.pdc",
 ]

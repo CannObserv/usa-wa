@@ -1,6 +1,6 @@
 """Source coverage as data (#180) — what a feed actually covers, and how we know.
 
-:class:`~clearinghouse_core.provenance.Source` records how a feed is *configured*
+:class:`~clearinghouse_core.sources.Source` records how a feed is *configured*
 (``reliability``, ``cache_ttl_days``, ``retention_policy``) but nothing about what it
 **covers**: no range, no audit date, no known gaps. The facts that answer "which years of
 which fact rest on which archive?" lived instead as module constants declared
@@ -56,7 +56,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.db.ulid import ULID
 from clearinghouse_core.models import Base, TimestampMixin
-from clearinghouse_core.provenance import Source
+from clearinghouse_core.sources import Source
 
 SCHEMA = "clearinghouse_core"
 
@@ -201,7 +201,7 @@ def known_gaps(claims: Iterable[CoverageClaim]) -> tuple[CoverageClaim, ...]:
 
 
 class SourceCoverage(Base, TimestampMixin):
-    """What one :class:`~clearinghouse_core.provenance.Source` covers on one dimension.
+    """What one :class:`~clearinghouse_core.sources.Source` covers on one dimension.
 
     Seeded from the declared :class:`CoverageClaim` set by :func:`seed_source_coverage`, so
     the audit's output lands next to the provenance it describes and "what do we actually

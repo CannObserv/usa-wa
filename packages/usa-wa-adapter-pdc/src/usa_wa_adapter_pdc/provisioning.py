@@ -14,8 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.jurisdictions import Jurisdiction
-from clearinghouse_core.provenance import RetentionPolicy, Source
 from clearinghouse_core.source_coverage import seed_source_coverage
+from clearinghouse_core.sources import RetentionPolicy, Source
 from usa_wa_adapter_pdc.coverage import PDC_COVERAGE
 from usa_wa_adapter_pdc.transport import PDC_BASE_URL
 

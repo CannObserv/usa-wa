@@ -1,9 +1,10 @@
 """Integration test for the Jurisdictional IA migration's seed shape.
 
 Runs ``alembic upgrade head`` in-process against ``TEST_DATABASE_URL`` and
-asserts the seeded row counts + sample shape. Counterpart to the sync unit
-tests in :mod:`test_jurisdictional_seed` — both target the regression class
-flagged in code-review round 2, finding #22.
+asserts the seeded row counts + sample shape. The containment graph the migration also
+seeded (101 relationships over 11 types) is checked absent: #412 PR F dropped it.
+Counterpart to the sync unit tests in :mod:`test_jurisdictional_seed` — both target the
+regression class flagged in code-review round 2, finding #22.
 
 Marked ``@pytest.mark.integration`` so the heavy alembic + asyncpg path stays
 off the default test tier; run with ``uv run pytest -m integration``.
@@ -28,32 +29,21 @@ ALEMBIC_INI = REPO_ROOT / "alembic.ini"
 
 
 async def _fetch_counts(test_url: str) -> dict[str, int]:
-    """Pull the row counts + two shape spot-checks that the assertions below
-    consume."""
+    """Pull the row counts, a shape spot-check, and which dropped tables still exist."""
     engine = create_async_engine(test_url)
     queries = (
         ("jurisdiction_types", "SELECT COUNT(*) FROM clearinghouse_core.jurisdiction_types"),
-        (
-            "jurisdiction_relationship_types",
-            "SELECT COUNT(*) FROM clearinghouse_core.jurisdiction_relationship_types",
-        ),
         ("jurisdictions", "SELECT COUNT(*) FROM clearinghouse_core.jurisdictions"),
-        (
-            "jurisdiction_relationships",
-            "SELECT COUNT(*) FROM clearinghouse_core.jurisdiction_relationships",
-        ),
         (
             "usa_wa_present",
             "SELECT COUNT(*) FROM clearinghouse_core.jurisdictions WHERE slug = 'usa-wa'",
         ),
         (
-            "wa_contained_by_usa",
-            "SELECT COUNT(*) FROM clearinghouse_core.jurisdiction_relationships jr"
-            " JOIN clearinghouse_core.jurisdictions sj"
-            " ON jr.subject_jurisdiction_id = sj.id"
-            " JOIN clearinghouse_core.jurisdictions oj"
-            " ON jr.object_jurisdiction_id = oj.id"
-            " WHERE sj.slug = 'usa-wa' AND oj.slug = 'usa'",
+            "dropped_still_present",
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'canonical'"
+            " OR (table_schema = 'clearinghouse_core' AND table_name IN"
+            " ('jurisdiction_relationships', 'jurisdiction_relationship_types',"
+            " 'fetch_events', 'raw_payloads', 'citations'))",
         ),
     )
     counts: dict[str, int] = {}
@@ -102,8 +92,6 @@ def test_alembic_upgrade_head_seeds_expected_row_counts():
 
     counts = asyncio.run(_fetch_counts(test_url))
     assert counts["jurisdiction_types"] == 16, counts
-    assert counts["jurisdiction_relationship_types"] == 11, counts
     assert counts["jurisdictions"] == 101, counts
-    assert counts["jurisdiction_relationships"] == 101, counts
     assert counts["usa_wa_present"] == 1, counts
-    assert counts["wa_contained_by_usa"] == 1, counts
+    assert counts["dropped_still_present"] == 0, counts

@@ -1,29 +1,20 @@
-"""Legislative-government domain entities (state + federal).
+"""Legislative-government domain: the term calendar, the span engine and the operator
+attestation models.
 
-Importing this package registers every legislative-domain table with the
-shared :class:`clearinghouse_core.models.Base` metadata as a side-effect,
-so ``Base.metadata.create_all`` (tests) and alembic autogen (P0.5 step 5)
-discover them.
+Importing this package registers the domain's two tables — ``registry.operator_events``
+and ``registry.committee_succession_events`` — with the shared
+:class:`clearinghouse_core.models.Base` metadata as a side-effect, so
+``Base.metadata.create_all`` (tests) and alembic autogen discover them. The canonical
+entity models (persons, organizations, roles, assignments, and the declared bill, vote,
+statute, session and lobbying clusters) left with the Postgres canonical tier in #412 PR F.
 """
 
 from clearinghouse_domain_legislative import (  # noqa: F401
-    bills,
     committee_succession,
-    identity,
     operator_events,
-    pdc,
-    sessions,
-    statutes,
-    votes,
 )
 
 __all__ = [
-    "identity",
-    "sessions",
-    "bills",
-    "votes",
-    "statutes",
-    "pdc",
     "operator_events",
     "committee_succession",
 ]

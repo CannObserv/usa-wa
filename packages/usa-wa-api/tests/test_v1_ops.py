@@ -12,9 +12,9 @@ import pytest
 from sqlalchemy import insert
 from ulid import ULID
 
-from clearinghouse_core.provenance import Source
 from clearinghouse_core.runs import JobRun
 from clearinghouse_core.source_coverage import SourceCoverage
+from clearinghouse_core.sources import Source
 from usa_wa_api.api.v1.ops import CITED_ENTITY_TYPES
 from usa_wa_api.serving.schema import Citation, RawFetch
 
@@ -353,12 +353,3 @@ async def test_provenance_accepts_every_type_the_artifact_carries(client, servin
         response = await client.get(f"/api/v1/provenance/{entity_type}/{ULID()}")
         assert response.status_code == 200, entity_type
         assert response.json()["items"] == []
-
-
-def test_the_accepted_vocabulary_is_derived_not_listed():
-    """A hand-maintained list would have shipped wrong on day one."""
-    from clearinghouse_core.provenance import citable_entity_types
-
-    known = citable_entity_types()
-    for entity_type in ("person", "personidentifier", "organization", "role", "assignment"):
-        assert entity_type in known, entity_type

@@ -9,7 +9,6 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
-from clearinghouse_core.provenance import Source
 from clearinghouse_core.source_coverage import (
     STATUS_CHECK_NAME,
     STATUSES,
@@ -21,6 +20,7 @@ from clearinghouse_core.source_coverage import (
     seed_source_coverage,
     status_check_sql,
 )
+from clearinghouse_core.sources import Source
 
 _AUDITED = date(2026, 8, 6)
 

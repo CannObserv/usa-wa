@@ -16,9 +16,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import literal, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from clearinghouse_core.provenance import Source
 from clearinghouse_core.runs import JobRun
 from clearinghouse_core.source_coverage import SourceCoverage
+from clearinghouse_core.sources import Source
 from usa_wa_api.api.deps import get_db_session
 from usa_wa_api.api.v1.pagination import (
     DEFAULT_LIMIT,

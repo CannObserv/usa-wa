@@ -240,11 +240,15 @@ def assert_test_url_safety(test_url: str) -> None:
 #: the #22 revision to step C's and nowhere else, so a reset that stops dropping
 #: it would strand a half-replayed database.
 #:
+#: ``canonical`` joined it in #412 PR F, for the same reason: its models are deleted,
+#: the drop migration removes the schema at the head, and every revision from the
+#: first canonical table to that one still creates it on a replay.
+#:
 #: This is a DROP list. Never create from it: the fixture in :file:`conftest_db.py`
 #: creates only the schemas ``Base.metadata`` declares, because standing up an
 #: empty schema the head migration just dropped is how ``sync`` came back once
 #: per test session after step C.
-LEGACY_MIGRATION_SCHEMAS = frozenset({"sync"})
+LEGACY_MIGRATION_SCHEMAS = frozenset({"sync", "canonical"})
 
 
 def declared_schemas() -> set[str]:
@@ -272,8 +276,8 @@ def declared_schemas() -> set[str]:
     caller). Run purely for side effects, it makes the returned set complete
     regardless of the caller's own import context.
     """
+    import clearinghouse_domain_legislative  # noqa: F401  (registers the domain's tables)
     from clearinghouse_core.models import Base
-    from clearinghouse_domain_legislative import identity  # noqa: F401  (canonical schema)
 
     declared = {t.schema for t in Base.metadata.tables.values() if t.schema}
     return declared | set(LEGACY_MIGRATION_SCHEMAS)

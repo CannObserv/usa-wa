@@ -1,7 +1,8 @@
 """SQLAlchemy declarative base and shared mixins.
 
-Provenance entities live in :mod:`clearinghouse_core.provenance` (imported below
-so ``Base.metadata`` discovers them as a side-effect of importing this module).
+The framework's own tables — sources and their coverage claims, jurisdictions, the job
+ledger and the identity registry — are imported below so ``Base.metadata`` discovers them
+as a side-effect of importing this module.
 
 Domain-layer entities live in ``clearinghouse-domain-legislative`` and future
 siblings; their packages own that registration.
@@ -38,12 +39,11 @@ class TimestampMixin(CreatedAtMixin):
     )
 
 
-# Side-effect registration: importing this module also imports the jurisdiction
-# and provenance tables so ``Base.metadata.create_all`` / autogen sees them.
-# Jurisdictions is imported first because provenance.Source FKs into it.
+# Side-effect registration: importing this module also imports the framework's tables
+# so ``Base.metadata.create_all`` / autogen sees them. Jurisdictions is imported first
+# because sources.Source FKs into it.
 from clearinghouse_core import jurisdictions as _jurisdictions  # noqa: E402,F401
-from clearinghouse_core import provenance as _provenance  # noqa: E402,F401
 from clearinghouse_core import registry as _registry  # noqa: E402,F401
 from clearinghouse_core import runs as _runs  # noqa: E402,F401
 from clearinghouse_core import source_coverage as _source_coverage  # noqa: E402,F401
-from clearinghouse_core import sweep_state as _sweep_state  # noqa: E402,F401
+from clearinghouse_core import sources as _sources  # noqa: E402,F401

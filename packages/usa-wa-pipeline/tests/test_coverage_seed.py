@@ -11,8 +11,8 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import select
 
-from clearinghouse_core.provenance import Source
 from clearinghouse_core.source_coverage import SourceCoverage
+from clearinghouse_core.sources import Source
 from usa_wa_adapter_legislature.coverage import WSL_COVERAGE, WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_COVERAGE, ROSTER_SOURCE_SLUG
 from usa_wa_adapter_pdc.coverage import PDC_COVERAGE

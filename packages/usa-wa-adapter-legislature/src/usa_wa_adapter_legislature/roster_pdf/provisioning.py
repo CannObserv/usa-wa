@@ -15,8 +15,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.jurisdictions import Jurisdiction
-from clearinghouse_core.provenance import RetentionPolicy, Source
 from clearinghouse_core.source_coverage import seed_source_coverage
+from clearinghouse_core.sources import RetentionPolicy, Source
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_COVERAGE, ROSTER_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.transport import DEFAULT_ROSTER_URL
 
