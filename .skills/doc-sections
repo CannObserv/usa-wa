@@ -39,12 +39,12 @@ AGENTS.md: § Project Layout and the six-layer table, the import-linter contract
 README.md: orientation only — the curated links into docs/ and the fresh-host provisioning block, not the content they point at (README.md)
 docs/ARCHITECTURE.md: the layer rules a new package or a new import has to satisfy, and the import-linter contract that enforces them (pyproject.toml, .pre-commit-config.yaml)
 docs/MODULES-*.md: the per-package module reference — one section per workspace member, keyed to that member's README.md and pyproject.toml; a renamed or added package dates the index here as well as AGENTS.md (README.md, pyproject.toml)
-docs/MODULES-DEPLOYMENT.md: Layer 4 — the API deployment's own modules and the repo-root directories (api/v1/, cli/)
+docs/MODULES-DEPLOYMENT.md: Layer 4 — the API deployment's own modules and the repo-root directories (api/v1/)
 
 # Commands and migrations.
-docs/COMMANDS.md: the command index and § migrations — every CLI entry point by name, and the alembic revision order (alembic/, cli/, scripts/)
-docs/COMMANDS-SUCCESSION.md, docs/COMMANDS-BACKFILL.md, docs/COMMANDS-ROSTER.md: the operational CLIs grouped by job; a new or renamed CLI belongs in exactly one of these, named (cli/, scripts/)
-docs/PIPELINE.md, docs/PIPELINE-CONFORMED.md, docs/PIPELINE-CONFORMED-ENTITIES.md: the #302 dbt commands, the model TDD policy, and the `dbt-build` commit gate (.pre-commit-config.yaml, cli/, scripts/)
+docs/COMMANDS.md: the command index and § migrations — every CLI entry point by name, and the alembic revision order (alembic/, scripts/)
+docs/COMMANDS-SUCCESSION.md, docs/COMMANDS-BACKFILL.md, docs/COMMANDS-ROSTER.md: the operational CLIs grouped by job; a new or renamed CLI belongs in exactly one of these, named (scripts/)
+docs/PIPELINE.md, docs/PIPELINE-CONFORMED.md, docs/PIPELINE-CONFORMED-ENTITIES.md: the #302 dbt commands, the model TDD policy, and the `dbt-build` commit gate (.pre-commit-config.yaml, scripts/)
 docs/PIPELINE-PUBLICATION.md: the publication contract — the nightly chain's stage order and failure policy, and the heartbeat's staleness threshold derived from the pipeline timer (deploy/, scripts/)
 
 # The deployment surface.
