@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from clearinghouse_core.job import load_json_batch
 from clearinghouse_core.rawstore import RAW_ROOT_ENV, RawStore
-from clearinghouse_core.registry import KIND_PERSON, RegistryEntity, RegistryKey
+from clearinghouse_core.registry import KIND_ORG, KIND_PERSON, RegistryEntity, RegistryKey
 from clearinghouse_core.testing import patch_job_runtime
 from clearinghouse_domain_legislative.operator_events import OPERATOR_SOURCE_SLUG, OperatorEvent
 from usa_wa_adapter_legislature.operators import cli
@@ -29,15 +29,16 @@ def raw(tmp_path):
     return PendingAttestations.for_operator(tmp_path)
 
 
-async def _person(session, mid):
+async def _person(session, mid, *, kind=KIND_PERSON):
     """Register WSL member ``mid`` the way the nightly registrar does — the identity
-    authority since #412 PR F dropped the canonical persons table."""
-    entity = RegistryEntity(kind=KIND_PERSON)
+    authority since #412 PR F dropped the canonical persons table. ``kind=KIND_ORG``
+    registers a committee under the same ``usa_wa_legislature:<id>`` key instead."""
+    entity = RegistryEntity(kind=kind)
     session.add(entity)
     await session.flush()
     session.add(
         RegistryKey(
-            kind=KIND_PERSON,
+            kind=kind,
             natural_key=f"usa_wa_legislature:{mid}",
             entity_id=entity.id,
             registered_by="test",
@@ -65,6 +66,14 @@ async def test_records_a_valid_departed_event(db_session, raw):
 async def test_unknown_member_rejected(db_session, raw):
     with pytest.raises(OperatorEventError, match="resolves to no"):
         await validate_and_record(db_session, _departed(member="999"), raw=raw)
+
+
+async def test_a_committee_key_is_not_a_member(db_session, raw):
+    """WSL committee ids share the ``usa_wa_legislature:<id>`` namespace with member ids,
+    and both are small integers: only the key's kind tells a committee from a member."""
+    await _person(db_session, "100", kind=KIND_ORG)
+    with pytest.raises(OperatorEventError, match="resolves to no"):
+        await validate_and_record(db_session, _departed(member="100"), raw=raw)
 
 
 async def test_records_a_vacated_defeated_event(db_session, raw):
