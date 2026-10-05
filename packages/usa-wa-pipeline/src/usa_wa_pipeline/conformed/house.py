@@ -43,6 +43,7 @@ from typing import Any
 
 from clearinghouse_core.logging import get_logger
 from clearinghouse_domain_legislative.operator_overlay import (
+    SuccessionEvent,
     apply_operator_events,
     from_rows,
     latest_event_biennium_by_member,
@@ -131,8 +132,13 @@ def build_house_spans(
     stale_min_coverage: float = STALE_MIN_COVERAGE_DEFAULT,
     max_backchain_hops: int = MAX_BACKCHAIN_HOPS_DEFAULT,
     context_spans: list[TenureSpan] | None = None,
+    applied_departures: set[SuccessionEvent] | None = None,
 ) -> list[TenureSpan]:
     """WSL roster × SOS ballot → ``chamber-house`` tenure spans.
+
+    ``applied_departures`` is the family's tally (usa-wa#466), handed through to
+    the overlay: a senator's departure closes nothing here, and only
+    ``build_all_spans`` can tell whether a sibling overlay closed it.
 
     Raises ``ValueError`` when a live sponsor corpus meets an **empty** ballot
     archive. That combination silently deletes the whole family, and nothing
@@ -202,5 +208,6 @@ def build_house_spans(
         owned_kinds=set(HOUSE_KINDS),
         movers_by_biennium=movers_by_biennium,
         context_spans=context_spans or [],
+        applied_departures=applied_departures,
     )
     return sorted(spans, key=lambda s: (s.member_id, s.kind, s.discriminator, s.start_biennium))

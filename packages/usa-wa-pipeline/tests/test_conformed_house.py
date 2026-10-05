@@ -7,8 +7,11 @@ pin the plumbing that feeds them from staging, and the guard that refuses to
 publish a family whose ballot input went missing.
 """
 
+from datetime import date
+
 import pytest
 
+from clearinghouse_domain_legislative.operator_overlay import SuccessionEvent
 from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 from usa_wa_pipeline.conformed.house import (
     build_house_spans,
@@ -96,6 +99,24 @@ def test_the_ballot_position_seats_a_house_member() -> None:
     # the seat's own identity, as canonical spells it: ld-<n>-position-<p>
     assert span.discriminator == "ld-5-position-1"
     assert span.start_biennium == BIENNIUM
+
+
+def test_a_departure_the_house_overlay_closes_reaches_the_family_tally() -> None:
+    """usa-wa#466: `build_all_spans` reports a departure miss only when no overlay
+    applied it, so the House overlay must add what it closed to the tally it is
+    handed — a representative off every committee is closed here or nowhere."""
+    departure = SuccessionEvent("100", "departed", date(2010, 6, 1))
+    applied: set[SuccessionEvent] = set()
+    [span] = build_house_spans(
+        sponsors=[_sponsor("100", BIENNIUM, "5", "Rivera")],
+        committee_members=[],
+        sos_results=[_result("2008", 5, 1, "Pat Rivera")],
+        events=[departure],
+        current_biennium=CURRENT,
+        applied_departures=applied,
+    )
+    assert span.valid_to == date(2010, 6, 1)
+    assert applied == {departure}
 
 
 def test_a_member_the_ballot_cannot_position_gets_no_seat() -> None:

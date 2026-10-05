@@ -36,6 +36,11 @@ ids as `roster_members`, whose events never reach the WSL overlays — they coul
 match nothing there, and each logged miss was noise in
 `operator_seated_no_span_out_of_biennium` (54 of the 90 seatings #282 measured).
 An id no family holds still reaches them, so a typo's miss is still reported.
+Within the WSL family a `departed` miss is the family's, not each overlay's
+(#466): the three overlays share one `applied_departures` tally, and
+`build_all_spans` logs `operator_departed_no_open_span` only for an event none
+applied — or `operator_departed_already_closed` for a term end the wire had
+already closed.
 
 **One resolve feeds both.** `roster_resolution()` runs the ~8,600-record
 identity resolve once and partitions by disposition: WSL-joined observations
