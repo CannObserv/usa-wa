@@ -104,18 +104,17 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
     so every one is re-raised as :class:`AttestationArchiveError`, whose message says the
     write landed: the caller reports the run degraded, not failed.
 
-    The recovery is recording the event again as it now stands. A write is idempotent on
-    its natural key and always buffers its body, and the flush deduplicates only against
-    the resource's newest record, so the missing bytes land. Not the original command
-    when it was a ``--supersede``: that refuses a prior it has already superseded, so the
-    corrected event is recorded plainly instead — for a ``--file`` batch, the same file
-    re-run with every ``supersede_id`` removed. A committee link's ``--clear-year`` goes
-    too: it needs ``--supersede``, and a link recorded with no year is the cleared one,
-    under its own key. The re-record restamps the row's
-    ``entered_by`` with whoever runs it, as any re-record does; the field is not in the
-    archived body, so the raw store keeps no record of the original author either. (Until
-    #412 PR F the recovery was ``raw_export`` from the Postgres copy, which no longer
-    exists.)
+    The recovery is recording the event again as it now stands. A write is idempotent on its
+    natural key and always buffers its body, and the flush deduplicates only against the
+    resource's newest record, so the missing bytes land. Not the original command when it
+    was a ``--supersede``: that refuses a prior it has already superseded, so the corrected
+    event is recorded plainly instead — for a ``--file`` batch, the same file re-run with
+    every ``supersede_id`` removed. A committee link's ``--clear-year`` goes too: it needs
+    ``--supersede``, and a link recorded with no year is the cleared one, under its own key.
+    The re-record restamps the row's ``entered_by`` with whoever runs it, as any re-record
+    does; the field is not in the archived body, so the raw store keeps no record of the
+    original author either. (Until #412 PR F the recovery was ``raw_export`` from the
+    Postgres copy, which no longer exists.)
     """
     try:
         return await asyncio.to_thread(raw.flush)
