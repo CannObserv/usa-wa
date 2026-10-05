@@ -94,7 +94,8 @@ candidate report with the canonical tier (#412 PR F). See
 # registry.committee_succession_events, and the attestation body to the raw store under
 # usa_wa_operator after the commit — its only provenance since #412 PR F; exit 4 if only that
 # copy failed, recovered as for operator events above: record the link again as it now
-# stands, without --supersede or a batch's supersede_id); provenance is append-only.
+# stands, without --supersede or --clear-year, or a batch's supersede_id and clear_year: a
+# link recorded with no year is the cleared one); provenance is append-only.
 # A wrong-successor / year fix is --supersede (a NEW row stamping the prior's superseded_by_id).
 # On a supersede: --year sets, --clear-year clears, omitting both inherits the prior's year.
 # --dry-run validates + writes, then rolls back — but --list is read-only and commits even

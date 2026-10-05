@@ -167,3 +167,21 @@ async def test_rerecording_restores_a_lost_raw_copy(db_session, tmp_path):
 
     assert again.id == event.id
     assert event.source_id in raw.store.latest()
+
+
+async def test_a_cleared_year_is_rerecorded_without_one(db_session, tmp_path):
+    """The recovery for a ``--clear-year`` correction: ``--clear-year`` needs
+    ``--supersede``, which the superseded prior refuses, so the link is recorded plainly
+    with no year — the cleared link's own key, so the write finds it."""
+    raw = PendingAttestations.for_operator(tmp_path)
+    prior = await record_succession_event(db_session, raw=raw, **_LINK)
+    cleared = await supersede_event(
+        db_session, prior, raw=raw, effective_year=None, evidence_url="https://example.gov/fix"
+    )
+
+    again = await record_succession_event(
+        db_session,
+        raw=raw,
+        **{**_LINK, "effective_year": None, "evidence_url": cleared.evidence_url},
+    )
+    assert again.id == cleared.id

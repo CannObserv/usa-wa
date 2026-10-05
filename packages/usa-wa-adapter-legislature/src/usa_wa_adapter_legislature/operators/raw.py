@@ -109,7 +109,9 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
     the resource's newest record, so the missing bytes land. Not the original command
     when it was a ``--supersede``: that refuses a prior it has already superseded, so the
     corrected event is recorded plainly instead — for a ``--file`` batch, the same file
-    re-run with every ``supersede_id`` removed. The re-record restamps the row's
+    re-run with every ``supersede_id`` removed. A committee link's ``--clear-year`` goes
+    too: it needs ``--supersede``, and a link recorded with no year is the cleared one,
+    under its own key. The re-record restamps the row's
     ``entered_by`` with whoever runs it, as any re-record does; the field is not in the
     archived body, so the raw store keeps no record of the original author either. (Until
     #412 PR F the recovery was ``raw_export`` from the Postgres copy, which no longer
@@ -122,8 +124,8 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
         raise AttestationArchiveError(
             f"the database write committed, but archiving it to {raw.store.source_dir} "
             f"failed ({exc}); record the event again as it now stands, without --supersede "
-            "(a --file batch: re-run it with every supersede_id removed): the write is "
-            "idempotent and archives its bytes"
+            "or --clear-year (a --file batch: re-run it with every supersede_id and "
+            "clear_year removed): the write is idempotent and archives its bytes"
         ) from exc
 
 
