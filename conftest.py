@@ -20,6 +20,7 @@ package whose tests drive a real ``WSLClient``. ``scripts/tests/test_unit_tier.p
 keeps it from creeping back.
 """
 
+import logging
 import os
 import sys
 from collections.abc import Iterable
@@ -128,3 +129,20 @@ def pytest_collection_modifyitems(items: Iterable[Any]) -> None:
 @pytest.fixture(scope="session")
 def anyio_backend() -> str:
     return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def _restore_root_logging() -> Iterable[None]:
+    """Put the root logger back the way each test found it.
+
+    A CLI test that reaches ``configure_logging()`` binds the root handler to that test's
+    captured ``sys.stdout``, which pytest closes when the test ends. Every later record then
+    lands on a closed stream as ``--- Logging error ---`` on stderr, ahead of whatever a
+    ``capsys`` test asserts its stderr starts with — an order-dependent failure that a
+    deleted test happened to mask until #412 PR F.
+    """
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    yield
+    root.handlers = handlers
+    root.setLevel(level)
