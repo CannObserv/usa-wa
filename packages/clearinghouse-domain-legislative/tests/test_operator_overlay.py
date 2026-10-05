@@ -1065,7 +1065,7 @@ def test_a_caller_collecting_applied_departures_takes_over_the_miss(caplog):
 def test_a_spared_same_instant_seating_counts_as_applied():
     """A chamber move (#363) is a departure the overlay acted on — it closed the seat
     moved out of and spared the one moved into — so it is no miss for the family."""
-    spans = [_span("27181", "chamber-senate", "1", frm=date(2019, 1, 1))]
+    spans = [_span("27181", "chamber-senate", "1", start="2019-20", frm=date(2019, 1, 1))]
     events = [
         SuccessionEvent("27181", "seated", date(2019, 7, 1), "chamber-senate", "1"),
         SuccessionEvent("27181", "departed", date(2019, 7, 1)),
