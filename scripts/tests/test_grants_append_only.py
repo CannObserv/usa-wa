@@ -133,9 +133,16 @@ def _statements() -> str:
 def test_every_table_grants_sql_names_still_exists():
     """``usa-wa-migrate`` runs grants.sql after every ``alembic upgrade head``, and a GRANT or
     REVOKE on a table that no longer exists is an ERROR, not a no-op: a drop migration that
-    left its table in this file would wedge the unit on the deploy that ran it (#412 PR F)."""
-    named = set(re.findall(rf"\b{SCHEMA}\.(\w+)", _statements()))
-    assert named <= _schema_tables(), f"grants.sql names dropped tables: {named - _schema_tables()}"
+    left its table in this file would wedge the unit on the deploy that ran it (#412 PR F).
+
+    Every model-declared schema, not only ``clearinghouse_core``: a ``registry`` table is
+    dropped the same way. ``serving`` is out of reach — its tables are the serving load's,
+    created at run time, and no model declares them."""
+    declared = {t.schema for t in Base.metadata.tables.values() if t.schema}
+    pattern = rf"\b({'|'.join(sorted(declared))})\.(\w+)"
+    named = {f"{schema}.{table}" for schema, table in re.findall(pattern, _statements())}
+    dropped = named - set(Base.metadata.tables)
+    assert not dropped, f"grants.sql names dropped tables: {dropped}"
 
 
 #: Created by grants.sql itself (``CREATE SCHEMA IF NOT EXISTS serving``) for the app role's
