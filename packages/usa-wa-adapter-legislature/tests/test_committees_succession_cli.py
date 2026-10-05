@@ -48,7 +48,7 @@ async def _register_org(session, source_id):
 
 async def _committee(session, source_id):
     """A committee as the registry knows it — the identity authority since #412 froze
-    canonical (#445). No canonical row: a committee born after the freeze has none."""
+    canonical (#445), and the only one since PR F dropped it."""
     await _register_org(session, source_id)
 
 
@@ -130,9 +130,9 @@ async def test_registered_non_integer_key_rejected(db_session, raw):
         await validate_and_record(db_session, _link(linked="party-whig"), raw=raw)
 
 
-async def test_joint_committee_born_after_the_canonical_freeze_links(db_session, raw):
-    """#445: the Civic Health re-key — a Joint body (canonical ``org_type='other'``)
-    registered only by the registrar, after #412 froze canonical — is a valid end."""
+async def test_a_registrar_only_joint_committee_links(db_session, raw):
+    """#445: the Civic Health re-key — a Joint body the registrar registered after #412
+    froze canonical (and so never had a canonical row) — is a valid end."""
     await _committee(db_session, "35341")
     await _committee(db_session, "36500")
     event = await validate_and_record(

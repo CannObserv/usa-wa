@@ -56,7 +56,9 @@ def test_flush_records_the_export_shape(tmp_path):
     assert store.latest()[_SID]["sha256"] == entry["sha256"]
 
 
-def test_attestation_url_and_content_type_are_the_postgres_ones():
+def test_attestation_url_and_content_type_continue_the_exported_corpus():
+    """The URL and content type the #305 export gave the Postgres-era attestations, so the
+    operator source reads as one ledger across the cutover."""
     assert attestation_url(_SID) == f"urn:usa-wa-operator:{_SID}"
     assert ATTESTATION_CONTENT_TYPE == "application/json"
 
