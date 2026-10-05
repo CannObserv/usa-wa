@@ -43,7 +43,8 @@ the weekly integrity sweep covers — its only provenance since #412 PR F droppe
 # checkout, or set USA_WA_RAW_ROOT, so it lands in the prod raw/ and not a worktree's; exit 4 =
 # the write committed but the raw copy did not land — record the event again as it now
 # stands, without --supersede, which a superseded prior refuses — a --file batch is re-run
-# with every supersede_id removed: the write is idempotent and archives its bytes); shell access is the trust boundary. Provenance is append-only — a
+# with every supersede_id removed: the write is idempotent and archives its bytes, and it
+# restamps the row's entered_by with whoever ran the recovery); shell access is the trust boundary. Provenance is append-only — a
 # date-correction is --supersede (a NEW row stamping the prior one's superseded_by_id), never
 # a mutation (#54).
 # A supersede may also RECLASSIFY, within endings only (#363): departed <-> vacated are
