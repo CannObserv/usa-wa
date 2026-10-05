@@ -7,6 +7,12 @@ corpus: the operator source reads as one ledger across the cutover. PR A added t
 store beside Postgres provenance (``FetchEvent`` + ``RawPayload``); PR F dropped those
 tables, so the raw store is now the attestation's only provenance.
 
+**What a body attests, and what it does not.** A body is one event's fields, keyed by its
+natural key. A correction archives the corrected event as its own body; *which* event it
+superseded (``superseded_by_id``) and who entered it (``entered_by``) live only in the
+registry tables, as they lived only in the projection under Postgres provenance too. The
+raw store can say what was attested; the registry's backups say which attestation stands.
+
 **Buffered, flushed after commit.** The stores write inside the caller's transaction,
 and a rolled-back write (``--dry-run``, a validation failure) must leave nothing behind
 — no manifest and no object. So a store only :meth:`~PendingAttestations.add`\\ s; the
